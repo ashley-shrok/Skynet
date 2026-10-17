@@ -13,10 +13,13 @@ shares a single small process. agent-supervisor passes each launch a shared conf
 so the server knows which identity is calling. The agent sees tools named
 mcp__relay__<tool>.
 
-Trust: identity comes from that header. Every identity on a box runs as the same OS user
-and can already read every other identity's relay.json, so this is no weaker than the
-curl recipe it replaces. Requests carrying an Origin header are refused (blocks a browser
-page on this box from driving the server), and only 127.0.0.1 is bound.
+Trust: a tool call must carry X-Fleet-Relay-Key, an HMAC of the identity name under a host
+key (~/.config/relay-mcp/key, mode 0600, created on first use). The supervisor gets each
+identity's value from `relay-mcp secret <name>` and puts it in the launch env as
+$RELAY_MCP_SECRET, which the shared config expands. So only processes that can read the
+owner's files can act as an identity — the same bar as reading its relay.json. Requests
+carrying an Origin header are refused (blocks a browser page on this box from driving the
+server), and only 127.0.0.1 is bound.
 
 Credentials: per call, from ~/fleet/identities/<name>/<account>-state/{token,base,uid}
 (kept current by the supervisor's receiver), falling back to <account>.json. The default
@@ -26,6 +29,8 @@ receiver over the token file.
 
 Transport: MCP Streamable HTTP, JSON responses only (no SSE), stateless. stdlib only.
 """
+import hashlib
+import hmac
 import json
 import os
 import re
@@ -42,8 +47,14 @@ PORT = int(os.environ.get("RELAY_MCP_PORT", "7793"))
 FLEET = os.path.expanduser(os.environ.get("RELAY_MCP_FLEET_DIR", "~/fleet"))
 IDENTITIES = os.path.join(FLEET, "identities")
 HTTP_TIMEOUT = 20
+# Whole tool call, across every homeserver request it makes.
+CALL_DEADLINE = 60
 MAX_BODY = 4 * 1024 * 1024
-MAX_FILE = 100 * 1024 * 1024
+# Files are read into memory; well under the unit's MemoryMax, and uploads run one at a time.
+MAX_FILE = 40 * 1024 * 1024
+KEY_FILE = os.path.expanduser(os.environ.get("RELAY_MCP_KEY_FILE", "~/.config/relay-mcp/key"))
+# Tool calls run at once; more wait their turn. Health checks and handshakes never wait.
+MAX_CALLS = int(os.environ.get("RELAY_MCP_MAX_HANDLERS", "16"))
 # Cap on rooms inspected when looking for an existing DM with someone.
 DM_SCAN_LIMIT = 200
 
@@ -66,6 +77,51 @@ def log(msg):
 class ToolError(Exception):
     """A failure the calling agent should see as a tool error (isError result)."""
 
+    def __init__(self, msg, status=None, errcode=None):
+        super().__init__(msg)
+        self.status = status
+        self.errcode = errcode
+
+    @property
+    def not_found(self):
+        return self.status == 404 or self.errcode == "M_NOT_FOUND"
+
+
+# ---------------------------------------------------------------------------
+# Per-identity keys
+# ---------------------------------------------------------------------------
+
+def _host_key():
+    """The host key, created (0600, atomically) on first use."""
+    try:
+        with open(KEY_FILE, "rb") as f:
+            key = f.read().strip()
+        if key:
+            return key
+    except FileNotFoundError:
+        pass
+    os.makedirs(os.path.dirname(KEY_FILE), mode=0o700, exist_ok=True)
+    tmp = f"{KEY_FILE}.{os.getpid()}.{secrets.token_hex(4)}"
+    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    with os.fdopen(fd, "wb") as f:
+        f.write(secrets.token_hex(32).encode())
+    try:
+        os.link(tmp, KEY_FILE)  # fails if another process won the race; use theirs
+    except FileExistsError:
+        pass
+    finally:
+        os.unlink(tmp)
+    with open(KEY_FILE, "rb") as f:
+        return f.read().strip()
+
+
+def secret_for(identity):
+    return hmac.new(_host_key(), identity.encode(), hashlib.sha256).hexdigest()
+
+
+def key_ok(identity, presented):
+    return bool(presented) and hmac.compare_digest(secret_for(identity), presented)
+
 
 # ---------------------------------------------------------------------------
 # Matrix client, one per (identity, account) per call
@@ -87,6 +143,7 @@ class Matrix:
             raise ToolError(f"bad account name {account!r}")
         self.identity = identity
         self.account = account
+        self.deadline = time.monotonic() + CALL_DEADLINE
         idir = os.path.join(IDENTITIES, identity)
         self.creds_path = os.path.join(idir, f"{account}.json")
         self.state_dir = os.path.join(idir, f"{account}-state")
@@ -118,8 +175,11 @@ class Matrix:
             data = json.dumps(body, ensure_ascii=False).encode("utf-8")
             headers["Content-Type"] = "application/json; charset=utf-8"
         req = urllib.request.Request(url, data=data, method=method, headers=headers)
+        remaining = self.deadline - time.monotonic()
+        if remaining <= 0:
+            raise ToolError(f"gave up after {CALL_DEADLINE}s — the homeserver is too slow right now")
         try:
-            with urllib.request.urlopen(req, timeout=HTTP_TIMEOUT) as resp:
+            with urllib.request.urlopen(req, timeout=min(HTTP_TIMEOUT, remaining)) as resp:
                 payload = resp.read()
                 return json.loads(payload) if payload else {}
         except urllib.error.HTTPError as e:
@@ -131,7 +191,8 @@ class Matrix:
                 # The receiver re-logs in on token death; pick up its fresh token once.
                 self._load()
                 return self.request(method, path, body, raw=raw, content_type=content_type, root=root, retry=False)
-            raise ToolError(f"homeserver said {e.code} {err.get('errcode', '')}: {err.get('error', '')}".strip())
+            raise ToolError(f"homeserver said {e.code} {err.get('errcode', '')}: {err.get('error', '')}".strip(),
+                            status=e.code, errcode=err.get("errcode"))
         except (urllib.error.URLError, TimeoutError, OSError) as e:
             raise ToolError(f"can't reach the homeserver at {self.base}: {e}")
 
@@ -165,12 +226,15 @@ class Matrix:
             return 0
 
     def profile_exists(self, mxid):
+        """True/False when the homeserver says; raises when it can't be checked."""
         q = urllib.parse.quote(mxid, safe="")
         try:
             self.request("GET", f"/profile/{q}")
             return True
-        except ToolError:
-            return False
+        except ToolError as e:
+            if e.not_found:
+                return False
+            raise ToolError(f"couldn't check that {mxid} exists ({e}) — not sending")
 
     def display_name(self, mxid):
         q = urllib.parse.quote(mxid, safe="")
@@ -267,9 +331,13 @@ def find_or_create_dm(mx, peer):
         q_me = urllib.parse.quote(mx.me, safe="")
         try:
             direct = mx.request("GET", f"/user/{q_me}/account_data/m.direct") or {}
-        except ToolError:
-            direct = {}
-        candidates = list(dict.fromkeys(direct.get(peer, [])))
+        except ToolError as e:
+            # Absent = empty. Any other failure: unknown, so it must not be written back —
+            # the PUT replaces the whole map and would drop every other DM.
+            direct = {} if e.not_found else None
+            if direct is None:
+                log(f"[relay-mcp] m.direct-read-failed identity={mx.identity} error={e}")
+        candidates = list(dict.fromkeys((direct or {}).get(peer, [])))
         joined = mx.request("GET", "/joined_rooms").get("joined_rooms", [])
         candidates += [r for r in joined if r not in candidates]
 
@@ -298,6 +366,8 @@ def find_or_create_dm(mx, peer):
 
 
 def _remember_direct(mx, direct, peer, rid):
+    if direct is None:
+        return
     rooms = direct.get(peer, [])
     if rooms[:1] == [rid]:
         return
@@ -318,8 +388,13 @@ def resolve_target(mx, args):
     if room:
         if not ROOM_RE.match(room):
             raise ToolError(f"{room!r} isn't a room id (expected !something:server)")
-        mem = mx.members(room)
-        if mem.get(mx.me) != "join":
+        try:
+            joined = mx.members(room).get(mx.me) == "join"
+        except ToolError as e:
+            if e.status != 403:  # 403 = not a member yet; anything else is a real failure
+                raise
+            joined = False
+        if not joined:
             q = urllib.parse.quote(room, safe="")
             mx.request("POST", f"/join/{q}", {})
         return room, False
@@ -430,6 +505,10 @@ def _mime(path):
     return mimetypes.guess_type(path)[0] or "application/octet-stream"
 
 
+# Files are held in memory while uploading; one at a time keeps the peak bounded.
+_upload_lock = threading.Lock()
+
+
 def tool_send_file(mx, args):
     path = args.get("path") or ""
     if not os.path.isabs(path) or not os.path.isfile(path):
@@ -440,10 +519,12 @@ def tool_send_file(mx, args):
     room_id, created = resolve_target(mx, args)
     name = os.path.basename(path)
     mime = _mime(path)
-    with open(path, "rb") as f:
-        data = f.read()
-    up = mx.request("POST", f"/_matrix/media/v3/upload?filename={urllib.parse.quote(name)}",
-                    raw=data, content_type=mime, root=mx.media_root)
+    with _upload_lock:
+        with open(path, "rb") as f:
+            data = f.read()
+        up = mx.request("POST", f"/_matrix/media/v3/upload?filename={urllib.parse.quote(name)}",
+                        raw=data, content_type=mime, root=mx.media_root)
+        del data
     mxc = up.get("content_uri")
     if not mxc:
         raise ToolError("upload returned no content_uri")
@@ -534,7 +615,14 @@ def call_tool(identity, name, args):
 # MCP over HTTP
 # ---------------------------------------------------------------------------
 
-def handle_rpc(identity, msg):
+_call_slots = threading.BoundedSemaphore(MAX_CALLS)
+
+
+def _tool_error(text):
+    return {"content": [{"type": "text", "text": f"relay error: {text}"}], "isError": True}
+
+
+def handle_rpc(identity, key, msg):
     """One JSON-RPC message in, one response dict out (None for notifications)."""
     if not isinstance(msg, dict):
         return {"jsonrpc": "2.0", "id": None, "error": {"code": -32600, "message": "invalid request"}}
@@ -543,6 +631,8 @@ def handle_rpc(identity, msg):
     if mid is None:
         return None  # notification (initialized, cancelled, ...) or a client response
     params = msg.get("params") or {}
+    if not isinstance(params, dict):
+        return {"jsonrpc": "2.0", "id": mid, "error": {"code": -32602, "message": "params must be an object"}}
     if method == "initialize":
         result = {
             "protocolVersion": params.get("protocolVersion") or "2025-06-18",
@@ -555,10 +645,17 @@ def handle_rpc(identity, msg):
     elif method == "tools/list":
         result = {"tools": TOOLS}
     elif method == "tools/call":
+        args = params.get("arguments")
         if not identity:
-            result = {"content": [{"type": "text", "text": "relay error: this session has no FLEET_IDENTITY, so the relay doesn't know who you are"}], "isError": True}
+            result = _tool_error("this session has no FLEET_IDENTITY, so the relay doesn't know who you are")
+        elif not key_ok(identity, key):
+            log(f"[relay-mcp] auth-refused identity={identity} keyPresent={bool(key)}")
+            result = _tool_error("this session's relay key is missing or wrong (it is set when the supervisor launches the session) — use the curl fallback in the agent-relay skill")
+        elif args is not None and not isinstance(args, dict):
+            result = _tool_error("arguments must be an object")
         else:
-            result = call_tool(identity, params.get("name"), params.get("arguments"))
+            with _call_slots:
+                result = call_tool(identity, params.get("name"), args)
     else:
         return {"jsonrpc": "2.0", "id": mid, "error": {"code": -32601, "message": f"method not found: {method}"}}
     return {"jsonrpc": "2.0", "id": mid, "result": result}
@@ -621,47 +718,44 @@ class Handler(BaseHTTPRequestHandler):
             self._reply(413)
             return
         try:
-            msg = json.loads(self.rfile.read(n) or b"null")
+            raw = self.rfile.read(n)
+        except OSError:  # incl. timeout: body shorter than its Content-Length
+            self.close_connection = True
+            return
+        try:
+            msg = json.loads(raw or b"null")
         except ValueError:
             self._reply(400, {"jsonrpc": "2.0", "id": None, "error": {"code": -32700, "message": "parse error"}})
             return
         identity = (self.headers.get("X-Fleet-Identity") or "").strip().lower()
         if identity and not NAME_RE.match(identity):
             identity = ""
+        key = (self.headers.get("X-Fleet-Relay-Key") or "").strip()
         if isinstance(msg, list):
-            out = [r for r in (handle_rpc(identity, m) for m in msg) if r is not None]
+            out = [r for r in (handle_rpc(identity, key, m) for m in msg) if r is not None]
             self._reply(200, out) if out else self._reply(202)
             return
         if isinstance(msg, dict) and msg.get("method") == "initialize":
             log(f"[relay-mcp] session-init identity={identity or '<none>'} client={json.dumps((msg.get('params') or {}).get('clientInfo'))}")
-        res = handle_rpc(identity, msg)
+        res = handle_rpc(identity, key, msg)
         self._reply(202) if res is None else self._reply(200, res)
 
 
 class Server(ThreadingHTTPServer):
     daemon_threads = True
     allow_reuse_address = True
-    # Cap on requests handled at once; more wait in the listen backlog. Peak
-    # memory scales with concurrent handlers (~12 MB idle, ~27 MB at 30 at once).
-    # Safe only because every connection closes after its response (see _reply).
-    max_handlers = threading.BoundedSemaphore(int(os.environ.get("RELAY_MCP_MAX_HANDLERS", "16")))
-
-    def process_request(self, request, client_address):
-        self.max_handlers.acquire()
-        try:
-            super().process_request(request, client_address)
-        except Exception:
-            self.max_handlers.release()
-            raise
-
-    def process_request_thread(self, request, client_address):
-        try:
-            super().process_request_thread(request, client_address)
-        finally:
-            self.max_handlers.release()
 
 
 def main():
+    if sys.argv[1:2] == ["secret"]:
+        # For agent-supervisor: this identity's X-Fleet-Relay-Key value.
+        name = (sys.argv[2] if len(sys.argv) > 2 else "").strip().lower()
+        if not NAME_RE.match(name):
+            print("usage: relay-mcp secret <identity>", file=sys.stderr)
+            return 2
+        print(secret_for(name))
+        return 0
+    _host_key()
     srv = Server(("127.0.0.1", PORT), Handler)
     log(f"[relay-mcp] listening 127.0.0.1:{PORT} identities={IDENTITIES}")
     try:

@@ -13,6 +13,8 @@
 #   R-04  — server never comes up        → flag absent, wait bounded, stdout stays clean
 #   R-05  — desktop + relay both present → ONE `--mcp-config <desktop> <relay>` flag
 #   R-06  — config rewrite is idempotent → mtime unchanged on second call
+#   R-07  — compute_relay_env            → RELAY_MCP_SECRET=<64 hex> from `relay-mcp secret`;
+#                                          nothing without the binary or on bad output
 #
 # Exits 0 on all-pass; 1 on any failure.
 #
@@ -39,7 +41,7 @@ fail() {
 
 # shellcheck disable=SC1090
 source "$SUPERVISOR" 2>/dev/null || true
-for fn in ensure_relay_mcp_config ensure_relay_mcp_up compute_mcp_flags; do
+for fn in ensure_relay_mcp_config ensure_relay_mcp_up compute_mcp_flags compute_relay_env; do
   declare -F "$fn" >/dev/null 2>&1 || { printf 'FATAL: %s not defined after sourcing supervisor\n' "$fn" >&2; exit 1; }
 done
 
@@ -87,8 +89,11 @@ r02() {
   # shellcheck disable=SC2016
   jq -e '.mcpServers.relay.type == "http"
          and .mcpServers.relay.url == "http://127.0.0.1:17793/mcp"
-         and .mcpServers.relay.headers["X-Fleet-Identity"] == "${FLEET_IDENTITY}"' "$RELAY_MCP_CONFIG" >/dev/null \
+         and .mcpServers.relay.headers["X-Fleet-Identity"] == "${FLEET_IDENTITY}"
+         and .mcpServers.relay.headers["X-Fleet-Relay-Key"] == "${RELAY_MCP_SECRET}"' "$RELAY_MCP_CONFIG" >/dev/null \
     || { fail "config content wrong: $(cat "$RELAY_MCP_CONFIG")"; return; }
+  # written atomically: no temp files left behind
+  [ -z "$(find "$SCRATCH/.claude" -name 'relay-mcp.json.tmp.*')" ] || { fail "temp file left behind"; return; }
   [ ! -f "$SCRATCH/systemctl.log" ] || { fail "systemctl called while healthy"; return; }
   pass
 }
@@ -132,12 +137,27 @@ r06() {
   pass
 }
 
+r07() {
+  local out
+  out="$(compute_relay_env alpha)"
+  [ -z "$out" ] || { fail "expected nothing without the binary, got [$out]"; return; }
+  printf '#!/bin/sh\n[ "$1" = secret ] && [ "$2" = alpha ] && echo %s\n' "$(printf 'a%.0s' $(seq 64))" > "$RELAY_MCP_BIN"
+  chmod +x "$RELAY_MCP_BIN"
+  out="$(compute_relay_env alpha)"
+  [ "$out" = "RELAY_MCP_SECRET=$(printf 'a%.0s' $(seq 64))" ] || { fail "got [$out]"; return; }
+  printf '#!/bin/sh\necho not-a-key\n' > "$RELAY_MCP_BIN"
+  out="$(compute_relay_env alpha)"
+  [ -z "$out" ] || { fail "bad key output should yield nothing, got [$out]"; return; }
+  pass
+}
+
 run_case R-01 r01
 run_case R-02 r02
 run_case R-03 r03
 run_case R-04 r04
 run_case R-05 r05
 run_case R-06 r06
+run_case R-07 r07
 
 printf '\n--- summary: %d pass, %d fail ---\n' "$PASS" "$FAIL"
 if [ "$FAIL" -gt 0 ]; then

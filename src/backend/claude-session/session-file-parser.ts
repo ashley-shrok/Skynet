@@ -151,6 +151,23 @@ export type RelayOutboundMessage = {
   /** relay-mcp sends only: who the agent addressed (`to`), verbatim — an
    *  mxid, an identity name or a person's name. Null for room sends and curl. */
   to?: string | null;
+  /** relay-mcp sends only: the tool_use id, matched to its relay_send_result. */
+  toolUseId?: string | null;
+  eventId: string;
+  ts: number;
+};
+
+/**
+ * The outcome of a relay-mcp send, from the tool_result line that follows the
+ * call. The app pairs it with the relay_outbound by toolUseId: a failed send
+ * must not read as delivered, and a successful one names its exact room.
+ */
+export type RelaySendResultMessage = {
+  kind: "relay_send_result";
+  toolUseId: string;
+  ok: boolean;
+  roomId: string | null;
+  error: string | null;
   eventId: string;
   ts: number;
 };
@@ -170,6 +187,7 @@ export type ParsedLine =
   | ConversationalMessage
   | ImageMessage
   | RelayOutboundMessage
+  | RelaySendResultMessage
   | RelayInboundMessage
   | { kind: "skip"; why: string }
   // `bytes` carries the trimmed byte length of the unparseable line so the
@@ -228,6 +246,7 @@ export function detectRelayOutbound(
   rawCommand: string;
   body: string | null;
   to?: string | null;
+  toolUseId?: string | null;
 } | null {
   if (obj.type !== "assistant") return null;
   const msg = obj.message;
@@ -273,6 +292,7 @@ function detectRelayMcpSend(b: Record<string, unknown>): {
   rawCommand: string;
   body: string | null;
   to: string | null;
+  toolUseId: string | null;
 } | null {
   if (b.name !== "mcp__relay__send" && b.name !== "mcp__relay__send_file") return null;
   const input = b.input;
@@ -280,7 +300,7 @@ function detectRelayMcpSend(b: Record<string, unknown>): {
   const inp = input as Record<string, unknown>;
   const str = (v: unknown): string | null => (typeof v === "string" && v.trim() !== "" ? v.trim() : null);
   const roomRaw = str(inp.room);
-  const room = roomRaw !== null && MATRIX_ROOM_ID_RE.test(roomRaw) ? roomRaw : null;
+  const room = roomRaw !== null && RELAY_MCP_ROOM_RE.test(roomRaw) ? roomRaw : null;
   const to = room === null ? str(inp.to) : null;
   let body: string | null;
   if (b.name === "mcp__relay__send") {
@@ -291,7 +311,55 @@ function detectRelayMcpSend(b: Record<string, unknown>): {
     const caption = str(inp.caption);
     body = name !== null ? `📎 ${name}${caption !== null ? `\n\n${caption}` : ""}` : caption;
   }
-  return { room, rawCommand: "", body, to };
+  return { room, rawCommand: "", body, to, toolUseId: typeof b.id === "string" ? b.id : null };
+}
+
+// Same shape relay-mcp accepts (ROOM_RE there): wider than MATRIX_ROOM_ID_RE —
+// `/`, `+` and a `:port` are all valid in a room id.
+const RELAY_MCP_ROOM_RE = /^![A-Za-z0-9._=/+-]+:[A-Za-z0-9.-]+(:[0-9]+)?$/;
+
+/**
+ * The result of a relay-mcp send, from a user turn's tool_result block. Only
+ * relay-shaped results count: relay-mcp's own JSON (`ok` + `room_id` +
+ * `event_id`), its `relay error: …` text, or Claude Code's connection error
+ * for an unreachable server. Anything else (Bash failures etc.) is not ours.
+ */
+export function detectRelayMcpResult(obj: Record<string, unknown>): {
+  toolUseId: string;
+  ok: boolean;
+  roomId: string | null;
+  error: string | null;
+} | null {
+  if (obj.type !== "user") return null;
+  const content = (obj.message as Record<string, unknown> | null | undefined)?.content;
+  if (!Array.isArray(content)) return null;
+  for (const block of content as unknown[]) {
+    if (!block || typeof block !== "object") continue;
+    const b = block as Record<string, unknown>;
+    if (b.type !== "tool_result" || typeof b.tool_use_id !== "string") continue;
+    const text =
+      typeof b.content === "string"
+        ? b.content
+        : Array.isArray(b.content)
+          ? extractText(b.content)
+          : "";
+    if (b.is_error === true) {
+      if (text.startsWith("relay error:") || text.startsWith("ECONNREFUSED")) {
+        return { toolUseId: b.tool_use_id, ok: false, roomId: null, error: text.slice(0, 300) };
+      }
+      continue;
+    }
+    if (!text.startsWith("{")) continue;
+    try {
+      const r = JSON.parse(text) as Record<string, unknown>;
+      if (r.ok === true && typeof r.room_id === "string" && typeof r.event_id === "string") {
+        return { toolUseId: b.tool_use_id, ok: true, roomId: r.room_id, error: null };
+      }
+    } catch {
+      /* not JSON — not a relay result */
+    }
+  }
+  return null;
 }
 
 function decodeRoomRef(ref: string): string {
@@ -1473,8 +1541,25 @@ export function parseSessionLine(line: string, sessionId?: string): ParsedLine {
         rawCommand: outbound.rawCommand,
         body: outbound.body,
         to: outbound.to ?? null,
+        toolUseId: outbound.toolUseId ?? null,
         eventId: eventIdO,
         ts: tsO,
+      };
+    }
+  }
+
+  if (isUser) {
+    const result = detectRelayMcpResult(obj);
+    if (result !== null) {
+      const uuidR = obj.uuid;
+      const eventIdR = typeof uuidR === "string" && uuidR.length > 0 ? uuidR : fallbackEventId();
+      const parsedR = typeof obj.timestamp === "string" ? Date.parse(obj.timestamp) : NaN;
+      sessionParserLogger.info(`[session-parser] classify result=relay_send_result ok=${result.ok} toolUseId=${result.toolUseId} room="${result.roomId ?? ""}" eventId=${eventIdR}`, { operation: "session_classify" });
+      return {
+        kind: "relay_send_result",
+        ...result,
+        eventId: eventIdR,
+        ts: Number.isFinite(parsedR) ? parsedR : Date.now(),
       };
     }
   }

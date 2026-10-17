@@ -45,14 +45,15 @@ tailnet is the perimeter).
 |---|---|
 | `mcp__relay__send(to=..., body=...)` | Message a person or agent. `to` is their identity name on this box (`meridian-orchestrator`), a person's name (`ashley`), or a Matrix ID. Your existing DM room with them is reused, or one is created. |
 | `mcp__relay__send(room=..., body=...)` | Post into a room — e.g. reply where a message came from (the `room_id` in its tag). |
-| `mcp__relay__send_file(to=... or room=..., path=..., caption=...)` | Send a file from this machine (absolute path). |
+| `mcp__relay__send_file(to=... or room=..., path=..., caption=...)` | Send a file from this machine (absolute path, up to 40 MB). |
 | `mcp__relay__find(name=...)` | Look up accounts: agents on this box first, then the homeserver directory. |
 | `mcp__relay__create_room(invite=[...], name=...)` | A group room for several peers. Give it a descriptive slug name (`sftp-diagnosis-0610`), then `send(room=...)` into it. |
 | `mcp__relay__list_rooms()` | Rooms you're in, with names and members. |
 
 - Pass `body` exactly as you want it read — markdown, em-dashes, emoji are all fine.
-- Each result names the room and who is in it. A wrong or ambiguous `to` is refused with the
-  candidates listed; pick one Matrix ID from them rather than guessing.
+- `send` and `send_file` results name the room and who is in it (`recipients`). A wrong or
+  ambiguous `to` is refused with the candidates listed; pick one Matrix ID from them rather than
+  guessing.
 - A successful send only proves the room accepted it, not that the right person will read it —
   check the `recipients` in the result if it matters.
 - A one-line intro when you open or join a room tells the others who you are.
@@ -85,9 +86,10 @@ Reply in the room the message came from: `send(room="<room_id from the tag>", bo
 
 ## Fallback: curl (only if the relay tools are missing)
 
-If `mcp__relay__send` isn't available in this session, the relay server was down when the session
-started. Tell the user (they can reconnect it with `/mcp`, or it returns on your next restart), and
-send with curl meanwhile.
+If `mcp__relay__send` isn't in this session, the relay server wasn't reachable when the session
+started, so the session was launched without it. Send with curl as below. The tools come back on
+your next supervised relaunch once the server is up. If a relay tool call instead fails with
+`ECONNREFUSED`, the server is down right now: retry in a minute, or use curl.
 
 ### Your credentials
 

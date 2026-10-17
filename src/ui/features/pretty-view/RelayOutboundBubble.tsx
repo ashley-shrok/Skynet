@@ -1,5 +1,5 @@
 import { useState, type MouseEvent } from "react";
-import type { RelayOutboundEvent } from "@/api/claude-session-api";
+import type { RelayOutboundEvent, RelaySendResultEvent } from "@/api/claude-session-api";
 import type { Identity } from "@/api/identities-api";
 import { useIdentities } from "@/state/identities-store";
 import { speakVoiceCandidates } from "./voice-candidates";
@@ -12,8 +12,10 @@ import { RelayChatBubble, RelayDmCard } from "./RelayBubbleParts";
 // RelayOutboundBubble — a relay message this pane's agent sent. Harness view
 // renders a folded RelayDmCard ("Aster → Tina [DM]"). The recipient comes
 // from the room's members when the send named a room; a relay-mcp send to a
-// person carries `to`, which names them directly ("Aster → You"). Otherwise
-// the card reads "Aster sent a DM".
+// person carries `to`, which names them directly ("Aster → You"), and once its
+// result arrives the result's room gives the exact members. A failed relay-mcp
+// send reads "not sent" (never "notified"). Otherwise the card reads "Aster
+// sent a DM".
 //
 // The raw send command is never shown. When the message text couldn't be
 // extracted from the command, the card says so in plain words.
@@ -32,6 +34,8 @@ export type RelayOutboundBubbleProps = Pick<RelayOutboundEvent, "room" | "body" 
   selfIdentity?: Identity | null;
   /** The viewing user's fallback voice — last candidate before the provider default. */
   fallbackVoice?: string | null;
+  /** relay-mcp sends: the call's outcome, once its tool_result has arrived. */
+  result?: RelaySendResultEvent | null;
 };
 
 export function RelayOutboundBubble({
@@ -43,11 +47,15 @@ export function RelayOutboundBubble({
   hostId,
   selfIdentity = null,
   fallbackVoice = null,
+  result = null,
 }: RelayOutboundBubbleProps) {
   const { byKey } = useIdentities();
   const viewerMxid = useViewingUserMxid();
   const [open, setOpen] = useState(alwaysExpanded);
-  const members = useRelayRoomMembers(alwaysExpanded ? null : room, hostId);
+  const members = useRelayRoomMembers(
+    alwaysExpanded ? null : room ?? (result?.ok ? result.roomId : null),
+    hostId,
+  );
 
   // Relay-source view has no pane agent — an outbound there is the viewing
   // user's own send echoed back from the room.
@@ -106,6 +114,7 @@ export function RelayOutboundBubble({
       open={open}
       onToggle={() => setOpen((v) => !v)}
       speak={speak}
+      failed={result && !result.ok ? result.error ?? "the send failed" : null}
     >
       {content}
     </RelayDmCard>

@@ -35,7 +35,7 @@ describe("relay-mcp substrate suites", () => {
 
   it("agent-supervisor-relay-mcp.test.sh passes", () => {
     const r = run("bash", [join(tests, "agent-supervisor-relay-mcp.test.sh")], 60_000);
-    expect(r.output).toMatch(/6 pass, 0 fail/);
+    expect(r.output).toMatch(/7 pass, 0 fail/);
     expect(r.ok).toBe(true);
   }, 70_000);
 });

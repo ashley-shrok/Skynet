@@ -134,6 +134,28 @@ describe("RelayOutboundBubble", () => {
     expect(who).not.toContain("notified");
   });
 
+  it("failed relay-mcp send to the viewer → 'not sent', never 'notified'", () => {
+    renderOut({
+      room: null,
+      to: "@ashley:t1000.example",
+      result: { type: "relay_send_result", toolUseId: "t1", ok: false, roomId: null, error: "relay error: boom", eventId: "r1", ts: 0 },
+    });
+    const who = screen.getByTestId("relay-who-line").textContent ?? "";
+    expect(who).toMatch(/Aster\s*→\s*You/);
+    expect(who).not.toContain("notified");
+    expect(screen.getByTestId("relay-not-sent")).toHaveAttribute("title", "relay error: boom");
+  });
+
+  it("successful relay-mcp send → members looked up for the result's room", () => {
+    renderOut({
+      room: null,
+      to: "tina",
+      result: { type: "relay_send_result", toolUseId: "t1", ok: true, roomId: "!dm:t1000.example", error: null, eventId: "r1", ts: 0 },
+    });
+    expect(membersMock).toHaveBeenCalledWith("!dm:t1000.example", 42);
+    expect(screen.queryByTestId("relay-not-sent")).toBeNull();
+  });
+
   it("room members win over `to` when both are known", () => {
     membersMock.mockReturnValue([
       { mxid: "@aster:t1000.example", kind: "agent", displayName: null },

@@ -336,6 +336,8 @@ export type RelayOutboundEvent = {
   /** relay-mcp sends: who the agent addressed (mxid, identity name or person's
    * name), verbatim. Null/absent for room sends and curl sends. */
   to?: string | null;
+  /** relay-mcp sends: the tool call id, matched to its RelaySendResultEvent. */
+  toolUseId?: string | null;
   eventId: string;
   ts: number;
   /**
@@ -345,6 +347,19 @@ export type RelayOutboundEvent = {
    * backward-compat; the client MUST tolerate its absence on frames from
    * older backend builds.
    */
+  line?: number;
+};
+
+/** Outcome of a relay-mcp send (the tool_result after the call), paired with
+ * its RelayOutboundEvent by toolUseId. Not rendered on its own. */
+export type RelaySendResultEvent = {
+  type: "relay_send_result";
+  toolUseId: string;
+  ok: boolean;
+  roomId: string | null;
+  error: string | null;
+  eventId: string;
+  ts: number;
   line?: number;
 };
 
@@ -554,6 +569,7 @@ export type ClaudeSessionServerEvent =
   // Phase 17 relay events — handlers added in plan 17-03; PrettyView's
   // non-exhaustive switch silently ignores these until then.
   | RelayOutboundEvent
+  | RelaySendResultEvent
   | RelayInboundEvent
   // pv-malformed-jsonl-placeholder-bubble (2026-08-10)
   | MalformedLineEvent
@@ -898,6 +914,7 @@ export type FetchOlderRangeBatchEvent = {
     | MessageEvent
     | ImageEvent
     | RelayOutboundEvent
+    | RelaySendResultEvent
     | RelayInboundEvent
     | MalformedLineEvent
   )[];

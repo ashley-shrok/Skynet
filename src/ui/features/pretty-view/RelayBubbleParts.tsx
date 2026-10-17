@@ -165,10 +165,22 @@ function PartyName({ party }: { party: RelayParty }) {
 function WhoLine({
   sender,
   addressing,
+  failed,
 }: {
   sender: RelayParty;
   addressing: RelayAddressing;
+  /** The send failed (error text, shown on hover): no "notified", a "not sent" marker. */
+  failed?: string | null;
 }) {
+  const notSent = failed ? (
+    <span
+      data-testid="relay-not-sent"
+      title={failed}
+      className="text-[12px] text-[hsl(10,80%,72%)]"
+    >
+      ⚠ not sent
+    </span>
+  ) : null;
   const arrow = <span aria-hidden="true" className="text-[12px] text-[rgba(232,228,216,0.42)]">→</span>;
   const dmTag = (
     <span className="text-[10.5px] font-semibold tracking-[0.04em] px-1.5 rounded-full border text-[hsl(var(--relay-h),80%,82%)] bg-[hsla(var(--relay-h),60%,50%,0.18)] border-[hsla(var(--relay-h),60%,60%,0.25)]">
@@ -187,7 +199,8 @@ function WhoLine({
           <PartyName party={addressing.to} />
           {dmTag}
           <DmExplainer />
-          {addressing.to.you && (
+          {notSent}
+          {addressing.to.you && !failed && (
             <span className="text-[12px] text-[rgba(232,228,216,0.42)]">🔔 notified</span>
           )}
         </>
@@ -209,6 +222,7 @@ function WhoLine({
           <span>sent a</span>
           {dmTag}
           <DmExplainer />
+          {notSent}
         </>
       )}
     </span>
@@ -229,6 +243,8 @@ export interface RelayDmCardProps {
   /** Opened content — rendered only while open. */
   children: React.ReactNode;
   speak?: { speakState: SpeakState; onClick: (e: React.MouseEvent) => void } | null;
+  /** Error text when the send failed; the card then reads "not sent". */
+  failed?: string | null;
 }
 
 export function RelayDmCard({
@@ -241,6 +257,7 @@ export function RelayDmCard({
   onToggle,
   children,
   speak,
+  failed = null,
 }: RelayDmCardProps) {
   const hue = sender.hue ?? FALLBACK_HUE;
   return (
@@ -280,7 +297,7 @@ export function RelayDmCard({
         >
           <RelayAvatar name={sender.name} hue={hue} avatarUrl={sender.avatarUrl} />
           <span className="min-w-0 block">
-            <WhoLine sender={sender} addressing={addressing} />
+            <WhoLine sender={sender} addressing={addressing} failed={failed} />
             {!open && preview && (
               <span
                 data-testid={`${testIdPrefix}-preview`}

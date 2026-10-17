@@ -1832,6 +1832,55 @@ describe("parseSessionLine — relay-mcp sends", () => {
     expect(parseSessionLine(mcpTurn("mcp__relay__list_rooms", {})).kind).not.toBe("relay_outbound");
   });
 
+  it("carries the tool_use id so the result can be paired", () => {
+    const parsed = parseSessionLine(mcpTurn("mcp__relay__send", { to: "beta", body: "x" }));
+    if (parsed.kind !== "relay_outbound") throw new Error(`got ${parsed.kind}`);
+    expect(parsed.toolUseId).toBe("toolu_mcp_1");
+  });
+
+  it("room ids with a port or + are kept (same shape relay-mcp accepts)", () => {
+    const parsed = parseSessionLine(mcpTurn("mcp__relay__send", { room: "!a+b/c:hs.example:8448", body: "x" }));
+    if (parsed.kind !== "relay_outbound") throw new Error(`got ${parsed.kind}`);
+    expect(parsed.room).toBe("!a+b/c:hs.example:8448");
+  });
+
+  function resultTurn(block: Record<string, unknown>): string {
+    return line({
+      type: "user",
+      uuid: "relay-res-1",
+      timestamp: "2026-10-17T01:00:01.000Z",
+      message: { role: "user", content: [{ type: "tool_result", tool_use_id: "toolu_mcp_1", ...block }] },
+    });
+  }
+
+  it("successful send result → relay_send_result ok with the room", () => {
+    const text = JSON.stringify({ ok: true, room_id: "!dm:hs", event_id: "$e", new_room: false, recipients: [] });
+    const parsed = parseSessionLine(resultTurn({ content: [{ type: "text", text }] }));
+    expect(parsed).toMatchObject({ kind: "relay_send_result", toolUseId: "toolu_mcp_1", ok: true, roomId: "!dm:hs", error: null, eventId: "relay-res-1" });
+  });
+
+  it("relay error result → relay_send_result not ok, with the error", () => {
+    const parsed = parseSessionLine(
+      resultTurn({ is_error: true, content: [{ type: "text", text: "relay error: 'ash' matches several accounts" }] }),
+    );
+    expect(parsed).toMatchObject({ kind: "relay_send_result", ok: false, roomId: null });
+    if (parsed.kind !== "relay_send_result") throw new Error("unreachable");
+    expect(parsed.error).toContain("several accounts");
+  });
+
+  it("unreachable relay server (string content) → not ok", () => {
+    const parsed = parseSessionLine(
+      resultTurn({ is_error: true, content: "ECONNREFUSED: Unable to connect. Is the computer able to access the url?" }),
+    );
+    expect(parsed).toMatchObject({ kind: "relay_send_result", ok: false });
+  });
+
+  it("other tool results are not relay results", () => {
+    expect(parseSessionLine(resultTurn({ is_error: true, content: "Exit code 1" })).kind).not.toBe("relay_send_result");
+    expect(parseSessionLine(resultTurn({ content: [{ type: "text", text: '{"ok": true, "results": []}' }] })).kind).not.toBe("relay_send_result");
+    expect(parseSessionLine(resultTurn({ content: "plain output" })).kind).not.toBe("relay_send_result");
+  });
+
   it("send with an empty body → body null (the bubble says it couldn't be shown)", () => {
     const parsed = parseSessionLine(mcpTurn("mcp__relay__send", { to: "beta", body: "" }));
     if (parsed.kind !== "relay_outbound") throw new Error(`got ${parsed.kind}`);

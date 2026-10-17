@@ -14,6 +14,7 @@ import {
   type MessageEvent as ChatMessageEvent,
   type ImageEvent,
   type RelayOutboundEvent,
+  type RelaySendResultEvent,
   type RelayInboundEvent,
   type MalformedLineEvent,
   // Phase 47 (load-more button) — send-side wire type for the click handler
@@ -795,6 +796,17 @@ export function PrettyView({
   const viewingUserMxid = useViewingUserMxid();
   const fleetIdentityHosts = useFleetIdentityHosts();
   const [messages, setMessages] = useState<StreamEvent[]>([]);
+  // relay-mcp send outcomes by toolUseId — not bubbles of their own; each one
+  // marks its relay_outbound card as failed, or names the room it went to.
+  const [relayResults, setRelayResults] = useState<Map<string, RelaySendResultEvent>>(() => new Map());
+  const addRelayResults = useCallback((results: RelaySendResultEvent[]) => {
+    if (results.length === 0) return;
+    setRelayResults((prev) => {
+      const next = new Map(prev);
+      for (const r of results) next.set(r.toolUseId, r);
+      return next;
+    });
+  }, []);
 
   // Bubble-load diagnostic (2026-09-25): mount → first-frame → settled logs.
   // Correlates with backend [tail-ttfb] / [tail-progress] / [session-file-tail]
@@ -3129,6 +3141,10 @@ export function PrettyView({
           });
           break;
         }
+        case "relay_send_result": {
+          addRelayResults([parsed]);
+          break;
+        }
         case "relay_inbound": {
           // RELAYBUB-02: inbound relay frame → RelayInboundBubble (sender-hue tinted, left-aligned — multi-user chat convention).
           // Phase 43 Plan 43-07b — drop-oldest cap enforcement on live-append.
@@ -3245,10 +3261,17 @@ export function PrettyView({
               `[pv-load-more-diag] batch[${i}] eid=${m.eventId.slice(0, 8)} line=${m.line ?? "?"} type=${m.type} role=${m.role ?? "-"} preview="${preview}"`,
             );
           }
+          const batchResults = parsed.messages.filter(
+            (m): m is RelaySendResultEvent => m.type === "relay_send_result",
+          );
+          const batchFrames = parsed.messages.filter(
+            (m): m is Exclude<typeof m, RelaySendResultEvent> => m.type !== "relay_send_result",
+          );
+          addRelayResults(batchResults);
           capturePrependAnchor();
           setMessages((prev) => {
             logPreLen = prev.length;
-            const combined = [...parsed.messages, ...prev];
+            const combined = [...batchFrames, ...prev];
             const seen = new Set<string>();
             // Relay-inbound matrixEventId dedup — mirror of the fix in
             // appendDedup / appendDedupWithCap (commit 064be9d6, 2026-09-01).
@@ -3300,7 +3323,7 @@ export function PrettyView({
             // the extremes of the new array — bot3 should match pre-click's
             // bot3, top3 should be the newly-prepended older batch's oldest.
             const prevEidSet = new Set(prev.map((m) => m.eventId));
-            const overlap = parsed.messages
+            const overlap = batchFrames
               .map((m) => m.eventId)
               .filter((e) => prevEidSet.has(e));
             const top3 = result
@@ -4665,6 +4688,7 @@ export function PrettyView({
                   room={m.room}
                   body={m.body}
                   to={m.to ?? null}
+                  result={m.toolUseId ? relayResults.get(m.toolUseId) ?? null : null}
                   ts={m.ts}
                   hostId={hostId}
                   selfIdentity={pvIdentity}

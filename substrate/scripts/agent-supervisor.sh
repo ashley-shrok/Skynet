@@ -307,8 +307,9 @@ compute_desktop_mcp_flag() {
 # ---- relay MCP: one host-wide relay server shared by every supervised session ----
 # relay-mcp (substrate/scripts/relay-mcp.py, run by relay-mcp.service) speaks MCP over HTTP on
 # 127.0.0.1, so sessions connect to the one process instead of each spawning a copy. The config
-# is the same file for every identity: its X-Fleet-Identity header is the literal
-# ${FLEET_IDENTITY}, which claude expands from the env this script sets on every launch.
+# is the same file for every identity: its headers are the literals ${FLEET_IDENTITY} and
+# ${RELAY_MCP_SECRET}, which claude expands from the env this script sets on every launch
+# (compute_relay_env — the secret is the identity's key from `relay-mcp secret <name>`).
 #
 # A claude session that finds the server down at launch marks it failed and never retries on its
 # own (verified on 2.1.286), so before each launch the server is health-checked, started if
@@ -328,11 +329,15 @@ ensure_relay_mcp_config() {
   [ -x "$RELAY_MCP_BIN" ] || return 1
   command -v jq >/dev/null 2>&1 || return 1
   local want
-  # shellcheck disable=SC2016  # ${FLEET_IDENTITY} is for claude to expand, not this shell
+  # shellcheck disable=SC2016  # the ${...} are for claude to expand, not this shell
   want="$(jq -n --arg url "http://127.0.0.1:$RELAY_MCP_PORT/mcp" --arg who '${FLEET_IDENTITY}' \
-    '{mcpServers:{relay:{type:"http",url:$url,headers:{"X-Fleet-Identity":$who}}}}')" || return 1
+    --arg key '${RELAY_MCP_SECRET}' \
+    '{mcpServers:{relay:{type:"http",url:$url,headers:{"X-Fleet-Identity":$who,"X-Fleet-Relay-Key":$key}}}}')" || return 1
   if [ "$(cat "$RELAY_MCP_CONFIG" 2>/dev/null)" != "$want" ]; then
-    mkdir -p "$(dirname "$RELAY_MCP_CONFIG")" && printf '%s\n' "$want" > "$RELAY_MCP_CONFIG" || return 1
+    # Atomic: a launch reading the shared file mid-rewrite must never see it half-written.
+    mkdir -p "$(dirname "$RELAY_MCP_CONFIG")" \
+      && printf '%s\n' "$want" > "$RELAY_MCP_CONFIG.tmp.$$" \
+      && mv -f "$RELAY_MCP_CONFIG.tmp.$$" "$RELAY_MCP_CONFIG" || { rm -f "$RELAY_MCP_CONFIG.tmp.$$"; return 1; }
     [ "${AGENT_SUPERVISOR_LIB_ONLY:-0}" = 1 ] || log "relay-mcp: wrote $RELAY_MCP_CONFIG"
   fi
   return 0
@@ -351,6 +356,15 @@ ensure_relay_mcp_up() {
   done
   log "ERROR: relay-mcp: still not answering after ${RELAY_MCP_WAIT_SEC}s — this launch gets NO relay tools (curl fallback in the agent-relay skill still works)"
   return 1
+}
+# `RELAY_MCP_SECRET=<key>` for an identity's launch env, or nothing when relay-mcp isn't installed
+# (a key nobody checks is harmless, so this doesn't wait on the server). Inline in the launch line.
+compute_relay_env() {
+  [ -x "$RELAY_MCP_BIN" ] || return 0
+  local key
+  key="$(timeout -k 2 5 "$RELAY_MCP_BIN" secret "$1" 2>/dev/null)" || return 0
+  [[ "$key" =~ ^[0-9a-f]{64}$ ]] && printf 'RELAY_MCP_SECRET=%s' "$key"
+  return 0
 }
 # Every --mcp-config file for a launch, as one flag (claude's --mcp-config is variadic). Prints
 # nothing when there are none. Called inline at every claude-launch send-keys line, i.e. inside
@@ -2622,9 +2636,9 @@ redrive_claude() {
   timeout -k 5 10 tmux send-keys -t "$sess" Enter 2>/dev/null
   sleep 0.5
   if [ -n "$resume" ]; then
-    timeout -k 5 10 tmux send-keys -t "$sess" -l "$MEMORY_WRAPPER env FLEET_IDENTITY=$name $CLAUDE_LAUNCH_ENV $CLAUDE --resume $resume $CLAUDE_LAUNCH_FLAGS $(compute_mcp_flags)" 2>/dev/null
+    timeout -k 5 10 tmux send-keys -t "$sess" -l "$MEMORY_WRAPPER env FLEET_IDENTITY=$name $(compute_relay_env "$name") $CLAUDE_LAUNCH_ENV $CLAUDE --resume $resume $CLAUDE_LAUNCH_FLAGS $(compute_mcp_flags)" 2>/dev/null
   else
-    timeout -k 5 10 tmux send-keys -t "$sess" -l "$MEMORY_WRAPPER env FLEET_IDENTITY=$name $CLAUDE_LAUNCH_ENV $CLAUDE $CLAUDE_LAUNCH_FLAGS $(compute_mcp_flags)" 2>/dev/null
+    timeout -k 5 10 tmux send-keys -t "$sess" -l "$MEMORY_WRAPPER env FLEET_IDENTITY=$name $(compute_relay_env "$name") $CLAUDE_LAUNCH_ENV $CLAUDE $CLAUDE_LAUNCH_FLAGS $(compute_mcp_flags)" 2>/dev/null
   fi
   timeout -k 5 10 tmux send-keys -t "$sess" Enter 2>/dev/null
 }
@@ -2759,7 +2773,7 @@ drive() {
     # the known resume-auto-compact bug (GH #56271 / #64923) at source, so the historical Ctrl-C
     # train that fought it post-hoc is gone — ~9s wall-time savings per wake.
     # bash command-scoped assignment — vars apply to this claude only, not the shell.
-    timeout -k 5 10 tmux send-keys -t "$sess" -l "$MEMORY_WRAPPER env FLEET_IDENTITY=$name $CLAUDE_LAUNCH_ENV $CLAUDE --resume $resume $CLAUDE_LAUNCH_FLAGS $(compute_mcp_flags)" 2>/dev/null
+    timeout -k 5 10 tmux send-keys -t "$sess" -l "$MEMORY_WRAPPER env FLEET_IDENTITY=$name $(compute_relay_env "$name") $CLAUDE_LAUNCH_ENV $CLAUDE --resume $resume $CLAUDE_LAUNCH_FLAGS $(compute_mcp_flags)" 2>/dev/null
     timeout -k 5 10 tmux send-keys -t "$sess" Enter 2>/dev/null
     # ⚠️ VERIFY CLAUDE ACTUALLY LAUNCHED (2026-08-29, user witnessed a live failure on workstation).
     # send-keys drops bytes into the pane and returns 0 whether or not they became a viable command.
@@ -2826,7 +2840,7 @@ drive() {
   # Env-var prefix is harmless on a fresh launch (there's no session to summarize) but cheap insurance
   # if a fresh claude ever picks up an older recorded session unexpectedly.
   log "'$name' drive fresh: typing claude launch command into pane '$sess'"
-  timeout -k 5 10 tmux send-keys -t "$sess" -l "$MEMORY_WRAPPER env FLEET_IDENTITY=$name $CLAUDE_LAUNCH_ENV $CLAUDE $CLAUDE_LAUNCH_FLAGS $(compute_mcp_flags)" 2>/dev/null
+  timeout -k 5 10 tmux send-keys -t "$sess" -l "$MEMORY_WRAPPER env FLEET_IDENTITY=$name $(compute_relay_env "$name") $CLAUDE_LAUNCH_ENV $CLAUDE $CLAUDE_LAUNCH_FLAGS $(compute_mcp_flags)" 2>/dev/null
   timeout -k 5 10 tmux send-keys -t "$sess" Enter 2>/dev/null
   # ⚠️ VERIFY CLAUDE ACTUALLY LAUNCHED — same failure mode as the resume path above (see the block
   # in the `if [ -n "$resume" ]` branch for the full story). On second failure, bail without pasting

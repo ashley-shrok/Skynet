@@ -9,6 +9,8 @@ the way Claude Code does. Run from the repo root:
 
 Prints PASS/FAIL per test and a `PASS: n  FAIL: m` summary; exits non-zero on failure.
 """
+import hashlib
+import hmac
 import json
 import os
 import shutil
@@ -56,6 +58,9 @@ class World:
         self.token_rotations = 0
         self.on_unknown_token = None  # callback when a stale token is seen
         self.seq = 0
+        self.fail = {}  # (method, path) -> (status, errcode): injected homeserver errors
+        self.slow = {}  # path -> seconds to stall before answering
+        self.puts = []  # paths of PUTs received
 
     def add_room(self, members, name="", last_ts=0):
         with self.lock:
@@ -112,6 +117,13 @@ class FakeHS(BaseHTTPRequestHandler):
         body = json.loads(raw) if raw else {}
         if p == "/createRoom":
             time.sleep(0.2)  # outside the lock: widens the window for the concurrency test
+        if p in w.slow:
+            time.sleep(w.slow[p])
+        if method == "PUT":
+            w.puts.append(p)
+        if (method, p) in w.fail:
+            code, errcode = w.fail[(method, p)]
+            return self._send(code, {"errcode": errcode, "error": "injected"})
         with w.lock:
             if method == "GET" and p.startswith("/profile/"):
                 mx = p[len("/profile/"):]
@@ -153,6 +165,8 @@ class FakeHS(BaseHTTPRequestHandler):
                 if room is None:
                     return self._send(404, {"errcode": "M_NOT_FOUND"})
                 if method == "GET" and sub == "members":
+                    if room["members"].get(ME) != "join":  # Synapse: members needs you joined
+                        return self._send(403, {"errcode": "M_FORBIDDEN", "error": "not in room"})
                     chunk = [{"type": "m.room.member", "state_key": m, "content": {"membership": s}}
                              for m, s in room["members"].items() if s != "leave"]
                     return self._send(200, {"chunk": chunk})
@@ -200,10 +214,13 @@ class Env:
         self.make_identity("beta-box-maintainer", BETA)
         self.port = free_port()
         self.log_path = os.path.join(self.tmp, "relay-mcp.log")
+        self.key_file = os.path.join(self.tmp, "cfg", "relay-mcp", "key")
+        self.env = {**os.environ, "RELAY_MCP_PORT": str(self.port), "RELAY_MCP_FLEET_DIR": self.fleet,
+                    "RELAY_MCP_MAX_HANDLERS": "4", "RELAY_MCP_IDLE_TIMEOUT": "1",
+                    "RELAY_MCP_KEY_FILE": self.key_file}
         self.proc = subprocess.Popen(
             [sys.executable, SCRIPT],
-            env={**os.environ, "RELAY_MCP_PORT": str(self.port), "RELAY_MCP_FLEET_DIR": self.fleet,
-                 "RELAY_MCP_MAX_HANDLERS": "4", "RELAY_MCP_IDLE_TIMEOUT": "1"},
+            env=self.env,
             stdout=open(self.log_path, "w"), stderr=subprocess.STDOUT,
         )
         for _ in range(100):
@@ -227,10 +244,18 @@ class Env:
                 f.write(v + "\n")
         return st
 
-    def post(self, payload, identity="alpha-box-maintainer", headers=None):
+    def key(self, identity):
+        with open(self.key_file, "rb") as f:
+            return hmac.new(f.read().strip(), identity.encode(), hashlib.sha256).hexdigest()
+
+    def post(self, payload, identity="alpha-box-maintainer", headers=None, key=True):
         h = {"Content-Type": "application/json"}
         if identity:
             h["X-Fleet-Identity"] = identity
+            if key is True:
+                h["X-Fleet-Relay-Key"] = self.key(identity)
+            elif key:
+                h["X-Fleet-Relay-Key"] = key
         h.update(headers or {})
         req = urllib.request.Request(f"http://127.0.0.1:{self.port}/mcp", data=json.dumps(payload).encode(), headers=h, method="POST")
         try:
@@ -241,10 +266,10 @@ class Env:
             raw = e.read()
             return e.code, (json.loads(raw) if raw else None)
 
-    def call(self, tool, args, identity="alpha-box-maintainer"):
+    def call(self, tool, args, identity="alpha-box-maintainer", key=True):
         self.rpc_id += 1
         _, res = self.post({"jsonrpc": "2.0", "id": self.rpc_id, "method": "tools/call",
-                            "params": {"name": tool, "arguments": args}}, identity=identity)
+                            "params": {"name": tool, "arguments": args}}, identity=identity, key=key)
         r = res["result"]
         text = r["content"][0]["text"]
         if r.get("isError"):
@@ -339,11 +364,74 @@ def t_argument_errors(e):
 
 
 def t_send_to_room_joins_if_needed(e):
+    # Invited, not joined: /members is 403 until the join, as on Synapse.
     rid = e.world.add_room({ME: "invite", BETA: "join", ASHLEY: "join"})
     out, err = e.call("send", {"room": rid, "body": "group hello"})
     assert err is None, err
     assert e.world.join_calls == [rid]
     assert sorted(r["mxid"] for r in out["recipients"]) == sorted([BETA, ASHLEY])
+    out, err = e.call("send", {"room": rid, "body": "again"})
+    assert err is None and e.world.join_calls == [rid], (err, e.world.join_calls)
+
+
+def t_auth(e):
+    _, err = e.call("find", {"name": "beta"}, key=False)
+    assert err and "relay key" in err, err
+    _, err = e.call("find", {"name": "beta"}, key="0" * 64)
+    assert err and "relay key" in err, err
+    _, err = e.call("find", {"name": "beta"}, key=e.key("beta-box-maintainer"))  # beta's key, alpha's name
+    assert err and "relay key" in err, err
+    out, err = e.call("find", {"name": "beta"})
+    assert err is None, err
+    cli = subprocess.run([sys.executable, SCRIPT, "secret", "Alpha-Box-Maintainer"], env=e.env,
+                         capture_output=True, text=True, timeout=10)
+    assert cli.returncode == 0 and cli.stdout.strip() == e.key("alpha-box-maintainer"), cli
+    assert oct(os.stat(e.key_file).st_mode & 0o777) == "0o600"
+    bad = subprocess.run([sys.executable, SCRIPT, "secret", "../x"], env=e.env, capture_output=True, timeout=10)
+    assert bad.returncode == 2
+    # handshakes need no key
+    _, res = e.post({"jsonrpc": "2.0", "id": 1, "method": "tools/list"}, key=False)
+    assert "tools" in res["result"]
+
+
+def t_health_and_handshake_not_blocked_by_busy_calls(e):
+    # MAX_HANDLERS=4 here: six slow tool calls fill every call slot.
+    e.world.slow["/joined_rooms"] = 3
+    th = [threading.Thread(target=e.call, args=("list_rooms", {})) for _ in range(6)]
+    for t in th:
+        t.start()
+    time.sleep(0.5)
+    t0 = time.monotonic()
+    urllib.request.urlopen(f"http://127.0.0.1:{e.port}/health", timeout=2)
+    code, res = e.post({"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {}})
+    assert code == 200 and res["result"]["serverInfo"]["name"] == "relay"
+    assert time.monotonic() - t0 < 1.5, time.monotonic() - t0
+    for t in th:
+        t.join()
+
+
+def t_m_direct_read_failure_never_overwrites(e):
+    e.world.direct[ME] = {ASHLEY: ["!keep:test.local"]}
+    path = f"/user/{ME}/account_data/m.direct"
+    e.world.fail[("GET", path)] = (500, "M_UNKNOWN")
+    out, err = e.call("send", {"to": BETA, "body": "x"})
+    assert err is None, err
+    assert e.world.direct[ME] == {ASHLEY: ["!keep:test.local"]}, e.world.direct
+    assert not any("m.direct" in p for p in e.world.puts), e.world.puts
+
+
+def t_profile_error_is_not_does_not_exist(e):
+    e.world.fail[("GET", f"/profile/{BETA}")] = (403, "M_FORBIDDEN")
+    _, err = e.call("send", {"to": BETA, "body": "x"})
+    assert err and "couldn't check" in err and "does not exist" not in err, err
+    assert e.world.create_calls == 0
+
+
+def t_params_must_be_objects(e):
+    _, res = e.post({"jsonrpc": "2.0", "id": 5, "method": "tools/call", "params": ["send"]})
+    assert res["error"]["code"] == -32602, res
+    _, res = e.post({"jsonrpc": "2.0", "id": 6, "method": "tools/call", "params": {"name": "send", "arguments": ["x"]}})
+    assert res["result"]["isError"] and "must be an object" in res["result"]["content"][0]["text"], res
 
 
 def t_unicode_body_roundtrip(e):

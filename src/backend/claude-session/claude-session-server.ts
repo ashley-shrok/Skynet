@@ -278,6 +278,17 @@ type StreamEvent =
       rawCommand: string;
       body: string | null;
       to: string | null;
+      toolUseId: string | null;
+      eventId: string;
+      ts: number;
+      line: number;
+    }
+  | {
+      type: "relay_send_result";
+      toolUseId: string;
+      ok: boolean;
+      roomId: string | null;
+      error: string | null;
       eventId: string;
       ts: number;
       line: number;
@@ -336,6 +347,18 @@ export function reshapeParsedLineToWireFrame(
         rawCommand: parsed.rawCommand,
         body: parsed.body ?? null,
         to: parsed.to ?? null,
+        toolUseId: parsed.toolUseId ?? null,
+        eventId: parsed.eventId,
+        ts: parsed.ts,
+        line,
+      };
+    case "relay_send_result":
+      return {
+        type: "relay_send_result",
+        toolUseId: parsed.toolUseId,
+        ok: parsed.ok,
+        roomId: parsed.roomId,
+        error: parsed.error,
         eventId: parsed.eventId,
         ts: parsed.ts,
         line,
