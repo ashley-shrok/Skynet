@@ -69,6 +69,7 @@ describe("createMicLevelMonitor", () => {
 
   it("clears the warning when input shows up after it fired", () => {
     const ctx = new FakeAudioContext();
+    ctx.level = 0.0002;
     const onSilentChange = vi.fn();
     const monitor = createMicLevelMonitor(asCtx(ctx), stream, onSilentChange);
     vi.advanceTimersByTime(SILENT_WARN_AFTER_MS + 200);
@@ -76,6 +77,19 @@ describe("createMicLevelMonitor", () => {
     vi.advanceTimersByTime(200);
     expect(onSilentChange.mock.calls).toEqual([[true], [false]]);
     expect(monitor.stop().silent).toBe(false);
+  });
+
+  it("an all-zero feed (analyser not receiving the stream) never warns — verdict unknown", () => {
+    const ctx = new FakeAudioContext();
+    ctx.level = 0; // iPhone Safari: context running, analyser reads exact zeros
+    const onSilentChange = vi.fn();
+    const monitor = createMicLevelMonitor(asCtx(ctx), stream, onSilentChange);
+    vi.advanceTimersByTime(10_000);
+    expect(onSilentChange).not.toHaveBeenCalled();
+    const summary = monitor.stop();
+    expect(summary.silent).toBeNull();
+    expect(summary.allZero).toBe(true);
+    expect(summary.measuredMs).toBeGreaterThan(0);
   });
 
   it("does not measure (or warn) while the context is not running — verdict unknown", () => {

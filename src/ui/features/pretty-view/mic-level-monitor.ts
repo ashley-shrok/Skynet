@@ -10,6 +10,12 @@
  * handler and hand it to `createMicLevelMonitor()` once the stream arrives.
  * Samples are only counted while the context is "running"; when it never
  * runs, the verdict is "unknown" and no warning fires.
+ *
+ * A feed of exact digital zeros also means "unknown", not "silent": a real mic
+ * — even a muted room or the wrong input — always carries a noise floor
+ * (≈ −70 dBFS). Pure zeros mean the analyser isn't receiving the stream at
+ * all (seen on iPhone Safari: the context runs but reads zeros while the
+ * recording itself transcribes fine), so the meter can't judge the mic.
  */
 
 /** Windowed RMS below this (≈ −50 dBFS) counts as silence. Speech sits well above −35. */
@@ -27,6 +33,8 @@ export interface MicLevelSummary {
   peakDb: number;
   /** true = silent the whole time; false = heard input; null = couldn't tell. */
   silent: boolean | null;
+  /** Every measured sample was exactly 0 — the analyser never saw the stream. */
+  allZero: boolean;
   ctxState: string;
 }
 
@@ -100,7 +108,7 @@ export function createMicLevelMonitor(
       const rms = Math.sqrt(sum / buf.length);
       measuredMs += elapsed;
       if (rms > peakRms) peakRms = rms;
-      if (!warned && measuredMs >= SILENT_WARN_AFTER_MS && peakRms < SILENT_RMS) {
+      if (!warned && measuredMs >= SILENT_WARN_AFTER_MS && peakRms > 0 && peakRms < SILENT_RMS) {
         warned = true;
         onSilentChange(true);
       } else if (warned && rms >= SILENT_RMS) {
@@ -123,10 +131,12 @@ export function createMicLevelMonitor(
         }
         closeLevelContext(ctx);
       }
+      const allZero = measuredMs > 0 && peakRms === 0;
       return {
         measuredMs,
         peakDb: rmsToDb(peakRms),
-        silent: measuredMs >= MIN_VERDICT_MS ? peakRms < SILENT_RMS : null,
+        silent: measuredMs >= MIN_VERDICT_MS && !allZero ? peakRms < SILENT_RMS : null,
+        allZero,
         ctxState,
       };
     },

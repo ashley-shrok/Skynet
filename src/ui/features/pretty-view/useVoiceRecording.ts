@@ -227,7 +227,7 @@ export function useVoiceRecording(
     levelMonitorRef.current = null;
     const summary = monitor.stop();
     lastLevelRef.current = summary;
-    const line = `[voice] mic-level-summary silent=${summary.silent === null ? "unknown" : summary.silent} peakDb=${summary.peakDb.toFixed(1)} measuredMs=${summary.measuredMs} ctxState=${summary.ctxState} ${ctxSuffix}`;
+    const line = `[voice] mic-level-summary silent=${summary.silent === null ? "unknown" : summary.silent} peakDb=${summary.peakDb.toFixed(1)} allZero=${summary.allZero} measuredMs=${summary.measuredMs} ctxState=${summary.ctxState} ${ctxSuffix}`;
     if (summary.silent === true) console.warn(line);
     else console.info(line);
   }
