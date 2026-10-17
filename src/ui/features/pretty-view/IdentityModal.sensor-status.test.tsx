@@ -333,10 +333,16 @@ describe("IdentityModal Wake-ups tab — sensor status (sensors shape 2)", () =>
     deliver(findSocketForRequestType("identity:list-wakeups")!, wakeupsPayload("healthy"));
     expect((await screen.findByTestId("wakeup-sensor-summary-state")).textContent).toBe("Healthy");
 
-    act(() => {
-      vi.advanceTimersByTime(30_000);
-    });
-    await waitFor(() => expect(socketsForRequestType("identity:list-wakeups").length).toBe(2), { timeout: 5000 });
+    // Advance until the refresh goes out: under load the tab's refresh timer
+    // can be (re)armed after a single advance, which would then never fire.
+    // One refresh runs at a time, so extra ticks don't send a third.
+    for (let i = 0; i < 50 && socketsForRequestType("identity:list-wakeups").length < 2; i++) {
+      act(() => {
+        vi.advanceTimersByTime(30_000);
+      });
+      await new Promise((r) => setTimeout(r, 100));
+    }
+    expect(socketsForRequestType("identity:list-wakeups").length).toBe(2);
     deliver(socketsForRequestType("identity:list-wakeups")[1], {
       type: "identity:wakeups",
       wakeups: [],
@@ -360,10 +366,16 @@ describe("IdentityModal Wake-ups tab — sensor status (sensors shape 2)", () =>
     const nameInput = (await screen.findByLabelText("Wakeup name")) as HTMLInputElement;
     fireEvent.change(nameInput, { target: { value: "morning — edited" } });
 
-    act(() => {
-      vi.advanceTimersByTime(30_000);
-    });
-    await waitFor(() => expect(socketsForRequestType("identity:list-wakeups").length).toBe(2), { timeout: 5000 });
+    // Advance until the refresh goes out: under load the tab's refresh timer
+    // can be (re)armed after a single advance, which would then never fire.
+    // One refresh runs at a time, so extra ticks don't send a third.
+    for (let i = 0; i < 50 && socketsForRequestType("identity:list-wakeups").length < 2; i++) {
+      act(() => {
+        vi.advanceTimersByTime(30_000);
+      });
+      await new Promise((r) => setTimeout(r, 100));
+    }
+    expect(socketsForRequestType("identity:list-wakeups").length).toBe(2);
     // Same data, freshly parsed (new schedule objects) — the classic trigger.
     deliver(socketsForRequestType("identity:list-wakeups")[1], wakeupsPayload("healthy"));
     await new Promise((r) => setTimeout(r, 0));
