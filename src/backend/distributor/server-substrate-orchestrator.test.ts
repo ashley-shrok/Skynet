@@ -1160,6 +1160,30 @@ describe("Per-host sweep deadline", () => {
     orch.stop();
   });
 
+  it("DL3: a host past its deadline gets its harness reconcile only once the late sweep settles", async () => {
+    const { deps } = makeDeps({ hosts: [{ id: "h1", name: "slow" }] });
+    let finishSweep!: () => void;
+    vi.mocked(runSweepForHost).mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          finishSweep = () => resolve({ itemsChecked: 1, itemsChanged: 0, itemsFailed: 0 });
+        }),
+    );
+    const harnessReconciler = { queue: vi.fn(), stop: vi.fn() };
+    const orch = createServerSubstrateOrchestrator({
+      ...deps,
+      harnessReconciler: harnessReconciler as never,
+    });
+    const p = orch.start();
+    await vi.advanceTimersByTimeAsync(HOST_SWEEP_DEADLINE_MS);
+    await p;
+    expect(harnessReconciler.queue).not.toHaveBeenCalled();
+    finishSweep();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(harnessReconciler.queue).toHaveBeenCalledTimes(1);
+    orch.stop();
+  });
+
   it("DL2: retry ticks don't start a second sweep on a host whose abandoned sweep is still running", async () => {
     const { deps, fireTick } = makeDeps({ hosts: [{ id: "h1", name: "stuck" }] });
     vi.mocked(runSweepForHost).mockImplementationOnce(() => new Promise(() => {}));

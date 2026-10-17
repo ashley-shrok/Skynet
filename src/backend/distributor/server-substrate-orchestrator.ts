@@ -124,21 +124,23 @@ export interface ServerSubstrateOrchestratorDeps {
 }
 
 /**
- * A healthy host sweep takes ~5–20s; 5 minutes means the host is wedged.
+ * A healthy host sweep takes ~5–20s; 10 minutes means the host is wedged.
+ * Kept at twice the substrate per-exec ceiling (SUBSTRATE_EXEC_TIMEOUT_MS,
+ * 5 min) so one slow-but-legitimate exec can't trip it on a healthy host.
  * Without this, one stalled exec on one host holds the startup pass forever,
  * so the retry interval is never installed and no host is retried this
  * uptime.
  */
-export const HOST_SWEEP_DEADLINE_MS = 5 * 60 * 1000;
+export const HOST_SWEEP_DEADLINE_MS = 10 * 60 * 1000;
 
 /**
  * Per-exec ceiling for the substrate SSH channel adapter (starter.ts), passed
  * INTO execCommand so a wedged exec closes its channel and frees its
- * per-host semaphore slot. A single exec can't legitimately take longer than
- * the whole host sweep's deadline; the one long-running exception (harness
- * install) passes HARNESS_ATTEMPT_TIMEOUT_MS explicitly.
+ * per-host semaphore slot. Half the host sweep's deadline, so one slow exec
+ * still leaves the sweep room to finish; the one long-running exception
+ * (harness install) passes HARNESS_ATTEMPT_TIMEOUT_MS explicitly.
  */
-export const SUBSTRATE_EXEC_TIMEOUT_MS = HOST_SWEEP_DEADLINE_MS;
+export const SUBSTRATE_EXEC_TIMEOUT_MS = 5 * 60 * 1000;
 
 /**
  * Public surface of the server-substrate orchestrator returned by the factory.
@@ -512,7 +514,10 @@ export function createServerSubstrateOrchestrator(
 
   /**
    * Startup-pass wrapper: waits for the host's sweep or the deadline,
-   * whichever comes first. Never rejects (executeSweeForHost never does).
+   * whichever comes first, then queues the host's harness reconcile — for a
+   * sweep that passed its deadline, only once it finally settles, so the two
+   * never race to open the host's first SSH client. Never rejects
+   * (executeSweeForHost never does).
    */
   async function sweepWithDeadline(host: SubstrateHostRecord): Promise<void> {
     const startedAt = deps.now();
@@ -523,7 +528,11 @@ export function createServerSubstrateOrchestrator(
     const sweep = executeSweeForHost(host).then(() => "done" as const);
     const winner = await Promise.race([sweep, deadline]);
     clearTimeout(timer);
-    if (winner === "deadline") {
+    if (winner === "done") {
+      deps.harnessReconciler?.queue(host);
+      return;
+    }
+    {
       recordOutcome(host.id, "sweep timed out");
       systemLogger.warn("Fleet-substrate: host sweep passed its deadline — moving on to the next host", {
         operation: "fleet_substrate_sweep_host_deadline",
@@ -538,6 +547,7 @@ export function createServerSubstrateOrchestrator(
           hostName: host.name,
           durationMs: deps.now() - startedAt,
         });
+        deps.harnessReconciler?.queue(host);
       });
     }
   }
@@ -588,11 +598,10 @@ export function createServerSubstrateOrchestrator(
         // Await directly in the startup pass (not fire-and-forget) so start()
         // resolves only after all startup sweeps complete (S1/S2/S3 requirements),
         // or a host passes its deadline.
+        // sweepWithDeadline also queues the harness reconcile, which runs
+        // alongside, never inside, the serial pass — queue() is
+        // fire-and-forget so a slow install can't hold up the next host.
         await sweepWithDeadline(host);
-        // Harness reconcile runs alongside, never inside, the serial pass —
-        // queue() is fire-and-forget so a slow install can't hold up the
-        // next host.
-        deps.harnessReconciler?.queue(host);
       }
 
       // Install retry interval after startup pass
