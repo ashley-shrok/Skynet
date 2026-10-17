@@ -2483,6 +2483,45 @@ function applyTransitionToActiveNewCleanup(args: {
 export const __applyTransitionToActiveNewCleanupForTests =
   applyTransitionToActiveNewCleanup;
 
+/** Result of the send-time pane check (see probePaneForSend). */
+export interface PaneSendProbe {
+  /** The session is a fleet identity (has ~/fleet/identities/<name>/<name>.md). */
+  isIdentity: boolean;
+  /** The identity's `.dormant` sentinel is present. */
+  dormantSentinel: boolean;
+  /** A claude/node process is on the session's pane tty. */
+  claudeRunning: boolean;
+}
+
+/**
+ * One SSH exec: is this identity's session actually able to take typed input?
+ * The claude-running test mirrors the supervisor's claude_running (claude/node
+ * on the pane tty). Returns null if the exec fails or prints something
+ * unparseable, so a flaky check never blocks a send.
+ */
+export async function probePaneForSend(
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  conn: any,
+  name: string,
+  exec: (conn: unknown, cmd: string) => Promise<string>,
+): Promise<PaneSendProbe | null> {
+  const dir = `~/fleet/identities/${shellQuote(name)}`;
+  const cmd =
+    `i=0; [ -f ${dir}/${shellQuote(name + ".md")} ] && i=1; ` +
+    `d=0; [ -e ${dir}/.dormant ] && d=1; ` +
+    `t=$(tmux list-panes -t ${shellQuote("=" + name + ":")} -F '#{pane_tty}' 2>/dev/null | head -1); ` +
+    `c=0; [ -n "$t" ] && ps -t "\${t#/dev/}" -o comm= 2>/dev/null | grep -qiE 'claude|node' && c=1; ` +
+    `echo "probe $i $d $c"`;
+  try {
+    const out = (await exec(conn, cmd)).trim();
+    const m = /^probe ([01]) ([01]) ([01])$/.exec(out.split("\n").pop() ?? "");
+    if (!m) return null;
+    return { isIdentity: m[1] === "1", dormantSentinel: m[2] === "1", claudeRunning: m[3] === "1" };
+  } catch {
+    return null;
+  }
+}
+
 /**
  * Apply the input message handler logic for tests.
  * Phase 35 — pretty-view compose-send migrated onto claude-session WS.
@@ -2530,6 +2569,14 @@ export async function __applyInputMessageForTests(deps: {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   markerCommand?: (conn: any, name: string) => Promise<string | null>;
   now?: () => number;
+  // Fresh host-side check run right before typing, for when the connection's
+  // dormant view lags the host: the supervisor writes `.dormant` before it
+  // sends /exit, and the poll that flips dormantLastEmitted runs seconds later,
+  // so a send in that window would be typed into the shell claude just left.
+  // Returns null when the check itself fails (the send then goes ahead as
+  // before) — see probePaneForSend.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  paneProbe?: (conn: any, name: string) => Promise<PaneSendProbe | null>;
 }): Promise<void> {
   const { sshConn, currentTmuxSession, currentHostId, execCommand: exec } = deps;
   // Diagnostic drop: pv-claude-session-ws-zombie-after-tmux-teardown — forensic drop log
@@ -2566,7 +2613,24 @@ export async function __applyInputMessageForTests(deps: {
   // See T-56-01-01/02/03/04/05 in the plan's threat model for trust-boundary
   // rationale (currentTmuxSession is connection-scoped from connectToPane
   // discovery; client-supplied hostId/tmuxSession are IGNORED at the helper).
-  const wasDormant = deps.dormantLastEmitted?.() === true;
+  let wasDormant = deps.dormantLastEmitted?.() === true;
+  if (!wasDormant && deps.paneProbe && data.replace(/\r$/, "").length > 0) {
+    const probe = await deps.paneProbe(sshConn, currentTmuxSession);
+    if (probe && probe.isIdentity && (probe.dormantSentinel || !probe.claudeRunning)) {
+      sshLogger.info(
+        `[pv-input] send-time recheck: no live claude to type into (dormantSentinel=${probe.dormantSentinel} claudeRunning=${probe.claudeRunning}) — waking instead of typing into the shell`,
+        {
+          operation: "pv_input_send_recheck_wake",
+          hostId: currentHostId,
+          tmuxSession: currentTmuxSession,
+          mqid: String(deps.messageQueueItemId ?? "none"),
+          dormantSentinel: probe.dormantSentinel,
+          claudeRunning: probe.claudeRunning,
+        },
+      );
+      wasDormant = true;
+    }
+  }
   if (
     wasDormant &&
     deps.setWakeTriggerTs &&
@@ -5885,6 +5949,8 @@ wss.on("connection", async (ws: WebSocket, req) => {
               }
             },
             now: () => Date.now(),
+            paneProbe: (conn: unknown, name: string) =>
+              probePaneForSend(conn, name, execCommand as (c: unknown, cmd: string) => Promise<string>),
           });
         } catch (err) {
           // Catch inside the chain so one failed handler doesn't reject the
