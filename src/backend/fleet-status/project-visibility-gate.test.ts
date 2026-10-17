@@ -13,6 +13,8 @@ import {
   isProjectVisibleToUser,
   filterVisibleProjectTree,
   redactHiddenParents,
+  effectiveProjectAudience,
+  audienceWidens,
 } from "./project-visibility-gate.js";
 
 describe("isProjectVisibleToUser — null caller (gate disabled)", () => {
@@ -152,5 +154,38 @@ describe("redactHiddenParents", () => {
       ["kid", "x"],
       ["orphan", "gone"],
     ]);
+  });
+});
+
+describe("effectiveProjectAudience / audienceWidens", () => {
+  const list = [
+    { slug: "p", users: ["alice", "bob"], parent: null },
+    { slug: "q", users: ["bob", "carol"], parent: "p" },
+    { slug: "c", users: null, parent: "q" },
+    { slug: "open", users: null, parent: null },
+    { slug: "a", users: ["alice"], parent: "b" },
+    { slug: "b", users: ["bob"], parent: "a" },
+    { slug: "hang", users: null, parent: "a" },
+  ];
+  it("intersects every list up the chain; null when nothing restricts", () => {
+    expect(effectiveProjectAudience(list, "c")).toEqual(["bob"]);
+    expect(effectiveProjectAudience(list, "open")).toBeNull();
+  });
+  it("judges a hypothetical parent", () => {
+    expect(effectiveProjectAudience(list, "c", null)).toBeNull();
+    expect(effectiveProjectAudience(list, "c", "p")).toEqual(["alice", "bob"]);
+  });
+  it("cuts loops the way the visibility gate does", () => {
+    // a is on the loop → only its own list; hang stops at a.
+    expect(effectiveProjectAudience(list, "a")).toEqual(["alice"]);
+    expect(effectiveProjectAudience(list, "hang")).toEqual(["alice"]);
+    const visibleToBob = filterVisibleProjectTree(list, "bob").map((p) => p.slug);
+    expect(visibleToBob.includes("hang")).toBe(false);
+  });
+  it("audienceWidens", () => {
+    expect(audienceWidens(null, ["a"])).toBe(false);
+    expect(audienceWidens(["a"], null)).toBe(true);
+    expect(audienceWidens(["a"], ["a", "b"])).toBe(true);
+    expect(audienceWidens(["a", "b"], ["a"])).toBe(false);
   });
 });

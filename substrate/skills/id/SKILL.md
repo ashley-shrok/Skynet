@@ -812,7 +812,10 @@ not something agents drive.
   sit inside a project on the same machine, never inside itself or one of
   its own sub-projects. If a project's parent is gone (archived, deleted),
   it shows at top level instead. A sub-project is shown only to users who
-  can see every project above it.
+  can see every project above it. Moving a project never widens who can
+  see it: if a move would let in more users, its current audience is
+  written into its own `users:` list. Archiving is refused when some
+  sub-project inside is hidden from the person archiving.
   *Agent-side:* nesting is one optional frontmatter line in the
   sub-project's `project.md`: `parent: <parent-slug>`. Folders stay side
   by side under `~/fleet/projects/` — moving a project in or out is an edit

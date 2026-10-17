@@ -716,6 +716,14 @@ for slug in slugs:
         with open(tmp, "w", encoding="utf-8") as f:
             f.write("".join(new_lines))
         os.chmod(tmp, os.stat(path).st_mode & 0o7777)
+        # Someone else (the app moving the project, a hand edit) may have
+        # written the file since we read it; replacing it now would undo
+        # their edit. Leave it for the next tick, which starts from theirs.
+        with open(path, encoding="utf-8") as f:
+            if f.read() != text:
+                os.remove(tmp)
+                print("project '%s' changed during members rewrite — retrying next tick" % slug)
+                continue
         os.replace(tmp, path)
         print("project '%s' members → %s" % (slug, ",".join(want) or "(none)"))
     except OSError as e:

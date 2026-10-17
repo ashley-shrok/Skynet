@@ -287,6 +287,7 @@ const createProjectSpy = vi.fn<
   ok: true as const,
   slug: name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, ""),
 }));
+const getArchivePreflightSpy = vi.fn(async (_hostId: number, _slug: string) => ({ hiddenSubProjects: 0 }));
 const archiveProjectSpy = vi.fn<
   (hostId: number, slug: string) => Promise<{ ok: true }>
 >(async () => ({ ok: true as const }));
@@ -306,6 +307,8 @@ vi.mock("@/api/project-list-api", () => ({
     setProjectParentSpy(hostId, slug, parent),
   archiveProject: (hostId: number, slug: string) =>
     archiveProjectSpy(hostId, slug),
+  getArchivePreflight: (hostId: number, slug: string) =>
+    getArchivePreflightSpy(hostId, slug),
   getProjectFile: (hostId: number, slug: string) =>
     getProjectFileSpy(hostId, slug),
   updateProjectFile: (hostId: number, slug: string, contents: string) =>
@@ -755,6 +758,7 @@ describe("nested projects: archive takes the subtree", () => {
     const { archiveIdentity } = await import("@/api/identity-archive-api");
     const { container } = renderPanel();
     await openProjectKebabAndClickItem(container, "skynet", "Archive project");
+    await waitFor(() => expect(confirmSpy).toHaveBeenCalled());
     expect(confirmSpy).toHaveBeenCalledWith(
       'Archive "SKYNET"?\n\nThis also archives its 3 sub-projects and the 3 agents across them.\n\n1 relay room will move back to Conversations.\n\nThis can\'t be undone. Move conversations out first to keep them.',
     );
@@ -764,6 +768,22 @@ describe("nested projects: archive takes the subtree", () => {
     expect(setRelayRoomProjectSpy).toHaveBeenCalledWith("!room:matrix.example", "@user:matrix.example", null);
     // Other is untouched.
     expect(archiveProjectSpy.mock.calls.some((c) => c[1] === "other")).toBe(false);
+  });
+
+  it("refuses up front when a sub-project inside is hidden from the user", async () => {
+    seedTree();
+    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(true);
+    const alertSpy = vi.spyOn(window, "alert").mockImplementation(() => {});
+    getArchivePreflightSpy.mockResolvedValueOnce({ hiddenSubProjects: 2 });
+    const { container } = renderPanel();
+    await openProjectKebabAndClickItem(container, "skynet", "Archive project");
+    await waitFor(() => expect(alertSpy).toHaveBeenCalled());
+    expect(getArchivePreflightSpy).toHaveBeenCalledWith(1, "skynet");
+    expect(alertSpy.mock.calls[0][0]).toBe(
+      'Can\'t archive "SKYNET": 2 sub-projects inside it are hidden from you. Nothing was archived.',
+    );
+    expect(confirmSpy).not.toHaveBeenCalled();
+    expect(archiveProjectSpy).not.toHaveBeenCalled();
   });
 
   it("cancelling the confirm archives nothing", async () => {

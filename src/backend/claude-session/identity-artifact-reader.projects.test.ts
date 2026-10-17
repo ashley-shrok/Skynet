@@ -88,6 +88,8 @@ import {
   createProject,
   archiveProject,
   applyProjectParentLine,
+  applyProjectUsersBlock,
+  projectMetaFromMarkdown,
   setProjectParentField,
 } from "./identity-artifact-reader.js";
 
@@ -1353,5 +1355,52 @@ describe("setProjectParentField", () => {
     await expect(setProjectParentField(null, "kid", "../x")).rejects.toThrow();
     await expect(setProjectParentField(null, "kid", "kid")).rejects.toThrow();
     expect(fsReadFileMock).not.toHaveBeenCalled();
+  });
+});
+
+describe("nested projects — review fixes (reader)", () => {
+  it("a leading BOM doesn't hide the frontmatter", () => {
+    const meta = projectMetaFromMarkdown(
+      "kid",
+      "\uFEFF---\ndisplayName: Kid\nusers: [alice]\nparent: top\n---\n",
+    );
+    expect(meta).toEqual({ slug: "kid", displayName: "Kid", users: ["alice"], parent: "top" });
+  });
+
+  it("parent lands after a folded displayName even across a blank line in it", () => {
+    const md = "---\ndisplayName: >-\n  line one\n\n  line two\nmembers: []\n---\n";
+    const out = applyProjectParentLine(md, "top");
+    expect(out).toBe(
+      "---\ndisplayName: >-\n  line one\n\n  line two\nparent: top\nmembers: []\n---\n",
+    );
+    expect(projectMetaFromMarkdown("kid", out).parent).toBe("top");
+  });
+
+  it("a blank line after displayName that isn't followed by indentation ends it", () => {
+    const md = "---\ndisplayName: Kid\n\nmembers: []\n---\n";
+    expect(applyProjectParentLine(md, "top")).toBe(
+      "---\ndisplayName: Kid\nparent: top\n\nmembers: []\n---\n",
+    );
+  });
+
+  it("applyProjectUsersBlock replaces flow or block users, keeping every other byte", () => {
+    const flow = "---\ndisplayName: C\nparent: p\nusers: [x]\nmembers: []\n---\nbody\n";
+    expect(applyProjectUsersBlock(flow, ["alice", "bob"])).toBe(
+      "---\ndisplayName: C\nparent: p\nusers:\n  - alice\n  - bob\nmembers: []\n---\nbody\n",
+    );
+    const block = "---\ndisplayName: C\nusers:\n  - x\n\n  # c\n  - y\nmembers: []\n---\n";
+    expect(applyProjectUsersBlock(block, ["alice"])).toBe(
+      "---\ndisplayName: C\nusers:\n  - alice\nmembers: []\n---\n",
+    );
+  });
+
+  it("applyProjectUsersBlock inserts after displayName/parent when absent; quotes odd names", () => {
+    const md = "---\ndisplayName: C\nparent: p\nmembers:\n  - a1\n---\n";
+    const out = applyProjectUsersBlock(md, ["ali ce"]);
+    expect(out).toBe(
+      '---\ndisplayName: C\nparent: p\nusers:\n  - "ali ce"\nmembers:\n  - a1\n---\n',
+    );
+    expect(projectMetaFromMarkdown("c", out).users).toEqual(["ali ce"]);
+    expect(applyProjectUsersBlock("no frontmatter", ["a"])).toBe("no frontmatter");
   });
 });

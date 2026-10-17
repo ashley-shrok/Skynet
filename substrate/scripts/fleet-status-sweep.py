@@ -157,9 +157,6 @@ FRONTMATTER_HEAD_BYTES = 4096
 # runs longer than identity/role cosmetics; read further so `users`/`parent`
 # never drop out (and flip the sidebar) when a project grows.
 PROJECT_FRONTMATTER_HEAD_BYTES = 65536
-# Unquoted YAML 1.2 (core schema — what the backend's parser uses) scalars
-# that parse as null / booleans rather than strings.
-YAML_NON_STRING_LITERALS = {"null", "~", "true", "false"}
 
 # ---------------------------------------------------------------------------
 # JSONL tail width — mirrors A12 / B5 exec sites in ssh-poll-orchestrator.ts.
@@ -923,6 +920,36 @@ def _unquote_task_value(val):
     return val
 
 
+def _yaml_parent_value(line):
+    """(matched, slug_or_None) for one frontmatter line, read the way the
+    backend's YAML 1.2 parser reads a top-level `parent:` key: a space may
+    precede the colon, `#` starts a comment only after whitespace, quotes make
+    a string, and unquoted null / ~ / true / false / numbers (including -1
+    and 1e3) are not strings. A line that isn't a `parent:` key → (False,
+    None). The last `parent:` line wins, valid or not, as in the parser."""
+    m = re.match(r"^parent\s*:(\s.*|)$", line.rstrip("\n").rstrip("\r"))
+    if not m:
+        return False, None
+    raw = m.group(1).strip()
+    quoted = raw[:1] in ("'", '"')
+    if quoted:
+        end = raw.find(raw[0], 1)
+        if end == -1:
+            return True, None
+        val = raw[1:end].strip()
+    else:
+        if raw.startswith("#"):
+            raw = ""
+        c = re.search(r"\s#", raw)
+        val = (raw[: c.start()] if c else raw).strip()
+    if not quoted and (
+        val in ("", "-", "~", "null", "true", "false")
+        or re.fullmatch(r"-?[0-9]+([eE]-?[0-9]+)?|0o[0-7]+|0x[0-9a-f]+", val)
+    ):
+        return True, None
+    return True, (val if PROJECT_SLUG_RE.match(val) else None)
+
+
 def _read_frontmatter_cosmetics(path, allowed_keys, head_bytes=FRONTMATTER_HEAD_BYTES):
     """Return (cosmetics_dict_or_None, role_or_None) from a markdown file's YAML frontmatter.
 
@@ -1038,26 +1065,18 @@ def _read_frontmatter_cosmetics(path, allowed_keys, head_bytes=FRONTMATTER_HEAD_
                 continue
 
         # --- parent: a project.md's parent project slug (nested projects).
-        # Same quote-strip + PROJECT_SLUG_RE discipline as `project` above;
-        # only project files pass "parent" in allowed_keys. A malformed value
-        # is dropped, which reads as top level.
+        # Read like the backend's YAML parse (see _yaml_parent_value); only
+        # project files pass "parent" in allowed_keys. The last `parent:`
+        # line wins; an invalid one reads as top level.
         if "parent" in allowed_keys:
-            m_parent = re.match(
-                r"^parent:\s*(.+?)\s*(#.*)?$", line.rstrip("\n")
-            )
-            if m_parent:
-                value = m_parent.group(1).strip()
-                quoted = len(value) >= 2 and value[0] == value[-1] and value[0] in "\"'"
-                raw_parent = value.strip('"').strip("'").strip()
-                # Parity with the backend's YAML read: an UNQUOTED null /
-                # boolean / number is not a string, so it names no parent.
-                is_yaml_scalar = not quoted and (
-                    raw_parent.lower() in YAML_NON_STRING_LITERALS
-                    or re.fullmatch(r"[0-9]+|0x[0-9a-f]+|0o[0-7]+", raw_parent) is not None
-                )
-                if PROJECT_SLUG_RE.match(raw_parent) and not is_yaml_scalar:
-                    cosmetics["parent"] = raw_parent
+            matched, parent_val = _yaml_parent_value(line)
+            if matched:
+                if parent_val is None:
+                    cosmetics.pop("parent", None)
+                else:
+                    cosmetics["parent"] = parent_val
                 continue
+
 
         # --- colorHue: int, must be in 0..359 (mirrors identity-artifact-reader.ts) ---
         # Accept bare (`324`) OR single/double-quoted (`'324'` / `"324"`) forms.
@@ -2125,14 +2144,18 @@ def _enumerate_projects(home):
                 if entry.name == "archive" or not PROJECT_SLUG_RE.match(entry.name):
                     continue
                 slugs.append(entry.name)
-                if len(slugs) >= PROJECT_ENUM_CAP:
-                    _log("fleet_status_projects_cap_hit", cap=PROJECT_ENUM_CAP)
-                    break
     except FileNotFoundError:
         pass
     except OSError as e:
         _log("projects_scandir_failed", errno=e.errno)
         return None
+    # Cap AFTER sorting, so the cut is deterministic (scandir order is not)
+    # and the same projects survive every sweep — a parent must not drop out
+    # one sweep and come back the next.
+    slugs.sort()
+    if len(slugs) > PROJECT_ENUM_CAP:
+        _log("fleet_status_projects_cap_hit", cap=PROJECT_ENUM_CAP)
+        slugs = slugs[:PROJECT_ENUM_CAP]
 
     projects = []
     for slug in sorted(slugs):

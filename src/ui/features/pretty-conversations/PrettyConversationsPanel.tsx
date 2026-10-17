@@ -147,6 +147,7 @@ import { setSessionProject, setRelayRoomProject } from "@/api/session-project-ap
 // setRelayRoomProject(null) member ops, then archiveProject as the folder-move.
 import {
   archiveProject,
+  getArchivePreflight,
   getProjectFile,
   setProjectParent,
   updateProjectFile,
@@ -2353,19 +2354,35 @@ export function PrettyConversationsPanel({
     }
     return m;
   }, [projectSections]);
-  // True when `targetKey` is `rootKey` or anywhere beneath it.
+  // Raw parent links (as written in each project file), keyed like
+  // sectionParentByKey. The backend refuses a move by following these, so a
+  // hand-edited loop — drawn at top level — must still not be offered.
+  const rawParentByKey = useMemo(() => {
+    const m = new Map<string, string | null>();
+    for (const p of projectsList) {
+      m.set(
+        `${p.hostId}::${p.slug}`,
+        typeof p.parent === "string" ? `${p.hostId}::${p.parent}` : null,
+      );
+    }
+    return m;
+  }, [projectsList]);
+  // True when `targetKey` is `rootKey` or anywhere beneath it, by the tree
+  // as drawn or by the raw parent links.
   const isInSubtree = useCallback(
     (targetKey: string, rootKey: string) => {
-      const seen = new Set<string>();
-      let cur: string | null = targetKey;
-      while (cur !== null && !seen.has(cur)) {
-        if (cur === rootKey) return true;
-        seen.add(cur);
-        cur = sectionParentByKey.get(cur) ?? null;
+      for (const links of [sectionParentByKey, rawParentByKey]) {
+        const seen = new Set<string>();
+        let cur: string | null = targetKey;
+        while (cur !== null && !seen.has(cur)) {
+          if (cur === rootKey) return true;
+          seen.add(cur);
+          cur = links.get(cur) ?? null;
+        }
       }
       return false;
     },
-    [sectionParentByKey],
+    [sectionParentByKey, rawParentByKey],
   );
 
   // Re-parent a project (null = top level). Optimistic: the host's project
@@ -2449,8 +2466,10 @@ export function PrettyConversationsPanel({
       for (const s of projectSections) {
         if (s.hostId !== hostId) continue;
         const k = `${hostId}::${s.slug}`;
-        if (isInSubtree(k, selfKey)) continue;
         const isCurrent = s.slug === fileParent;
+        // The current parent always shows (ticked) — on a hand-edited loop
+        // it is also "beneath" this project by the raw links.
+        if (!isCurrent && isInSubtree(k, selfKey)) continue;
         items.push({
           label: s.displayName,
           checked: isCurrent,
@@ -2813,9 +2832,55 @@ export function PrettyConversationsPanel({
       const nonRdpMembers = members.filter((r) => r.rdpHostRow !== true);
       const agentCount = nonRdpMembers.filter((r) => !isRoomRow(r)).length;
       const roomCount = nonRdpMembers.filter(isRoomRow).length;
-      // 2. Confirm with counts.
+      // 2. Resolve the host — hostId comes from the project's own row
+      //    (D-01; M7: never infer it); every sub-project lives on the same
+      //    host by construction.
+      const proj = findProject(slug, hostId);
+      const projHostIdNum = proj ? parseInt(proj.hostId, 10) : NaN;
+      if (!proj || !(Number.isFinite(projHostIdNum) && projHostIdNum > 0)) {
+        console.warn({
+          operation: "archive_project_folder_move_skipped_no_host",
+          slug,
+          reason: proj
+            ? "project host invalid"
+            : "project not found in projectsList",
+        });
+        window.alert("Couldn't archive this project — its host couldn't be determined. Nothing was archived.");
+        return;
+      }
+      // The sidebar only knows the sub-projects this user can see; archiving
+      // must take the whole subtree, so ask the host first and refuse when
+      // some of it is hidden from them.
       const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : "s"}`;
       const name = section?.displayName ?? slug;
+      if (subtree.length > 0) {
+        let hiddenSubProjects = 0;
+        try {
+          ({ hiddenSubProjects } = await getArchivePreflight(projHostIdNum, slug));
+        } catch (err) {
+          console.error({
+            operation: "archive_project_preflight_failed",
+            slug,
+            hostId: projHostIdNum,
+            errMessage: err instanceof Error ? err.message : "unknown",
+          });
+          window.alert(`Couldn't check "${name}" before archiving it. Nothing was archived.`);
+          return;
+        }
+        if (hiddenSubProjects > 0) {
+          console.info({
+            operation: "archive_project_refused_hidden_sub_projects",
+            slug,
+            hostId: projHostIdNum,
+            hiddenSubProjects,
+          });
+          window.alert(
+            `Can't archive "${name}": ${plural(hiddenSubProjects, "sub-project")} inside it ${hiddenSubProjects === 1 ? "is" : "are"} hidden from you. Nothing was archived.`,
+          );
+          return;
+        }
+      }
+      // 3. Confirm with counts.
       const lines = [`Archive "${name}"?`];
       if (subProjects.length > 0) {
         lines.push(
@@ -2842,22 +2907,7 @@ export function PrettyConversationsPanel({
       });
       const proceed = window.confirm(lines.join("\n\n"));
       if (!proceed) return;
-      // 3. Folder moves FIRST, deepest first. hostId comes from the
-      //    project's own row (D-01; M7: never infer it); every sub-project
-      //    lives on the same host by construction.
-      const proj = findProject(slug, hostId);
-      const projHostIdNum = proj ? parseInt(proj.hostId, 10) : NaN;
-      if (!proj || !(Number.isFinite(projHostIdNum) && projHostIdNum > 0)) {
-        console.warn({
-          operation: "archive_project_folder_move_skipped_no_host",
-          slug,
-          reason: proj
-            ? "project host invalid"
-            : "project not found in projectsList",
-        });
-        window.alert("Couldn't archive this project — its host couldn't be determined. Nothing was archived.");
-        return;
-      }
+      // 4. Folder moves FIRST, deepest first (host resolved above).
       const toMove: Array<{ slug: string; rows: typeof members }> =
         subtree.length > 0 ? subtree : [{ slug, rows: [] }];
       const moved: typeof toMove = [];
@@ -2900,7 +2950,7 @@ export function PrettyConversationsPanel({
         .filter((r) => r.rdpHostRow !== true);
       const identityMembers = movedMembers.filter((r) => !isRoomRow(r));
       const relayRoomMembers = movedMembers.filter(isRoomRow);
-      // 4. Member ops in one Promise.allSettled batch. Identity members get
+      // 5. Member ops in one Promise.allSettled batch. Identity members get
       //    the same optimistic removal as a single-row archive (pending mark
       //    + row drop), so they don't fall into the unassigned list for the
       //    ~15s until the supervisor retires them. Relay-room members get a

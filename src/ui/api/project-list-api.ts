@@ -19,6 +19,8 @@ import { authApi, handleApiError } from "@/main-axios";
 //                                        → { ok: true }
 //   POST /projects/:slug/parent        body { hostId, parent|null }
 //                                        → { ok: true }
+//   GET  /projects/:slug/archive-preflight?hostId=<n>
+//                                        → { hiddenSubProjects: number }
 //
 // Backend-authoritative slug derivation (D-25, Pitfall 1 in RESEARCH):
 // createProject submits the raw displayName; the response body carries the
@@ -83,6 +85,26 @@ export async function archiveProject(
     return response.data as { ok: true };
   } catch (error) {
     handleApiError(error, "archive project");
+  }
+}
+
+/**
+ * Count the sub-projects beneath `slug` that are hidden from the caller.
+ * Archiving takes the whole subtree, so a non-zero count means the archive
+ * can't be done by this user.
+ *
+ * GET /projects/:slug/archive-preflight?hostId=<n>  →  { hiddenSubProjects }
+ */
+export async function getArchivePreflight(
+  hostId: number,
+  slug: string,
+): Promise<{ hiddenSubProjects: number }> {
+  try {
+    const url = `/projects/${encodeURIComponent(slug)}/archive-preflight?hostId=${encodeURIComponent(String(hostId))}`;
+    const response = await authApi.get(url);
+    return response.data as { hiddenSubProjects: number };
+  } catch (error) {
+    handleApiError(error, "check project before archive");
   }
 }
 

@@ -356,9 +356,6 @@ def _project_baseline_path(baseline_dir, slug):
 # Matches the sweep's PROJECT_FRONTMATTER_HEAD_BYTES — a parent line past this
 # is invisible to the sidebar, so it must be invisible here too.
 _PROJECT_HEAD_CHARS = 65536
-# Unquoted YAML 1.2 core scalars that are not strings — such a parent value
-# names no parent (parity with the sweep).
-_YAML_NON_STRING_LITERALS = {"null", "~", "true", "false"}
 _CHAIN_STATE_NAME = "last-chain"
 
 
@@ -393,27 +390,47 @@ def _project_frontmatter_lines(slug):
     return lines[fences[0] + 1: fences[1]]
 
 
+def _yaml_parent_value(line):
+    """(matched, slug_or_None) for one frontmatter line, read the way the
+    backend's YAML 1.2 parser reads a top-level `parent:` key: a space may
+    precede the colon, `#` starts a comment only after whitespace, quotes make
+    a string, and unquoted null / ~ / true / false / numbers (including -1
+    and 1e3) are not strings. A line that isn't a `parent:` key → (False,
+    None). The last `parent:` line wins, valid or not, as in the parser."""
+    m = re.match(r"^parent\s*:(\s.*|)$", line.rstrip("\n").rstrip("\r"))
+    if not m:
+        return False, None
+    raw = m.group(1).strip()
+    quoted = raw[:1] in ("'", '"')
+    if quoted:
+        end = raw.find(raw[0], 1)
+        if end == -1:
+            return True, None
+        val = raw[1:end].strip()
+    else:
+        if raw.startswith("#"):
+            raw = ""
+        c = re.search(r"\s#", raw)
+        val = (raw[: c.start()] if c else raw).strip()
+    if not quoted and (
+        val in ("", "-", "~", "null", "true", "false")
+        or re.fullmatch(r"-?[0-9]+([eE]-?[0-9]+)?|0o[0-7]+|0x[0-9a-f]+", val)
+    ):
+        return True, None
+    return True, (val if _PROJECT_SLUG_RE.match(val) else None)
+
+
 def _read_project_parent(slug):
-    """The parent slug named in a project's project.md, or None. Same reading
-    as the sweep: a column-0 `parent:` line (the last valid one wins),
-    quotes stripped, slug-validated, unquoted null/bool/number values and the
-    project's own slug read as no parent."""
+    """The parent slug named in a project's project.md, or None — same
+    reading as the sweep (see _yaml_parent_value; comment lines skipped, last
+    `parent:` line wins), and the project's own slug reads as no parent."""
     parent = None
     for line in _project_frontmatter_lines(slug):
         if line.lstrip().startswith("#"):
             continue
-        m = re.match(r"^parent:\s*(.+?)\s*(#.*)?$", line.rstrip("\n"))
-        if not m:
-            continue
-        value = m.group(1).strip()
-        quoted = len(value) >= 2 and value[0] == value[-1] and value[0] in "\"'"
-        raw = value.strip('"').strip("'").strip()
-        is_scalar = not quoted and (
-            raw.lower() in _YAML_NON_STRING_LITERALS
-            or re.fullmatch(r"[0-9]+|0x[0-9a-f]+|0o[0-7]+", raw) is not None
-        )
-        if _PROJECT_SLUG_RE.match(raw) and not is_scalar:
-            parent = raw
+        matched, val = _yaml_parent_value(line)
+        if matched:
+            parent = val
     return None if parent == slug else parent
 
 

@@ -86,6 +86,17 @@ vi.mock("../../claude-session/identity-artifact-reader.js", () => ({
   readProjectFile: vi.fn(),
   writeProjectFile: vi.fn(),
   setProjectParentField: vi.fn(),
+  // Minimal stand-in for the real parser: only the parent line matters to
+  // the routes (PUT /file's parent guard).
+  projectMetaFromMarkdown: (slug: string, markdown: string) => {
+    const m = /^parent:\s*([a-z0-9-]+)\s*$/m.exec(markdown);
+    return {
+      slug,
+      displayName: slug,
+      users: null,
+      parent: m && m[1] !== slug ? m[1] : null,
+    };
+  },
 }));
 
 // Phase 130: host-user-counter mock — auto-tag path in POST /projects consults
@@ -1387,6 +1398,166 @@ describe("nested projects — write routes treat projects hidden from the caller
     });
     expect(res.status).toBe(200);
     expect(setProjectParentField).toHaveBeenCalledWith(null, "open", "secret");
+  });
+});
+
+describe("nested projects — review fixes", () => {
+  it("moving out of a restricted parent keeps the project's audience", async () => {
+    (getUsernameForUserId as Mock).mockResolvedValue("alice");
+    (listProjects as Mock).mockResolvedValue([
+      { slug: "p", displayName: "P", users: ["alice", "bob"], parent: null },
+      { slug: "c", displayName: "C", users: null, parent: "p" },
+    ]);
+    const res = await httpRequest(server, {
+      method: "POST",
+      path: "/projects/c/parent",
+      body: { hostId: 5, parent: null },
+    });
+    expect(res.status).toBe(200);
+    expect(setProjectParentField).toHaveBeenCalledWith(null, "c", null, ["alice", "bob"]);
+  });
+
+  it("moving under a less restricted parent keeps the narrower audience", async () => {
+    (getUsernameForUserId as Mock).mockResolvedValue("alice");
+    (listProjects as Mock).mockResolvedValue([
+      { slug: "p", displayName: "P", users: ["alice"], parent: null },
+      { slug: "q", displayName: "Q", users: ["alice", "bob"], parent: null },
+      { slug: "c", displayName: "C", users: ["alice", "bob"], parent: "p" },
+    ]);
+    await httpRequest(server, {
+      method: "POST",
+      path: "/projects/c/parent",
+      body: { hostId: 5, parent: "q" },
+    });
+    expect(setProjectParentField).toHaveBeenCalledWith(null, "c", "q", ["alice"]);
+  });
+
+  it("a move that doesn't widen leaves the users list alone", async () => {
+    (listProjects as Mock).mockResolvedValue([
+      { slug: "p", displayName: "P", users: null, parent: null },
+      { slug: "q", displayName: "Q", users: ["alice"], parent: null },
+      { slug: "c", displayName: "C", users: null, parent: "p" },
+    ]);
+    await httpRequest(server, {
+      method: "POST",
+      path: "/projects/c/parent",
+      body: { hostId: 5, parent: "q" },
+    });
+    expect(setProjectParentField).toHaveBeenCalledWith(null, "c", "q");
+  });
+
+  it("create never takes a slug a live project names as its parent", async () => {
+    (listProjects as Mock).mockResolvedValue([
+      { slug: "orphan", displayName: "Orphan", users: null, parent: "foo" },
+    ]);
+    const res = await httpRequest(server, {
+      method: "POST",
+      path: "/projects",
+      body: { hostId: 5, displayName: "Foo" },
+    });
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ ok: true, slug: "foo-2" });
+    expect(createProject).toHaveBeenCalledTimes(1);
+    expect((createProject as Mock).mock.calls[0]?.[1]).toBe("foo-2");
+  });
+
+  it("archive refuses while a sub-project remains; a loop partner doesn't count", async () => {
+    (listProjects as Mock).mockResolvedValue([
+      { slug: "p", displayName: "P", users: null, parent: null },
+      { slug: "hidden", displayName: "H", users: ["bob"], parent: "p" },
+    ]);
+    const refused = await httpRequest(server, {
+      method: "POST",
+      path: "/projects/p/archive",
+      body: { hostId: 5 },
+    });
+    expect(refused.status).toBe(409);
+    expect(archiveProject).not.toHaveBeenCalled();
+
+    (listProjects as Mock).mockResolvedValue([
+      { slug: "a", displayName: "A", users: null, parent: "b" },
+      { slug: "b", displayName: "B", users: null, parent: "a" },
+    ]);
+    const loop = await httpRequest(server, {
+      method: "POST",
+      path: "/projects/a/archive",
+      body: { hostId: 5 },
+    });
+    expect(loop.status).toBe(200);
+    expect(archiveProject).toHaveBeenCalledWith(null, "a");
+  });
+
+  it("archive preflight counts only sub-projects hidden from the caller", async () => {
+    (getUsernameForUserId as Mock).mockResolvedValue("alice");
+    (listProjects as Mock).mockResolvedValue([
+      { slug: "p", displayName: "P", users: ["alice", "bob"], parent: null },
+      { slug: "seen", displayName: "S", users: null, parent: "p" },
+      { slug: "hidden", displayName: "H", users: ["bob"], parent: "p" },
+      { slug: "deep", displayName: "D", users: null, parent: "hidden" },
+      { slug: "other", displayName: "O", users: ["bob"], parent: null },
+    ]);
+    const res = await httpRequest(server, {
+      method: "GET",
+      path: "/projects/p/archive-preflight?hostId=5",
+    });
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ hiddenSubProjects: 2 });
+    const hidden = await httpRequest(server, {
+      method: "GET",
+      path: "/projects/other/archive-preflight?hostId=5",
+    });
+    expect(hidden.status).toBe(404);
+  });
+
+  it("raw file save that changes the parent gets the move guard rails", async () => {
+    (listProjects as Mock).mockResolvedValue([
+      { slug: "s", displayName: "S", users: ["bob"], parent: null },
+      { slug: "c", displayName: "C", users: null, parent: "s" },
+      { slug: "open", displayName: "O", users: null, parent: null },
+    ]);
+    (readProjectFile as Mock).mockResolvedValue({ markdown: "---\ndisplayName: S\n---\n" });
+    const loop = await httpRequest(server, {
+      method: "PUT",
+      path: "/projects/s/file",
+      body: { hostId: 5, contents: "---\ndisplayName: S\nparent: c\n---\n" },
+    });
+    expect(loop.status).toBe(409);
+    const missing = await httpRequest(server, {
+      method: "PUT",
+      path: "/projects/s/file",
+      body: { hostId: 5, contents: "---\nparent: nope\n---\n" },
+    });
+    expect(missing.status).toBe(400);
+    expect(writeProjectFile).not.toHaveBeenCalled();
+    const ok = await httpRequest(server, {
+      method: "PUT",
+      path: "/projects/s/file",
+      body: { hostId: 5, contents: "---\nparent: open\n---\n" },
+    });
+    expect(ok.status).toBe(200);
+    expect(writeProjectFile).toHaveBeenCalledTimes(1);
+  });
+
+  it("two moves at once can't write a loop", async () => {
+    // a and b both top level; move a under b and b under a concurrently.
+    let parents: Record<string, string | null> = { a: null, b: null };
+    (listProjects as Mock).mockImplementation(async () => [
+      { slug: "a", displayName: "A", users: null, parent: parents.a },
+      { slug: "b", displayName: "B", users: null, parent: parents.b },
+    ]);
+    (setProjectParentField as Mock).mockImplementation(
+      async (_c: unknown, slug: string, parent: string | null) => {
+        await new Promise((r) => setTimeout(r, 20));
+        parents = { ...parents, [slug]: parent };
+        return { markdown: "" };
+      },
+    );
+    const [r1, r2] = await Promise.all([
+      httpRequest(server, { method: "POST", path: "/projects/a/parent", body: { hostId: 5, parent: "b" } }),
+      httpRequest(server, { method: "POST", path: "/projects/b/parent", body: { hostId: 5, parent: "a" } }),
+    ]);
+    expect([r1.status, r2.status].sort()).toEqual([200, 409]);
+    expect(parents.a === "b" && parents.b === "a").toBe(false);
   });
 });
 

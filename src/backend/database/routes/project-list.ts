@@ -63,6 +63,7 @@ import {
   readProjectFile,
   writeProjectFile,
   setProjectParentField,
+  projectMetaFromMarkdown,
 } from "../../claude-session/identity-artifact-reader.js";
 import { getSubscriptionRegistry } from "../../fleet-status/subscription-registry.js";
 // Phase 130: per-user visibility gate write side for projects. isHostMultiUser
@@ -85,6 +86,8 @@ import { derivePrettyNameSlug } from "../../utils/pretty-name-slug.js";
 // Nested projects: the gate inherits down the parent tree — a project shows
 // only if it and every ancestor present on the host pass.
 import {
+  audienceWidens,
+  effectiveProjectAudience,
   filterVisibleProjectTree,
   redactHiddenParents,
 } from "../../fleet-status/project-visibility-gate.js";
@@ -106,6 +109,26 @@ const SSH_CONNECT_TIMEOUT_MS = 3000;
  */
 function withHostSlot<T>(hostId: number, fn: () => Promise<T>): Promise<T> {
   return isLocalHostId(hostId) ? fn() : getHostSemaphore(hostId).run(fn);
+}
+
+/**
+ * Per-host write lock for project-file edits that check the host's project
+ * list and then write (create, move, archive, raw file save). Without it two
+ * moves at once can each pass the "not into its own sub-project" check and
+ * together write a loop. Held OUTSIDE withHostSlot, so lock waiters don't
+ * occupy SSH slots. In-process only — every such write goes through this
+ * backend.
+ */
+const projectWriteLocks = new Map<number, Promise<unknown>>();
+function withProjectWriteLock<T>(hostId: number, fn: () => Promise<T>): Promise<T> {
+  const prev = projectWriteLocks.get(hostId) ?? Promise.resolve();
+  const run = prev.then(fn, fn);
+  const tail = run.catch(() => undefined);
+  projectWriteLocks.set(hostId, tail);
+  void tail.then(() => {
+    if (projectWriteLocks.get(hostId) === tail) projectWriteLocks.delete(hostId);
+  });
+  return run;
 }
 
 /** displayName length cap — per plan behavior spec (1..80 chars). */
@@ -203,6 +226,24 @@ function isSelfOrDescendant(
     node = parentOf.get(node);
   }
   return false;
+}
+
+/**
+ * Every project beneath `root` over one host's raw parent links (not `root`
+ * itself). A project on a loop with `root` is not beneath it — the sidebar
+ * draws loop members at top level.
+ */
+function descendantSlugs(
+  projects: Array<{ slug: string; parent: string | null }>,
+  root: string,
+): string[] {
+  const out: string[] = [];
+  for (const p of projects) {
+    if (p.slug === root) continue;
+    if (isSelfOrDescendant(projects, root, p.slug)) continue; // loop with root
+    if (isSelfOrDescendant(projects, p.slug, root)) out.push(p.slug);
+  }
+  return out;
 }
 
 // ---------------------------------------------------------------------------
@@ -403,7 +444,7 @@ router.post(
     // 5. LOCAL/REMOTE branch.
     // SSH work (connect + execs + conn.end) runs under the per-host
     // semaphore (verify:ssh-cap); local hosts bypass it.
-    return withHostSlot(hostId, async () => {
+    return withProjectWriteLock(hostId, () => withHostSlot(hostId, async () => {
       let conn: Awaited<ReturnType<typeof connectOneShot>> | null = null;
       if (!isLocalHostId(hostId)) {
         try {
@@ -469,8 +510,22 @@ router.post(
       }
 
       try {
+        // Slugs some live project already names as its parent (a leftover
+        // line from an archived or failed-archive parent) are taken too:
+        // creating one would silently adopt that project as a sub-project.
+        let existing: Awaited<ReturnType<typeof listProjects>> = [];
+        try {
+          existing = await listProjects(conn);
+        } catch (listErr) {
+          if (parent !== null) throw listErr;
+          databaseLogger.warn(
+            `projects-create: project list failed — parent-name check skipped hostId=${hostId} baseSlug=${baseSlug}: ${listErr instanceof Error ? listErr.message : String(listErr)}`,
+          );
+        }
+        const namedAsParent = new Set(
+          existing.map((p) => p.parent).filter((p): p is string => p !== null),
+        );
         if (parent !== null) {
-          const existing = await listProjects(conn);
           const visible = await visibleSlugsForCaller(existing, userId);
           if (!existing.some((p) => p.slug === parent) || !visible.has(parent)) {
             databaseLogger.warn("projects-create: parent not found", {
@@ -497,6 +552,11 @@ router.post(
         // eslint-disable-next-line no-constant-condition
         while (true) {
           try {
+            if (namedAsParent.has(slug)) {
+              const claimed = new Error(`slug ${slug} is named as a parent`);
+              (claimed as NodeJS.ErrnoException).code = "EEXIST";
+              throw claimed;
+            }
             await createProject(conn, slug, trimmed, autoTagUsers, parent);
             break;
           } catch (err) {
@@ -570,7 +630,7 @@ router.post(
           }
         }
       }
-    });
+    }));
   },
 );
 
@@ -618,7 +678,7 @@ router.post(
     // 4. LOCAL/REMOTE branch.
     // SSH work (connect + execs + conn.end) runs under the per-host
     // semaphore (verify:ssh-cap); local hosts bypass it.
-    return withHostSlot(hostId, async () => {
+    return withProjectWriteLock(hostId, () => withHostSlot(hostId, async () => {
       let conn: Awaited<ReturnType<typeof connectOneShot>> | null = null;
       if (!isLocalHostId(hostId)) {
         try {
@@ -633,6 +693,35 @@ router.post(
       }
 
       try {
+        // Archive takes the whole subtree, deepest first, so by the time a
+        // project itself is archived nothing should sit beneath it. If
+        // something still does (most likely a sub-project the caller can't
+        // see), refuse rather than strand it at top level for whoever can.
+        try {
+          const current = await listProjects(conn);
+          const remaining = descendantSlugs(current, slug);
+          if (remaining.length > 0) {
+            databaseLogger.warn("project archive refused: sub-projects remain", {
+              operation: "project_archive",
+              userId,
+              hostId,
+              slug,
+              remainingCount: remaining.length,
+              outcome: "sub_projects_remain",
+            });
+            res.status(409).json({
+              error: "this project still has sub-projects inside it",
+            });
+            return;
+          }
+        } catch (err) {
+          databaseLogger.error(
+            `failed to list projects before archive hostId=${hostId} slug=${slug}: ${err instanceof Error ? err.message : String(err)}`,
+          );
+          res.status(500).json({ error: "failed to archive project" });
+          return;
+        }
+
         try {
           await archiveProject(conn, slug);
         } catch (err) {
@@ -684,7 +773,7 @@ router.post(
           }
         }
       }
-    });
+    }));
   },
 );
 
@@ -770,7 +859,7 @@ router.post(
 
     // SSH work (connect + execs + conn.end) runs under the per-host
     // semaphore (verify:ssh-cap); local hosts bypass it.
-    return withHostSlot(hostId, async () => {
+    return withProjectWriteLock(hostId, () => withHostSlot(hostId, async () => {
       let conn: Awaited<ReturnType<typeof connectOneShot>> | null = null;
       if (!isLocalHostId(hostId)) {
         try {
@@ -827,8 +916,29 @@ router.post(
           }
         }
 
+        // A move never widens who can see the project (shape: a sub-project
+        // can narrow its audience, never widen it). Taking it out of a
+        // restricted parent, or under a less restricted one, would open it
+        // — and everything beneath it — to more users; instead its current
+        // audience is written into its own `users:` list in the same write.
+        const before = effectiveProjectAudience(current, slug);
+        const after = effectiveProjectAudience(current, slug, parent);
+        const keepUsers =
+          before !== null && audienceWidens(before, after) ? before : undefined;
+        if (keepUsers !== undefined) {
+          databaseLogger.info("project parent: audience kept on move", {
+            ...logCtx,
+            outcome: "audience_kept",
+            userCount: keepUsers.length,
+          });
+        }
+
         try {
-          await setProjectParentField(conn, slug, parent);
+          if (keepUsers === undefined) {
+            await setProjectParentField(conn, slug, parent);
+          } else {
+            await setProjectParentField(conn, slug, parent, keepUsers);
+          }
         } catch (err) {
           databaseLogger.error("project parent: write failed", {
             ...logCtx,
@@ -875,7 +985,7 @@ router.post(
           }
         }
       }
-    });
+    }));
   },
 );
 
@@ -894,6 +1004,100 @@ router.post(
 //   - resolveHostById 404 on cross-user / unknown (T-117-04-01 EoP defense).
 //   - Fixed 500 shape (T-117-04-05 info-disclosure defense).
 //   - authenticateJWT on both routes (T-117-04-04 unauth flood).
+
+// ---------------------------------------------------------------------------
+// GET /projects/:slug/archive-preflight?hostId=<n>  →  { hiddenSubProjects }
+// ---------------------------------------------------------------------------
+//
+// Nested projects: archiving a project archives its whole subtree, but the
+// sidebar only knows the sub-projects the caller can see. This counts the
+// ones beneath the project that are hidden from the caller, so the archive
+// confirm can refuse up front instead of archiving part of the subtree. A
+// project hidden from the caller answers "not found", like the move route.
+router.get(
+  "/:slug/archive-preflight",
+  authenticateJWT,
+  async (req: Request, res: Response): Promise<void> => {
+    const userId = (req as AuthenticatedRequest).userId;
+
+    const slug = String(req.params.slug ?? "");
+    if (!slug || !PROJECT_SLUG_RE.test(slug)) {
+      res.status(400).json({ error: "slug must match [a-z0-9-]{1,64}" });
+      return;
+    }
+
+    const parsed = parseHostId(req.query.hostId);
+    if (!parsed.ok) {
+      res.status(400).json({ error: parsed.error });
+      return;
+    }
+    const { hostId } = parsed;
+
+    const host = await resolveHostById(hostId, userId);
+    if (!host) {
+      res.status(404).json({ error: "Host not found" });
+      return;
+    }
+
+    // Projects live on SSH hosts — see gate on GET / for rationale.
+    if (host.enableSsh === false) {
+      res.status(404).json({ error: "Project not found" });
+      return;
+    }
+
+    // SSH work (connect + execs + conn.end) runs under the per-host
+    // semaphore (verify:ssh-cap); local hosts bypass it.
+    return withHostSlot(hostId, async () => {
+      let conn: Awaited<ReturnType<typeof connectOneShot>> | null = null;
+      if (!isLocalHostId(hostId)) {
+        try {
+          conn = await connectOneShot(
+            host as unknown as Parameters<typeof connectOneShot>[0],
+            SSH_CONNECT_TIMEOUT_MS,
+          );
+        } catch {
+          res.status(504).json({ error: "Host unreachable" });
+          return;
+        }
+      }
+
+      try {
+        const current = await listProjects(conn);
+        const visible = await visibleSlugsForCaller(current, userId);
+        if (!current.some((p) => p.slug === slug) || !visible.has(slug)) {
+          res.status(404).json({ error: "Project not found" });
+          return;
+        }
+        const hiddenSubProjects = descendantSlugs(current, slug).filter(
+          (s) => !visible.has(s),
+        ).length;
+        databaseLogger.info("project archive preflight", {
+          operation: "project_archive_preflight",
+          userId,
+          hostId,
+          slug,
+          hiddenSubProjects,
+        });
+        res.json({ hiddenSubProjects });
+        return;
+      } catch (err) {
+        databaseLogger.error(
+          `failed archive preflight hostId=${hostId} slug=${slug}: ${err instanceof Error ? err.message : String(err)}`,
+        );
+        res.status(500).json({ error: "failed to check project" });
+        return;
+      } finally {
+        if (conn) {
+          try {
+            conn.end();
+          } catch {
+            /* ignore */
+          }
+        }
+      }
+    });
+  },
+);
 
 router.get(
   "/:slug/file",
@@ -1009,7 +1213,7 @@ router.put(
 
     // SSH work (connect + execs + conn.end) runs under the per-host
     // semaphore (verify:ssh-cap); local hosts bypass it.
-    return withHostSlot(hostId, async () => {
+    return withProjectWriteLock(hostId, () => withHostSlot(hostId, async () => {
       let conn: Awaited<ReturnType<typeof connectOneShot>> | null = null;
       if (!isLocalHostId(hostId)) {
         try {
@@ -1024,6 +1228,38 @@ router.put(
       }
 
       try {
+        // Nested projects: a raw save that changes the `parent:` line gets
+        // the same guard rails as a move — the parent must exist, be visible
+        // to the caller, and not be the project itself or one of its own
+        // sub-projects (a loop could otherwise expose a restricted project).
+        const nextParent = projectMetaFromMarkdown(slug, contents).parent;
+        if (nextParent !== null) {
+          const { markdown: prevMarkdown } = await readProjectFile(conn, slug);
+          if (projectMetaFromMarkdown(slug, prevMarkdown).parent !== nextParent) {
+            const current = await listProjects(conn);
+            const visible = await visibleSlugsForCaller(current, userId);
+            const reject = (status: number, error: string, outcome: string) => {
+              databaseLogger.warn("project file parent rejected", {
+                operation: "project_file_parent",
+                userId,
+                hostId,
+                slug,
+                parent: nextParent,
+                outcome,
+              });
+              res.status(status).json({ error });
+            };
+            if (!current.some((p) => p.slug === nextParent) || !visible.has(nextParent)) {
+              reject(400, "parent project not found", "parent_not_found");
+              return;
+            }
+            if (isSelfOrDescendant(current, nextParent, slug)) {
+              reject(409, MOVE_INTO_SELF_ERROR, "rejected_descendant");
+              return;
+            }
+          }
+        }
+
         const { markdown } = await writeProjectFile(conn, slug, contents);
         databaseLogger.info(
           `project file written: userId=${userId} hostId=${hostId} slug=${slug} bytes=${contents.length}`,
@@ -1071,7 +1307,7 @@ router.put(
           }
         }
       }
-    });
+    }));
   },
 );
 

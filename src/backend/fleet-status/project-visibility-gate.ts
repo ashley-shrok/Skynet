@@ -131,3 +131,68 @@ export function redactHiddenParents<
       : p,
   );
 }
+
+/**
+ * The users who can see `slug` through filterVisibleProjectTree's rules:
+ * the intersection of every non-empty `users` list along its chain (own
+ * project first, cut at the same loop point), or null when nothing in the
+ * chain restricts it (everyone with host access). `parentOverride`, when
+ * given, judges the project as if its parent were that slug (null = top
+ * level) — used to tell whether a move would widen its audience.
+ */
+export function effectiveProjectAudience<
+  T extends {
+    slug: string;
+    parent?: string | null;
+    users?: string[] | null;
+  },
+>(
+  projects: readonly T[],
+  slug: string,
+  parentOverride?: string | null,
+): string[] | null {
+  const bySlug = new Map<string, T>();
+  for (const p of projects) bySlug.set(p.slug, p);
+  const parentOf = (s: string): string | null | undefined =>
+    s === slug && parentOverride !== undefined
+      ? parentOverride
+      : bySlug.get(s)?.parent;
+
+  // Same chain as filterVisibleProjectTree: on a repeat, cut just after the
+  // first loop member reached.
+  const chain: string[] = [];
+  const indexOf = new Map<string, number>();
+  let node: string | null | undefined = slug;
+  while (typeof node === "string" && bySlug.has(node)) {
+    const seenAt = indexOf.get(node);
+    if (seenAt !== undefined) {
+      chain.length = seenAt + 1;
+      break;
+    }
+    indexOf.set(node, chain.length);
+    chain.push(node);
+    node = parentOf(node);
+  }
+
+  let audience: Set<string> | null = null;
+  for (const s of chain) {
+    const users = bySlug.get(s)!.users;
+    if (Array.isArray(users) && users.length > 0) {
+      audience =
+        audience === null
+          ? new Set(users)
+          : new Set([...audience].filter((u) => users.includes(u)));
+    }
+  }
+  return audience === null ? null : [...audience].sort();
+}
+
+/** True iff audience `next` lets in someone `prev` keeps out. */
+export function audienceWidens(
+  prev: readonly string[] | null,
+  next: readonly string[] | null,
+): boolean {
+  if (prev === null) return false;
+  if (next === null) return true;
+  return next.some((u) => !prev.includes(u));
+}

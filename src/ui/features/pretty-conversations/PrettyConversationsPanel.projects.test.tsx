@@ -286,6 +286,7 @@ const createProjectSpy = vi.fn<
   ok: true as const,
   slug: name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, ""),
 }));
+const getArchivePreflightSpy = vi.fn(async (_hostId: number, _slug: string) => ({ hiddenSubProjects: 0 }));
 const archiveProjectSpy = vi.fn<
   (hostId: number, slug: string) => Promise<{ ok: true }>
 >(async () => ({ ok: true as const }));
@@ -300,6 +301,8 @@ vi.mock("@/api/project-list-api", () => ({
     createProjectSpy(hostId, displayName),
   archiveProject: (hostId: number, slug: string) =>
     archiveProjectSpy(hostId, slug),
+  getArchivePreflight: (hostId: number, slug: string) =>
+    getArchivePreflightSpy(hostId, slug),
   getProjectFile: (hostId: number, slug: string) =>
     getProjectFileSpy(hostId, slug),
   updateProjectFile: (hostId: number, slug: string, contents: string) =>

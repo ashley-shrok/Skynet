@@ -984,7 +984,7 @@ export function parseListProjectsBatchOutput(stdout: string): Map<string, string
  * (slug, null users, null parent) — a missing users list falls open per the
  * Phase 135 D-3 fallback (matches identity-appearance discipline).
  */
-function projectMetaFromMarkdown(
+export function projectMetaFromMarkdown(
   slug: string,
   markdown: string,
 ): {
@@ -998,7 +998,11 @@ function projectMetaFromMarkdown(
   let parent: string | null = null;
   try {
     if (markdown.length > 0) {
-      const fmMatch = markdown.match(/^---\r?\n([\s\S]*?)\r?\n---/);
+      // A leading BOM is not content — the sweep (utf-8-sig) and the
+        // file watcher skip it too, so all three read the same frontmatter.
+        const fmMatch = markdown
+          .replace(/^\uFEFF/, "")
+          .match(/^---\r?\n([\s\S]*?)\r?\n---/);
       if (fmMatch) {
         // Tolerant parse — see extractRoleFromMarkdown docblock. Critical
         // for the project-visibility gate: same "malformed prose field
@@ -1176,7 +1180,22 @@ export function applyProjectParentLine(
     let at = 0;
     if (dnIdx !== -1) {
       at = dnIdx + 1;
-      while (at < kept.length && /^[ \t]/.test(kept[at])) at += 1;
+      // Indented lines continue the value; so do blank lines inside it
+      // (a folded block can hold paragraph breaks) — a blank run counts
+      // only when an indented line follows it.
+      for (;;) {
+        if (at < kept.length && /^[ \t]/.test(kept[at])) {
+          at += 1;
+          continue;
+        }
+        let k = at;
+        while (k < kept.length && kept[k].trim() === "") k += 1;
+        if (k > at && k < kept.length && /^[ \t]/.test(kept[k])) {
+          at = k;
+          continue;
+        }
+        break;
+      }
     }
     kept.splice(at, 0, `parent: ${parent}${eol}`);
   }
@@ -1184,8 +1203,64 @@ export function applyProjectParentLine(
 }
 
 /**
+ * Pure line-based rewrite of a project.md's top-level `users:` key to a block
+ * list of `users` (every other byte preserved, like applyProjectParentLine).
+ * Removes the existing key — flow form, or block header plus its indented
+ * items and any blank/comment lines inside the block — and writes the new
+ * block where it sat, or right after `displayName:` / `parent:` when there
+ * was none. Usernames that aren't plain words are written double-quoted.
+ * A file with no closed frontmatter is returned unchanged.
+ */
+export function applyProjectUsersBlock(
+  markdown: string,
+  users: readonly string[],
+): string {
+  const fm = markdown.match(
+    /^(\uFEFF?---\r?\n)((?:[^\n]*\n)*?)(---(?:\r?\n|$))/,
+  );
+  if (!fm) return markdown;
+  const [whole, open, body, close] = fm;
+  const eol = open.endsWith("\r\n") ? "\r\n" : "\n";
+  const lines = body.match(/[^\n]*\n/g) ?? [];
+  const kept: string[] = [];
+  let at = -1;
+  for (let i = 0; i < lines.length; i++) {
+    if (/^users\s*:/.test(lines[i])) {
+      if (at === -1) at = kept.length;
+      if (!/^users\s*:\s*\[/.test(lines[i])) {
+        while (
+          i + 1 < lines.length &&
+          (/^\s+-/.test(lines[i + 1]) ||
+            lines[i + 1].trim() === "" ||
+            lines[i + 1].trimStart().startsWith("#"))
+        ) {
+          i += 1;
+        }
+      }
+      continue;
+    }
+    kept.push(lines[i]);
+  }
+  if (at === -1) {
+    // After the last displayName/parent line and any indented continuation.
+    at = 0;
+    kept.forEach((l, i) => {
+      if (/^(displayName|parent)\s*:/.test(l)) at = i + 1;
+    });
+    if (at > 0) while (at < kept.length && /^[ \t]/.test(kept[at])) at += 1;
+  }
+  const quote = (u: string) =>
+    /^[A-Za-z0-9._@-]+$/.test(u) ? u : JSON.stringify(u);
+  const block = [`users:${eol}`, ...users.map((u) => `  - ${quote(u)}${eol}`)];
+  kept.splice(at, 0, ...block);
+  return open + kept.join("") + close + markdown.slice(whole.length);
+}
+
+/**
  * Set (string) or clear (null) the `parent:` line of an existing project's
  * project.md via readProjectFile → applyProjectParentLine → writeProjectFile.
+ * `users`, when given, also rewrites the project's own `users:` list in the
+ * same write (a move that would widen its audience keeps the old one).
  * Slugs are validated before any I/O. A bare project dir with no project.md
  * gains one carrying just the parent line; a missing dir surfaces as ENOENT
  * from writeProjectFile. No write when the file already says the same thing.
@@ -1194,6 +1269,7 @@ export async function setProjectParentField(
   conn: SSHClientType | null,
   slug: string,
   parent: string | null,
+  users?: readonly string[],
 ): Promise<{ markdown: string }> {
   if (!PROJECT_SLUG_RE.test(slug)) {
     throw new Error("invalid project slug");
@@ -1202,7 +1278,10 @@ export async function setProjectParentField(
     throw new Error("invalid parent project slug");
   }
   const { markdown } = await readProjectFile(conn, slug);
-  const next = applyProjectParentLine(markdown, parent);
+  let next = applyProjectParentLine(markdown, parent);
+  if (users !== undefined && users.length > 0) {
+    next = applyProjectUsersBlock(next, users);
+  }
   if (next === markdown) return { markdown };
   return writeProjectFile(conn, slug, next);
 }
