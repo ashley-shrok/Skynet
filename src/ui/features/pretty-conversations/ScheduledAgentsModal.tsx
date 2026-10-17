@@ -483,7 +483,7 @@ export function ScheduledAgentsModal({
             placeholder="Search name or prompt…"
             aria-label="Search scheduled tasks"
             data-testid="scheduled-agents-modal-filter-search"
-            wrapperClassName="basis-full md:basis-auto flex-1"
+            wrapperClassName="basis-full md:basis-auto flex-1 md:min-w-[220px]"
           />
           <KitSelect
             value={roleFilter}

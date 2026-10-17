@@ -186,7 +186,7 @@ export function ScheduledAgentsModalRow({
           )}
         </span>
       )}
-      <span className="block mt-0.5 text-[var(--k-t2)] line-clamp-2 break-words">{row.prompt}</span>
+      <span className="mt-0.5 text-[var(--k-t2)] line-clamp-2 break-words">{row.prompt}</span>
       {row.roles.length > 0 && (
         <span className="flex flex-wrap gap-1.5 mt-1.5">
           {row.roles.map((r) => (
