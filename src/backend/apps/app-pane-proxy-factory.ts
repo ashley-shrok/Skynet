@@ -449,6 +449,19 @@ export function getOrCreateAppPaneProxyForTarget(
         ) {
           return;
         }
+        // Mirror of serve-url/proxy-factory.ts: headers already forwarded
+        // (mid-body upstream reset) or a raw WS socket — setHeader would
+        // throw ERR_HTTP_HEADERS_SENT uncaught and kill the backend.
+        if (expressRes.headersSent || typeof expressRes.setHeader !== "function") {
+          sshLogger.warn("apps pane proxy: error after headers sent — destroying client response", {
+            operation: "apps_pane_proxy_error_after_headers",
+            target: `${target.hostname}:${target.port}`,
+            errorClass,
+            errCode: typeof e.code === "string" ? e.code : "",
+          });
+          (expressRes as unknown as { destroy?: () => void }).destroy?.();
+          return;
+        }
         const expressReq = req as Request;
         const hostHeader = expressReq.headers.host ?? "";
         const originalUrl = hostHeader

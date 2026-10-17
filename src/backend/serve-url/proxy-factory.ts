@@ -253,6 +253,21 @@ export function getOrCreateProxyForTarget(
         if (!expressRes || (expressRes as unknown as { writableEnded?: boolean }).writableEnded) {
           return;
         }
+        // Upstream reset AFTER headers were forwarded (mid-body ECONNRESET),
+        // or a WS upgrade whose `res` is a raw socket: an interstitial can't
+        // be written. setHeader would throw ERR_HTTP_HEADERS_SENT from this
+        // emitter callback — an uncaught exception that kills the backend.
+        // Destroy so the client sees a truncated response instead.
+        if (expressRes.headersSent || typeof expressRes.setHeader !== "function") {
+          sshLogger.warn("serve-url proxy: error after headers sent — destroying client response", {
+            operation: "serve_url_proxy_error_after_headers",
+            target: `${target.hostname}:${target.port}`,
+            errorClass,
+            errCode: typeof e.code === "string" ? e.code : "",
+          });
+          (expressRes as unknown as { destroy?: () => void }).destroy?.();
+          return;
+        }
         const expressReq = req as Request;
         const hostHeader = expressReq.headers.host ?? "";
         const originalUrl = hostHeader

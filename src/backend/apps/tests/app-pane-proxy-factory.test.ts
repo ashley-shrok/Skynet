@@ -1068,3 +1068,44 @@ describe("buildPaneMountPathRewrite (HIGH-2 unit coverage)", () => {
     expect(rewrite("/5/my-cool-app/pane/api/list")).toBe("/api/list");
   });
 });
+
+/* ------------------------------------------------------------------------ */
+/*  on.error — never write an interstitial after headers are sent            */
+/* ------------------------------------------------------------------------ */
+
+describe("on.error hook", () => {
+  async function errorHook(port: number) {
+    const { getOrCreateAppPaneProxyForTarget } = await import(
+      "../app-pane-proxy-factory.js"
+    );
+    getOrCreateAppPaneProxyForTarget(makeTarget("err-host", port), 40000 + port, 1, "todo");
+    const opts = lastOptions() as {
+      on: { error: (err: unknown, req: unknown, res: unknown) => void };
+    };
+    return opts.on.error;
+  }
+
+  it("destroys the response instead of writing the interstitial when headers are already sent", async () => {
+    const onError = await errorHook(7001);
+    const res = { headersSent: true, writableEnded: false, setHeader: vi.fn(), destroy: vi.fn() };
+    onError(Object.assign(new Error("reset"), { code: "ECONNRESET" }), makeExpressReq(), res);
+    expect(res.destroy).toHaveBeenCalledTimes(1);
+    expect(mocks.writeInterstitial).not.toHaveBeenCalled();
+  });
+
+  it("destroys a raw WS socket (no setHeader) instead of writing the interstitial", async () => {
+    const onError = await errorHook(7002);
+    const socket = { writableEnded: false, destroy: vi.fn() };
+    onError(Object.assign(new Error("reset"), { code: "ECONNRESET" }), makeExpressReq(), socket);
+    expect(socket.destroy).toHaveBeenCalledTimes(1);
+    expect(mocks.writeInterstitial).not.toHaveBeenCalled();
+  });
+
+  it("writes the interstitial when headers have not been sent", async () => {
+    const onError = await errorHook(7003);
+    const res = { headersSent: false, writableEnded: false, setHeader: vi.fn(), destroy: vi.fn() };
+    onError(Object.assign(new Error("refused"), { code: "ECONNREFUSED" }), makeExpressReq(), res);
+    expect(mocks.writeInterstitial).toHaveBeenCalledTimes(1);
+    expect(res.destroy).not.toHaveBeenCalled();
+  });
+});
