@@ -668,6 +668,7 @@ describe("useVoiceMode", () => {
       const { result } = await startVoiceMode(baseArgs({ send }));
       const rec = MockMediaRecorder.instances[MockMediaRecorder.instances.length - 1];
       // Slices arrived while recording; then stop() drops both data and onstop.
+      rec.mimeType = "audio/mp4";
       rec.ondataavailable?.({ data: new Blob(["slice1"], { type: "audio/mp4" }) });
       rec.ondataavailable?.({ data: new Blob(["slice2"], { type: "audio/mp4" }) });
       rec.stop = vi.fn(() => {
@@ -677,10 +678,29 @@ describe("useVoiceMode", () => {
       await sayPiece();
       await flush(9000 + TIMED_END_MS);
       const lines = warn.mock.calls.map((c) => String(c[0]));
-      expect(lines.some((l) => /\[voice-mode\] recorder-onstop-salvaged rid=\d+ chunks=2 bytes=12 /.test(l))).toBe(true);
+      expect(lines.some((l) => /\[voice-mode\] recorder-onstop-salvaged via=watchdog rid=\d+ chunks=2 bytes=12 /.test(l))).toBe(true);
       expect(cuesPlayed).not.toContain("alarm");
       expect(send).toHaveBeenCalled();
       expect(result.current.phase).not.toBe("off");
+    });
+
+    it("salvages the sliced audio when the browser stopped the recorder itself (iOS interruption)", async () => {
+      const send = vi.fn(() => true);
+      const warn = vi.spyOn(console, "warn");
+      await startVoiceMode(baseArgs({ send }));
+      const rec = MockMediaRecorder.instances[MockMediaRecorder.instances.length - 1];
+      rec.mimeType = "audio/mp4";
+      rec.ondataavailable?.({ data: new Blob(["slice1"], { type: "audio/mp4" }) });
+      transcribeReturns("check the build");
+      setLevel(0.2);
+      await flush(600);
+      rec.state = "inactive"; // stopped mid-piece, final data/onstop never fire
+      setLevel(0);
+      await flush(PIECE_GAP_MS + 100 + TIMED_END_MS);
+      const lines = warn.mock.calls.map((c) => String(c[0]));
+      expect(lines.some((l) => /\[voice-mode\] recorder-onstop-salvaged via=already-inactive rid=\d+ chunks=1 /.test(l))).toBe(true);
+      expect(cuesPlayed).not.toContain("alarm");
+      expect(send).toHaveBeenCalled();
     });
 
     it("bails when a transcription attempt hangs instead of waiting forever", async () => {

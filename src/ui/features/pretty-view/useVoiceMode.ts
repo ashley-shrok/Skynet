@@ -246,6 +246,10 @@ interface RecorderSlot {
   /** Per-session sequence number, for matching log lines. */
   id: number;
   startedAt: number;
+  /** dataavailable events seen (including empty ones) — drives log throttling. */
+  dataEvents: number;
+  /** When the last non-empty slice arrived, or null before the first. */
+  lastChunkAt: number | null;
 }
 
 /** Mic track state for logs: readyState / muted / enabled per audio track. */
@@ -382,7 +386,19 @@ export function useVoiceMode(args: UseVoiceModeArgs): UseVoiceModeReturn {
       `[voice-mode] recorder-stop rid=${id} state=${recorder.state} keep=${keep} ageMs=${ageMs} ` +
         `chunks=${chunks.length} ${describeTracks(streamRef.current)} ${tagRef.current}`,
     );
-    if (recorder.state === "inactive") return Promise.resolve(null);
+    // Whatever slices arrived are kept — the recorder never delivered the rest.
+    const salvage = (via: string): Blob | null => {
+      if (!keep || chunks.length === 0) return null;
+      const blob = new Blob(chunks, { type: recorder.mimeType || "audio/webm" });
+      const lastSliceAgoMs = slot.lastChunkAt === null ? "none" : Math.round(performance.now() - slot.lastChunkAt);
+      console.warn(
+        `[voice-mode] recorder-onstop-salvaged via=${via} rid=${id} chunks=${chunks.length} bytes=${blob.size} ` +
+          `ageMs=${ageMs} lastSliceAgoMs=${lastSliceAgoMs} ${tagRef.current}`,
+      );
+      return blob;
+    };
+    // Already stopped by the browser (e.g. an iOS audio interruption).
+    if (recorder.state === "inactive") return Promise.resolve(salvage("already-inactive"));
     const stopAt = performance.now();
     return new Promise((resolve) => {
       let done = false;
@@ -406,15 +422,9 @@ export function useVoiceMode(args: UseVoiceModeArgs): UseVoiceModeReturn {
             `[voice-mode] recorder-onstop-watchdog rid=${id} state=${recorder.state} chunks=${chunks.length} ` +
               `${describeTracks(streamRef.current)} ctx=${ctxRef.current?.state ?? "none"} ${tagRef.current}`,
           );
-          const blob = keep && chunks.length > 0 ? new Blob(chunks, { type: recorder.mimeType || "audio/webm" }) : null;
-          if (blob) {
-            // Only the last slice (≤ RECORDER_TIMESLICE_MS of audio) is missing.
-            console.warn(
-              `[voice-mode] recorder-onstop-salvaged rid=${id} chunks=${chunks.length} bytes=${blob.size} ` +
-                `ageMs=${ageMs} ${tagRef.current}`,
-            );
-          }
-          finish(blob);
+          // A stalled recorder may still be emitting slices — stop collecting them.
+          recorder.ondataavailable = null;
+          finish(salvage("watchdog"));
         }
       }, RECORDER_STOP_WATCHDOG_MS);
       try {
@@ -431,12 +441,23 @@ export function useVoiceMode(args: UseVoiceModeArgs): UseVoiceModeReturn {
     try {
       const recorder = new MediaRecorder(stream);
       const id = nextRecorderIdRef.current++;
-      const slot: RecorderSlot = { recorder, chunks: [], id, startedAt: performance.now() };
+      const slot: RecorderSlot = {
+        recorder,
+        chunks: [],
+        id,
+        startedAt: performance.now(),
+        dataEvents: 0,
+        lastChunkAt: null,
+      };
       const tag = () => `rid=${id} ${tagRef.current}`;
       recorder.ondataavailable = (e: BlobEvent) => {
-        if (e.data && e.data.size > 0) slot.chunks.push(e.data);
+        slot.dataEvents += 1;
+        if (e.data && e.data.size > 0) {
+          slot.chunks.push(e.data);
+          slot.lastChunkAt = performance.now();
+        }
         // Slices arrive every RECORDER_TIMESLICE_MS — log only the first and the final one.
-        if (slot.chunks.length <= 1 || recorder.state !== "recording") {
+        if (slot.dataEvents === 1 || recorder.state !== "recording") {
           console.info(
             `[voice-mode] recorder-data bytes=${e.data?.size ?? 0} state=${recorder.state} ` +
               `chunks=${slot.chunks.length} ${tag()}`,
