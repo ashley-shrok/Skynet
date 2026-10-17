@@ -34,7 +34,10 @@ import { connectOneShot } from "../ssh/ssh-one-shot.js";
 import { resolveHostById } from "../ssh/host-resolver.js";
 import { readIdentityTrappedWork } from "./identity-artifact-reader.js";
 import { getHostSemaphore } from "../ssh/host-semaphore-registry.js";
-import { __handleIdentityProbeTrappedWorkForTests } from "./claude-session-server.js";
+import {
+  __handleIdentityProbeTrappedWorkForTests,
+  TRAPPED_WORK_PER_CONN_CONCURRENCY,
+} from "./claude-session-server.js";
 
 type TrappedMsg = {
   type: "identity:trapped-work";
@@ -363,5 +366,36 @@ describe("identity:probe-trapped-work handler — batched per-target fan-out", (
     for (const r of sent[0].results) {
       expect(r).toMatchObject({ hostId: null, hasTrappedWork: false, error: "hostId is required" });
     }
+  });
+
+  it("30 targets on ONE remote connection never run more than 8 reads at once (MaxSessions guard), all answered in order", async () => {
+    expect(TRAPPED_WORK_PER_CONN_CONCURRENCY).toBe(8);
+    const fakeConn = makeFakeConn("t1000");
+    vi.mocked(resolveHostById).mockResolvedValue({ ip: "1.2.3.4", username: "ubuntu" } as never);
+    vi.mocked(connectOneShot).mockResolvedValue(fakeConn as never);
+    let active = 0;
+    let peak = 0;
+    vi.mocked(readIdentityTrappedWork).mockImplementation(async (_conn, key) => {
+      active++;
+      peak = Math.max(peak, active);
+      await new Promise((r) => setTimeout(r, 1));
+      active--;
+      if (key === "id-7") throw new Error("exec failed");
+      return { hasTrappedWork: key === "id-3" };
+    });
+    const targets = Array.from({ length: 30 }, (_, i) => ({ identityKey: `id-${i}`, hostId: 42 }));
+
+    await __handleIdentityProbeTrappedWorkForTests(
+      wsStub as unknown as import("ws").WebSocket,
+      { type: "identity:probe-trapped-work", targets },
+      /* userId */ 1,
+    );
+
+    expect(connectOneShot).toHaveBeenCalledTimes(1);
+    expect(peak).toBe(8);
+    expect(sent[0].results.map((r) => r.identityKey)).toEqual(targets.map((t) => t.identityKey));
+    expect(sent[0].results[3]).toMatchObject({ hasTrappedWork: true });
+    expect(sent[0].results[7]).toMatchObject({ hasTrappedWork: false, error: "exec failed" });
+    expect(fakeConn.end).toHaveBeenCalledTimes(1);
   });
 });

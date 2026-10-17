@@ -95,6 +95,7 @@ import {
 } from "./identity-artifact-reader.js";
 import { ROLE_NAME_PATTERN } from "../database/routes/identity-birth-orchestrator.js";
 import { getHostSemaphore } from "../ssh/host-semaphore-registry.js";
+import { settleWithConcurrency } from "../utils/settle-with-concurrency.js";
 
 /**
  * Live Claude-session WebSocket server on port 30011.
@@ -1221,11 +1222,16 @@ function requireHostId(
 //   - Otherwise: group by hostId, connectOneShot ONCE per hostId group,
 //     run every identity in the group through that single conn, close in
 //     try/finally.
-//   - Per-target Promise.allSettled so one dead SSH host doesn't block the batch.
+//   - Per-target allSettled (at most TRAPPED_WORK_PER_CONN_CONCURRENCY execs in
+//     flight per connection) so one dead SSH host doesn't block the batch.
 //   - Rejected reads → {hasTrappedWork:false, error:string}. Zero-with-error
 //     keeps the wire shape uniform for the frontend consumer (Plan 02).
 
 type TrappedWorkTarget = { identityKey: string; hostId: number | null };
+
+/** Max concurrent exec channels per one-shot connection in the trapped-work
+ *  probe — under OpenSSH's default MaxSessions=10 with headroom. */
+export const TRAPPED_WORK_PER_CONN_CONCURRENCY = 8;
 type TrappedWorkResult = {
   identityKey: string;
   hostId: number | null;
@@ -1346,8 +1352,21 @@ export async function handleIdentityProbeTrappedWork(
               resolved as unknown as Parameters<typeof connectOneShot>[0],
               5000,
             );
-            const settled = await Promise.allSettled(
-              bucket.map((t) => readOneTrappedWorkTarget(conn, t.identityKey)),
+            // Every read is its own exec channel on this ONE connection;
+            // bound them so a ~30-identity host never exceeds sshd's
+            // per-connection MaxSessions (OpenSSH default 10).
+            if (bucket.length > TRAPPED_WORK_PER_CONN_CONCURRENCY) {
+              sshLogger.info("identity:probe-trapped-work: bounding per-connection exec concurrency", {
+                operation: "trapped_work_probe_concurrency_bounded",
+                hostId: hostIdNum,
+                targets: bucket.length,
+                limit: TRAPPED_WORK_PER_CONN_CONCURRENCY,
+              });
+            }
+            const settled = await settleWithConcurrency(
+              bucket,
+              TRAPPED_WORK_PER_CONN_CONCURRENCY,
+              (t) => readOneTrappedWorkTarget(conn, t.identityKey),
             );
             return settled.map((s, i) => {
               const t = bucket[i];
@@ -1453,16 +1472,18 @@ export async function handleIdentityGetRoleFile(
         try { ws.send(JSON.stringify({ type: "identity:role-file", markdown: "", error: "host not found" })); } catch (err) { databaseLogger.warn(`[ws-server] send-failed msgType=identity:role-file err="${err instanceof Error ? err.message : String(err)}"`, { operation: "ws_send_failed" }); }
         return;
       }
-      const conn = await connectOneShot(resolved as unknown as Parameters<typeof connectOneShot>[0], 5000);
-      try {
-        ({ markdown } = await readRoleFile(conn, identityKey));
-        sshLogger.info("identity:get-role-file", {
-          operation: "identity_get_role_file",
-          userId, identityKey, hostId: hostIdNum, useLocal: false, payloadSize: markdown.length,
-        });
-      } finally {
-        try { conn.end(); } catch (err) { databaseLogger.warn(`[ws-server] conn-end-failed err="${err instanceof Error ? err.message : String(err)}"`, { operation: "ws_conn_end_failed" }); }
-      }
+      await getHostSemaphore(hostIdNum).run(async () => {
+        const conn = await connectOneShot(resolved as unknown as Parameters<typeof connectOneShot>[0], 5000);
+        try {
+          ({ markdown } = await readRoleFile(conn, identityKey));
+          sshLogger.info("identity:get-role-file", {
+            operation: "identity_get_role_file",
+            userId, identityKey, hostId: hostIdNum, useLocal: false, payloadSize: markdown.length,
+          });
+        } finally {
+          try { conn.end(); } catch (err) { databaseLogger.warn(`[ws-server] conn-end-failed err="${err instanceof Error ? err.message : String(err)}"`, { operation: "ws_conn_end_failed" }); }
+        }
+      });
     }
     try { ws.send(JSON.stringify({ type: "identity:role-file", markdown })); } catch (err) { databaseLogger.warn(`[ws-server] send-failed msgType=identity:role-file err="${err instanceof Error ? err.message : String(err)}"`, { operation: "ws_send_failed" }); }
   } catch (err: unknown) {
@@ -1518,12 +1539,14 @@ export async function handleIdentityUpdateRoleFile(
       } else {
         const resolvedHost = await resolveHostById(hostIdNum, userId);
         if (resolvedHost) {
-          const probeConn = await connectOneShot(resolvedHost as unknown as Parameters<typeof connectOneShot>[0], 5000);
-          try {
-            resolvedRole = await resolveRoleForIdentity(probeConn, identityKey);
-          } finally {
-            try { probeConn.end(); } catch { /* best-effort */ }
-          }
+          await getHostSemaphore(hostIdNum).run(async () => {
+            const probeConn = await connectOneShot(resolvedHost as unknown as Parameters<typeof connectOneShot>[0], 5000);
+            try {
+              resolvedRole = await resolveRoleForIdentity(probeConn, identityKey);
+            } finally {
+              try { probeConn.end(); } catch { /* best-effort */ }
+            }
+          });
         }
       }
     } catch {
@@ -1555,18 +1578,20 @@ export async function handleIdentityUpdateRoleFile(
         try { ws.send(JSON.stringify({ type: "identity:role-file-updated", markdown: "", error: "host not found" })); } catch (err) { databaseLogger.warn(`[ws-server] send-failed msgType=identity:role-file-updated err="${err instanceof Error ? err.message : String(err)}"`, { operation: "ws_send_failed" }); }
         return;
       }
-      const conn = await connectOneShot(resolved as unknown as Parameters<typeof connectOneShot>[0], 5000);
-      try {
-        await writeRoleFile(conn, identityKey, contents);
-        ({ markdown } = await readRoleFile(conn, identityKey));
-        sshLogger.info("identity:update-role-file", {
-          operation: "identity_update_role_file",
-          userId, identityKey, hostId: hostIdNum, useLocal: false,
-          bytes: Buffer.byteLength(contents, "utf-8"),
-        });
-      } finally {
-        try { conn.end(); } catch (err) { databaseLogger.warn(`[ws-server] conn-end-failed err="${err instanceof Error ? err.message : String(err)}"`, { operation: "ws_conn_end_failed" }); }
-      }
+      await getHostSemaphore(hostIdNum).run(async () => {
+        const conn = await connectOneShot(resolved as unknown as Parameters<typeof connectOneShot>[0], 5000);
+        try {
+          await writeRoleFile(conn, identityKey, contents);
+          ({ markdown } = await readRoleFile(conn, identityKey));
+          sshLogger.info("identity:update-role-file", {
+            operation: "identity_update_role_file",
+            userId, identityKey, hostId: hostIdNum, useLocal: false,
+            bytes: Buffer.byteLength(contents, "utf-8"),
+          });
+        } finally {
+          try { conn.end(); } catch (err) { databaseLogger.warn(`[ws-server] conn-end-failed err="${err instanceof Error ? err.message : String(err)}"`, { operation: "ws_conn_end_failed" }); }
+        }
+      });
     }
     if (instanceWideMachineId) afterAdminWrite(instanceWideMachineId);
     try { ws.send(JSON.stringify({ type: "identity:role-file-updated", markdown })); } catch (err) { databaseLogger.warn(`[ws-server] send-failed msgType=identity:role-file-updated err="${err instanceof Error ? err.message : String(err)}"`, { operation: "ws_send_failed" }); }
@@ -1651,18 +1676,20 @@ export async function handleRoleUpdateFile(
         try { ws.send(JSON.stringify({ type: "role:file-updated", markdown: "", error: "host not found" })); } catch (err) { databaseLogger.warn(`[ws-server] send-failed msgType=role:file-updated err="${err instanceof Error ? err.message : String(err)}"`, { operation: "ws_send_failed" }); }
         return;
       }
-      const conn = await connectOneShot(resolved as unknown as Parameters<typeof connectOneShot>[0], 5000);
-      try {
-        await writeRoleFileByName(conn, roleName, contents);
-        ({ markdown } = await readRoleFileByName(conn, roleName));
-        sshLogger.info("role:update-file", {
-          operation: "role_update_file",
-          userId, roleName, hostId: hostIdNum, useLocal: false,
-          bytes: Buffer.byteLength(contents, "utf-8"),
-        });
-      } finally {
-        try { conn.end(); } catch (err) { databaseLogger.warn(`[ws-server] conn-end-failed err="${err instanceof Error ? err.message : String(err)}"`, { operation: "ws_conn_end_failed" }); }
-      }
+      await getHostSemaphore(hostIdNum).run(async () => {
+        const conn = await connectOneShot(resolved as unknown as Parameters<typeof connectOneShot>[0], 5000);
+        try {
+          await writeRoleFileByName(conn, roleName, contents);
+          ({ markdown } = await readRoleFileByName(conn, roleName));
+          sshLogger.info("role:update-file", {
+            operation: "role_update_file",
+            userId, roleName, hostId: hostIdNum, useLocal: false,
+            bytes: Buffer.byteLength(contents, "utf-8"),
+          });
+        } finally {
+          try { conn.end(); } catch (err) { databaseLogger.warn(`[ws-server] conn-end-failed err="${err instanceof Error ? err.message : String(err)}"`, { operation: "ws_conn_end_failed" }); }
+        }
+      });
     }
     if (instanceWideMachineId) afterAdminWrite(instanceWideMachineId);
     try { ws.send(JSON.stringify({ type: "role:file-updated", markdown })); } catch (err) { databaseLogger.warn(`[ws-server] send-failed msgType=role:file-updated err="${err instanceof Error ? err.message : String(err)}"`, { operation: "ws_send_failed" }); }
@@ -1731,16 +1758,18 @@ export async function handleRoleGetFile(
         try { ws.send(JSON.stringify({ type: "role:file-loaded", markdown: "", error: "host not found" })); } catch (err) { databaseLogger.warn(`[ws-server] send-failed msgType=role:file-loaded err="${err instanceof Error ? err.message : String(err)}"`, { operation: "ws_send_failed" }); }
         return;
       }
-      const conn = await connectOneShot(resolved as unknown as Parameters<typeof connectOneShot>[0], 5000);
-      try {
-        ({ markdown } = await readRoleFileByName(conn, roleName));
-        sshLogger.info("role:get-file", {
-          operation: "role_get_file",
-          userId, roleName, hostId: hostIdNum, useLocal: false, payloadSize: markdown.length,
-        });
-      } finally {
-        try { conn.end(); } catch (err) { databaseLogger.warn(`[ws-server] conn-end-failed err="${err instanceof Error ? err.message : String(err)}"`, { operation: "ws_conn_end_failed" }); }
-      }
+      await getHostSemaphore(hostIdNum).run(async () => {
+        const conn = await connectOneShot(resolved as unknown as Parameters<typeof connectOneShot>[0], 5000);
+        try {
+          ({ markdown } = await readRoleFileByName(conn, roleName));
+          sshLogger.info("role:get-file", {
+            operation: "role_get_file",
+            userId, roleName, hostId: hostIdNum, useLocal: false, payloadSize: markdown.length,
+          });
+        } finally {
+          try { conn.end(); } catch (err) { databaseLogger.warn(`[ws-server] conn-end-failed err="${err instanceof Error ? err.message : String(err)}"`, { operation: "ws_conn_end_failed" }); }
+        }
+      });
     }
     try { ws.send(JSON.stringify({ type: "role:file-loaded", markdown })); } catch (err) { databaseLogger.warn(`[ws-server] send-failed msgType=role:file-loaded err="${err instanceof Error ? err.message : String(err)}"`, { operation: "ws_send_failed" }); }
   } catch (err) {
@@ -1856,17 +1885,19 @@ export async function handleIdentityCreateWakeup(
         try { ws.send(JSON.stringify({ type: "identity:wakeup-created", wakeups: [], error: "host not found" })); } catch (err) { databaseLogger.warn(`[ws-server] send-failed msgType=identity:wakeup-created err="${err instanceof Error ? err.message : String(err)}"`, { operation: "ws_send_failed" }); }
         return;
       }
-      const conn = await connectOneShot(resolved as unknown as Parameters<typeof connectOneShot>[0], 5000);
-      try {
-        ({ wakeups } = await writeIdentityWakeupCreate(conn, identityKey, spec));
-        sshLogger.info("identity:create-wakeup", {
-          operation: "identity_create_wakeup",
-          userId, identityKey, hostId: hostIdNum, useLocal: false,
-          name: spec.name,
-        });
-      } finally {
-        try { conn.end(); } catch (err) { databaseLogger.warn(`[ws-server] conn-end-failed err="${err instanceof Error ? err.message : String(err)}"`, { operation: "ws_conn_end_failed" }); }
-      }
+      await getHostSemaphore(hostIdNum).run(async () => {
+        const conn = await connectOneShot(resolved as unknown as Parameters<typeof connectOneShot>[0], 5000);
+        try {
+          ({ wakeups } = await writeIdentityWakeupCreate(conn, identityKey, spec));
+          sshLogger.info("identity:create-wakeup", {
+            operation: "identity_create_wakeup",
+            userId, identityKey, hostId: hostIdNum, useLocal: false,
+            name: spec.name,
+          });
+        } finally {
+          try { conn.end(); } catch (err) { databaseLogger.warn(`[ws-server] conn-end-failed err="${err instanceof Error ? err.message : String(err)}"`, { operation: "ws_conn_end_failed" }); }
+        }
+      });
     }
     try { ws.send(JSON.stringify({ type: "identity:wakeup-created", wakeups })); } catch (err) { databaseLogger.warn(`[ws-server] send-failed msgType=identity:wakeup-created err="${err instanceof Error ? err.message : String(err)}"`, { operation: "ws_send_failed" }); }
   } catch (err) {
@@ -1917,16 +1948,18 @@ export async function handleIdentityDeleteWakeup(
         try { ws.send(JSON.stringify({ type: "identity:wakeup-deleted", wakeups: [], error: "host not found" })); } catch (err) { databaseLogger.warn(`[ws-server] send-failed msgType=identity:wakeup-deleted err="${err instanceof Error ? err.message : String(err)}"`, { operation: "ws_send_failed" }); }
         return;
       }
-      const conn = await connectOneShot(resolved as unknown as Parameters<typeof connectOneShot>[0], 5000);
-      try {
-        ({ wakeups } = await writeIdentityWakeupDelete(conn, identityKey, wakeupSlug));
-        sshLogger.info("identity:delete-wakeup", {
-          operation: "identity_delete_wakeup",
-          userId, identityKey, wakeupSlug, hostId: hostIdNum, useLocal: false,
-        });
-      } finally {
-        try { conn.end(); } catch (err) { databaseLogger.warn(`[ws-server] conn-end-failed err="${err instanceof Error ? err.message : String(err)}"`, { operation: "ws_conn_end_failed" }); }
-      }
+      await getHostSemaphore(hostIdNum).run(async () => {
+        const conn = await connectOneShot(resolved as unknown as Parameters<typeof connectOneShot>[0], 5000);
+        try {
+          ({ wakeups } = await writeIdentityWakeupDelete(conn, identityKey, wakeupSlug));
+          sshLogger.info("identity:delete-wakeup", {
+            operation: "identity_delete_wakeup",
+            userId, identityKey, wakeupSlug, hostId: hostIdNum, useLocal: false,
+          });
+        } finally {
+          try { conn.end(); } catch (err) { databaseLogger.warn(`[ws-server] conn-end-failed err="${err instanceof Error ? err.message : String(err)}"`, { operation: "ws_conn_end_failed" }); }
+        }
+      });
     }
     try { ws.send(JSON.stringify({ type: "identity:wakeup-deleted", wakeups })); } catch (err) { databaseLogger.warn(`[ws-server] send-failed msgType=identity:wakeup-deleted err="${err instanceof Error ? err.message : String(err)}"`, { operation: "ws_send_failed" }); }
   } catch (err) {
@@ -5374,16 +5407,18 @@ wss.on("connection", async (ws: WebSocket, req) => {
             try { ws.send(JSON.stringify({ type: "identity:identity-file", markdown: "", error: "host not found" })); } catch (err) { databaseLogger.warn(`[ws-server] send-failed msgType=identity:identity-file err="${err instanceof Error ? err.message : String(err)}"`, { operation: "ws_send_failed" }); }
             return;
           }
-          const conn = await connectOneShot(resolved as unknown as Parameters<typeof connectOneShot>[0], 5000);
-          try {
-            ({ markdown } = await readIdentityFile(conn, identityKey));
-            sshLogger.info("identity:get-identity-file", {
-              operation: "identity_get_identity_file",
-              userId, identityKey, hostId: hostIdNum, useLocal: false, payloadSize: markdown.length,
-            });
-          } finally {
-            try { conn.end(); } catch (err) { databaseLogger.warn(`[ws-server] conn-end-failed err="${err instanceof Error ? err.message : String(err)}"`, { operation: "ws_conn_end_failed" }); }
-          }
+          await getHostSemaphore(hostIdNum).run(async () => {
+            const conn = await connectOneShot(resolved as unknown as Parameters<typeof connectOneShot>[0], 5000);
+            try {
+              ({ markdown } = await readIdentityFile(conn, identityKey));
+              sshLogger.info("identity:get-identity-file", {
+                operation: "identity_get_identity_file",
+                userId, identityKey, hostId: hostIdNum, useLocal: false, payloadSize: markdown.length,
+              });
+            } finally {
+              try { conn.end(); } catch (err) { databaseLogger.warn(`[ws-server] conn-end-failed err="${err instanceof Error ? err.message : String(err)}"`, { operation: "ws_conn_end_failed" }); }
+            }
+          });
         }
         try { ws.send(JSON.stringify({ type: "identity:identity-file", markdown })); } catch (err) { databaseLogger.warn(`[ws-server] send-failed msgType=identity:identity-file err="${err instanceof Error ? err.message : String(err)}"`, { operation: "ws_send_failed" }); }
       } catch (err: unknown) {
@@ -5438,16 +5473,18 @@ wss.on("connection", async (ws: WebSocket, req) => {
             try { ws.send(JSON.stringify({ type: "identity:wakeups", wakeups: [], error: "host not found" })); } catch (err) { databaseLogger.warn(`[ws-server] send-failed msgType=identity:wakeups err="${err instanceof Error ? err.message : String(err)}"`, { operation: "ws_send_failed" }); }
             return;
           }
-          const conn = await connectOneShot(resolved as unknown as Parameters<typeof connectOneShot>[0], 5000);
-          try {
-            ({ wakeups } = await readIdentityWakeups(conn, identityKey));
-            sshLogger.info("identity:list-wakeups", {
-              operation: "identity_list_wakeups",
-              userId, identityKey, hostId: hostIdNum, useLocal: false, payloadSize: wakeups.length,
-            });
-          } finally {
-            try { conn.end(); } catch (err) { databaseLogger.warn(`[ws-server] conn-end-failed err="${err instanceof Error ? err.message : String(err)}"`, { operation: "ws_conn_end_failed" }); }
-          }
+          await getHostSemaphore(hostIdNum).run(async () => {
+            const conn = await connectOneShot(resolved as unknown as Parameters<typeof connectOneShot>[0], 5000);
+            try {
+              ({ wakeups } = await readIdentityWakeups(conn, identityKey));
+              sshLogger.info("identity:list-wakeups", {
+                operation: "identity_list_wakeups",
+                userId, identityKey, hostId: hostIdNum, useLocal: false, payloadSize: wakeups.length,
+              });
+            } finally {
+              try { conn.end(); } catch (err) { databaseLogger.warn(`[ws-server] conn-end-failed err="${err instanceof Error ? err.message : String(err)}"`, { operation: "ws_conn_end_failed" }); }
+            }
+          });
         }
         try { ws.send(JSON.stringify({ type: "identity:wakeups", wakeups })); } catch (err) { databaseLogger.warn(`[ws-server] send-failed msgType=identity:wakeups err="${err instanceof Error ? err.message : String(err)}"`, { operation: "ws_send_failed" }); }
       } catch (err) {
@@ -5541,18 +5578,20 @@ wss.on("connection", async (ws: WebSocket, req) => {
             try { ws.send(JSON.stringify({ type: "identity:wakeup-updated", wakeups: [], error: "host not found" })); } catch (err) { databaseLogger.warn(`[ws-server] send-failed msgType=identity:wakeup-updated err="${err instanceof Error ? err.message : String(err)}"`, { operation: "ws_send_failed" }); }
             return;
           }
-          const conn = await connectOneShot(resolved as unknown as Parameters<typeof connectOneShot>[0], 5000);
-          try {
-            await writeIdentityWakeupUpdate(conn, identityKey, wakeupSlug, filtered);
-            ({ wakeups } = await readIdentityWakeups(conn, identityKey));
-            sshLogger.info("identity:update-wakeup", {
-              operation: "identity_update_wakeup",
-              userId, identityKey, wakeupSlug, hostId: hostIdNum, useLocal: false,
-              fields: Object.keys(filtered).join(","),
-            });
-          } finally {
-            try { conn.end(); } catch (err) { databaseLogger.warn(`[ws-server] conn-end-failed err="${err instanceof Error ? err.message : String(err)}"`, { operation: "ws_conn_end_failed" }); }
-          }
+          await getHostSemaphore(hostIdNum).run(async () => {
+            const conn = await connectOneShot(resolved as unknown as Parameters<typeof connectOneShot>[0], 5000);
+            try {
+              await writeIdentityWakeupUpdate(conn, identityKey, wakeupSlug, filtered);
+              ({ wakeups } = await readIdentityWakeups(conn, identityKey));
+              sshLogger.info("identity:update-wakeup", {
+                operation: "identity_update_wakeup",
+                userId, identityKey, wakeupSlug, hostId: hostIdNum, useLocal: false,
+                fields: Object.keys(filtered).join(","),
+              });
+            } finally {
+              try { conn.end(); } catch (err) { databaseLogger.warn(`[ws-server] conn-end-failed err="${err instanceof Error ? err.message : String(err)}"`, { operation: "ws_conn_end_failed" }); }
+            }
+          });
         }
         try { ws.send(JSON.stringify({ type: "identity:wakeup-updated", wakeups })); } catch (err) { databaseLogger.warn(`[ws-server] send-failed msgType=identity:wakeup-updated err="${err instanceof Error ? err.message : String(err)}"`, { operation: "ws_send_failed" }); }
       } catch (err) {
@@ -5621,18 +5660,20 @@ wss.on("connection", async (ws: WebSocket, req) => {
             try { ws.send(JSON.stringify({ type: "identity:identity-file-updated", markdown: "", error: "host not found" })); } catch (err) { databaseLogger.warn(`[ws-server] send-failed msgType=identity:identity-file-updated err="${err instanceof Error ? err.message : String(err)}"`, { operation: "ws_send_failed" }); }
             return;
           }
-          const conn = await connectOneShot(resolved as unknown as Parameters<typeof connectOneShot>[0], 5000);
-          try {
-            await writeIdentityFile(conn, identityKey, contents);
-            ({ markdown } = await readIdentityFile(conn, identityKey));
-            sshLogger.info("identity:update-identity-file", {
-              operation: "identity_update_identity_file",
-              userId, identityKey, hostId: hostIdNum, useLocal: false,
-              bytes: Buffer.byteLength(contents, "utf-8"),
-            });
-          } finally {
-            try { conn.end(); } catch (err) { databaseLogger.warn(`[ws-server] conn-end-failed err="${err instanceof Error ? err.message : String(err)}"`, { operation: "ws_conn_end_failed" }); }
-          }
+          await getHostSemaphore(hostIdNum).run(async () => {
+            const conn = await connectOneShot(resolved as unknown as Parameters<typeof connectOneShot>[0], 5000);
+            try {
+              await writeIdentityFile(conn, identityKey, contents);
+              ({ markdown } = await readIdentityFile(conn, identityKey));
+              sshLogger.info("identity:update-identity-file", {
+                operation: "identity_update_identity_file",
+                userId, identityKey, hostId: hostIdNum, useLocal: false,
+                bytes: Buffer.byteLength(contents, "utf-8"),
+              });
+            } finally {
+              try { conn.end(); } catch (err) { databaseLogger.warn(`[ws-server] conn-end-failed err="${err instanceof Error ? err.message : String(err)}"`, { operation: "ws_conn_end_failed" }); }
+            }
+          });
         }
         try { ws.send(JSON.stringify({ type: "identity:identity-file-updated", markdown })); } catch (err) { databaseLogger.warn(`[ws-server] send-failed msgType=identity:identity-file-updated err="${err instanceof Error ? err.message : String(err)}"`, { operation: "ws_send_failed" }); }
       } catch (err) {
@@ -5718,18 +5759,20 @@ wss.on("connection", async (ws: WebSocket, req) => {
             try { ws.send(JSON.stringify({ type: "identity:handoff-updated", markdown: "", error: "host not found" })); } catch (err) { databaseLogger.warn(`[ws-server] send-failed msgType=identity:handoff-updated err="${err instanceof Error ? err.message : String(err)}"`, { operation: "ws_send_failed" }); }
             return;
           }
-          const conn = await connectOneShot(resolved as unknown as Parameters<typeof connectOneShot>[0], 5000);
-          try {
-            await writeIdentityHandoff(conn, identityKey, contents);
-            ({ markdown } = await readIdentityHandoff(conn, identityKey));
-            sshLogger.info("identity:update-handoff", {
-              operation: "identity_update_handoff",
-              userId, identityKey, hostId: hostIdNum, useLocal: false,
-              bytes: Buffer.byteLength(contents, "utf-8"),
-            });
-          } finally {
-            try { conn.end(); } catch (err) { databaseLogger.warn(`[ws-server] conn-end-failed err="${err instanceof Error ? err.message : String(err)}"`, { operation: "ws_conn_end_failed" }); }
-          }
+          await getHostSemaphore(hostIdNum).run(async () => {
+            const conn = await connectOneShot(resolved as unknown as Parameters<typeof connectOneShot>[0], 5000);
+            try {
+              await writeIdentityHandoff(conn, identityKey, contents);
+              ({ markdown } = await readIdentityHandoff(conn, identityKey));
+              sshLogger.info("identity:update-handoff", {
+                operation: "identity_update_handoff",
+                userId, identityKey, hostId: hostIdNum, useLocal: false,
+                bytes: Buffer.byteLength(contents, "utf-8"),
+              });
+            } finally {
+              try { conn.end(); } catch (err) { databaseLogger.warn(`[ws-server] conn-end-failed err="${err instanceof Error ? err.message : String(err)}"`, { operation: "ws_conn_end_failed" }); }
+            }
+          });
         }
         try { ws.send(JSON.stringify({ type: "identity:handoff-updated", markdown })); } catch (err) { databaseLogger.warn(`[ws-server] send-failed msgType=identity:handoff-updated err="${err instanceof Error ? err.message : String(err)}"`, { operation: "ws_send_failed" }); }
       } catch (err) {
@@ -5775,16 +5818,18 @@ wss.on("connection", async (ws: WebSocket, req) => {
             try { ws.send(JSON.stringify({ type: "identity:handoff", markdown: "", error: "host not found" })); } catch (err) { databaseLogger.warn(`[ws-server] send-failed msgType=identity:handoff err="${err instanceof Error ? err.message : String(err)}"`, { operation: "ws_send_failed" }); }
             return;
           }
-          const conn = await connectOneShot(resolved as unknown as Parameters<typeof connectOneShot>[0], 5000);
-          try {
-            ({ markdown } = await readIdentityHandoff(conn, identityKey));
-            sshLogger.info("identity:get-handoff", {
-              operation: "identity_get_handoff",
-              userId, identityKey, hostId: hostIdNum, useLocal: false, payloadSize: markdown.length,
-            });
-          } finally {
-            try { conn.end(); } catch (err) { databaseLogger.warn(`[ws-server] conn-end-failed err="${err instanceof Error ? err.message : String(err)}"`, { operation: "ws_conn_end_failed" }); }
-          }
+          await getHostSemaphore(hostIdNum).run(async () => {
+            const conn = await connectOneShot(resolved as unknown as Parameters<typeof connectOneShot>[0], 5000);
+            try {
+              ({ markdown } = await readIdentityHandoff(conn, identityKey));
+              sshLogger.info("identity:get-handoff", {
+                operation: "identity_get_handoff",
+                userId, identityKey, hostId: hostIdNum, useLocal: false, payloadSize: markdown.length,
+              });
+            } finally {
+              try { conn.end(); } catch (err) { databaseLogger.warn(`[ws-server] conn-end-failed err="${err instanceof Error ? err.message : String(err)}"`, { operation: "ws_conn_end_failed" }); }
+            }
+          });
         }
         try { ws.send(JSON.stringify({ type: "identity:handoff", markdown })); } catch (err) { databaseLogger.warn(`[ws-server] send-failed msgType=identity:handoff err="${err instanceof Error ? err.message : String(err)}"`, { operation: "ws_send_failed" }); }
       } catch (err: unknown) {

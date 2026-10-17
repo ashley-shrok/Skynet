@@ -46,6 +46,26 @@ vi.mock("./identity-artifact-reader.js", async (importOriginal) => {
   };
 });
 
+// Per-host semaphore spy: records which hostId was acquired and whether the
+// connect + work + end ran INSIDE the slot.
+const semEvents: string[] = [];
+vi.mock("../ssh/host-semaphore-registry.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../ssh/host-semaphore-registry.js")>();
+  return {
+    ...actual,
+    getHostSemaphore: vi.fn((hostId: string | number) => ({
+      run: async <T>(fn: () => Promise<T>): Promise<T> => {
+        semEvents.push(`acquire:${hostId}`);
+        try {
+          return await fn();
+        } finally {
+          semEvents.push(`release:${hostId}`);
+        }
+      },
+    })),
+  };
+});
+
 import { connectOneShot } from "../ssh/ssh-one-shot.js";
 import { resolveHostById } from "../ssh/host-resolver.js";
 import { readRoleFile, writeRoleFile } from "./identity-artifact-reader.js";
@@ -184,6 +204,28 @@ describe("identity:get-role-file WS handler", () => {
 
     // Response OK
     expect(sent[0]).toEqual({ type: "identity:role-file", markdown: "role body\n" });
+  });
+
+  it("REMOTE branch: connect + read + end all run inside the per-host semaphore slot", async () => {
+    semEvents.length = 0;
+    const fakeConn = { end: vi.fn(() => semEvents.push("end")) };
+    vi.mocked(resolveHostById).mockResolvedValue({ ip: "1.2.3.4", username: "ubuntu" } as never);
+    vi.mocked(connectOneShot).mockImplementation(async () => {
+      semEvents.push("connect");
+      return fakeConn as never;
+    });
+    vi.mocked(readRoleFile).mockImplementation(async () => {
+      semEvents.push("read");
+      return { markdown: "x" };
+    });
+
+    await __handleIdentityGetRoleFileForTests(
+      wsStub as unknown as import("ws").WebSocket,
+      { type: "identity:get-role-file", identityKey: "tina", hostId: 42 },
+      "1",
+    );
+
+    expect(semEvents).toEqual(["acquire:42", "connect", "read", "end", "release:42"]);
   });
 });
 
