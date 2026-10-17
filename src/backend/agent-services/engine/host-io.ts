@@ -132,6 +132,14 @@ export function localRequestIo(now: () => number = Date.now): HostRequestIo {
 
 export interface ResponseWriterDeps {
   isLocalHostId(hostIdNum: number): boolean;
+  /**
+   * System-wrapped (CSKEK) connection details for a substrate host — the same
+   * `_connDetails` the scan used to claim the request. Preferred over the
+   * owner-creds path, which needs the owner's per-user data key in memory
+   * (only there while they have a live browser session). Returns null when
+   * the host has no system-wrapped credential.
+   */
+  getSystemConnDetails(hostIdNum: number): Promise<unknown>;
   getHostOwnerUserId(hostIdNum: number): Promise<string | null>;
   resolveHostById(hostIdNum: number, userId: string): Promise<unknown>;
   connect(hostDetails: unknown): Promise<SSHClientType>;
@@ -186,18 +194,36 @@ export function createResponseWriter(deps: ResponseWriterDeps): ResponseWriter {
         await write(null);
         return;
       }
-      const ownerUserId = await deps.getHostOwnerUserId(hostIdNum);
-      const hostDetails = ownerUserId
-        ? await deps.resolveHostById(hostIdNum, ownerUserId)
-        : null;
+      let credSource: "system" | "user" = "system";
+      let hostDetails: unknown = await deps.getSystemConnDetails(hostIdNum);
       if (!hostDetails) {
-        systemLogger.warn("agent-services: host not found for response write", {
-          operation: "agent_services_response_host_not_found",
-          uuid,
-          hostIdNum,
-        });
+        credSource = "user";
+        const ownerUserId = await deps.getHostOwnerUserId(hostIdNum);
+        hostDetails = ownerUserId
+          ? await deps.resolveHostById(hostIdNum, ownerUserId)
+          : null;
+      }
+      if (!hostDetails) {
+        // The requesting agent polls for this response and will wait until
+        // its own timeout — make the drop loud.
+        systemLogger.error(
+          "agent-services: host not found for response write — reply dropped",
+          undefined,
+          {
+            operation: "agent_services_response_host_not_found",
+            uuid,
+            hostId: hostIdNum,
+            credSource,
+          },
+        );
         return;
       }
+      systemLogger.info("agent-services: response host resolved", {
+        operation: "agent_services_response_host_resolved",
+        uuid,
+        hostId: hostIdNum,
+        credSource,
+      });
       const conn = await deps.connect(hostDetails);
       try {
         await write(conn);

@@ -125,6 +125,7 @@ function makeEngine() {
     }),
     writeResponse: createResponseWriter({
       isLocalHostId: () => true,
+      getSystemConnDetails: async () => null,
       getHostOwnerUserId: async () => null,
       resolveHostById: async () => null,
       connect: async () => {

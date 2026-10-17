@@ -46,6 +46,29 @@ async function getHostOwnerUserId(hostIdNum: number): Promise<string | null> {
   return rows[0]?.userId ?? null;
 }
 
+// Latest system-wrapped (CSKEK) conn details per substrate host, refreshed on
+// every scan tick. The response writer uses these so replies never depend on
+// the host owner's per-user data key (only in memory during a live session).
+const systemConnDetailsByHost = new Map<string, Record<string, unknown>>();
+
+async function listSubstrateHostsCaching() {
+  const list = await listSubstrateHosts({ getDb });
+  systemConnDetailsByHost.clear();
+  for (const h of list) systemConnDetailsByHost.set(h.id, h._connDetails);
+  return list;
+}
+
+async function getSystemConnDetails(
+  hostIdNum: number,
+): Promise<Record<string, unknown> | null> {
+  const key = String(hostIdNum);
+  const cached = systemConnDetailsByHost.get(key);
+  if (cached) return cached;
+  // Cache miss (e.g. first tick not yet complete) — fetch fresh.
+  await listSubstrateHostsCaching();
+  return systemConnDetailsByHost.get(key) ?? null;
+}
+
 export function startAgentServices(): void {
   const engine = createAgentServiceEngine({
     services: AGENT_SERVICES,
@@ -53,6 +76,7 @@ export function startAgentServices(): void {
     loadUserSecret: getUserSecret,
     writeResponse: createResponseWriter({
       isLocalHostId,
+      getSystemConnDetails,
       getHostOwnerUserId,
       resolveHostById,
       connect: (hostDetails) =>
@@ -117,7 +141,7 @@ export function startAgentServices(): void {
   }
 
   const orchestrator = createScanOrchestrator({
-    listSubstrateHosts: () => listSubstrateHosts({ getDb }),
+    listSubstrateHosts: listSubstrateHostsCaching,
     acquireChannel,
     isLocalHostId,
     sshIo: sshRequestIo,

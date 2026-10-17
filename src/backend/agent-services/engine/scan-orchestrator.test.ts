@@ -1,4 +1,5 @@
 import { describe, it, expect, vi } from "vitest";
+import { systemLogger } from "../../utils/logger.js";
 
 vi.mock("../../utils/logger.js", () => {
   const stub = {
@@ -119,6 +120,7 @@ describe("response writer", () => {
       conn,
       deps: {
         isLocalHostId: () => local,
+        getSystemConnDetails: vi.fn(async (): Promise<unknown> => null),
         getHostOwnerUserId: vi.fn(async () => "owner"),
         resolveHostById: vi.fn(async () => ({ ip: "10.0.0.1" })),
         connect: vi.fn(async () => conn as never),
@@ -133,6 +135,45 @@ describe("response writer", () => {
       },
     };
   }
+
+  it("uses system-wrapped conn details when present — no owner key needed", async () => {
+    const w = writerDeps(false);
+    const sys = { ip: "10.0.0.9", key: "k" };
+    w.deps.getSystemConnDetails.mockResolvedValueOnce(sys);
+    // Owner's per-user key not in memory → per-user resolver would return null.
+    w.deps.resolveHostById.mockResolvedValue(null as never);
+    await createResponseWriter(w.deps)(5, "u", [], "u.response.json", "{}");
+    expect(w.deps.connect).toHaveBeenCalledWith(sys);
+    expect(w.deps.resolveHostById).not.toHaveBeenCalled();
+    expect(w.deps.getHostOwnerUserId).not.toHaveBeenCalled();
+    expect(w.calls).toEqual([
+      "text ssh $HOME/fleet/service-requests/u.response.json",
+    ]);
+    expect(systemLogger.info).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.objectContaining({
+        operation: "agent_services_response_host_resolved",
+        hostId: 5,
+        credSource: "system",
+      }),
+    );
+  });
+
+  it("logs an ERROR (not warn) when no conn details resolve at all", async () => {
+    const w = writerDeps(false);
+    w.deps.resolveHostById.mockResolvedValue(null as never);
+    await createResponseWriter(w.deps)(5, "u", [], "u.response.json", "{}");
+    expect(w.deps.connect).not.toHaveBeenCalled();
+    expect(systemLogger.error).toHaveBeenCalledWith(
+      expect.any(String),
+      undefined,
+      expect.objectContaining({
+        operation: "agent_services_response_host_not_found",
+        hostId: 5,
+        credSource: "user",
+      }),
+    );
+  });
 
   it("writes outputs before the response, over one SSH connection", async () => {
     const w = writerDeps(false);
