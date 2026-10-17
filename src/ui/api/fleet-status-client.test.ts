@@ -1764,7 +1764,7 @@ describe("useSessionDesktopRunning — follows the fleet-status stream", () => {
     ...(withAppearance ? { identityAppearance: appearance(desktopRunning) } : {}),
   });
 
-  it("snapshot/update set it, an appearance-less frame keeps it, a later snapshot without the session clears it, gone and disconnect clear it", async () => {
+  it("snapshot/update set it, an appearance-less frame keeps it, a later snapshot without the session clears it, gone clears it, and a reconnect snapshot keeps a still-running button mounted", async () => {
     vi.useRealTimers();
     const { renderHook, act } = await import("@testing-library/react");
     const mod = await import("./fleet-status-client.js");
@@ -1800,10 +1800,18 @@ describe("useSessionDesktopRunning — follows the fleet-status stream", () => {
     expect(result.current).toBe(false);
     send({ type: "update", state: state(true) });
     expect(result.current).toBe(true);
-    act(() => {
-      ws.onclose?.({ code: 1006, reason: "" });
+    // Reconnect: the snapshot rebuilds; a desktop still running never reads
+    // false in between (no unmount, no re-pulse).
+    const seen: boolean[] = [];
+    const { result: watch } = renderHook(() => {
+      const v = mod.useSessionDesktopRunning(42, "tina");
+      seen.push(v);
+      return v;
     });
-    expect(result.current).toBe(false);
+    seen.length = 0;
+    send({ type: "snapshot", states: [state(true)] });
+    expect(watch.current).toBe(true);
+    expect(seen.includes(false)).toBe(false);
     __disposeAllClientsForTest();
   });
 });

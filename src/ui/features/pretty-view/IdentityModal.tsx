@@ -62,7 +62,7 @@ import { WakeupsTab } from "./WakeupsTab";
 import { sensorStatusUnreachable } from "@/api/sensor-status-types";
 import WorkspaceTab from "./WorkspaceTab";
 import GitTab from "./GitTab";
-import { useHasGitRepos } from "./use-has-git-repos";
+import { useGitReposAnswer } from "./use-has-git-repos";
 import DesktopTab from "./DesktopTab";
 import { useDesktopRunning } from "./use-desktop-running";
 import { bumpModalOpen } from "@/lib/freeze-diag";
@@ -200,10 +200,17 @@ export function IdentityModal({
 
   // Git tab only when the workspace actually holds a repo.
   const gitTarget = { kind: "identity" as const, identityKey: identity.identityKey };
-  const hasGitRepos = useHasGitRepos(gitTarget, hostId, open) || (open && gitReposHint);
+  // The hint covers only the wait for the probe; once it answers, it decides.
+  const gitReposAnswer = useGitReposAnswer(gitTarget, hostId, open);
+  const hasGitRepos = gitReposAnswer ?? (open && gitReposHint);
   // Desktop tab only once the identity's virtual desktop is up.
   const desktopRunningPolled = useDesktopRunning(identity.identityKey, hostId, open);
-  const desktopRunning = desktopRunningPolled || (open && desktopRunningHint);
+  // The live hint latches for the modal session, like the poll does, so a
+  // stream blip never pulls the Desktop tab out from under the user.
+  const [desktopHintLatched, setDesktopHintLatched] = useState(false);
+  if (open && desktopRunningHint && !desktopHintLatched) setDesktopHintLatched(true);
+  if (!open && desktopHintLatched) setDesktopHintLatched(false);
+  const desktopRunning = desktopRunningPolled || (open && (desktopRunningHint || desktopHintLatched));
   // While the user drives the desktop, Esc belongs to it, not to the modal.
   const [desktopControl, setDesktopControl] = useState(false);
   // Reopening on a remembered Desktop tab would show an empty, large modal

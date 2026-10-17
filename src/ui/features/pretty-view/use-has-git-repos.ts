@@ -8,6 +8,15 @@ import type { WorkspaceTarget } from "@/api/workspace-git-api";
  * false: there is nothing useful the tab could show then either.
  */
 export function useHasGitRepos(target: WorkspaceTarget, hostId: number, enabled: boolean): boolean {
+  return useGitReposAnswer(target, hostId, enabled) === true;
+}
+
+/** Same probe, but `null` until it has answered for this workspace. */
+export function useGitReposAnswer(
+  target: WorkspaceTarget,
+  hostId: number,
+  enabled: boolean,
+): boolean | null {
   const key = `${hostId}:${target.kind === "identity" ? `identity:${target.identityKey}` : `role:${target.roleSlug}`}`;
   // Keyed so a stale answer for another workspace never shows, while closing
   // and reopening the same modal keeps the tab instead of flickering it.
@@ -24,5 +33,5 @@ export function useHasGitRepos(target: WorkspaceTarget, hostId: number, enabled:
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [key, enabled]);
-  return answer?.key === key && answer.has;
+  return answer?.key === key ? answer.has : null;
 }

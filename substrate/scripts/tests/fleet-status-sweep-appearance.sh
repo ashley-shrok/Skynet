@@ -378,12 +378,15 @@ test_case_06_sentinels() {
 test_case_06b_desktop_running() {
   local base=$(( 60000 + RANDOM % 1000 ))
   local live_n=$base dead_n=$(( base + 1000 )) reused_n=$(( base + 2000 ))
-  # A stand-in X server: a copy of `sleep` named X…, so its process name
-  # starts with X.
-  cp "$(command -v sleep)" "$FIXTURE/Xfakeserver"
-  "$FIXTURE/Xfakeserver" 60 &
+  # A stand-in X server: a process that renames itself to X… (Linux
+  # PR_SET_NAME), so its process name starts with X.
+  python3 -c "import ctypes,time; ctypes.CDLL(None).prctl(15, b'Xfakeserver', 0, 0, 0); time.sleep(60)" &
   local xpid=$!
-  trap 'kill "$xpid" 2>/dev/null; rm -f "/tmp/.X${live_n}-lock" "/tmp/.X${dead_n}-lock" "/tmp/.X${reused_n}-lock"; trap - RETURN' RETURN
+  local nosock_n=$(( base + 3000 ))
+  trap 'kill "$xpid" 2>/dev/null; rm -f "/tmp/.X${live_n}-lock" "/tmp/.X${dead_n}-lock" "/tmp/.X${reused_n}-lock" "/tmp/.X${nosock_n}-lock" "/tmp/.X11-unix/X${live_n}" "/tmp/.X11-unix/X${dead_n}" "/tmp/.X11-unix/X${reused_n}"; trap - RETURN' RETURN
+  sleep 0.3  # let it rename itself
+  mkdir -p /tmp/.X11-unix
+  touch "/tmp/.X11-unix/X${live_n}" "/tmp/.X11-unix/X${dead_n}" "/tmp/.X11-unix/X${reused_n}"
 
   make_identity "deskon" "---\n---\n"
   mkdir -p "$FIXTURE/fleet/identities/deskon/desktop"
@@ -400,6 +403,12 @@ test_case_06b_desktop_running() {
   printf '%s\n' "$reused_n" > "$FIXTURE/fleet/identities/deskreused/desktop/display"
   printf '%10d\n' "$$" > "/tmp/.X${reused_n}-lock"
 
+  # Live X server and lock, but its socket isn't up yet (still starting).
+  make_identity "desknosock" "---\n---\n"
+  mkdir -p "$FIXTURE/fleet/identities/desknosock/desktop"
+  printf '%s\n' "$nosock_n" > "$FIXTURE/fleet/identities/desknosock/desktop/display"
+  printf '%10d\n' "$xpid" > "/tmp/.X${nosock_n}-lock"
+
   make_identity "desknone" "---\n---\n"
 
   local out
@@ -407,6 +416,7 @@ test_case_06b_desktop_running() {
   assert_identity_field "$out" "deskon" "desktop_running" 'true'
   assert_identity_field "$out" "deskdead" "desktop_running" 'false'
   assert_identity_field "$out" "deskreused" "desktop_running" 'false'
+  assert_identity_field "$out" "desknosock" "desktop_running" 'false'
   assert_identity_field "$out" "desknone" "desktop_running" 'false'
 }
 

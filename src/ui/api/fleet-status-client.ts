@@ -256,13 +256,12 @@ export function createFleetStatusClient(
           // user's onSnapshot callback fires AFTER — matches the existing
           // ordering discipline in AppShell where session-working-store,
           // session-waiting-store, session-tmux-store all publish first.
-          // A snapshot is the full fleet: rebuild the desktop flags from it so
-          // a session missing from it can't keep a stale "running".
-          clearSessionDesktopRunning();
           for (const s of parsed.states) {
             publishSessionContextPct(s.hostId, s.tmuxSession, s.contextPct ?? null);
-            publishSessionDesktopRunning(s.hostId, s.tmuxSession, s.identityAppearance);
           }
+          // A snapshot is the full fleet: rebuild the desktop flags from it so
+          // a session missing from it can't keep a stale "running".
+          replaceSessionDesktopRunning(parsed.states);
           onSnapshot(parsed.states);
           break;
         case "update":
@@ -423,9 +422,6 @@ export function createFleetStatusClient(
 
     ws.onclose = (evt: CloseEvent) => {
       if (disposed) return;
-      // Disconnected → we no longer know whose desktop runs; hide every
-      // desktop button until the reconnect snapshot says otherwise.
-      clearSessionDesktopRunning();
       // Bounty t800-frontend-websocket-leak-on-container-recreate:
       // detach handler property refs on the just-closed WS BEFORE nulling the
       // module ref + scheduling replacement connect(). Without this, the dead
@@ -816,9 +812,40 @@ function publishSessionDesktopRunningGone(
   for (const cb of desktopRunningListeners) cb();
 }
 
-function clearSessionDesktopRunning(): void {
-  if (desktopRunningStore.size === 0) return;
+/**
+ * Rebuild the store from a full snapshot in one step: sessions absent from it
+ * are dropped, a frame without appearance keeps its prior value, and
+ * listeners hear once — only if something actually changed — so buttons that
+ * stay on across a reconnect never unmount (and never re-pulse).
+ */
+function replaceSessionDesktopRunning(
+  states: ReadonlyArray<{
+    hostId: string;
+    tmuxSession: string | null;
+    identityAppearance?: { desktopRunning?: boolean } | null;
+  }>,
+): void {
+  const next = new Map<string, boolean>();
+  for (const s of states) {
+    const key = contextPctKey(s.hostId, s.tmuxSession);
+    if (s.identityAppearance != null) {
+      next.set(key, s.identityAppearance.desktopRunning === true);
+    } else if (desktopRunningStore.has(key)) {
+      next.set(key, desktopRunningStore.get(key)!);
+    }
+  }
+  let changed = next.size !== desktopRunningStore.size;
+  for (const [key, running] of next) {
+    if (desktopRunningStore.get(key) !== running) {
+      changed = true;
+      if (running || desktopRunningStore.get(key) === true) {
+        console.info(`[desktop-running] snapshot key=${key} running=${running}`);
+      }
+    }
+  }
+  if (!changed) return;
   desktopRunningStore.clear();
+  for (const [key, running] of next) desktopRunningStore.set(key, running);
   for (const cb of desktopRunningListeners) cb();
 }
 

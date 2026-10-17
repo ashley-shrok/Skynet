@@ -1352,7 +1352,8 @@ def _desktop_running(name, home):
     agent-desktop records the identity's display number in
     ~/fleet/identities/<name>/desktop/display; the X server for display :N
     writes its pid to /tmp/.XN-lock and removes it on clean exit. Running =
-    that lock names a live X server process. Pure file reads — cheap enough for every
+    that lock is ours, names a live X server process, and the server's
+    socket exists. Pure file reads — cheap enough for every
     tick. Any read failure reads as not running (fail-closed: the app must
     never advertise a desktop that isn't there).
     """
@@ -1361,7 +1362,16 @@ def _desktop_running(name, home):
             n = f.read().strip()
         if not n.isdigit():
             return False
-        with open("/tmp/.X%s-lock" % n) as f:
+        lock = "/tmp/.X%s-lock" % n
+        # Ours only: /tmp is shared, and another user's desktop can hold the
+        # display number this identity used before its desktop stopped.
+        if os.stat(lock).st_uid != os.getuid():
+            return False
+        # The server's socket appears once it is accepting clients — closer
+        # to agent-desktop's own "ready" than the lock alone.
+        if not os.path.exists("/tmp/.X11-unix/X%s" % n):
+            return False
+        with open(lock) as f:
             pid = f.read().strip()
         if not pid.isdigit():
             return False

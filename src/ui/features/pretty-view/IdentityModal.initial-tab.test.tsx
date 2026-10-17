@@ -82,7 +82,12 @@ vi.mock("@/main-axios", () => ({
 // The modal's own checks report nothing (desktop not yet seen, no repo yet) —
 // only the hints from the pill can make the tabs show.
 vi.mock("./use-desktop-running", () => ({ useDesktopRunning: () => false }));
-vi.mock("./use-has-git-repos", () => ({ useHasGitRepos: () => false }));
+// null = the repo probe hasn't answered yet; tests set it to settle the probe.
+let gitProbeAnswer: boolean | null = null;
+vi.mock("./use-has-git-repos", () => ({
+  useHasGitRepos: () => gitProbeAnswer === true,
+  useGitReposAnswer: () => gitProbeAnswer,
+}));
 vi.mock("./DesktopTab", () => ({
   default: () => <div data-testid="desktop-tab-stub" />,
 }));
@@ -110,6 +115,7 @@ const BASE_IDENTITY: Identity = {
 beforeEach(() => {
   vi.clearAllMocks();
   openedSockets.length = 0;
+  gitProbeAnswer = null;
 });
 afterEach(() => {
   cleanup();
@@ -159,6 +165,26 @@ describe("IdentityModal — opening on a requested tab", () => {
     );
     expect(screen.queryByTestId("desktop-tab-stub")).toBeNull();
     expect(screen.getByTestId("identity-modal").className).not.toContain("sm:max-w-[min(1200px,80vw)]");
+  });
+
+  it("Git hint covers only the wait: once the probe says no repo, the Git tab goes and the agent file shows", async () => {
+    const { rerender } = render(<Harness open={true} initialTab="git" gitReposHint={true} />);
+    expect(await screen.findByTestId("git-tab-stub")).toBeTruthy();
+    gitProbeAnswer = false;
+    rerender(<Harness open={true} initialTab="git" gitReposHint={true} />);
+    await waitFor(() => expect(screen.queryByTestId("identity-modal-nav-git")).toBeNull());
+    expect(screen.queryByTestId("git-tab-stub")).toBeNull();
+  });
+
+  it("Desktop hint latches while open: a stream blip (hint drops) doesn't pull the Desktop tab away", async () => {
+    const { rerender } = render(<Harness open={true} initialTab="desktop" desktopRunningHint={true} />);
+    await screen.findByTestId("desktop-tab-stub");
+    rerender(<Harness open={true} initialTab="desktop" desktopRunningHint={false} />);
+    expect(screen.getByTestId("desktop-tab-stub")).toBeTruthy();
+    // Closing ends the latch: a later open without the hint has no Desktop tab.
+    rerender(<Harness open={false} initialTab="desktop" desktopRunningHint={false} />);
+    rerender(<Harness open={true} initialTab={undefined} desktopRunningHint={false} />);
+    await waitFor(() => expect(screen.queryByTestId("identity-modal-nav-desktop")).toBeNull());
   });
 
   it("no hints → no Desktop / Git tabs (the modal's own checks decide)", async () => {
