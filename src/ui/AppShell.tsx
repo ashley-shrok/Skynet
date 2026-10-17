@@ -3920,12 +3920,12 @@ export function AppShell({
                     width: 64,
                     height: 64,
                     background:
-                      "linear-gradient(160deg, hsla(218, 25%, 22%, 0.85), hsla(218, 25%, 14%, 0.9))",
+                      "linear-gradient(160deg, hsla(218, 25%, 22%, 0.94), hsla(218, 25%, 14%, 0.96))",
                     border: "1px solid hsla(218, 35%, 55%, 0.35)",
                     boxShadow:
                       "0 4px 12px rgba(0,0,0,0.6), inset 0 2px 0 rgba(220,225,245,0.3), 0 0 24px hsla(218, 40%, 55%, 0.3)",
-                    backdropFilter: "blur(20px) saturate(1.4)",
-                    WebkitBackdropFilter: "blur(20px) saturate(1.4)",
+                    // No backdrop-filter: floats over the scrolling chat and
+                    // would re-blur every frame on iPhone.
                   }
                 : {}),
             }}
@@ -4025,10 +4025,27 @@ export function AppShell({
             takes the full width and prepends a top-left back button
             header. Desktop path is unchanged. */}
         <div
-          className={`relative flex flex-col flex-1 min-w-0 overflow-hidden transition-all duration-200`}
+          className={`relative flex flex-col flex-1 min-w-0 overflow-hidden`}
           style={
             isMobileListScreen
-              ? { width: 0, flex: "0 0 0px", overflow: "hidden" }
+              ? // Parked off-flow at its full on-screen size instead of being
+                // squeezed to 0px wide: a 0px squeeze re-wrapped every bubble of
+                // every mounted chat on each list<->chat switch (and the old
+                // transition-all animated that, 200ms of layout per frame —
+                // iPhone jank). Same box as the view screen (top = safe-area,
+                // paddingTop 12) so showing it again needs no relayout;
+                // content-visibility skips rendering it while hidden.
+                {
+                  position: "fixed",
+                  top: "max(env(safe-area-inset-top), 0px)",
+                  left: 0,
+                  right: 0,
+                  bottom: 0,
+                  paddingTop: 12,
+                  visibility: "hidden",
+                  pointerEvents: "none",
+                  contentVisibility: "hidden",
+                }
               : isTouchDevice
                 ? { paddingTop: 12 }
                 : undefined
