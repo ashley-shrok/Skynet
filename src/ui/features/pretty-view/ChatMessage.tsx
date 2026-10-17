@@ -47,7 +47,14 @@ import { buildSkynetFileUrl, isSkynetFileUrl } from "./file-url";
 // command names and paths still read as code.
 const NO_VOICES: readonly string[] = [];
 
-export function ChatMessage({
+// Module-scope plugin list: a fresh array literal per render would make
+// ReactMarkdown treat every render as a new pipeline (perf, iPhone scroll jank).
+const REMARK_PLUGINS = [remarkGfm, remarkBreaks];
+
+// Memoized: the bubble list re-renders on every new message / PrettyView state
+// change; an unchanged bubble must skip markdown re-parse entirely. Props from
+// PrettyView are stable (memoized values + ref-backed handlers).
+export const ChatMessage = React.memo(function ChatMessage({
   role,
   content,
   speakVoices = NO_VOICES,
@@ -174,7 +181,10 @@ export function ChatMessage({
   // Assistant messages never trigger the parser (role gate — defense in
   // depth against an assistant reply that coincidentally quotes the
   // delimiter substring in prose).
-  const injected = isUser ? parseInjectedUserTurn(content) : null;
+  const injected = useMemo(
+    () => (isUser ? parseInjectedUserTurn(content) : null),
+    [isUser, content],
+  );
   // Quick-reply as-a-thumbs-up: a user message whose text is exactly the
   // quick-reply payload "thumbs up" (case-insensitive, ignoring surrounding
   // whitespace) renders as a ThumbsUp glyph inside the normal user bubble.
@@ -190,7 +200,7 @@ export function ChatMessage({
   // sentinel markers, then the `p` component override below splits those
   // markers out into <CommandChip> pills. Backend session-file-parser stays
   // faithful to the wire format — this transform is client-render-only.
-  const processedContent = preprocessCommandTriplets(content);
+  const processedContent = useMemo(() => preprocessCommandTriplets(content), [content]);
   // BUG C1 fix: memoize the ReactMarkdown `components` object. Passing a fresh
   // inline object literal every render forces ReactMarkdown to remount its
   // child overrides on every parent re-render. Deps are exactly the values
@@ -281,7 +291,11 @@ export function ChatMessage({
     blockquote: ({ node, children, ...props }) => (
       <CopyableBlock as="blockquote" {...props}>{children}</CopyableBlock>
     ),
-  }), [eventId, onOpenEditor, eligibleUrls, onWidgetSubmit]);
+  }), [eventId, onOpenEditor, eligibleUrls, onWidgetSubmit, fileDragOrigin]);
+  const titleText = useMemo(
+    () => (ts !== undefined ? new Date(ts).toLocaleString() : undefined),
+    [ts],
+  );
   // Phase 50 Plan 03 Task 1 (D-01/D-03/D-06/D-19): user-only pending-state
   // gate. Assistant bubbles ignore the prop; only 'failed' changes the
   // render ('sending' is visually identical to settled).
@@ -326,7 +340,7 @@ export function ChatMessage({
     >
       <div
         ref={containerRef}
-        title={ts !== undefined ? new Date(ts).toLocaleString() : undefined}
+        title={titleText}
         style={bubbleInlineStyle}
         {...(showFailedBubble ? { "data-pv-bubble-failed": "true" } : {})}
         // pv-bubble: hover-target class for any descendant that opts into
@@ -519,7 +533,7 @@ export function ChatMessage({
           </>
         ) : (
           <ReactMarkdown
-            remarkPlugins={[remarkGfm, remarkBreaks]}
+            remarkPlugins={REMARK_PLUGINS}
             components={markdownComponents}
           >
             {processedContent}
@@ -708,4 +722,4 @@ export function ChatMessage({
       )}
     </div>
   );
-}
+});

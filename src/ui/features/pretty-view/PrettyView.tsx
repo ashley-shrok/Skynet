@@ -2484,6 +2484,26 @@ export function PrettyView({
     [sendInput, handleOptimisticSend],
   );
 
+  // Stable identities for the per-bubble handlers handed to the memoized
+  // ChatMessage. handleThumbsUp/Down depend on effectiveMessages (new on every
+  // message) and handleWidgetSubmit on the send funnel, so passing them
+  // directly would re-render every bubble on every append. The wrappers read
+  // the latest handler via ref at call time — same behavior, stable props.
+  const bubbleHandlersRef = useRef({ handleThumbsUp, handleThumbsDown, handleWidgetSubmit });
+  bubbleHandlersRef.current = { handleThumbsUp, handleThumbsDown, handleWidgetSubmit };
+  const stableThumbsUp = useCallback(
+    (eventId: string) => bubbleHandlersRef.current.handleThumbsUp(eventId),
+    [],
+  );
+  const stableThumbsDown = useCallback(
+    (eventId: string) => bubbleHandlersRef.current.handleThumbsDown(eventId),
+    [],
+  );
+  const stableWidgetSubmit = useCallback(
+    (widgetId: string, value: string) => bubbleHandlersRef.current.handleWidgetSubmit(widgetId, value),
+    [],
+  );
+
   // Phase 89 Plan 06: Runbooks tab row click handler. D-06 swap-not-stack —
   // closes the identity modal at the same tick the runbook editor opens.
   // Defensive guard: if the identity has no resolved role, silently no-op
@@ -4684,7 +4704,7 @@ export function PrettyView({
                   // Parallel to onOpenEditor — same threading pattern. The pending-
                   // sends ChatMessage mount below does NOT receive this prop:
                   // pending bubbles never contain widget URLs (Plan 04 discipline).
-                  onWidgetSubmit={handleWidgetSubmit}
+                  onWidgetSubmit={stableWidgetSubmit}
                   // Phase 124 Plan 02 (shape 3 — message thumbs, D-38):
                   // wire the thumbs callback plumbing ONLY to the
                   // ChatMessage-branch of the message-type conditional.
@@ -4692,8 +4712,8 @@ export function PrettyView({
                   // MalformedBubble/WaitingBubble and the pendingSends.map
                   // optimistic bubbles do NOT receive these props
                   // (D-12/D-13/D-14 hard lock).
-                  onThumbsUp={handleThumbsUp}
-                  onThumbsDown={handleThumbsDown}
+                  onThumbsUp={stableThumbsUp}
+                  onThumbsDown={stableThumbsDown}
                   // Phase 97 UAT follow-up 4 (2026-09-10): relay-source
                   // adapter injects optimistic bubbles into `messages`
                   // with pendingState="sending" (or "failed"). Harness
