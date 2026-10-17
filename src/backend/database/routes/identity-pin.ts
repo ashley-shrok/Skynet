@@ -38,8 +38,9 @@ import {
   isLocalHostId,
   IDENTITY_KEY_RE,
   readSessionProjectField,
-  writeSessionProjectField,
 } from "../../claude-session/identity-artifact-reader.js";
+import { writeSessionProjectFieldPreservingNewline } from "./session-project-write.js";
+import { getHostSemaphore } from "../../ssh/host-semaphore-registry.js";
 import { getSubscriptionRegistry } from "../../fleet-status/subscription-registry.js";
 import {
   writeIdentityFile,
@@ -51,6 +52,15 @@ const authManager = AuthManager.getInstance();
 const authenticateJWT = authManager.createAuthMiddleware();
 
 const SSH_CONNECT_TIMEOUT_MS = 3000;
+
+/**
+ * Run the handler's SSH motion (connectOneShot + pin write + project clear +
+ * conn.end) under the shared per-host semaphore. One slot per request — the
+ * handler drives its connection serially. Local hosts bypass.
+ */
+function withHostSlot<T>(hostId: number, fn: () => Promise<T>): Promise<T> {
+  return isLocalHostId(hostId) ? fn() : getHostSemaphore(hostId).run(fn);
+}
 
 /**
  * Pinning takes the identity out of its project. Best-effort: the pin itself
@@ -66,7 +76,7 @@ async function clearProjectOnPin(
   try {
     const current = await readSessionProjectField(conn, key);
     if (current === null) return;
-    await writeSessionProjectField(conn, key, null);
+    await writeSessionProjectFieldPreservingNewline(conn, key, null);
     databaseLogger.info("identity pin cleared project", {
       operation: "identity_pin_cleared_project",
       userId,
@@ -129,51 +139,55 @@ router.put(
       return res.status(404).json({ error: "Host not found" });
     }
 
-    let conn: Awaited<ReturnType<typeof connectOneShot>> | null = null;
-    if (!isLocalHostId(hostId)) {
-      try {
-        conn = await connectOneShot(
-          host as unknown as Parameters<typeof connectOneShot>[0],
-          SSH_CONNECT_TIMEOUT_MS,
-        );
-      } catch {
-        return res.status(504).json({ error: "Host unreachable" });
-      }
-    }
-
-    try {
-      if (pinned) {
-        await writeIdentityFile(key, ".pinned", "", { hostId, conn });
-        await clearProjectOnPin(conn, key, hostId, userId);
-      } else {
-        await removeIdentityFile(key, ".pinned", { hostId, conn });
-      }
-      databaseLogger.info("identity pin set", {
-        operation: "identity_pin_set",
-        userId,
-        hostId,
-        identityKey: key,
-        pinned,
-      });
-      return res.json({ pinned });
-    } catch (err) {
-      databaseLogger.error("identity pin write failed", err, {
-        operation: "identity_pin_set_failed",
-        userId,
-        hostId,
-        identityKey: key,
-        pinned,
-      });
-      return res.status(500).json({ error: "failed to update pin" });
-    } finally {
-      if (conn) {
+    // SSH work (connect + execs + conn.end) runs under the per-host
+    // semaphore (verify:ssh-cap); local hosts bypass it.
+    return withHostSlot(hostId, async () => {
+      let conn: Awaited<ReturnType<typeof connectOneShot>> | null = null;
+      if (!isLocalHostId(hostId)) {
         try {
-          conn.end();
+          conn = await connectOneShot(
+            host as unknown as Parameters<typeof connectOneShot>[0],
+            SSH_CONNECT_TIMEOUT_MS,
+          );
         } catch {
-          /* ignore */
+          return res.status(504).json({ error: "Host unreachable" });
         }
       }
-    }
+
+      try {
+        if (pinned) {
+          await writeIdentityFile(key, ".pinned", "", { hostId, conn });
+          await clearProjectOnPin(conn, key, hostId, userId);
+        } else {
+          await removeIdentityFile(key, ".pinned", { hostId, conn });
+        }
+        databaseLogger.info("identity pin set", {
+          operation: "identity_pin_set",
+          userId,
+          hostId,
+          identityKey: key,
+          pinned,
+        });
+        return res.json({ pinned });
+      } catch (err) {
+        databaseLogger.error("identity pin write failed", err, {
+          operation: "identity_pin_set_failed",
+          userId,
+          hostId,
+          identityKey: key,
+          pinned,
+        });
+        return res.status(500).json({ error: "failed to update pin" });
+      } finally {
+        if (conn) {
+          try {
+            conn.end();
+          } catch {
+            /* ignore */
+          }
+        }
+      }
+    });
   },
 );
 

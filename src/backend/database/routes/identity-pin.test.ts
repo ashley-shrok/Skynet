@@ -67,6 +67,13 @@ vi.mock("../../claude-session/identity-artifact-reader.js", () => ({
   IDENTITY_KEY_RE: /^[a-z0-9_-]{1,64}$/,
   readSessionProjectField: vi.fn(),
   writeSessionProjectField: vi.fn(),
+  // Remote project-clear goes through session-project-write.ts's
+  // newline-preserving rewrite, which uses these primitives.
+  PROJECT_SLUG_RE: /^[a-z0-9-]{1,64}$/,
+  readIdentityFile: vi.fn(),
+  writeMarkdownFileAtomic: vi.fn(),
+  flowRolesInYamlDump: (y: string) => y,
+  repairFrontmatterTaskLine: (fm: string) => fm,
 }));
 
 const mockPublishSessionProjectChanged = vi.fn();
@@ -91,6 +98,8 @@ import {
   isLocalHostId,
   readSessionProjectField,
   writeSessionProjectField,
+  readIdentityFile,
+  writeMarkdownFileAtomic,
 } from "../../claude-session/identity-artifact-reader.js";
 import { writeIdentityFile, removeIdentityFile } from "../../claude-session/per-identity-file.js";
 
@@ -200,6 +209,10 @@ beforeEach(() => {
   // Default: identity is in no project
   (readSessionProjectField as Mock).mockResolvedValue(null);
   (writeSessionProjectField as Mock).mockResolvedValue(undefined);
+  (readIdentityFile as Mock).mockResolvedValue({
+    markdown: "---\nname: wren\nproject: alpha\n---\n# body",
+  });
+  (writeMarkdownFileAtomic as Mock).mockResolvedValue(undefined);
 
   // Rebuild app per test
   const app = express();
@@ -339,7 +352,7 @@ describe("PUT /identities/:key/pinned — pinned and in-a-project are exclusive"
 
   it("a failed project clear still returns the pin as 200", async () => {
     (readSessionProjectField as Mock).mockResolvedValue("alpha");
-    (writeSessionProjectField as Mock).mockRejectedValue(new Error("disk"));
+    (writeMarkdownFileAtomic as Mock).mockRejectedValue(new Error("disk"));
     const res = await httpRequest(server, {
       method: "PUT",
       path: "/identities/wren/pinned",
@@ -347,7 +360,25 @@ describe("PUT /identities/:key/pinned — pinned and in-a-project are exclusive"
     });
     expect(res.status).toBe(200);
     expect(res.body).toEqual({ pinned: true });
-    expect(writeSessionProjectField).toHaveBeenCalledWith(stubConn, "wren", null);
+    expect(writeMarkdownFileAtomic).toHaveBeenCalledTimes(1);
     expect(mockPublishSessionProjectChanged).not.toHaveBeenCalled();
+  });
+
+  it("remote project clear on pin preserves the identity file's trailing newline", async () => {
+    (readSessionProjectField as Mock).mockResolvedValue("alpha");
+    const res = await httpRequest(server, {
+      method: "PUT",
+      path: "/identities/wren/pinned",
+      body: { hostId: 7, pinned: true },
+    });
+    expect(res.status).toBe(200);
+    // Remote read is execCommand-trimmed; the rewrite must restore "\n".
+    expect(writeSessionProjectField).not.toHaveBeenCalled();
+    expect(writeMarkdownFileAtomic).toHaveBeenCalledWith(
+      stubConn,
+      "$HOME/fleet/identities/wren/wren.md",
+      "---\nname: wren\n---\n# body\n",
+    );
+    expect(mockPublishSessionProjectChanged).toHaveBeenCalledWith("wren", 7, null);
   });
 });

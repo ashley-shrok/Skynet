@@ -96,6 +96,10 @@ vi.mock("../../claude-session/identity-artifact-reader.js", () => ({
   PROJECT_SLUG_RE: /^[a-z0-9-]{1,64}$/,
   writeSessionProjectField: vi.fn(),
   listProjects: vi.fn(),
+  readIdentityFile: vi.fn(),
+  writeMarkdownFileAtomic: vi.fn(),
+  flowRolesInYamlDump: (y: string) => y,
+  repairFrontmatterTaskLine: (fm: string) => fm,
 }));
 
 vi.mock("../../claude-session/per-identity-file.js", () => ({
@@ -123,7 +127,13 @@ import {
   isLocalHostId,
   writeSessionProjectField,
   listProjects,
+  readIdentityFile,
+  writeMarkdownFileAtomic,
 } from "../../claude-session/identity-artifact-reader.js";
+import {
+  __resetHostSemaphoreRegistryForTests,
+  getHostSemaphore,
+} from "../../ssh/host-semaphore-registry.js";
 import { removeIdentityFile } from "../../claude-session/per-identity-file.js";
 
 // ---------------------------------------------------------------------------
@@ -230,6 +240,14 @@ beforeEach(() => {
   // Default: writeSessionProjectField succeeds.
   (writeSessionProjectField as Mock).mockResolvedValue(undefined);
 
+  // Default REMOTE read: execCommand-trimmed identity file (trailing
+  // newline gone — exactly what readIdentityFile returns over SSH).
+  (readIdentityFile as Mock).mockResolvedValue({
+    markdown: "---\nname: wren\n---\n# body",
+  });
+  (writeMarkdownFileAtomic as Mock).mockResolvedValue(undefined);
+  __resetHostSemaphoreRegistryForTests();
+
   // Default: listProjects resolves to [] (empty list post-write is fine).
   (listProjects as Mock).mockResolvedValue([]);
 
@@ -300,11 +318,13 @@ describe("POST /identities/:key/project", () => {
     expect(res.status).toBe(200);
     expect(res.body).toEqual({ ok: true });
     expect(connectOneShot).toHaveBeenCalledTimes(1);
-    expect(writeSessionProjectField).toHaveBeenCalledTimes(1);
-    expect(writeSessionProjectField).toHaveBeenCalledWith(
+    // REMOTE goes through the newline-preserving rewrite on the same conn.
+    expect(writeSessionProjectField).not.toHaveBeenCalled();
+    expect(readIdentityFile).toHaveBeenCalledWith(stubConn, "wren");
+    expect(writeMarkdownFileAtomic).toHaveBeenCalledWith(
       stubConn,
-      "wren",
-      "alpha",
+      "$HOME/fleet/identities/wren/wren.md",
+      "---\nname: wren\nproject: alpha\n---\n# body\n",
     );
     // Finally block must close the SSH connection.
     expect(stubConn.end).toHaveBeenCalledTimes(1);
@@ -530,7 +550,8 @@ describe("POST /identities/:key/project", () => {
   // -------------------------------------------------------------------------
 
   it("Test 10: writer throws → 500 generic; publish NOT called; conn.end() still called (REMOTE)", async () => {
-    (writeSessionProjectField as Mock).mockRejectedValue(
+    // REMOTE writes land via writeMarkdownFileAtomic (newline-preserving path).
+    (writeMarkdownFileAtomic as Mock).mockRejectedValue(
       new Error("ENOSPC: sensitive fs path leak"),
     );
 
@@ -606,5 +627,119 @@ describe("POST /identities/:key/project — pinned and in-a-project are exclusiv
     });
     expect(res.status).toBe(200);
     expect(mockPublishSessionProjectChanged).toHaveBeenCalledWith("wren", 5, "alpha");
+  });
+});
+
+// ===========================================================================
+// Remote rewrite preserves the identity file's trailing newline
+// ===========================================================================
+
+describe("POST /identities/:key/project — remote trailing newline", () => {
+  it("trimmed remote read with a body → rewrite ends with the newline", async () => {
+    (readIdentityFile as Mock).mockResolvedValue({
+      markdown: "---\nname: wren\nproject: old\n---\n\n# Wren\n\nnotes",
+    });
+    const res = await httpRequest(server, {
+      method: "POST",
+      path: "/identities/wren/project",
+      body: { hostId: 7, project: "alpha" },
+    });
+    expect(res.status).toBe(200);
+    const written = (writeMarkdownFileAtomic as Mock).mock.calls[0][2] as string;
+    expect(written).toBe("---\nname: wren\nproject: alpha\n---\n\n# Wren\n\nnotes\n");
+  });
+
+  it("frontmatter-only remote file (trimmed after closing ---) still rewrites, with newline", async () => {
+    (readIdentityFile as Mock).mockResolvedValue({
+      markdown: "---\nname: wren\nproject: old\n---",
+    });
+    const res = await httpRequest(server, {
+      method: "POST",
+      path: "/identities/wren/project",
+      body: { hostId: 7, project: null },
+    });
+    expect(res.status).toBe(200);
+    expect(writeMarkdownFileAtomic).toHaveBeenCalledWith(
+      stubConn,
+      "$HOME/fleet/identities/wren/wren.md",
+      "---\nname: wren\n---\n",
+    );
+  });
+
+  it("does not double an existing trailing newline", async () => {
+    (readIdentityFile as Mock).mockResolvedValue({
+      markdown: "---\nname: wren\n---\n# body\n",
+    });
+    await httpRequest(server, {
+      method: "POST",
+      path: "/identities/wren/project",
+      body: { hostId: 7, project: "alpha" },
+    });
+    const written = (writeMarkdownFileAtomic as Mock).mock.calls[0][2] as string;
+    expect(written.endsWith("# body\n")).toBe(true);
+    expect(written.endsWith("\n\n")).toBe(false);
+  });
+
+  it("missing remote identity file → 500, nothing written", async () => {
+    (readIdentityFile as Mock).mockResolvedValue({ markdown: "" });
+    const res = await httpRequest(server, {
+      method: "POST",
+      path: "/identities/wren/project",
+      body: { hostId: 7, project: "alpha" },
+    });
+    expect(res.status).toBe(500);
+    expect(writeMarkdownFileAtomic).not.toHaveBeenCalled();
+    expect(stubConn.end).toHaveBeenCalledTimes(1);
+  });
+
+  it("LOCAL keeps delegating to writeSessionProjectField unchanged", async () => {
+    const res = await httpRequest(server, {
+      method: "POST",
+      path: "/identities/wren/project",
+      body: { hostId: 5, project: "alpha" },
+    });
+    expect(res.status).toBe(200);
+    expect(writeSessionProjectField).toHaveBeenCalledWith(null, "wren", "alpha");
+    expect(readIdentityFile).not.toHaveBeenCalled();
+    expect(writeMarkdownFileAtomic).not.toHaveBeenCalled();
+  });
+});
+
+// ===========================================================================
+// Per-host SSH semaphore (verify:ssh-cap)
+// ===========================================================================
+
+describe("POST /identities/:key/project — per-host semaphore cap", () => {
+  it("10 concurrent remote writes never hold more than the cap of SSH conns", async () => {
+    getHostSemaphore(7, 3); // pre-seed a small cap for host 7
+    let live = 0;
+    let peak = 0;
+    (connectOneShot as Mock).mockImplementation(async () => {
+      live++;
+      peak = Math.max(peak, live);
+      return {
+        exec: vi.fn(),
+        end: () => {
+          live--;
+        },
+      };
+    });
+    (writeMarkdownFileAtomic as Mock).mockImplementation(
+      () => new Promise((r) => setTimeout(r, 5)),
+    );
+    const results = await Promise.all(
+      Array.from({ length: 10 }, () =>
+        httpRequest(server, {
+          method: "POST",
+          path: "/identities/wren/project",
+          body: { hostId: 7, project: "alpha" },
+        }),
+      ),
+    );
+    expect(results.every((r) => r.status === 200)).toBe(true);
+    expect(connectOneShot).toHaveBeenCalledTimes(10);
+    expect(peak).toBeLessThanOrEqual(3);
+    expect(peak).toBeGreaterThan(1);
+    expect(live).toBe(0);
   });
 });

@@ -61,12 +61,18 @@ import {
   IDENTITY_KEY_RE,
   PROJECT_SLUG_RE,
   writeSessionProjectField,
+  readIdentityFile,
+  writeMarkdownFileAtomic,
+  flowRolesInYamlDump,
+  repairFrontmatterTaskLine,
   // Phase 117 M5 fix (2026-09-18): listProjects import removed —
   // this route no longer re-enumerates the host's project list after
   // a session-field write (which does not change the list itself).
 } from "../../claude-session/identity-artifact-reader.js";
 import { getSubscriptionRegistry } from "../../fleet-status/subscription-registry.js";
 import { removeIdentityFile } from "../../claude-session/per-identity-file.js";
+import { getHostSemaphore } from "../../ssh/host-semaphore-registry.js";
+import yaml from "js-yaml";
 
 const router = express.Router();
 const authManager = AuthManager.getInstance();
@@ -74,6 +80,92 @@ const authenticateJWT = authManager.createAuthMiddleware();
 
 /** SSH connect timeout — matches sibling identity-archive.ts. */
 const SSH_CONNECT_TIMEOUT_MS = 3000;
+
+/**
+ * Run the handler's SSH motion (connectOneShot + reads/writes on that
+ * connection + conn.end) under the shared per-host semaphore. One slot per
+ * request — the handler drives its connection serially. Local hosts bypass.
+ */
+function withHostSlot<T>(hostId: number, fn: () => Promise<T>): Promise<T> {
+  return isLocalHostId(hostId) ? fn() : getHostSemaphore(hostId).run(fn);
+}
+
+/**
+ * Set/clear the identity file's `project:` frontmatter key, preserving the
+ * file's trailing newline on REMOTE hosts.
+ *
+ * LOCAL (conn === null) delegates to writeSessionProjectField unchanged.
+ *
+ * REMOTE: readIdentityFile's remote read goes through execCommand, which
+ * trims stdout — so the markdown it returns has lost its trailing newline
+ * (and, for a frontmatter-only file, the newline after the closing `---`,
+ * which writeSessionProjectField's regex requires). Rewriting from that
+ * string silently dropped the final newline on every remote project move.
+ * Identity files are frontmatter markdown and always end with "\n", so the
+ * remote rewrite tolerates a trimmed tail and guarantees one on write.
+ * Same key-preserving yaml.load → mutate one key → yaml.dump discipline
+ * as writeSessionProjectField.
+ */
+export async function writeSessionProjectFieldPreservingNewline(
+  conn: Awaited<ReturnType<typeof connectOneShot>> | null,
+  identityKey: string,
+  projectSlug: string | null,
+): Promise<void> {
+  if (conn === null) {
+    await writeSessionProjectField(null, identityKey, projectSlug);
+    return;
+  }
+  if (!IDENTITY_KEY_RE.test(identityKey)) {
+    throw new Error("invalid identityKey");
+  }
+  if (projectSlug !== null && !PROJECT_SLUG_RE.test(projectSlug)) {
+    throw new Error("invalid project slug");
+  }
+
+  const { markdown } = await readIdentityFile(conn, identityKey);
+  if (markdown.length === 0) {
+    throw new Error(`identity ${identityKey} file missing`);
+  }
+  // Closing-fence newline optional: the remote read is trimmed.
+  const match = markdown.match(/^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n([\s\S]*))?$/);
+  if (!match) {
+    throw new Error(`identity ${identityKey} has no frontmatter`);
+  }
+  const frontmatterRaw = match[1];
+  const bodyAfter = match[2] ?? "";
+
+  let parsed: Record<string, unknown>;
+  try {
+    const loaded = yaml.load(repairFrontmatterTaskLine(frontmatterRaw)) as Record<string, unknown> | null;
+    parsed = loaded ?? {};
+  } catch (err) {
+    throw new Error(
+      `identity ${identityKey} frontmatter parse failed: ${
+        err instanceof Error ? err.message : String(err)
+      }`,
+    );
+  }
+
+  if (projectSlug === null) {
+    delete parsed.project;
+  } else {
+    parsed.project = projectSlug;
+  }
+
+  const yamlBody = flowRolesInYamlDump(
+    yaml.dump(parsed, {
+      sortKeys: false,
+      lineWidth: -1,
+      noRefs: true,
+      forceQuotes: false,
+    }),
+  );
+
+  let newContents = `---\n${yamlBody}---\n${bodyAfter}`;
+  if (!newContents.endsWith("\n")) newContents += "\n";
+  const targetPath = `$HOME/fleet/identities/${identityKey}/${identityKey}.md`;
+  await writeMarkdownFileAtomic(conn, targetPath, newContents);
+}
 
 /**
  * POST /:key/project  body: { hostId: number, project: string | null }
@@ -170,91 +262,95 @@ router.post(
 
     // 5. Branch on LOCAL vs REMOTE. LOCAL passes conn=null; REMOTE opens
     // a one-shot SSH connection whose lifetime is scoped by try/finally.
-    let conn: Awaited<ReturnType<typeof connectOneShot>> | null = null;
-    if (!isLocalHostId(hostId)) {
-      try {
-        conn = await connectOneShot(
-          host as unknown as Parameters<typeof connectOneShot>[0],
-          SSH_CONNECT_TIMEOUT_MS,
-        );
-      } catch {
-        // Connect failure → 504 with generic message (T-117-05-06).
-        res.status(504).json({ error: "Host unreachable" });
-        return;
-      }
-    }
-
-    try {
-      try {
-        await writeSessionProjectField(conn, key, project);
-      } catch (err) {
-        // Log server-side; return generic message (T-117-05-06 no leak).
-        databaseLogger.error(
-          `failed to write session project field key=${key} hostId=${hostId} project=${project ?? "null"}: ${
-            err instanceof Error ? err.message : String(err)
-          }`,
-        );
-        res.status(500).json({ error: "failed to write session project" });
-        return;
-      }
-
-      // 5b. Moving into a project unpins (mutual exclusivity). Best-effort:
-      // the project write is the user's gesture and already landed; a stale
-      // `.pinned` is outranked by project membership in the sidebar anyway.
-      if (project !== null) {
+    // SSH work (connect + execs + conn.end) runs under the per-host
+    // semaphore (verify:ssh-cap); local hosts bypass it.
+    return withHostSlot(hostId, async () => {
+      let conn: Awaited<ReturnType<typeof connectOneShot>> | null = null;
+      if (!isLocalHostId(hostId)) {
         try {
-          await removeIdentityFile(key, ".pinned", { hostId, conn });
-        } catch (unpinErr) {
+          conn = await connectOneShot(
+            host as unknown as Parameters<typeof connectOneShot>[0],
+            SSH_CONNECT_TIMEOUT_MS,
+          );
+        } catch {
+          // Connect failure → 504 with generic message (T-117-05-06).
+          res.status(504).json({ error: "Host unreachable" });
+          return;
+        }
+      }
+
+      try {
+        try {
+          await writeSessionProjectFieldPreservingNewline(conn, key, project);
+        } catch (err) {
+          // Log server-side; return generic message (T-117-05-06 no leak).
+          databaseLogger.error(
+            `failed to write session project field key=${key} hostId=${hostId} project=${project ?? "null"}: ${
+              err instanceof Error ? err.message : String(err)
+            }`,
+          );
+          res.status(500).json({ error: "failed to write session project" });
+          return;
+        }
+
+        // 5b. Moving into a project unpins (mutual exclusivity). Best-effort:
+        // the project write is the user's gesture and already landed; a stale
+        // `.pinned` is outranked by project membership in the sidebar anyway.
+        if (project !== null) {
+          try {
+            await removeIdentityFile(key, ".pinned", { hostId, conn });
+          } catch (unpinErr) {
+            databaseLogger.warn(
+              `session-project unpin failed key=${key} hostId=${hostId}: ${
+                unpinErr instanceof Error ? unpinErr.message : String(unpinErr)
+              }`,
+            );
+          }
+        }
+
+        // 6. Post-write wire event: fan out session-project-changed carrying
+        // { identityKey, hostId, project }. Distinct from
+        // project-list-changed — the projects[] array itself doesn't change
+        // when an identity moves between projects, only which identity
+        // belongs where. Frontend sidebar listens for this to patch the
+        // affected identity row in place without a full /identities refetch.
+        //
+        // Phase 117 M5 (2026-09-18) removed the pre-existing (unrelated)
+        // publishProjectListChanged call here because it was fanning out a
+        // list that hadn't changed. This is the promised follow-up frame.
+        //
+        // Publisher failure MUST NOT convert a successful write into a 500 —
+        // the on-disk state is correct even if one fanout hop drops. Log and
+        // continue.
+        try {
+          const registry = getSubscriptionRegistry();
+          if (registry) {
+            registry.publishSessionProjectChanged(key, hostId, project);
+          }
+        } catch (pubErr) {
           databaseLogger.warn(
-            `session-project unpin failed key=${key} hostId=${hostId}: ${
-              unpinErr instanceof Error ? unpinErr.message : String(unpinErr)
+            `session-project-changed publish failed key=${key} hostId=${hostId}: ${
+              pubErr instanceof Error ? pubErr.message : String(pubErr)
             }`,
           );
         }
-      }
 
-      // 6. Post-write wire event: fan out session-project-changed carrying
-      // { identityKey, hostId, project }. Distinct from
-      // project-list-changed — the projects[] array itself doesn't change
-      // when an identity moves between projects, only which identity
-      // belongs where. Frontend sidebar listens for this to patch the
-      // affected identity row in place without a full /identities refetch.
-      //
-      // Phase 117 M5 (2026-09-18) removed the pre-existing (unrelated)
-      // publishProjectListChanged call here because it was fanning out a
-      // list that hadn't changed. This is the promised follow-up frame.
-      //
-      // Publisher failure MUST NOT convert a successful write into a 500 —
-      // the on-disk state is correct even if one fanout hop drops. Log and
-      // continue.
-      try {
-        const registry = getSubscriptionRegistry();
-        if (registry) {
-          registry.publishSessionProjectChanged(key, hostId, project);
-        }
-      } catch (pubErr) {
-        databaseLogger.warn(
-          `session-project-changed publish failed key=${key} hostId=${hostId}: ${
-            pubErr instanceof Error ? pubErr.message : String(pubErr)
-          }`,
+        // Audit log per T-117-05 (repudiation): who wrote what.
+        databaseLogger.info(
+          `session-project written: userId=${userId} hostId=${hostId} key=${key} project=${project ?? "null"}`,
         );
-      }
-
-      // Audit log per T-117-05 (repudiation): who wrote what.
-      databaseLogger.info(
-        `session-project written: userId=${userId} hostId=${hostId} key=${key} project=${project ?? "null"}`,
-      );
-      res.json({ ok: true });
-      return;
-    } finally {
-      if (conn) {
-        try {
-          conn.end();
-        } catch {
-          /* ignore */
+        res.json({ ok: true });
+        return;
+      } finally {
+        if (conn) {
+          try {
+            conn.end();
+          } catch {
+            /* ignore */
+          }
         }
       }
-    }
+    });
   },
 );
 
