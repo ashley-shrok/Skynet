@@ -49,11 +49,6 @@ export interface RemoteTmuxSession {
   updatedAt?: string;
 }
 
-export async function getSessionList(): Promise<RemoteTmuxSession[]> {
-  const response = await authApi.get("/sessions/list");
-  return response.data;
-}
-
 /**
  * GET /sessions/list plus the hosts the backend couldn't reach (header
  * `X-Skynet-Unreachable-Hosts`, comma-separated host ids). Their empty

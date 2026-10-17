@@ -31,7 +31,6 @@ import { FeedbackModal } from "@/feedback/FeedbackModal";
 import { postFeedback } from "@/feedback/feedback-api";
 import { fetchFeedbackConfig } from "@/feedback/feedback-fetch";
 import type { IdentityPaneHandle } from "@/features/terminal/terminal-types";
-import { CommandPalette } from "@/shell/CommandPalette";
 // Phase 11 Plan 03 (PURGE-02, PURGE-03): AppRail + RailView + 10 sidebar-panel
 // imports (HostsPanel, SessionsPanel, QuickConnectPanel, SshToolsPanel,
 // SnippetsPanel, HistoryPanel, SplitScreenPanel, UserProfilePanel,
@@ -388,7 +387,6 @@ export function AppShell({
   const [hostsLoaded, setHostsLoaded] = useState(false);
   // Flips to true once the initial DB read (restore or skip) is done — sync must not fire before this
   const [tabsReady, setTabsReady] = useState(false);
-  const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
   // Phase 121 Plan 04: FeedbackModal open state.
   //   Discriminated-union — `false` means closed; the string variant marks
   //   BOTH open AND which entry variant is showing. Single atom avoids the
@@ -4754,12 +4752,6 @@ export function AppShell({
               per-user opt-in — deletion is total. */}
         </div>
       </div>
-
-      <CommandPalette
-        isOpen={commandPaletteOpen}
-        setIsOpen={setCommandPaletteOpen}
-        onOpenTab={openTab}
-      />
 
       {/* Phase 121 Plan 04: FeedbackModal + dev-chord + fire-and-forget POST.
           Mounted UNCONDITIONALLY — even when useFeedbackEnabled() is false —
