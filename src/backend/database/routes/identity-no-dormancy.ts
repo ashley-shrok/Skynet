@@ -43,8 +43,10 @@ import type { Request, Response } from "express";
 import fs from "fs/promises";
 import path from "path";
 import { AuthManager } from "../../utils/auth-manager.js";
+import { databaseLogger } from "../../utils/logger.js";
 import { resolveHostById } from "../../ssh/host-resolver.js";
 import { connectOneShot } from "../../ssh/ssh-one-shot.js";
+import { getHostSemaphore } from "../../ssh/host-semaphore-registry.js";
 import { execCommand } from "../../ssh/tmux-helper.js";
 import {
   isLocalHostId,
@@ -110,43 +112,46 @@ router.get(
       }
     } else {
       // SSH BRANCH: one-shot connection, run test -e check
-      let conn: Awaited<ReturnType<typeof connectOneShot>> | null = null;
-      try {
-        conn = await connectOneShot(
-          host as unknown as Parameters<typeof connectOneShot>[0],
-          SSH_EXEC_TIMEOUT_MS,
-        );
+      // SSH connect + work + end hold one per-host semaphore slot (verify:ssh-cap).
+      return getHostSemaphore(hostId).run(async () => {
+        let conn: Awaited<ReturnType<typeof connectOneShot>> | null = null;
+        try {
+          conn = await connectOneShot(
+            host as unknown as Parameters<typeof connectOneShot>[0],
+            SSH_EXEC_TIMEOUT_MS,
+          );
 
-        const output = await Promise.race([
-          execCommand(
-            conn,
-            `test -e "$HOME/fleet/identities/${key}/.no-dormancy" && echo Y || echo N`,
-          ),
-          new Promise<string>((_, reject) =>
-            setTimeout(
-              () =>
-                reject(
-                  new Error(`SSH exec timeout after ${SSH_EXEC_TIMEOUT_MS}ms`),
-                ),
-              SSH_EXEC_TIMEOUT_MS,
+          const output = await Promise.race([
+            execCommand(
+              conn,
+              `test -e "$HOME/fleet/identities/${key}/.no-dormancy" && echo Y || echo N`,
             ),
-          ),
-        ]);
+            new Promise<string>((_, reject) =>
+              setTimeout(
+                () =>
+                  reject(
+                    new Error(`SSH exec timeout after ${SSH_EXEC_TIMEOUT_MS}ms`),
+                  ),
+                SSH_EXEC_TIMEOUT_MS,
+              ),
+            ),
+          ]);
 
-        const present = output.trim() === "Y";
-        return res.json({ present });
-      } catch {
-        // Connect failure OR exec timeout → 504, no detail leak (T-ax1-04, T-ax1-05)
-        return res.status(504).json({ error: "Host unreachable" });
-      } finally {
-        if (conn) {
-          try {
-            conn.end();
-          } catch {
-            /* ignore */
+          const present = output.trim() === "Y";
+          return res.json({ present });
+        } catch {
+          // Connect failure OR exec timeout → 504, no detail leak (T-ax1-04, T-ax1-05)
+          return res.status(504).json({ error: "Host unreachable" });
+        } finally {
+          if (conn) {
+            try {
+              conn.end();
+            } catch {
+              /* ignore */
+            }
           }
         }
-      }
+      });
     }
   },
 );
@@ -216,43 +221,59 @@ router.put(
       }
     } else {
       // SSH BRANCH: touch or rm -f the sentinel file
-      let conn: Awaited<ReturnType<typeof connectOneShot>> | null = null;
-      try {
-        conn = await connectOneShot(
-          host as unknown as Parameters<typeof connectOneShot>[0],
-          SSH_EXEC_TIMEOUT_MS,
-        );
+      // SSH connect + work + end hold one per-host semaphore slot (verify:ssh-cap).
+      return getHostSemaphore(hostId).run(async () => {
+        let conn: Awaited<ReturnType<typeof connectOneShot>> | null = null;
+        try {
+          conn = await connectOneShot(
+            host as unknown as Parameters<typeof connectOneShot>[0],
+            SSH_EXEC_TIMEOUT_MS,
+          );
 
-        const cmd = present
-          ? `mkdir -p "$HOME/fleet/identities/${key}" && touch "$HOME/fleet/identities/${key}/.no-dormancy"`
-          : `rm -f "$HOME/fleet/identities/${key}/.no-dormancy"`;
+          // present=true: NEVER create the identity dir. The local branch's
+          // writeFile fails ENOENT (→ 500) for a nonexistent identity; a
+          // `mkdir -p` here used to mint a ghost identity folder instead.
+          // The sentinel prints MISSING when the identity dir is absent.
+          const cmd = present
+            ? `if [ -d "$HOME/fleet/identities/${key}" ]; then touch "$HOME/fleet/identities/${key}/.no-dormancy" && echo OK; else echo MISSING; fi`
+            : `rm -f "$HOME/fleet/identities/${key}/.no-dormancy"`;
 
-        await Promise.race([
-          execCommand(conn, cmd),
-          new Promise<string>((_, reject) =>
-            setTimeout(
-              () =>
-                reject(
-                  new Error(`SSH exec timeout after ${SSH_EXEC_TIMEOUT_MS}ms`),
-                ),
-              SSH_EXEC_TIMEOUT_MS,
+          const output = await Promise.race([
+            execCommand(conn, cmd),
+            new Promise<string>((_, reject) =>
+              setTimeout(
+                () =>
+                  reject(
+                    new Error(`SSH exec timeout after ${SSH_EXEC_TIMEOUT_MS}ms`),
+                  ),
+                SSH_EXEC_TIMEOUT_MS,
+              ),
             ),
-          ),
-        ]);
+          ]);
 
-        return res.json({ present });
-      } catch {
-        // Connect failure OR exec timeout → 504, no detail leak
-        return res.status(504).json({ error: "Host unreachable" });
-      } finally {
-        if (conn) {
-          try {
-            conn.end();
-          } catch {
-            /* ignore */
+          if (present && output.trim() === "MISSING") {
+            databaseLogger.warn(
+              `[identity-no-dormancy] identity dir missing on remote host hostId=${hostId} key=${key}`,
+              { operation: "identity_no_dormancy_missing_identity", hostId, key },
+            );
+            // Same status/body the local branch returns on ENOENT.
+            return res.status(500).json({ error: "Failed to update sentinel" });
+          }
+
+          return res.json({ present });
+        } catch {
+          // Connect failure OR exec timeout → 504, no detail leak
+          return res.status(504).json({ error: "Host unreachable" });
+        } finally {
+          if (conn) {
+            try {
+              conn.end();
+            } catch {
+              /* ignore */
+            }
           }
         }
-      }
+      });
     }
   },
 );

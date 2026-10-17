@@ -42,6 +42,7 @@ import { AuthManager } from "../../utils/auth-manager.js";
 import { resolveHostById } from "../../ssh/host-resolver.js";
 import { connectOneShot } from "../../ssh/ssh-one-shot.js";
 import { execCommand } from "../../ssh/tmux-helper.js";
+import { getHostSemaphore } from "../../ssh/host-semaphore-registry.js";
 import {
   getLocalIdentitiesRoot,
   isLocalHostId,
@@ -135,40 +136,45 @@ router.get(
       // single quotes are applied because single quotes do NOT nest inside
       // double quotes in POSIX shell. Validate-then-interpolate pattern
       // (matches identity-artifact-reader.ts). CR-03 regression guard.
-      let conn: Awaited<ReturnType<typeof connectOneShot>> | null = null;
-      try {
-        conn = await connectOneShot(
-          host as unknown as Parameters<typeof connectOneShot>[0],
-          SSH_EXEC_TIMEOUT_MS,
-        );
+      // Connect + probe + end all hold ONE per-host semaphore slot
+      // (verify:ssh-cap) so a burst of collision prechecks can't exceed
+      // the host's sshd MaxSessions.
+      return getHostSemaphore(hostId).run(async () => {
+        let conn: Awaited<ReturnType<typeof connectOneShot>> | null = null;
+        try {
+          conn = await connectOneShot(
+            host as unknown as Parameters<typeof connectOneShot>[0],
+            SSH_EXEC_TIMEOUT_MS,
+          );
 
-        const output = await Promise.race([
-          execCommand(
-            conn,
-            `if [ -d "$HOME/fleet/identities/${name}" ]; then echo exists; else echo missing; fi`,
-          ),
-          new Promise<string>((_, reject) =>
-            setTimeout(
-              () => reject(new Error(`SSH exec timeout after ${SSH_EXEC_TIMEOUT_MS}ms`)),
-              SSH_EXEC_TIMEOUT_MS,
+          const output = await Promise.race([
+            execCommand(
+              conn,
+              `if [ -d "$HOME/fleet/identities/${name}" ]; then echo exists; else echo missing; fi`,
             ),
-          ),
-        ]);
+            new Promise<string>((_, reject) =>
+              setTimeout(
+                () => reject(new Error(`SSH exec timeout after ${SSH_EXEC_TIMEOUT_MS}ms`)),
+                SSH_EXEC_TIMEOUT_MS,
+              ),
+            ),
+          ]);
 
-        const exists = output.trim() === "exists";
-        return res.json({ exists });
-      } catch {
-        // Connect failure OR exec timeout → 504, generic message (no detail leak)
-        return res.status(504).json({ error: "Host unreachable" });
-      } finally {
-        if (conn) {
-          try {
-            conn.end();
-          } catch {
-            /* ignore */
+          const exists = output.trim() === "exists";
+          return res.json({ exists });
+        } catch {
+          // Connect failure OR exec timeout → 504, generic message (no detail leak)
+          return res.status(504).json({ error: "Host unreachable" });
+        } finally {
+          if (conn) {
+            try {
+              conn.end();
+            } catch {
+              /* ignore */
+            }
           }
         }
-      }
+      });
     }
   },
 );

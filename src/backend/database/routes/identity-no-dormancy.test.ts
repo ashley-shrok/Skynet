@@ -470,7 +470,8 @@ describe("PUT /identities/:key/no-dormancy", () => {
   // Test 7: PUT SSH branch — { present: true } → mkdir+touch command
   // -------------------------------------------------------------------------
 
-  it("Test 7: SSH branch — { present: true } → mkdir+touch command; 200", async () => {
+  it("Test 7: SSH branch — { present: true } → guarded touch (no mkdir); 200", async () => {
+    (execCommand as Mock).mockResolvedValue("OK");
     const res = await httpRequest(server, {
       method: "PUT",
       path: "/identities/moxie/no-dormancy?hostId=7",
@@ -481,7 +482,35 @@ describe("PUT /identities/:key/no-dormancy", () => {
     expect(res.body).toEqual({ present: true });
     expect(execCommand).toHaveBeenCalledTimes(1);
     const [, cmd] = (execCommand as Mock).mock.calls[0] as [unknown, string];
-    expect(cmd).toContain(`mkdir -p "$HOME/fleet/identities/moxie" && touch "$HOME/fleet/identities/moxie/.no-dormancy"`);
+    expect(cmd).toContain(`if [ -d "$HOME/fleet/identities/moxie" ]`);
+    expect(cmd).toContain(`touch "$HOME/fleet/identities/moxie/.no-dormancy"`);
+    expect(cmd).not.toContain("mkdir");
+  });
+
+  it("Test 7b: SSH branch — nonexistent identity → 500 (parity with local ENOENT), no ghost dir", async () => {
+    (execCommand as Mock).mockResolvedValue("MISSING");
+    const res = await httpRequest(server, {
+      method: "PUT",
+      path: "/identities/ghost/no-dormancy?hostId=7",
+      body: { present: true },
+    });
+    expect(res.status).toBe(500);
+    expect(res.body).toEqual({ error: "Failed to update sentinel" });
+    const [, cmd] = (execCommand as Mock).mock.calls[0] as [unknown, string];
+    expect(cmd).not.toContain("mkdir");
+  });
+
+  it("Test 7c: local branch — nonexistent identity (writeFile ENOENT) → same 500", async () => {
+    (fs.writeFile as Mock).mockRejectedValue(
+      Object.assign(new Error("ENOENT"), { code: "ENOENT" }),
+    );
+    const res = await httpRequest(server, {
+      method: "PUT",
+      path: "/identities/ghost/no-dormancy?hostId=5",
+      body: { present: true },
+    });
+    expect(res.status).toBe(500);
+    expect(res.body).toEqual({ error: "Failed to update sentinel" });
   });
 
   // -------------------------------------------------------------------------

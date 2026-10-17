@@ -376,3 +376,45 @@ describe("GET /identities/exists-on-host", () => {
     expect(command).not.toContain(`'${safeName}'`);
   });
 });
+
+// ---------------------------------------------------------------------------
+// verify:ssh-cap — the SSH branch (connect → exec → end) holds a per-host
+// semaphore slot, so a burst of concurrent probes on one host never has more
+// than `cap` live connections.
+// ---------------------------------------------------------------------------
+
+describe("per-host SSH semaphore cap", () => {
+  it("10 concurrent remote probes on one host never exceed a 3-slot cap", async () => {
+    const { __resetHostSemaphoreRegistryForTests, getHostSemaphore } =
+      await import("../../ssh/host-semaphore-registry.js");
+    __resetHostSemaphoreRegistryForTests();
+    getHostSemaphore(7, 3); // pre-seed host 7 with a 3-slot pool
+
+    let live = 0;
+    let peak = 0;
+    (connectOneShot as Mock).mockImplementation(async () => {
+      live++;
+      peak = Math.max(peak, live);
+      return { end: () => { live--; }, exec: vi.fn() };
+    });
+    (execCommand as Mock).mockImplementation(async () => {
+      await new Promise((r) => setTimeout(r, 5));
+      return "missing";
+    });
+
+    const results = await Promise.all(
+      Array.from({ length: 10 }, (_, i) =>
+        httpRequest(server, {
+          method: "GET",
+          path: `/identities/exists-on-host?hostId=7&name=probe${i}`,
+        }),
+      ),
+    );
+
+    expect(results.every((r) => r.status === 200)).toBe(true);
+    expect(peak).toBeLessThanOrEqual(3);
+    expect(peak).toBeGreaterThan(1);
+    expect(live).toBe(0);
+    __resetHostSemaphoreRegistryForTests();
+  });
+});
