@@ -1476,6 +1476,9 @@ function shareWithPrevious(
       old.slug === s.slug &&
       old.hostId === s.hostId &&
       old.displayName === s.displayName &&
+      // Nested projects: a move changes only where the section sits.
+      old.parentKey === s.parentKey &&
+      old.depth === s.depth &&
       old.rows === rows
     ) {
       return old;

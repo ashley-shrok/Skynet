@@ -1061,4 +1061,28 @@ describe("conversation-store: nested projects", () => {
     expect(getProjectsSnapshot()).not.toBe(before);
     expect(getProjectsSnapshot().find((p) => p.slug === "b")?.parent).toBe("a");
   });
+
+  it("moving a project re-nests its section live (not only after a reload)", () => {
+    act(() => {
+      setProjects([row("morpheus", "Morpheus", null), row("m2", "M2 Schedules", null)]);
+    });
+    const { result } = renderHook(() => useConversations());
+    expect(result.current.projectSections.map((s) => [s.slug, s.parentKey])).toEqual([
+      ["m2", null],
+      ["morpheus", null],
+    ]);
+    act(() => {
+      mergeProjectsForHost("1", [row("morpheus", "Morpheus", null), row("m2", "M2 Schedules", "morpheus")]);
+    });
+    expect(
+      result.current.projectSections.map((s) => [s.slug, s.parentKey, s.depth]),
+    ).toEqual([
+      ["morpheus", null, 0],
+      ["m2", "1::morpheus", 1],
+    ]);
+    act(() => {
+      mergeProjectsForHost("1", [row("morpheus", "Morpheus", null), row("m2", "M2 Schedules", null)]);
+    });
+    expect(result.current.projectSections.find((s) => s.slug === "m2")?.parentKey).toBeNull();
+  });
 });
