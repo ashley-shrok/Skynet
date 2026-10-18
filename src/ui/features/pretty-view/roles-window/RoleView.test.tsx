@@ -118,6 +118,35 @@ describe("role view — description", () => {
     expect(m.updateRoleFileByName).not.toHaveBeenCalled();
   });
 
+  it("a stored description longer than the editor's limit isn't cut by clicking in and out", async () => {
+    const long = "word ".repeat(80).trim();
+    m.getRoleFileByName.mockResolvedValue({ markdown: `---\ndescription: "${long}"\n---\n\n# Box\n` });
+    await openRole();
+    fireEvent.click(await screen.findByTestId("role-view-description"));
+    fireEvent.blur(await screen.findByTestId("role-view-description-input"));
+    await waitFor(() => expect(screen.queryByTestId("role-view-description-input")).toBeNull());
+    expect(m.updateRoleFileByName).not.toHaveBeenCalled();
+  });
+
+  it("a multi-line description in the file shows as one line", async () => {
+    m.getRoleFileByName.mockResolvedValue({
+      markdown: "---\ndescription: >-\n  Keeps the box\n  healthy.\n---\n\n# Box\n",
+    });
+    await openRole();
+    await waitFor(() => expect(screen.getByTestId("role-view-description").textContent).toBe("Keeps the box healthy."));
+  });
+
+  it("while the role file is being edited, colour, voice, picture and description are locked", async () => {
+    await openRole();
+    fireEvent.click(await screen.findByTestId("role-view-edit"));
+    await screen.findByTestId("mdxeditor");
+    expect((screen.getByTestId("role-view-color") as HTMLButtonElement).disabled).toBe(true);
+    expect((screen.getByTestId("role-view-voice") as HTMLButtonElement).disabled).toBe(true);
+    expect((screen.getByTestId("role-view-avatar-button") as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.click(screen.getByTestId("role-view-description"));
+    expect(screen.queryByTestId("role-view-description-input")).toBeNull();
+  });
+
   it("an unchanged description isn't written", async () => {
     await openRole();
     fireEvent.click(await screen.findByTestId("role-view-description"));
@@ -292,7 +321,30 @@ describe("role view — ⋯ menu", () => {
       const menu = await openMenu("role-view-menu");
       fireEvent.click(within(menu).getByTestId("role-view-start-conversation"));
       await waitFor(() => expect(seen).toEqual([{ hostId: HOST_ID, role: "box-maintainer" }]));
-      expect(onOpenChange).toHaveBeenCalledWith(false);
+      expect(onOpenChange).toHaveBeenCalledWith(false, "start-conversation");
+    } finally {
+      window.removeEventListener(NEW_CONVERSATION_REQUEST_EVENT, onReq);
+    }
+  });
+
+  it("Start a conversation with unsaved role-file edits asks first; 'no' stays and sends nothing", async () => {
+    const seen: NewConversationRequest[] = [];
+    const onReq = (e: Event): void => {
+      seen.push((e as CustomEvent<NewConversationRequest>).detail);
+    };
+    window.addEventListener(NEW_CONVERSATION_REQUEST_EVENT, onReq);
+    try {
+      const dialogs = autoAnswerKitDialogs({ confirm: false });
+      const { onOpenChange } = await openRole();
+      fireEvent.click(await screen.findByTestId("role-view-edit"));
+      fireEvent.change(await screen.findByTestId("mdxeditor"), { target: { value: "changed" } });
+      const menu = await openMenu("role-view-menu");
+      fireEvent.click(within(menu).getByTestId("role-view-start-conversation"));
+      await waitFor(() => expect(dialogs.calls).toHaveLength(1));
+      expect(dialogs.calls[0].opts.title).toBe("Discard your changes?");
+      expect(seen).toEqual([]);
+      expect(onOpenChange).not.toHaveBeenCalled();
+      expect((screen.getByTestId("mdxeditor") as HTMLTextAreaElement).value).toBe("changed");
     } finally {
       window.removeEventListener(NEW_CONVERSATION_REQUEST_EVENT, onReq);
     }
@@ -511,6 +563,18 @@ describe("role view — runbooks", () => {
     // The runbook view opened.
     expect(await screen.findByText("Weekly Report")).toBeTruthy();
     expect(m.enumerateRunbookFiles).toHaveBeenCalledWith(HOST_ID, "box-maintainer", "weekly-report");
+  });
+
+  it("a failed starter write still opens the new runbook, with an alert saying its first file is empty", async () => {
+    const dialogs = autoAnswerKitDialogs({ prompt: "Weekly report" });
+    m.enumerateRunbookFiles.mockResolvedValue([{ path: "runbook.md" }]);
+    m.writeRunbookFile.mockRejectedValueOnce(new Error("disk full"));
+    await openRole();
+    fireEvent.click(screen.getByTestId("role-view-tab-runbooks"));
+    fireEvent.click(await screen.findByTestId("role-view-new-runbook"));
+    expect(await screen.findByText("Weekly Report")).toBeTruthy();
+    const alert = dialogs.calls.find((c) => c.kind === "alert");
+    expect(alert?.opts.title).toBe("The runbook was made, but its starter text wasn't written");
   });
 
   it("an existing name shows the kit alert and stays on the runbooks tab", async () => {

@@ -116,6 +116,82 @@ describe("readRoleFrontmatterValue", () => {
 describe("cleanRoleDescription", () => {
   it("collapses whitespace to one line and caps the length", () => {
     expect(cleanRoleDescription("  one\n two\t three  ")).toBe("one two three");
-    expect(cleanRoleDescription("x".repeat(500))).toHaveLength(ROLE_DESCRIPTION_MAX);
+    // Collapses whitespace only — a long stored description is never cut.
+    expect(cleanRoleDescription("x".repeat(500))).toHaveLength(500);
+    expect(ROLE_DESCRIPTION_MAX).toBe(160);
+  });
+});
+
+describe("multi-line values and YAML edge cases", () => {
+  const BLOCK = [
+    "---",
+    "displayName: Box",
+    "description: >-",
+    "  Keeps the box",
+    "  healthy and fed.",
+    "users:",
+    "  - ashley",
+    "  - zoey",
+    "colorHue: '20'",
+    "---",
+    "",
+    "body",
+    "",
+  ].join("\n");
+
+  it("reads a folded block scalar as one line", () => {
+    expect(readRoleFrontmatterValue(BLOCK, "description")).toBe("Keeps the box healthy and fed.");
+  });
+
+  it("reads a literal block scalar as one line too", () => {
+    const md = "---\ndescription: |\n  line one\n  line two\n---\n";
+    expect(readRoleFrontmatterValue(md, "description")).toBe("line one line two");
+  });
+
+  it("reads a plain value that continues on an indented line", () => {
+    const md = "---\ndescription: starts here\n  and goes on\n---\n";
+    expect(readRoleFrontmatterValue(md, "description")).toBe("starts here and goes on");
+  });
+
+  it("replacing a block-scalar key takes its continuation lines with it; a list under another key stays", () => {
+    const out = mergeRoleFrontmatter(BLOCK, { description: "One line now" });
+    expect(out).toBe(
+      [
+        "---",
+        "displayName: Box",
+        'description: "One line now"',
+        "users:",
+        "  - ashley",
+        "  - zoey",
+        "colorHue: '20'",
+        "---",
+        "",
+        "body",
+        "",
+      ].join("\n"),
+    );
+  });
+
+  it("clearing a block-scalar key removes its continuation lines", () => {
+    const out = mergeRoleFrontmatter(BLOCK, {}, new Set(["description"]));
+    expect(out).not.toContain("Keeps the box");
+    expect(out).toContain("  - zoey");
+  });
+
+  it("keeps an unindented list under its key", () => {
+    const md = "---\nusers:\n- ashley\ncolorHue: '1'\n---\n";
+    expect(mergeRoleFrontmatter(md, { colorHue: 2 })).toBe("---\nusers:\n- ashley\ncolorHue: '2'\n---\n");
+  });
+
+  it("quotes words YAML would read as booleans, nulls or numbers", () => {
+    for (const word of ["yes", "No", "true", "null", "~", "123", "1.5", "on"]) {
+      const out = mergeRoleFrontmatter("---\n---\n", { description: word });
+      expect(out).toBe(`---\ndescription: ${JSON.stringify(word)}\n---\n`);
+      expect(readRoleFrontmatterValue(out, "description")).toBe(word);
+    }
+  });
+
+  it("an empty frontmatter block is merged into, not stacked on", () => {
+    expect(mergeRoleFrontmatter("---\n---\nbody\n", { voice: "Danielle" })).toBe("---\nvoice: Danielle\n---\nbody\n");
   });
 });

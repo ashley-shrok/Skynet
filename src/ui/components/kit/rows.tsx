@@ -103,11 +103,11 @@ export function KitSettingsRow({
 }: KitSettingsRowProps): JSX.Element {
   const text = (
     <>
-    {leading}
-    <span className="k-row-text">
-      <span className="k-row-label">{label}</span>
-      {description ? <span className="k-row-desc">{description}</span> : null}
-    </span>
+      {leading}
+      <span className="k-row-text">
+        <span className="k-row-label">{label}</span>
+        {description ? <span className="k-row-desc">{description}</span> : null}
+      </span>
     </>
   );
   // Opens something AND has its own controls: the text is the button and

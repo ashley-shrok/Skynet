@@ -74,9 +74,12 @@ type Nav =
   | { view: "new" }
   | { view: "archived" };
 
+/** Why the window closed, when it wasn't simply dismissed. */
+export type RolesWindowCloseReason = "start-conversation";
+
 export interface RolesWindowProps {
   open: boolean;
-  onOpenChange: (open: boolean) => void;
+  onOpenChange: (open: boolean, reason?: RolesWindowCloseReason) => void;
   hostTree: HostFolder | null;
   start: RolesWindowStart;
   newRoleHop?: NewRoleHop | null;
@@ -112,31 +115,43 @@ export function RolesWindow({
   }, []);
 
   // ── Open / reset ─────────────────────────────────────────────────────────
-  useEffect(() => {
-    if (!open) return;
-    guardRef.current = null;
-    escapeRef.current = null;
-    setHueOverride(null);
-    setRoleTab("role");
-    if (start.view === "role") {
-      setHostId(start.hostId);
-      setNav({ view: "role", role: start.role });
-    } else if (start.view === "new") {
-      setHostId(start.host ? Number(start.host.id) : flatHosts.length === 1 ? Number(flatHosts[0].id) : null);
-      setNav({ view: "new" });
-    } else {
-      const wanted = start.hostId ?? null;
-      setHostId(
-        wanted != null && flatHosts.some((h) => Number(h.id) === wanted)
-          ? wanted
-          : flatHosts.length === 1
-            ? Number(flatHosts[0].id)
-            : null,
-      );
-      setNav({ view: "library" });
+  // Each open starts a fresh session: the starting view and host are set in
+  // the same render the window opens in (no flash of the last session), and
+  // the views remount (keyed by session) so they register their own guards.
+  const [session, setSession] = useState(0);
+  const [wasOpen, setWasOpen] = useState(false);
+  if (open !== wasOpen) {
+    setWasOpen(open);
+    if (open) {
+      setSession((n) => n + 1);
+      setHueOverride(null);
+      setRoleTab("role");
+      if (start.view === "role") {
+        setHostId(start.hostId);
+        setNav({ view: "role", role: start.role });
+      } else if (start.view === "new") {
+        setHostId(start.host ? Number(start.host.id) : flatHosts.length === 1 ? Number(flatHosts[0].id) : null);
+        setNav({ view: "new" });
+      } else {
+        const wanted = start.hostId ?? null;
+        setHostId(
+          wanted != null && flatHosts.some((h) => Number(h.id) === wanted)
+            ? wanted
+            : flatHosts.length === 1
+              ? Number(flatHosts[0].id)
+              : null,
+        );
+        setNav({ view: "library" });
+      }
     }
-    console.info({ operation: "roles_window_open", start: start.view });
-    // The start is read once per open; host-list changes mid-open don't reset.
+  }
+  useEffect(() => {
+    if (open) console.info({ operation: "roles_window_open", start: start.view });
+    else {
+      guardRef.current = null;
+      escapeRef.current = null;
+    }
+    // Logged once per open/close.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
 
@@ -200,15 +215,26 @@ export function RolesWindow({
   }, [open, hostId, archivedKey]);
 
   // ── Agents per role ──────────────────────────────────────────────────────
+  // Shared ("instance-wide") — from the role itself or the shared list (a
+  // role opened from an agent's window may not carry the flag).
+  const isShared = useCallback(
+    (role: Pick<RoleSummary, "name" | "instanceWide">): boolean =>
+      !!role.instanceWide || !!instanceWide?.items.some((i) => i.name === role.name),
+    [instanceWide],
+  );
+
   // A shared role counts its agents on every host.
   const { identities } = useIdentities();
   const agentsHolding = useCallback(
     (role: Pick<RoleSummary, "name" | "instanceWide">): typeof identities => {
-      const everyHost = !!role.instanceWide || !!instanceWide?.items.some((i) => i.name === role.name);
+      const everyHost = isShared(role);
       return identities.filter((i) => identityRoles(i).includes(role.name) && (everyHost || i.hostId === hostId));
     },
-    [identities, hostId, instanceWide],
+    [identities, hostId, isShared],
   );
+
+  // A new picture keeps its file name, so the library's image needs a fresh URL.
+  const [avatarBusts, setAvatarBusts] = useState<Record<string, number>>({});
 
   // ── Navigation ───────────────────────────────────────────────────────────
   const leave = useCallback(async (): Promise<boolean> => {
@@ -276,6 +302,7 @@ export function RolesWindow({
   // A role's details changed in its view (description, colour, voice,
   // picture) — keep the library row and the open view in step.
   const patchRole = useCallback((name: string, patch: Partial<RoleSummary>) => {
+    if (patch.avatar) setAvatarBusts((b) => ({ ...b, [name]: Date.now() }));
     setRoles((prev) =>
       prev.status === "ready"
         ? { status: "ready", data: prev.data.map((r) => (r.name === name ? { ...r, ...patch } : r)) }
@@ -304,6 +331,7 @@ export function RolesWindow({
   if (nav.view === "library") {
     body = (
       <RolesLibraryView
+        key={session}
         flatHosts={flatHosts}
         hostId={hostId}
         onHostChange={setHostId}
@@ -311,6 +339,7 @@ export function RolesWindow({
         instanceWide={instanceWide}
         archivedCount={archived.status === "ready" ? archived.data.length : 0}
         agentsFor={(r) => agentsHolding(r).length}
+        avatarBusts={avatarBusts}
         onOpenRole={(role) => void go({ view: "role", role })}
         onNewRole={() => void go({ view: "new" })}
         onOpenArchived={() => void go({ view: "archived" })}
@@ -319,10 +348,11 @@ export function RolesWindow({
   } else if (nav.view === "role" && hostId != null) {
     body = (
       <RoleView
-        key={`${hostId}:${nav.role.name}`}
+        key={`${session}:${hostId}:${nav.role.name}`}
         hostId={hostId}
         hostName={hostName(hostId)}
         role={nav.role}
+        shared={isShared(nav.role)}
         isAdmin={isAdmin}
         instanceWideItem={instanceWide?.items.find((i) => i.name === nav.role.name) ?? null}
         agents={agentsHolding(nav.role)}
@@ -343,9 +373,10 @@ export function RolesWindow({
           setArchivedKey((k) => k + 1);
           void go({ view: "library" });
         }}
-        onStartConversation={() => {
+        onStartConversation={async () => {
+          if (!(await leave())) return;
           requestNewConversation({ hostId, role: nav.role.name });
-          onOpenChange(false);
+          onOpenChange(false, "start-conversation");
         }}
         registerGuard={registerGuard}
         registerEscape={registerEscape}
@@ -354,11 +385,11 @@ export function RolesWindow({
   } else if (nav.view === "runbook" && hostId != null) {
     body = (
       <RunbookView
-        key={`${hostId}:${nav.role.name}:${nav.runbook}`}
+        key={`${session}:${hostId}:${nav.role.name}:${nav.runbook}`}
         hostId={hostId}
         role={nav.role}
         runbook={nav.runbook}
-        readOnly={!!nav.role.instanceWide && !isAdmin}
+        readOnly={isShared(nav.role) && !isAdmin}
         onBack={() => void goBack()}
         onClose={() => void handleOpenChange(false)}
         onDeleted={() => {
@@ -373,6 +404,7 @@ export function RolesWindow({
   } else if (nav.view === "new") {
     body = (
       <NewRoleView
+        key={session}
         flatHosts={flatHosts}
         initialHostId={hostId}
         backLabel={newRoleHop ? "Back" : "Roles"}
@@ -403,6 +435,7 @@ export function RolesWindow({
   } else if (nav.view === "archived" && hostId != null) {
     body = (
       <ArchivedRolesView
+        key={session}
         hostId={hostId}
         hostName={hostName(hostId)}
         archived={archived}

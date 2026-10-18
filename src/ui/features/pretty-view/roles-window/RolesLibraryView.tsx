@@ -23,6 +23,10 @@ import { roleDisplayName } from "@/lib/role-display-name";
 import type { TabState } from "../IdentityFileTab";
 import { roleAvatarColor, roleHue } from "./RolesWindow";
 
+function withBust(url: string, bust: number | undefined): string {
+  return bust ? `${url}${url.includes("?") ? "&" : "?"}v=${bust}` : url;
+}
+
 export function agentCountLabel(n: number): string {
   return `${n} agent${n === 1 ? "" : "s"}`;
 }
@@ -35,6 +39,7 @@ export function RolesLibraryView({
   instanceWide,
   archivedCount,
   agentsFor,
+  avatarBusts,
   onOpenRole,
   onNewRole,
   onOpenArchived,
@@ -46,6 +51,8 @@ export function RolesLibraryView({
   instanceWide: InstanceWideList | null;
   archivedCount: number;
   agentsFor: (role: RoleSummary) => number;
+  /** Per role: when its picture last changed here (fresh image URL). */
+  avatarBusts?: Record<string, number>;
   onOpenRole: (role: RoleSummary) => void;
   onNewRole: () => void;
   onOpenArchived: () => void;
@@ -144,7 +151,7 @@ export function RolesLibraryView({
         key={r.name}
         leading={
           <KitAvatar
-            src={r.avatar ? roleAvatarUrl(hostId, r.name) : null}
+            src={r.avatar ? withBust(roleAvatarUrl(hostId, r.name), avatarBusts?.[r.name]) : null}
             fallback={label.charAt(0).toUpperCase()}
             color={roleAvatarColor(roleHue(r))}
           />

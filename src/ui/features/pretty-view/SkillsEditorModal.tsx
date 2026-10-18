@@ -376,6 +376,14 @@ export default function SkillsEditorModal({
       });
     return () => {
       cancelled = true;
+      // Left before the read answered: forget the half-loaded entry so coming
+      // back reads the file again instead of loading forever.
+      setTabData((prev) => {
+        if (prev.get(activeTab)?.status !== "loading") return prev;
+        const next = new Map(prev);
+        next.delete(activeTab);
+        return next;
+      });
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [apiHostId, selectedSkillName, activeTab]);

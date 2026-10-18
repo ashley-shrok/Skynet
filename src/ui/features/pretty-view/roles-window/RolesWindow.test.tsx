@@ -5,7 +5,7 @@
 // closes; leaving unsaved edits asks first.
 
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { fireEvent, screen, waitFor, within } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 
 vi.mock("@/api/identities-api", async (o) => (await import("./roles-window.test-mocks")).identitiesApi(o));
 vi.mock("@/api/instance-wide-api", async (o) => (await import("./roles-window.test-mocks")).instanceWideApi(o));
@@ -23,11 +23,13 @@ vi.mock("@mdxeditor/editor", async () => (await import("./roles-window.test-mock
 import { autoAnswerKitDialogs, __resetKitDialogsForTests } from "@/components/kit";
 import { UnarchiveError } from "@/api/identity-unarchive-api";
 import { m, resetRolesWindowMocks, store } from "./roles-window.test-mocks";
+import { RolesWindow } from "./RolesWindow";
 import {
   ALLY,
   BOX,
   HOST_ID,
   MULTI_HOST_TREE,
+  SINGLE_HOST_TREE,
   SUPPORT,
   SUPPORT_ITEM,
   agent,
@@ -286,6 +288,37 @@ describe("roles window — moving between views", () => {
     fireEvent.click(backButton());
     await expectLibrary();
     expect(await screen.findByTestId("roles-window-row-ally-role")).toBeTruthy();
+  });
+
+  it("each open starts fresh: closed on a half-filled new role, reopened on the library", async () => {
+    const dialogs = autoAnswerKitDialogs({ confirm: false });
+    const props = { onOpenChange: vi.fn(), hostTree: SINGLE_HOST_TREE, start: { view: "library" as const }, newRoleHop: null };
+    const { rerender } = render(<RolesWindow open={true} {...props} />);
+    fireEvent.click(await screen.findByTestId("roles-window-new-role"));
+    fireEvent.change(await screen.findByTestId("new-role-name"), { target: { value: "Meal Planner" } });
+    rerender(<RolesWindow open={false} {...props} />);
+    rerender(<RolesWindow open={true} {...props} />);
+    await expectLibrary();
+    expect(screen.queryByTestId("new-role-name")).toBeNull();
+    // A fresh new-role form registers its own guard again.
+    fireEvent.click(screen.getByTestId("roles-window-new-role"));
+    fireEvent.change(await screen.findByTestId("new-role-name"), { target: { value: "Meal Planner" } });
+    fireEvent.click(screen.getByTestId("new-role-cancel"));
+    await waitFor(() => expect(dialogs.calls).toHaveLength(1));
+    expect(dialogs.calls[0].opts.title).toBe("Discard this new role?");
+  });
+
+  it("a shared role opened without its shared flag (an agent's window) is still view-only down into its runbooks", async () => {
+    m.listRunbooks.mockResolvedValue([{ name: "weekly-report" }]);
+    m.enumerateRunbookFiles.mockResolvedValue([{ path: "runbook.md" }]);
+    const { instanceWide: _drop, ...bare } = SUPPORT;
+    renderWindow({ start: { view: "role", hostId: HOST_ID, role: bare } });
+    expect(await screen.findByTestId("role-view-readonly-note")).toBeTruthy();
+    fireEvent.click(screen.getByTestId("role-view-tab-runbooks"));
+    fireEvent.click(await screen.findByTestId("role-view-runbook-weekly-report"));
+    await screen.findByText("Weekly Report");
+    expect(screen.queryByTestId("runbook-view-save")).toBeNull();
+    expect(screen.queryByTestId("runbook-view-add-file")).toBeNull();
   });
 });
 

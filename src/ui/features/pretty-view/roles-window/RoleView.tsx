@@ -104,6 +104,8 @@ export interface RoleViewProps {
   hostId: number;
   hostName: string;
   role: RoleSummary;
+  /** Shared ("instance-wide"), as the window worked it out. */
+  shared: boolean;
   isAdmin: boolean;
   instanceWideItem: InstanceWideItem | null;
   agents: Identity[];
@@ -115,7 +117,7 @@ export interface RoleViewProps {
   onHueDraft: (hue: number | null) => void;
   onSharingChanged: () => void;
   onArchived: () => void;
-  onStartConversation: () => void;
+  onStartConversation: () => void | Promise<void>;
   registerGuard: (g: LeaveGuard | null) => void;
   registerEscape: (h: EscapeHandler | null) => void;
 }
@@ -124,6 +126,7 @@ export function RoleView({
   hostId,
   hostName,
   role,
+  shared,
   isAdmin,
   instanceWideItem,
   agents,
@@ -141,7 +144,6 @@ export function RoleView({
 }: RoleViewProps): JSX.Element {
   const name = role.name;
   const label = roleDisplayName(name, role.displayName);
-  const shared = !!role.instanceWide || instanceWideItem != null;
   const readOnly = shared && !isAdmin;
 
   // ── Role file ────────────────────────────────────────────────────────────
@@ -175,12 +177,19 @@ export function RoleView({
     [name, hostId],
   );
 
+  // ── Role file editing state (declared early: while the file is being
+  //    edited, the look and description are locked — each of those saves
+  //    rewrites the file, and the editor's draft would put the old values
+  //    back on Save).
+  const [editing, setEditing] = useState(false);
+  const lookLocked = readOnly || !fileReady || editing;
+
   // ── Description (edited in place) ────────────────────────────────────────
   const [descEditing, setDescEditing] = useState(false);
   const [descDraft, setDescDraft] = useState("");
   const descCancelled = useRef(false);
   const startDescEdit = (): void => {
-    if (readOnly || !fileReady) return;
+    if (lookLocked) return;
     descCancelled.current = false;
     setDescDraft(description ?? "");
     setDescEditing(true);
@@ -276,7 +285,6 @@ export function RoleView({
   };
 
   // ── Role file editing ────────────────────────────────────────────────────
-  const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState("");
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
@@ -384,19 +392,9 @@ export function RoleView({
       void kitAlert({ title: "That name won't work", body: "Use at least one letter or number." });
       return;
     }
+    let created: { mtime: number };
     try {
-      const created = await createRunbook(hostId, name, slug, RUNBOOK_STARTER_FILE);
-      await writeRunbookFile({
-        hostId,
-        role: name,
-        runbook: slug,
-        path: RUNBOOK_STARTER_FILE,
-        content: `# ${raw.trim()}\n\nWhen to use this:\n\nSteps:\n\n1. \n`,
-        expectedMtime: created.mtime,
-      });
-      console.info({ operation: "runbook_created", hostId, roleName: name, runbook: slug });
-      setRunbooksKey((k) => k + 1);
-      onOpenRunbook(slug);
+      created = await createRunbook(hostId, name, slug, RUNBOOK_STARTER_FILE);
     } catch (err) {
       void kitAlert({
         title: "Couldn't create the runbook",
@@ -407,7 +405,35 @@ export function RoleView({
               ? err.message
               : undefined,
       });
+      return;
     }
+    console.info({ operation: "runbook_created", hostId, roleName: name, runbook: slug });
+    setRunbooksKey((k) => k + 1);
+    // The runbook exists from here on; a failed starter text only leaves its
+    // first file empty, so open it either way.
+    try {
+      await writeRunbookFile({
+        hostId,
+        role: name,
+        runbook: slug,
+        path: RUNBOOK_STARTER_FILE,
+        content: `# ${raw.trim()}\n\nWhen to use this:\n\nSteps:\n\n1. \n`,
+        expectedMtime: created.mtime,
+      });
+    } catch (err) {
+      console.warn({
+        operation: "runbook_starter_write_failed",
+        hostId,
+        roleName: name,
+        runbook: slug,
+        errMessage: err instanceof Error ? err.message : String(err),
+      });
+      void kitAlert({
+        title: "The runbook was made, but its starter text wasn't written",
+        body: "Its runbook.md is empty — fill it in when it opens.",
+      });
+    }
+    onOpenRunbook(slug);
   };
 
   // ── Menu actions ─────────────────────────────────────────────────────────
@@ -478,7 +504,7 @@ export function RoleView({
     {
       label: "Start a conversation",
       hint: "A new agent holding this role",
-      onClick: onStartConversation,
+      onClick: () => void onStartConversation(),
       testId: "role-view-start-conversation",
     },
     ...(isAdmin
@@ -543,7 +569,7 @@ export function RoleView({
           <button
             type="button"
             onClick={() => avatarInput.current?.click()}
-            disabled={!fileReady}
+            disabled={lookLocked}
             title="Change picture"
             aria-label="Change picture"
             className="relative block rounded-full cursor-pointer disabled:cursor-default focus-visible:outline-2 focus-visible:outline-[var(--k-acc)] focus-visible:outline-offset-2"
@@ -584,7 +610,7 @@ export function RoleView({
             onChange={(e) => setDescDraft(e.target.value)}
             onBlur={() => void finishDescEdit()}
             onKeyDown={(e) => {
-              if (e.key === "Enter") {
+              if (e.key === "Enter" && !e.nativeEvent.isComposing) {
                 e.preventDefault();
                 (e.target as HTMLTextAreaElement).blur();
               }
@@ -628,7 +654,7 @@ export function RoleView({
           <div ref={colorRef}>
             <KitButton
               size="sm"
-              disabled={readOnly || !fileReady}
+              disabled={lookLocked}
               aria-expanded={colorOpen}
               onClick={() => (colorOpen ? closeColor() : (setVoiceOpen(false), setColorOpen(true)))}
               data-testid="role-view-color"
@@ -651,7 +677,7 @@ export function RoleView({
           <div ref={voiceRef}>
             <KitButton
               size="sm"
-              disabled={readOnly || !fileReady}
+              disabled={lookLocked}
               aria-expanded={voiceOpen}
               onClick={() => {
                 if (colorOpen) closeColor();

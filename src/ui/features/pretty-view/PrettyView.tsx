@@ -4694,11 +4694,14 @@ export function PrettyView({
       {roleModalOpenState && (
         <RolesWindow
           open={true}
-          onOpenChange={(open) => {
+          onOpenChange={(open, reason) => {
             if (!open) {
-              console.debug("[PrettyView] roles-window-close: back to the identity modal");
               setRoleModalOpenState(null);
-              setIsIdentityModalOpen(true);
+              // "Start a conversation" hands off to the new-conversation
+              // dialog; only a plain close goes back to the identity modal.
+              const backToAgent = reason !== "start-conversation";
+              console.debug("[PrettyView] roles-window-close", { backToAgent });
+              if (backToAgent) setIsIdentityModalOpen(true);
             }
           }}
           // Opened from this agent: the window is scoped to its host.

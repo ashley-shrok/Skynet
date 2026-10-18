@@ -285,7 +285,12 @@ export function NewRoleView({
           <div className="flex flex-col items-center gap-3">
             {preview}
             <div className="flex flex-wrap justify-center gap-2">
-              <KitButton size="sm" disabled={!canGenerate} busy={genLoading} onClick={() => void handleGenerate()}>
+              <KitButton
+                size="sm"
+                disabled={!canGenerate || uploadLoading}
+                busy={genLoading}
+                onClick={() => void handleGenerate()}
+              >
                 <Sparkles />
                 {genLoading ? "Generating…" : candidates.length > 0 ? "Regenerate" : "Generate picture"}
               </KitButton>
@@ -296,13 +301,13 @@ export function NewRoleView({
                 className="sr-only"
                 tabIndex={-1}
                 aria-hidden="true"
-                disabled={submitting || uploadLoading}
+                disabled={submitting || uploadLoading || genLoading}
                 onChange={(e) => void handleUpload(e)}
               />
               <KitButton
                 size="sm"
                 variant="plain"
-                disabled={submitting}
+                disabled={submitting || genLoading}
                 busy={uploadLoading}
                 aria-label="Upload a picture"
                 onClick={() => uploadInputRef.current?.click()}
