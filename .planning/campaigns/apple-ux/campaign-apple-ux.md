@@ -31,7 +31,7 @@ Starting order: foundation, skills, then the remaining modals, then host targeti
 
 - **[declared] shape-ux-foundation** — look A + the shared kit, every modal moved onto it, in-app dialogs, phone sheets (see shape-ux-foundation.closed.md) — closed 2026-10-17
 - **[declared] shape-skills-modal** — library + skill views, who-can-use switches in bulk, files collapsed; shared skills agent-only for non-admins (see shape-skills-modal.closed.md) — closed 2026-10-18
-- **[declared] shape-roles-modals** — roles list, role modal, new-role dialog, runbook editor — not started
+- **[declared] shape-roles-modals** — roles list, role modal, new-role dialog, runbook editor become one window (see shape-roles-modals.md) — in_progress
 - **[declared] shape-identity-modal** — agent modal (agent file, wake-ups + add-wake-up, files, git, desktop tabs) — not started
 - **[declared] shape-project-modals** — project modal + new-project dialog — not started
 - **[declared] shape-scheduled-tasks-modal** — scheduled tasks list + editor — not started
