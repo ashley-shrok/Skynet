@@ -490,6 +490,14 @@
   margin-top: 5px;
 }
 
+/* Sub-projects render above the parent's own rows inside the same content
+   wrapper. Without a break, the parent's rows read as belonging to the
+   sub-project (collapsed: only the header's 6px pb; expanded: 0px). Match
+   the 14px a project header carries above itself (pt-3.5). */
+[id^="pv-project-section-content-"] > .pv-project-section + [data-conversation-id] {
+  margin-top: 14px;
+}
+
 /* Phase 41 Plan 02 (user 2026-08-14): messaging-app default search-input
    shape — flex row with a leading search icon, transparent input, and a
    trailing × clear affordance that appears only when there is text. Uses
