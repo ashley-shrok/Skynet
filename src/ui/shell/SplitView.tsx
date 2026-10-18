@@ -177,25 +177,162 @@ export function dragRowFractions(
   return out;
 }
 
+// ─── Divider drags: single lines and the points where lines meet ──────────
+// Each divider's grab strip registers a LineControl. A press starts one
+// pointer-captured drag (startLineDrag) that drives every line it reaches:
+// just the pressed line, or — at a point where lines running both ways meet
+// (a T where a line ends on another, or a + where lines from both sides end
+// on the same one) — all of them, each moving along its own axis and
+// clamped by its own row's minimums.
+
+/** One line's part in a drag. `finish(false)` ends it without committing. */
+interface LineDrag {
+  move: (clientX: number, clientY: number) => void;
+  finish: (commit: boolean) => void;
+}
+
+interface LineControl {
+  direction: "horizontal" | "vertical";
+  /** Starts this line's part in a drag, or null when it can't resize.
+   *  `onAbort` runs if the line's row unmounts mid-drag. */
+  begin: (clientX: number, clientY: number, onAbort: () => void) => LineDrag | null;
+  reset: () => void;
+}
+
+const lineControls = new WeakMap<Element, LineControl>();
+
+// How far past a grab strip a press may land and still reach that line —
+// sets the size of a meeting point's grab area (~17px square).
+const MEET_REACH_PX = 4;
+
+/** The lines a press at (x, y) on `pressed` drives: every grab strip within
+ *  reach when they run in both directions (a meeting point), otherwise just
+ *  the pressed one. */
+function linesAt(pressed: Element, x: number, y: number): Element[] {
+  const near = Array.from(document.querySelectorAll("[data-split-divider-handle]")).filter((el) => {
+    if (el === pressed) return true;
+    if (!lineControls.has(el)) return false;
+    const r = el.getBoundingClientRect();
+    if (r.width <= 0 || r.height <= 0) return false;
+    return (
+      x >= r.left - MEET_REACH_PX &&
+      x <= r.right + MEET_REACH_PX &&
+      y >= r.top - MEET_REACH_PX &&
+      y <= r.bottom + MEET_REACH_PX
+    );
+  });
+  const directions = new Set(near.map((el) => lineControls.get(el)?.direction));
+  return directions.size > 1 ? near : [pressed];
+}
+
+// Grab strips currently lit as one meeting point under a hovering pointer.
+let hotLines: Element[] = [];
+function setHotLines(lines: Element[]) {
+  hotLines.forEach((el) => {
+    el.removeAttribute("data-split-meet");
+    el.parentElement?.removeAttribute("data-split-meet");
+  });
+  hotLines = lines;
+  lines.forEach((el) => {
+    el.setAttribute("data-split-meet", "");
+    el.parentElement?.setAttribute("data-split-meet", "");
+  });
+}
+
+function startLineDrag(e: React.PointerEvent<HTMLDivElement>) {
+  if (e.button !== 0) return;
+  const handle = e.currentTarget;
+  const lines = linesAt(handle, e.clientX, e.clientY);
+  setHotLines([]);
+  let ended = false;
+  let open = 0;
+  const directions = new Set<string>();
+  const drags: LineDrag[] = [];
+  lines.forEach((el) => {
+    const control = lineControls.get(el);
+    const drag = control?.begin(e.clientX, e.clientY, () => {
+      open -= 1;
+      if (open === 0) teardown();
+    });
+    if (control === undefined || drag == null) return;
+    drags.push(drag);
+    directions.add(control.direction);
+  });
+  open = drags.length;
+  if (open === 0) return;
+  e.preventDefault();
+  e.stopPropagation();
+  const pointerId = e.pointerId;
+  // Pointer capture keeps every move/up on the handle even while the
+  // pointer crosses an app or remote-desktop iframe.
+  handle.setPointerCapture(pointerId);
+  const prevCursor = document.body.style.cursor;
+  const prevSelect = document.body.style.userSelect;
+  document.body.style.cursor =
+    directions.size > 1 ? "move" : directions.has("vertical") ? "col-resize" : "row-resize";
+  document.body.style.userSelect = "none";
+  // Backstop for browsers whose pointer capture leaks into iframes: app
+  // and remote-desktop frames ignore the pointer while a resize is live.
+  document.body.setAttribute("data-split-resizing", "");
+  if (drags.length > 1) {
+    systemLogger.info("pv-split-resize meet start", {
+      operation: "pv_split_resize_meet_start",
+      lines: drags.length,
+      clientX: Math.round(e.clientX),
+      clientY: Math.round(e.clientY),
+    });
+  }
+  const onMove = (ev: PointerEvent) => drags.forEach((d) => d.move(ev.clientX, ev.clientY));
+  function teardown() {
+    if (ended) return;
+    ended = true;
+    handle.removeEventListener("pointermove", onMove);
+    handle.removeEventListener("pointerup", onEnd);
+    handle.removeEventListener("lostpointercapture", onEnd);
+    if (handle.isConnected && handle.hasPointerCapture(pointerId)) {
+      handle.releasePointerCapture(pointerId);
+    }
+    document.body.style.cursor = prevCursor;
+    document.body.style.userSelect = prevSelect;
+    document.body.removeAttribute("data-split-resizing");
+  }
+  function onEnd() {
+    if (ended) return;
+    teardown();
+    drags.forEach((d) => d.finish(true));
+  }
+  handle.addEventListener("pointermove", onMove);
+  handle.addEventListener("pointerup", onEnd);
+  handle.addEventListener("lostpointercapture", onEnd);
+}
+
 // Divider between two members of a row. `direction` matches split-tree.ts's
 // SplitDirection convention: 'horizontal' = 1px-tall line separating stacked
 // members; 'vertical' = 1px-wide line separating side-by-side members. The
 // visible line stays 1px; an invisible 8px strip centred on it takes the
-// pointer. Hover (and an active drag) lights the line in the accent colour.
-// Only the strip takes the pointer, and not while a pane / row / app tile is
-// being dragged (body[data-split-dnd], see SplitView) — a drop aimed at the
-// line between two panes must land on the pane under it.
+// pointer. Hover (and an active drag) lights the line in the accent colour;
+// hovering a meeting point lights every line there (data-split-meet,
+// index.css). Only the strip takes the pointer, and not while a pane / row /
+// app tile is being dragged (body[data-split-dnd], see SplitView) — a drop
+// aimed at the line between two panes must land on the pane under it.
 function Divider({
   direction,
   active,
-  onPointerDown,
-  onDoubleClick,
+  control,
 }: {
   direction: "horizontal" | "vertical";
   active: boolean;
-  onPointerDown: (e: React.PointerEvent<HTMLDivElement>) => void;
-  onDoubleClick: () => void;
+  control: LineControl;
 }) {
+  const controlRef = useRef(control);
+  controlRef.current = control;
+  const registered = useRef<LineControl>({
+    get direction() {
+      return controlRef.current.direction;
+    },
+    begin: (x, y, onAbort) => controlRef.current.begin(x, y, onAbort),
+    reset: () => controlRef.current.reset(),
+  });
   const stacked = direction === "horizontal";
   const lineColor = active
     ? "bg-[hsla(var(--pv-hue,35),55%,50%,0.6)]"
@@ -207,12 +344,30 @@ function Divider({
       aria-orientation={direction}
       data-split-divider=""
     >
-      <div className={`absolute inset-0 transition-colors ${lineColor}`} />
+      <div className={`absolute inset-0 transition-colors ${lineColor}`} data-split-divider-line="" />
       <div
+        ref={(el) => {
+          if (el !== null) lineControls.set(el, registered.current);
+        }}
         className={`absolute pointer-events-auto touch-none ${stacked ? "left-0 right-0 -top-[4px] h-[9px] cursor-row-resize" : "top-0 bottom-0 -left-[4px] w-[9px] cursor-col-resize"}`}
         data-split-divider-handle=""
-        onPointerDown={onPointerDown}
-        onDoubleClick={onDoubleClick}
+        onPointerDown={startLineDrag}
+        onPointerMove={(e) => {
+          if (e.buttons !== 0) return;
+          const lines = linesAt(e.currentTarget, e.clientX, e.clientY);
+          setHotLines(lines.length > 1 ? lines : []);
+        }}
+        onPointerLeave={() => setHotLines([])}
+        onDoubleClick={(e) => {
+          const lines = linesAt(e.currentTarget, e.clientX, e.clientY);
+          if (lines.length > 1) {
+            systemLogger.info("pv-split-resize meet reset", {
+              operation: "pv_split_resize_meet_reset",
+              lines: lines.length,
+            });
+          }
+          lines.forEach((el) => lineControls.get(el)?.reset());
+        }}
       />
     </div>
   );
@@ -248,11 +403,12 @@ function RowView({
   // drag started on before committing.
   const nodeRef = useRef(node);
   nodeRef.current = node;
-  // Cleanup for an in-flight drag, run if this row unmounts mid-drag so the
-  // page cursor / selection lock never stick. It never commits: the row the
-  // drag started on is gone, and its path may now name a different row.
-  const endDragRef = useRef<((commit: boolean) => void) | null>(null);
-  useEffect(() => () => endDragRef.current?.(false), []);
+  // Ends this row's part in an in-flight drag if the row unmounts mid-drag,
+  // and lets the drag restore the page cursor / selection lock once no line
+  // is left in it. It never commits: the row the drag started on is gone,
+  // and its path may now name a different row.
+  const endDragRef = useRef<(() => void) | null>(null);
+  useEffect(() => () => endDragRef.current?.(), []);
   const committed = rowFractions(node);
   const [live, setLive] = useState<{ fractions: number[]; divider: number } | null>(null);
   const containerRef = useRef<HTMLDivElement | null>(null);
@@ -262,30 +418,23 @@ function RowView({
       : committed;
   const sideBySide = node.direction === "vertical";
 
-  const startDrag = (k: number, e: React.PointerEvent<HTMLDivElement>) => {
-    if (e.button !== 0 || onResizeRow === undefined) return;
+  // This row's part in a drag of divider `k` (see startLineDrag, which owns
+  // the pointer and the page cursor).
+  const beginDrag = (
+    k: number,
+    clientX: number,
+    clientY: number,
+    onAbort: () => void,
+  ): LineDrag | null => {
+    if (onResizeRow === undefined) return null;
     const container = containerRef.current;
-    if (container === null) return;
-    e.preventDefault();
-    e.stopPropagation();
+    if (container === null) return null;
     const rect = container.getBoundingClientRect();
     const axis = sideBySide ? "width" : "height";
     const lengthPx = (sideBySide ? rect.width : rect.height) - (members.length - 1);
     const minsPx = members.map((m) => minAlong(m.node, axis));
     const start = fractions.slice();
-    const startPos = sideBySide ? e.clientX : e.clientY;
-    const handle = e.currentTarget;
-    const pointerId = e.pointerId;
-    // Pointer capture keeps every move/up on the handle even while the
-    // pointer crosses an app or remote-desktop iframe.
-    handle.setPointerCapture(pointerId);
-    const prevCursor = document.body.style.cursor;
-    const prevSelect = document.body.style.userSelect;
-    document.body.style.cursor = sideBySide ? "col-resize" : "row-resize";
-    document.body.style.userSelect = "none";
-    // Backstop for browsers whose pointer capture leaks into iframes: app
-    // and remote-desktop frames ignore the pointer while a resize is live.
-    document.body.setAttribute("data-split-resizing", "");
+    const startPos = sideBySide ? clientX : clientY;
     const signature = memberSignature(node);
     let latest = start;
     let frame = 0;
@@ -298,8 +447,8 @@ function RowView({
       members: members.length,
       lengthPx: Math.round(lengthPx),
     });
-    const onMove = (ev: PointerEvent) => {
-      const pos = sideBySide ? ev.clientX : ev.clientY;
+    const move = (x: number, y: number) => {
+      const pos = sideBySide ? x : y;
       latest = dragRowFractions(start, k, pos - startPos, lengthPx, minsPx);
       // One re-render per frame, however fast the pointer events come.
       if (frame !== 0) return;
@@ -321,15 +470,6 @@ function RowView({
       ended = true;
       endDragRef.current = null;
       if (frame !== 0) cancelAnimationFrame(frame);
-      handle.removeEventListener("pointermove", onMove);
-      handle.removeEventListener("pointerup", onEnd);
-      handle.removeEventListener("lostpointercapture", onEnd);
-      if (handle.isConnected && handle.hasPointerCapture(pointerId)) {
-        handle.releasePointerCapture(pointerId);
-      }
-      document.body.style.cursor = prevCursor;
-      document.body.style.userSelect = prevSelect;
-      document.body.removeAttribute("data-split-resizing");
       setLive(null);
       const moved = latest.some((f, i) => Math.abs(f - start[i]) > 1e-6);
       const sameRow = memberSignature(nodeRef.current) === signature;
@@ -344,11 +484,19 @@ function RowView({
       });
       if (commit && moved && sameRow) onResizeRow(path, latest);
     };
-    const onEnd = () => finish(true);
-    endDragRef.current = finish;
-    handle.addEventListener("pointermove", onMove);
-    handle.addEventListener("pointerup", onEnd);
-    handle.addEventListener("lostpointercapture", onEnd);
+    endDragRef.current = () => {
+      finish(false);
+      onAbort();
+    };
+    return { move, finish };
+  };
+
+  const resetRow = () => {
+    systemLogger.info("pv-split-resize reset", {
+      operation: "pv_split_resize_reset",
+      rowPath: JSON.stringify(path),
+    });
+    onResizeRow?.(path, null);
   };
 
   const children: React.ReactNode[] = [];
@@ -360,13 +508,10 @@ function RowView({
           key={`d${k}`}
           direction={node.direction}
           active={live !== null && live.divider === k}
-          onPointerDown={(e) => startDrag(k, e)}
-          onDoubleClick={() => {
-            systemLogger.info("pv-split-resize reset", {
-              operation: "pv_split_resize_reset",
-              rowPath: JSON.stringify(path),
-            });
-            onResizeRow?.(path, null);
+          control={{
+            direction: node.direction,
+            begin: (x, y, onAbort) => beginDrag(k, x, y, onAbort),
+            reset: resetRow,
           }}
         />,
       );

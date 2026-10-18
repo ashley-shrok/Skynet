@@ -1,5 +1,6 @@
 // Rows and sizes (2026-10-14): even rows, sized rows, divider drag commits
-// only the two neighbours, double-click resets, minimum pane size.
+// only the two neighbours, double-click resets, minimum pane size, and
+// dragging the point where lines meet.
 import React from "react";
 import { describe, it, expect, vi, afterEach } from "vitest";
 import { render, fireEvent, cleanup, act } from "@testing-library/react";
@@ -217,5 +218,143 @@ describe("dragRowFractions", () => {
     const grow = dragRowFractions([0.2, 0.8], 0, 100, 1000, mins2);
     expect(grow[0]).toBeCloseTo(0.3, 6);
     expect(dragRowFractions([0.2, 0.8], 0, -100, 1000, mins2)[0]).toBeCloseTo(0.2, 6);
+  });
+});
+
+function setRect(el: Element, left: number, top: number, width: number, height: number) {
+  (el as HTMLElement).getBoundingClientRect = () =>
+    ({ left, top, width, height, right: left + width, bottom: top + height, x: left, y: top, toJSON: () => ({}) }) as DOMRect;
+}
+
+// Lays out the dividers of `container` as `lines` describes, in document
+// order: the row holding each line, and each line's 9px grab strip.
+function layOut(
+  container: HTMLElement,
+  lines: Array<{ row: [number, number, number, number]; strip: [number, number, number, number] }>,
+) {
+  const dividers = container.querySelectorAll("[data-split-divider]");
+  expect(dividers).toHaveLength(lines.length);
+  const handles: Element[] = [];
+  lines.forEach((l, i) => {
+    setRect(dividers[i].parentElement!, ...l.row);
+    const handle = dividers[i].querySelector("[data-split-divider-handle]")!;
+    setRect(handle, ...l.strip);
+    stubCapture(handle);
+    handles.push(handle);
+  });
+  return handles;
+}
+
+describe("SplitView meeting points", () => {
+  // a | (b over c) in a 1001x800 window: the vertical line at x=500, the
+  // b/c line at y=400 from x=501 to the right edge, ending on the vertical.
+  function tTree() {
+    let tree: SplitNode = rowOf(["a", "b"]);
+    tree = insertAtEdge(tree, findLeaf(tree, "b")!, leaf("c"), "bottom");
+    return tree;
+  }
+  const tLines = [
+    { row: [0, 0, 1001, 800] as [number, number, number, number], strip: [496, 0, 9, 800] as [number, number, number, number] },
+    { row: [501, 0, 500, 801] as [number, number, number, number], strip: [501, 396, 500, 9] as [number, number, number, number] },
+  ];
+
+  it("dragging where a line ends on another moves both lines", () => {
+    const onResizeRow = vi.fn();
+    const { container } = render(
+      <SplitView splitTree={tTree()} tabs={["a", "b", "c"].map(tab)} onResizeRow={onResizeRow} />,
+    );
+    const [, inner] = layOut(container, tLines);
+    fireEvent(inner, pointer("pointerdown", { clientX: 503, clientY: 400 }));
+    expect(document.body.style.cursor).toBe("move");
+    fireEvent(inner, pointer("pointermove", { clientX: 403, clientY: 300 }));
+    fireEvent(inner, pointer("pointerup", { clientX: 403, clientY: 300 }));
+    expect(document.body.style.cursor).toBe("");
+    expect(document.body.hasAttribute("data-split-resizing")).toBe(false);
+    expect(onResizeRow).toHaveBeenCalledTimes(2);
+    const byPath = new Map(onResizeRow.mock.calls.map(([p, f]) => [JSON.stringify(p), f as number[]]));
+    expect(byPath.get("[]")![0]).toBeCloseTo(400 / 1000, 6);
+    expect(byPath.get("[1]")![0]).toBeCloseTo(300 / 800, 6);
+  });
+
+  it("a press away from the meeting point drags only its own line", () => {
+    const onResizeRow = vi.fn();
+    const { container } = render(
+      <SplitView splitTree={tTree()} tabs={["a", "b", "c"].map(tab)} onResizeRow={onResizeRow} />,
+    );
+    const [outer, inner] = layOut(container, tLines);
+    fireEvent(inner, pointer("pointerdown", { clientX: 750, clientY: 400 }));
+    expect(document.body.style.cursor).toBe("row-resize");
+    fireEvent(inner, pointer("pointermove", { clientX: 650, clientY: 300 }));
+    fireEvent(inner, pointer("pointerup", { clientX: 650, clientY: 300 }));
+    fireEvent(outer, pointer("pointerdown", { clientX: 500, clientY: 100 }));
+    fireEvent(outer, pointer("pointermove", { clientX: 400, clientY: 200 }));
+    fireEvent(outer, pointer("pointerup", { clientX: 400, clientY: 200 }));
+    expect(onResizeRow.mock.calls.map(([p]) => JSON.stringify(p))).toEqual(["[1]", "[]"]);
+  });
+
+  it("a + where lines from both sides end on one line moves all three", () => {
+    // (a over b) | (c over d), both horizontal lines at y=400.
+    let tree: SplitNode = rowOf(["a", "c"]);
+    tree = insertAtEdge(tree, findLeaf(tree, "a")!, leaf("b"), "bottom");
+    tree = insertAtEdge(tree, findLeaf(tree, "c")!, leaf("d"), "bottom");
+    const onResizeRow = vi.fn();
+    const { container } = render(
+      <SplitView splitTree={tree} tabs={["a", "b", "c", "d"].map(tab)} onResizeRow={onResizeRow} />,
+    );
+    // Document order: left column's line, the vertical line, right column's.
+    const [, vertical] = layOut(container, [
+      { row: [0, 0, 500, 801], strip: [0, 396, 500, 9] },
+      { row: [0, 0, 1001, 801], strip: [496, 0, 9, 801] },
+      { row: [501, 0, 500, 801], strip: [501, 396, 500, 9] },
+    ]);
+    fireEvent(vertical, pointer("pointerdown", { clientX: 500, clientY: 401 }));
+    fireEvent(vertical, pointer("pointermove", { clientX: 550, clientY: 451 }));
+    fireEvent(vertical, pointer("pointerup", { clientX: 550, clientY: 451 }));
+    expect(onResizeRow).toHaveBeenCalledTimes(3);
+    const byPath = new Map(onResizeRow.mock.calls.map(([p, f]) => [JSON.stringify(p), f as number[]]));
+    expect(byPath.get("[]")![0]).toBeCloseTo(550 / 1000, 6);
+    expect(byPath.get("[0]")![0]).toBeCloseTo(450 / 800, 6);
+    expect(byPath.get("[1]")![0]).toBeCloseTo(450 / 800, 6);
+  });
+
+  it("hovering a meeting point lights every line there; leaving clears it", () => {
+    const { container } = render(
+      <SplitView splitTree={tTree()} tabs={["a", "b", "c"].map(tab)} onResizeRow={vi.fn()} />,
+    );
+    const [, inner] = layOut(container, tLines);
+    const lit = () => container.querySelectorAll("[data-split-divider][data-split-meet]").length;
+    fireEvent(inner, pointer("pointermove", { clientX: 503, clientY: 400 }));
+    expect(lit()).toBe(2);
+    fireEvent(inner, pointer("pointermove", { clientX: 750, clientY: 400 }));
+    expect(lit()).toBe(0);
+    fireEvent(inner, pointer("pointermove", { clientX: 503, clientY: 400 }));
+    fireEvent.pointerLeave(inner);
+    expect(lit()).toBe(0);
+  });
+
+  it("double-clicking a meeting point resets every row there", () => {
+    const onResizeRow = vi.fn();
+    const { container } = render(
+      <SplitView splitTree={tTree()} tabs={["a", "b", "c"].map(tab)} onResizeRow={onResizeRow} />,
+    );
+    const [, inner] = layOut(container, tLines);
+    fireEvent.doubleClick(inner, { clientX: 503, clientY: 400 });
+    expect(onResizeRow).toHaveBeenCalledWith([], null);
+    expect(onResizeRow).toHaveBeenCalledWith([1], null);
+    expect(onResizeRow).toHaveBeenCalledTimes(2);
+  });
+
+  it("each line at a meeting point stops at its own minimum", () => {
+    const onResizeRow = vi.fn();
+    const { container } = render(
+      <SplitView splitTree={tTree()} tabs={["a", "b", "c"].map(tab)} onResizeRow={onResizeRow} />,
+    );
+    const [, inner] = layOut(container, tLines);
+    fireEvent(inner, pointer("pointerdown", { clientX: 503, clientY: 400 }));
+    fireEvent(inner, pointer("pointermove", { clientX: 3, clientY: 0 }));
+    fireEvent(inner, pointer("pointerup", { clientX: 3, clientY: 0 }));
+    const byPath = new Map(onResizeRow.mock.calls.map(([p, f]) => [JSON.stringify(p), f as number[]]));
+    expect(byPath.get("[]")![0] * 1000).toBeCloseTo(MIN_PANE_WIDTH, 6);
+    expect(byPath.get("[1]")![0] * 800).toBeCloseTo(160, 6);
   });
 });

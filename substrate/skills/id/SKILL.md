@@ -881,6 +881,10 @@ not something agents drive.
   share it evenly — three in a row are thirds. Drag the line between two
   panes to resize just those two (a pane can't be squeezed below a usable
   minimum); double-click the line to even its row or column back out.
+  Where lines meet (one line ending on another, or lines from both sides
+  ending on the same one) the cursor becomes a four-way arrow and every
+  line there lights up: dragging that point moves all of them at once,
+  each along its own direction, and double-clicking it evens them all.
   Adding, closing or moving a pane evens out only the rows and columns it
   joined or left. Sizes survive a reload along with the layout. Desktop
   only — a phone shows one pane.

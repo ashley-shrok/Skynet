@@ -786,3 +786,12 @@ body[data-split-resizing] iframe {
 body[data-split-dnd] [data-split-divider-handle] {
   pointer-events: none;
 }
+
+/* A meeting point of split-view dividers under the pointer: every line that
+   a press there would drag lights up, and the strips show a move cursor. */
+[data-split-divider][data-split-meet] > [data-split-divider-line] {
+  background-color: hsla(var(--pv-hue, 35), 55%, 50%, 0.6);
+}
+[data-split-divider-handle][data-split-meet] {
+  cursor: move;
+}
