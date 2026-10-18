@@ -104,7 +104,8 @@ export function WakeupsTab({
   onOpen: (slug: string) => void;
   onNew: () => void;
 }) {
-  const [busy, setBusy] = useState<string | null>(null);
+  // Rows with an on/off save in flight (several can be at once).
+  const [busy, setBusy] = useState<ReadonlySet<string>>(new Set());
   const [error, setError] = useState<string | null>(null);
 
   if (state.status === "loading") return <KitLoading lines={3} />;
@@ -134,13 +135,17 @@ export function WakeupsTab({
 
   const toggle = async (w: Wakeup, enabled: boolean): Promise<void> => {
     setError(null);
-    setBusy(w.slug);
+    setBusy((b) => new Set(b).add(w.slug));
     try {
       await onToggle(w.slug, enabled);
     } catch (e) {
       setError(`Couldn't turn “${w.name}” ${enabled ? "on" : "off"}: ${e instanceof Error ? e.message : String(e)}`);
     } finally {
-      setBusy(null);
+      setBusy((b) => {
+        const next = new Set(b);
+        next.delete(w.slug);
+        return next;
+      });
     }
   };
 
@@ -176,7 +181,7 @@ export function WakeupsTab({
               <KitSwitch
                 checked={w.enabled}
                 onCheckedChange={(next) => void toggle(w, next)}
-                disabled={busy === w.slug}
+                disabled={busy.has(w.slug)}
                 aria-label={w.enabled ? `Turn off ${w.name}` : `Turn on ${w.name}`}
                 data-testid={`wakeup-switch-${w.slug}`}
               />

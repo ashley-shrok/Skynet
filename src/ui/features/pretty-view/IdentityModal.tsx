@@ -131,6 +131,9 @@ export function IdentityModal({
   const [activeTab, setActiveTab] = useState<string>(() => (open && initialTab) || "identity");
   const [stack, setStack] = useState<DeepView[]>([]);
   const deep = stack.length > 0 ? stack[stack.length - 1] : null;
+  // Agent file editing (more below) — declared here so the open reset can clear it.
+  const [editing, setEditing] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
 
   // Task (edited in place).
   const [editingTask, setEditingTask] = useState(false);
@@ -175,6 +178,11 @@ export function IdentityModal({
     setPrevOpen(open);
     if (open) {
       setStack([]);
+      // Never carried over from the last time the window was open — and
+      // never reset while it's open (a task or voice change mid-edit must
+      // not throw the draft away).
+      setEditing(false);
+      setSaveError(null);
       if (initialTab) setActiveTab(initialTab);
       else if (activeTab === "desktop") setActiveTab("identity");
     }
@@ -192,10 +200,8 @@ export function IdentityModal({
   const shownTab = NAV_SECTIONS.some((t) => t.value === activeTab) ? activeTab : "identity";
 
   // ── Agent file editing ───────────────────────────────────────────────────
-  const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState("");
   const [savingFile, setSavingFile] = useState(false);
-  const [saveError, setSaveError] = useState<string | null>(null);
   // The rich editor can re-serialise the file once more after it loads.
   // Until the user types or clicks in it, a change is the editor settling,
   // not an edit: it becomes the baseline instead of marking the file dirty.
@@ -465,8 +471,6 @@ export function IdentityModal({
     setEditingTask(false);
     setVoiceOpen(false);
     setVoiceDraft(identity.voice ?? "");
-    setEditing(false);
-    setSaveError(null);
   }, [open, identity.identityKey, identity.task, identity.voice]);
 
   // freeze-diag: bump the identity-modal open counter on each closed→open
@@ -546,6 +550,9 @@ export function IdentityModal({
       payload,
       "identity:wakeup-updated",
     );
+    // Bumped again once the write lands: a refresh that started while it was
+    // in flight may have read the files before it, and must not win.
+    wakeupsWriteGen.current += 1;
     if (res.error) throw new Error(res.error);
     setIdentityWakeupsState({ status: "ready", data: res.wakeups });
   }
@@ -563,6 +570,7 @@ export function IdentityModal({
       payload,
       "identity:wakeup-created",
     );
+    wakeupsWriteGen.current += 1;
     if (res.error) throw new Error(res.error);
     setIdentityWakeupsState({ status: "ready", data: res.wakeups });
   }
@@ -580,6 +588,7 @@ export function IdentityModal({
       payload,
       "identity:wakeup-deleted",
     );
+    wakeupsWriteGen.current += 1;
     if (res.error) throw new Error(res.error);
     setIdentityWakeupsState({ status: "ready", data: res.wakeups });
   }
@@ -978,7 +987,7 @@ export function IdentityModal({
           <>
             {head(deep.title, "Wake-up")}
             <div className="flex-1 min-h-0 px-6 py-4">
-              <KitEmpty title="This wake-up is gone." body="It was deleted or renamed elsewhere." />
+              <KitEmpty title="This wake-up is gone." body="It was deleted elsewhere." />
             </div>
           </>
         ) : (

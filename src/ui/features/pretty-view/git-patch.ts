@@ -19,8 +19,9 @@ function unquote(p: string): string {
   return p.slice(1, -1).replace(/\\(["\\])/g, "$1").replace(/\\t/g, "\t").replace(/\\n/g, "\n");
 }
 
+/** A ---/+++ path: git ends it with a tab when it has spaces; drop that and the a/ or b/ side. */
 function stripSide(p: string): string {
-  const u = unquote(p.trim());
+  const u = unquote(p.replace(/\t+$/, ""));
   return u.replace(/^[ab]\//, "");
 }
 
@@ -55,10 +56,11 @@ export function splitPatch(patch: string): PatchFile[] {
     const headerPath = header.includes(" b/") ? header.slice(header.lastIndexOf(" b/") + 1) : header;
     const newSide = plus && plus.trim() !== "/dev/null" ? plus : null;
     const oldSide = minus && minus.trim() !== "/dev/null" ? minus : null;
-    const path = stripSide(renameTo ?? newSide ?? oldSide ?? headerPath);
+    // rename from/to lines carry no a/ b/ side, so only unquote them.
+    const path = renameTo !== null ? unquote(renameTo) : stripSide(newSide ?? oldSide ?? headerPath);
     out.push({
       path,
-      oldPath: renameFrom !== null ? stripSide(renameFrom) : null,
+      oldPath: renameFrom !== null ? unquote(renameFrom) : null,
       added,
       removed,
       patch: cur.lines.join("\n").replace(/\n+$/, "") + "\n",

@@ -117,11 +117,18 @@ export function WakeupView({
   const [toggling, setToggling] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  // A one-time wake-up's time carries this browser's offset, so its zone is
+  // always the browser's; the Time zone field is for the repeating kinds.
+  const zoneFor = (kind: FormSchedule["type"], typed: string): string =>
+    kind === "one_shot" || typed.trim() === "" ? detectedTz : typed.trim();
+  const effectiveTz = zoneFor(fs.type, tz);
+  // Compared as the schedule that would be written, so switching a kind and
+  // back (which can fill in defaults) isn't an edit.
+  const built = (f: FormSchedule, z: string): string => (isSensor ? "" : JSON.stringify(buildSchedule(f, z)));
   const dirty =
     name !== initial.name ||
     instruction !== initial.instruction ||
-    tz !== initial.tz ||
-    (!isSensor && JSON.stringify(fs) !== JSON.stringify(initial.schedule)) ||
+    built(fs, effectiveTz) !== built(initial.schedule, zoneFor(initial.schedule.type, initial.tz)) ||
     (isNew && !newEnabled);
 
   const validation = isSensor ? null : validateForm(fs);
@@ -130,7 +137,9 @@ export function WakeupView({
     validation === null &&
     name.trim() !== "" &&
     normalizeSlug(name) !== "" &&
-    instruction.trim() !== "" &&
+    // A new wake-up needs an instruction; an existing one saved without one
+    // (the server allows it) can still be edited.
+    (instruction.trim() !== "" || !isNew) &&
     (isNew || dirty);
 
   const confirmDiscard = useCallback(
@@ -148,15 +157,17 @@ export function WakeupView({
   // Leaving with unsaved changes asks first; the window asks on every route out.
   const dirtyRef = useRef(dirty);
   dirtyRef.current = dirty;
+  // While a save, create or delete is on its way, nothing leaves the view —
+  // it goes back by itself once the server answers.
+  const busyRef = useRef(false);
   useEffect(() => {
-    registerGuard(async () => (dirtyRef.current ? confirmDiscard() : true));
+    registerGuard(async () => (busyRef.current ? false : dirtyRef.current ? confirmDiscard() : true));
     return () => registerGuard(null);
   }, [registerGuard, confirmDiscard]);
   useEffect(() => {
-    registerEscape(null);
+    registerEscape(() => busyRef.current);
+    return () => registerEscape(null);
   }, [registerEscape]);
-
-  const effectiveTz = tz.trim() !== "" ? tz.trim() : detectedTz;
 
   const submit = async (): Promise<void> => {
     setError(null);
@@ -165,6 +176,7 @@ export function WakeupView({
       return;
     }
     setSaving(true);
+    busyRef.current = true;
     try {
       const schedule = isSensor ? wakeup!.schedule : buildSchedule(fs, effectiveTz);
       if (isNew) {
@@ -175,10 +187,12 @@ export function WakeupView({
         console.info({ operation: "wakeup_saved", slug: wakeup!.slug });
       }
       dirtyRef.current = false;
+      busyRef.current = false;
       onDone();
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
+      busyRef.current = false;
       setSaving(false);
     }
   };
@@ -209,13 +223,17 @@ export function WakeupView({
     });
     if (!ok) return;
     setError(null);
+    busyRef.current = true;
     try {
       await onDelete?.();
       console.info({ operation: "wakeup_deleted", slug: wakeup.slug });
       dirtyRef.current = false;
+      busyRef.current = false;
       onDone();
     } catch (e) {
       setError(`Couldn't delete: ${e instanceof Error ? e.message : String(e)}`);
+    } finally {
+      busyRef.current = false;
     }
   };
 
@@ -268,7 +286,7 @@ export function WakeupView({
               <span className="text-[14px] text-[var(--k-t1)]">
                 When its sensor fires{isOnceSensorSchedule(wakeup!.schedule) ? " — once, then it retires" : ""}
               </span>
-              <span className="k-help">Sensors are built by agents. The switch above is the only control here.</span>
+              <span className="k-help">Its timing comes from its sensor, which agents build — switch it off above to stop it.</span>
               {wakeup!.sensor && (
                 <div className="mt-2">
                   <SensorDetails
@@ -359,6 +377,9 @@ export function WakeupView({
                 </>
               )}
 
+              {fs.type === "one_shot" ? (
+                <span className="k-help">The time above is in your time zone ({detectedTz}).</span>
+              ) : (
               <KitField
                 label="Time zone"
                 htmlFor="wakeup-tz"
@@ -372,8 +393,9 @@ export function WakeupView({
                   data-testid="wakeup-view-tz"
                 />
               </KitField>
+              )}
 
-              {validation && name.trim() !== "" && <span className="k-err">{validation}</span>}
+              {validation && <span className="k-err">{validation}</span>}
             </div>
           )}
 

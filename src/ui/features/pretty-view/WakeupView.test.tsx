@@ -164,13 +164,20 @@ describe("WakeupView — editing an existing wake-up", () => {
     expect(screen.queryByText(/That time is in the past/i)).toBeNull();
   });
 
-  it("5: the Time zone field shows on every kind, with the browser's zone as placeholder + help", () => {
+  it("5: the Time zone field shows on every repeating kind, with the browser's zone as placeholder + help", () => {
     renderExisting();
-    for (const kind of ["daily", "interval", "weekly", "monthly", "yearly", "one_shot"]) {
+    for (const kind of ["daily", "interval", "weekly", "monthly", "yearly"]) {
       pickKind(kind);
       expect(tzInput().placeholder).toBe("Europe/London");
     }
     expect(screen.getByText(/Leave it blank for yours \(Europe\/London\)/)).toBeTruthy();
+  });
+
+  it("5b: a one-time wake-up has no Time zone field — its time is the browser's", () => {
+    renderExisting();
+    pickKind("one_shot");
+    expect(screen.queryByTestId("wakeup-view-tz")).toBeNull();
+    expect(screen.getByText(/The time above is in your time zone \(Europe\/London\)/)).toBeTruthy();
   });
 
   it("6: Save writes {name, schedule, instruction}; interval and daily schedules include the timezone", async () => {
@@ -240,7 +247,7 @@ describe("WakeupView — editing an existing wake-up", () => {
     expect((await savedUpdates(onSave)).instruction).toBe("Check it twice.");
   });
 
-  it("Save is disabled for an empty name, a name that slugs to nothing, or an empty instruction", () => {
+  it("Save is disabled for an empty name or one that slugs to nothing; an existing wake-up may have an empty instruction", () => {
     renderExisting();
     rename("");
     expect(saveButton().disabled).toBe(true);
@@ -249,7 +256,7 @@ describe("WakeupView — editing an existing wake-up", () => {
     rename("fine");
     expect(saveButton().disabled).toBe(false);
     fireEvent.change(instructionInput(), { target: { value: "   " } });
-    expect(saveButton().disabled).toBe(true);
+    expect(saveButton().disabled).toBe(false);
   });
 
   it("a failed save shows the error and stays open", async () => {
@@ -305,6 +312,9 @@ describe("WakeupView — editing an existing wake-up", () => {
     for (const day of ["Sun", "Mon", "Sat", "Tue", "Fri", "Wed", "Thu"]) {
       fireEvent.click(screen.getByRole("button", { name: `Toggle ${day}` }));
     }
+    // Every day is the same schedule as none, so that alone isn't an edit.
+    expect(saveButton().disabled).toBe(true);
+    rename();
     fireEvent.click(saveButton());
     expect("days" in (await savedUpdates(onSave)).schedule).toBe(false);
   });
@@ -519,6 +529,20 @@ describe("WakeupView — editing an existing wake-up", () => {
     const { guard } = renderExisting();
     rename();
     await expect(guard()()).resolves.toBe(true);
+  });
+
+  it("while a save is on its way the guard holds without asking", async () => {
+    const dialogs = autoAnswerKitDialogs({ confirm: true });
+    let finish: () => void = () => {};
+    const { guard, onDone } = renderView(BASE_WAKEUP, {
+      onSave: () => new Promise<void>((r) => (finish = r)),
+    });
+    rename();
+    fireEvent.click(saveButton());
+    await expect(guard()()).resolves.toBe(false);
+    expect(dialogs.calls).toHaveLength(0);
+    finish();
+    await waitFor(() => expect(onDone).toHaveBeenCalledTimes(1));
   });
 
   it("unregisters its guard on unmount", () => {

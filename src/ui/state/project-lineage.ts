@@ -18,6 +18,8 @@ export function projectLineage(
   slug: string | null | undefined,
 ): string[] {
   if (!slug) return [];
+  // An archived project is gone from the sidebar; it isn't shown here either.
+  projects = projects.filter((p) => !p.archived);
   const own = projectKey(String(hostId), slug);
   const byKey = new Map(projects.map((p) => [projectKey(p.hostId, p.slug), p]));
   if (!byKey.has(own)) return [];

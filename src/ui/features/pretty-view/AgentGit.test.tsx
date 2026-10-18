@@ -185,6 +185,14 @@ describe("AgentGitCommit", () => {
 });
 
 describe("AgentGitDiff", () => {
+  it("a new folder's row (\"dir/\") shows every file inside it", async () => {
+    vi.mocked(getGitDiff).mockResolvedValue({ truncated: false, patch: TWO_FILE_PATCH });
+    render(<Diff source={{ source: "working", repoPath: "app", path: "src/" }} />);
+    const view = await screen.findByTestId("diff-view");
+    expect(view.textContent).toContain("new a");
+    expect(view.textContent).not.toContain("only b");
+  });
+
   it("working diff for one path shows only that file", async () => {
     vi.mocked(getGitDiff).mockResolvedValue({ truncated: false, patch: TWO_FILE_PATCH });
     render(<Diff source={{ source: "working", repoPath: "app", path: "notes.md" }} />);

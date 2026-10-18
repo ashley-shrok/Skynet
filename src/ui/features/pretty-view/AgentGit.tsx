@@ -6,7 +6,7 @@
 // Read-only, like the roles window's Git tab (GitTab.tsx), whose loading,
 // remote-check and pill pieces this reuses.
 
-import { useCallback, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { FolderGit2, GitBranch, RefreshCw } from "lucide-react";
 import {
   KitBanner,
@@ -319,9 +319,9 @@ export function AgentGitCommit({
     () => getGitDiff(git.target, git.hostId, repoPath, { diff: "commit", sha: commit.sha }),
     [targetDepKey(git.target), git.hostId, repoPath, commit.sha],
   );
+  const files = useMemo(() => (state.status === "ready" ? splitPatch(state.data.patch) : []), [state]);
   if (state.status === "loading") return <div className={`${PAD} py-4`}><KitLoading label="Loading the commit…" /></div>;
   if (state.status === "error") return <ErrorBanner errorClass={state.errorClass} />;
-  const files = splitPatch(state.data.patch);
   const short = commit.sha.slice(0, 7);
   return (
     <div className={`${PAD} py-4 flex flex-col gap-1`} data-testid="agent-git-commit">
@@ -415,12 +415,22 @@ function WorkingDiff({
     () => getGitDiff(git.target, git.hostId, source.repoPath, { diff: "working" }),
     [targetDepKey(git.target), git.hostId, source.repoPath, git.refreshKey],
   );
+  const patch = useMemo(() => {
+    if (state.status !== "ready") return "";
+    if (source.path === null) return state.data.patch;
+    const want = source.path;
+    // A new folder shows in the change list as one "dir/" row, while the
+    // diff lists each file inside it — show them all.
+    const match = want.endsWith("/")
+      ? (f: PatchFile) => f.path.startsWith(want)
+      : (f: PatchFile) => f.path === want || f.oldPath === want;
+    return splitPatch(state.data.patch)
+      .filter(match)
+      .map((f) => f.patch)
+      .join("");
+  }, [state, source.path]);
   if (state.status === "loading") return <KitLoading label="Loading changes…" />;
   if (state.status === "error") return <ErrorBanner errorClass={state.errorClass} />;
-  const patch =
-    source.path === null
-      ? state.data.patch
-      : (splitPatch(state.data.patch).find((f) => f.path === source.path || f.oldPath === source.path)?.patch ?? "");
   return <PatchBody patch={patch} truncated={state.data.truncated} layout={layout} />;
 }
 

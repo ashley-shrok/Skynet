@@ -275,6 +275,21 @@ describe("agent window — agent file editing", () => {
     expect(screen.queryByTestId("identity-modal-edit")).toBeNull();
   });
 
+  it("a task or voice change while editing keeps the editor and the unsaved edits", async () => {
+    const props = {
+      open: true,
+      onOpenChange: vi.fn(),
+      hue: 220,
+      hostId: 7,
+      onOpenRoleModal: vi.fn(),
+    };
+    const { rerender } = render(<IdentityModal {...props} identity={BASE_IDENTITY} />);
+    await makeFileDirty();
+    rerender(<IdentityModal {...props} identity={{ ...BASE_IDENTITY, task: "Something new", voice: "v2" }} />);
+    expect((screen.getByTestId("md-editor") as HTMLTextAreaElement).value).toContain("More.");
+    expect(screen.getByTestId("identity-modal-save")).toBeTruthy();
+  });
+
   it("Edit → dirty → Cancel → Discard leaves the editor, back to the rendered file", async () => {
     const dialogs = autoAnswerKitDialogs({ confirm: true });
     renderModal();

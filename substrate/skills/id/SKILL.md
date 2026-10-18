@@ -1242,7 +1242,8 @@ crown, then gear.
     showing. **New wake-up** sits under the list.
     Opening a wake-up shows its form: an **On** switch (saves at once),
     Name, the schedule (Interval / Daily / Weekly / Monthly / Yearly / Once
-    and each kind's options), Time zone (blank = the user's own),
+    and each kind's options), Time zone (blank = the user's own; a
+    one-time wake-up always uses the user's own),
     Instruction, and a red **Delete wake-up…** at the bottom; Cancel and
     Save at the foot. **New wake-up** is the same form, blank, with
     Create. A sensor wake-up shows "When its sensor fires" and a read-only
