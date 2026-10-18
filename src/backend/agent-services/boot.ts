@@ -11,6 +11,7 @@ import { getDb } from "../database/db/index.js";
 import { hosts } from "../database/db/schema.js";
 import { eq } from "drizzle-orm";
 import { connectOneShot } from "../ssh/ssh-one-shot.js";
+import { enableHostd } from "../ssh/hostd-channel.js";
 import { createSemaphoredExecChannel } from "../ssh/semaphored-exec-channel.js";
 import { getHostSemaphore } from "../ssh/host-semaphore-registry.js";
 import { resolveHostById } from "../ssh/host-resolver.js";
@@ -104,6 +105,7 @@ export function startAgentServices(): void {
           10_000,
         );
         scanClients.set(host.id, client);
+        enableHostd(client);
         const forget = () => scanClients.delete(host.id);
         client.on("end", forget);
         client.on("close", forget);

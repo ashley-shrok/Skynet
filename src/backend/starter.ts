@@ -1459,6 +1459,7 @@ if (process.env.VITEST !== "true") {
       const { connectOneShot: connectOneShotSub } = await import(
         "./ssh/ssh-one-shot.js"
       );
+      const { enableHostd: enableHostdSubstrate } = await import("./ssh/hostd-channel.js");
       const { execCommand: execCommandSub, execCommandWithStdin: execCommandWithStdinSub } = await import(
         "./ssh/tmux-helper.js"
       );
@@ -1496,6 +1497,7 @@ if (process.env.VITEST !== "true") {
               10000,
             );
             substrateHostClients.set(host.id, client);
+            enableHostdSubstrate(client);
             // Auto-evict on disconnect so the next acquire creates a fresh client.
             // Identity-checked: if two acquires raced and a second client
             // replaced this one in the map, this one closing must not evict
@@ -1710,6 +1712,7 @@ if (process.env.VITEST !== "true") {
       const { connectOneShot: connectOneShotSpawn } = await import(
         "./ssh/ssh-one-shot.js"
       );
+      const { enableHostd } = await import("./ssh/hostd-channel.js");
       const { execCommand: execCommandSpawn, execCommandWithStdin: execCommandWithStdinSpawn } = await import(
         "./ssh/tmux-helper.js"
       );
@@ -1738,6 +1741,7 @@ if (process.env.VITEST !== "true") {
               10000,
             );
             spawnScanHostClients.set(host.id, client);
+            enableHostd(client);
             client.on("end", () => spawnScanHostClients.delete(host.id));
             client.on("close", () => spawnScanHostClients.delete(host.id));
             client.on("error", () => spawnScanHostClients.delete(host.id));
