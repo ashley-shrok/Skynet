@@ -36,6 +36,7 @@ function makeState(): State {
     pendingAgentAdmission: new Map(),
     backgroundedShells: new Map(),
     taskIdToToolUseId: new Map(),
+    pendingStops: new Map(),
   };
 }
 

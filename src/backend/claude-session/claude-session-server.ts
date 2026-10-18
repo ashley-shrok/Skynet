@@ -605,6 +605,10 @@ export type __BackgroundedAgentsCorrelatorStateForTests = {
   // notifications carrying only <task-id>, and TaskStop/KillShell name the
   // task id, so removal must resolve through this index.
   taskIdToToolUseId: Map<string, string>;
+  // TaskStop / KillShell tool_use id → the task id it names. The row is
+  // removed only when that stop call's tool_result comes back without error
+  // (a denied or failed stop leaves the task running).
+  pendingStops: Map<string, string>;
 };
 
 // Phase 51 Plan 01 refactor-extract: the raw-line scan for backgrounded
@@ -643,6 +647,7 @@ export function __admitBackgroundedAgentsLineForTests(
     pendingAgentAdmission,
     backgroundedShells,
     taskIdToToolUseId,
+    pendingStops,
   } = state;
   try {
     const obj = JSON.parse(line) as {
@@ -735,8 +740,8 @@ export function __admitBackgroundedAgentsLineForTests(
               : typeof stopInput?.shell_id === "string"
                 ? stopInput.shell_id
                 : null;
-          if (taskId !== null) {
-            removeBackgroundedTask(state, taskId);
+          if (taskId !== null && typeof b.id === "string") {
+            pendingStops.set(b.id, taskId);
           }
         }
       }
@@ -746,24 +751,52 @@ export function __admitBackgroundedAgentsLineForTests(
       // resolve back to the tool_use id the panels are keyed on.
       const launchResult = (
         obj as {
-          toolUseResult?: { backgroundTaskId?: unknown; agentId?: unknown };
+          toolUseResult?: {
+            backgroundTaskId?: unknown;
+            agentId?: unknown;
+            isAsync?: unknown;
+          };
         }
       )?.toolUseResult;
       const launchTaskId =
         typeof launchResult?.backgroundTaskId === "string"
           ? launchResult.backgroundTaskId
-          : typeof launchResult?.agentId === "string"
+          : launchResult?.isAsync === true &&
+              typeof launchResult?.agentId === "string"
             ? launchResult.agentId
             : null;
-      if (launchTaskId !== null) {
-        for (const block of content as unknown[]) {
-          const b = block as { type?: string; tool_use_id?: string };
-          if (
-            b?.type === "tool_result" &&
-            typeof b?.tool_use_id === "string"
-          ) {
-            taskIdToToolUseId.set(launchTaskId, b.tool_use_id);
-          }
+      // Only index launches the panels actually track — foreground Agent
+      // results carry agentId too and would otherwise grow the map forever.
+      // A turn carrying more than one tool_result is ambiguous; skip it.
+      const resultBlocks = (content as unknown[]).filter(
+        (block): block is { type: string; tool_use_id: string } =>
+          (block as { type?: unknown })?.type === "tool_result" &&
+          typeof (block as { tool_use_id?: unknown })?.tool_use_id ===
+            "string",
+      );
+      if (launchTaskId !== null && resultBlocks.length === 1) {
+        const launchedId = resultBlocks[0].tool_use_id;
+        if (
+          backgroundedShells.has(launchedId) ||
+          backgroundedAgents.has(launchedId) ||
+          pendingAgentAdmission.has(launchedId)
+        ) {
+          taskIdToToolUseId.set(launchTaskId, launchedId);
+        }
+      }
+      for (const block of content as unknown[]) {
+        const b = block as {
+          type?: string;
+          tool_use_id?: string;
+          is_error?: boolean;
+        };
+        if (b?.type !== "tool_result" || typeof b?.tool_use_id !== "string") {
+          continue;
+        }
+        const stoppedTaskId = pendingStops.get(b.tool_use_id);
+        if (stoppedTaskId !== undefined) {
+          pendingStops.delete(b.tool_use_id);
+          if (b.is_error !== true) removeBackgroundedTask(state, stoppedTaskId);
         }
       }
       // Async launch acks (patch #66 fix): for run_in_background:true Agent
@@ -854,11 +887,15 @@ export function __applyTaskNotificationForTests(
   payload: string,
   state: __BackgroundedAgentsCorrelatorStateForTests,
 ): void {
-  if (!TASK_NOTIFICATION_TERMINAL_STATUS_RE.test(payload)) return;
-  const toolUseIdMatch = payload.match(
+  // Header fields precede the free-text <summary>/<result> bodies, which may
+  // quote other tasks' ids — match only within the header.
+  const bodyStart = payload.search(/<summary>|<result>/);
+  const header = bodyStart === -1 ? payload : payload.slice(0, bodyStart);
+  if (!TASK_NOTIFICATION_TERMINAL_STATUS_RE.test(header)) return;
+  const toolUseIdMatch = header.match(
     /<tool-use-id>(toolu_[^<]+)<\/tool-use-id>/,
   );
-  const taskIdMatch = payload.match(/<task-id>([^<]+)<\/task-id>/);
+  const taskIdMatch = header.match(/<task-id>([^<]+)<\/task-id>/);
   if (toolUseIdMatch) removeBackgroundedTask(state, toolUseIdMatch[1]);
   if (taskIdMatch) removeBackgroundedTask(state, taskIdMatch[1]);
 }
@@ -4291,6 +4328,7 @@ wss.on("connection", async (ws: WebSocket, req) => {
   >();
   let backgroundedShellsLastSerialized = "[]";
   const taskIdToToolUseId = new Map<string, string>();
+  const pendingStops = new Map<string, string>();
   // Phase 50 Plan 01 Task 2 — per-session queue-enqueue dedup. Populated
   // when the parser (Task 1) surfaces a normal-content queue-operation
   // enqueue entry as kind:"message"; consumed when the same content
@@ -4502,6 +4540,7 @@ wss.on("connection", async (ws: WebSocket, req) => {
     backgroundedShells.clear();
     backgroundedShellsLastSerialized = "[]";
     taskIdToToolUseId.clear();
+    pendingStops.clear();
     // Phase 3: reset changeover state so a full pane teardown-and-reconnect
     // (e.g. via a fresh connectToPane) starts clean. connectToPane already
     // calls teardownPane before starting a new pane; being defensive here
@@ -4712,6 +4751,7 @@ wss.on("connection", async (ws: WebSocket, req) => {
         pendingAgentAdmission,
         backgroundedShells,
         taskIdToToolUseId,
+        pendingStops,
       });
       // Patch #66 completion signal for backgrounded Agents. Claude Code /
       // its harness lands the task-notification payload in the JSONL in
@@ -4767,6 +4807,7 @@ wss.on("connection", async (ws: WebSocket, req) => {
           pendingAgentAdmission,
           backgroundedShells,
           taskIdToToolUseId,
+          pendingStops,
         });
       }
       const agents = Array.from(backgroundedAgents.values()).sort(
@@ -5284,6 +5325,7 @@ wss.on("connection", async (ws: WebSocket, req) => {
     backgroundedShells.clear();
     backgroundedShellsLastSerialized = "[]";
     taskIdToToolUseId.clear();
+    pendingStops.clear();
     // quick 260808-ohn: reset Layer 1 tail-state on session recycle so the
     // new tail's -n +1 replay converges on clean bookkeeping.
     layer1 = { mostRecentUserTurnIsIdReset: null };

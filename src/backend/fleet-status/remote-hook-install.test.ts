@@ -1562,4 +1562,40 @@ describe("readAndMergeHookSettings — matcher-filtered groups", () => {
     expect(alreadyInstalled).toBe(true);
     expect(merged).toBe(settings);
   });
+
+  it("strips a stale filtered copy even when an unfiltered one already exists", () => {
+    const settings = {
+      hooks: {
+        PreToolUse: [
+          {
+            matcher: "Write|Edit",
+            hooks: [
+              { type: "command", command: ACTIVITY },
+              { type: "command", command: "/x/baseline" },
+            ],
+          },
+          { hooks: [{ type: "command", command: ACTIVITY }] },
+        ],
+      },
+    };
+    const { merged, alreadyInstalled } = readAndMergeHookSettings(settings, "PreToolUse", ACTIVITY);
+    expect(alreadyInstalled).toBe(false);
+    expect((merged.hooks as Record<string, unknown>).PreToolUse).toEqual([
+      { matcher: "Write|Edit", hooks: [{ type: "command", command: "/x/baseline" }] },
+      { hooks: [{ type: "command", command: ACTIVITY }] },
+    ]);
+  });
+
+  it("tolerates malformed event values and null groups", () => {
+    const objShape = { hooks: { PreToolUse: { not: "an array" } } };
+    expect(() => readAndMergeHookSettings(objShape, "PreToolUse", ACTIVITY)).not.toThrow();
+    expect(
+      (readAndMergeHookSettings(objShape, "PreToolUse", ACTIVITY).merged.hooks as Record<string, unknown>).PreToolUse,
+    ).toEqual([{ hooks: [{ type: "command", command: ACTIVITY }] }]);
+
+    const nullGroup = { hooks: { PreToolUse: [null, { hooks: [] }] } };
+    expect(
+      (readAndMergeHookSettings(nullGroup, "PreToolUse", ACTIVITY).merged.hooks as Record<string, unknown>).PreToolUse,
+    ).toEqual([{ hooks: [{ type: "command", command: ACTIVITY }] }]);
+  });
 });

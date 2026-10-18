@@ -375,27 +375,42 @@ export function readAndMergeHookSettings(
   hookEventName: string,
   remoteHookPath: string,
 ): MergeResult {
-  const hooks = currentSettings.hooks as Record<string, unknown> | undefined;
-  const existingEventArr =
-    (hooks?.[hookEventName] as Array<Record<string, unknown>> | undefined) ??
-    [];
+  const rawHooks = currentSettings.hooks;
+  const hooks =
+    rawHooks !== null && typeof rawHooks === "object" && !Array.isArray(rawHooks)
+      ? (rawHooks as Record<string, unknown>)
+      : undefined;
+  // Tolerate hand-edited settings: a non-array event value or non-object
+  // groups are dropped from consideration rather than crashing the install.
+  const rawEventArr = hooks?.[hookEventName];
+  const existingEventArr: Array<Record<string, unknown>> = Array.isArray(
+    rawEventArr,
+  )
+    ? rawEventArr.filter(
+        (g): g is Record<string, unknown> =>
+          g !== null && typeof g === "object" && !Array.isArray(g),
+      )
+    : [];
   const isOurs = (entry: unknown) =>
     (entry as { command?: unknown } | null)?.command === remoteHookPath;
+  const hasOurs = (group: Record<string, unknown>) =>
+    Array.isArray(group.hooks) && group.hooks.some(isOurs);
   // A group with a tool matcher (e.g. PreToolUse "Write|Edit") only fires for
   // those tools. Fleet-status hooks must fire on every event, so they belong
   // in a matcher-less group.
   const isUnfiltered = (group: Record<string, unknown>) =>
     group.matcher === undefined || group.matcher === "" || group.matcher === "*";
 
-  // Already installed in an unfiltered group → nothing to do.
-  for (const group of existingEventArr) {
-    if (
-      isUnfiltered(group) &&
-      Array.isArray(group?.hooks) &&
-      group.hooks.some(isOurs)
-    ) {
-      return { merged: currentSettings, alreadyInstalled: true };
-    }
+  // Already installed in an unfiltered group, with no stale copy left in a
+  // filtered group → nothing to do.
+  const inUnfiltered = existingEventArr.some(
+    (g) => isUnfiltered(g) && hasOurs(g),
+  );
+  const inFiltered = existingEventArr.some(
+    (g) => !isUnfiltered(g) && hasOurs(g),
+  );
+  if (inUnfiltered && !inFiltered) {
+    return { merged: currentSettings, alreadyInstalled: true };
   }
 
   const newEntry = { type: "command", command: remoteHookPath };
@@ -405,13 +420,22 @@ export function readAndMergeHookSettings(
   // dropping groups left empty by the strip.
   const strippedArr: Array<Record<string, unknown>> = [];
   for (const group of existingEventArr) {
-    const groupHooks = group?.hooks;
-    if (Array.isArray(groupHooks) && groupHooks.some(isOurs)) {
-      const kept = groupHooks.filter((e) => !isOurs(e));
+    if (!isUnfiltered(group) && hasOurs(group)) {
+      const kept = (group.hooks as unknown[]).filter((e) => !isOurs(e));
       if (kept.length > 0) strippedArr.push({ ...group, hooks: kept });
     } else {
       strippedArr.push(group);
     }
+  }
+
+  if (inUnfiltered) {
+    return {
+      merged: {
+        ...currentSettings,
+        hooks: { ...(hooks ?? {}), [hookEventName]: strippedArr },
+      },
+      alreadyInstalled: false,
+    };
   }
 
   // Append to the first unfiltered group, or add a new one at the end —
@@ -422,8 +446,9 @@ export function readAndMergeHookSettings(
     newEventArr = [...strippedArr, { hooks: [newEntry] }];
   } else {
     const target = strippedArr[targetIdx];
-    const targetHooks =
-      (target.hooks as Array<Record<string, unknown>> | undefined) ?? [];
+    const targetHooks = Array.isArray(target.hooks)
+      ? (target.hooks as Array<Record<string, unknown>>)
+      : [];
     newEventArr = strippedArr.map((g, i) =>
       i === targetIdx ? { ...target, hooks: [...targetHooks, newEntry] } : g,
     );

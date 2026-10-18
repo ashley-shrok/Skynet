@@ -173,4 +173,17 @@ describe("PrettyView — WIP bubble while a background sub-agent runs", () => {
     );
     expect(container.querySelector(WIP_SELECTOR)).toBeNull();
   });
+
+  it("does not show the agent-driven bubble while the pane is dormant", async () => {
+    const { container, ws } = mountStreaming();
+    sendWsFrame(ws, { type: "dormant", dormant: true });
+    sendWsFrame(ws, {
+      type: "backgrounded_agents",
+      agents: [{ toolUseId: "toolu_d", subagentType: "Explore", description: "x", startedAt: 1 }],
+    });
+    await waitFor(() =>
+      expect(container.querySelector('[aria-label="Backgrounded agents"]')).not.toBeNull(),
+    );
+    expect(container.querySelector(WIP_SELECTOR)).toBeNull();
+  });
 });

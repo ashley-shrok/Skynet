@@ -16,6 +16,7 @@ function makeState(): State {
     pendingAgentAdmission: new Map(),
     backgroundedShells: new Map(),
     taskIdToToolUseId: new Map(),
+    pendingStops: new Map(),
   };
 }
 
@@ -109,6 +110,22 @@ function taskStop(toolUseId: string, input: Record<string, string>): string {
   });
 }
 
+function stopResult(stopToolUseId: string, isError = false): string {
+  return JSON.stringify({
+    type: "user",
+    message: {
+      content: [
+        {
+          type: "tool_result",
+          tool_use_id: stopToolUseId,
+          content: isError ? "Permission denied" : '{"message":"Successfully stopped task"}',
+          ...(isError ? { is_error: true } : {}),
+        },
+      ],
+    },
+  });
+}
+
 describe("backgrounded task removal", () => {
   it("removes a shell on a killed notification", () => {
     const state = makeState();
@@ -140,7 +157,10 @@ describe("backgrounded task removal", () => {
     const state = makeState();
     bashLaunch("toolu_shell2", "bz72m2a29").forEach((l) => admit(l, state));
     admit(taskStop("toolu_stop", { task_id: "bz72m2a29" }), state);
+    expect(state.backgroundedShells.size).toBe(1);
+    admit(stopResult("toolu_stop"), state);
     expect(state.backgroundedShells.size).toBe(0);
+    expect(state.pendingStops.size).toBe(0);
     expect(state.taskIdToToolUseId.size).toBe(0);
   });
 
@@ -163,6 +183,7 @@ describe("backgrounded task removal", () => {
       }),
       state,
     );
+    admit(stopResult("toolu_kill"), state);
     expect(state.backgroundedShells.size).toBe(0);
   });
 
@@ -172,6 +193,7 @@ describe("backgrounded task removal", () => {
       admit(l, state),
     );
     admit(taskStop("toolu_stop2", { task_id: "aece63dc1daaa25d4" }), state);
+    admit(stopResult("toolu_stop2"), state);
     expect(state.backgroundedAgents.size).toBe(0);
   });
 
@@ -184,5 +206,45 @@ describe("backgrounded task removal", () => {
     );
     admit(taskStop("toolu_stop3", { task_id: "bsomethingelse" }), state);
     expect(state.backgroundedShells.has("toolu_shell4")).toBe(true);
+  });
+
+  it("keeps the row when the stop call is denied or fails", () => {
+    const state = makeState();
+    bashLaunch("toolu_shell5", "bmudu8j03").forEach((l) => admit(l, state));
+    admit(taskStop("toolu_stop5", { task_id: "bmudu8j03" }), state);
+    admit(stopResult("toolu_stop5", true), state);
+    expect(state.backgroundedShells.has("toolu_shell5")).toBe(true);
+    expect(state.pendingStops.size).toBe(0);
+  });
+
+  it("ignores ids quoted in a notification's summary/result body", () => {
+    const state = makeState();
+    bashLaunch("toolu_shell6", "bhd0pw54s").forEach((l) => admit(l, state));
+    agentLaunch("toolu_agent6", "a1111111111111111").forEach((l) =>
+      admit(l, state),
+    );
+    applyNotification(
+      "<task-notification>\n<task-id>a1111111111111111</task-id>\n<status>completed</status>\n<summary>Agent finished</summary>\n<result>Stopped <task-id>bhd0pw54s</task-id> and toolu_shell6 earlier.</result>\n</task-notification>",
+      state,
+    );
+    expect(state.backgroundedAgents.size).toBe(0);
+    expect(state.backgroundedShells.has("toolu_shell6")).toBe(true);
+  });
+
+  it("does not index foreground (synchronous) Agent results", () => {
+    const state = makeState();
+    admit(agentLaunch("toolu_sync", "a2222222222222222")[0], state);
+    admit(
+      JSON.stringify({
+        type: "user",
+        message: {
+          content: [{ type: "tool_result", tool_use_id: "toolu_sync", content: "done" }],
+        },
+        toolUseResult: { status: "completed", agentId: "a2222222222222222" },
+      }),
+      state,
+    );
+    expect(state.taskIdToToolUseId.size).toBe(0);
+    expect(state.backgroundedAgents.size).toBe(0);
   });
 });

@@ -4927,10 +4927,15 @@ export function PrettyView({
               hook darkens isWorking, so a running Agents-panel entry also
               lights the bubble. Shells are excluded — servers run for hours.
               The interrupt gate applies to the main turn only; background
-              agents keep running through an interrupt. */}
+              agents keep running through an interrupt. Not while dormant (no
+              live process, so nothing is running) or while waiting on the
+              user (WaitingBubble owns that state). */}
           {(((isWorking || optimisticWip) &&
             (!interruptedTail || interruptWipReleased || pendingSends.some((p) => p.state === "sending"))) ||
-            (status === "streaming" && backgroundedAgents.length > 0)) && <WipBubble />}
+            (status === "streaming" &&
+              !dormant &&
+              waitingFor === null &&
+              backgroundedAgents.length > 0)) && <WipBubble />}
           {/* Phase 34 Plan 06: WaitingBubble — harness permission/dialog waiting state.
               Mounts when the fleet-status channel reports status='waiting' for this
               session's (hostId, tmuxSession) key. Sibling of WipBubble in the
