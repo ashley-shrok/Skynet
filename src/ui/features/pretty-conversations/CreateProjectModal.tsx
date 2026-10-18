@@ -19,6 +19,7 @@
 // doesn't trash the user's typed name; ESC and the header close-X still work.
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { Folder } from "lucide-react";
 import {
   KitBanner,
   KitButton,
@@ -30,6 +31,8 @@ import {
 import { Modal, ModalHead, ModalBody, ModalFoot } from "@/components/modal";
 import { createProject } from "@/api/project-list-api";
 import { submitOnEnter } from "@/lib/submit-on-enter";
+import { useProjects } from "@/state/conversation-store";
+import { projectLineage } from "@/state/project-lineage";
 import type { Host, HostFolder } from "@/types/ui-types";
 
 export interface CreateProjectModalProps {
@@ -199,6 +202,15 @@ export function CreateProjectModal({
 
   const hidePicker = isHostLocked || flatHosts.length === 1;
 
+  // A sub-project names where it will sit, top level down.
+  const projects = useProjects();
+  const parentLineage = parent
+    ? (() => {
+        const chain = lockedHostId !== undefined ? projectLineage(projects, lockedHostId, parent.slug) : [];
+        return chain.length > 0 ? chain : [parent.displayName];
+      })()
+    : [];
+
   return (
     <Modal
       open={open}
@@ -210,19 +222,30 @@ export function CreateProjectModal({
         title={parent ? "New sub-project" : "New project"}
         subtitle={
           parent
-            ? `A project inside ${parent.displayName}. It shows nested under it in the sidebar.`
-            : "Projects group agents together in the sidebar, and let them share resources related to that project."
+            ? "A project inside another one."
+            : "Groups conversations in the sidebar, with a shared file and folder."
         }
         closeTestId="create-project-close"
       />
       <ModalBody className="flex flex-col gap-4">
-        <KitField label="Project name" htmlFor="create-project-name-input">
+        {parent && (
+          <div
+            className="flex items-center gap-2.5 px-3 py-2.5 rounded-xl bg-[var(--k-s2)] text-[13.5px] text-[var(--k-t2)] min-w-0"
+            data-testid="create-project-inside"
+          >
+            <Folder className="size-4 shrink-0 text-[var(--k-t3)]" aria-hidden="true" />
+            <span className="truncate">
+              Inside <b className="font-semibold text-[var(--k-t1)]">{parentLineage.join(" › ")}</b>
+            </span>
+          </div>
+        )}
+        <KitField label="Name" htmlFor="create-project-name-input">
           <KitInput
             type="text"
             value={displayName}
             onChange={(e) => setDisplayName(e.target.value)}
             onKeyDown={submitOnEnter(canSubmit, () => void onSubmit())}
-            placeholder="e.g. Trip Planning"
+            placeholder="Trip Planning"
             autoFocus
             disabled={inFlight}
             maxLength={80}
@@ -236,7 +259,11 @@ export function CreateProjectModal({
          * submission still works without a visible picker.
          */}
         {!hidePicker && (
-          <KitField label="Host" htmlFor="create-project-host-search">
+          <KitField
+            label="Host"
+            htmlFor="create-project-host-search"
+            help="The machine the project's folder lives on. Only agents on that machine can join it."
+          >
             <KitHostPicker
               hosts={hostOptions}
               selectedId={selectedHost ? String(selectedHost.id) : null}
@@ -260,6 +287,13 @@ export function CreateProjectModal({
         )}
       </ModalBody>
       <ModalFoot>
+        <KitButton
+          onClick={() => onOpenChange(false)}
+          disabled={inFlight}
+          data-testid="create-project-cancel"
+        >
+          Cancel
+        </KitButton>
         <KitButton
           variant="primary"
           onClick={() => {

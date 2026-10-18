@@ -805,10 +805,11 @@ not something agents drive.
   plus) collapses or expands the whole Projects section; a chevron on the
   far right shows which. The choice is remembered in that browser, and a
   sidebar search always shows matching projects even when it's collapsed.
-  - **➕ Plus — new project.** Takes a display name and creates the
-    project (Enter in the name box submits, as in the new-conversation
-    picker's custom-name box). Slug is derived from the name (kebab-case, `/^[a-z0-9-]{1,64}$/`).
-    Duplicate slug = error.
+  - **➕ Plus — new project.** A short dialog: a name, plus a tick-list
+    of machines when the user has more than one, then Cancel / Create
+    (Enter in the name also creates). Slug is derived from the name
+    (kebab-case, `/^[a-z0-9-]{1,64}$/`); a name whose slug is taken gets
+    `-2`, `-3`, … added.
     *Agent-side:* a project is just a folder on disk at
     `~/fleet/projects/<slug>/` containing a `project.md` with `displayName:`
     frontmatter. Direct filesystem creation works (`mkdir` + write the file);
@@ -841,8 +842,9 @@ not something agents drive.
   - **Open project** — opens the **project modal** (§ Conversation view).
   - **New conversation in this project** — auto-assigns the spawned
     agent to this project.
-  - **New sub-project** — the new-project dialog, creating the project
-    inside this one (on its machine).
+  - **New sub-project** — the new-project dialog with an "Inside <parent
+    › …>" line and no machine choice, creating the project inside this
+    one (on its machine).
   - **Rename project** — changes the project's display name (the
     `displayName:` in `project.md`; the slug and folder stay put).
   - **Move to** — drill-in submenu: **Top level**, then every project on
@@ -1301,11 +1303,19 @@ crown, then gear.
   scoped to that agent's machine; **‹ Roles** goes to that machine's list,
   and closing the window returns to the agent's identity modal.
 
-- **Project modal (project header kebab → Open project).** Two tabs;
-  opens on the first:
-  - **Project file** — edit the project's `project.md`. Save sits at the
-    bottom and keeps the modal open; an unsaved draft survives switching
-    tabs, and closing with one asks first.
+- **Project modal (project header kebab → Open project).** The project's
+  own window, laid out like the identity modal; close X only. On top: a
+  folder tile, a quiet "In <parent> › …" line for a sub-project, the
+  project's name, and a count of what sits directly in it as the sidebar
+  shows it ("2 conversations · 3 sub-projects"). Two tabs; opens on the
+  first:
+  - **Project file** — `project.md` formatted for reading (frontmatter
+    hidden), with read aloud and **Edit** at the bottom; editing shows
+    Cancel / Save, and saving goes back to reading. A file with nothing
+    written below its frontmatter shows "Nothing written yet" and a
+    **Write it** button instead. Leaving the editor with unsaved changes
+    (Cancel, Esc, the X, switching tabs) asks first; Esc while reading
+    closes the window.
   - **Files** — the same explorer as the identity and role Files tabs,
     over the project folder (`~/fleet/projects/<slug>/`): browse,
     download, upload, create, edit, rename, delete. `project.md` is
@@ -1315,6 +1325,7 @@ crown, then gear.
     project without asking an agent — so a file can appear in your
     project folder that no agent put there. Nothing notifies members when
     the folder changes; look in the folder when the work calls for it.
+    An empty folder says "No files yet".
 
 - **Context meter (above the compose box).** Shows how full the agent's
   context window is — the same "runway left" the agent's own

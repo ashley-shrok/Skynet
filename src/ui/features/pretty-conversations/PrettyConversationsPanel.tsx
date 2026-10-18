@@ -4389,17 +4389,32 @@ export function PrettyConversationsPanel({
           item. State carries {slug, displayName, hostId} at open time
           (resolved from projectsList in handleOpenProject). onOpenChange(false)
           clears the state so a re-open starts fresh. */}
-      {projectModal !== null && (
-        <ProjectModal
-          open={true}
-          onOpenChange={(o) => {
-            if (!o) setProjectModal(null);
-          }}
-          slug={projectModal.slug}
-          displayName={projectModal.displayName}
-          hostId={projectModal.hostId}
-        />
-      )}
+      {projectModal !== null && (() => {
+        // Live from the sidebar's own sections, so a rename or a row moving in
+        // while the window is open shows at once — and the count matches
+        // exactly what this user's sidebar shows directly inside the project.
+        const key = `${projectModal.hostId}::${projectModal.slug}`;
+        const section = projectSections.find((s) => `${s.hostId ?? ""}::${s.slug}` === key);
+        return (
+          <ProjectModal
+            open={true}
+            onOpenChange={(o) => {
+              if (!o) setProjectModal(null);
+            }}
+            slug={projectModal.slug}
+            displayName={section?.displayName ?? projectModal.displayName}
+            hostId={projectModal.hostId}
+            contents={
+              section
+                ? {
+                    conversations: section.rows.length,
+                    subProjects: projectSections.filter((s) => s.parentKey === key).length,
+                  }
+                : undefined
+            }
+          />
+        );
+      })()}
       {/* Phase 117 Plan 117-09 Task 2 (D-14) per-section context menu portal
           RETIRED by shape-sidebar-header-affordances. The four section-scoped
           actions now live in the project header's RowKebabMenu, which calls

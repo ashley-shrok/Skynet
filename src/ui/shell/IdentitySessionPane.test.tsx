@@ -616,7 +616,7 @@ describe("IdentitySessionPane — Phase 41 Plan 02", () => {
       });
       const dialog = screen.getByTestId("create-project-modal");
       expect(screen.queryByTestId("create-project-host-listbox")).toBeNull();
-      fireEvent.change(screen.getByLabelText(/project name/i), {
+      fireEvent.change(screen.getByLabelText(/^name$/i), {
         target: { value: "Trip Planning" },
       });
       // Suite runs on fake timers — flush the create promise chain directly.

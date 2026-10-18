@@ -28,16 +28,17 @@ import "@testing-library/jest-dom/vitest";
 // ─── Mocks for createProject ─────────────────────────────────────────────────
 
 const createProjectSpy = vi.fn<
-  (hostId: number, displayName: string) => Promise<{ ok: true; slug: string }>
+  (hostId: number, displayName: string, parent?: string) => Promise<{ ok: true; slug: string }>
 >(async () => ({ ok: true as const, slug: "" }));
 
 vi.mock("@/api/project-list-api", () => ({
-  createProject: (hostId: number, displayName: string) =>
-    createProjectSpy(hostId, displayName),
+  createProject: (hostId: number, displayName: string, ...rest: [string?]) =>
+    createProjectSpy(hostId, displayName, ...rest),
 }));
 
 import { CreateProjectModal } from "./CreateProjectModal";
 import type { Host, HostFolder } from "@/types/ui-types";
+import { setProjects } from "@/state/conversation-store";
 
 // Minimal Host factory — mirrors PrettyConversationsPanel.projects.test.tsx:391
 // (kept local rather than shared to preserve test-file independence).
@@ -90,6 +91,7 @@ function renderModal(
     /** Escape hatch: pass a fully-formed HostFolder directly. */
     hostTree?: HostFolder | null;
     lockedHostId?: number;
+    parent?: { slug: string; displayName: string };
   } = {},
 ) {
   const onOpenChange = overrides.onOpenChange ?? vi.fn();
@@ -116,13 +118,14 @@ function renderModal(
       onCreated={onCreated}
       hostTree={hostTree}
       lockedHostId={overrides.lockedHostId}
+      parent={overrides.parent}
     />,
   );
   return { onOpenChange, onCreated, hostTree, ...result };
 }
 
 function typeName(value: string) {
-  const input = screen.getByLabelText(/project name/i);
+  const input = screen.getByLabelText(/^name$/i);
   fireEvent.change(input, { target: { value } });
 }
 
@@ -155,7 +158,7 @@ describe("CreateProjectModal", () => {
     expect(
       screen.getByRole("dialog", { name: /new project/i }),
     ).toBeInTheDocument();
-    expect(screen.getByLabelText(/project name/i)).toBeInTheDocument();
+    expect(screen.getByLabelText(/^name$/i)).toBeInTheDocument();
     expect(
       screen.getByRole("button", { name: /^create$/i }),
     ).toBeInTheDocument();
@@ -251,7 +254,7 @@ describe("CreateProjectModal", () => {
 
     // While in-flight — input + Submit disabled.
     await waitFor(() => {
-      expect(screen.getByLabelText(/project name/i)).toBeDisabled();
+      expect(screen.getByLabelText(/^name$/i)).toBeDisabled();
     });
     expect(submit).toBeDisabled();
 
@@ -400,24 +403,46 @@ describe("CreateProjectModal", () => {
     ).not.toBeInTheDocument();
   });
 
-  it("Test 17 (Enter submits): Enter in the name input creates the project", async () => {
-    createProjectSpy.mockResolvedValueOnce({ ok: true as const, slug: "trip" });
-    const { onCreated } = renderModal({ open: true, hostId: 7 });
-    typeName("Trip");
-    fireEvent.keyDown(screen.getByLabelText(/project name/i), { key: "Enter" });
-    await waitFor(() => {
-      expect(onCreated).toHaveBeenCalledWith({ slug: "trip", displayName: "Trip" });
-    });
-    expect(createProjectSpy).toHaveBeenCalledWith(7, "Trip");
+  it("Cancel closes without creating", () => {
+    const { onOpenChange } = renderModal();
+    typeName("Trip Planning");
+    fireEvent.click(screen.getByTestId("create-project-cancel"));
+    expect(onOpenChange).toHaveBeenCalledWith(false);
+    expect(createProjectSpy).not.toHaveBeenCalled();
   });
 
-  it("Test 18 (Enter gated): Enter does nothing while the name is empty or no host is picked", () => {
-    renderModal({ open: true });
-    fireEvent.keyDown(screen.getByLabelText(/project name/i), { key: "Enter" });
-    cleanup();
-    renderModal({ open: true, hosts: [{ id: "3", name: "a" }, { id: "6", name: "b" }] });
-    typeName("Trip");
-    fireEvent.keyDown(screen.getByLabelText(/project name/i), { key: "Enter" });
+  it("Enter in the name field creates; Enter with no name does nothing", async () => {
+    createProjectSpy.mockResolvedValueOnce({ ok: true as const, slug: "trip-planning" });
+    const { onOpenChange } = renderModal({ hostId: 4 });
+    const input = screen.getByLabelText(/^name$/i);
+    fireEvent.keyDown(input, { key: "Enter" });
     expect(createProjectSpy).not.toHaveBeenCalled();
+    typeName("Trip Planning");
+    fireEvent.keyDown(input, { key: "Enter" });
+    await waitFor(() => expect(createProjectSpy).toHaveBeenCalledWith(4, "Trip Planning"));
+    await waitFor(() => expect(onOpenChange).toHaveBeenCalledWith(false));
+  });
+
+  it("New sub-project: titled so, names where it sits top-down, asks for no host, creates inside the parent", async () => {
+    setProjects([
+      { slug: "top", displayName: "Morpheus 2", hostId: "6", hostname: "h", archived: false },
+      { slug: "mid", displayName: "M2 · Runs", hostId: "6", hostname: "h", archived: false, parent: "top" },
+    ]);
+    createProjectSpy.mockResolvedValueOnce({ ok: true as const, slug: "parked" });
+    renderModal({
+      hosts: [
+        { id: "3", name: "thenasty" },
+        { id: "6", name: "Skynet" },
+      ],
+      lockedHostId: 6,
+      parent: { slug: "mid", displayName: "M2 · Runs" },
+    });
+    expect(screen.getByText("New sub-project")).toBeInTheDocument();
+    expect(screen.getByTestId("create-project-inside")).toHaveTextContent("Inside Morpheus 2 › M2 · Runs");
+    expect(screen.queryByTestId("create-project-host-listbox")).toBeNull();
+    typeName("Parked");
+    fireEvent.click(screen.getByRole("button", { name: /^create$/i }));
+    await waitFor(() => expect(createProjectSpy).toHaveBeenCalledWith(6, "Parked", "mid"));
+    setProjects([]);
   });
 });

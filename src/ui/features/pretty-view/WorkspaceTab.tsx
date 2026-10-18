@@ -543,6 +543,8 @@ interface WorkspaceListViewProps {
   hiddenNames?: readonly string[];
   /** Custom intro copy above the file list. Falls back to the identity default. */
   introCopy?: string;
+  /** Body for the empty top-level folder ("No files yet"). Absent = the generic empty-folder state. */
+  emptyCopy?: string;
   readOnly?: boolean;
 }
 
@@ -557,6 +559,7 @@ function WorkspaceListView({
   onRefresh,
   hiddenNames,
   introCopy,
+  emptyCopy,
   readOnly = false,
 }: WorkspaceListViewProps): JSX.Element {
   const [listState, setListState] = useState<ListState>({
@@ -1268,11 +1271,20 @@ function WorkspaceListView({
         {!searchActive &&
           listState.status === "ready" &&
           sortedEntries.length === 0 && (
-            <KitEmpty
-              icon={<Folder aria-hidden="true" />}
-              title="Empty folder"
-              body="Drop files here or use the toolbar."
-            />
+            emptyCopy !== undefined && currentPath.length === 0 ? (
+              <KitEmpty
+                icon={<Folder aria-hidden="true" />}
+                title="No files yet"
+                body={emptyCopy}
+                data-testid="workspace-empty-root"
+              />
+            ) : (
+              <KitEmpty
+                icon={<Folder aria-hidden="true" />}
+                title="Empty folder"
+                body="Drop files here or use the toolbar."
+              />
+            )
           )}
 
         {/* File/folder rows (D-08 — show everything) */}
@@ -1437,6 +1449,8 @@ export interface WorkspaceTabProps {
   hiddenNames?: readonly string[];
   /** Optional intro copy shown above the file list. Identity default when absent. */
   introCopy?: string;
+  /** Body for the empty top-level folder ("No files yet"). Absent = the generic empty-folder state. */
+  emptyCopy?: string;
   /** View-only: no upload, new, rename, delete or save (e.g. a shared role for a non-admin). */
   readOnly?: boolean;
 }
@@ -1452,6 +1466,7 @@ export default function WorkspaceTab({
   hue,
   hiddenNames,
   introCopy,
+  emptyCopy,
   readOnly = false,
 }: WorkspaceTabProps): JSX.Element {
   const [currentPath, setCurrentPath] = useState<string[]>([]);
@@ -1473,6 +1488,7 @@ export default function WorkspaceTab({
         onRefresh={() => setRefreshKey((k) => k + 1)}
         hiddenNames={hiddenNames}
         introCopy={introCopy}
+        emptyCopy={emptyCopy}
         readOnly={readOnly}
       />
       {openFile && (

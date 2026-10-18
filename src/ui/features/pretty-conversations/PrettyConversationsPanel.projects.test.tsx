@@ -2669,7 +2669,7 @@ describe("PrettyConversationsPanel: Move to → New project…", () => {
     expect(
       within(dialog).queryByTestId("create-project-host-listbox"),
     ).toBeNull();
-    fireEvent.change(within(dialog).getByLabelText(/project name/i), {
+    fireEvent.change(within(dialog).getByLabelText(/^name$/i), {
       target: { value: "Trip Planning" },
     });
     fireEvent.click(within(dialog).getByRole("button", { name: /^create$/i }));
@@ -2721,7 +2721,7 @@ describe("PrettyConversationsPanel: Move to → New project…", () => {
     await userEvent.setup().click(screen.getByTestId("pv-row-kebab-item-new-project"));
 
     const dialog = await screen.findByTestId("create-project-modal");
-    fireEvent.change(within(dialog).getByLabelText(/project name/i), {
+    fireEvent.change(within(dialog).getByLabelText(/^name$/i), {
       target: { value: "Trip Planning" },
     });
     fireEvent.click(within(dialog).getByTestId("create-project-host-option-2"));
