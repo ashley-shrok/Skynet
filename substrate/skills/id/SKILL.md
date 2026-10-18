@@ -657,10 +657,10 @@ menu in the header and no "new group conversation" control in the app.
   user who made it and is auto-named with just the word (e.g. "duet",
   "duet-2"). The agent is born on the machine whose entry was picked;
   picking from a different machine replaces the earlier picks. The first row of the roles dropdown is
-  **New role…**: it swaps to the new-role dialog (on the machine of the
-  roles already picked, if any) and, once the role is made, comes back
-  with the earlier picks plus the new role; cancelling comes back as the
-  user left it. A new conversation opens automatically.
+  **New role…**: it opens the roles window (drama masks) straight on its
+  new-role form (on the machine of the roles already picked, if any) and,
+  once the role is made, comes back with the earlier picks plus the new
+  role; backing out comes back as the user left it. A new conversation opens automatically.
   *Agent-side:* see § Spawning another agent — the same mechanism, but
   the agent-side lets you seed the newborn with an initial prompt, which
   the button cannot. User-gated.
@@ -1023,31 +1023,52 @@ crown, then gear.
   itself every ~30s while open.
   *Agent-side:* see § Scheduled tasks. **User-gated.**
 
-- **🎭 Drama masks — roles.** Opens a modal listing every role the
-  user has access to on this box. Clicking one drills in; a **"new
-  role"** button inside the modal creates a fresh role (name, description,
-  host, color, avatar).
+- **🎭 Drama masks — roles.** Opens the roles window — one window that
+  moves between views, with a **‹ back** control top-left (Esc also steps
+  back one level; the X closes). Leaving a view with unsaved edits asks
+  first.
+  - **Roles** (opens first): a machine picker (only with more than one),
+    **New role**, a search box, then every role as a row — picture, name,
+    its one-line description, how many agents hold it. Shared roles sit
+    first under **On every host**, then **On <machine>**. A last row,
+    **Archived roles**, shows how many there are and opens them.
+  - **A role** (click a row): its picture (click to upload a new one),
+    name and one-line description — a faded *No description* when it has
+    none; click it (pencil) to edit in place, Enter saves, Esc cancels.
+    Under that a quiet line ("3 agents hold this role · on every host"),
+    then **Colour** and **Voice** buttons. Tabs: **Role file** (formatted;
+    **Edit** at the bottom switches to editing with Cancel / Save),
+    **Runbooks** (the list, plus **New runbook**, which asks for a name
+    and opens it), **Files** (everything in the role folder
+    `~/fleet/roles/<slug>/` except the role file itself, which has its own
+    tab) and **Git** when the folder holds a repo. The **⋯** menu has
+    **Start a conversation** (opens the new-conversation dialog with this
+    role picked) and **Archive role…** — one confirm naming the agents
+    that hold it, which are archived with it; greyed out for a shared role.
+  - **A runbook** (click one under Runbooks): one level deeper; back reads
+    the role's name. The open file fills the window; an **N files** button
+    shows the file list (**Add file** at its bottom; on a phone the list
+    swaps in for the editor). Close / Save at the bottom; **⋯** has
+    **Add file…** and **Delete runbook…**.
+  - **New role**: picture first (**Generate picture** offers three to pick
+    from, or **Upload…**), then name, description (shown under the role's
+    name; it also starts the role file), colour and machine. Cancel or
+    back leaves it (asking first if anything is filled in); **Create
+    role** lands on the new role.
+  - **Archived roles**: each row has **Un-archive**; the row then says the
+    role is on its way back — the supervisor's reconciler moves the folder
+    back to `~/fleet/roles/<name>/` within ~15 seconds.
+  A shared role is view-only for anyone who isn't an admin: no editing, no
+  colour, voice, picture or description changes, and its runbooks and
+  files are read-only.
   *Agent-side:* a role is a folder at `~/fleet/roles/<slug>/` holding a
-  `<slug>.md` role file and its avatar. Create one with a role request
-  (§ Creating a role) — never by writing the folder yourself, which
+  `<slug>.md` role file and its avatar; the one-line description is the
+  role file's `description:` frontmatter key. Create one with a role
+  request (§ Creating a role) — never by writing the folder yourself, which
   leaves it without an avatar or color. Editing an existing role file
   follows § Editing the role file (propose + wait for greenlight).
   Creating a new role is **user-gated**; on greenlight, offer to
-  immediately spawn a fresh agent of that new role as a follow-up (mirrors
-  what the button chains to).
-
-  Every row in this modal carries a three-dots menu on the right (shown on
-  hover, always shown on a touch screen). Clicking it opens a small menu — **Archive** for a live role,
-  **Un-archive** for an archived role. This is the visible action path; the
-  older right-click gesture on this modal is retired.
-
-  Below the live-roles list, the modal also has an **Archived roles**
-  collapsed section — always visible even when zero archived roles exist.
-  Expanding it lazy-loads the archived list for the currently-selected host.
-  Each archived row carries the same three-dots menu with a single
-  **Un-archive** item. On un-archive, the supervisor's reconciler picks up
-  the sentinel drop within ~15 seconds and moves the role folder back to
-  `~/fleet/roles/<name>/`.
+  immediately spawn a fresh agent of that new role as a follow-up.
 
 - **⚡ Lightning bolt — skills.** Lists the user's skills; view/edit any, or create
   a new one. Skills here are surfaced to every one of the user's agent
@@ -1115,8 +1136,8 @@ crown, then gear.
   - **Log out** — signs the user out of the app. Pinned to the bottom of
     the modal's section list.
 
-- **Side-list modals on a phone.** Preferences, Admin and the
-  runbook editor list their sections/files down the left on desktop. On a phone
+- **Side-list modals on a phone.** Preferences, Admin and the roles
+  window's runbooks list their sections/files down the left on desktop. On a phone
   they drill in instead: the list fills the screen, tapping an item opens
   it full screen with a back arrow (‹ Preferences / ‹ Files) to return.
 
@@ -1256,23 +1277,10 @@ crown, then gear.
     (§ Desktop bar).
     *Agent-side:* see the `desktop` skill (§ If the user takes control).
 
-- **Role modal (jump to via the identity modal header, or from the
-  drama-masks icon in the footer → click a role).** Three tabs:
-  - **Role file** — view and edit the role's own `<role>.md`.
-  - **Runbooks** — list the role's runbooks; click one to open the
-    runbook editor.
-  - **Files** — full explorer over the role folder
-    (`~/fleet/roles/<slug>/`): reference material, runbooks, per-role
-    standing knowledge, whatever else lives there. Same browse /
-    download / upload / create / rename / delete affordances as the
-    identity Files tab. The role file itself (`<slug>.md`) is hidden
-    from the root listing — its dedicated editor lives on the Role
-    file tab and having a second edit path would be a redundant lie.
-    Everything else in the folder shows up as-is, including
-    credential JSONs and plumbing subfolders; the modal is admin-only
-    and the exposure surface is the same as SSH access to the box.
-    Uploading, creating, renaming onto, renaming or deleting the role
-    file from the Files tab is refused with a pointer to the Role file tab.
+- **A role from an agent (click a role name in the identity modal's
+  header).** Opens the roles window (drama masks) straight on that role,
+  scoped to that agent's machine; **‹ Roles** goes to that machine's list,
+  and closing the window returns to the agent's identity modal.
 
 - **Project modal (project header kebab → Open project).** Two tabs;
   opens on the first:
@@ -1697,7 +1705,7 @@ identity folder, writing credentials, launching the tmux + claude +
 
 ## Creating a role
 
-The agent-side counterpart to the **new role** button in the roles modal
+The agent-side counterpart to **New role** in the roles window
 (drama masks). Same file-drop mechanism as § Spawning another agent, same
 folder, told apart by `"kind": "role"`. The backend creates the role
 folder the way the button does: role file from your description, a
