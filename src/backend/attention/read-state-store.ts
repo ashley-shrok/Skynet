@@ -7,9 +7,10 @@
  * comparison never mixes clocks.
  *
  * Each user also gets a baseline, created the first time their read state is
- * fetched: with no read row for a conversation, turns finished before the
- * baseline count as read. That is what makes launch day start with an empty
- * set of marks.
+ * fetched. At that moment every turn already in the turn log is recorded as
+ * seen for them — launch day starts all-read without comparing clocks. A
+ * conversation with no read row (its agent first finished later) is unread
+ * once a turn finishes after the baseline time.
  *
  * Writes are monotonic and synchronous (better-sqlite3); persistence goes
  * through the save trigger (debounced for seen marks, immediate for the
@@ -19,8 +20,9 @@ import type Database from "better-sqlite3";
 import { getSqlite } from "../database/db/index.js";
 import { DatabaseSaveTrigger } from "../utils/database-save-trigger.js";
 import { databaseLogger } from "../utils/logger.js";
+import { isValidIdentityName } from "./attention-schema.js";
 
-const MAX_IDENTITY_NAME_LEN = 256;
+export { isValidIdentityName };
 
 export interface SeenEntry {
   hostId: string;
@@ -38,10 +40,6 @@ export interface ReadStateStore {
   getForUser(userId: string): UserReadState;
   /** Advance a seen mark. Returns true iff the stored value advanced. */
   markSeen(userId: string, hostId: string, identityName: string, seenFinishAt: number): boolean;
-}
-
-export function isValidIdentityName(name: unknown): name is string {
-  return typeof name === "string" && name.length > 0 && name.length <= MAX_IDENTITY_NAME_LEN;
 }
 
 export function createReadStateStore(deps: {
@@ -79,13 +77,22 @@ export function createReadStateStore(deps: {
         baselineAt = existing.baseline_at;
       } else {
         baselineAt = deps.now();
-        db.prepare(
-          "INSERT OR IGNORE INTO user_read_baseline (user_id, baseline_at) VALUES (?, ?)",
-        ).run(userId, baselineAt);
+        const seeded = db.transaction(() => {
+          db.prepare(
+            "INSERT OR IGNORE INTO user_read_baseline (user_id, baseline_at) VALUES (?, ?)",
+          ).run(userId, baselineAt);
+          return db
+            .prepare(
+              `INSERT OR IGNORE INTO conversation_read_state (user_id, host_id, identity_name, seen_finish_at)
+               SELECT ?, host_id, identity_name, last_finish_at FROM identity_turn_log`,
+            )
+            .run(userId).changes;
+        })();
         databaseLogger.info("Read-state baseline created", {
           operation: "attention_read_baseline_created",
           userId,
           baselineAt,
+          seededFromTurnLog: seeded,
         });
         fireSave(deps.forceSave, "attention-read-baseline");
       }

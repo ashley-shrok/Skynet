@@ -12,13 +12,25 @@
  *                             so host/server clock skew cannot create or
  *                             swallow a mark.
  *   user_read_baseline      — per user: when read tracking started for them.
- *                             A conversation with no read row counts as read
- *                             for every turn that finished before this, so
- *                             nothing lights up on launch day.
+ *                             When it is created, every turn already in the
+ *                             turn log is recorded as seen (so launch day
+ *                             starts all-read without comparing clocks). The
+ *                             time itself only matters for a conversation
+ *                             whose first finished turn lands after that, and
+ *                             compares server time to the agent machine's
+ *                             Stop-file time — fine at the scale of minutes,
+ *                             which is all a never-seen conversation needs.
  *
  * No imports: db/index.ts execs this at boot and tests exec it against an
  * in-memory database.
  */
+
+export const MAX_IDENTITY_NAME_LEN = 256;
+
+/** A plausible identity name for the attention tables (bounds the PK). */
+export function isValidIdentityName(name: unknown): name is string {
+  return typeof name === "string" && name.length > 0 && name.length <= MAX_IDENTITY_NAME_LEN;
+}
 export const ATTENTION_TABLES_SQL = `
   CREATE TABLE IF NOT EXISTS identity_turn_log (
       host_id TEXT NOT NULL,

@@ -31,6 +31,11 @@ let baselineAt: number | null = null;
 let version = 0;
 const listeners = new Set<() => void>();
 let loadInFlight: Promise<void> | null = null;
+let reloadQueued = false;
+// Seen marks whose save failed (flaky connection). Re-sent after the next
+// successful read-state load so the user's other devices catch up; the
+// server ignores anything that isn't newer, so re-sending is safe.
+const unsynced = new Map<Key, { hostId: string; identityName: string }>();
 
 export function attentionKey(hostId: string | number, identityName: string): Key {
   return `${hostId}:${identityName}`;
@@ -120,10 +125,14 @@ export function applyReadState(state: {
 /**
  * Fetch this user's read state. Called on boot and on every fleet-status
  * (re)connect so marks cleared elsewhere while this tab was offline catch up.
- * Concurrent calls share one request.
+ * A call that lands while a fetch is in flight queues one fresh fetch after
+ * it (the in-flight answer may predate what the caller needs).
  */
 export function loadReadState(): Promise<void> {
-  if (loadInFlight) return loadInFlight;
+  if (loadInFlight) {
+    reloadQueued = true;
+    return loadInFlight;
+  }
   loadInFlight = (async () => {
     try {
       const res = await authApi.get("/attention/read-state");
@@ -136,7 +145,12 @@ export function loadReadState(): Promise<void> {
         operation: "attention_read_state_loaded",
         baselineAt: data.baselineAt,
         seenCount: data.seen?.length ?? 0,
+        resending: unsynced.size,
       });
+      for (const [k, t] of [...unsynced]) {
+        const at = seen.get(k);
+        if (at !== undefined) postSeen(k, t.hostId, t.identityName, at);
+      }
     } catch (err) {
       console.warn({
         operation: "attention_read_state_load_failed",
@@ -144,9 +158,35 @@ export function loadReadState(): Promise<void> {
       });
     } finally {
       loadInFlight = null;
+      if (reloadQueued) {
+        reloadQueued = false;
+        void loadReadState();
+      }
     }
   })();
   return loadInFlight;
+}
+
+function postSeen(k: Key, hostId: string, identityName: string, seenFinishAt: number): void {
+  const body = { hostId, identityName, seenFinishAt };
+  const failed = (err: unknown, operation: string) => {
+    unsynced.set(k, { hostId, identityName });
+    console.warn({
+      operation,
+      ...body,
+      err: err instanceof Error ? err.message : String(err),
+    });
+  };
+  try {
+    authApi
+      .post("/attention/seen", body)
+      .then(() => {
+        if (seen.get(k) === seenFinishAt) unsynced.delete(k);
+      })
+      .catch((err: unknown) => failed(err, "attention_mark_seen_failed"));
+  } catch (err) {
+    failed(err, "attention_mark_seen_failed_sync");
+  }
 }
 
 export function getLastFinishAt(k: Key | null): number | null {
@@ -169,28 +209,16 @@ export function isUnread(k: Key | null): boolean {
  * tabs). No-op when there's nothing new.
  */
 export function markSeen(hostId: string | number, identityName: string): void {
+  // Until the read state has loaded nothing shows as unread, and the load
+  // itself notifies — the seen tracker re-runs then.
+  if (baselineAt === null) return;
   const k = attentionKey(hostId, identityName);
   const finish = finishes.get(k);
   if (finish === undefined) return;
   if (!advanceSeen(k, finish)) return;
   notify();
-  const body = { hostId: String(hostId), identityName, seenFinishAt: finish };
-  console.info({ operation: "attention_mark_seen", ...body });
-  try {
-    authApi.post("/attention/seen", body).catch((err: unknown) => {
-      console.warn({
-        operation: "attention_mark_seen_failed",
-        ...body,
-        err: err instanceof Error ? err.message : String(err),
-      });
-    });
-  } catch (err) {
-    console.warn({
-      operation: "attention_mark_seen_failed_sync",
-      ...body,
-      err: err instanceof Error ? err.message : String(err),
-    });
-  }
+  console.info({ operation: "attention_mark_seen", hostId: String(hostId), identityName, seenFinishAt: finish });
+  postSeen(k, String(hostId), identityName, finish);
 }
 
 export function __resetAttentionForTest(): void {
@@ -198,6 +226,8 @@ export function __resetAttentionForTest(): void {
   seen.clear();
   baselineAt = null;
   loadInFlight = null;
+  reloadQueued = false;
+  unsynced.clear();
   // Listeners stay: module-level subscribers (the conversation store) must
   // keep hearing changes across tests.
   notify();

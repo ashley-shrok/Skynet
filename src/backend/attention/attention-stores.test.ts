@@ -67,6 +67,26 @@ describe("turn-finish store", () => {
     expect(save).not.toHaveBeenCalled();
   });
 
+  it("backs off after a failed load instead of retrying every call", () => {
+    let calls = 0;
+    let clock = 0;
+    const store = createTurnFinishStore({
+      sqlite: () => {
+        calls++;
+        throw new Error("boom");
+      },
+      save: vi.fn(),
+      now: () => clock,
+    });
+    store.get("h1", "a");
+    store.get("h1", "b");
+    store.record("h1", "a", 1);
+    expect(calls).toBe(1);
+    clock = 31_000;
+    store.get("h1", "a");
+    expect(calls).toBe(2);
+  });
+
   it("fails open when the database throws", () => {
     const store = createTurnFinishStore({
       sqlite: () => {
@@ -93,6 +113,23 @@ describe("read-state store", () => {
     const later = createReadStateStore({ sqlite: () => sqlite, now: () => 9999, save: vi.fn(), forceSave: vi.fn() });
     expect(later.getForUser("u1").baselineAt).toBe(5000);
     expect(forceSave).toHaveBeenCalledTimes(1);
+  });
+
+  it("launch day: a new user's baseline records every turn already logged as seen", () => {
+    const turns = createTurnFinishStore({ sqlite: () => sqlite, save: vi.fn() });
+    turns.record("h1", "aspen", 4_000);
+    turns.record("h1", "birch", 9_000); // even a machine clock ahead of the server
+    const { store } = make(5_000);
+    const state = store.getForUser("u1");
+    expect(state.seen).toEqual(
+      expect.arrayContaining([
+        { hostId: "h1", identityName: "aspen", seenFinishAt: 4_000 },
+        { hostId: "h1", identityName: "birch", seenFinishAt: 9_000 },
+      ]),
+    );
+    // Only on creation: a later turn is not auto-seen.
+    turns.record("h1", "aspen", 6_000);
+    expect(store.getForUser("u1").seen).toContainEqual({ hostId: "h1", identityName: "aspen", seenFinishAt: 4_000 });
   });
 
   it("marks seen monotonically and returns it per user", () => {

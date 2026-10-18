@@ -21,7 +21,8 @@ const router = express.Router();
 const authManager = AuthManager.getInstance();
 const authenticateJWT = authManager.createAuthMiddleware();
 
-const MAX_HOST_ID_LEN = 64;
+// Host ids are the numeric primary keys of the hosts table, as strings.
+const HOST_ID_RE = /^[0-9]{1,20}$/;
 
 router.get("/read-state", authenticateJWT, (req: Request, res: Response) => {
   const userId = (req as AuthenticatedRequest).userId;
@@ -52,7 +53,7 @@ router.post("/seen", authenticateJWT, (req: Request, res: Response) => {
     seenFinishAt?: unknown;
   };
   const { hostId, identityName, seenFinishAt } = body;
-  if (typeof hostId !== "string" || hostId.length === 0 || hostId.length > MAX_HOST_ID_LEN) {
+  if (typeof hostId !== "string" || !HOST_ID_RE.test(hostId)) {
     return res.status(400).json({ error: "invalid hostId" });
   }
   if (!isValidIdentityName(identityName)) {

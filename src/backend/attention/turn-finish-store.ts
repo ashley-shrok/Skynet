@@ -16,9 +16,13 @@ import type Database from "better-sqlite3";
 import { getSqlite } from "../database/db/index.js";
 import { DatabaseSaveTrigger } from "../utils/database-save-trigger.js";
 import { databaseLogger } from "../utils/logger.js";
+import { isValidIdentityName } from "./attention-schema.js";
 
 const SAVE_REASON = "attention-turn-finish";
-const MAX_IDENTITY_NAME_LEN = 256;
+// After a failed load, wait this long before trying again — the poll loop
+// calls get() per session per tick, so retrying every call would hammer the
+// database and the log.
+const LOAD_RETRY_MS = 30_000;
 
 export interface TurnFinishStore {
   /** Record a finished turn. Returns true iff the stored value advanced. */
@@ -32,11 +36,16 @@ const key = (hostId: string, identityName: string) => `${hostId}::${identityName
 export function createTurnFinishStore(deps: {
   sqlite: () => Database.Database;
   save: (reason: string) => Promise<void> | void;
+  now?: () => number;
 }): TurnFinishStore {
+  const now = deps.now ?? (() => Date.now());
   let cache: Map<string, number> | null = null;
+  let lastFailedLoadAt: number | null = null;
+  const empty = new Map<string, number>();
 
   const load = (): Map<string, number> => {
     if (cache) return cache;
+    if (lastFailedLoadAt !== null && now() - lastFailedLoadAt < LOAD_RETRY_MS) return empty;
     const next = new Map<string, number>();
     try {
       const rows = deps
@@ -49,12 +58,14 @@ export function createTurnFinishStore(deps: {
         rows: rows.length,
       });
     } catch (err) {
-      // Not cached on failure, so the next call retries the load.
+      // Not cached on failure; retried after LOAD_RETRY_MS.
+      lastFailedLoadAt = now();
       databaseLogger.warn("Turn-finish log load failed", {
         operation: "attention_turn_log_load_failed",
+        retryInMs: LOAD_RETRY_MS,
         error: err instanceof Error ? err.message : "unknown",
       });
-      return next;
+      return empty;
     }
     cache = next;
     return cache;
@@ -64,13 +75,13 @@ export function createTurnFinishStore(deps: {
     record(hostId, identityName, finishedAt) {
       if (
         typeof hostId !== "string" || hostId.length === 0 ||
-        typeof identityName !== "string" || identityName.length === 0 ||
-        identityName.length > MAX_IDENTITY_NAME_LEN ||
+        !isValidIdentityName(identityName) ||
         typeof finishedAt !== "number" || !Number.isFinite(finishedAt) || finishedAt <= 0
       ) {
         return false;
       }
       const map = load();
+      if (map === empty) return false; // DB unavailable — don't write blind
       const k = key(hostId, identityName);
       const prev = map.get(k);
       if (prev !== undefined && prev >= finishedAt) return false;

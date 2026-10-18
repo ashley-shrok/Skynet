@@ -137,6 +137,7 @@ import {
 // callback into each PrettyProjectSectionHeader.
 import { useCollapsedProjectSlugs } from "@/state/use-collapsed-project-slugs";
 import { useProjectsSectionCollapsed } from "@/state/use-projects-section-collapsed";
+import { projectKey } from "@/state/project-tree";
 // Phase 117 Plan 117-08 (D-22): project drop-handler API surface. Landed by
 // 117-06 as thin authApi wrappers; called fire-and-forget from the panel's
 // handleProjectDrop / handleFlatMiddleDrop.
@@ -795,7 +796,7 @@ export function PrettyConversationsPanel({
   // sub-project, any depth), and whether any project has one at all (the
   // collapsed Projects super-header).
   const { unreadSectionKeys, anyProjectUnread } = useMemo(() => {
-    const keyOfSec = (sec: ProjectSection) => `${sec.hostId ?? ""}::${sec.slug}`;
+    const keyOfSec = (sec: ProjectSection) => projectKey(sec.hostId ?? "", sec.slug);
     const keys = new Set<string>();
     const parentOf = new Map<string, string | null>();
     for (const sec of projectSections) parentOf.set(keyOfSec(sec), sec.parentKey ?? null);

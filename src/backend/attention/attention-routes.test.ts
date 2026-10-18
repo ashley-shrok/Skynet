@@ -116,13 +116,13 @@ describe("GET /attention/read-state", () => {
 describe("POST /attention/seen", () => {
   it("advances the mark and pushes it to the caller's own tabs", async () => {
     store.markSeen.mockReturnValue(true);
-    const res = await request(server, "POST", "/attention/seen", { hostId: "h1", identityName: "aspen", seenFinishAt: 1000 });
+    const res = await request(server, "POST", "/attention/seen", { hostId: "1", identityName: "aspen", seenFinishAt: 1000 });
     expect(res.status).toBe(204);
-    expect(store.markSeen).toHaveBeenCalledWith("u1", "h1", "aspen", 1000);
+    expect(store.markSeen).toHaveBeenCalledWith("u1", "1", "aspen", 1000);
     expect(publishToUser).toHaveBeenCalledWith("u1", {
       schemaVersion: 1,
       type: "read-state-changed",
-      hostId: "h1",
+      hostId: "1",
       identityName: "aspen",
       seenFinishAt: 1000,
     });
@@ -130,7 +130,7 @@ describe("POST /attention/seen", () => {
 
   it("does not push when nothing advanced", async () => {
     store.markSeen.mockReturnValue(false);
-    const res = await request(server, "POST", "/attention/seen", { hostId: "h1", identityName: "aspen", seenFinishAt: 1000 });
+    const res = await request(server, "POST", "/attention/seen", { hostId: "1", identityName: "aspen", seenFinishAt: 1000 });
     expect(res.status).toBe(204);
     expect(publishToUser).not.toHaveBeenCalled();
   });
@@ -138,16 +138,17 @@ describe("POST /attention/seen", () => {
   it("still succeeds when the registry is not ready", async () => {
     registryPresent = false;
     store.markSeen.mockReturnValue(true);
-    const res = await request(server, "POST", "/attention/seen", { hostId: "h1", identityName: "aspen", seenFinishAt: 1000 });
+    const res = await request(server, "POST", "/attention/seen", { hostId: "1", identityName: "aspen", seenFinishAt: 1000 });
     expect(res.status).toBe(204);
   });
 
   it.each([
     [{ identityName: "aspen", seenFinishAt: 1 }],
-    [{ hostId: "h1", seenFinishAt: 1 }],
-    [{ hostId: "h1", identityName: "aspen" }],
-    [{ hostId: "h1", identityName: "aspen", seenFinishAt: "1" }],
-    [{ hostId: "h1", identityName: "aspen", seenFinishAt: 0 }],
+    [{ hostId: "not-a-host", identityName: "aspen", seenFinishAt: 1 }],
+    [{ hostId: "1", seenFinishAt: 1 }],
+    [{ hostId: "1", identityName: "aspen" }],
+    [{ hostId: "1", identityName: "aspen", seenFinishAt: "1" }],
+    [{ hostId: "1", identityName: "aspen", seenFinishAt: 0 }],
   ])("400s on bad body %j", async (body) => {
     const res = await request(server, "POST", "/attention/seen", body);
     expect(res.status).toBe(400);
