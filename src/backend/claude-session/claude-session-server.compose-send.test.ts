@@ -72,7 +72,9 @@ import {
   __applyInterruptMessageForTests,
   __applyOnLineNotifyForTests,
   __interruptThrottleForTests,
+  INTERRUPT_MARKER_WAIT_MS,
 } from "./claude-session-server.js";
+import { InterruptCancelTracker } from "./interrupt-cancel-tracker.js";
 import {
   armPvSendWatchdog,
   clearPvSendWatchdog,
@@ -467,11 +469,42 @@ describe("__applyInputMessageForTests", () => {
 });
 
 // ─── __applyInterruptMessageForTests ─────────────────────────────────────────
+//
+// shape-interrupt-button: Escape, then a transcript-only verdict from the
+// connection's cancel tracker; one Ctrl-C only to clear a rewound prompt.
+
+/** Tracker whose latest prompt was already answered (an idle press). */
+function idleTracker(): InterruptCancelTracker {
+  const t = new InterruptCancelTracker();
+  t.observe({ type: "user", uuid: "p1", parentUuid: "root", message: { content: "hi" } }, "hi");
+  t.observe({ type: "assistant", uuid: "a1", parentUuid: "p1", message: { content: [{ type: "text", text: "hello" }] } }, null);
+  return t;
+}
+
+/** Tracker whose latest prompt has nothing but its attachments (rewindable). */
+function rewindableTracker(): InterruptCancelTracker {
+  const t = new InterruptCancelTracker();
+  t.observe({ type: "user", uuid: "p1", parentUuid: "root", message: { content: "write a poem" } }, "write a poem");
+  t.observe({ type: "attachment", uuid: "at1", parentUuid: "p1" }, null);
+  return t;
+}
+
+/** Manual clock + wait that advances it, so the marker wait never sleeps. */
+function manualClock(start: number) {
+  const clock = { t: start, waits: 0 };
+  return {
+    clock,
+    now: () => clock.t,
+    wait: async (ms: number) => {
+      clock.waits += 1;
+      clock.t += ms;
+    },
+  };
+}
 
 describe("__applyInterruptMessageForTests", () => {
   beforeEach(() => {
-    // The throttle Map is module-scope and persists across tests. Clear it
-    // before every test so state from one test cannot leak into the next.
+    // The throttle Map is module-scope and persists across tests.
     __interruptThrottleForTests.clear();
   });
 
@@ -480,115 +513,208 @@ describe("__applyInterruptMessageForTests", () => {
     vi.useRealTimers();
   });
 
-  it("interrupt: sshConn null → no execCommand call, no throw", async () => {
+  it("sshConn null → refused, no keystroke", async () => {
     const exec = vi.fn();
+    const tracker = idleTracker();
     await expect(
       __applyInterruptMessageForTests({
         sshConn: null,
         currentTmuxSession: "legit-session",
         currentHostId: 1,
         execCommand: exec,
+        tracker: () => tracker,
       }),
-    ).resolves.toBeUndefined();
+    ).resolves.toBeNull();
     expect(exec).not.toHaveBeenCalled();
   });
 
-  it("interrupt: currentTmuxSession null → no execCommand call, no throw", async () => {
+  it("currentTmuxSession null → refused, no keystroke", async () => {
     const exec = vi.fn();
+    const tracker = idleTracker();
     await expect(
       __applyInterruptMessageForTests({
         sshConn: fakeConn,
         currentTmuxSession: null,
         currentHostId: 1,
         execCommand: exec,
+        tracker: () => tracker,
       }),
-    ).resolves.toBeUndefined();
+    ).resolves.toBeNull();
     expect(exec).not.toHaveBeenCalled();
   });
 
-  it("interrupt: happy path → exactly ONE execCommand with C-c; no -l flag; no Enter", async () => {
+  it("idle press → exactly ONE keystroke, Escape (tmux key name, no -l, no Enter); verdict none", async () => {
     const exec = vi.fn().mockResolvedValue("");
-    await __applyInterruptMessageForTests({
+    const tracker = idleTracker();
+    const { now, wait } = manualClock(1_000);
+    const verdict = await __applyInterruptMessageForTests({
       sshConn: fakeConn,
       currentTmuxSession: "legit-session",
       currentHostId: 1,
       execCommand: exec,
+      tracker: () => tracker,
+      now,
+      wait,
     });
+    expect(verdict).toEqual({ verdict: "none", reason: "agent_output" });
     expect(exec).toHaveBeenCalledTimes(1);
     const cmd = exec.mock.calls[0][1] as string;
-    expect(cmd).toContain("send-keys");
-    // C-c is a tmux key name — no -l literal flag (key name, not literal bytes)
+    expect(cmd).toBe("tmux send-keys -t 'legit-session' Escape");
     expect(cmd).not.toContain("-l");
-    expect(cmd).toContain("-t 'legit-session'");
-    expect(cmd).toContain("C-c");
-    // The old Escape keystroke must no longer appear
-    expect(cmd).not.toContain("Escape");
-    // Must NOT have Enter (that would be a different command)
-    expect(cmd).not.toMatch(/\sEnter\s*$/);
+    expect(cmd).not.toContain("C-c");
   });
 
-  it("interrupt: regression guard — MUST NOT send Escape (Escape needs a fast double-press to clear a draft; the throttle blocks that double-press by design, so Escape can never clear — that is the capability gap this change closes)", async () => {
-    // Deliberate inversion of the former 'MUST NOT send C-c' guard.
-    // The harness-death hazard of Ctrl-C (two presses inside Claude Code's
-    // ~0.8s exit-confirm window terminates the harness) is now handled by
-    // the server-side per-pane throttle, not by keystroke choice.
+  it("marker wait is bounded: an idle press waits INTERRUPT_MARKER_WAIT_MS then stops polling", async () => {
     const exec = vi.fn().mockResolvedValue("");
+    const tracker = idleTracker();
+    const { clock, now, wait } = manualClock(5_000);
     await __applyInterruptMessageForTests({
       sshConn: fakeConn,
-      currentTmuxSession: "legit-session",
+      currentTmuxSession: "bounded",
       currentHostId: 1,
       execCommand: exec,
+      tracker: () => tracker,
+      now,
+      wait,
     });
-    expect(exec).toHaveBeenCalledTimes(1);
-    const cmd = exec.mock.calls[0][1] as string;
-    expect(cmd).not.toContain("Escape");
+    expect(clock.t - 5_000).toBe(INTERRUPT_MARKER_WAIT_MS);
+    expect(clock.waits).toBe(INTERRUPT_MARKER_WAIT_MS / 100);
   });
 
-  it("interrupt: execCommand throws → caught; no rethrow; sshLogger.warn called with operation interrupt_send_error", async () => {
+  it("stopped: the marker lands during the wait → verdict stopped, never a Ctrl-C", async () => {
+    const exec = vi.fn().mockResolvedValue("");
+    const tracker = new InterruptCancelTracker();
+    tracker.observe({ type: "user", uuid: "p1", parentUuid: "root", message: { content: "long job" } }, "long job");
+    tracker.observe({ type: "assistant", uuid: "a1", parentUuid: "p1", message: { content: [{ type: "text", text: "partial" }] } }, null);
+    const { clock, now } = manualClock(10_000);
+    const wait = async (ms: number) => {
+      clock.t += ms;
+      // the harness writes its marker right after the stop
+      tracker.observe(
+        { type: "user", uuid: "m1", parentUuid: "a1", message: { content: [{ type: "text", text: "[Request interrupted by user]" }] } },
+        null,
+      );
+    };
+    const verdict = await __applyInterruptMessageForTests({
+      sshConn: fakeConn,
+      currentTmuxSession: "stop-pane",
+      currentHostId: 3,
+      execCommand: exec,
+      tracker: () => tracker,
+      now,
+      wait,
+    });
+    expect(verdict).toEqual({ verdict: "stopped" });
+    expect(exec).toHaveBeenCalledTimes(1);
+    expect(exec.mock.calls[0][1]).toContain("Escape");
+    expect(clock.t - 10_000).toBe(100); // stopped polling as soon as the marker landed
+  });
+
+  it("cancelled: nothing from the agent and no marker → Escape then ONE Ctrl-C to clear; prompt marked cancelled", async () => {
+    const exec = vi.fn().mockResolvedValue("");
+    const tracker = rewindableTracker();
+    const { now, wait } = manualClock(20_000);
+    const verdict = await __applyInterruptMessageForTests({
+      sshConn: fakeConn,
+      currentTmuxSession: "cancel-pane",
+      currentHostId: 4,
+      execCommand: exec,
+      tracker: () => tracker,
+      now,
+      wait,
+    });
+    expect(verdict?.verdict).toBe("cancelled");
+    if (verdict?.verdict === "cancelled") {
+      expect(verdict.prompt.uuid).toBe("p1");
+      expect(verdict.prompt.visibleText).toBe("write a poem");
+    }
+    expect(exec.mock.calls.map((c) => c[1])).toEqual([
+      "tmux send-keys -t 'cancel-pane' Escape",
+      "tmux send-keys -t 'cancel-pane' C-c",
+    ]);
+    // A later press on the same prompt never re-cancels (no stray Ctrl-C).
+    expect(tracker.decide(tracker.snapshot())).toEqual({ verdict: "none", reason: "already_cancelled" });
+  });
+
+  it("work indicator: stop and cancel touch the session's stopped marker; an idle press and a bad id do not", async () => {
+    const sid = "0c0919a4-b61b-43ff-bece-8b5e49d6d836";
+    const run = async (tracker: InterruptCancelTracker, sessionIdFromFile: string, pane: string) => {
+      __interruptThrottleForTests.clear();
+      const exec = vi.fn().mockResolvedValue("");
+      const { now, wait } = manualClock(30_000);
+      await __applyInterruptMessageForTests({
+        sshConn: fakeConn,
+        currentTmuxSession: pane,
+        currentHostId: 5,
+        execCommand: exec,
+        tracker: () => tracker,
+        sessionIdFromFile,
+        now,
+        wait,
+      });
+      return exec.mock.calls.map((c) => c[1] as string);
+    };
+    const touch = `mkdir -p "$HOME/.claude/fleet-status/hooks/${sid}" && touch "$HOME/.claude/fleet-status/hooks/${sid}"/stopped`;
+
+    expect(await run(rewindableTracker(), sid, "p")).toEqual([
+      "tmux send-keys -t 'p' Escape",
+      "tmux send-keys -t 'p' C-c",
+      touch,
+    ]);
+
+    const working = new InterruptCancelTracker();
+    working.observe({ type: "user", uuid: "p1", parentUuid: "r", message: { content: "go" } }, "go");
+    working.observe({ type: "assistant", uuid: "a1", parentUuid: "p1", message: { content: [{ type: "text", text: "…" }] } }, null);
+    working.observe({ type: "user", uuid: "m1", parentUuid: "a1", message: { content: [{ type: "text", text: "[Request interrupted by user]" }] } }, null);
+    // marker already present before the press does not count — only markers after it
+    expect(await run(working, sid, "q")).toEqual(["tmux send-keys -t 'q' Escape"]);
+
+    expect(await run(idleTracker(), sid, "r")).toEqual(["tmux send-keys -t 'r' Escape"]);
+    expect(await run(rewindableTracker(), "../../etc", "s")).toEqual([
+      "tmux send-keys -t 's' Escape",
+      "tmux send-keys -t 's' C-c",
+    ]);
+  });
+
+  it("Escape send throws → caught, interrupt_send_error warned, no further keystroke, refused", async () => {
     const exec = vi.fn().mockRejectedValue(new Error("SSH channel closed"));
+    const tracker = rewindableTracker();
+    vi.mocked(sshLogger.warn).mockClear();
     await expect(
       __applyInterruptMessageForTests({
         sshConn: fakeConn,
         currentTmuxSession: "legit-session",
         currentHostId: 1,
         execCommand: exec,
+        tracker: () => tracker,
       }),
-    ).resolves.toBeUndefined();
-    // Log-and-swallow: function resolves, does not rethrow
+    ).resolves.toBeNull();
     expect(exec).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(sshLogger.warn).mock.calls[0][1]).toMatchObject({ operation: "interrupt_send_error", key: "Escape" });
   });
 
-  it("interrupt throttle — same-pane collapse: second interrupt within 2500ms sends ONE keystroke and emits interrupt_throttled warn", async () => {
-    // Injects a manual clock so we control time without fake timers.
-    let t = 1_000_000;
-    const now = () => t;
-
+  it("throttle — same-pane collapse: second press within 2500ms sends nothing and warns interrupt_throttled", async () => {
+    const { clock, now, wait } = manualClock(1_000_000);
     const exec = vi.fn().mockResolvedValue("");
+    const tracker = idleTracker();
     vi.mocked(sshLogger.warn).mockClear();
-
-    // First interrupt — should send C-c
-    await __applyInterruptMessageForTests({
+    const deps = {
       sshConn: fakeConn,
       currentTmuxSession: "throttle-test-same",
       currentHostId: 42,
       execCommand: exec,
+      tracker: () => tracker,
       now,
-    });
+      wait,
+    };
+    await __applyInterruptMessageForTests(deps);
     expect(exec).toHaveBeenCalledTimes(1);
     expect(vi.mocked(sshLogger.warn)).not.toHaveBeenCalled();
 
-    // 500ms later — still inside the 2500ms window
-    t += 500;
-
-    // Second interrupt — must be dropped
-    await __applyInterruptMessageForTests({
-      sshConn: fakeConn,
-      currentTmuxSession: "throttle-test-same",
-      currentHostId: 42,
-      execCommand: exec,
-      now,
-    });
-    expect(exec).toHaveBeenCalledTimes(1); // still exactly ONE
+    // The first press already spent 1500ms waiting; 500ms more is 2000ms total.
+    clock.t += 500;
+    await expect(__applyInterruptMessageForTests(deps)).resolves.toBeNull();
+    expect(exec).toHaveBeenCalledTimes(1);
     expect(vi.mocked(sshLogger.warn)).toHaveBeenCalledTimes(1);
     const [, payload] = vi.mocked(sshLogger.warn).mock.calls[0];
     expect(payload).toMatchObject({
@@ -596,114 +722,68 @@ describe("__applyInterruptMessageForTests", () => {
       hostId: 42,
       tmuxSession: "throttle-test-same",
     });
-    expect((payload as { elapsedMs: number }).elapsedMs).toBe(500);
+    expect((payload as { elapsedMs: number }).elapsedMs).toBe(2000);
   });
 
-  it("interrupt throttle — cross-pane independence: two interrupts at same instant on different panes BOTH send; no throttle warn", async () => {
-    const t = 2_000_000;
-    const now = () => t;
+  it("throttle — cross-pane independence: presses on different panes at the same instant all send", async () => {
+    const tracker = idleTracker();
+    const execs = [vi.fn(), vi.fn(), vi.fn(), vi.fn()].map((f) => f.mockResolvedValue(""));
     vi.mocked(sshLogger.warn).mockClear();
-
-    const execA = vi.fn().mockResolvedValue("");
-    const execB = vi.fn().mockResolvedValue("");
-
-    // Different tmuxSession, same hostId
-    await __applyInterruptMessageForTests({
-      sshConn: fakeConn,
-      currentTmuxSession: "pane-alpha",
-      currentHostId: 10,
-      execCommand: execA,
-      now,
-    });
-    await __applyInterruptMessageForTests({
-      sshConn: fakeConn,
-      currentTmuxSession: "pane-beta",
-      currentHostId: 10,
-      execCommand: execB,
-      now,
-    });
-
-    // Both panes receive a keystroke
-    expect(execA).toHaveBeenCalledTimes(1);
-    expect(execB).toHaveBeenCalledTimes(1);
-    expect(vi.mocked(sshLogger.warn)).not.toHaveBeenCalled();
-
-    // Different hostId, same tmuxSession
-    const execC = vi.fn().mockResolvedValue("");
-    const execD = vi.fn().mockResolvedValue("");
-
-    await __applyInterruptMessageForTests({
-      sshConn: fakeConn,
-      currentTmuxSession: "shared-session-name",
-      currentHostId: 20,
-      execCommand: execC,
-      now,
-    });
-    await __applyInterruptMessageForTests({
-      sshConn: fakeConn,
-      currentTmuxSession: "shared-session-name",
-      currentHostId: 21,
-      execCommand: execD,
-      now,
-    });
-
-    expect(execC).toHaveBeenCalledTimes(1);
-    expect(execD).toHaveBeenCalledTimes(1);
+    const panes: Array<[string, number]> = [
+      ["pane-alpha", 10],
+      ["pane-beta", 10],
+      ["shared-session-name", 20],
+      ["shared-session-name", 21],
+    ];
+    for (let i = 0; i < panes.length; i++) {
+      const { now, wait } = manualClock(2_000_000);
+      await __applyInterruptMessageForTests({
+        sshConn: fakeConn,
+        currentTmuxSession: panes[i][0],
+        currentHostId: panes[i][1],
+        execCommand: execs[i],
+        tracker: () => tracker,
+        now,
+        wait,
+      });
+    }
+    execs.forEach((e) => expect(e).toHaveBeenCalledTimes(1));
     expect(vi.mocked(sshLogger.warn)).not.toHaveBeenCalled();
   });
 
-  it("interrupt throttle — post-window release: second interrupt after 2600ms sends normally (two keystrokes)", async () => {
-    let t = 3_000_000;
-    const now = () => t;
-
+  it("throttle — post-window release: a press 2600ms after the last sends normally", async () => {
+    const tracker = idleTracker();
     const exec = vi.fn().mockResolvedValue("");
     vi.mocked(sshLogger.warn).mockClear();
-
-    // First interrupt
+    const first = manualClock(3_000_000);
     await __applyInterruptMessageForTests({
       sshConn: fakeConn,
       currentTmuxSession: "post-window-pane",
       currentHostId: 99,
       execCommand: exec,
-      now,
+      tracker: () => tracker,
+      now: first.now,
+      wait: first.wait,
     });
-    expect(exec).toHaveBeenCalledTimes(1);
-
-    // 2600ms later — outside the 2500ms window
-    t += 2600;
-
-    // Second interrupt — must send normally
+    const second = manualClock(3_002_600);
     await __applyInterruptMessageForTests({
       sshConn: fakeConn,
       currentTmuxSession: "post-window-pane",
       currentHostId: 99,
       execCommand: exec,
-      now,
+      tracker: () => tracker,
+      now: second.now,
+      wait: second.wait,
     });
     expect(exec).toHaveBeenCalledTimes(2);
     expect(vi.mocked(sshLogger.warn)).not.toHaveBeenCalled();
-
-    // Both commands contain C-c
-    const cmd1 = exec.mock.calls[0][1] as string;
-    const cmd2 = exec.mock.calls[1][1] as string;
-    expect(cmd1).toContain("C-c");
-    expect(cmd2).toContain("C-c");
+    expect(exec.mock.calls.every((c) => (c[1] as string).endsWith("Escape"))).toBe(true);
   });
 
-  // Guards the record-BEFORE-await ordering inside the seam. execCommand has no
-  // timeout and unbounded latency, so two interrupts can be in flight at once on
-  // one pane. If the seam recorded its throttle timestamp AFTER awaiting exec,
-  // both calls would read an empty gate and both would send — landing two Ctrl-C
-  // presses at the pane inside Claude Code's ~0.8s exit-confirm window, which
-  // terminates the harness. The sequential tests above cannot catch that
-  // inversion (each await completes before the next call begins), so this test
-  // holds the first exec open until both calls have passed the gate.
-  it("interrupt throttle — concurrent in-flight on one pane: slow exec still collapses to ONE keystroke", async () => {
-    let t = 4_000_000;
-    const now = () => t;
-
-    // exec parks on the first call and only resolves when we release it, so the
-    // first interrupt is provably still in flight when the second arrives.
+  // Guards the record-BEFORE-await ordering: execCommand has unbounded latency,
+  // so two presses can be in flight on one pane at once.
+  it("throttle — concurrent in-flight on one pane: slow exec still collapses to ONE keystroke", async () => {
+    const { clock, now, wait } = manualClock(4_000_000);
     let releaseFirstExec: () => void = () => {};
     let signalFirstExecStarted: () => void = () => {};
     const firstExecStarted = new Promise<void>((resolve) => {
@@ -716,26 +796,24 @@ describe("__applyInterruptMessageForTests", () => {
           signalFirstExecStarted();
         }),
     );
+    const tracker = idleTracker();
     vi.mocked(sshLogger.warn).mockClear();
-
     const deps = {
       sshConn: fakeConn,
       currentTmuxSession: "concurrent-pane",
       currentHostId: 7,
       execCommand: exec,
+      tracker: () => tracker,
       now,
+      wait,
     };
 
-    // Start the first interrupt but do NOT await it — it parks inside exec.
     const first = __applyInterruptMessageForTests(deps);
     await firstExecStarted;
     expect(exec).toHaveBeenCalledTimes(1);
 
-    // Second interrupt arrives while the first exec is still in flight, 10ms
-    // later — far inside the window. Must be dropped.
-    t += 10;
+    clock.t += 10;
     await __applyInterruptMessageForTests(deps);
-
     expect(exec).toHaveBeenCalledTimes(1);
     expect(vi.mocked(sshLogger.warn)).toHaveBeenCalledTimes(1);
     expect(vi.mocked(sshLogger.warn).mock.calls[0][1]).toMatchObject({

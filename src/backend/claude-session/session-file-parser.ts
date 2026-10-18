@@ -28,6 +28,7 @@
  * scope is narrower than what the library does.
  */
 
+import { isInterruptMarker } from "./interrupt-cancel-tracker.js";
 import { createHash } from "node:crypto";
 import { databaseLogger as sessionParserLogger } from "../utils/logger.js";
 
@@ -106,6 +107,8 @@ export type ConversationalMessage = {
   content: string;
   eventId: string;
   ts: number;
+  /** The harness's interrupt marker, rendered as an agent-side "Interrupted". */
+  interrupted?: true;
 };
 
 export type ImageBlock = {
@@ -1510,6 +1513,25 @@ export function parseSessionLine(line: string, sessionId?: string): ParsedLine {
 
   const msg = obj.message as Record<string, unknown> | null | undefined;
   if (msg == null) return { kind: "skip", why: "no_message" };
+
+  // Interrupt marker — the harness writes "[Request interrupted by user]" (or
+  // "... for tool use") as a USER entry right after stopping a turn. It is
+  // not something the user said: render it as an agent-side "Interrupted"
+  // bubble, which also keeps it out of user-role delivery matching.
+  if (isUser && isInterruptMarker(obj)) {
+    const uuidI = obj.uuid;
+    const parsedI = typeof obj.timestamp === "string" ? Date.parse(obj.timestamp) : NaN;
+    const eventIdI = typeof uuidI === "string" && uuidI.length > 0 ? uuidI : fallbackEventId();
+    sessionParserLogger.info(`[session-parser] classify result=interrupted eventId=${eventIdI}`, { operation: "session_classify" });
+    return {
+      kind: "message",
+      role: "assistant",
+      content: "Interrupted",
+      eventId: eventIdI,
+      ts: Number.isFinite(parsedI) ? parsedI : Date.now(),
+      interrupted: true,
+    };
+  }
 
   // Phase 17 — relay outbound detection (RELAYBUB-01).
   // Run for assistant turns BEFORE extractText + content-based extraction.

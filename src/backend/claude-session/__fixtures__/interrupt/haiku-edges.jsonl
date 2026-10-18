@@ -1,0 +1,67 @@
+{"type":"mode"}
+{"type":"permission-mode"}
+{"type":"atis-latch"}
+{"type":"file-history-snapshot"}
+{"type":"user","uuid":"65135518-64cd-4d4c-9aba-869ae8bfebd4","parentUuid":null,"isSidechain":false,"timestamp":"2026-10-16T11:42:35.808Z","message":{"role":"user","content":"B-esc: write a 300 word poem about mountains. No tools."}}
+{"type":"attachment","uuid":"fedb5267-3994-4c68-be12-4fad99d2eecd","parentUuid":"65135518-64cd-4d4c-9aba-869ae8bfebd4","isSidechain":false,"timestamp":"2026-10-16T11:42:35.807Z","attachment":{"type":"environment"}}
+{"type":"attachment","uuid":"9ffa76bf-24a2-4962-bc70-16c29d72ca7b","parentUuid":"fedb5267-3994-4c68-be12-4fad99d2eecd","isSidechain":false,"timestamp":"2026-10-16T11:42:35.807Z","attachment":{"type":"model"}}
+{"type":"attachment","uuid":"0ee9d159-f246-4119-9a33-9a7ac3962cfa","parentUuid":"9ffa76bf-24a2-4962-bc70-16c29d72ca7b","isSidechain":false,"timestamp":"2026-10-16T11:42:35.807Z","attachment":{"type":"deferred_tools_delta"}}
+{"type":"attachment","uuid":"3abb35f6-633c-4ad6-b59a-ac2bd1902800","parentUuid":"0ee9d159-f246-4119-9a33-9a7ac3962cfa","isSidechain":false,"timestamp":"2026-10-16T11:42:35.807Z","attachment":{"type":"agent_listing_delta"}}
+{"type":"attachment","uuid":"607c0045-2c60-4b8f-a980-53ea6457cf8e","parentUuid":"3abb35f6-633c-4ad6-b59a-ac2bd1902800","isSidechain":false,"timestamp":"2026-10-16T11:42:35.807Z","attachment":{"type":"skill_listing"}}
+{"type":"attachment","uuid":"92379652-b4c5-436f-b396-253981c919c9","parentUuid":"607c0045-2c60-4b8f-a980-53ea6457cf8e","isSidechain":false,"timestamp":"2026-10-16T11:42:35.807Z","attachment":{"type":"total_tokens_reminder"}}
+{"type":"attachment","uuid":"d0be3eb6-a1ab-480e-b0cf-97291cd07b60","parentUuid":"92379652-b4c5-436f-b396-253981c919c9","isSidechain":false,"timestamp":"2026-10-16T11:42:35.892Z","attachment":{"type":"instructions"}}
+{"type":"attachment","uuid":"95f2aafe-afd0-4f94-a1df-cea3671c0fbe","parentUuid":"d0be3eb6-a1ab-480e-b0cf-97291cd07b60","isSidechain":false,"timestamp":"2026-10-16T11:42:35.892Z","attachment":{"type":"session_context"}}
+{"type":"attachment","uuid":"9159144a-ae9b-47fa-9f01-1f9e21b80361","parentUuid":"95f2aafe-afd0-4f94-a1df-cea3671c0fbe","isSidechain":false,"timestamp":"2026-10-16T11:42:35.892Z","attachment":{"type":"date"}}
+{"type":"attachment","uuid":"f08a06fe-630e-4641-8a7c-b111a602c1af","parentUuid":"9159144a-ae9b-47fa-9f01-1f9e21b80361","isSidechain":false,"timestamp":"2026-10-16T11:42:35.896Z","attachment":{"type":"remote_session_change"}}
+{"type":"attachment","uuid":"92d52bff-8f6a-465d-a2fd-5defc52f47d0","parentUuid":"f08a06fe-630e-4641-8a7c-b111a602c1af","isSidechain":false,"timestamp":"2026-10-16T11:42:35.897Z","attachment":{"type":"prompt_snapshot"}}
+{"type":"last-prompt"}
+{"type":"mode"}
+{"type":"permission-mode"}
+{"type":"atis-latch"}
+{"type":"ai-title"}
+{"type":"file-history-snapshot"}
+{"type":"user","uuid":"94c5a228-170b-48a7-a801-ee9840e97e9b","parentUuid":"92d52bff-8f6a-465d-a2fd-5defc52f47d0","isSidechain":false,"timestamp":"2026-10-16T11:43:04.203Z","message":{"role":"user","content":"C-esc: write a 2000 word story about a baker. No tools."}}
+{"type":"attachment","uuid":"17043cc1-9fe2-4800-8b0b-7736815b55c1","parentUuid":"94c5a228-170b-48a7-a801-ee9840e97e9b","isSidechain":false,"timestamp":"2026-10-16T11:43:04.202Z","attachment":{"type":"environment"}}
+{"type":"attachment","uuid":"2ac23fa2-e0a9-4a3c-8ac8-0ce8c49b0a81","parentUuid":"17043cc1-9fe2-4800-8b0b-7736815b55c1","isSidechain":false,"timestamp":"2026-10-16T11:43:04.202Z","attachment":{"type":"model"}}
+{"type":"attachment","uuid":"9b7de618-0866-4060-b1cb-2f7e1f77180f","parentUuid":"2ac23fa2-e0a9-4a3c-8ac8-0ce8c49b0a81","isSidechain":false,"timestamp":"2026-10-16T11:43:04.202Z","attachment":{"type":"deferred_tools_delta"}}
+{"type":"attachment","uuid":"10c9e4cf-35e1-43fe-a12a-bed5568a442a","parentUuid":"9b7de618-0866-4060-b1cb-2f7e1f77180f","isSidechain":false,"timestamp":"2026-10-16T11:43:04.202Z","attachment":{"type":"agent_listing_delta"}}
+{"type":"attachment","uuid":"9e14266f-7b26-4157-8d86-dee34992f7bc","parentUuid":"10c9e4cf-35e1-43fe-a12a-bed5568a442a","isSidechain":false,"timestamp":"2026-10-16T11:43:04.202Z","attachment":{"type":"total_tokens_reminder"}}
+{"type":"attachment","uuid":"b795ecdb-1a0a-4fe6-9191-9c1a617407a1","parentUuid":"9e14266f-7b26-4157-8d86-dee34992f7bc","isSidechain":false,"timestamp":"2026-10-16T11:43:04.250Z","attachment":{"type":"instructions"}}
+{"type":"attachment","uuid":"3041fb10-e781-4525-8d21-1f99112193cb","parentUuid":"b795ecdb-1a0a-4fe6-9191-9c1a617407a1","isSidechain":false,"timestamp":"2026-10-16T11:43:04.251Z","attachment":{"type":"session_context"}}
+{"type":"attachment","uuid":"05eb79c5-e55a-44d7-ab0a-5c263bfb76bd","parentUuid":"3041fb10-e781-4525-8d21-1f99112193cb","isSidechain":false,"timestamp":"2026-10-16T11:43:04.251Z","attachment":{"type":"date"}}
+{"type":"attachment","uuid":"4c98f587-2231-45b2-9057-cda3ac0c0cc9","parentUuid":"05eb79c5-e55a-44d7-ab0a-5c263bfb76bd","isSidechain":false,"timestamp":"2026-10-16T11:43:04.254Z","attachment":{"type":"remote_session_change"}}
+{"type":"attachment","uuid":"0097f608-fd6a-45cf-ab81-988bda36ab3d","parentUuid":"4c98f587-2231-45b2-9057-cda3ac0c0cc9","isSidechain":false,"timestamp":"2026-10-16T11:43:04.254Z","attachment":{"type":"prompt_snapshot"}}
+{"type":"last-prompt"}
+{"type":"ai-title"}
+{"type":"mode"}
+{"type":"permission-mode"}
+{"type":"atis-latch"}
+{"type":"assistant","uuid":"f94252ab-00c9-4a68-97e8-802f34b7fe6e","parentUuid":"0097f608-fd6a-45cf-ab81-988bda36ab3d","isSidechain":false,"timestamp":"2026-10-16T11:43:05.794Z","message":{"role":"assistant","content":[{"type":"thinking","thinking":""}],"id":"msg_011Cg5rdTEtjBxnN5zJuhp6r"}}
+{"type":"assistant","uuid":"b41bb7bb-9821-424e-9ffe-5910a34fb364","parentUuid":"f94252ab-00c9-4a68-97e8-802f34b7fe6e","isSidechain":false,"timestamp":"2026-10-16T11:43:09.254Z","message":{"role":"assistant","content":[{"type":"text","text":"# The Baker's Gift\n\nMargaret's alarm had been ringing at four in the morning for thirty-seven years. The first day she'd opened her shop, she'd set it and gotten up without hesitation. Now, at sixty-eight, her body moved on muscle memory alone\u2014feet hitting the cold kitchen floor before her mind full"}],"id":"msg_011Cg5rdTEtjBxnN5zJuhp6r"}}
+{"type":"user","uuid":"1079c66c-deba-4ba4-8fc8-d7027010d255","parentUuid":"b41bb7bb-9821-424e-9ffe-5910a34fb364","isSidechain":false,"timestamp":"2026-10-16T11:43:09.257Z","interruptedMessageId":"msg_011Cg5rdTEtjBxnN5zJuhp6r","message":{"role":"user","content":[{"type":"text","text":"[Request interrupted by user]"}]}}
+{"type":"file-history-snapshot"}
+{"type":"user","uuid":"91b80d6e-0886-49ba-b8ed-426d704df9f9","parentUuid":"1079c66c-deba-4ba4-8fc8-d7027010d255","isSidechain":false,"timestamp":"2026-10-16T11:43:30.570Z","message":{"role":"user","content":"edge-0.8: write a 300 word poem about the sea. No tools."}}
+{"type":"attachment","uuid":"a68a8085-e0de-490a-952b-4a1a7354a3fb","parentUuid":"91b80d6e-0886-49ba-b8ed-426d704df9f9","isSidechain":false,"timestamp":"2026-10-16T11:43:30.570Z","attachment":{"type":"total_tokens_reminder"}}
+{"type":"file-history-snapshot"}
+{"type":"user","uuid":"c54543b5-f51d-4d4a-8f91-5825ebfd60dc","parentUuid":"1079c66c-deba-4ba4-8fc8-d7027010d255","isSidechain":false,"timestamp":"2026-10-16T11:43:35.909Z","message":{"role":"user","content":"edge-1.2: write a 300 word poem about the sea. No tools."}}
+{"type":"attachment","uuid":"6549b72a-948d-410f-b41d-335ff05ccdf4","parentUuid":"c54543b5-f51d-4d4a-8f91-5825ebfd60dc","isSidechain":false,"timestamp":"2026-10-16T11:43:35.909Z","attachment":{"type":"total_tokens_reminder"}}
+{"type":"file-history-snapshot"}
+{"type":"user","uuid":"082b77d0-87bd-4112-bb2f-84504909f284","parentUuid":"1079c66c-deba-4ba4-8fc8-d7027010d255","isSidechain":false,"timestamp":"2026-10-16T11:43:41.515Z","message":{"role":"user","content":"edge-1.6: write a 300 word poem about the sea. No tools."}}
+{"type":"attachment","uuid":"36ca6375-ff58-42dc-b11c-b3a9f8b644a3","parentUuid":"082b77d0-87bd-4112-bb2f-84504909f284","isSidechain":false,"timestamp":"2026-10-16T11:43:41.515Z","attachment":{"type":"total_tokens_reminder"}}
+{"type":"assistant","uuid":"2e1e874a-2d68-461a-99f1-b485339cb624","parentUuid":"36ca6375-ff58-42dc-b11c-b3a9f8b644a3","isSidechain":false,"timestamp":"2026-10-16T11:43:42.943Z","message":{"role":"assistant","content":[{"type":"thinking","thinking":""}],"id":"msg_011Cg5rgCt2fVgPvF3NmxSou"}}
+{"type":"assistant","uuid":"f1a1339a-bdc2-42b2-90db-49a7f8fb7941","parentUuid":"2e1e874a-2d68-461a-99f1-b485339cb624","isSidechain":false,"timestamp":"2026-10-16T11:43:43.166Z","message":{"role":"assistant","content":[{"type":"text","text":"# The Sea\n\nThe sea arrives in whispers before it roars,\nA"}],"id":"msg_011Cg5rgCt2fVgPvF3NmxSou"}}
+{"type":"user","uuid":"fb0f107d-823a-4a6c-9b2f-9c9186ddb686","parentUuid":"f1a1339a-bdc2-42b2-90db-49a7f8fb7941","isSidechain":false,"timestamp":"2026-10-16T11:43:43.170Z","interruptedMessageId":"msg_011Cg5rgCt2fVgPvF3NmxSou","message":{"role":"user","content":[{"type":"text","text":"[Request interrupted by user]"}]}}
+{"type":"file-history-snapshot"}
+{"type":"user","uuid":"eb5031d0-1d7d-4ee9-9b9f-09b89bee89c7","parentUuid":"fb0f107d-823a-4a6c-9b2f-9c9186ddb686","isSidechain":false,"timestamp":"2026-10-16T11:43:47.593Z","message":{"role":"user","content":"edge-2.0: write a 300 word poem about the sea. No tools."}}
+{"type":"attachment","uuid":"bc28987b-b912-4815-a3e2-08a7d0334528","parentUuid":"eb5031d0-1d7d-4ee9-9b9f-09b89bee89c7","isSidechain":false,"timestamp":"2026-10-16T11:43:47.592Z","attachment":{"type":"total_tokens_reminder"}}
+{"type":"assistant","uuid":"61e303cc-21a3-402b-9cf5-8d6b2ecb618d","parentUuid":"bc28987b-b912-4815-a3e2-08a7d0334528","isSidechain":false,"timestamp":"2026-10-16T11:43:48.967Z","message":{"role":"assistant","content":[{"type":"thinking","thinking":""}],"id":"msg_011Cg5rgfLFSNgW6NeVyuvS1"}}
+{"type":"assistant","uuid":"80bd77ea-a184-4e47-88f7-a21f2fd83af0","parentUuid":"61e303cc-21a3-402b-9cf5-8d6b2ecb618d","isSidechain":false,"timestamp":"2026-10-16T11:43:49.647Z","message":{"role":"assistant","content":[{"type":"text","text":"# The Sea\n\nThe sea arrives in whispers before it roars,\nA patient breath that finds the rocky shores,\nWith fingers made of foam and salt and time,\nIt writes its ancient, ever-changing rhyme.\n\nThe waves build tall with purpose yet unknown,\nThey rise and fall like children being thrown"}],"id":"msg_011Cg5rgfLFSNgW6NeVyuvS1"}}
+{"type":"user","uuid":"72db6327-9d7a-4fc0-85aa-fb7a950da396","parentUuid":"80bd77ea-a184-4e47-88f7-a21f2fd83af0","isSidechain":false,"timestamp":"2026-10-16T11:43:49.650Z","interruptedMessageId":"msg_011Cg5rgfLFSNgW6NeVyuvS1","message":{"role":"user","content":[{"type":"text","text":"[Request interrupted by user]"}]}}
+{"type":"file-history-snapshot"}
+{"type":"user","uuid":"0b5a0843-fe32-48f7-b1d9-2f2d0d1557b0","parentUuid":"72db6327-9d7a-4fc0-85aa-fb7a950da396","isSidechain":false,"timestamp":"2026-10-16T11:43:54.025Z","message":{"role":"user","content":"edge-2.6: write a 300 word poem about the sea. No tools."}}
+{"type":"attachment","uuid":"e971cb85-63c5-45eb-95e7-8d89d2b9b2f3","parentUuid":"0b5a0843-fe32-48f7-b1d9-2f2d0d1557b0","isSidechain":false,"timestamp":"2026-10-16T11:43:54.025Z","attachment":{"type":"total_tokens_reminder"}}
+{"type":"assistant","uuid":"9a2b145d-af39-4276-a45e-06dfe0a03d38","parentUuid":"e971cb85-63c5-45eb-95e7-8d89d2b9b2f3","isSidechain":false,"timestamp":"2026-10-16T11:43:56.207Z","message":{"role":"assistant","content":[{"type":"thinking","thinking":""}],"id":"msg_011Cg5rh8Li9cvpnyZPz55QC"}}
+{"type":"assistant","uuid":"4c094933-f085-459f-a529-f96bbed62206","parentUuid":"9a2b145d-af39-4276-a45e-06dfe0a03d38","isSidechain":false,"timestamp":"2026-10-16T11:43:56.682Z","message":{"role":"assistant","content":[{"type":"text","text":"# The Sea\n\nThe sea arrives in whispers before it roars,\nA patient breath that finds the rocky shores,\nWith fingers made of foam and salt and time,\nIt writes its ancient, ever-changing rhyme.\n\nThe waves build tall with purpose yet unknown,\nThey rise and fall like children being thrown,\nEach crest a c"}],"id":"msg_011Cg5rh8Li9cvpnyZPz55QC"}}
+{"type":"user","uuid":"29129ce6-762a-45c9-b1db-b85e8b8921df","parentUuid":"4c094933-f085-459f-a529-f96bbed62206","isSidechain":false,"timestamp":"2026-10-16T11:43:56.684Z","interruptedMessageId":"msg_011Cg5rh8Li9cvpnyZPz55QC","message":{"role":"user","content":[{"type":"text","text":"[Request interrupted by user]"}]}}
+{"type":"last-prompt"}
+{"type":"cost-state"}

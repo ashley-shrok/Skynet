@@ -1206,6 +1206,27 @@ crown, then gear.
   hold it to record and release to send.
   *Agent-side: none.*
 
+- **Stop (square) button — interrupt** (agent conversations). In the row
+  of small buttons above the compose box. One press does whichever of
+  these fits the moment:
+  - **Still being delivered** (the message hasn't reached the agent yet):
+    the button is greyed out — there is nothing to stop.
+  - **Cancel** (pressed before the agent has done anything with the latest
+    message): the message is withdrawn — its bubble disappears and the
+    user's words (and attachments) come back into the compose box, or
+    into a new queued-message box if they had already started typing.
+  - **Stop** (the agent had started): the agent stops, the user's message
+    stays, and an agent-side bubble reading **Interrupted** confirms it;
+    the work indicator goes off.
+  - Pressed when the agent is already idle, it does nothing.
+  The same conversation open elsewhere drops a cancelled bubble too; only
+  the device that pressed gets the words back.
+  *Agent-side:* a cancelled message never reaches you. A stop arrives as
+  "[Request interrupted by user]" in your context. If your harness
+  restarts before the user sends anything else, a cancelled message can
+  come back into your context as an earlier unanswered message — if you
+  find one you never replied to after a resume, ask before acting on it.
+
 - **Sound-wave button — hands-free voice mode** (agent conversations
   only). Sits in the row of small buttons above the compose box, left of
   the stop (square), lightning-bolt and thumbs-up buttons. Tapping it turns voice mode

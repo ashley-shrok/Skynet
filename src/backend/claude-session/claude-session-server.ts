@@ -21,8 +21,14 @@ import {
   parseSessionLine,
   detectIdReset,
   normalizePastedHarnessEnvelopes,
+  extractText,
 } from "./session-file-parser.js";
 import { tailSessionFile, type TailHandle } from "./session-file-tail.js";
+import {
+  InterruptCancelTracker,
+  isPromptStart,
+  type InterruptVerdict,
+} from "./interrupt-cancel-tracker.js";
 // Phase 50 Plan 02 — signal-driven send-path watchdog. Replaces the OLD
 // PTY-activity-proxy watchdog formerly at src/backend/ssh/ (patch quick
 // 260803-1xw, deleted in Phase 50 Plan 02 Task 3). See pv-send-watchdog.ts file header for the
@@ -263,6 +269,7 @@ type StreamEvent =
       eventId: string;
       ts: number;
       line: number;
+      interrupted?: true;
     }
   | {
       type: "image";
@@ -327,6 +334,7 @@ export function reshapeParsedLineToWireFrame(
         eventId: parsed.eventId,
         ts: parsed.ts,
         line,
+        ...(parsed.interrupted ? { interrupted: true as const } : {}),
       };
     case "image":
       return {
@@ -1114,6 +1122,39 @@ const INTERRUPT_THROTTLE_MS = 2500;
 // Only this server-side Map — keyed by the connection-scoped pane identity
 // the interrupt handler already trusts — can hold the real guarantee.
 const interruptThrottleByPane = new Map<string, number>();
+
+// cancelTrackerByWs — each open pretty-view connection's interrupt tracker
+// (getter, because the connection swaps in a fresh tracker on a session-file
+// transition). Lets a cancel verdict reach every view of the same pane.
+const cancelTrackerByWs = new Map<import("ws").WebSocket, () => InterruptCancelTracker>();
+
+// broadcastPromptCancelled — fan out a live cancel verdict to every OPEN view
+// of the pane: each peer's tracker records it (so a later revive is noticed)
+// and each client hides the bubble. Only the pressing view gets the words
+// back — that is the separate interrupt_result frame.
+function broadcastPromptCancelled(key: string, eventId: string): void {
+  const peers = activeViewers.get(key);
+  if (!peers) return;
+  const frame = JSON.stringify({ type: "messages_hidden", eventIds: [eventId], reason: "cancelled" });
+  let delivered = 0;
+  for (const peer of peers) {
+    if (peer.readyState !== WebSocket.OPEN) continue;
+    cancelTrackerByWs.get(peer)?.().markCancelledLive(eventId);
+    try {
+      peer.send(frame);
+      delivered += 1;
+    } catch {
+      /* peer may be mid-close */
+    }
+  }
+  sshLogger.info(`[interrupt] broadcast-hidden key=${key} eventId=${eventId} peers=${peers.size} delivered=${delivered}`, {
+    operation: "interrupt_broadcast_hidden",
+    key,
+    eventId,
+    peers: peers.size,
+    delivered,
+  });
+}
 
 // broadcastAsideDismissed — atomic fan-out for the dismiss signal.
 // LOAD-BEARING per CONTEXT.md § Backend per-connection state (2026-07-26 lock):
@@ -3196,26 +3237,34 @@ export function __applyQueueDedupForTests(deps: {
   return { suppress: false, dedupMap };
 }
 
+// How long the interrupt handler waits, after sending Escape, for the harness
+// to write its "[Request interrupted by user]" marker. Measured: the marker is
+// written within milliseconds of the stop, including mid-stream replies; a
+// rewind (cancel) writes nothing at all.
+export const INTERRUPT_MARKER_WAIT_MS = 1500;
+const INTERRUPT_MARKER_POLL_MS = 100;
+
 /**
- * Apply the interrupt message handler logic for tests.
- * Phase 35 — pretty-view compose-send migrated onto claude-session WS.
- * Mirrors the input-handler seam shape (Tests D/E/F from dormant-poll.test.ts)
- * — the sibling wake-message test seam was DELETED in Phase 56 Plan 03.
+ * Pretty-view interrupt button (shape-interrupt-button). Transcript-only:
  *
- * Fires a single `tmux send-keys -t <session> C-c` to send Ctrl-C into the
- * pane, subject to the per-pane throttle (see interruptThrottleByPane). If a
- * previous interrupt was dispatched to the SAME pane within INTERRUPT_THROTTLE_MS,
- * the call is silently dropped and a `interrupt_throttled` warn is emitted — NO
- * keystroke reaches the pane. This is the AUTHORITATIVE guard against harness
- * death (two Ctrl-Cs inside Claude Code's ~0.8s exit-confirm window terminate
- * the harness); the client-side ref is a cheap fast-path only.
+ *   1. Per-pane throttle (unchanged — see interruptThrottleByPane).
+ *   2. Send Escape. Escape stops a working agent and, when the agent has not
+ *      produced anything yet, rewinds the prompt into the harness input box.
+ *      Unlike Ctrl-C it never arms Claude Code's "press again to exit".
+ *   3. Wait up to INTERRUPT_MARKER_WAIT_MS for the interrupt marker in the
+ *      transcript (via the connection's cancel tracker).
+ *   4. Verdict:
+ *        stopped   — the marker landed: the agent was working; nothing more.
+ *        cancelled — no marker and nothing from the agent after the latest
+ *                    prompt: the harness rewound it. Send ONE Ctrl-C to clear
+ *                    the rewound words from the harness input box (safe: the
+ *                    next press is >= INTERRUPT_THROTTLE_MS away and sends
+ *                    Escape, not Ctrl-C).
+ *        none      — the agent had already answered, or the prompt was
+ *                    already cancelled: nothing more is sent.
  *
- * @param deps.sshConn              - SSH connection (null if not connected)
- * @param deps.currentTmuxSession   - current pane tmux session name (null if none)
- * @param deps.currentHostId        - connection-scoped host ID (null if pane torn down)
- * @param deps.execCommand          - injectable SSH exec helper
- * @param deps.now                  - injectable clock (defaults to Date.now); lets
- *                                    tests drive time deterministically without fake timers
+ * Never reads the harness screen. Returns the verdict (null when the press was
+ * refused or throttled) so the caller can tell the views.
  */
 export async function __applyInterruptMessageForTests(deps: {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -3223,68 +3272,144 @@ export async function __applyInterruptMessageForTests(deps: {
   currentTmuxSession: string | null;
   currentHostId: number | null;
   execCommand: (conn: unknown, cmd: string) => Promise<string>;
+  tracker: () => InterruptCancelTracker;
+  /** Harness session id (transcript basename) — names the work-indicator markers. */
+  sessionIdFromFile?: string | null;
   now?: () => number;
-}): Promise<void> {
-  const { sshConn, currentTmuxSession, currentHostId, execCommand: exec, now = Date.now } = deps;
-  // Fail-closed: without a full pane identity there is no throttle key, and
-  // given the stakes (harness death) the correct posture is to refuse rather
-  // than send an unthrottled Ctrl-C. In production this branch is unreachable:
-  // currentHostId is nulled in teardownPane in lockstep with currentTmuxSession,
-  // so `sshConn && currentTmuxSession` already implies a non-null hostId.
-  if (!sshConn || !currentTmuxSession || currentHostId == null) return;
+  wait?: (ms: number) => Promise<void>;
+}): Promise<InterruptVerdict | null> {
+  const {
+    sshConn,
+    currentTmuxSession,
+    currentHostId,
+    execCommand: exec,
+    tracker,
+    sessionIdFromFile = null,
+    now = Date.now,
+    wait = (ms: number) => new Promise<void>((r) => setTimeout(r, ms)),
+  } = deps;
+  // Fail-closed: without a full pane identity there is no throttle key.
+  // In production this branch is unreachable: currentHostId is nulled in
+  // teardownPane in lockstep with currentTmuxSession.
+  if (!sshConn || !currentTmuxSession || currentHostId == null) return null;
 
   const key = sessionKey(currentHostId, currentTmuxSession);
   const nowMs = now();
 
-  // Throttle check — drop the interrupt if the pane was sent one recently.
   const last = interruptThrottleByPane.get(key);
   if (last !== undefined && nowMs - last < INTERRUPT_THROTTLE_MS) {
-    sshLogger.warn("interrupt throttled — second Ctrl-C inside the exit-confirm window", {
+    sshLogger.warn("interrupt throttled — press inside the per-pane window", {
       operation: "interrupt_throttled",
       hostId: currentHostId,
       tmuxSession: currentTmuxSession,
       elapsedMs: nowMs - last,
       windowMs: INTERRUPT_THROTTLE_MS,
     });
-    return;
+    return null;
   }
 
-  // Prune stale entries before recording the fresh one so the new entry is
-  // never swept. Entries older than INTERRUPT_THROTTLE_MS can never throttle
-  // anything — they exist only for panes that were interrupted more than
-  // 2500ms ago and whose teardown hooks have not yet fired (T-9o3-03).
+  // Prune stale entries before recording the fresh one (T-9o3-03).
   for (const [k, ts] of interruptThrottleByPane) {
     if (nowMs - ts >= INTERRUPT_THROTTLE_MS) {
       interruptThrottleByPane.delete(k);
     }
   }
-
-  // Record BEFORE awaiting exec — execCommand has no timeout and unbounded
-  // latency. Recording after the await would let two concurrent in-flight
-  // interrupts both pass the gate, defeating the throttle's purpose.
+  // Record BEFORE awaiting exec — two concurrent in-flight presses must not
+  // both pass the gate.
   interruptThrottleByPane.set(key, nowMs);
 
+  const target = shellQuote(currentTmuxSession);
+  const snap = tracker().snapshot();
+  sshLogger.info(`[interrupt] press hostId=${currentHostId} tmuxSession=${currentTmuxSession} latestPrompt=${snap.latestUuid ?? "none"} markers=${snap.markerCount}`, {
+    operation: "interrupt_press",
+    hostId: currentHostId,
+    tmuxSession: currentTmuxSession,
+    latestPrompt: snap.latestUuid,
+  });
   try {
-    // Ctrl-C is REQUIRED: it is the only keystroke that both interrupts
-    // mid-turn work AND clears the entire multi-line prompt draft in ONE press
-    // (measured: 1x Ctrl-C cleared a 3-line draft; Escape needs a fast
-    // double-press, which the throttle blocks by design — that was the
-    // capability gap this change closes; Ctrl-U cleared only 1 of 3 lines
-    // even at 4x spaced 0.3s — unreliable). The exit-flow hazard Ctrl-C
-    // reintroduces (harness death on second press inside ~0.8s) is contained
-    // by the server-side per-pane throttle above — NOT by trusting clients.
-    // C-c is a tmux key name from our own source — no -l flag (key name, not
-    // literal bytes) and no shellQuote around C-c (fixed constant, not user
-    // input), exactly as Escape was handled before this change.
-    await exec(sshConn, `tmux send-keys -t ${shellQuote(currentTmuxSession)} C-c`);
+    // Escape is a tmux key name from our own source — no -l, no quoting.
+    await exec(sshConn, `tmux send-keys -t ${target} Escape`);
   } catch (err) {
     sshLogger.warn("interrupt send failed", {
       operation: "interrupt_send_error",
       hostId: currentHostId,
       tmuxSession: currentTmuxSession,
+      key: "Escape",
       error: err instanceof Error ? err.message : String(err),
     });
+    return null;
   }
+
+  const t0 = now();
+  let waited = 0;
+  while (!tracker().markerSince(snap) && waited < INTERRUPT_MARKER_WAIT_MS) {
+    await wait(INTERRUPT_MARKER_POLL_MS);
+    waited = now() - t0;
+  }
+
+  const verdict = tracker().decide(snap);
+  const detail =
+    verdict.verdict === "cancelled"
+      ? `eventId=${verdict.prompt.uuid} restorable=${verdict.prompt.visibleText !== null}`
+      : verdict.verdict === "none"
+        ? `reason=${verdict.reason}`
+        : "marker=seen";
+  sshLogger.info(`[interrupt] verdict=${verdict.verdict} ${detail} waitedMs=${waited} hostId=${currentHostId} tmuxSession=${currentTmuxSession}`, {
+    operation: "interrupt_verdict",
+    hostId: currentHostId,
+    tmuxSession: currentTmuxSession,
+    verdict: verdict.verdict,
+    waitedMs: waited,
+  });
+
+  if (verdict.verdict === "cancelled") {
+    tracker().markCancelledLive(verdict.prompt.uuid);
+    try {
+      // The rewound words are now in the harness input box; one Ctrl-C clears
+      // every line of them (Ctrl-U clears only one line).
+      await exec(sshConn, `tmux send-keys -t ${target} C-c`);
+      sshLogger.info(`[interrupt] cleared-harness-input eventId=${verdict.prompt.uuid}`, {
+        operation: "interrupt_clear_input",
+        hostId: currentHostId,
+        tmuxSession: currentTmuxSession,
+      });
+    } catch (err) {
+      sshLogger.warn("interrupt clear failed", {
+        operation: "interrupt_send_error",
+        hostId: currentHostId,
+        tmuxSession: currentTmuxSession,
+        key: "C-c",
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+  }
+  // A stop or cancel never runs the harness's Stop hook, so the work
+  // indicator (activity-marker mtime > stopped-marker mtime) would stay lit.
+  // Touch the stopped marker the Stop hook would have touched.
+  if (
+    (verdict.verdict === "stopped" || verdict.verdict === "cancelled") &&
+    sessionIdFromFile !== null &&
+    UUID_RE.test(sessionIdFromFile)
+  ) {
+    const dir = `"$HOME/.claude/fleet-status/hooks/${sessionIdFromFile}"`;
+    try {
+      await exec(sshConn, `mkdir -p ${dir} && touch ${dir}/stopped`);
+      sshLogger.info(`[interrupt] stopped-marker-touched sessionId=${sessionIdFromFile} verdict=${verdict.verdict}`, {
+        operation: "interrupt_stopped_marker",
+        hostId: currentHostId,
+        tmuxSession: currentTmuxSession,
+        sessionId: sessionIdFromFile,
+      });
+    } catch (err) {
+      sshLogger.warn("interrupt stopped-marker touch failed", {
+        operation: "interrupt_stopped_marker_error",
+        hostId: currentHostId,
+        tmuxSession: currentTmuxSession,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+  }
+  return verdict;
 }
 
 // Phase 56 (2026-08-23): the former wake-message test seam and its
@@ -3948,6 +4073,11 @@ wss.on("connection", async (ws: WebSocket, req) => {
   // transitionToActiveNew below when the tail restarts against a new file
   // (fresh -n +1 replay converges on lineNum=1 again).
   let lineNum = 0;
+  // Interrupt button (shape-interrupt-button): transcript-only bookkeeping of
+  // the latest prompt, fed every replayed + live line in file order. Fresh
+  // per session file (reset alongside lineNum on transition).
+  let cancelTracker = new InterruptCancelTracker();
+  cancelTrackerByWs.set(ws, () => cancelTracker);
   let contextPctTimer: NodeJS.Timeout | null = null;
   let contextPctInFlight = false;
   // Phase 41 Plan 04: pretty-view upload handler state, ported from
@@ -4725,6 +4855,64 @@ wss.on("connection", async (ws: WebSocket, req) => {
   };
   // ── PHASE-43 OBSERVATION CHANNEL END ──
 
+  // Interrupt button (shape-interrupt-button): every tail line passes through
+  // the cancel tracker first, then the unchanged onLine above. The tracker
+  // turns the transcript's cancel shape into hide/unhide frames:
+  //   • two consecutive prompts sharing a parent with nothing from the agent
+  //     between → the earlier one was cancelled (hide, live and on replay);
+  //   • a live-cancelled prompt that later gains descendants (a restart
+  //     revived it) → unhide, so the view keeps matching what the agent has.
+  const observeCancelTracker = (line: string): void => {
+    if (stopped || ws.readyState !== WebSocket.OPEN) return;
+    let obj: Record<string, unknown>;
+    try {
+      obj = JSON.parse(line) as Record<string, unknown>;
+    } catch {
+      return;
+    }
+    if (!obj || typeof obj !== "object") return;
+    let visibleText: string | null = null;
+    if (isPromptStart(obj)) {
+      normalizePastedHarnessEnvelopes(obj);
+      const raw = extractText((obj.message as Record<string, unknown> | undefined)?.content);
+      const stripped = raw
+        .replace(/<task-notification>[\s\S]*?<\/task-notification>/g, "")
+        .replace(/<system-reminder>[\s\S]*?<\/system-reminder>/g, "")
+        .trim();
+      visibleText = stripped === "" || raw.includes("<command-name>") ? null : raw;
+    }
+    const changes = cancelTracker.observe(obj, visibleText);
+    const send = (frame: Record<string, unknown>) => {
+      try {
+        ws.send(JSON.stringify(frame));
+      } catch {
+        /* ws may be mid-close; drop */
+      }
+    };
+    if (changes.hide.length > 0) {
+      sshLogger.info(`[interrupt] transcript-cancel eventIds=${changes.hide.join(",")} line=${lineNum + 1} reason=sibling_dead_end`, {
+        operation: "interrupt_transcript_cancel",
+        hostId: currentHostId,
+        tmuxSession: currentTmuxSession,
+        eventIds: changes.hide,
+      });
+      send({ type: "messages_hidden", eventIds: changes.hide, reason: "cancelled" });
+    }
+    if (changes.unhide.length > 0) {
+      sshLogger.info(`[interrupt] revived eventIds=${changes.unhide.join(",")} line=${lineNum + 1} reason=restart_resumed_cancelled_prompt`, {
+        operation: "interrupt_revived",
+        hostId: currentHostId,
+        tmuxSession: currentTmuxSession,
+        eventIds: changes.unhide,
+      });
+      send({ type: "messages_unhidden", eventIds: changes.unhide, reason: "revived" });
+    }
+  };
+  const onLineTracked = (line: string): void => {
+    observeCancelTracker(line);
+    onLine(line);
+  };
+
   // Tail's onError handler — byte-for-byte preserved from the pre-refactor
   // inline lambda apart from swapping the message-scoped `hostId` /
   // `tmuxSession` for the connection-scoped `currentHostId` /
@@ -5079,10 +5267,11 @@ wss.on("connection", async (ws: WebSocket, req) => {
       // Phase 101 D-03: acquire long-lived slot before opening the tail.
       // Released on stop() or onError — both paths are idempotent (D-06-adjacent).
       const tailSlot1 = acquireTailSlot(currentHostId!);
+      cancelTracker = new InterruptCancelTracker(); // the new tail replays from line 1
       tailHandle = tailSessionFile(
         sshConn,
         newSessionFile,
-        onLine,
+        onLineTracked,
         (err) => { tailSlot1.release(); onError(err); },
       );
       const origStop1 = tailHandle.stop;
@@ -5321,6 +5510,7 @@ wss.on("connection", async (ws: WebSocket, req) => {
     // defensively iterate here in case any prior state escaped that path
     // (e.g. a bug in a future patch). Cheap: activeViewers is small.
     asideState.delete(ws);
+    cancelTrackerByWs.delete(ws);
     for (const [key, peers] of activeViewers) {
       if (peers.delete(ws) && peers.size === 0) {
         activeViewers.delete(key);
@@ -6074,12 +6264,47 @@ wss.on("connection", async (ws: WebSocket, req) => {
     // connection-scoped currentTmuxSession. Client-supplied hostId/tmuxSession IGNORED.
     // Ancestor: Terminal.tsx:3300-3311 (patch #120).
     if (msg.type === "interrupt") {
-      await __applyInterruptMessageForTests({
+      const pressHostId = currentHostId;
+      const pressTmuxSession = currentTmuxSession;
+      const verdict = await __applyInterruptMessageForTests({
         sshConn,
         currentTmuxSession,
         currentHostId,
         execCommand,
+        tracker: () => cancelTracker,
+        sessionIdFromFile,
       });
+      if (verdict === null) return;
+      if (verdict.verdict === "cancelled" && pressHostId != null && pressTmuxSession) {
+        // Every view of the pane hides the bubble (this one included)…
+        const key = sessionKey(pressHostId, pressTmuxSession);
+        broadcastPromptCancelled(key, verdict.prompt.uuid);
+        if (!activeViewers.get(key)?.has(ws) && ws.readyState === WebSocket.OPEN) {
+          try {
+            ws.send(JSON.stringify({ type: "messages_hidden", eventIds: [verdict.prompt.uuid], reason: "cancelled" }));
+          } catch {
+            /* ws may be mid-close; drop */
+          }
+        }
+      }
+      // …and only the pressing view learns the verdict, with the words to
+      // give back on a cancel.
+      if (ws.readyState === WebSocket.OPEN) {
+        try {
+          ws.send(
+            JSON.stringify({
+              type: "interrupt_result",
+              verdict: verdict.verdict,
+              ...(verdict.verdict === "cancelled"
+                ? { eventId: verdict.prompt.uuid, content: verdict.prompt.visibleText }
+                : {}),
+              ...(verdict.verdict === "none" ? { reason: verdict.reason } : {}),
+            }),
+          );
+        } catch {
+          /* ws may be mid-close; drop */
+        }
+      }
       return;
     }
 
@@ -7007,10 +7232,11 @@ wss.on("connection", async (ws: WebSocket, req) => {
     // Phase 101 D-03: acquire long-lived slot before opening the tail.
     // Released on stop() or onError — both paths are idempotent (D-06-adjacent).
     const tailSlot2 = acquireTailSlot(currentHostId!);
+    cancelTracker = new InterruptCancelTracker(); // the new tail replays from line 1
     tailHandle = tailSessionFile(
       sshConn,
       sessionFile,
-      onLine,
+      onLineTracked,
       (err) => { tailSlot2.release(); onError(err); },
     );
     const origStop2 = tailHandle.stop;
@@ -7408,6 +7634,7 @@ wss.on("connection", async (ws: WebSocket, req) => {
                   tmuxSession,
                   discoverIdentitySessionFile,
                   tailSessionFile: (c, file, line, errCb) => {
+                    cancelTracker = new InterruptCancelTracker(); // the new tail replays from line 1
                     const handle = tailSessionFile(c as import("ssh2").Client, file, line, (err) => {
                       dormantTailSlot.release();
                       errCb(err);
@@ -7416,7 +7643,7 @@ wss.on("connection", async (ws: WebSocket, req) => {
                     handle.stop = () => { dormantTailSlot.release(); origDormantStop.call(handle); };
                     return handle;
                   },
-                  onLine,
+                  onLine: onLineTracked,
                   onError,
                   wsSend: (data) => {
                     try {

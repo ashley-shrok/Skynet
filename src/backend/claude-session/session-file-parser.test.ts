@@ -1934,3 +1934,41 @@ describe("resolveOutboundRoom", () => {
     expect(out?.room).toBe("!abc:t1000.example");
   });
 });
+
+describe("parseSessionLine — interrupt marker renders as an agent-side Interrupted (shape-interrupt-button)", () => {
+  const marker = (text: string) =>
+    JSON.stringify({
+      type: "user",
+      uuid: "m-1",
+      parentUuid: "a-1",
+      timestamp: "2026-10-18T12:00:00.000Z",
+      interruptedMessageId: "msg_1",
+      message: { role: "user", content: [{ type: "text", text }] },
+    });
+
+  it("plain marker → assistant message 'Interrupted' flagged interrupted", () => {
+    expect(parseSessionLine(marker("[Request interrupted by user]"))).toEqual({
+      kind: "message",
+      role: "assistant",
+      content: "Interrupted",
+      eventId: "m-1",
+      ts: Date.parse("2026-10-18T12:00:00.000Z"),
+      interrupted: true,
+    });
+  });
+
+  it("'for tool use' marker → the same Interrupted message", () => {
+    const parsed = parseSessionLine(marker("[Request interrupted by user for tool use]"));
+    expect(parsed).toMatchObject({ kind: "message", role: "assistant", content: "Interrupted", interrupted: true });
+  });
+
+  it("a user who merely mentions the phrase mid-sentence is still a user message", () => {
+    const line = JSON.stringify({
+      type: "user",
+      uuid: "u-1",
+      timestamp: "2026-10-18T12:00:00.000Z",
+      message: { role: "user", content: "why did I see [Request interrupted by user] earlier?" },
+    });
+    expect(parseSessionLine(line)).toMatchObject({ kind: "message", role: "user" });
+  });
+});

@@ -90,6 +90,11 @@ import { BackgroundedAgentsPanel } from "./BackgroundedAgentsPanel";
 import { BackgroundedShellsPanel } from "./BackgroundedShellsPanel";
 import { usePrettyViewUploads } from "./use-pretty-view-uploads";
 import {
+  buildCancelledSendRestore,
+  fetchRestoreFiles,
+  type RestoreFile,
+} from "./cancelled-send-restore";
+import {
   sessionMatchKey,
   useSessionIdentity,
 } from "@/features/terminal/session-hue";
@@ -796,6 +801,16 @@ export function PrettyView({
   const viewingUserMxid = useViewingUserMxid();
   const fleetIdentityHosts = useFleetIdentityHosts();
   const [messages, setMessages] = useState<StreamEvent[]>([]);
+  // shape-interrupt-button: eventIds of prompts the transcript shows were
+  // cancelled (the agent never received them). Filtered out of everything the
+  // view renders or reads aloud; the backend sends messages_unhidden if a
+  // restart later revives one.
+  const [hiddenEventIds, setHiddenEventIds] = useState<ReadonlySet<string>>(() => new Set());
+  // shape-interrupt-button: a cancelled send's words (and attachments) to hand
+  // back to ComposeBox — set only on the view that pressed interrupt.
+  const [restoreRequest, setRestoreRequest] = useState<
+    { id: string; text: string; files: RestoreFile[] } | null
+  >(null);
   // relay-mcp send outcomes by toolUseId — not bubbles of their own; each one
   // marks its relay_outbound card as failed, or names the room it went to.
   const [relayResults, setRelayResults] = useState<Map<string, RelaySendResultEvent>>(() => new Map());
@@ -869,8 +884,24 @@ export function PrettyView({
   // in this case — this is intentional. Do NOT try to unify by making
   // `useHarnessAdapter` populate its own `messages` — that would double-write
   // and break Pitfall 2 (the adapter is inert by design).
+  const harnessVisibleMessages = useMemo(
+    () =>
+      hiddenEventIds.size === 0
+        ? messages
+        : messages.filter((m) => !hiddenEventIds.has((m as { eventId?: string }).eventId ?? "")),
+    [messages, hiddenEventIds],
+  );
   const effectiveMessages: StreamEvent[] =
-    source.kind === "relay" ? chatSurfaceAdapter.messages : messages;
+    source.kind === "relay" ? chatSurfaceAdapter.messages : harnessVisibleMessages;
+  // shape-interrupt-button: the harness's interrupted line is the latest thing
+  // in the conversation → the turn is over, whatever the working signal says.
+  const interruptedTail = (() => {
+    for (let i = effectiveMessages.length - 1; i >= 0; i--) {
+      const m = effectiveMessages[i] as { type?: string; interrupted?: true };
+      if (m.type === "message" || m.type === "image") return m.interrupted === true;
+    }
+    return false;
+  })();
   // ── Phase 47 (load-more button) — per-pane state slots ────────────────
   // capOff: once flipped true (via handleLoadOlder — first click), cap
   //   enforcement in the ws.onmessage switch stops for this pane's
@@ -2338,6 +2369,25 @@ export function PrettyView({
     getBufferedAmount: () => uploadWs?.bufferedAmount ?? 0,
   });
 
+  // shape-interrupt-button: ComposeBox put a cancelled send's words in
+  // `target`; put its attachments back on the same box by fetching each file
+  // from the agent's machine and staging it like a fresh attachment.
+  const handleRestoreApplied = useCallback(
+    (id: string, target: string) => {
+      const req = restoreRequest;
+      if (!req || req.id !== id || req.files.length === 0) return;
+      if (!hostName) {
+        console.warn(`[interrupt-restore] files-skipped id=${id} reason=no_host_name count=${req.files.length}`);
+        return;
+      }
+      void fetchRestoreFiles(hostName, req.files).then(({ files, failed }) => {
+        console.info(`[interrupt-restore] files id=${id} target=${target} restored=${files.length} failed=${failed.length}${failed.length ? ` names=${failed.join("|")}` : ""}`);
+        if (files.length > 0) uploads.stageAttachments(target, files);
+      });
+    },
+    [restoreRequest, hostName, uploads],
+  );
+
   // Phase 32: paneKey moved upstream — see Change 5 site above handleComposeSend.
   // The former stub block (TEMP-disabled auto-scroll from bounty pv-disable-auto-scroll-temp)
   // was deleted here — the phase 32 hook above is now the sole reader.
@@ -3448,6 +3498,44 @@ export function PrettyView({
           // drives the predicate changes from asidePending to asideText).
           clearAsidePending();
           setAsideText(parsed.text);
+          break;
+        }
+        case "messages_hidden": {
+          const ids = parsed.eventIds;
+          console.info(`[interrupt] messages-hidden eventIds=${ids.join(",")} reason=${parsed.reason} hostId=${hostId} tmuxSession=${tmuxSession ?? "null"}`);
+          setHiddenEventIds((prev) => {
+            if (ids.every((id) => prev.has(id))) return prev;
+            const next = new Set(prev);
+            ids.forEach((id) => next.add(id));
+            return next;
+          });
+          break;
+        }
+        case "messages_unhidden": {
+          const ids = parsed.eventIds;
+          console.info(`[interrupt] messages-unhidden eventIds=${ids.join(",")} reason=${parsed.reason} hostId=${hostId} tmuxSession=${tmuxSession ?? "null"}`);
+          setHiddenEventIds((prev) => {
+            if (!ids.some((id) => prev.has(id))) return prev;
+            const next = new Set(prev);
+            ids.forEach((id) => next.delete(id));
+            return next;
+          });
+          break;
+        }
+        case "interrupt_result": {
+          if (parsed.verdict === "cancelled") {
+            const restore = parsed.content !== null ? buildCancelledSendRestore(parsed.content) : null;
+            console.info(
+              `[interrupt] result verdict=cancelled eventId=${parsed.eventId} restore=${restore ? "yes" : "no"} textLen=${restore?.text.length ?? 0} files=${restore?.files.length ?? 0} hostId=${hostId} tmuxSession=${tmuxSession ?? "null"}`,
+            );
+            if (restore && (restore.text.trim() !== "" || restore.files.length > 0)) {
+              setRestoreRequest({ id: parsed.eventId, text: restore.text, files: restore.files });
+            }
+          } else {
+            console.info(
+              `[interrupt] result verdict=${parsed.verdict}${parsed.verdict === "none" ? ` reason=${parsed.reason}` : ""} hostId=${hostId} tmuxSession=${tmuxSession ?? "null"}`,
+            );
+          }
           break;
         }
         case "aside_dismissed": {
@@ -4796,7 +4884,7 @@ export function PrettyView({
               pre-Phase-43 rendering (WipBubble → WaitingBubble → AsideBubble
               → jump-to-bottom pill; former overlay and bubble siblings
               were retired — Phase 56 Plan 03 and Phase 95 Part B). */}
-          {(isWorking || optimisticWip) && <WipBubble />}
+          {(isWorking || optimisticWip) && (!interruptedTail || pendingSends.length > 0) && <WipBubble />}
           {/* Phase 34 Plan 06: WaitingBubble — harness permission/dialog waiting state.
               Mounts when the fleet-status channel reports status='waiting' for this
               session's (hostId, tmuxSession) key. Sibling of WipBubble in the
@@ -5079,6 +5167,9 @@ export function PrettyView({
           identityName={source.kind === "relay" ? "room" : pvIdentity?.displayName}
           onGoodToGo={jumpToBottom}
           onInterrupt={onInterrupt}
+          interruptDisabled={pendingSends.some((p) => p.state === "sending")}
+          restoreRequest={restoreRequest}
+          onRestoreApplied={handleRestoreApplied}
           // Phase 05 upload wiring — all sourced from the local
           // usePrettyViewUploads hook. Patch #123 split the old single
           // paperclip-visibility-equals-touch-device line into two

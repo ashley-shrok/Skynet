@@ -1,0 +1,58 @@
+{"type":"mode"}
+{"type":"permission-mode"}
+{"type":"atis-latch"}
+{"type":"file-history-snapshot"}
+{"type":"user","uuid":"ea30ae29-0120-4518-b8de-686a929c5999","parentUuid":null,"isSidechain":false,"timestamp":"2026-10-18T13:48:45.385Z","message":{"role":"user","content":"Warm-up: reply with just the word ready."}}
+{"type":"attachment","uuid":"ebb520af-47e3-45fc-adde-3f62442a6637","parentUuid":"ea30ae29-0120-4518-b8de-686a929c5999","isSidechain":false,"timestamp":"2026-10-18T13:48:45.383Z","attachment":{"type":"environment"}}
+{"type":"attachment","uuid":"9b9ef7cf-bdea-42dc-8c4d-2f9696260802","parentUuid":"ebb520af-47e3-45fc-adde-3f62442a6637","isSidechain":false,"timestamp":"2026-10-18T13:48:45.383Z","attachment":{"type":"model"}}
+{"type":"attachment","uuid":"e647036c-fefa-4224-8d76-087cbd5cccba","parentUuid":"9b9ef7cf-bdea-42dc-8c4d-2f9696260802","isSidechain":false,"timestamp":"2026-10-18T13:48:45.384Z","attachment":{"type":"deferred_tools_delta"}}
+{"type":"attachment","uuid":"de8e1301-7b58-46cc-b458-525154d5ff1d","parentUuid":"e647036c-fefa-4224-8d76-087cbd5cccba","isSidechain":false,"timestamp":"2026-10-18T13:48:45.384Z","attachment":{"type":"agent_listing_delta"}}
+{"type":"attachment","uuid":"1954e49d-676f-4618-abdd-e0d9b1b09c6e","parentUuid":"de8e1301-7b58-46cc-b458-525154d5ff1d","isSidechain":false,"timestamp":"2026-10-18T13:48:45.384Z","attachment":{"type":"skill_listing"}}
+{"type":"attachment","uuid":"89b5603c-ed39-4d7e-b614-a240ad1391e7","parentUuid":"1954e49d-676f-4618-abdd-e0d9b1b09c6e","isSidechain":false,"timestamp":"2026-10-18T13:48:45.384Z","attachment":{"type":"auto_mode"}}
+{"type":"attachment","uuid":"a2742910-da30-4031-a3a6-bb8017db3cac","parentUuid":"89b5603c-ed39-4d7e-b614-a240ad1391e7","isSidechain":false,"timestamp":"2026-10-18T13:48:45.384Z","attachment":{"type":"total_tokens_reminder"}}
+{"type":"attachment","uuid":"e3b2c0f2-59db-4714-a7bc-3cecb4d24a15","parentUuid":"a2742910-da30-4031-a3a6-bb8017db3cac","isSidechain":false,"timestamp":"2026-10-18T13:48:45.575Z","attachment":{"type":"instructions"}}
+{"type":"attachment","uuid":"9c23d8ea-0378-47ee-8a2e-5eff79753428","parentUuid":"e3b2c0f2-59db-4714-a7bc-3cecb4d24a15","isSidechain":false,"timestamp":"2026-10-18T13:48:45.577Z","attachment":{"type":"session_context"}}
+{"type":"attachment","uuid":"56ed869a-3ace-416a-9ea7-7d205c4f68f5","parentUuid":"9c23d8ea-0378-47ee-8a2e-5eff79753428","isSidechain":false,"timestamp":"2026-10-18T13:48:45.578Z","attachment":{"type":"date"}}
+{"type":"attachment","uuid":"455ea207-9f69-4aff-8e4f-f54699f82c63","parentUuid":"56ed869a-3ace-416a-9ea7-7d205c4f68f5","isSidechain":false,"timestamp":"2026-10-18T13:48:45.591Z","attachment":{"type":"remote_session_change"}}
+{"type":"attachment","uuid":"f9226693-abd7-47a6-9d87-cd4f9a33d605","parentUuid":"455ea207-9f69-4aff-8e4f-f54699f82c63","isSidechain":false,"timestamp":"2026-10-18T13:48:45.593Z","attachment":{"type":"prompt_snapshot"}}
+{"type":"last-prompt"}
+{"type":"mode"}
+{"type":"permission-mode"}
+{"type":"atis-latch"}
+{"type":"ai-title"}
+{"type":"assistant","uuid":"defcd571-e9d2-497a-b996-a07f3facd96a","parentUuid":"f9226693-abd7-47a6-9d87-cd4f9a33d605","isSidechain":false,"timestamp":"2026-10-18T13:48:48.929Z","message":{"role":"assistant","content":[{"type":"text","text":"ready"}],"id":"msg_011Cg9oqC84C4NX7757CyThT"}}
+{"type":"attachment","uuid":"f9cf8b7f-1cbb-4aee-add6-dba3df359528","parentUuid":"defcd571-e9d2-497a-b996-a07f3facd96a","isSidechain":false,"timestamp":"2026-10-18T13:48:48.957Z","attachment":{"type":"prompt_snapshot"}}
+{"type":"system","uuid":"75bf8a9a-8250-4d24-8a29-9f0b3e9257e0","parentUuid":"f9cf8b7f-1cbb-4aee-add6-dba3df359528","isSidechain":false,"timestamp":"2026-10-18T13:48:49.017Z","subtype":"stop_hook_summary"}
+{"type":"system","uuid":"cc0b66bd-fa33-41e3-b433-e1d0e10103c2","parentUuid":"75bf8a9a-8250-4d24-8a29-9f0b3e9257e0","isMeta":false,"isSidechain":false,"timestamp":"2026-10-18T13:48:49.024Z","subtype":"turn_duration"}
+{"type":"last-prompt"}
+{"type":"ai-title"}
+{"type":"mode"}
+{"type":"permission-mode"}
+{"type":"atis-latch"}
+{"type":"file-history-snapshot"}
+{"type":"user","uuid":"955e5811-d1ca-4a2d-a38b-8f1a9605fe48","parentUuid":"cc0b66bd-fa33-41e3-b433-e1d0e10103c2","isSidechain":false,"timestamp":"2026-10-18T13:49:09.796Z","message":{"role":"user","content":"GAP-CANCEL: write a 400 word poem about rivers. No tools."}}
+{"type":"attachment","uuid":"3d3bd3a4-3196-425d-a147-7314716e634f","parentUuid":"955e5811-d1ca-4a2d-a38b-8f1a9605fe48","isSidechain":false,"timestamp":"2026-10-18T13:49:09.795Z","attachment":{"type":"total_tokens_reminder"}}
+{"type":"last-prompt"}
+{"type":"cost-state"}
+{"type":"file-history-snapshot"}
+{"type":"assistant","uuid":"0a116d1e-895f-4607-a6ef-4cb4ed9ff05d","parentUuid":"3d3bd3a4-3196-425d-a147-7314716e634f","isSidechain":false,"timestamp":"2026-10-18T13:49:16.066Z","message":{"role":"assistant","content":[{"type":"text","text":"No response requested."}],"id":"c0d6ad4b-e4b4-4806-bf90-f7d0095889ca"}}
+{"type":"user","uuid":"ce0694b4-4f52-42eb-9898-0956b745ebc9","parentUuid":"0a116d1e-895f-4607-a6ef-4cb4ed9ff05d","isSidechain":false,"timestamp":"2026-10-18T13:49:28.097Z","message":{"role":"user","content":"Quote verbatim, numbered, every message I have sent you in this conversation. No tools."}}
+{"type":"attachment","uuid":"7b678bff-a805-4dc1-8caf-11d3ac449318","parentUuid":"ce0694b4-4f52-42eb-9898-0956b745ebc9","isSidechain":false,"timestamp":"2026-10-18T13:49:28.096Z","attachment":{"type":"total_tokens_reminder"}}
+{"type":"last-prompt"}
+{"type":"cost-state"}
+{"type":"file-history-snapshot"}
+{"type":"assistant","uuid":"b382a4c2-a784-4f34-8403-e3e76a247573","parentUuid":"7b678bff-a805-4dc1-8caf-11d3ac449318","isSidechain":false,"timestamp":"2026-10-18T13:49:53.121Z","message":{"role":"assistant","content":[{"type":"text","text":"No response requested."}],"id":"c4758ff4-9760-45fa-97cb-cec07e9d5620"}}
+{"type":"user","uuid":"2a01a5d2-c736-401a-a6b1-d0c3f7df3539","parentUuid":"b382a4c2-a784-4f34-8403-e3e76a247573","isSidechain":false,"timestamp":"2026-10-18T13:50:04.489Z","message":{"role":"user","content":"Again: quote verbatim, numbered, every message I have sent you in this conversation, including any you did not answer. No tools."}}
+{"type":"attachment","uuid":"98b07d9e-6a0e-48e7-9b2e-4aa1b063208c","parentUuid":"2a01a5d2-c736-401a-a6b1-d0c3f7df3539","isSidechain":false,"timestamp":"2026-10-18T13:50:04.486Z","attachment":{"type":"total_tokens_reminder"}}
+{"type":"last-prompt"}
+{"type":"cost-state"}
+{"type":"file-history-snapshot"}
+{"type":"assistant","uuid":"10ff1ba0-1fb1-4a9b-80bc-ed98cc2f209f","parentUuid":"98b07d9e-6a0e-48e7-9b2e-4aa1b063208c","isSidechain":false,"timestamp":"2026-10-18T13:50:14.288Z","message":{"role":"assistant","content":[{"type":"text","text":"No response requested."}],"id":"75853930-362d-4942-89df-271dca929b2c"}}
+{"type":"user","uuid":"904af814-ef51-4f62-bc4d-3e77770e3299","parentUuid":"10ff1ba0-1fb1-4a9b-80bc-ed98cc2f209f","isSidechain":false,"timestamp":"2026-10-18T13:50:32.922Z","message":{"role":"user","content":"Final check: quote verbatim, numbered, every message I have sent you in this conversation, including any you did not answer. No tools."}}
+{"type":"attachment","uuid":"613e3617-acd9-4f78-be4f-1896b6ea4342","parentUuid":"904af814-ef51-4f62-bc4d-3e77770e3299","isSidechain":false,"timestamp":"2026-10-18T13:50:32.921Z","attachment":{"type":"total_tokens_reminder"}}
+{"type":"assistant","uuid":"abf8e649-22b7-4f65-b5b1-c6d78de00a76","parentUuid":"613e3617-acd9-4f78-be4f-1896b6ea4342","isSidechain":false,"timestamp":"2026-10-18T13:50:37.875Z","message":{"role":"assistant","content":[{"type":"thinking","thinking":""}],"id":"msg_011Cg9oy7gdRave4VeZMWFvz"}}
+{"type":"assistant","uuid":"047a25f1-1a0d-4ceb-a6a0-2abfc31f0826","parentUuid":"abf8e649-22b7-4f65-b5b1-c6d78de00a76","isSidechain":false,"timestamp":"2026-10-18T13:50:39.565Z","message":{"role":"assistant","content":[{"type":"text","text":"1. Warm-up: reply with just the word ready.\n2. GAP-CANCEL: write a 400 word poem about rivers. No tools.\n3. Quote verbatim, numbered, every message I have sent you in this conversation. No tools.\n4. Again: quote verbatim, numbered, every message I have sent you in this conversation, including any yo"}],"id":"msg_011Cg9oy7gdRave4VeZMWFvz"}}
+{"type":"system","uuid":"7ff462a8-e06f-4c29-833a-98ac954ecba1","parentUuid":"047a25f1-1a0d-4ceb-a6a0-2abfc31f0826","isSidechain":false,"timestamp":"2026-10-18T13:50:39.690Z","subtype":"stop_hook_summary"}
+{"type":"system","uuid":"d3d26b10-0560-44de-b6a8-65a3dc7b474d","parentUuid":"7ff462a8-e06f-4c29-833a-98ac954ecba1","isMeta":false,"isSidechain":false,"timestamp":"2026-10-18T13:50:39.699Z","subtype":"turn_duration"}
+{"type":"last-prompt"}
+{"type":"cost-state"}

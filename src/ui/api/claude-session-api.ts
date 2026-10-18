@@ -201,7 +201,39 @@ export type MessageEvent = {
    * the same semantics, so PrettyView threads this field through unchanged.
    */
   pendingState?: "sending" | "failed" | null;
+  /**
+   * shape-interrupt-button: the harness's "[Request interrupted by user]"
+   * marker, delivered as an assistant-role "Interrupted" message. When it is
+   * the latest message the work indicator is forced off.
+   */
+  interrupted?: true;
 };
+
+// shape-interrupt-button — server -> client. Prompts the transcript shows were
+// cancelled (the agent never received them): hide their bubbles. Sent live on
+// a cancel verdict (to every view of the pane) and whenever the transcript's
+// sibling shape reveals a cancel (including on replay).
+export type MessagesHiddenEvent = {
+  type: "messages_hidden";
+  eventIds: string[];
+  reason: "cancelled";
+};
+
+// shape-interrupt-button — server -> client. A restart revived a cancelled
+// prompt (the agent now has it): show its bubble again.
+export type MessagesUnhiddenEvent = {
+  type: "messages_unhidden";
+  eventIds: string[];
+  reason: "revived";
+};
+
+// shape-interrupt-button — server -> client, to the pressing view only.
+// cancelled: the latest prompt was rewound; `content` is its text (null when
+// it was not a visible user message) so the words can be given back.
+export type InterruptResultEvent =
+  | { type: "interrupt_result"; verdict: "cancelled"; eventId: string; content: string | null }
+  | { type: "interrupt_result"; verdict: "stopped" }
+  | { type: "interrupt_result"; verdict: "none"; reason: string };
 
 // Patch #86: WS-inline base64 image payload. `data` is raw base64 — the
 // consumer prepends `data:${mediaType};base64,` when building `<img src>`.
@@ -577,7 +609,11 @@ export type ClaudeSessionServerEvent =
   | PasteSendFailedEvent
   | SendKeysErrorEvent
   // Phase 47 (load-more button) — response to FetchOlderRangePayload
-  | FetchOlderRangeBatchEvent;
+  | FetchOlderRangeBatchEvent
+  // shape-interrupt-button
+  | MessagesHiddenEvent
+  | MessagesUnhiddenEvent
+  | InterruptResultEvent;
 
 export type ConnectToPanePayload = {
   type: "connectToPane";

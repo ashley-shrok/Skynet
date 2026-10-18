@@ -290,6 +290,18 @@ export interface ComposeBoxProps {
   // When omitted the button does not render — read-only PrettyView
   // callers stay clean.
   onInterrupt?: () => void;
+  // shape-interrupt-button: true while a send is still being delivered (its
+  // message has not landed in the transcript yet) — there is nothing in the
+  // harness to stop or cancel, so the button is greyed out. Static look only:
+  // no label or tooltip changes.
+  interruptDisabled?: boolean;
+  // shape-interrupt-button: words handed back by a cancelled send. Applied
+  // once per id: into the primary box when it is empty, otherwise into a new
+  // queued box at the top (never overwriting what the user is typing).
+  // onRestoreApplied reports which box received them so the caller can put
+  // the cancelled message's attachments back on the same box.
+  restoreRequest?: { id: string; text: string } | null;
+  onRestoreApplied?: (id: string, target: string) => void;
   // When false, Enter is still accepted for typing (textarea not disabled)
   // but Send button is visually disabled. The send attempt will fail and
   // show the inline error — the component does not need to pre-emptively
@@ -747,6 +759,9 @@ export function ComposeBox({
   identityName,
   onGoodToGo,
   onInterrupt,
+  interruptDisabled,
+  restoreRequest,
+  onRestoreApplied,
   stagedAttachments,
   onRemoveAttachment,
   showPaperclip,
@@ -1107,6 +1122,32 @@ export function ComposeBox({
     },
     [clearDebounce, flushDirty, hostId, tmuxSessionKey],
   );
+
+  // shape-interrupt-button: give a cancelled send's words back. Applied once
+  // per request id; the primary box only when it holds nothing (no text, no
+  // staged attachments), otherwise a new queued box at the top.
+  const appliedRestoreIdsRef = useRef<Set<string>>(new Set());
+  useEffect(() => {
+    if (!restoreRequest || appliedRestoreIdsRef.current.has(restoreRequest.id)) return;
+    appliedRestoreIdsRef.current.add(restoreRequest.id);
+    const primaryEmpty = latestBodyRef.current.trim() === "" && !hasAttachments;
+    if (primaryEmpty) {
+      setText(restoreRequest.text);
+      latestBodyRef.current = restoreRequest.text;
+      scheduleAutosave(restoreRequest.text);
+      console.info(`[interrupt-restore] applied id=${restoreRequest.id} target=primary textLen=${restoreRequest.text.length}`);
+      onRestoreApplied?.(restoreRequest.id, "primary");
+      return;
+    }
+    const slotId = makeSlotId();
+    const nextSlots = [{ id: slotId, text: restoreRequest.text }, ...latestQueueSlotsRef.current];
+    latestQueueSlotsRef.current = nextSlots;
+    setQueueSlots(nextSlots);
+    scheduleAutosave(latestBodyRef.current, nextSlots);
+    console.info(`[interrupt-restore] applied id=${restoreRequest.id} target=queued:${slotId} textLen=${restoreRequest.text.length} reason=primary_in_use`);
+    onRestoreApplied?.(restoreRequest.id, `queued:${slotId}`);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [restoreRequest]);
 
   // Load-on-mount: seed text + queueSlots state from the persisted draft for
   // this (hostId, tmuxSession). On a key change (host or session switches),
@@ -2623,6 +2664,7 @@ export function ComposeBox({
             <Button
               size="icon-sm"
               variant="secondary"
+              disabled={interruptDisabled === true}
               onClick={() => {
                 const now = Date.now();
                 if (now - interruptLastFireRef.current < INTERRUPT_THROTTLE_MS) {
