@@ -127,12 +127,19 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { Search, Loader2 } from "lucide-react";
 
 import { Modal, ModalHead, ModalBody, ModalFoot } from "@/components/modal";
-import { Button } from "@/components/button";
 import { MultiSelect } from "@/components/multi-select";
-import { Input } from "@/components/input";
+import {
+  KitButton,
+  KitCheckbox,
+  KitField,
+  KitHostPicker,
+  KitInput,
+  KitOption,
+  KitSearch,
+  kitAlert,
+} from "@/components/kit";
 import type { Host, HostFolder } from "@/types/ui-types";
 import {
   listIdentities,
@@ -242,7 +249,7 @@ export type NewSessionOnCreateOpts =
 // timeline and can't be reported on the birth SSE stream — the modal collapses
 // to a single spinner-in-Create-button, and any failure (Skynet-side OR
 // supervisor-wait timeout, D-11) fires one generic
-// `window.alert("agent creation failed")` per D-17. See handleBirth below.
+// a generic "couldn't create the agent" notice (kitAlert) per D-17. See handleBirth below.
 // ────────────────────────────────────────────────────────────────────────────
 
 export function NewSessionDialog({
@@ -933,7 +940,7 @@ export function NewSessionDialog({
   // frontend has no per-step UI to tick against under the sole-spawner shape).
   // Only the terminal `ended` event matters. Failure of any kind — Skynet-side
   // (ended.ok:false) OR outer catch (stream throw / network) — fires the same
-  // generic `window.alert("agent creation failed")` per D-17.
+  // generic "couldn't create the agent" notice (kitAlert) per D-17.
   async function handleBirth() {
     if (!selectedHost) return;
     // Latch BEFORE any await so the blur-scheduled collision probe (which fires
@@ -1078,21 +1085,30 @@ export function NewSessionDialog({
       } else {
         // Failure — ended:ok:false (Skynet-side error OR supervisor-wait
         // timeout, D-11). Frontend ignores the reason string per D-11 and
-        // always shows the same generic alert per D-17. Modal closes.
-        window.alert("agent creation failed");
+        // always shows the same generic notice per D-17. Modal closes.
+        await showBirthFailed();
         setBirthing(false);
         onClose();
       }
     } catch (_e) {
       // Stream error (fetch reject, network error, aborted stream, etc.) —
-      // same failure surface as ended:ok:false per D-17 (single generic alert,
+      // same failure surface as ended:ok:false per D-17 (single generic notice,
       // no distinct error class). The reason string, if any, is not surfaced;
       // backend structured log at `identity_birth_supervisor_wait_timeout`
       // (Plan 106-01) is the diagnosis surface.
-      window.alert("agent creation failed");
+      await showBirthFailed();
       setBirthing(false);
       onClose();
     }
+  }
+
+  // D-17: one generic failure notice, whatever went wrong. The reason string
+  // is deliberately not surfaced (backend logs are the diagnosis surface).
+  function showBirthFailed(): Promise<void> {
+    return kitAlert({
+      title: "Couldn't create the agent",
+      body: "Something went wrong while setting it up. Try again in a moment.",
+    });
   }
 
   // canOpen (Create button) computation:
@@ -1189,7 +1205,7 @@ export function NewSessionDialog({
 
   // Phase 106 Plan 106-02 (D-13/D-15): form fields disabled ONLY while birthing.
   // Under the sole-spawner shape there is no failure-persist state — any birth
-  // failure fires `window.alert("agent creation failed")` and immediately closes
+  // failure fires a generic "couldn't create the agent" notice (kitAlert) and immediately closes
   // the modal per D-17, so the previous failed-step-persist clause is gone.
   // The previous "any step active" / "show progress" derivations are gone with
   // the 5-step checklist (the Create button IS the spinner surface per D-14).
@@ -1235,371 +1251,226 @@ export function NewSessionDialog({
       onOpenChange={(next) => {
         // Phase 106 Plan 106-02 (D-15): modal is fully locked from Create
         // click to birth resolution. Any close attempt (X button, Esc,
-        // backdrop click) is a no-op while `birthing === true`. Success or
+        // swipe) is a no-op while `birthing === true`. Success or
         // failure of the birth stream fires `onClose()` directly inside
         // handleBirth after clearing the `birthing` flag.
         if (!next && !birthing) onClose();
       }}
       size="md"
-      className="max-h-[90vh] flex flex-col"
     >
-      <div
-        style={{ "--color-pv-code-fg": "#92eafc" } as React.CSSProperties}
-        className="flex flex-col flex-1 min-h-0 overflow-hidden"
-      >
-        <ModalHead title={startTitle} subtitle={startDescription} />
-        <ModalBody className="overflow-y-auto flex flex-col gap-3">
-          {/*
-           * Phase 84 (D-CONTEXT item 8): hide the host search input + host listbox
-           * entirely when the user has exactly one pickable host. The existing
-           * open-effect at L413-414 (unchanged by this phase) still auto-selects
-           * that sole host into `selectedHost`, so downstream birth-flow and
-           * canOpen predicate at L822-833 still work. When the user has zero or
-           * ≥2 pickable hosts, both the search box and the listbox render as
-           * before. Rationale: Aither Health users (target segment) provision
-           * one dedicated VM per user and hit this case constantly. Matched by
-           * Plan 84-01's inline gate on CreateRoleDialog — same shape by design
-           * (shape file §Scope edges: shared primitive, but NOT an extracted
-           * symbol in this phase).
-           */}
-          {effectiveShellOnly && flatHosts.length !== 1 && (
-            <>
-              {/* Search input — same visual idiom as HostsPanel.tsx lines 331-347 */}
-              <div className="flex items-center gap-2 px-2.5 h-7 bg-[color:var(--color-pv-surface-quiet)] border border-[color:var(--color-pv-border-quiet-strong)] rounded-sm">
-                <Search className="size-3 text-[color:var(--color-pv-fg-dim)] shrink-0" />
-                <input
-                  value={search}
-                  onChange={(e) => setSearch(e.target.value)}
-                  placeholder={searchPlaceholder}
-                  aria-label={searchPlaceholder}
-                  disabled={formDisabled}
-                  className="flex-1 text-xs bg-transparent outline-none placeholder:text-[color:var(--color-pv-fg-dim)] text-[color:var(--color-pv-fg)] min-w-0 disabled:opacity-50"
-                />
-              </div>
+      <ModalHead title={startTitle} subtitle={startDescription} />
+      <ModalBody className="flex flex-col gap-4">
+        {/*
+         * Host list — admin shell branch only (agents get their host from the
+         * picked roles). Phase 84 (D-CONTEXT item 8): hidden entirely when the
+         * user has exactly one pickable host; the open-effect still
+         * auto-selects that sole host into `selectedHost`. Search is our own
+         * (it matches name, user and address); the kit picker just shows the
+         * filtered rows.
+         */}
+        {effectiveShellOnly && flatHosts.length !== 1 && (
+          <div className="flex flex-col gap-2 min-w-0">
+            <KitSearch
+              value={search}
+              onValueChange={setSearch}
+              placeholder={searchPlaceholder}
+              aria-label={searchPlaceholder}
+              disabled={formDisabled}
+            />
+            <KitHostPicker
+              hosts={filteredHosts.map((h) => ({
+                id: String(h.id),
+                name: h.name,
+                detail: h.username ? `${h.username}@${h.ip}` : h.ip,
+                status: h.online ? "ok" : "off",
+              }))}
+              selectedId={selectedHost ? String(selectedHost.id) : null}
+              onSelect={(id) => {
+                if (formDisabled) return;
+                const h = filteredHosts.find((x) => String(x.id) === id);
+                if (h) setSelectedHost(h);
+              }}
+              disabled={formDisabled}
+              searchable={false}
+              maxHeight={288}
+              emptyText={emptyHostsLabel}
+            />
+          </div>
+        )}
 
-              {/* Scrollable host list */}
-              <div
-                className="flex flex-col max-h-72 overflow-y-auto border border-[color:var(--color-pv-border-quiet)] rounded-sm"
-                role="listbox"
-                aria-label={t("nav.newSessionHostList", { defaultValue: "Hosts" })}
-              >
-                {filteredHosts.length === 0 ? (
-                  <div className="px-3 py-4 text-xs text-[color:var(--color-pv-fg-dim)] text-center">
-                    {emptyHostsLabel}
-                  </div>
-                ) : (
-                  filteredHosts.map((h) => {
-                    const selected = selectedHost?.id === h.id;
-                    return (
-                      <button
-                        key={h.id}
-                        type="button"
-                        role="option"
-                        aria-selected={selected}
-                        disabled={formDisabled}
-                        onClick={() => !formDisabled && setSelectedHost(h)}
-                        className={`flex items-center gap-2 px-3 py-2 text-xs text-left transition-colors border-b border-[color:var(--color-pv-border-quiet)] last:border-b-0 disabled:opacity-50 ${
-                          selected
-                            ? "bg-[hsla(var(--pv-hue,35),45%,28%,0.42)] text-[color:var(--color-pv-fg)]"
-                            : "hover:bg-[hsla(var(--pv-hue,35),40%,25%,0.18)] text-[color:var(--color-pv-fg)]"
-                        }`}
-                      >
-                        <span
-                          className={`size-1.5 rounded-full shrink-0 ${
-                            h.online ? "bg-green-500" : "bg-[color:var(--color-pv-fg-dim)]"
-                          }`}
-                          aria-hidden
-                        />
-                        <span className="font-semibold truncate flex-1">
-                          {h.name}
-                        </span>
-                        <span className="text-[10px] text-[color:var(--color-pv-fg-muted)] truncate">
-                          {h.username ? `${h.username}@${h.ip}` : h.ip}
-                        </span>
-                      </button>
-                    );
-                  })
-                )}
-              </div>
-            </>
-          )}
+        {/* Regular session-name input — only in shell-only mode (admin
+            checked "Just a shell — no agent"). */}
+        {shellOnly && (
+          <KitField
+            label={nameLabel}
+            htmlFor="new-session-name"
+            error={!nameValid && sessionName.length > 0 ? nameErrorText : undefined}
+          >
+            <KitInput
+              id="new-session-name"
+              value={sessionName}
+              onChange={(e) => setSessionName(e.target.value)}
+              onKeyDown={submitOnEnter(canOpen, handleCreate)}
+              placeholder={namePlaceholder}
+              disabled={formDisabled}
+              invalid={!nameValid}
+            />
+          </KitField>
+        )}
 
-          {/* Regular session-name input — only visible when shell-only mode is
-              ON (admin explicitly checked the Phase-88 shell-only box; see
-              88-CONTEXT.md §Verbatim label for the LOCKED text).
-              Post-Phase-88 rename + default flip: `shellOnly` is the state
-              variable; agent mode is the default so this input is hidden by
-              default. */}
-          {shellOnly && (
-            <div className="flex flex-col gap-1.5">
-              <label
-                htmlFor="new-session-name"
-                className="text-[10px] font-bold uppercase tracking-widest text-[color:var(--color-pv-fg-muted)]"
-              >
-                {nameLabel}
-              </label>
-              <Input
-                id="new-session-name"
-                value={sessionName}
-                onChange={(e) => setSessionName(e.target.value)}
-                onKeyDown={submitOnEnter(canOpen, handleCreate)}
-                placeholder={namePlaceholder}
-                disabled={formDisabled}
-                aria-invalid={!nameValid}
-                aria-describedby={!nameValid ? "new-session-name-error" : undefined}
-              />
-              {!nameValid && sessionName.length > 0 && (
-                <span
-                  id="new-session-name-error"
-                  className="text-xs text-[color:var(--color-pv-code-fg)]"
-                >
-                  {nameErrorText}
-                </span>
-              )}
-            </div>
-          )}
+        {/* Path — `effectiveShellOnly` (= isAdmin && shellOnly) only; it is
+            the raw shell's cwd. In agent mode the backend substitutes the
+            workspace default per Phase 96 D-04. */}
+        {effectiveShellOnly && (
+          <KitField label="Path" htmlFor="new-session-path">
+            <KitInput
+              id="new-session-path"
+              aria-label="Path"
+              value={path}
+              onChange={(e) => setPath(e.target.value)}
+              onKeyDown={submitOnEnter(canOpen, handleCreate)}
+              placeholder="Working directory (blank = ~/)"
+              disabled={formDisabled}
+            />
+          </KitField>
+        )}
 
-          {/* Path field gated on `effectiveShellOnly` (= isAdmin && shellOnly).
-              Only meaningful in the raw-shell branch as the shell's cwd. In
-              agent mode (both admin and non-admin) the backend substitutes
-              the workspace default per Phase 96 D-04. */}
-          {effectiveShellOnly && (
-            <div className="flex flex-col gap-1.5">
-              <label
-                htmlFor="new-session-path"
-                className="text-[10px] font-bold uppercase tracking-widest text-[color:var(--color-pv-fg-muted)]"
-              >
-                Path
-              </label>
-              <Input
-                id="new-session-path"
-                aria-label="Path"
-                value={path}
-                onChange={(e) => setPath(e.target.value)}
-                onKeyDown={submitOnEnter(canOpen, handleCreate)}
-                placeholder="Working directory (blank = ~/)"
-                disabled={formDisabled}
-              />
-            </div>
-          )}
-
-          {/* Phase 88 (Identity-mode checkbox admin-gate + label flip —
-              88-CONTEXT.md §Identity-mode checkbox admin-gate + 88-PATTERNS.md
-              §2c): visible ONLY when isAdmin is truthy. Same admin-gate idiom
-              as the Path field above (mirrors PrettyConversationsPanel.tsx:1651).
-              Fail-closed via Plan 88-01's `isAdmin = false` destructure default.
-              Label text LOCKED byte-exact per 88-CONTEXT.md §Verbatim label
-              with Unicode U+2014 em-dash.
-              See Edit D below for the local state var rename
-              `identityMode` → `shellOnly` + default flip `true` → `false`.
-              The DOM anchor id intentionally stays (stable HTML anchor);
-              only the state variable renames. */}
-          {isAdmin && (
-            <div className="flex items-center gap-2">
-              <input
-                type="checkbox"
+        {/* Phase 88: admin-only shell-mode checkbox. Label text LOCKED
+            (U+2014 em-dash); DOM anchor id stays stable. */}
+        {isAdmin && (
+          <KitOption
+            disabled={formDisabled}
+            label="Just a shell — no agent"
+            control={
+              <KitCheckbox
                 id="new-session-identity-mode"
                 checked={shellOnly}
-                onChange={(e) => !formDisabled && setShellOnly(e.target.checked)}
+                onCheckedChange={(next) => !formDisabled && setShellOnly(next)}
                 disabled={formDisabled}
-                className="w-3.5 h-3.5 rounded disabled:opacity-50"
               />
-              <label
-                htmlFor="new-session-identity-mode"
-                className="text-xs text-[color:var(--color-pv-fg)] cursor-pointer select-none"
-              >
-                Just a shell — no agent
-              </label>
-            </div>
-          )}
+            }
+          />
+        )}
 
-          {/* Identity-birth field cluster — visible when agent mode is ON.
-              Phase 88 code-review M2: gated on `!effectiveShellOnly`
-              (= `!(isAdmin && shellOnly)`) rather than bare `!shellOnly`, so
-              a non-admin with a stale-truthy shellOnly still renders the
-              birth cluster instead of hiding it — matches the submit-onclick
-              gate at L1310 so both agree. Default is agent mode when the
-              admin-only checkbox is unchecked, or when a non-admin caller
-              never sees the checkbox at all per Edit C's isAdmin gate. */}
-          {!effectiveShellOnly && (
-            <div className="flex flex-col gap-3 pt-1 border-t border-[color:var(--color-pv-border-quiet)]">
+        {/* Identity-birth cluster — agent mode. Gated on `!effectiveShellOnly`
+            so it agrees with the submit handler (Phase 88 M2). */}
+        {!effectiveShellOnly && (
+          <div className="flex flex-col gap-4">
+            {/* Phase 22 SRIC-02: REQUIRED roles. Lists every host's roles
+                (sectioned by host when there are several); the picked roles
+                decide the host, and each host offers "No roles" too. Pick
+                order is the order the identity file lists them in. Role
+                fetch errors are not shown — an unreachable host is routine,
+                its roles just don't list (console.warn logs it). */}
+            <KitField label="Roles" htmlFor="new-identity-roles">
+              <MultiSelect
+                id="new-identity-roles"
+                ariaLabel="Roles"
+                // Options show as each host answers; the placeholder only
+                // says "loading" while there is nothing to pick yet.
+                placeholder={
+                  anyRolesLoading && allRoles.length === 0
+                    ? "Loading roles..."
+                    : "Pick roles…"
+                }
+                disabled={
+                  formDisabled ||
+                  (anyRolesLoading && allRoles.length === 0) ||
+                  (roleOptions.length === 0 && !onNewRole)
+                }
+                options={roleOptions}
+                value={pickedRoleValues}
+                onChange={handleRolesChange}
+                leadingAction={
+                  onNewRole
+                    ? {
+                        label: "New role…",
+                        onSelect: () => {
+                          console.log(
+                            `[new-session] new-role hop hostId=${selectedHost?.id ?? "-"} roles=${selectedRoles.join(",") || "-"}`,
+                          );
+                          // Only a name the user chose travels; a pool
+                          // suggestion is re-picked on the way back.
+                          const customName =
+                            autoName && name.trim() !== "" && name !== poolPickedName
+                              ? name
+                              : null;
+                          onNewRole({ host: selectedHost, roles: selectedRoles, name: customName });
+                        },
+                      }
+                    : undefined
+                }
+              />
+            </KitField>
 
-              {/* Phase 22 SRIC-02: Role dropdown — first field in the identity
-                  cluster. Lists every host's "No roles" entry and roles
-                  (sectioned by host when there are several); the pick decides
-                  the host. */}
-              <div className="flex flex-col gap-1.5">
-                {/* Multi-role: a dropdown multi-select replaces the old
-                    single-pick <select>. Pick one or more; the order of
-                    picking is the order the identity file lists them in. */}
-                <label
-                  htmlFor="new-identity-roles"
-                  className="text-[10px] font-bold uppercase tracking-widest text-[color:var(--color-pv-fg-muted)]"
-                >
-                  Roles
-                </label>
-                <MultiSelect
-                  id="new-identity-roles"
-                  ariaLabel="Roles"
-                  // Options show as each host answers; the placeholder only
-                  // says "loading" while there is nothing to pick yet.
-                  placeholder={
-                    anyRolesLoading && allRoles.length === 0
-                      ? "Loading roles..."
-                      : "Pick roles…"
-                  }
-                  disabled={
-                    formDisabled ||
-                    (anyRolesLoading && allRoles.length === 0) ||
-                    (roleOptions.length === 0 && !onNewRole)
-                  }
-                  options={roleOptions}
-                  value={pickedRoleValues}
-                  onChange={handleRolesChange}
-                  leadingAction={
-                    onNewRole
-                      ? {
-                          label: "New role…",
-                          onSelect: () => {
-                            console.log(
-                              `[new-session] new-role hop hostId=${selectedHost?.id ?? "-"} roles=${selectedRoles.join(",") || "-"}`,
-                            );
-                            // Only a name the user chose travels; a pool
-                            // suggestion is re-picked on the way back.
-                            const customName =
-                              autoName && name.trim() !== "" && name !== poolPickedName
-                                ? name
-                                : null;
-                            onNewRole({ host: selectedHost, roles: selectedRoles, name: customName });
-                          },
-                        }
-                      : undefined
-                  }
-                />
-                {/* Role fetch errors are not shown — an unreachable host is
-                    routine, its roles just don't list (console.warn logs it). */}
-              </div>
-
-              {/* 2026-09-14: the "What will this agent work on?" textarea that
-                  sat here (Phase 80 Plan 80-06) was removed. It asked too early
-                  — the user frequently does not know yet at creation time, and
-                  restates it conversationally the moment the agent wakes. Birth
-                  now records TASK_PLACEHOLDER and the agent overwrites its own
-                  `task:` frontmatter on first wake. */}
-
-              {/* 2026-09-27: Identity-name group inverted from label+input to
-                  checkbox+conditional-input. Default state (unchecked) leaves
-                  the name to the vetted-pool picker's suggestion, keeping the
-                  form to a single visible checkbox row. Checking the box
-                  reveals the manual input for a user who wants to pick their
-                  own name.
-
-                  The checkbox label replaces the previous small-caps NAME row
-                  (byte-exact text change from user 2026-09-27: "choose a custom
-                  agent name"). Anchor id `new-identity-auto-name` mirrors the
-                  shell-only checkbox anchor idiom at `new-session-identity-mode`
-                  above. `htmlFor` targets the checkbox, not the input, so
-                  clicking the label toggles the checkbox — the input keeps its
-                  `aria-label="Name"` for AT users.
-
-                  Pool-pick failure flips autoName true silently (see effect at
-                  ~line 619's catch), so a user never sits stuck on an
-                  auto-generate checkbox with no input to type in. */}
-              <div className="flex flex-col gap-1.5">
-                <div className="flex items-center gap-2">
-                  <input
-                    type="checkbox"
+            {/* 2026-09-27: name = checkbox + conditional input. Unchecked
+                leaves the name to the vetted-pool picker's suggestion; a
+                pool-pick failure flips autoName true silently so the user is
+                never stuck without an input. The input keeps aria-label="Name". */}
+            <div className="flex flex-col gap-2">
+              <KitOption
+                disabled={formDisabled}
+                label="Choose a custom agent name"
+                control={
+                  <KitCheckbox
                     id="new-identity-auto-name"
                     checked={autoName}
-                    onChange={(e) => !formDisabled && setAutoName(e.target.checked)}
+                    onCheckedChange={(next) => !formDisabled && setAutoName(next)}
                     disabled={formDisabled}
-                    className="w-3.5 h-3.5 rounded disabled:opacity-50"
                   />
-                  <label
-                    htmlFor="new-identity-auto-name"
-                    className="text-xs text-[color:var(--color-pv-fg)] cursor-pointer select-none"
-                  >
-                    Choose a custom agent name
-                  </label>
-                </div>
-                {autoName && (
-                  <>
-                    <Input
-                      id="new-identity-name"
-                      aria-label="Name"
-                      value={name}
-                      onChange={(e) => {
-                        setName(e.target.value);
-                        // Clear collision state when name changes (re-check on blur)
-                        setSkynetCollision(false);
-                        setHostCollision(false);
-                      }}
-                      onBlur={() => runCollisionPrecheck(name)}
-                      onKeyDown={submitOnEnter(canOpen, handleCreate)}
-                      placeholder="e.g. alicia"
-                      disabled={formDisabled}
-                      aria-invalid={name.trim().length > 0 && !nameValid}
-                    />
-                    {/* Name validation errors — pretty-names shape (2026-09-30) */}
-                    {name.trim().length > 0 && !nameValid && (
-                      <span className="text-xs text-[color:var(--color-pv-code-fg)]">
-                        {name.trim().length > 80
-                          ? "Name must be 80 characters or fewer"
-                          : "Name must contain at least one letter"}
-                      </span>
-                    )}
-                    {skynetCollision && (
-                      <span className="text-xs text-[color:var(--color-pv-code-fg)]">
-                        Already exists in {brandingConfig.appName}
-                      </span>
-                    )}
-                    {hostCollision && selectedHost && (
-                      <span className="text-xs text-[color:var(--color-pv-code-fg)]">
-                        Already exists on {selectedHost.name}
-                      </span>
-                    )}
-                  </>
-                )}
-              </div>
-
-              {/*
-                Phase 86 Plan 86-04 (D-CTX-86-surface-4): title text input,
-                brief textarea, voice/color pickers, and avatar generator +
-                upload UI stripped. The new identity inherits its role's
-                cosmetics (title, colorHue, voice, avatar) on landing per
-                D-CTX-86-inherit; per-identity overrides remain possible via
-                IdentityModal (Plan 86-05).
-              */}
+                }
+              />
+              {autoName && (
+                <KitField
+                  htmlFor="new-identity-name"
+                  error={
+                    name.trim().length > 0 && !nameValid
+                      ? name.trim().length > 80
+                        ? "Name must be 80 characters or fewer"
+                        : "Name must contain at least one letter"
+                      : skynetCollision
+                        ? `Already exists in ${brandingConfig.appName}`
+                        : hostCollision && selectedHost
+                          ? `Already exists on ${selectedHost.name}`
+                          : undefined
+                  }
+                >
+                  <KitInput
+                    id="new-identity-name"
+                    aria-label="Name"
+                    value={name}
+                    onChange={(e) => {
+                      setName(e.target.value);
+                      // Clear collision state when name changes (re-check on blur)
+                      setSkynetCollision(false);
+                      setHostCollision(false);
+                    }}
+                    onBlur={() => runCollisionPrecheck(name)}
+                    onKeyDown={submitOnEnter(canOpen, handleCreate)}
+                    placeholder="e.g. alicia"
+                    disabled={formDisabled}
+                    invalid={name.trim().length > 0 && !nameValid}
+                  />
+                </KitField>
+              )}
             </div>
-          )}
+          </div>
+        )}
+      </ModalBody>
 
-          {/* Phase 106 Plan 106-02 (D-13): the per-step birth checklist was
-              removed. Under the sole-spawner shape the modal shows a spinner
-              in the Create button (see ModalFoot below) instead of a
-              per-step ticking list. */}
-        </ModalBody>
-
-        <ModalFoot>
-          <Button
-            variant="outline"
-            disabled={!canOpen}
-            className="text-[color:var(--color-pv-code-fg)] hover:opacity-90 disabled:opacity-50"
-            onClick={handleCreate}
-          >
-            {/* Phase 106 Plan 106-02 (D-14): the Create button's text label is
-                replaced by a spinner icon while the birth stream is in-flight.
-                No more "Creating..." string — the Create button IS the spinner
-                surface. `size-4` matches the Button component's default text
-                line-height affordance (larger than the previous per-step icons
-                which used size-3.5 in a different context, now removed). */}
-            {birthing ? (
-              <Loader2 className="size-4 animate-spin" aria-label="Creating agent" />
-            ) : (
-              openLabel
-            )}
-          </Button>
-        </ModalFoot>
-      </div>
+      <ModalFoot>
+        {/* Phase 106 Plan 106-02 (D-14): the Create button is the progress
+            surface — busy spinner while the birth stream is in flight. */}
+        <KitButton
+          variant="primary"
+          disabled={!canOpen}
+          busy={birthing}
+          aria-label={birthing ? "Creating agent" : undefined}
+          onClick={handleCreate}
+        >
+          {birthing ? "Creating…" : openLabel}
+        </KitButton>
+      </ModalFoot>
     </Modal>
   );
 }

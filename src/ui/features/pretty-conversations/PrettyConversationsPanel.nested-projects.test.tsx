@@ -21,6 +21,7 @@ import {
   act,
 } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { autoAnswerKitDialogs, __resetKitDialogsForTests } from "@/components/kit";
 
 // jsdom does not implement ResizeObserver; stub it so Radix's DropdownMenu
 // (used by RowKebabMenu, which backs the project section header's kebab)
@@ -572,6 +573,7 @@ beforeEach(() => {
 
 afterEach(() => {
   vi.restoreAllMocks();
+  __resetKitDialogsForTests();
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -721,7 +723,7 @@ describe("nested projects: project menu", () => {
 
   it("a failed move restores the previous list and says why", async () => {
     seedTree();
-    const alertSpy = vi.spyOn(window, "alert").mockImplementation(() => {});
+    const dialogs = autoAnswerKitDialogs();
     setProjectParentSpy.mockRejectedValueOnce(new Error("parent project not found"));
     // After the optimistic patch the store would show the new parent.
     mergeProjectsForHostSpy.mockImplementationOnce((_h: string, rows: typeof mockProjects) => {
@@ -730,10 +732,11 @@ describe("nested projects: project menu", () => {
     const { container } = renderPanel();
     const menu = await openProjectMoveTo(container, "design");
     await userEvent.setup().click(within(menu).getByRole("menuitem", { name: "Other" }));
-    await waitFor(() => expect(alertSpy).toHaveBeenCalled());
+    await waitFor(() => expect(dialogs.calls).toHaveLength(1));
     const lastRows = mergeProjectsForHostSpy.mock.calls.at(-1)![1] as Array<{ slug: string; parent?: string | null }>;
     expect(lastRows.find((r) => r.slug === "design")?.parent).toBe("skynet");
-    expect(alertSpy.mock.calls[0][0]).toContain("parent project not found");
+    expect(dialogs.calls[0].kind).toBe("alert");
+    expect(String(dialogs.calls[0].opts.body)).toContain("parent project not found");
   });
 
   it("New sub-project creates the project inside the parent on the parent's host", async () => {
@@ -754,13 +757,15 @@ describe("nested projects: project menu", () => {
 describe("nested projects: archive takes the subtree", () => {
   it("confirm names the project and counts sub-projects, agents and rooms; folders move deepest first; every member handled", async () => {
     seedTree();
-    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(true);
+    const dialogs = autoAnswerKitDialogs({ confirm: () => true });
     const { archiveIdentity } = await import("@/api/identity-archive-api");
     const { container } = renderPanel();
     await openProjectKebabAndClickItem(container, "skynet", "Archive project");
-    await waitFor(() => expect(confirmSpy).toHaveBeenCalled());
-    expect(confirmSpy).toHaveBeenCalledWith(
-      'Archive "SKYNET"?\n\nThis also archives its 3 sub-projects and the 3 agents across them.\n\n1 relay room will move back to Conversations.\n\nThis can\'t be undone. Move conversations out first to keep them.',
+    await waitFor(() => expect(dialogs.calls).toHaveLength(1));
+    expect(dialogs.calls[0].kind).toBe("confirm");
+    expect(dialogs.calls[0].opts.title).toBe('Archive "SKYNET"?');
+    expect(dialogs.calls[0].opts.body).toBe(
+      'This also archives its 3 sub-projects and the 3 agents across them.\n\n1 relay room will move back to Conversations.\n\nThis can\'t be undone. Move conversations out first to keep them.',
     );
     await waitFor(() => expect(archiveProjectSpy).toHaveBeenCalledTimes(4));
     expect(archiveProjectSpy.mock.calls.map((c) => c[1])).toEqual(["ops", "ui", "design", "skynet"]);
@@ -772,32 +777,32 @@ describe("nested projects: archive takes the subtree", () => {
 
   it("refuses up front when a sub-project inside is hidden from the user", async () => {
     seedTree();
-    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(true);
-    const alertSpy = vi.spyOn(window, "alert").mockImplementation(() => {});
+    const dialogs = autoAnswerKitDialogs({ confirm: () => true });
     getArchivePreflightSpy.mockResolvedValueOnce({ hiddenSubProjects: 2 });
     const { container } = renderPanel();
     await openProjectKebabAndClickItem(container, "skynet", "Archive project");
-    await waitFor(() => expect(alertSpy).toHaveBeenCalled());
+    await waitFor(() => expect(dialogs.calls).toHaveLength(1));
     expect(getArchivePreflightSpy).toHaveBeenCalledWith(1, "skynet");
-    expect(alertSpy.mock.calls[0][0]).toBe(
-      'Can\'t archive "SKYNET": 2 sub-projects inside it are hidden from you. Nothing was archived.',
+    expect(dialogs.calls[0].kind).toBe("alert");
+    expect(dialogs.calls[0].opts.title).toBe('Can\'t archive "SKYNET"');
+    expect(dialogs.calls[0].opts.body).toBe(
+      "2 sub-projects inside it are hidden from you. Nothing was archived.",
     );
-    expect(confirmSpy).not.toHaveBeenCalled();
     expect(archiveProjectSpy).not.toHaveBeenCalled();
   });
 
   it("cancelling the confirm archives nothing", async () => {
     seedTree();
-    vi.spyOn(window, "confirm").mockReturnValue(false);
+    const dialogs = autoAnswerKitDialogs({ confirm: () => false });
     const { container } = renderPanel();
     await openProjectKebabAndClickItem(container, "design", "Archive project");
+    await waitFor(() => expect(dialogs.calls).toHaveLength(1));
     expect(archiveProjectSpy).not.toHaveBeenCalled();
   });
 
   it("a folder move failing part-way stops, archives only members of moved projects, and says so", async () => {
     seedTree();
-    vi.spyOn(window, "confirm").mockReturnValue(true);
-    const alertSpy = vi.spyOn(window, "alert").mockImplementation(() => {});
+    const dialogs = autoAnswerKitDialogs({ confirm: () => true });
     const { archiveIdentity } = await import("@/api/identity-archive-api");
     // ops moves, ui fails.
     archiveProjectSpy
@@ -805,9 +810,10 @@ describe("nested projects: archive takes the subtree", () => {
       .mockRejectedValueOnce(new Error("disk full"));
     const { container } = renderPanel();
     await openProjectKebabAndClickItem(container, "skynet", "Archive project");
-    await waitFor(() => expect(alertSpy).toHaveBeenCalled());
+    await waitFor(() => expect(dialogs.calls.filter((c) => c.kind === "alert")).toHaveLength(1));
     expect(archiveProjectSpy.mock.calls.map((c) => c[1])).toEqual(["ops", "ui"]);
-    expect(alertSpy.mock.calls[0][0]).toContain("1 project beneath it was archived");
+    const alert = dialogs.calls.find((c) => c.kind === "alert")!;
+    expect(String(alert.opts.body)).toContain("1 project beneath it was archived");
     // Only o-row (in ops) is archived; the room in ops is released.
     await waitFor(() => expect(archiveIdentity).toHaveBeenCalledTimes(1));
     expect(setRelayRoomProjectSpy).toHaveBeenCalledWith("!room:matrix.example", "@user:matrix.example", null);

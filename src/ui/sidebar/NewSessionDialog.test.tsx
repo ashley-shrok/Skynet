@@ -167,6 +167,7 @@ vi.mock("@/api/global-files-api", () => ({
 }));
 
 import { NewSessionDialog } from "./NewSessionDialog";
+import { autoAnswerKitDialogs, __resetKitDialogsForTests } from "@/components/kit";
 import {
   queryRolesGroup,
   getRolesGroup,
@@ -644,6 +645,7 @@ function renderDialog(overrides: {
 afterEach(() => {
   vi.clearAllMocks();
   vi.useRealTimers();
+  __resetKitDialogsForTests();
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1186,15 +1188,15 @@ describe("NewSessionDialog: born into a project", () => {
 // generic-alert-on-failure shape (D-13/D-14/D-15/D-17). The tests below
 // replace the deleted W..FF set to pin the NEW behavior:
 //
-//   Test 106A: during birthing, the Create button renders a Loader2 spinner
-//              (not the "Create" text label) — D-14.
+//   Test 106A: during birthing, the Create button is busy (kit spinner, not
+//              the "Create" text label) — D-14.
 //   Test 106B: during birthing, the Cancel button is disabled AND the Dialog's
 //              onOpenChange no-ops so ESC/backdrop close cannot fire onClose —
 //              D-15 (modal fully locked from Create click to birth resolution).
 //   Test 106C: on ended:ok:true, refreshOneIdentity fires BEFORE onCreate which
 //              fires BEFORE onClose — D-18 ordering invariant + D-16 auto-route
 //              chain payload preservation.
-//   Test 106D: on ended:ok:false, window.alert("agent creation failed") fires
+//   Test 106D: on ended:ok:false, the kit notice "Couldn't create the agent" fires
 //              exactly once and onClose fires; onCreate does NOT fire — D-17.
 //   Test 106E: on stream-throw (outer catch path), same failure surface as
 //              Test 106D — D-17 (single generic alert regardless of failure class).
@@ -1207,7 +1209,7 @@ describe("NewSessionDialog: born into a project", () => {
 // Test 106A: spinner-in-Create-button during birthing (D-14)
 // ─────────────────────────────────────────────────────────────────────────────
 describe("NewSessionDialog: Test 106A — Create button shows spinner during birthing", () => {
-  it("Test 106A: while birthing (stream open, no ended yet), Create button contains a Loader2 spinner instead of the 'Create' text label", async () => {
+  it("Test 106A: while birthing (stream open, no ended yet), Create button shows the busy spinner instead of the 'Create' text label", async () => {
     // A stream that yields nothing and never resolves — simulates the
     // in-flight window between click and terminal `ended` event. React
     // flips `birthing=true` immediately on click; the spinner replaces
@@ -1226,12 +1228,14 @@ describe("NewSessionDialog: Test 106A — Create button shows spinner during bir
     }) as HTMLButtonElement;
     fireEvent.click(createBtn);
 
-    // After click, birthing===true → Create button's text label is gone;
-    // its DOM contains a Loader2 icon with the .animate-spin class.
+    // After click, birthing===true → the Create button is the kit's busy
+    // button: a spinner inside, aria-busy set, label "Creating…".
     await waitFor(() => {
-      const spinnerInBtn = createBtn.querySelector(".animate-spin");
+      const spinnerInBtn = createBtn.querySelector(".k-spin");
       expect(spinnerInBtn).toBeTruthy();
     });
+    expect(createBtn.getAttribute("aria-busy")).toBe("true");
+    expect(createBtn.textContent).not.toMatch(/^create$/i);
 
     // Cleanup: resolve the hanging stream so React can unmount cleanly.
     resolveStream();
@@ -1322,13 +1326,11 @@ describe("NewSessionDialog: Test 106C — success chain fires refreshOneIdentity
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Test 106D: window.alert('agent creation failed') on ended:ok:false (D-17)
+// Test 106D: kit notice on ended:ok:false (D-17)
 // ─────────────────────────────────────────────────────────────────────────────
 describe("NewSessionDialog: Test 106D — ended:ok:false fires generic alert + onClose", () => {
-  it("Test 106D: on ended:ok:false, window.alert is called once with 'agent creation failed' and onClose fires; onCreate does NOT fire", async () => {
-    const alertSpy = vi
-      .spyOn(window, "alert")
-      .mockImplementation(() => { /* swallow */ });
+  it("Test 106D: on ended:ok:false, the kit notice is shown once and onClose fires; onCreate does NOT fire", async () => {
+    const dialogs = autoAnswerKitDialogs();
 
     mockOpenBirthStream.mockReturnValueOnce(createMockStream([
       { type: "ended", ok: false, failedStep: 6, reason: "supervisor_wait_timeout" },
@@ -1343,9 +1345,10 @@ describe("NewSessionDialog: Test 106D — ended:ok:false fires generic alert + o
     );
 
     await waitFor(() => {
-      expect(alertSpy).toHaveBeenCalledTimes(1);
+      expect(dialogs.calls).toHaveLength(1);
     });
-    expect(alertSpy).toHaveBeenCalledWith("agent creation failed");
+    expect(dialogs.calls[0].kind).toBe("alert");
+    expect(dialogs.calls[0].opts.title).toBe("Couldn't create the agent");
 
     // Modal closes on failure (D-17: no fields preserved, no in-modal error state).
     await waitFor(() => {
@@ -1354,18 +1357,15 @@ describe("NewSessionDialog: Test 106D — ended:ok:false fires generic alert + o
     // Success path did NOT fire.
     expect(onCreate).not.toHaveBeenCalled();
 
-    alertSpy.mockRestore();
   });
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Test 106E: window.alert('agent creation failed') on stream throw (D-17)
+// Test 106E: kit notice on stream throw (D-17)
 // ─────────────────────────────────────────────────────────────────────────────
 describe("NewSessionDialog: Test 106E — stream throw fires generic alert + onClose", () => {
   it("Test 106E: if openBirthStream throws (network / fetch reject / abort), outer catch fires the same generic alert + onClose; onCreate does NOT fire", async () => {
-    const alertSpy = vi
-      .spyOn(window, "alert")
-      .mockImplementation(() => { /* swallow */ });
+    const dialogs = autoAnswerKitDialogs();
 
     // Async generator that throws on first iteration — routes through the
     // outer catch in NewSessionDialog.handleBirth (D-17 same-surface rule).
@@ -1388,16 +1388,16 @@ describe("NewSessionDialog: Test 106E — stream throw fires generic alert + onC
     );
 
     await waitFor(() => {
-      expect(alertSpy).toHaveBeenCalledTimes(1);
+      expect(dialogs.calls).toHaveLength(1);
     });
-    expect(alertSpy).toHaveBeenCalledWith("agent creation failed");
+    expect(dialogs.calls[0].kind).toBe("alert");
+    expect(dialogs.calls[0].opts.title).toBe("Couldn't create the agent");
 
     await waitFor(() => {
       expect(onClose).toHaveBeenCalledTimes(1);
     });
     expect(onCreate).not.toHaveBeenCalled();
 
-    alertSpy.mockRestore();
   });
 });
 

@@ -1427,7 +1427,7 @@ describe("ScheduledAgentsModal: Archive if nothing to report", () => {
 
     const box = (await screen.findByTestId(BOX)) as HTMLInputElement;
     expect(box.checked).toBe(false);
-    expect(screen.getByLabelText("Archive if nothing to report")).toBe(box);
+    expect(screen.getByLabelText(/^Archive if nothing to report/)).toBe(box);
     expect(
       screen.getByText("If the run goes smoothly, the agent archives itself so it doesn't stay in your sidebar."),
     ).toBeInTheDocument();
