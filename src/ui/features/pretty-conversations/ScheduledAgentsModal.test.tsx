@@ -111,6 +111,8 @@ const ONE_HOST_TREE: HostFolder = {
       quickActions: [],
       enableSsh: true,
       enableRdp: false,
+      // Can host agents — the form only offers such machines.
+      runsFleetSubstrate: true,
       enableVnc: false,
       enableTelnet: false,
       sshPort: 22,
@@ -852,7 +854,7 @@ describe("ScheduledAgentsModal: UAT 2026-10-01", () => {
     resolveRefetch!([]);
   });
 
-  it("T-17: roles are optional — Save enabled with none picked, and the spec saves with roles: []", async () => {
+  it("T-17: zero roles must be picked deliberately — Save disabled until \"No roles\" is picked, then saves roles: []", async () => {
     listScheduledAgentsMock.mockResolvedValueOnce([]);
     listRolesForHostMock.mockResolvedValue([
       { name: "assistant", description: "" },
@@ -864,31 +866,24 @@ describe("ScheduledAgentsModal: UAT 2026-10-01", () => {
     });
     listScheduledAgentsMock.mockResolvedValueOnce([]);
 
-    render(
-      <ScheduledAgentsModal
-        open={true}
-        onOpenChange={vi.fn()}
-        hostTree={ONE_HOST_TREE}
-      />,
-    );
-    await screen.findByTestId("scheduled-agents-modal-empty-state");
-    fireEvent.click(screen.getByTestId("scheduled-agents-modal-add-button"));
+    await openCreateForm();
 
-    const nameInput = await screen.findByTestId(
-      "scheduled-agents-modal-form-name",
-    ) as HTMLInputElement;
-    const promptInput = screen.getByTestId(
-      "scheduled-agents-modal-form-prompt",
-    ) as HTMLTextAreaElement;
-    fireEvent.change(nameInput, { target: { value: "no-roles" } });
-    fireEvent.change(promptInput, { target: { value: "x" } });
-
-    // Roles offered, none picked — no "at least one role" hint, Save enabled.
+    // Roles offered, nothing picked (not even "No roles") — Save disabled + hint.
     await screen.findByTestId("scheduled-agents-modal-form-role-addable-assistant");
-    expect(screen.queryByText(/at least one role/i)).toBeNull();
+    const noRoles = screen.getByTestId("scheduled-agents-modal-form-no-roles");
+    expect(noRoles).toHaveTextContent("No roles");
+    expect(noRoles).toHaveAttribute("aria-pressed", "false");
+    expect(screen.getByTestId("scheduled-agents-modal-form-roles-hint")).toHaveTextContent(
+      "Pick roles, or No roles.",
+    );
     const saveBtn = screen.getByTestId(
       "scheduled-agents-modal-form-save",
     ) as HTMLButtonElement;
+    expect(saveBtn.disabled).toBe(true);
+
+    fireEvent.click(noRoles);
+    expect(noRoles).toHaveAttribute("aria-pressed", "true");
+    expect(screen.queryByTestId("scheduled-agents-modal-form-roles-hint")).toBeNull();
     expect(saveBtn.disabled).toBe(false);
 
     fireEvent.click(saveBtn);
@@ -898,7 +893,126 @@ describe("ScheduledAgentsModal: UAT 2026-10-01", () => {
     expect(JSON.stringify(createScheduledAgentMock.mock.calls[0])).toContain('"roles":[]');
     expect(screen.queryByTestId("scheduled-agents-modal-form-error")).toBeNull();
   });
+
+  it("T-17b: \"No roles\" and roles are exclusive; unticking the last role leaves nothing picked", async () => {
+    listScheduledAgentsMock.mockResolvedValueOnce([]);
+    listRolesForHostMock.mockResolvedValue([
+      { name: "assistant", description: "" },
+      { name: "ops", description: "" },
+    ]);
+    await openCreateForm();
+    const saveBtn = screen.getByTestId("scheduled-agents-modal-form-save") as HTMLButtonElement;
+    const noRoles = screen.getByTestId("scheduled-agents-modal-form-no-roles");
+
+    // "No roles" → picking a role clears it.
+    fireEvent.click(noRoles);
+    expect(noRoles).toHaveAttribute("aria-pressed", "true");
+    fireEvent.click(await screen.findByTestId("scheduled-agents-modal-form-role-addable-assistant"));
+    expect(noRoles).toHaveAttribute("aria-pressed", "false");
+    expect(screen.getByTestId("scheduled-agents-modal-form-role-selected-assistant")).toBeInTheDocument();
+    expect(saveBtn.disabled).toBe(false);
+
+    // Picking "No roles" clears the roles.
+    fireEvent.click(screen.getByTestId("scheduled-agents-modal-form-role-addable-ops"));
+    fireEvent.click(noRoles);
+    expect(noRoles).toHaveAttribute("aria-pressed", "true");
+    expect(screen.queryByTestId("scheduled-agents-modal-form-role-selected-assistant")).toBeNull();
+    expect(screen.queryByTestId("scheduled-agents-modal-form-role-selected-ops")).toBeNull();
+
+    // Unticking the last role does NOT fall back to "No roles".
+    fireEvent.click(screen.getByTestId("scheduled-agents-modal-form-role-addable-ops"));
+    fireEvent.click(screen.getByTestId("scheduled-agents-modal-form-role-selected-ops"));
+    expect(noRoles).toHaveAttribute("aria-pressed", "false");
+    expect(saveBtn.disabled).toBe(true);
+    expect(screen.getByTestId("scheduled-agents-modal-form-roles-hint")).toBeInTheDocument();
+
+    // Unticking "No roles" leaves nothing picked either.
+    fireEvent.click(noRoles);
+    fireEvent.click(noRoles);
+    expect(noRoles).toHaveAttribute("aria-pressed", "false");
+    expect(saveBtn.disabled).toBe(true);
+  });
+
+  it("T-17c: editing a task saved with roles: [] shows \"No roles\" picked and saves roles: []", async () => {
+    listScheduledAgentsMock.mockResolvedValueOnce([makeRow({ roles: [] })]);
+    listRolesForHostMock.mockResolvedValue([{ name: "assistant", description: "" }]);
+    updateScheduledAgentMock.mockResolvedValueOnce({});
+    listScheduledAgentsMock.mockResolvedValue([]);
+    render(<ScheduledAgentsModal open={true} onOpenChange={vi.fn()} hostTree={ONE_HOST_TREE} />);
+    fireEvent.click(await screen.findByText("Morning triage"));
+    const noRoles = await screen.findByTestId("scheduled-agents-modal-form-no-roles");
+    expect(noRoles).toHaveAttribute("aria-pressed", "true");
+    const saveBtn = screen.getByTestId("scheduled-agents-modal-form-save") as HTMLButtonElement;
+    expect(saveBtn.disabled).toBe(false);
+    fireEvent.click(saveBtn);
+    await waitFor(() => expect(updateScheduledAgentMock).toHaveBeenCalledTimes(1));
+    expect(JSON.stringify(updateScheduledAgentMock.mock.calls[0])).toContain('"roles":[]');
+  });
+
+  it("T-17d: editing a task with roles shows them picked, not \"No roles\"", async () => {
+    listScheduledAgentsMock.mockResolvedValueOnce([makeRow({ roles: ["assistant"] })]);
+    render(<ScheduledAgentsModal open={true} onOpenChange={vi.fn()} hostTree={ONE_HOST_TREE} />);
+    fireEvent.click(await screen.findByText("Morning triage"));
+    const noRoles = await screen.findByTestId("scheduled-agents-modal-form-no-roles");
+    expect(noRoles).toHaveAttribute("aria-pressed", "false");
+    expect(screen.getByTestId("scheduled-agents-modal-form-role-selected-assistant")).toBeInTheDocument();
+  });
+
+  it("T-17e: create only offers machines that can host agents", async () => {
+    listScheduledAgentsMock.mockResolvedValueOnce([]);
+    const tree: HostFolder = {
+      name: "root",
+      children: [
+        ONE_HOST_TREE.children[0] as never,
+        { ...(ONE_HOST_TREE.children[0] as unknown as Record<string, unknown>), id: "2", name: "winbox", runsFleetSubstrate: false } as never,
+        { ...(ONE_HOST_TREE.children[0] as unknown as Record<string, unknown>), id: "3", name: "fleet-b" } as never,
+      ],
+    };
+    render(<ScheduledAgentsModal open={true} onOpenChange={vi.fn()} hostTree={tree} />);
+    await screen.findByTestId("scheduled-agents-modal-empty-state");
+    fireEvent.click(screen.getByTestId("scheduled-agents-modal-add-button"));
+    await screen.findByTestId("scheduled-agents-modal-form-host-option-1");
+    expect(screen.getByTestId("scheduled-agents-modal-form-host-option-3")).toBeInTheDocument();
+    expect(screen.queryByTestId("scheduled-agents-modal-form-host-option-2")).toBeNull();
+  });
+
+  it("T-17f: one eligible + one ineligible host → the eligible one is auto-picked, no host picker", async () => {
+    listScheduledAgentsMock.mockResolvedValueOnce([]);
+    const tree: HostFolder = {
+      name: "root",
+      children: [
+        ONE_HOST_TREE.children[0] as never,
+        { ...(ONE_HOST_TREE.children[0] as unknown as Record<string, unknown>), id: "2", name: "winbox", runsFleetSubstrate: false } as never,
+      ],
+    };
+    render(<ScheduledAgentsModal open={true} onOpenChange={vi.fn()} hostTree={tree} />);
+    await screen.findByTestId("scheduled-agents-modal-empty-state");
+    fireEvent.click(screen.getByTestId("scheduled-agents-modal-add-button"));
+    await screen.findByTestId("scheduled-agents-modal-form-no-roles");
+    expect(screen.queryByTestId("scheduled-agents-modal-form-host")).toBeNull();
+    expect(listRolesForHostMock).toHaveBeenCalledWith(1);
+  });
 });
+
+/** Open the create form on the one-host tree with a name + prompt filled in. */
+async function openCreateForm(): Promise<void> {
+  render(
+    <ScheduledAgentsModal
+      open={true}
+      onOpenChange={vi.fn()}
+      hostTree={ONE_HOST_TREE}
+    />,
+  );
+  await screen.findByTestId("scheduled-agents-modal-empty-state");
+  fireEvent.click(screen.getByTestId("scheduled-agents-modal-add-button"));
+  fireEvent.change(await screen.findByTestId("scheduled-agents-modal-form-name"), {
+    target: { value: "no-roles" },
+  });
+  fireEvent.change(screen.getByTestId("scheduled-agents-modal-form-prompt"), {
+    target: { value: "x" },
+  });
+  await screen.findByTestId("scheduled-agents-modal-form-no-roles");
+}
 
 describe("ScheduledAgentsModal: Run now", () => {
   it("T-18: Kebab → Run now → POST run-now + success toast", async () => {

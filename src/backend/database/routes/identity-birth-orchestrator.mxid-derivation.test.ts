@@ -592,3 +592,102 @@ describe("Step 6 integration (runRelayMintAndWrite MXID derivation)", () => {
     expect((endedEvent as { failedStep?: number }).failedStep).toBe(1);
   }, 30_000);
 });
+
+// ---------------------------------------------------------------------------
+// Folder-collision skip (2026-10-18): MXID-free does not imply folder-free.
+// Legacy archived agents sit under identities-archive/<folder> where the
+// folder name differs from their MXID, so a free @ace can still collide
+// with identities-archive/ace at retire time.
+// ---------------------------------------------------------------------------
+
+describe("takenFolderNames — candidate skipped when its folder exists on host", () => {
+  it("deriveMxidWithOrdinal skips a taken localpart without consulting Synapse for it", async () => {
+    const countFn = vi.fn().mockResolvedValue({ ok: true, total: 0 });
+    const result = await deriveMxidWithOrdinal("ace", "matrix.example.com", countFn, {
+      takenFolderNames: new Set(["ace", "ace-2"]),
+      hostId: 7,
+    });
+    expect(result).toBe("@ace-3:matrix.example.com");
+    expect(countFn.mock.calls.map((c) => c[0])).toEqual(["@ace-3:matrix.example.com"]);
+  });
+
+  it("roleless birth: archive holds 'ace' (@ace free in Synapse) → mints @ace-2", async () => {
+    const mintMock = vi.fn().mockResolvedValue({
+      ok: true,
+      mxid: "@ace-2:mock.homeserver.local",
+      password: "mock",
+      status: 201,
+    });
+    const countMock = vi.fn().mockResolvedValue({ ok: true, total: 0 });
+    const deps = makeDeps({
+      matrixCreateOrUpdateUser: mintMock,
+      matrixCountUsersMatching: countMock,
+      takenFolderNames: new Set(["ace", "bob-coordinator"]),
+    });
+    const opts = makeOpts({
+      name: "ace",
+      role: undefined,
+      poolPicked: true,
+      creatorUsername: "zoey",
+    });
+
+    const { emit } = collectEvents();
+    const birthPromise = birthIdentity(opts, emit, deps);
+    await vi.runAllTimersAsync();
+    await birthPromise;
+
+    expect(mintMock).toHaveBeenCalledTimes(1);
+    expect(mintMock.mock.calls[0]?.[0]).toBe("@ace-2:mock.homeserver.local");
+    expect(countMock.mock.calls.map((c) => c[0])).toEqual([
+      "@ace-2:mock.homeserver.local",
+    ]);
+  }, 30_000);
+
+  it("role-holding pool birth: folder 'willow-skynet-maintainer' taken (MXID free) → mints -2", async () => {
+    const mintMock = vi.fn().mockResolvedValue({
+      ok: true,
+      mxid: "@willow-skynet-maintainer-2:mock.homeserver.local",
+      password: "mock",
+      status: 201,
+    });
+    const countMock = vi.fn().mockResolvedValue({ ok: true, total: 0 });
+    const deps = makeDeps({
+      matrixCreateOrUpdateUser: mintMock,
+      matrixCountUsersMatching: countMock,
+      takenFolderNames: new Set(["willow-skynet-maintainer"]),
+    });
+    const opts = makeOpts({
+      name: "willow",
+      role: "skynet-maintainer",
+      poolPicked: true,
+    });
+
+    const { emit } = collectEvents();
+    const birthPromise = birthIdentity(opts, emit, deps);
+    await vi.runAllTimersAsync();
+    await birthPromise;
+
+    expect(mintMock.mock.calls[0]?.[0]).toBe(
+      "@willow-skynet-maintainer-2:mock.homeserver.local",
+    );
+    expect(countMock).toHaveBeenCalledTimes(1);
+  }, 30_000);
+
+  it("takenFolderNames absent → behavior unchanged (bare handle minted)", async () => {
+    const mintMock = vi.fn().mockResolvedValue({
+      ok: true,
+      mxid: "@ace:mock.homeserver.local",
+      password: "mock",
+      status: 201,
+    });
+    const deps = makeDeps({ matrixCreateOrUpdateUser: mintMock });
+    const opts = makeOpts({ name: "ace", role: undefined, poolPicked: true, creatorUsername: "zoey" });
+
+    const { emit } = collectEvents();
+    const birthPromise = birthIdentity(opts, emit, deps);
+    await vi.runAllTimersAsync();
+    await birthPromise;
+
+    expect(mintMock.mock.calls[0]?.[0]).toBe("@ace:mock.homeserver.local");
+  }, 30_000);
+});

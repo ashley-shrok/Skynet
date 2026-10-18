@@ -655,11 +655,12 @@ menu in the header and no "new group conversation" control in the app.
   it myself." Roles are optional. The role picker is a multi-select;
   picking several writes them to the identity file as
   `roles: [a, b, ...]` in the order they were picked. There is no host
-  step: the dropdown lists the roles of every machine the user has, in
-  one section per machine (alphabetical) when there are several and with
-  no machine names at all when there is one. Each list starts with a
-  **No roles** entry: at the top of the flat list, preselected, when the
-  user has one machine; at the top of each machine's section when there
+  step: the dropdown lists the roles of every machine the user has that
+  can host agents (machines set to run the fleet), in one section per
+  machine (alphabetical) when there are several and with no machine names
+  at all when there is one. Each list starts with a **No roles** entry:
+  at the top of the flat list, preselected, when the user has one such
+  machine; at the top of each machine's section when there
   are several, with nothing preselected and **Create** disabled until
   something is picked. "No roles" and roles are mutually exclusive —
   picking one clears the other, and unticking the last role falls back to
@@ -988,7 +989,8 @@ crown, then gear.
 
 - **🕐 Clock — scheduled tasks.** Opens the modal that lists all
   existing scheduled tasks (edit or delete inline) plus a **"new
-  scheduled task"** button that asks for name, prompt, zero or more roles,
+  scheduled task"** button that asks for name, prompt, roles (or an
+  explicit **No roles** pick — Save waits until one is chosen),
   and the schedule (daily / weekly / monthly / yearly / interval /
   one-shot — with multiple times per day, every-N weeks/months, an
   interval time window and start, and an end date or run count).
@@ -1750,7 +1752,8 @@ The user creates and manages scheduled tasks via the **clock icon** in
 the sidebar footer, beside the gear. The modal lists all
 existing scheduled tasks (edit or delete inline) and has a "new
 scheduled task" button which asks for name, prompt (with an **Archive if
-nothing to report** tick-box under it, off by default), zero or more roles,
+nothing to report** tick-box under it, off by default), roles or an
+explicit **No roles** pick (Save waits until one is chosen),
 and the schedule (daily / weekly / monthly / yearly / interval / one-shot, plus
 multiple times, every-N weeks/months, interval window/start, and ends after a
 date or N runs). Each row shows

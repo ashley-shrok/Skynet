@@ -7,12 +7,15 @@
 //      Helper text below explains delete-and-recreate is the rename path.
 //   2) Prompt (textarea, min-height ~96px) — hint copy verbatim from the
 //      shape file § Shape.
-//   3) Roles (multi-select chip-picker, optional — zero roles is allowed) —
-//      populated via listRolesForHost when a host is selected; dim "Pick a
-//      host first" when none.
+//   3) Roles (multi-select chip-picker) — populated via listRolesForHost when
+//      a host is selected; dim "Pick a host first" when none. Zero roles is
+//      allowed but must be picked deliberately: a "No roles" chip leads the
+//      list, exclusive with the roles (same choice as the new-conversation
+//      dialog). Save stays disabled until "No roles" or a role is picked.
 //   4) Host (single-select chip-picker) — disabled on edit-mode per D-21
 //      (cross-host management is delete-and-recreate). Auto-selects the
-//      single available host per Phase 84 CreateProjectModal pattern.
+//      single available host per Phase 84 CreateProjectModal pattern. Only
+//      machines that can host agents (runsFleetSubstrate) are offered.
 //   5) Schedule (segmented control) — Daily / Weekly / Monthly / Yearly /
 //      Interval / One-shot, backed by WakeupFormShared.FormSchedule
 //      discriminated union + hydrateFormSchedule / buildSchedule /
@@ -51,6 +54,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { X } from "lucide-react";
+import { useTranslation } from "react-i18next";
 import { cn } from "@/lib/utils";
 import {
   type FormSchedule,
@@ -156,6 +160,8 @@ const SCHEDULE_INPUT_CLASS = cn(
   "focus:border-[hsla(220,65%,55%,0.5)]",
 );
 
+const PICK_ROLES_HINT = "Pick roles, or No roles.";
+
 // ---------------------------------------------------------------------------
 // Weekday label helper
 // ---------------------------------------------------------------------------
@@ -200,6 +206,7 @@ export function ScheduledAgentsModalForm({
   onCancel,
   onSaved,
 }: ScheduledAgentsModalFormProps): JSX.Element {
+  const { t } = useTranslation();
   // ─── Form state ──────────────────────────────────────────────────────
   const [name, setName] = useState<string>(initialSpec?.name ?? "");
   const [prompt, setPrompt] = useState<string>(initialSpec?.prompt ?? "");
@@ -208,6 +215,22 @@ export function ScheduledAgentsModalForm({
   );
   const [selectedRoles, setSelectedRoles] = useState<string[]>(
     initialSpec?.roles ?? [],
+  );
+  // "No roles" picked — never true while selectedRoles is non-empty. Not
+  // preselected for a new task (the user must choose); an existing task
+  // saved with `roles: []` opens with it picked.
+  const [noRoles, setNoRoles] = useState<boolean>(
+    initialSpec !== null && (initialSpec.roles ?? []).length === 0,
+  );
+  const rolesPicked = noRoles || selectedRoles.length > 0;
+
+  // Scheduled tasks spawn agents, so a new task can only go to a machine that
+  // can host agents (runs the fleet substrate) — same set the new-conversation
+  // dialog offers in agent mode. Edit mode resolves its locked host from the
+  // full list below.
+  const agentHosts = useMemo(
+    () => flatHosts.filter((h) => h.runsFleetSubstrate === true),
+    [flatHosts],
   );
 
   // Host — for edit mode, resolve from initialSpec.hostId (best-effort
@@ -252,10 +275,10 @@ export function ScheduledAgentsModalForm({
   // ─── Auto-select single available host (Phase 84 pattern) ────────────
   // Only in create mode — edit mode inherits initialHost above.
   useEffect(() => {
-    if (mode === "create" && flatHosts.length === 1 && selectedHost === null) {
-      setSelectedHost(flatHosts[0]);
+    if (mode === "create" && agentHosts.length === 1 && selectedHost === null) {
+      setSelectedHost(agentHosts[0]);
     }
-  }, [mode, flatHosts, selectedHost]);
+  }, [mode, agentHosts, selectedHost]);
 
   // ─── Fetch roles for the selected host ────────────────────────────────
   useEffect(() => {
@@ -299,6 +322,10 @@ export function ScheduledAgentsModalForm({
     }
     if (selectedHost === null) {
       setError("Pick a host to save.");
+      return;
+    }
+    if (!rolesPicked) {
+      setError(PICK_ROLES_HINT);
       return;
     }
     const scheduleError = isSensor ? null : validateForm(formSchedule);
@@ -356,7 +383,7 @@ export function ScheduledAgentsModalForm({
         name: mode === "edit" ? initialSpecRef.current!.name : trimmedName,
         prompt: trimmedPrompt,
         schedule: scheduleObj,
-        roles: selectedRoles,
+        roles: noRoles ? [] : selectedRoles,
         enabled: enabledPassthrough,
         archive_if_nothing_to_report: archiveIfNothingToReport,
       };
@@ -374,7 +401,7 @@ export function ScheduledAgentsModalForm({
           schedule: scheduleObj,
           scheduleHuman: "",
           prompt: trimmedPrompt,
-          roles: selectedRoles,
+          roles: noRoles ? [] : selectedRoles,
           archive_if_nothing_to_report: archiveIfNothingToReport,
             colorHue: null,
           // Fire timestamps unknown on just-created rows — the authoritative
@@ -400,7 +427,7 @@ export function ScheduledAgentsModalForm({
           schedule: scheduleObj,
           scheduleHuman: prev.scheduleHuman,
           prompt: trimmedPrompt,
-          roles: selectedRoles,
+          roles: noRoles ? [] : selectedRoles,
           archive_if_nothing_to_report: archiveIfNothingToReport,
             colorHue: prev.colorHue,
           // Preserve the server-known fire timestamps during optimistic
@@ -423,6 +450,8 @@ export function ScheduledAgentsModalForm({
     prompt,
     archiveIfNothingToReport,
     selectedRoles,
+    noRoles,
+    rolesPicked,
     selectedHost,
     formSchedule,
     isSensor,
@@ -430,7 +459,10 @@ export function ScheduledAgentsModalForm({
   ]);
 
   // ─── Chip toggle helpers ──────────────────────────────────────────────
+  // Picking a role clears "No roles"; unticking the last role leaves nothing
+  // picked (the user chooses again — no silent fall back to "No roles").
   const toggleRole = useCallback((roleName: string): void => {
+    setNoRoles(false);
     setSelectedRoles((current) =>
       current.includes(roleName)
         ? current.filter((r) => r !== roleName)
@@ -441,6 +473,13 @@ export function ScheduledAgentsModalForm({
   const removeRole = useCallback((roleName: string): void => {
     setSelectedRoles((current) => current.filter((r) => r !== roleName));
   }, []);
+
+  // "No roles" clears any picked roles; clicking it again unpicks it.
+  const toggleNoRoles = useCallback((): void => {
+    setNoRoles((current) => !current);
+    setSelectedRoles([]);
+  }, []);
+  const noRolesLabel = t("nav.newSessionNoRoles", { defaultValue: "No roles" });
 
   const addableRoles = useMemo<string[]>(() => {
     const set = new Set(selectedRoles);
@@ -469,14 +508,15 @@ export function ScheduledAgentsModalForm({
   // to only one host — auto-select handles it, and rendering a picker for
   // a single option is noise. Edit mode always shows the locked chip so
   // the user knows which host owns the scheduled agent they're editing.
-  const hostFieldHidden = mode === "create" && flatHosts.length === 1;
+  const hostFieldHidden = mode === "create" && agentHosts.length === 1;
   const scheduleValidationMsg = isSensor ? null : validateForm(formSchedule);
   const saveDisabled =
     inFlight ||
     scheduleValidationMsg !== null ||
     name.trim().length === 0 ||
     prompt.trim().length === 0 ||
-    selectedHost === null;
+    selectedHost === null ||
+    !rolesPicked;
 
   return (
     <div
@@ -594,6 +634,21 @@ export function ScheduledAgentsModalForm({
             </p>
           ) : (
             <>
+              {/* "No roles" leads the picker — a deliberate choice, exclusive
+                  with the roles below. */}
+              <div className="flex flex-row flex-wrap gap-1.5">
+                <button
+                  type="button"
+                  onClick={toggleNoRoles}
+                  aria-pressed={noRoles}
+                  className="inline-flex items-center gap-1 rounded-full px-2 py-[2px] text-[11px] font-medium leading-[16px] cursor-pointer"
+                  style={noRoles ? ROLE_CHIP_SELECTED : ROLE_CHIP_ADDABLE}
+                  data-testid="scheduled-agents-modal-form-no-roles"
+                >
+                  <span>{noRolesLabel}</span>
+                  {noRoles && <X size={10} />}
+                </button>
+              </div>
               {/* Selected chips */}
               {selectedRoles.length > 0 && (
                 <div className="flex flex-row flex-wrap gap-1.5">
@@ -629,9 +684,12 @@ export function ScheduledAgentsModalForm({
                   ))}
                 </div>
               )}
-              {selectedRoles.length === 0 && addableRoles.length === 0 && (
-                <p className="text-[11px] text-[color:var(--color-pv-fg-dim)]">
-                  No roles on this host.
+              {!rolesPicked && (
+                <p
+                  className="text-[11px] text-[color:var(--color-pv-fg-dim)]"
+                  data-testid="scheduled-agents-modal-form-roles-hint"
+                >
+                  {PICK_ROLES_HINT}
                 </p>
               )}
             </>
@@ -670,12 +728,12 @@ export function ScheduledAgentsModalForm({
             </>
           ) : (
             <div className="flex flex-row flex-wrap gap-1.5">
-              {flatHosts.length === 0 && (
+              {agentHosts.length === 0 && (
                 <p className="text-[11px] text-[color:var(--color-pv-fg-dim)]">
                   No hosts available.
                 </p>
               )}
-              {flatHosts.map((h) => {
+              {agentHosts.map((h) => {
                 const active = selectedHost?.id === h.id;
                 return (
                   <button

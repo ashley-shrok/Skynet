@@ -460,6 +460,23 @@ export interface BirthDeps {
    * file §"What would make it wrong" bullet 7.
    */
   discoverIdentitySessionFile: (conn: SSHClient | null, identityName: string) => Promise<string | null>;
+  /**
+   * Folder names already present on the TARGET host under
+   * `~/fleet/identities/` OR `~/fleet/identities-archive/` (raw folder names,
+   * one listing per birth taken by the caller). The Step 1 ordinal search
+   * skips any candidate whose localpart is in this set, in addition to the
+   * Synapse check.
+   *
+   * Why: MXID-unique does NOT imply folder-unique. Legacy archived agents live
+   * under `identities-archive/<folder>` where the folder name doesn't match
+   * their MXID (e.g. `identities-archive/ace` holding `@ace-box-maintainer`),
+   * so a free `@ace` would yield a folder that later collides at archive time
+   * (agent-supervisor retire refuses: both active and archive folders exist).
+   *
+   * Absent / undefined → no folder check (fall-open; listing failed or the
+   * caller has none).
+   */
+  takenFolderNames?: ReadonlySet<string>;
 }
 
 // ---------------------------------------------------------------------------
@@ -775,6 +792,8 @@ async function deriveMxidAndFolderName(
       | { ok: true; total: number }
       | { ok: false; status: number; error: string }
     >;
+    takenFolderNames?: ReadonlySet<string>;
+    hostId?: number;
   },
 ): Promise<{ mxid: string; identityFolderName: string }> {
   // Server-name suffix for the mxid — same branching that used to live at
@@ -815,6 +834,7 @@ async function deriveMxidAndFolderName(
     baseHandle,
     serverName,
     deps.matrixCountUsersMatching,
+    { takenFolderNames: deps.takenFolderNames, hostId: deps.hostId },
   );
 
   // identityFolderName = MXID localpart (strip leading `@` and `:<serverName>`
@@ -947,6 +967,12 @@ export function composeMxidLocalpart(name: string, role: string): string {
  *      Return the first total===0.
  *   3. All busy → throws `mxid_ordinal_exhausted: <baseHandle>`.
  *
+ * Folder collision (2026-10-18): when `opts.takenFolderNames` is given, a
+ * candidate whose localpart names an existing folder on the target host
+ * (active OR archived) is skipped before Synapse is consulted — MXID-unique
+ * does not imply folder-unique for legacy archived agents whose folder name
+ * differs from their MXID.
+ *
  * Any countFn failure (ok:false) throws `admin_count_failed: <error> (<status>)`
  * which Step 6's runStep catches and attributes to step 6 as a step-failed
  * SSE event (mirrors the existing admin_mint_failed / admin_login_failed
@@ -961,7 +987,9 @@ export async function deriveMxidWithOrdinal(
     | { ok: true; total: number }
     | { ok: false; status: number; error: string }
   >,
+  opts?: { takenFolderNames?: ReadonlySet<string>; hostId?: number },
 ): Promise<string> {
+  const taken = opts?.takenFolderNames;
   // n=1 is the bare handle (no ordinal suffix); n=2..MXID_ORDINAL_MAX carry
   // the `-<n>` suffix. Cap total iterations at MXID_ORDINAL_MAX per T-80-03b-02.
   for (let n = 1; n <= MXID_ORDINAL_MAX; n++) {
@@ -969,6 +997,18 @@ export async function deriveMxidWithOrdinal(
       n === 1
         ? `@${baseHandle}:${serverName}`
         : `@${baseHandle}-${n}:${serverName}`;
+    const localpart = n === 1 ? baseHandle : `${baseHandle}-${n}`;
+    if (taken?.has(localpart)) {
+      databaseLogger.info(
+        "Identity birth: candidate handle skipped — folder already exists on host",
+        {
+          operation: "identity_birth_candidate_folder_taken",
+          hostId: opts?.hostId,
+          candidate: localpart,
+        },
+      );
+      continue;
+    }
     const result = await countFn(candidate);
     if (result.ok === false) {
       // Explicit `=== false` narrowing matches the existing pattern at Step 6's
@@ -1510,6 +1550,8 @@ export async function birthIdentity(
           matrixServerName: deps.matrixServerName,
           matrixHomeserver: deps.matrixHomeserver,
           matrixCountUsersMatching: deps.matrixCountUsersMatching,
+          takenFolderNames: deps.takenFolderNames,
+          hostId: opts.hostId,
         },
       );
       mxid = derived.mxid;

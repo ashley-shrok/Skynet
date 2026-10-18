@@ -390,6 +390,8 @@ const typedNameToSlug = (name: string | undefined): string | null => {
 /**
  * Bump a typed slug past existing identity folders on the target host
  * (`-2`, `-3`, ...), mirroring identity-birth.ts's resolveFreeIdentitySlug.
+ * `existing` holds active AND archived raw folder names — a slug matching an
+ * archived folder would collide when the newborn is later archived.
  * Pretty-name slugs contain no digits, so a digit suffix is unambiguous.
  */
 const freeTypedSlug = (base: string, existing: ReadonlySet<string>): string => {
@@ -635,10 +637,13 @@ const doBirth = async (item: PendingBirth, deps: WorkerDeps): Promise<void> => {
   // enumeration + tier-3 (full-pool-shuffled) ranker output — preserving the
   // pre-Phase-128 "never fail birth over pool-picker unreachability" behavior.
   let activeNames = new Set<string>();
-  // Full active folder names (not reduced to pool bases) — the typed-name
-  // path bumps its slug against these, mirroring the dialog's
-  // resolveFreeIdentitySlug pre-check.
-  let activeFolderNames = new Set<string>();
+  // Active ∪ archived RAW folder names (archive entries NOT reduced to pool
+  // bases). The typed-name path bumps its slug against these, mirroring the
+  // dialog's resolveFreeIdentitySlug pre-check, and they are handed to the
+  // orchestrator as BirthDeps.takenFolderNames so its
+  // ordinal search skips handles whose folder already exists on the host.
+  // Undefined when enumeration failed entirely (fall-open).
+  let takenFolderNames: Set<string> | undefined;
   let archivedEntries: readonly ArchivedIdentityEntry[] = [];
   // Roleless request with no `users` of its own, naming its requester:
   // inherit who can see the requester (read over the same connection below),
@@ -756,7 +761,10 @@ const doBirth = async (item: PendingBirth, deps: WorkerDeps): Promise<void> => {
     // (`clipper`) before handing to the ranker — its filter compares against
     // pool bases, and a shape mismatch silently bypasses the LRU logic
     // (2026-09-27 regression fix).
-    activeFolderNames = new Set(activeList);
+    takenFolderNames = new Set([
+      ...activeList,
+      ...archivedList.map((e) => e.name),
+    ]);
     activeNames = new Set(activeList.map(deriveBaseFromFolderName));
     archivedEntries = archivedList.map((e) => ({
       name: deriveBaseFromFolderName(e.name),
@@ -816,6 +824,8 @@ const doBirth = async (item: PendingBirth, deps: WorkerDeps): Promise<void> => {
   // retry loop just walks the ranked list, skipping locally-collided names.
   const ranked = rankPoolCandidatesWithTiers({ pool, ...rankInput });
 
+  birthDeps.takenFolderNames = takenFolderNames;
+
   for (let attempt = 0; attempt < MAX_POOL_PICK_ATTEMPTS; attempt++) {
     const pickedCandidate =
       typedNameSlug !== null
@@ -823,7 +833,7 @@ const doBirth = async (item: PendingBirth, deps: WorkerDeps): Promise<void> => {
         : ranked.find((c) => !excluded.has(c.name));
     const pickedName =
       typedNameSlug !== null
-        ? freeTypedSlug(typedNameSlug, activeFolderNames)
+        ? freeTypedSlug(typedNameSlug, takenFolderNames ?? new Set<string>())
         : pickedCandidate?.name;
     if (pickedName === undefined) {
       // Every ranked candidate has already collided — pool is effectively

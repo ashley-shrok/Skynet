@@ -54,6 +54,7 @@ import {
   writeAvatarSiblingFile,
 } from "../../claude-session/identity-artifact-reader.js";
 import pathModule from "node:path";
+import { getLocalArchivedIdentitiesRoot } from "../../claude-session/list-archived-identity-keys.js";
 import { resolveHostById } from "../../ssh/host-resolver.js";
 // Phase 98 Plan 07: whitelist voice-value validation on identity birth. Same
 // contract as identities.ts's PUT handler — any voice value that isn't a
@@ -163,15 +164,19 @@ async function identityFolderExistsOnHost(
       `probe name unsafe for shell interpolation: ${JSON.stringify(name)}`,
     );
   }
+  // Active OR archived: a typed name whose folder already sits in
+  // identities-archive/ would collide when the newborn is later archived
+  // (agent-supervisor retire refuses when both folders exist).
   if (isLocalHostId(hostId)) {
-    const candidate = pathModule.join(getLocalIdentitiesRoot(), name);
-    try {
-      await fsp.stat(candidate);
-      return true;
-    } catch (err) {
-      if ((err as NodeJS.ErrnoException).code === "ENOENT") return false;
-      throw err;
+    for (const root of [getLocalIdentitiesRoot(), getLocalArchivedIdentitiesRoot()]) {
+      try {
+        await fsp.stat(pathModule.join(root, name));
+        return true;
+      } catch (err) {
+        if ((err as NodeJS.ErrnoException).code !== "ENOENT") throw err;
+      }
     }
+    return false;
   }
   // Connect + probe + end hold one per-host semaphore slot (verify:ssh-cap).
   // The suffix loop calls this serially, so at most one slot per birth.
@@ -185,7 +190,7 @@ async function identityFolderExistsOnHost(
       const output = await Promise.race([
         execCommand(
           conn,
-          `if [ -d "$HOME/fleet/identities/${name}" ]; then echo exists; else echo missing; fi`,
+          `if [ -d "$HOME/fleet/identities/${name}" ] || [ -d "$HOME/fleet/identities-archive/${name}" ]; then echo exists; else echo missing; fi`,
         ),
         new Promise<string>((_, reject) =>
           setTimeout(
@@ -195,6 +200,69 @@ async function identityFolderExistsOnHost(
         ),
       ]);
       return output.trim() === "exists";
+    } finally {
+      if (conn) {
+        try {
+          conn.end();
+        } catch {
+          /* best-effort */
+        }
+      }
+    }
+  });
+}
+
+/**
+ * List every folder name under `~/fleet/identities/` AND
+ * `~/fleet/identities-archive/` on the target host — ONE listing per birth.
+ * Handed to the orchestrator as BirthDeps.takenFolderNames so its ordinal
+ * search skips a handle whose folder already exists (MXID-free in Synapse
+ * does not mean folder-free: legacy archived folders don't match their MXID).
+ *
+ * Local: readdir both roots (a missing root is empty). Remote: one SSH exec
+ * under the per-host semaphore, same connect/timeout pattern as
+ * identityFolderExistsOnHost. Throws on failure — the caller falls open.
+ */
+async function listTakenFolderNamesOnHost(
+  host: unknown,
+  hostId: number,
+): Promise<Set<string>> {
+  if (isLocalHostId(hostId)) {
+    const names = new Set<string>();
+    for (const root of [getLocalIdentitiesRoot(), getLocalArchivedIdentitiesRoot()]) {
+      try {
+        for (const n of await fsp.readdir(root)) names.add(n);
+      } catch (err) {
+        if ((err as NodeJS.ErrnoException).code !== "ENOENT") throw err;
+      }
+    }
+    return names;
+  }
+  return getHostSemaphore(hostId).run(async () => {
+    let conn: Awaited<ReturnType<typeof connectOneShot>> | null = null;
+    try {
+      conn = await connectOneShot(
+        host as Parameters<typeof connectOneShot>[0],
+        PROBE_SSH_EXEC_TIMEOUT_MS,
+      );
+      const output = await Promise.race([
+        execCommand(
+          conn,
+          `ls -1 "$HOME/fleet/identities" 2>/dev/null; ls -1 "$HOME/fleet/identities-archive" 2>/dev/null; true`,
+        ),
+        new Promise<string>((_, reject) =>
+          setTimeout(
+            () => reject(new Error("probe_ssh_exec_timeout")),
+            PROBE_SSH_EXEC_TIMEOUT_MS,
+          ),
+        ),
+      ]);
+      return new Set(
+        output
+          .split("\n")
+          .map((l) => l.trim())
+          .filter((l) => l.length > 0),
+      );
     } finally {
       if (conn) {
         try {
@@ -729,7 +797,39 @@ router.post(
     // Phase 68 Plan 03: createIdentityRecord + getIdentityRecord removed —
     // no DB record is created; disk folder + frontmatter + avatar sibling ARE
     // the identity's identity. forceSave also removed (no DB mutation to save).
+    // -----------------------------------------------------------------------
+    // Folder-collision listing (2026-10-18): one listing of the target
+    // host's active + archived identity folders, handed to the orchestrator
+    // so its ordinal search skips handles whose folder already exists.
+    // Fall-open on failure (consistent with resolveFreeIdentitySlug).
+    // -----------------------------------------------------------------------
+    let takenFolderNames: Set<string> | undefined;
+    try {
+      const listHost = isLocalHostId(hostId)
+        ? null
+        : await resolveHostById(hostId, userId);
+      if (isLocalHostId(hostId) || listHost) {
+        takenFolderNames = await listTakenFolderNamesOnHost(listHost, hostId);
+      } else {
+        databaseLogger.warn(
+          "identity-birth: folder listing skipped — host unresolved",
+          {
+            operation: "identity_birth_folder_listing_failed",
+            hostId,
+            error: "host_unresolved",
+          },
+        );
+      }
+    } catch (err) {
+      databaseLogger.warn("identity-birth: folder listing failed — falling open", {
+        operation: "identity_birth_folder_listing_failed",
+        hostId,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+
     const deps: BirthDeps = {
+      takenFolderNames,
       connectOneShot,
       execCommand,
       isLocalHostId,

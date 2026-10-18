@@ -90,6 +90,13 @@ vi.mock("node:fs/promises", async () => {
       err.code = "ENOENT";
       throw err;
     }),
+    // Folder-collision listing (2026-10-18): the route readdirs the local
+    // active + archive roots. Default: both absent → empty listing.
+    readdir: vi.fn().mockImplementation(async () => {
+      const err = new Error("ENOENT") as NodeJS.ErrnoException;
+      err.code = "ENOENT";
+      throw err;
+    }),
   };
 });
 
@@ -643,6 +650,188 @@ it("Test 2h (code-review Finding #3): cap-exhausted suffix loop → 400 user-fac
   const parsed = JSON.parse(result.body);
   expect(parsed.error).toMatch(/distinctive name/i);
   expect(mockBirthIdentity).not.toHaveBeenCalled();
+});
+
+// ---------------------------------------------------------------------------
+// Folder-collision listing (2026-10-18): the route lists the target host's
+// active + archived identity folders ONCE and hands them to the orchestrator
+// as deps.takenFolderNames; the typed-name pre-check also checks the archive.
+// ---------------------------------------------------------------------------
+
+describe("folder-collision listing", () => {
+  const ARCHIVE_ROOT = "/tmp/test-archive-root";
+  let origArchiveEnv: string | undefined;
+  beforeEach(() => {
+    origArchiveEnv = process.env.IDENTITIES_ARCHIVE_HOST_DIR;
+    process.env.IDENTITIES_ARCHIVE_HOST_DIR = ARCHIVE_ROOT;
+  });
+  afterEach(async () => {
+    if (origArchiveEnv === undefined) delete process.env.IDENTITIES_ARCHIVE_HOST_DIR;
+    else process.env.IDENTITIES_ARCHIVE_HOST_DIR = origArchiveEnv;
+    const fsp = await import("node:fs/promises");
+    (fsp.readdir as Mock).mockImplementation(async () => {
+      const err = new Error("ENOENT") as NodeJS.ErrnoException;
+      err.code = "ENOENT";
+      throw err;
+    });
+    (fsp.stat as Mock).mockImplementation(async () => {
+      const err = new Error("ENOENT") as NodeJS.ErrnoException;
+      err.code = "ENOENT";
+      throw err;
+    });
+  });
+
+  const okBirth = () =>
+    mockBirthIdentity.mockImplementation(
+      async (_opts: unknown, emit: (e: unknown) => void) => {
+        emit({ type: "ended", ok: true });
+      },
+    );
+
+  it("local host: readdirs both roots and passes the union as deps.takenFolderNames", async () => {
+    const artifactReader = await import(
+      "../../claude-session/identity-artifact-reader.js"
+    );
+    (artifactReader.isLocalHostId as Mock).mockReturnValue(true);
+    const fsp = await import("node:fs/promises");
+    (fsp.readdir as Mock).mockImplementation(async (p: string) => {
+      if (p === "/tmp/test-identities-root") return ["bob-coordinator"];
+      if (p === ARCHIVE_ROOT) return ["ace"];
+      throw new Error(`unexpected readdir ${p}`);
+    });
+    okBirth();
+
+    const result = await httpPost(port, "/identities/birth", {
+      ...VALID_BODY,
+      name: "ace",
+      poolPicked: true,
+    });
+
+    expect(result.status).toBe(200);
+    const deps = mockBirthIdentity.mock.calls[0]?.[2] as {
+      takenFolderNames?: ReadonlySet<string>;
+    };
+    expect([...(deps.takenFolderNames ?? [])].sort()).toEqual([
+      "ace",
+      "bob-coordinator",
+    ]);
+  });
+
+  it("remote host: one SSH exec lists both dirs and passes the names through", async () => {
+    const artifactReader = await import(
+      "../../claude-session/identity-artifact-reader.js"
+    );
+    (artifactReader.isLocalHostId as Mock).mockReturnValue(false);
+    const resolver = await import("../../ssh/host-resolver.js");
+    (resolver.resolveHostById as Mock).mockResolvedValue({ id: 7, name: "remote" });
+    const oneShot = await import("../../ssh/ssh-one-shot.js");
+    const end = vi.fn();
+    (oneShot.connectOneShot as Mock).mockResolvedValue({ end });
+    const tmux = await import("../../ssh/tmux-helper.js");
+    const execSpy = tmux.execCommand as Mock;
+    execSpy.mockReset();
+    execSpy.mockResolvedValue("bob-coordinator\nace\n");
+    okBirth();
+
+    const result = await httpPost(port, "/identities/birth", {
+      ...VALID_BODY,
+      name: "ace",
+      poolPicked: true,
+    });
+
+    expect(result.status).toBe(200);
+    expect(execSpy).toHaveBeenCalledTimes(1);
+    const cmd = execSpy.mock.calls[0]?.[1] as string;
+    expect(cmd).toContain("fleet/identities\"");
+    expect(cmd).toContain("fleet/identities-archive");
+    expect(end).toHaveBeenCalled();
+    const deps = mockBirthIdentity.mock.calls[0]?.[2] as {
+      takenFolderNames?: ReadonlySet<string>;
+    };
+    expect([...(deps.takenFolderNames ?? [])].sort()).toEqual([
+      "ace",
+      "bob-coordinator",
+    ]);
+  });
+
+  it("listing failure falls open: orchestrator still runs with takenFolderNames undefined", async () => {
+    const artifactReader = await import(
+      "../../claude-session/identity-artifact-reader.js"
+    );
+    (artifactReader.isLocalHostId as Mock).mockReturnValue(true);
+    const fsp = await import("node:fs/promises");
+    (fsp.readdir as Mock).mockImplementation(async () => {
+      throw new Error("EACCES");
+    });
+    okBirth();
+
+    const result = await httpPost(port, "/identities/birth", {
+      ...VALID_BODY,
+      name: "ace",
+      poolPicked: true,
+    });
+
+    expect(result.status).toBe(200);
+    expect(mockBirthIdentity).toHaveBeenCalledTimes(1);
+    const deps = mockBirthIdentity.mock.calls[0]?.[2] as {
+      takenFolderNames?: ReadonlySet<string>;
+    };
+    expect(deps.takenFolderNames).toBeUndefined();
+  });
+
+  it("typed name: an archived folder of the same slug bumps the suffix", async () => {
+    const resolver = await import("../../ssh/host-resolver.js");
+    (resolver.resolveHostById as Mock).mockResolvedValue({ id: 7, name: "localhost" });
+    const artifactReader = await import(
+      "../../claude-session/identity-artifact-reader.js"
+    );
+    (artifactReader.isLocalHostId as Mock).mockReturnValue(true);
+    const fsp = await import("node:fs/promises");
+    (fsp.stat as Mock).mockImplementation(async (p: string) => {
+      if (p === `${ARCHIVE_ROOT}/zoey`) return {} as unknown;
+      const err = new Error("ENOENT") as NodeJS.ErrnoException;
+      err.code = "ENOENT";
+      throw err;
+    });
+    okBirth();
+
+    const body = { ...VALID_BODY, displayName: "Zoey" };
+    delete (body as Partial<typeof body>).name;
+    const result = await httpPost(port, "/identities/birth", body);
+
+    expect(result.status).toBe(200);
+    const callOpts = mockBirthIdentity.mock.calls[0]?.[0] as { name: string };
+    expect(callOpts.name).toBe("zoey-2");
+  });
+
+  it("typed name on a remote host: probe checks identities-archive too", async () => {
+    const resolver = await import("../../ssh/host-resolver.js");
+    (resolver.resolveHostById as Mock).mockResolvedValue({ id: 7, name: "remote" });
+    const artifactReader = await import(
+      "../../claude-session/identity-artifact-reader.js"
+    );
+    (artifactReader.isLocalHostId as Mock).mockReturnValue(false);
+    const oneShot = await import("../../ssh/ssh-one-shot.js");
+    (oneShot.connectOneShot as Mock).mockResolvedValue({ end: vi.fn() });
+    const tmux = await import("../../ssh/tmux-helper.js");
+    const execSpy = tmux.execCommand as Mock;
+    execSpy.mockReset();
+    execSpy.mockImplementation(async (_c: unknown, cmd: string) => {
+      if (cmd.startsWith("if [ -d")) {
+        return cmd.includes("identities-archive/zoey\"") ? "exists" : "missing";
+      }
+      return "";
+    });
+    okBirth();
+
+    const body = { ...VALID_BODY, displayName: "Zoey" };
+    delete (body as Partial<typeof body>).name;
+    const result = await httpPost(port, "/identities/birth", body);
+
+    expect(result.status).toBe(200);
+    const callOpts = mockBirthIdentity.mock.calls[0]?.[0] as { name: string };
+    expect(callOpts.name).toBe("zoey-2");
+  });
 });
 
 // ---------------------------------------------------------------------------

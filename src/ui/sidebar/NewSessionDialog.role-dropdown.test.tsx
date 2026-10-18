@@ -138,6 +138,8 @@ function makeHost(id: string, name: string, overrides: Partial<Host> = {}): Host
     quickActions: [],
     enableSsh: true,
     enableRdp: false,
+    // Can host agents — agent mode only offers such machines.
+    runsFleetSubstrate: true,
     enableVnc: false,
     enableTelnet: false,
     sshPort: 22,
@@ -631,6 +633,86 @@ describe("NewSessionDialog roles: \"No roles\" entry", () => {
     await waitFor(() => expect(pickedRoleValues()).toEqual(["tina"]));
     toggleNoRoles();
     await waitFor(() => expect(pickedRoleValues()).toEqual([NO_ROLES_VALUE]));
+  });
+});
+
+// Agent mode only offers machines that can host agents (runsFleetSubstrate).
+describe("NewSessionDialog roles: only machines that can host agents", () => {
+  const notFleet = makeHost("2", "winbox", { runsFleetSubstrate: false, enableSsh: false });
+  const noFlag = makeHost("3", "legacy", { runsFleetSubstrate: undefined });
+
+  it("ineligible hosts get no section, no \"No roles\" entry and no roles request", async () => {
+    mockListRolesForHost.mockImplementation(
+      rolesByHost({ 1: [role("tina")], 2: [role("ops")], 4: [role("em")] }),
+    );
+    renderDialog({
+      hostTree: {
+        name: "root",
+        children: [makeHost("1", "alpha"), notFleet, noFlag, makeHost("4", "delta")],
+      },
+    });
+    await waitFor(() => expect(roleOptionValues()).toHaveLength(2));
+    expect(roleListRows()).toEqual([
+      "# alpha", `1/${NO_ROLES_VALUE}`, "1/tina",
+      "# delta", `4/${NO_ROLES_VALUE}`, "4/em",
+    ]);
+    await new Promise((r) => setTimeout(r, 20));
+    expect(mockListRolesForHost.mock.calls.map((c) => c[0]).sort()).toEqual([1, 4]);
+  });
+
+  it("one eligible + one ineligible behaves as one machine: \"No roles\" preselected, Create goes to the eligible host", async () => {
+    mockListRolesForHost.mockImplementation(rolesByHost({ 1: [role("tina")], 2: [role("ops")] }));
+    mockOpenBirthStream.mockReturnValueOnce(emptyStream());
+    renderDialog({ hostTree: { name: "root", children: [makeHost("1", "alpha"), notFleet] } });
+    await waitFor(() => expect(roleOptionValues()).toEqual(["tina"]));
+    expect(roleListRows()).toEqual([NO_ROLES_VALUE, "tina"]);
+    expect(roleGroupHeaders()).toEqual([]);
+    expect(pickedRoleValues()).toEqual([NO_ROLES_VALUE]);
+    expect(mockListRolesForHost.mock.calls.map((c) => c[0])).toEqual([1]);
+    closeRoleDropdown();
+    typeCustomName();
+    await waitFor(() => expect(createBtn().disabled).toBe(false));
+    fireEvent.click(createBtn());
+    await waitFor(() => expect(mockOpenBirthStream).toHaveBeenCalledTimes(1));
+    const [payload] = mockOpenBirthStream.mock.calls[0] as [Record<string, unknown>];
+    expect(payload.hostId).toBe(1);
+  });
+
+  it("no eligible host → no \"No roles\" entry and nothing asked", async () => {
+    renderDialog({ hostTree: { name: "root", children: [notFleet] } });
+    await new Promise((r) => setTimeout(r, 20));
+    expect(roleListRows()).toEqual([]);
+    expect(pickedRoleValues()).toEqual([]);
+    expect(mockListRolesForHost).not.toHaveBeenCalled();
+  });
+
+  it("an ineligible initialHost is no pre-fill in agent mode", async () => {
+    mockListRolesForHost.mockImplementation(rolesByHost({ 1: [role("tina")], 4: [role("em")] }));
+    render(
+      <NewSessionDialog
+        open
+        onClose={vi.fn()}
+        onCreate={vi.fn()}
+        isAdmin
+        hostTree={{ name: "root", children: [makeHost("1", "alpha"), notFleet, makeHost("4", "delta")] }}
+        initialHost={notFleet}
+        initialRole="ops"
+      />,
+    );
+    await waitFor(() => expect(roleOptionValues()).toHaveLength(2));
+    expect(pickedRoleValues()).toEqual([]);
+    closeRoleDropdown();
+    expect(createBtn().disabled).toBe(true);
+  });
+
+  it("\"Just a shell\" still lists every non-RDP host", async () => {
+    renderDialog({
+      hostTree: { name: "root", children: [makeHost("1", "alpha"), notFleet, makeHost("4", "delta")] },
+    });
+    fireEvent.click(screen.getByLabelText(/just a shell/i));
+    await waitFor(() => expect(screen.getByText("winbox")).toBeTruthy());
+    expect(screen.getByText("alpha")).toBeTruthy();
+    expect(screen.getByText("delta")).toBeTruthy();
   });
 });
 

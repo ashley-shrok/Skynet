@@ -437,6 +437,18 @@ export function NewSessionDialog({
       ),
     [hostTree],
   );
+  // Agent mode only offers machines that can host agents: hosts that run the
+  // fleet substrate. Others (a Windows box with no SSH, a host outside the
+  // fleet) get no roles section, no "No roles" entry and no roles request, and
+  // don't count towards "one machine" vs "several". The admin-only "Just a
+  // shell" picker keeps the full `flatHosts` list.
+  const agentHosts = useMemo(
+    () => flatHosts.filter((h) => h.runsFleetSubstrate === true),
+    [flatHosts],
+  );
+  // A chain pre-fill host that can't host agents is no pre-fill in agent mode.
+  const agentInitialHost =
+    initialHost && agentHosts.some((h) => h.id === initialHost.id) ? initialHost : null;
 
   const filteredHosts = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -450,13 +462,13 @@ export function NewSessionDialog({
   // Host sections for the Roles dropdown, alphabetical by host name.
   const sortedHosts = useMemo(
     () =>
-      [...flatHosts].sort((a, b) =>
+      [...agentHosts].sort((a, b) =>
         a.name.localeCompare(b.name, undefined, { sensitivity: "base" }),
       ),
-    [flatHosts],
+    [agentHosts],
   );
-  const multiHost = flatHosts.length > 1;
-  const anyRolesLoading = flatHosts.some(
+  const multiHost = agentHosts.length > 1;
+  const anyRolesLoading = agentHosts.some(
     (h) => hostRoles[h.id] === undefined || hostRoles[h.id].loading,
   );
   const allRoles = sortedHosts.flatMap((h) =>
@@ -493,8 +505,11 @@ export function NewSessionDialog({
     if (open) {
       const firstRun = !seededThisOpenRef.current;
       seededThisOpenRef.current = true;
-      if (initialHost) {
-        setSelectedHost(initialHost);
+      // Agent mode seeds only from machines that can host agents.
+      const seedHost = shellOnly ? initialHost : agentInitialHost;
+      const pool = shellOnly ? flatHosts : agentHosts;
+      if (seedHost) {
+        setSelectedHost(seedHost);
         // Seed the role too, but only when agent mode is on (the role
         // dropdown only exists in agent mode). Post-Phase-88 rename +
         // default flip: `shellOnly` defaults to false (agent mode is the
@@ -510,8 +525,8 @@ export function NewSessionDialog({
           setName(initialName);
           setAutoName(true);
         }
-      } else if (flatHosts.length === 1) {
-        setSelectedHost(flatHosts[0]);
+      } else if (pool.length === 1) {
+        setSelectedHost(pool[0]);
       }
       // The one-machine "No roles" default is applied by its own effect
       // below, which tracks the machine count for as long as the dialog is open.
@@ -558,7 +573,25 @@ export function NewSessionDialog({
       // Un-latch so the next open re-enables the collision precheck.
       birthStartedRef.current = false;
     }
-  }, [open, flatHosts]);
+  }, [open, flatHosts, agentHosts]);
+
+  // Switching between agent mode and the admin-only "Just a shell" mode while
+  // open: the two offer different machines. Entering shell mode with a single
+  // machine picks it (its host picker is hidden then); entering agent mode
+  // drops a picked machine that can't host agents (or swaps in the sole one
+  // that can).
+  useEffect(() => {
+    if (!open) return;
+    if (shellOnly) {
+      if (flatHosts.length === 1) setSelectedHost(flatHosts[0]);
+      return;
+    }
+    setSelectedHost((prev) =>
+      prev && !agentHosts.some((h) => h.id === prev.id)
+        ? (agentHosts.length === 1 ? agentHosts[0] : null)
+        : prev,
+    );
+  }, [open, shellOnly, flatHosts, agentHosts]);
 
   // Component unmount cleanup — abort stream if modal unmounts mid-birth.
   // NOTE: the backend birth sequence continues regardless; this just stops
@@ -595,7 +628,7 @@ export function NewSessionDialog({
       }
       return;
     }
-    const pending = flatHosts.filter((h) => !rolesRequestedRef.current.has(h.id));
+    const pending = agentHosts.filter((h) => !rolesRequestedRef.current.has(h.id));
     if (pending.length === 0) return;
     for (const h of pending) rolesRequestedRef.current.add(h.id);
     setHostRoles((prev) => {
@@ -621,7 +654,7 @@ export function NewSessionDialog({
           setHostRoles((prev) => ({ ...prev, [h.id]: { ...result, loading: false } }));
         });
     }
-  }, [open, shellOnly, flatHosts]);
+  }, [open, shellOnly, agentHosts]);
 
   // One-machine "No roles" default. While there is exactly one pickable
   // machine and nothing has been picked by the user (or seeded), "No roles" is
@@ -631,7 +664,7 @@ export function NewSessionDialog({
   // preselected, Create disabled until the user picks).
   useEffect(() => {
     if (!open || shellOnly) return;
-    if (flatHosts.length === 1) {
+    if (agentHosts.length === 1) {
       if (!rolesTouchedRef.current && !noRoles && selectedRoles.length === 0) {
         noRolesIsDefaultRef.current = true;
         setNoRoles(true);
@@ -640,9 +673,9 @@ export function NewSessionDialog({
       noRolesIsDefaultRef.current = false;
       setNoRoles(false);
       // The sole-machine auto-pick goes with it; a caller-supplied host stays.
-      if (!initialHost) setSelectedHost(null);
+      if (!agentInitialHost) setSelectedHost(null);
     }
-  }, [open, shellOnly, flatHosts, noRoles, selectedRoles, initialHost]);
+  }, [open, shellOnly, agentHosts, noRoles, selectedRoles, agentInitialHost]);
 
   // Phase 22 SRIC-05 Test 6: stale-role guard. After the picked host's roles
   // land, if selectedRoles was seeded from initialRole (chain pre-fill) but
@@ -716,7 +749,7 @@ export function NewSessionDialog({
       if (multiHost && selectedHost?.id !== hostId) {
         // An entry from another host: the agent will live there instead, and
         // roles picked from the previous host can't come along.
-        const host = flatHosts.find((h) => h.id === hostId);
+        const host = agentHosts.find((h) => h.id === hostId);
         if (!host) return;
         console.log(
           `[new-session] role host switch from=${selectedHost?.id ?? "-"} to=${hostId} role=${role} dropped=${selectedRoles.join(",") || "-"}`,

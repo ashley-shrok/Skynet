@@ -790,6 +790,48 @@ describe("spawn-request worker", () => {
       expect((capturedOpts as unknown as BirthOptions).name).toBe("deploy-watcher-3");
     });
 
+    it("Test 17i2: typed name bumps past an ARCHIVED folder of the same slug", async () => {
+      let capturedOpts: BirthOptions | null = null;
+      const deps = buildTestDeps({
+        birthIdentity: vi.fn().mockImplementation(async (opts: BirthOptions, emit: (e: BirthEvent) => void) => {
+          capturedOpts = opts;
+          emit({ type: "ended", ok: true, identityId: opts.name, sessionName: opts.name });
+        }),
+        listActiveIdentityKeys: vi.fn().mockResolvedValue([]),
+        listArchivedIdentityEntries: vi.fn().mockResolvedValue([
+          { name: "deploy-watcher", mtimeMs: Date.now() - 86_400_000 },
+        ]),
+      });
+      await processBirth(makePendingBirth({ name: "Deploy Watcher" }), deps);
+      expect((capturedOpts as unknown as BirthOptions).name).toBe("deploy-watcher-2");
+    });
+
+    it("Test 17i3: active ∪ archived RAW folder names reach birthDeps.takenFolderNames", async () => {
+      let capturedDeps: BirthDeps | null = null;
+      const deps = buildTestDeps({
+        birthIdentity: vi.fn().mockImplementation(
+          async (opts: BirthOptions, emit: (e: BirthEvent) => void, bDeps: BirthDeps) => {
+            capturedDeps = bDeps;
+            emit({ type: "ended", ok: true, identityId: opts.name, sessionName: opts.name });
+          },
+        ),
+        listActiveIdentityKeys: vi.fn().mockResolvedValue(["bob-coordinator-2"]),
+        listArchivedIdentityEntries: vi.fn().mockResolvedValue([
+          // Legacy archive folder whose name differs from its MXID, plus a
+          // role-holding folder — both passed raw (NOT reduced to pool bases).
+          { name: "ace", mtimeMs: Date.now() - 86_400_000 },
+          { name: "alice-box-maintainer-3", mtimeMs: Date.now() - 86_400_000 },
+        ]),
+      });
+      await processBirth(makePendingBirth(), deps);
+      const taken = (capturedDeps as unknown as BirthDeps).takenFolderNames;
+      expect([...(taken ?? [])].sort()).toEqual([
+        "ace",
+        "alice-box-maintainer-3",
+        "bob-coordinator-2",
+      ]);
+    });
+
     it("Test 17j: project threads through to BirthOptions.project", async () => {
       let capturedOpts: BirthOptions | null = null;
       const deps = buildTestDeps({

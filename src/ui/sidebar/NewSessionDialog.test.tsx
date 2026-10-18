@@ -211,6 +211,8 @@ function makeHost(
     quickActions: [],
     enableSsh: true,
     enableRdp: false,
+    // Can host agents — agent mode only offers such machines.
+    runsFleetSubstrate: true,
     enableVnc: false,
     enableTelnet: false,
     sshPort: 22,
