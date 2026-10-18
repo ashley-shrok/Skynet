@@ -1,21 +1,31 @@
-// Hold-to-record feedback pill — floats above the compose box, right-aligned,
-// while a mic hold is committed: "● Recording 0:03 · release to send · slide
-// off to cancel", switching to "Release to cancel" once the pointer slides
-// outside the release-to-send zone. After release it briefly shows
-// "Sending…" or "Cancelled". Visual only — the hold gesture lives in
-// useHoldToRecord.
+// Recording feedback pill — floats above the compose box, right-aligned,
+// while dictation records. For a mic hold: "● Recording 0:03 ∿∿∿ · release to
+// send · slide off to cancel", switching to "Release to cancel" once the
+// pointer slides outside the release-to-send zone; after release it briefly
+// shows "Sending…" or "Cancelled". For a tapped recording (`tap`) it is just
+// "● Recording 0:03 ∿∿∿" — the controls live in the send slot. The ∿∿∿ is a
+// live MicWaveform when `readLevel` is given, so a dead mic shows as a flat
+// line. Visual only — the hold gesture lives in useHoldToRecord.
 
 import { useEffect, useState } from "react";
 import { cn } from "@/lib/utils";
 import type { HoldOutcome } from "./useHoldToRecord";
+import { MicWaveform } from "./MicWaveform";
 
 export interface HoldFeedback {
   committed: boolean;
   outside: boolean;
   outcome: HoldOutcome | null;
+  /** A tapped (not held) recording: no release/slide hints. */
+  tap?: boolean;
 }
 
-export function HoldFeedbackPill({ committed, outside, outcome }: HoldFeedback) {
+export interface HoldFeedbackPillProps extends HoldFeedback {
+  /** Live mic level for the waveform; omitted = no waveform. */
+  readLevel?: () => number | null;
+}
+
+export function HoldFeedbackPill({ committed, outside, outcome, tap, readLevel }: HoldFeedbackPillProps) {
   const [startedAt, setStartedAt] = useState<number | null>(null);
   const [, setTick] = useState(0);
 
@@ -37,7 +47,7 @@ export function HoldFeedbackPill({ committed, outside, outcome }: HoldFeedback) 
   let hint = "";
   if (committed) {
     message = outside ? "Release to cancel" : "Recording";
-    hint = outside ? "slide back to keep" : "release to send · slide off to cancel";
+    hint = tap ? "" : outside ? "slide back to keep" : "release to send · slide off to cancel";
     dotClass = outside ? "bg-[#888]" : "bg-[#ff5c5c] pv-hold-dot";
     if (!outside && startedAt !== null) {
       const s = Math.floor((Date.now() - startedAt) / 1000);
@@ -64,6 +74,9 @@ export function HoldFeedbackPill({ committed, outside, outcome }: HoldFeedback) 
         <span className={cn("size-2.5 rounded-full", dotClass)} aria-hidden="true" />
         <span>{message}</span>
         {elapsed && <span className="tabular-nums opacity-70">{elapsed}</span>}
+        {committed && readLevel && (
+          <MicWaveform read={readLevel} className={outside ? "text-[#888]" : "text-[#f0ebe0]"} />
+        )}
         {hint && <span className="text-xs opacity-60">{hint}</span>}
       </div>
     </div>

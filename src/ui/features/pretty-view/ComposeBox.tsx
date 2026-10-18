@@ -2251,10 +2251,13 @@ export function ComposeBox({
   useEffect(() => () => {
     if (slotOutcomeTimerRef.current !== null) clearTimeout(slotOutcomeTimerRef.current);
   }, []);
+  // A tapped recording gets the same pill (no hold hints) so its live
+  // waveform shows too.
   const holdFeedback: HoldFeedback | null =
     primaryHold.holdCommitted || primaryHold.holdOutcome
       ? { committed: primaryHold.holdCommitted, outside: primaryHold.holdOutside, outcome: primaryHold.holdOutcome }
-      : (slotHoldFeedback?.feedback ?? null);
+      : (slotHoldFeedback?.feedback ??
+        (voice.state === "recording" ? { committed: true, outside: false, outcome: null, tap: true } : null));
 
   // showMicButton — see comment above (L1587). Quick 260814-1hz adds the
   // holdInitiatedRef disjuncts: during a hold-initiated recording,
@@ -2338,7 +2341,7 @@ export function ComposeBox({
         className,
       )}
     >
-      {holdFeedback && <HoldFeedbackPill {...holdFeedback} />}
+      {holdFeedback && <HoldFeedbackPill {...holdFeedback} readLevel={voice.readLevel} />}
       {/* Quick 260802-wxy: chip strip relocated INSIDE the primary textarea
           wrapper (see the wrapper block at line ~2009 below). Previously
           rendered as a Row-3 sibling above Row 1; now overlaid absolutely at
@@ -3018,7 +3021,7 @@ export function ComposeBox({
           /* Phase 16: while recording, the three-button controls OWN the slot.
              RecordingControls is absolutely positioned at right-1 bottom-0.5
              (same anchor as Send) and handles its own flex layout.
-             D-16-06: no timer, no waveform, no level meter here.
+             No timer or level meter in the slot itself — the recording pill above the compose box carries both (HoldFeedbackPill + MicWaveform).
              Bounty message-queue-in-pretty-view: micTarget guard ensures
              RecordingControls only appear on the primary when the primary
              is the mic target (slot recording is handled in the slot stack above). */

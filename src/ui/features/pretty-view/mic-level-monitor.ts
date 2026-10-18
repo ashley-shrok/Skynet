@@ -47,6 +47,12 @@ export interface MicLevelSummary {
 }
 
 export interface MicLevelMonitor {
+  /**
+   * Current input level (windowed RMS, 0–1) read fresh from the analyser, or
+   * null when it can't be read (no context, context not running, stopped).
+   * Drives the live waveform.
+   */
+  read: () => number | null;
   stop: () => MicLevelSummary;
 }
 
@@ -103,18 +109,23 @@ export function createMicLevelMonitor(
     }
   }
 
+  const buf = analyser ? new Float32Array(analyser.fftSize) : null;
+  const sampleRms = (): number | null => {
+    if (stopped || !ctx || !analyser || !buf || ctx.state !== "running") return null;
+    analyser.getFloatTimeDomainData(buf);
+    let sum = 0;
+    for (let i = 0; i < buf.length; i++) sum += buf[i] * buf[i];
+    return Math.sqrt(sum / buf.length);
+  };
+
   if (ctx && analyser) {
-    const buf = new Float32Array(analyser.fftSize);
     let last = Date.now();
     timer = setInterval(() => {
       const now = Date.now();
       const elapsed = now - last;
       last = now;
-      if (ctx.state !== "running" || !analyser) return;
-      analyser.getFloatTimeDomainData(buf);
-      let sum = 0;
-      for (let i = 0; i < buf.length; i++) sum += buf[i] * buf[i];
-      const rms = Math.sqrt(sum / buf.length);
+      const rms = sampleRms();
+      if (rms === null) return;
       measuredMs += elapsed;
       if (rms > peakRms) peakRms = rms;
       if (rms >= SILENT_RMS) heardMs += elapsed;
@@ -129,6 +140,7 @@ export function createMicLevelMonitor(
   }
 
   return {
+    read: sampleRms,
     stop: () => {
       const ctxState = ctx ? ctx.state : "none";
       if (!stopped) {

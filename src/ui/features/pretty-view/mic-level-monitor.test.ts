@@ -132,6 +132,19 @@ describe("createMicLevelMonitor", () => {
     expect(monitor.stop()).toMatchObject({ silent: null, ctxState: "none" });
   });
 
+  it("read() returns the live level, null once stopped or while the context isn't running", () => {
+    const ctx = new FakeAudioContext();
+    ctx.level = 0.05;
+    const monitor = createMicLevelMonitor(asCtx(ctx), stream, vi.fn());
+    expect(monitor.read()).toBeCloseTo(0.05, 6);
+    ctx.state = "suspended";
+    expect(monitor.read()).toBeNull();
+    ctx.state = "running";
+    monitor.stop();
+    expect(monitor.read()).toBeNull();
+    expect(createMicLevelMonitor(null, stream, vi.fn()).read()).toBeNull();
+  });
+
   it("stop() is idempotent", () => {
     const ctx = new FakeAudioContext();
     const monitor = createMicLevelMonitor(asCtx(ctx), stream, vi.fn());

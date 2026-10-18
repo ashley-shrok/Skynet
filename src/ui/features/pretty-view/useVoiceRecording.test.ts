@@ -1212,7 +1212,7 @@ describe("useVoiceRecording — silent-mic detection", () => {
     vi.useRealTimers();
   });
 
-  it("silent mic: live warning after 3s, then 'Mic was silent' on the empty transcript", async () => {
+  it("silent mic: no live text warning (the waveform shows it), readLevel live, then 'Mic was silent' on the empty transcript", async () => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
     LevelAudioContext.level = 0.0002;
     vi.stubGlobal("AudioContext", LevelAudioContext);
@@ -1222,12 +1222,15 @@ describe("useVoiceRecording — silent-mic detection", () => {
     act(() => { result.current.start({ autoCommit: true }); });
     await waitFor(() => expect(result.current.state).toBe("recording"));
 
+    expect(result.current.readLevel()).toBeCloseTo(0.0002, 6);
     await act(async () => { vi.advanceTimersByTime(3500); });
-    expect(result.current.errorMessage).toMatch(/Mic is picking up silence/);
+    expect(result.current.errorMessage).toBeNull();
 
     await act(async () => { await result.current.endSend(""); });
     expect(result.current.errorMessage).toMatch(/Mic was silent/);
     expect(getAudioBySrc("error.mp3")?.play).toHaveBeenCalled();
+    // Not recording any more → nothing to read.
+    expect(result.current.readLevel()).toBeNull();
   });
 
   it("audible mic + empty transcript: 'Couldn't make out any words', no silence warning", async () => {

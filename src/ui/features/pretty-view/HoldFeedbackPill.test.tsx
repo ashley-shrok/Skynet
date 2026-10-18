@@ -42,4 +42,21 @@ describe("HoldFeedbackPill", () => {
     render(<HoldFeedbackPill committed outside={false} outcome={null} />);
     expect(screen.getByTestId("hold-feedback-pill").className).toContain("right-4");
   });
+
+  it("tap recording: Recording + timer, no hold hints", () => {
+    render(<HoldFeedbackPill committed outside={false} outcome={null} tap />);
+    const pill = screen.getByTestId("hold-feedback-pill");
+    expect(pill.textContent).toContain("Recording");
+    expect(pill.textContent).toContain("0:00");
+    expect(pill.textContent).not.toContain("release to send");
+  });
+
+  it("shows the live waveform only while recording and only when readLevel is given", () => {
+    const { rerender } = render(<HoldFeedbackPill committed outside={false} outcome={null} />);
+    expect(screen.queryByTestId("mic-waveform")).toBeNull();
+    rerender(<HoldFeedbackPill committed outside={false} outcome={null} readLevel={() => 0.05} />);
+    expect(screen.getByTestId("mic-waveform")).toBeTruthy();
+    rerender(<HoldFeedbackPill committed={false} outside={false} outcome="send" readLevel={() => 0.05} />);
+    expect(screen.queryByTestId("mic-waveform")).toBeNull();
+  });
 });

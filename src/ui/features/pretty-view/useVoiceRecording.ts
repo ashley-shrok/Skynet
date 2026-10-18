@@ -69,7 +69,6 @@ import {
 
 const TRANSCRIBE_URL = "/voice/transcribe";
 
-const MIC_SILENT_LIVE_MESSAGE = "Mic is picking up silence — check your input device or mute";
 const MIC_SILENT_RESULT_MESSAGE = "Mic was silent — nothing was recorded. Check your input device or mute";
 const NO_SPEECH_MESSAGE = "Couldn't make out any words";
 
@@ -130,6 +129,8 @@ export interface UseVoiceRecordingReturn {
   commitStartVisibility: () => void;
   endAppend: (currentText: string) => Promise<VoiceRecordingResult | null>;
   endSend: (currentText: string) => Promise<VoiceRecordingResult | null>;
+  /** Live mic input level (RMS 0–1) for the waveform; null when unreadable or not recording. */
+  readLevel: () => number | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -472,13 +473,13 @@ export function useVoiceRecording(
           track.onended = () => console.warn(`[voice] mic-track-ended label="${track.label}" ${ctxSuffix}`);
         }
         lastLevelRef.current = null;
+        // The live waveform (readLevel) is the user-facing signal; these
+        // lines only log when the feed goes / stops being silent.
         levelMonitorRef.current = createMicLevelMonitor(levelCtx, stream, (silent) => {
           if (silent) {
-            console.warn(`[voice] mic-silent-warning shown ${describeMicTrack(stream)} ${ctxSuffix}`);
-            setErrorMessage(MIC_SILENT_LIVE_MESSAGE);
+            console.warn(`[voice] mic-silent-detected ${describeMicTrack(stream)} ${ctxSuffix}`);
           } else {
-            console.info(`[voice] mic-silent-warning cleared input-detected ${ctxSuffix}`);
-            setErrorMessage((m) => (m === MIC_SILENT_LIVE_MESSAGE ? null : m));
+            console.info(`[voice] mic-silent-cleared input-detected ${ctxSuffix}`);
           }
         });
 
@@ -691,8 +692,6 @@ export function useVoiceRecording(
     if (transcript === "") {
       playSound(errorAudioRef.current);
       reportEmptyTranscript();
-    } else {
-      setErrorMessage((m) => (m === MIC_SILENT_LIVE_MESSAGE ? null : m));
     }
 
     const glued = applyGlue(currentText, transcript);
@@ -746,8 +745,6 @@ export function useVoiceRecording(
     if (transcript === "") {
       playSound(errorAudioRef.current);
       reportEmptyTranscript();
-    } else {
-      setErrorMessage((m) => (m === MIC_SILENT_LIVE_MESSAGE ? null : m));
     }
 
     const glued = applyGlue(currentText, transcript);
@@ -780,5 +777,9 @@ export function useVoiceRecording(
     playSound(startAudioRef.current);
   }
 
-  return { state, errorMessage, start, cancel, commitStartVisibility, endAppend, endSend };
+  function readLevel(): number | null {
+    return levelMonitorRef.current?.read() ?? null;
+  }
+
+  return { state, errorMessage, start, cancel, commitStartVisibility, endAppend, endSend, readLevel };
 }
