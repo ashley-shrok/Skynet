@@ -39,6 +39,7 @@ Starting order: foundation, skills, then the remaining modals, then host targeti
 - **[declared] shape-admin-modals** — admin panel + admin user modal — not started
 - **[declared] shape-creation-and-search-dialogs** — new conversation, new session, conversation search, archived apps — not started
 - **[declared] shape-file-modal** — the editable file modal — not started
+- **[discovered] shape-modal-sizing** — once every modal is redesigned, Ashley walks through them all and says where each should size or expand (per tab where it helps, on screens with room), instead of tracking sizes shape by shape (Ashley, 2026-10-18) — not started
 - **[declared] shape-host-targeting** — admin-only: shared skills and roles target a chosen set of hosts or a permanent "every host"; sync machinery + the admin controls in both skills and roles modals — not started
 - **[declared] shape-sidebar** — the conversation list / sidebar, after all modals — not started
 - **[declared] shape-conversation-view** — the chat view itself, last — not started
