@@ -340,6 +340,13 @@ export interface SubscriptionRegistry {
   getSnapshot(): SessionState[];
 
   /**
+   * Send a frame to every subscriber connected as `userId` (all of that
+   * user's tabs and devices) and nobody else. Used for per-user state such
+   * as read-state-changed. No filter runs: the frame is the user's own.
+   */
+  publishToUser(userId: string, frame: FrontendOutboundFrameType): void;
+
+  /**
    * Register a callback fired ONCE on the 0 → 1 subscribers transition
    * (i.e. exactly when the registry becomes non-empty via `subscribe`).
    * The callback receives the ctx passed to that subscribe() call.
@@ -1176,6 +1183,37 @@ export function createSubscriptionRegistry(
       // SEPARATE widgets map. Order is Map insertion order; callers must not
       // depend on it. Used by im-pane-router.ts (Plan 03) for port lookup.
       return Array.from(widgets.values());
+    },
+
+    publishToUser(userId: string, frame: FrontendOutboundFrameType): void {
+      let delivered = 0;
+      for (const entry of subscribers) {
+        if (entry.userId !== userId) continue;
+        // Same ordering guard as fanOutApp: hold the frame until this
+        // subscriber's initial snapshot has flushed.
+        if (entry.pendingFrames !== null) {
+          entry.pendingFrames.push(frame);
+          delivered++;
+          continue;
+        }
+        try {
+          entry.send(frame);
+          delivered++;
+        } catch (err) {
+          systemLogger.warn("Fleet-status per-user publish failed for one subscriber", {
+            operation: "fleet_status_publish_to_user_failed",
+            userId,
+            frameType: frame.type,
+            error: err instanceof Error ? err.message : "unknown",
+          });
+        }
+      }
+      systemLogger.debug("Fleet-status per-user frame published", {
+        operation: "fleet_status_publish_to_user",
+        userId,
+        frameType: frame.type,
+        delivered,
+      });
     },
 
     getSnapshot(): SessionState[] {

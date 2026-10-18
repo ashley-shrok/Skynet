@@ -462,6 +462,12 @@ export const SessionStateSchema = z.object({
   activityMtime: z.number().nullable().optional(),
   // Phase 62 Plan 03 — mtime of the per-session stopped marker (see block comment above).
   stoppedMtime: z.number().nullable().optional(),
+  // When this identity's agent last finished a turn — the per-session Stop
+  // file mtime, kept durably per (host, identity) by the attention
+  // turn-finish store so it survives session rotation, recycles and
+  // dormancy (lastStopAt above resets with the session). Carried on live AND
+  // dormant frames. Drives the sidebar unread mark + recency ordering.
+  lastFinishAt: z.number().nullable().optional(),
   // Phase 90 Plan 00 (Wave 0, D-10 delivery mechanism) — per-session context %
   // fill (0-100, integer). Populated by subscription-registry.publishSessionState
   // + getSnapshot at frame-publish time from the contextpct-store shared map,
@@ -789,6 +795,23 @@ export const WidgetStateSchema = z.object({
 
 export type WidgetState = z.infer<typeof WidgetStateSchema>;
 
+// ---------------------------------------------------------------------------
+// read-state-changed — one user's "seen up to" mark for one agent
+// conversation advanced. Sent ONLY to that user's own subscribers (every tab
+// and device they have open) so reading on one clears the unread mark on all.
+// `seenFinishAt` is the agent's finished-turn time the user has now seen —
+// compared against SessionState.lastFinishAt, never against a clock.
+// Additive discriminated-union member — FRAME_SCHEMA_VERSION stays at 1.
+// ---------------------------------------------------------------------------
+
+export const FrontendReadStateChangedFrameSchema = z.object({
+  schemaVersion: z.literal(FRAME_SCHEMA_VERSION),
+  type: z.literal("read-state-changed"),
+  hostId: z.string(),
+  identityName: z.string(),
+  seenFinishAt: z.number(),
+});
+
 export const FrontendOutboundFrame = z.discriminatedUnion("type", [
   FrontendSnapshotFrameSchema,
   FrontendUpdateFrameSchema,
@@ -796,6 +819,7 @@ export const FrontendOutboundFrame = z.discriminatedUnion("type", [
   FrontendPongFrameSchema,
   FrontendProjectListChangedFrameSchema,
   FrontendSessionProjectChangedFrameSchema,
+  FrontendReadStateChangedFrameSchema,
   AppSnapshotFrameSchema,
   AppUpdateFrameSchema,
   AppGoneFrameSchema,

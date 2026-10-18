@@ -71,6 +71,7 @@ import {
 // for byte-parallel consumers in `src/backend/database/routes/sessions.ts`
 // (D-08); only the in-file `derivedLastMessageAt` derivation retires from it.
 import { getIdentityLastSend } from "./identity-send-log-store.js";
+import { getTurnFinishStore, type TurnFinishStore } from "../attention/turn-finish-store.js";
 import {
   checkExecBreaker,
   recordExecFailure,
@@ -258,6 +259,11 @@ export interface OrchestratorDeps {
   staleSweepIntervalMs?: number;
   hookPayloadPath?: string;
   hookPayloadWarnCooldownMs?: number;
+  /**
+   * Durable per-(host, identity) last-finished-turn log (sidebar unread
+   * marks). Defaults to the process-wide store; tests inject their own.
+   */
+  turnFinishStore?: TurnFinishStore;
 }
 
 export interface SshPollOrchestrator {
@@ -1272,7 +1278,7 @@ function computeFingerprint(state: SessionState): string {
   // included: it carries the sweep's avatar version (`&v=`), so an avatar
   // change must publish a frame.
   // (Phase 115 Plan 115-02: `hidden` retired from the fingerprint axis list per D-21.)
-  return `${state.status}|${state.waitingFor ?? ""}|${bgKey}|${state.updatedAt}|${state.lastMessageAt ?? ""}|${state.aiTitle ?? ""}|${state.dormant === true ? "1" : state.dormant === false ? "0" : ""}|${state.recycling === true ? "1" : state.recycling === false ? "0" : ""}|${state.lastStopAt ?? ""}|${state.lastStatusChangeAt ?? ""}|${state.activityMtime ?? ""}|${state.stoppedMtime ?? ""}|${appearanceFingerprintSegment(state.identityAppearance ?? null)}`;
+  return `${state.status}|${state.waitingFor ?? ""}|${bgKey}|${state.updatedAt}|${state.lastMessageAt ?? ""}|${state.aiTitle ?? ""}|${state.dormant === true ? "1" : state.dormant === false ? "0" : ""}|${state.recycling === true ? "1" : state.recycling === false ? "0" : ""}|${state.lastStopAt ?? ""}|${state.lastStatusChangeAt ?? ""}|${state.activityMtime ?? ""}|${state.stoppedMtime ?? ""}|${appearanceFingerprintSegment(state.identityAppearance ?? null)}|${state.lastFinishAt ?? ""}`;
 }
 
 // ---------------------------------------------------------------------------
@@ -1721,6 +1727,14 @@ export function createSshPollOrchestrator(
   const hookPayloadPath =
     deps.hookPayloadPath ?? "~/.claude/fleet-status/last-stop-payload.json";
   const hookPayloadWarnCooldownMs = deps.hookPayloadWarnCooldownMs ?? 60000;
+  const turnFinishStore = deps.turnFinishStore ?? getTurnFinishStore();
+
+  // Source-B (dormant / recycling) frames carry the stored finished-turn time
+  // too, so a dormant agent's unread mark survives a page reload.
+  const lastFinishField = (hostId: string, identityName: string): { lastFinishAt?: number } => {
+    const v = turnFinishStore.get(hostId, identityName);
+    return v !== null ? { lastFinishAt: v } : {};
+  };
 
   // Internal state
   const perHostState = new Map<string, PerHostState>();
@@ -3001,6 +3015,7 @@ export function createSshPollOrchestrator(
           dormant: isDormant,
           recycling: false,
           identityAppearance: fetched.identityAppearance,
+          ...lastFinishField(host.id, name),
         };
         deps.registry.publishSessionState(host.id, state);
         systemLogger.info(
@@ -3025,7 +3040,7 @@ export function createSshPollOrchestrator(
     // Phase 111 Plan 03: appearance segment appended at END per the append-at-END
     // rule. No commit in this repo's history widened this fingerprint before
     // this plan — this is the first extension of source B's inline fingerprint.
-    const fingerprint = `${isDormant ? "1" : "0"}|${isRecycling ? "1" : "0"}|${appearanceFingerprintSegment(fetched.identityAppearance)}`;
+    const fingerprint = `${isDormant ? "1" : "0"}|${isRecycling ? "1" : "0"}|${appearanceFingerprintSegment(fetched.identityAppearance)}|${turnFinishStore.get(host.id, name) ?? ""}`;
 
     if (cached !== undefined && cached.lastPublishedFingerprint === fingerprint) {
       // Cache hit — fingerprint identical → advance internal state but skip
@@ -3077,6 +3092,7 @@ export function createSshPollOrchestrator(
       dormant: isDormant,
       recycling: isRecycling,
       identityAppearance: fetched.identityAppearance,
+      ...lastFinishField(host.id, name),
     };
     deps.registry.publishSessionState(host.id, state);
 
@@ -3613,6 +3629,17 @@ export function createSshPollOrchestrator(
       });
     }
 
+    // Sidebar unread marks: the Stop-file mtime is this identity's finished-
+    // turn time. Record it durably (monotonic) so it outlives this session,
+    // then publish the stored value. Omitted from the frame when unknown.
+    let lastFinishAt: number | null = null;
+    if (tmuxSession !== null) {
+      if (derivedLastStopAt !== null) {
+        turnFinishStore.record(host.id, tmuxSession, derivedLastStopAt);
+      }
+      lastFinishAt = turnFinishStore.get(host.id, tmuxSession);
+    }
+
     // Compose SessionState — same shape as pre-refactor processPid.
     // Phase 111 Plan 03: identityAppearance carried from the fetched struct.
     const state: SessionState = {
@@ -3635,6 +3662,7 @@ export function createSshPollOrchestrator(
       activityMtime: derivedActivityMtime,
       stoppedMtime: derivedStoppedMtime,
       identityAppearance: fetched.identityAppearance,
+      ...(lastFinishAt !== null ? { lastFinishAt } : {}),
     };
 
     // Delta semantics — only publish if fingerprint changed.
@@ -3654,6 +3682,7 @@ export function createSshPollOrchestrator(
         lastStatusChangeAt: state.lastStatusChangeAt,
         activityMtime: state.activityMtime,
         stoppedMtime: state.stoppedMtime,
+        lastFinishAt: state.lastFinishAt ?? null,
         identityAppearanceResolved: state.identityAppearance !== null,
       });
       // Phase 111 Plan 03: identityAppearance stamped here (publish branch).

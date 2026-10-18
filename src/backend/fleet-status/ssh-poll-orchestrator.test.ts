@@ -6115,6 +6115,51 @@ describe("ssh-poll-orchestrator Phase 59 — lastStopAt + lastStatusChangeAt der
     expect(published.state.lastStatusChangeAt).toBe(1730500000000);
   });
 
+  it("records the Stop-file mtime as the identity's finished turn and carries it as lastFinishAt", async () => {
+    const recorded = new Map<string, number>();
+    const turnFinishStore = {
+      record: vi.fn((h: string, n: string, ts: number) => {
+        const k = `${h}::${n}`;
+        if ((recorded.get(k) ?? 0) >= ts) return false;
+        recorded.set(k, ts);
+        return true;
+      }),
+      get: vi.fn((h: string, n: string) => recorded.get(`${h}::${n}`) ?? null),
+    };
+    const channel = new MockSshChannel();
+    wirePhase59Base(channel);
+    channel.setResponse(PER_SESSION_STOP_PATTERN, "1730000000\n");
+    const clock = { now: 1730500000000 };
+    const deps = { ...buildPhase59Deps(channel, clock), turnFinishStore };
+
+    const orchestrator = createSshPollOrchestrator(deps);
+    await orchestrator.start();
+    expect(turnFinishStore.record).toHaveBeenCalledWith("host-1", "tina", 1730000000000);
+    expect(deps.registry.publishedStates.at(-1)?.state.lastFinishAt).toBe(1730000000000);
+
+    // A later Stop advances it.
+    channel.setResponse(PER_SESSION_STOP_PATTERN, "1730000100\n");
+    clock.now += 2000;
+    const poll = deps.setIntervalFns.find((f) => f.ms === 2000);
+    await poll?.fn();
+    expect(deps.registry.publishedStates.at(-1)?.state.lastFinishAt).toBe(1730000100000);
+    orchestrator.stop();
+  });
+
+  it("omits lastFinishAt when the identity has never finished a turn", async () => {
+    const turnFinishStore = { record: vi.fn(() => false), get: vi.fn(() => null) };
+    const channel = new MockSshChannel();
+    wirePhase59Base(channel);
+    const deps = { ...buildPhase59Deps(channel, { now: 1730500000000 }), turnFinishStore };
+    const orchestrator = createSshPollOrchestrator(deps);
+    await orchestrator.start();
+    const state = deps.registry.publishedStates.at(-1)?.state;
+    expect(state).toBeDefined();
+    expect(state && "lastFinishAt" in state).toBe(false);
+    expect(turnFinishStore.record).not.toHaveBeenCalled();
+    orchestrator.stop();
+  });
+
   // ---------------------------------------------------------------------------
   // Test P57-02-B — same-status tick preserves cached lastStatusChangeAt.
   //

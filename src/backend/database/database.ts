@@ -185,6 +185,7 @@ import composeDraftsRoutes from "./routes/compose-drafts.js";
 // Both of user's devices read from the same store on next fleet-status
 // frame → multi-device consistency without client sync.
 import identitySendLogRoutes from "../fleet-status/identity-send-log-routes.js";
+import attentionRoutes from "../attention/attention-routes.js";
 import sessionsRoutes from "./routes/sessions.js";
 // Phase 90 Plan 00 Wave 0 Task 3 — /agent-reset/:hostId/:tmuxSessionName
 // endpoint. Dispatches /id reset via a one-shot SSH + tmux send-keys, the
@@ -2237,6 +2238,7 @@ app.use("/apps", appsRoutes);
 app.use("/message-queue", messageQueueRoutes);
 app.use("/compose-drafts", composeDraftsRoutes);
 app.use("/identity-send-log", identitySendLogRoutes);
+app.use("/attention", attentionRoutes);
 app.use("/sessions", sessionsRoutes);
 // Phase 90 Plan 00 Wave 0 Task 3 — POST /agent-reset/:hostId/:tmuxSessionName.
 // Nginx dual-update required (see CLAUDE.md nginx caveat) — location blocks

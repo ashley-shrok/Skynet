@@ -9,6 +9,7 @@ import { SystemCrypto } from "../../utils/system-crypto.js";
 import { DatabaseMigration } from "../../utils/database-migration.js";
 import { DatabaseSaveTrigger } from "../../utils/database-save-trigger.js";
 import { applyMachineIdSchema } from "./machine-id-migration.js";
+import { ATTENTION_TABLES_SQL } from "../../attention/attention-schema.js";
 
 const dataDir = process.env.DATA_DIR || "./db/data";
 const dbDir = path.resolve(dataDir);
@@ -666,6 +667,9 @@ async function initializeCompleteDatabase(): Promise<void> {
     );
 
 `);
+
+  // Sidebar unread marks: turn-finish log + per-user read state.
+  sqlite.exec(ATTENTION_TABLES_SQL);
 
   try {
     sqlite.prepare("DELETE FROM user_open_tabs").run();

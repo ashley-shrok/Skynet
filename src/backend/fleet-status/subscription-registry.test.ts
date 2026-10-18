@@ -1923,3 +1923,50 @@ describe("subscription-registry", () => {
     });
   });
 });
+
+describe("publishToUser — per-user frames (read-state-changed)", () => {
+  it("delivers only to that user's subscribers, every tab of theirs", () => {
+    const registry = createSubscriptionRegistry();
+    const a1 = vi.fn();
+    const a2 = vi.fn();
+    const b = vi.fn();
+    const bare = vi.fn();
+    registry.subscribe(a1, { userId: "alice" });
+    registry.subscribe(a2, { userId: "alice" });
+    registry.subscribe(b, { userId: "bob" });
+    registry.subscribe(bare);
+    for (const f of [a1, a2, b, bare]) f.mockClear();
+
+    const frame = {
+      schemaVersion: FRAME_SCHEMA_VERSION,
+      type: "read-state-changed" as const,
+      hostId: "h1",
+      identityName: "aspen",
+      seenFinishAt: 1000,
+    };
+    registry.publishToUser("alice", frame);
+    expect(a1).toHaveBeenCalledWith(frame);
+    expect(a2).toHaveBeenCalledWith(frame);
+    expect(b).not.toHaveBeenCalled();
+    expect(bare).not.toHaveBeenCalled();
+  });
+
+  it("one subscriber throwing does not stop delivery to the user's others", () => {
+    const registry = createSubscriptionRegistry();
+    const bad = vi.fn(() => {
+      throw new Error("socket closed");
+    });
+    const good = vi.fn();
+    registry.subscribe(bad, { userId: "alice" });
+    registry.subscribe(good, { userId: "alice" });
+    good.mockClear();
+    registry.publishToUser("alice", {
+      schemaVersion: FRAME_SCHEMA_VERSION,
+      type: "read-state-changed",
+      hostId: "h1",
+      identityName: "aspen",
+      seenFinishAt: 1,
+    });
+    expect(good).toHaveBeenCalledTimes(1);
+  });
+});
