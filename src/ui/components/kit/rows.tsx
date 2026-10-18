@@ -59,6 +59,8 @@ export function KitSettingsGroup({
 }
 
 export interface KitSettingsRowProps {
+  /** A picture or icon before the label (e.g. a KitAvatar). */
+  leading?: React.ReactNode;
   label: React.ReactNode;
   description?: React.ReactNode;
   /** The control on the right (switch, dropdown, value…). */
@@ -83,6 +85,7 @@ export interface KitSettingsRowProps {
 
 /** What it is on the left, its control on the right. */
 export function KitSettingsRow({
+  leading,
   label,
   description,
   control,
@@ -99,10 +102,13 @@ export function KitSettingsRow({
   children,
 }: KitSettingsRowProps): JSX.Element {
   const text = (
+    <>
+    {leading}
     <span className="k-row-text">
       <span className="k-row-label">{label}</span>
       {description ? <span className="k-row-desc">{description}</span> : null}
     </span>
+    </>
   );
   // Opens something AND has its own controls: the text is the button and
   // the controls sit beside it, so no control ends up inside a button.
@@ -157,6 +163,45 @@ export function KitSettingsRow({
     );
   }
   return <div {...common}>{inner}</div>;
+}
+
+/** A round picture (or initial) on a colour — rows, heads, previews. */
+export function KitAvatar({
+  src,
+  fallback,
+  color,
+  size = 38,
+  dim,
+  className,
+  "data-testid": testId,
+}: {
+  src?: string | null;
+  /** Shown when there's no picture (or it fails to load) — usually an initial. */
+  fallback?: React.ReactNode;
+  color?: string;
+  size?: number;
+  dim?: boolean;
+  className?: string;
+  "data-testid"?: string;
+}): JSX.Element {
+  const [failed, setFailed] = React.useState(false);
+  React.useEffect(() => setFailed(false), [src]);
+  return (
+    <span
+      className={cn("k-item-av", className)}
+      style={{
+        width: size,
+        height: size,
+        fontSize: Math.round(size * 0.4),
+        ...(color ? { background: color } : {}),
+        ...(dim ? { filter: "grayscale(1) brightness(0.7)" } : {}),
+      }}
+      aria-hidden="true"
+      data-testid={testId}
+    >
+      {src && !failed ? <img src={src} alt="" draggable={false} onError={() => setFailed(true)} /> : fallback}
+    </span>
+  );
 }
 
 /** One column's slot in a row, under a KitSettingsGroup column label. */

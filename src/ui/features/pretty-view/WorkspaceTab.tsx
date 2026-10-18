@@ -246,12 +246,14 @@ function WorkspaceFileViewer({
   target,
   hostId,
   hue,
+  readOnly = false,
 }: {
   file: OpenFileState;
   onClose: () => void;
   target: WorkspaceTarget;
   hostId: number;
   hue: number;
+  readOnly?: boolean;
 }): JSX.Element {
   // The shared file-viewer registry picks the body (D-12 dispatch now lives
   // in file-viewers/registry). Media streams from the inline download URL
@@ -395,11 +397,12 @@ function WorkspaceFileViewer({
   }, [dirty, onClose, file.name]);
 
   const canSave =
-    (!skipFetch &&
+    !readOnly &&
+    ((!skipFetch &&
       fileState.status === "ready" &&
       (fileViewIsEditable(file.name, viewMode, fileState.data.isText) || dirty)) ||
     // Modes that edit in place from the URL (PDF) never fetch content.
-    (neverNeedsContent && fileViewIsEditable(file.name, viewMode, undefined));
+    (neverNeedsContent && fileViewIsEditable(file.name, viewMode, undefined)));
 
   const downloadUrl = downloadWorkspaceFileUrl(
     target,
@@ -482,6 +485,7 @@ function WorkspaceFileViewer({
         hideModeSwitcher
         hideSpeakButton
         onBinaryDraftChange={setBinaryDraft}
+        readOnly={readOnly}
       />
     );
   }
@@ -539,6 +543,7 @@ interface WorkspaceListViewProps {
   hiddenNames?: readonly string[];
   /** Custom intro copy above the file list. Falls back to the identity default. */
   introCopy?: string;
+  readOnly?: boolean;
 }
 
 function WorkspaceListView({
@@ -552,6 +557,7 @@ function WorkspaceListView({
   onRefresh,
   hiddenNames,
   introCopy,
+  readOnly = false,
 }: WorkspaceListViewProps): JSX.Element {
   const [listState, setListState] = useState<ListState>({
     status: "loading",
@@ -709,15 +715,17 @@ function WorkspaceListView({
         testId: "workspace-row-show-in-folder",
       });
     }
-    items.push({
-      label: "Rename",
-      onClick: () => {
-        setRenamingFor(entryPath);
-        setRenameValue(entry.name);
-        setRenameError(null);
-      },
-      testId: "workspace-row-rename",
-    });
+    if (!readOnly) {
+      items.push({
+        label: "Rename",
+        onClick: () => {
+          setRenamingFor(entryPath);
+          setRenameValue(entry.name);
+          setRenameError(null);
+        },
+        testId: "workspace-row-rename",
+      });
+    }
     if (entry.type !== "directory") {
       items.push({
         label: "Download",
@@ -727,13 +735,15 @@ function WorkspaceListView({
         testId: "workspace-row-download",
       });
     }
-    items.push({
-      label: "Delete",
-      danger: true,
-      separatorBefore: true,
-      onClick: () => void handleDelete(entry),
-      testId: "workspace-row-delete",
-    });
+    if (!readOnly) {
+      items.push({
+        label: "Delete",
+        danger: true,
+        separatorBefore: true,
+        onClick: () => void handleDelete(entry),
+        testId: "workspace-row-delete",
+      });
+    }
     return items;
   }
 
@@ -1015,6 +1025,8 @@ function WorkspaceListView({
           }}
         />
 
+        {readOnly ? null : (
+          <>
         {/* Upload button (D-16) */}
         <KitButton
           size="sm"
@@ -1052,6 +1064,9 @@ function WorkspaceListView({
           <FilePlus aria-hidden="true" />
           New file
         </KitButton>
+
+          </>
+        )}
 
         {/* Refresh (D-05) */}
         <KitIconButton label="Refresh" size="sm" onClick={onRefresh}>
@@ -1135,12 +1150,16 @@ function WorkspaceListView({
       <div
         ref={listBodyRef}
         className="flex-1 overflow-auto relative px-1 pb-2"
-        onDragEnter={onDragEnter}
-        onDragLeave={onDragLeave}
-        onDragOver={onDragOver}
-        onDrop={(e) => {
-          void onDrop(e);
-        }}
+        {...(readOnly
+          ? {}
+          : {
+              onDragEnter,
+              onDragLeave,
+              onDragOver,
+              onDrop: (e: React.DragEvent) => {
+                void onDrop(e);
+              },
+            })}
       >
         {/* Inline "new" input row (D-17) */}
         {pendingNew && (
@@ -1418,6 +1437,8 @@ export interface WorkspaceTabProps {
   hiddenNames?: readonly string[];
   /** Optional intro copy shown above the file list. Identity default when absent. */
   introCopy?: string;
+  /** View-only: no upload, new, rename, delete or save (e.g. a shared role for a non-admin). */
+  readOnly?: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -1431,6 +1452,7 @@ export default function WorkspaceTab({
   hue,
   hiddenNames,
   introCopy,
+  readOnly = false,
 }: WorkspaceTabProps): JSX.Element {
   const [currentPath, setCurrentPath] = useState<string[]>([]);
   const [openFile, setOpenFile] = useState<OpenFileState | null>(null);
@@ -1451,6 +1473,7 @@ export default function WorkspaceTab({
         onRefresh={() => setRefreshKey((k) => k + 1)}
         hiddenNames={hiddenNames}
         introCopy={introCopy}
+        readOnly={readOnly}
       />
       {openFile && (
         <WorkspaceFileViewer
@@ -1462,6 +1485,7 @@ export default function WorkspaceTab({
           target={target}
           hostId={hostId}
           hue={hue}
+          readOnly={readOnly}
         />
       )}
     </>

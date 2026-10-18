@@ -22,7 +22,7 @@ The roles list, the role modal, the new-role dialog and the runbook editor becom
 - Header row: "‹ Roles", a ⋯ menu, close.
 - Under it: the large picture (tap to upload a new one), the name, then the **description** — the text, or faded italic "No description" when empty — with a small pencil; clicking it edits in place (Enter or clicking away saves, Esc cancels).
 - A quiet line under that: "N agents hold this role · on <host>" (or "on every host"; "No agents hold this role" at zero).
-- Then only the two cosmetic buttons: **Colour** (a row of swatches; the window re-tints as you pick, saves on pick) and **Voice** (the existing voice list).
+- Then only the two cosmetic buttons: **Colour** (today's hue picker in a pop-over; the window re-tints as you drag, saves when it closes) and **Voice** (the existing voice list).
 - Tabs: **Role file**, **Runbooks** (no count), **Files**, plus **Git** when the role's folder holds a repo.
   - Role file opens as formatted reading with an **Edit** button at the foot; editing shows the text with Cancel and Save. Shared roles say "Changes go to every host" in the foot.
   - Runbooks: a short note on what runbooks are, a grouped list (title-cased name, file count, chevron), and "New runbook" (asks for a name in the in-app dialog, creates it with a starter file, opens it). Empty: an empty state with the explanation and a "New runbook" button.
@@ -37,14 +37,14 @@ The roles list, the role modal, the new-role dialog and the runbook editor becom
 **New role view**
 - Header: "‹ Roles" (or back to where it came from), "New role", one short line, close.
 - Picture first: a preview on the chosen colour; "Generate picture" (enabled once name and description are filled; shows three candidates to pick from; then "Regenerate") and "Upload…".
-- Name, **Description** (sets the role's description and still starts the role file), Colour (swatches, random to begin with), Host (only with more than one host).
+- Name, **Description** (sets the role's description and still starts the role file), Colour (the hue picker, random to begin with), Host (only with more than one host).
 - Foot: Cancel and "Create role" (enabled once name, description and a picture are set).
 - Creating from the library lands on the new role's view. Creating from the new-conversation dialog's "New role…" goes back to new conversation with the role picked, as today; cancelling there also goes back as today.
 
 **Archived roles view**
 - "‹ Roles", title, one line; dimmed rows (picture, name, description) each with an "Un-archive" button. Un-archiving keeps you there and the row shows it's on its way back.
 
-**Opened from an agent's window:** clicking a role name in an agent's own window opens the roles window straight onto that role; "‹ Roles" still goes to the library; closing returns to the agent's window as today.
+**Opened from an agent's window:** clicking a role name in an agent's own window opens the roles window straight onto that role; "‹ Roles" still goes to the library; closing returns to the agent's window.
 
 **Non-admins and shared roles:** view-only all the way down — no Edit, no description/colour/voice/picture changes, runbooks and files read-only, no sharing or archive actions. A plain line says only an admin can change it.
 

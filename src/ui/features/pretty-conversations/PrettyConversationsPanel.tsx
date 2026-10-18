@@ -73,13 +73,14 @@ import PreferencesModal from "@/features/pretty-view/PreferencesModal";
 // Admin control surface — opened from the shield button next to the gear;
 // only rendered for admins.
 import AdminModal from "@/features/admin/AdminModal";
-// Phase 90 Plan 90-06 (D-07 / D-04): the header's Edit roles icon button
-// opens RolesListModal; a row click swaps to RoleModal; role skill click swaps to
-// RoleSkillEditorModal (mirrors PrettyView's mount at L3281). All three are
-// mounted as siblings alongside GlobalFilesModal + SkillsEditorModal.
-import { RolesListModal } from "@/features/pretty-view/RolesListModal";
-import { RoleModal } from "@/features/pretty-view/RoleModal";
-import RoleSkillEditorModal from "@/features/pretty-view/RoleSkillEditorModal";
+// The roles window (library → role → runbook, new role, archived) — opened
+// from the footer's Roles button and from the new-conversation dialog's
+// "New role…".
+import { RolesWindow, type RolesWindowStart } from "@/features/pretty-view/roles-window/RolesWindow";
+import {
+  NEW_CONVERSATION_REQUEST_EVENT,
+  type NewConversationRequest,
+} from "@/lib/new-conversation-request";
 import { useTranslation } from "react-i18next";
 import { useDragPreviewClaim } from "@/shell/drag-preview-session";
 import {
@@ -261,11 +262,6 @@ import {
 import { startTrappedWorkPoller } from "@/state/trapped-work-store";
 import { sessionMatchKey } from "@/features/terminal/session-hue";
 import { NewSessionDialog, type NewSessionOnCreateOpts } from "@/sidebar/NewSessionDialog";
-// D-10 revised 2026-09-11: CreateRoleDialog re-imported at panel level. The
-// Plan 90-06 stack-inside-RolesListModal arrangement caused a click-freeze
-// (two Radix Dialog portals contending) and dropped the CRD → NewSessionDialog
-// chain. Restored as swap-not-stack sibling of RolesListModal.
-import { CreateRoleDialog } from "@/sidebar/CreateRoleDialog";
 // Phase 92 Plan 04: getPinnedIds is retired. The panel projects the pin state
 // from the identities-store's `pinned: boolean` field via deriveDiskPinnedIds
 // (imported above).
@@ -1063,12 +1059,15 @@ export function PrettyConversationsPanel({
 
   // Local state: NewSessionDialog open/closed toggle (opened by pencil).
   const [newSessionDialogOpen, setNewSessionDialogOpen] = useState(false);
-  // D-10 revised 2026-09-11: panel-level CreateRoleDialog state RESTORED.
-  // Opened when RolesListModal fires onNewRole (which also closes the list
-  // per swap-not-stack). See <CreateRoleDialog> mount below.
-  const [createRoleDialogOpen, setCreateRoleDialogOpen] = useState(false);
+  // The roles window: open + where it starts. `hop` marks the
+  // new-conversation dialog's "New role…" (back and create return there).
+  const [rolesWindow, setRolesWindow] = useState<{ open: boolean; start: RolesWindowStart; hop: boolean }>({
+    open: false,
+    start: { view: "library" },
+    hop: false,
+  });
   // Phase 22 (SRIC-05): chain-into-create-identity pre-fill payload. Set when
-  // CreateRoleDialog fires onChainToCreateIdentity ({role, host}); consumed by
+  // the roles window's new-role hop creates a role ({role, host}); consumed by
   // the NewSessionDialog mount as its initialHost + initialRole props. Cleared
   // when NewSessionDialog closes (either via successful submit or user cancel)
   // so subsequent manual opens via the pencil don't inherit stale chain state
@@ -1081,10 +1080,9 @@ export function PrettyConversationsPanel({
     description?: string;
   } | null>(null);
   // "New role…" hop from the new-agent dialog's Roles dropdown: the dialog is
-  // swapped for CreateRoleDialog, and this remembers what to restore when the
-  // user comes back (role created → picks + new role; cancelled → picks as
-  // they were). A ref, because CreateRoleDialog fires its chain callback and
-  // then onClose in the same tick — onClose must see the chain's clear.
+  // swapped for the roles window's new-role form, and this remembers what to
+  // restore when the user comes back (role created → picks + new role;
+  // backed out → picks as they were).
   // The pending project slug/hostId state is deliberately left untouched
   // across the hop so a per-project new-agent flow keeps its project.
   // `host` is null when the hop starts before any role is picked (the
@@ -1179,6 +1177,23 @@ export function PrettyConversationsPanel({
   // under the section). Header pencil (pendingProjectHostId===null) gets the
   // full tree. Memoized: the dialog's open effect keys on this tree, so a
   // fresh object every render re-fires it.
+  // "Start a conversation" from a role (the roles window, wherever it was
+  // opened): the new-conversation dialog opens with that role picked.
+  useEffect(() => {
+    const onRequest = (e: Event): void => {
+      const { hostId: reqHostId, role } = (e as CustomEvent<NewConversationRequest>).detail;
+      const host = hostTree
+        ? (collectHostsFromFolder(hostTree).find((h) => parseInt(h.id, 10) === reqHostId) ?? null)
+        : null;
+      console.log(`[new-conversation-request] role=${role} hostId=${reqHostId} hostFound=${host !== null}`);
+      setNewSessionPendingProjectSlug(null);
+      setNewSessionPendingProjectHostId(null);
+      setChainPrefill({ host, role, roles: [role] });
+      setNewSessionDialogOpen(true);
+    };
+    window.addEventListener(NEW_CONVERSATION_REQUEST_EVENT, onRequest);
+    return () => window.removeEventListener(NEW_CONVERSATION_REQUEST_EVENT, onRequest);
+  }, [hostTree]);
   const newSessionHostTree = useMemo(() => {
     const fullTree = hostTree ?? null;
     if (newSessionPendingProjectHostId === null || !fullTree) return fullTree;
@@ -1188,9 +1203,6 @@ export function PrettyConversationsPanel({
     if (!projectHost) return fullTree; // fall back to full tree if not found
     return { name: fullTree.name, children: [projectHost] };
   }, [hostTree, newSessionPendingProjectHostId]);
-  // Phase 90 Plan 90-06 (D-07): RolesListModal open/closed toggle. Opened by
-  // the header's Edit roles icon button (Drama). See <RolesListModal> mount below.
-  const [rolesListModalOpen, setRolesListModalOpen] = useState(false);
   // Phase 143 D-09: ArchivedAppsModal open/closed toggle. Opened by the
   // archived-box icon-button on the Apps section header (see header edit below).
   const [archivedAppsModalOpen, setArchivedAppsModalOpen] = useState(false);
@@ -1214,42 +1226,6 @@ export function PrettyConversationsPanel({
   // state — modal refetches every open (D-03) and resets filter state on
   // close (D-17). Sibling of ConversationSearchModal's controlled state.
   const [scheduledAgentsModalOpen, setScheduledAgentsModalOpen] = useState(false);
-  // Filter the modal opens with — set by a role modal's "N scheduled tasks"
-  // shortcut (via OPEN_SCHEDULED_TASKS_EVENT); the footer clock opens it bare.
-  const [scheduledAgentsFilter, setScheduledAgentsFilter] =
-    useState<ScheduledTasksFilter | null>(null);
-  useEffect(() => {
-    const handle = (e: Event) => {
-      const filter = (e as CustomEvent<ScheduledTasksFilter | null>).detail ?? null;
-      setScheduledAgentsFilter(filter);
-      setScheduledAgentsModalOpen(true);
-    };
-    window.addEventListener(OPEN_SCHEDULED_TASKS_EVENT, handle);
-    return () => window.removeEventListener(OPEN_SCHEDULED_TASKS_EVENT, handle);
-  }, []);
-  // Phase 90 Plan 90-06 (D-04): role modal swap-not-stack coordination. Set by
-  // RolesListModal's onSelectRole (row click closes list + opens role modal).
-  // Also used by the nested RoleModal → RoleSkillEditorModal swap through
-  // roleSkillEditorOpenState below. Cleared to null on close.
-  // Phase 90 Plan 90-10 (D-08.3 lock): the earlier identity-shim prop was
-  // removed from this state slot. Every read/write on the RoleModal now routes
-  // through role-name-keyed helpers (Plan 90-09), so `roleName` + `hostId`
-  // fully identifies every artifact the modal touches.
-  const [roleModalOpenState, setRoleModalOpenState] = useState<
-    | null
-    | {
-        roleName: string;
-        roleCosmetics: import("@/api/identities-api").RoleSummary;
-        hostId: number;
-      }
-  >(null);
-  // Phase 90 Plan 90-06 (D-06): nested RoleSkillEditorModal swap target. RoleModal
-  // opened from RolesListModal fires onOpenRoleSkill → set this state → RoleModal
-  // closes + RoleSkillEditorModal opens. Mirrors PrettyView's mount at L3281 shape.
-  const [panelRoleSkillEditorOpenState, setPanelRoleSkillEditorOpenState] = useState<
-    | null
-    | { roleName: string; roleSkillName: string; hostId: number }
-  >(null);
 
   // Phase 119 Plan 04 (D-03): Apps section collapsed by default on every
   // mount. Content is lazy-rendered via `{appsExpanded && ...}` in the JSX
@@ -4069,7 +4045,7 @@ export function PrettyConversationsPanel({
                 aria-label="Roles"
                 title="Roles"
                 data-testid="pv-footer-roles-button"
-                onClick={() => setRolesListModalOpen(true)}
+                onClick={() => setRolesWindow({ open: true, start: { view: "library" }, hop: false })}
               >
                 <Drama size={18} />
               </button>
@@ -4193,7 +4169,7 @@ export function PrettyConversationsPanel({
           }}
           // Phase 22 SRIC-05: chain pre-fill props. Null when chainPrefill
           // has not been set (fresh manual pencil open); populated when
-          // CreateRoleDialog's onChainToCreateIdentity fired.
+          // the roles window's new-role hop created a role.
           initialHost={chainPrefill?.host ?? null}
           initialRole={chainPrefill?.role ?? null}
           initialRoles={chainPrefill?.roles ?? null}
@@ -4204,61 +4180,61 @@ export function PrettyConversationsPanel({
             setNewSessionDialogOpen(false);
             setChainPrefill(null);
             setCreateRoleInitialHost(host);
-            setCreateRoleDialogOpen(true);
+            setRolesWindow({ open: true, start: { view: "new", host }, hop: true });
           }}
           // Phase 88: forward admin-gate to NewSessionDialog for Path field + shell checkbox visibility (see 88-CONTEXT.md §isAdmin prop plumbing).
           isAdmin={isAdmin}
         />
       )}
-      {/* D-10 revised 2026-09-11: panel-level CreateRoleDialog mount RESTORED
-          as swap-not-stack sibling of RolesListModal + NewSessionDialog.
-          Opened via RolesListModal's onNewRole callback (which also closes
-          the list). onChainToCreateIdentity fires after successful role
-          create → sets chainPrefill + opens NewSessionDialog with role +
-          host + description pre-filled, restoring the historical chain. */}
-      <CreateRoleDialog
-        open={createRoleDialogOpen}
-        onClose={() => {
-          setCreateRoleDialogOpen(false);
-          setCreateRoleInitialHost(null);
-          // Cancelled out of a "New role…" hop: back to the new-agent dialog
-          // as the user left it. (A successful create already cleared the ref.)
-          const hop = newRoleHopRef.current;
-          if (hop) {
+      {/* The roles window. On the new-conversation dialog's "New role…" hop
+          its back/cancel and create go back to that dialog. */}
+      <RolesWindow
+        open={rolesWindow.open}
+        onOpenChange={(o) => {
+          if (o) return;
+          setRolesWindow((w) => ({ ...w, open: false }));
+          // Closed out of a hop with the X: drop the remembered picks.
+          if (rolesWindow.hop) {
             newRoleHopRef.current = null;
-            console.log(`[new-role-hop] cancelled — restoring new-agent dialog hostId=${hop.host?.id ?? "-"}`);
-            setChainPrefill({ host: hop.host, roles: hop.roles, name: hop.name });
-            setNewSessionDialogOpen(true);
+            setCreateRoleInitialHost(null);
           }
         }}
+        start={rolesWindow.start}
         // A per-project hop locks role creation to the project's host (the
         // same single-host tree the new-agent dialog got) so the role — and
         // the agent born with it — can't land on a host the project isn't on.
-        hostTree={createRoleInitialHost ? newSessionHostTree : (hostTree ?? null)}
-        initialHost={createRoleInitialHost}
-        onChainToCreateIdentity={({ role, host, description }) => {
-          const hop = newRoleHopRef.current;
-          newRoleHopRef.current = null;
-          setCreateRoleDialogOpen(false);
-          // Back from a hop on the same host: keep the earlier picks and add
-          // the new role. A different host invalidates the earlier picks. A
-          // hop with no host had no picks, so only its name carries over.
-          const sameHost = hop !== null && (hop.host === null || hop.host.id === host.id);
-          const roles = sameHost
-            ? [...hop.roles.filter((r) => r !== role), role]
-            : undefined;
-          console.log(
-            `[new-role-hop] role created role=${role} hostId=${host.id} fromHop=${hop !== null} roles=${roles?.join(",") ?? role}`,
-          );
-          setChainPrefill({
-            role,
-            roles,
-            name: sameHost ? hop.name : null,
-            host,
-            description,
-          });
-          setNewSessionDialogOpen(true);
-        }}
+        hostTree={rolesWindow.hop && createRoleInitialHost ? newSessionHostTree : (hostTree ?? null)}
+        newRoleHop={
+          rolesWindow.hop
+            ? {
+                onBack: () => {
+                  setRolesWindow((w) => ({ ...w, open: false }));
+                  setCreateRoleInitialHost(null);
+                  const hop = newRoleHopRef.current;
+                  newRoleHopRef.current = null;
+                  console.log(`[new-role-hop] cancelled — restoring new-agent dialog hostId=${hop?.host?.id ?? "-"}`);
+                  if (hop) setChainPrefill({ host: hop.host, roles: hop.roles, name: hop.name });
+                  setNewSessionDialogOpen(true);
+                },
+                onCreated: ({ role, host, description }) => {
+                  const hop = newRoleHopRef.current;
+                  newRoleHopRef.current = null;
+                  setRolesWindow((w) => ({ ...w, open: false }));
+                  setCreateRoleInitialHost(null);
+                  // Back from a hop on the same host: keep the earlier picks and add
+                  // the new role. A different host invalidates the earlier picks. A
+                  // hop with no host had no picks, so only its name carries over.
+                  const sameHost = hop !== null && (hop.host === null || hop.host.id === host.id);
+                  const roles = sameHost ? [...hop.roles.filter((r) => r !== role), role] : undefined;
+                  console.log(
+                    `[new-role-hop] role created role=${role} hostId=${host.id} fromHop=${hop !== null} roles=${roles?.join(",") ?? role}`,
+                  );
+                  setChainPrefill({ role, roles, name: sameHost ? hop.name : null, host, description });
+                  setNewSessionDialogOpen(true);
+                },
+              }
+            : null
+        }
       />
       {/* Phase 137 D-29: GlobalFilesModal retired — About-you pane in
           PreferencesModal is the sole remaining entry for global-files editing. */}
@@ -4339,79 +4315,6 @@ export function PrettyConversationsPanel({
         open={archivedAppsModalOpen}
         onOpenChange={setArchivedAppsModalOpen}
       />
-      {/* Phase 90 Plan 90-06 (D-07): RolesListModal — portal-mounted sibling of
-          GlobalFilesModal + SkillsEditorModal. Opened via the header's Edit
-          roles icon button (Drama). defaultHostId={null} deliberate — the panel-header
-          trigger has no active-conversation context, so the modal falls through
-          to its own host picker (matches GlobalFilesModal + SkillsEditorModal
-          shape). Row click swaps to <RoleModal> below (D-04 swap-not-stack). */}
-      <RolesListModal
-        open={rolesListModalOpen}
-        onOpenChange={setRolesListModalOpen}
-        hostTree={hostTree ?? null}
-        defaultHostId={null}
-        onSelectRole={({ roleName, roleCosmetics, hostId: pickedHostId }) => {
-          // D-04 swap-not-stack: close list, open role modal.
-          setRolesListModalOpen(false);
-          // Phase 90 Plan 90-10 (D-08.3): the identity-shim derivation was
-          // removed — the RoleModal now reads/writes purely by role name via
-          // Plan 90-09's role-name-keyed helpers. No identity indirection.
-          setRoleModalOpenState({
-            roleName,
-            roleCosmetics,
-            hostId: pickedHostId,
-          });
-        }}
-        onNewRole={() => {
-          // D-10 revised 2026-09-11 swap-not-stack: close list, open create.
-          setRolesListModalOpen(false);
-          setCreateRoleDialogOpen(true);
-        }}
-      />
-      {/* Phase 90 Plan 90-06 (D-04): RoleModal — swap target for RolesListModal
-          row click. Mounted at document.body via its own DialogPrimitive.Portal
-          (D-03). RoleSkill row click nests to RoleSkillEditorModal (below) —
-          mirrors PrettyView's mount pattern. */}
-      {roleModalOpenState && (
-        <RoleModal
-          open={true}
-          onOpenChange={(o) => {
-            if (!o) setRoleModalOpenState(null);
-          }}
-          roleName={roleModalOpenState.roleName}
-          roleCosmetics={roleModalOpenState.roleCosmetics}
-          hostId={roleModalOpenState.hostId}
-          onOpenRoleSkill={(roleSkillName) => {
-            // Nested swap: close role modal, open role skill editor.
-            // Capture hostId + roleName BEFORE clearing roleModalOpenState so
-            // the role skill editor can read them even after the parent state
-            // slot went null.
-            setPanelRoleSkillEditorOpenState({
-              roleName: roleModalOpenState.roleName,
-              roleSkillName,
-              hostId: roleModalOpenState.hostId,
-            });
-            setRoleModalOpenState(null);
-          }}
-        />
-      )}
-      {/* Phase 90 Plan 90-06 (D-06 nested): RoleSkillEditorModal — swap target
-          for RoleModal's onOpenRoleSkill. Mirrors PrettyView's mount at L3281.
-          Close just clears state (no reopen of RoleModal per D-03). */}
-      {panelRoleSkillEditorOpenState && (
-        <RoleSkillEditorModal
-          open={true}
-          onOpenChange={(o) => {
-            if (!o) setPanelRoleSkillEditorOpenState(null);
-          }}
-          hostId={panelRoleSkillEditorOpenState.hostId}
-          roleName={panelRoleSkillEditorOpenState.roleName}
-          roleSkillName={panelRoleSkillEditorOpenState.roleSkillName}
-          onRenamed={(newName) =>
-            setPanelRoleSkillEditorOpenState((prev) => (prev ? { ...prev, roleSkillName: newName } : prev))
-          }
-        />
-      )}
       {/* Phase 117 Plan 117-09 Task 1 — CreateProjectModal, wired to the
           header "Create project" button (state landed in 117-08). Replaces
           the 117-08 placeholder marker. Backend-authoritative slugify:

@@ -54,13 +54,10 @@ import { PrettyViewErrorOverlay } from "./PrettyViewErrorOverlay";
 import { usePaneResolvingMachine } from "./usePaneResolvingMachine";
 import type { WsTransportState, PaneState } from "./resolve-phase";
 import { IdentityModal } from "./IdentityModal";
-// Phase 89 Plan 06: RoleSkillEditorModal — swap-not-stack coordination (D-06).
-// Mounted as a top-level sibling alongside IdentityModal + EditableFileModal.
-import RoleSkillEditorModal from "./RoleSkillEditorModal";
-// Phase 90 Plan 90-06 (D-04): RoleModal — swap-not-stack target for the
-// identity-modal title-line jump. Mounted as a top-level sibling alongside
-// IdentityModal + RoleSkillEditorModal.
-import { RoleModal } from "./RoleModal";
+// The roles window, opened straight onto a role from the agent's window
+// (the role name link); closing it returns to the agent's window.
+import { RolesWindow } from "./roles-window/RolesWindow";
+import type { Host, HostFolder } from "@/types/ui-types";
 // Phase 92 Slice 1 (D-07): ChatSurfaceSource discriminated-union prop +
 // unified adapter hook. Slice 1 wires the type and the hook contract; the
 // harness case is byte-preserved (redundant legacy hostId/tmuxSession props
@@ -1125,37 +1122,8 @@ export function PrettyView({
     pushIdentityModalOpen();
     return () => popIdentityModalOpen();
   }, [isIdentityModalOpen]);
-  // Phase 89 Plan 06: swap-not-stack coordination (D-06) — non-null when the
-  // role skill editor is open, null when closed. Set by handleOpenRoleSkill (fired
-  // from IdentityModal's Role skills tab row click OR from RoleModal's Role skills
-  // tab); cleared to null by the RoleSkillEditorModal's onOpenChange(false)
-  // close handler.
-  //
-  // 2026-09-30 UAT: `parentRoleModalState` carries a snapshot of the
-  // RoleModal state that was open at the moment the role skill was opened,
-  // when the swap originated from RoleModal. On RoleSkillEditor close we
-  // restore that snapshot so the user lands back on the RoleModal they
-  // came from — mirrors the RoleModal→RoleSkillEditor forward swap.
-  // Null when the role skill was opened from a non-RoleModal path (e.g.
-  // IdentityModal's now-retired Role skills tab), in which case close is
-  // a no-reopen terminal event as before.
-  const [roleSkillEditorOpenState, setRoleSkillEditorOpenState] = useState<
-    | null
-    | {
-        roleName: string;
-        roleSkillName: string;
-        parentRoleModalState: {
-          roleName: string;
-          roleCosmetics: RoleSummary;
-          hue: number;
-        } | null;
-      }
-  >(null);
-  // Phase 90 Plan 90-06 (D-04): swap-not-stack coordination for the identity-
-  // modal title-line jump. Non-null when the role modal is open (opened via
-  // IdentityModal's title-line click), cleared to null by the RoleModal's
-  // onOpenChange(false) close handler. No reopen-of-identity-modal on close
-  // per D-03 (no per-pane context, no back-navigation).
+  // The identity modal's role-name jump: non-null while the roles window is
+  // open on that role. Closing it returns to the identity modal.
   // Phase 90 Plan 90-10 (D-08.3 lock): the earlier identity-shim prop was
   // removed from this state slot. Every read/write on the RoleModal now routes
   // through role-name-keyed helpers (Plan 90-09), so `roleName` + `hostId`
@@ -1170,6 +1138,13 @@ export function PrettyView({
         hue: number;
       }
   >(null);
+  const roleWindowHostTree = useMemo<HostFolder>(
+    () => ({
+      name: "",
+      children: [{ id: String(hostId), name: hostName ?? "this host" } as unknown as Host],
+    }),
+    [hostId, hostName],
+  );
   // Phase 40 D-05/D-06: editor modal open state. Null when closed; an object
   // holding the URL + filename + messageEventId + agentIdentityName snapshot
   // when open. Set by handleOpenEditor (fired from a ChatMessage affordance
@@ -2746,36 +2721,6 @@ export function PrettyView({
     [],
   );
 
-  // Phase 89 Plan 06: Role skills tab row click handler. D-06 swap-not-stack —
-  // closes the identity modal at the same tick the role skill editor opens.
-  // Defensive guard: if the identity has no resolved role, silently no-op
-  // (RoleSkillsTab's fetch would have returned an empty list via the D-10
-  // fast-path, so no row-click should reach here in that case — but the
-  // guard prevents crashes if some future call path bypasses the fast-path).
-  //
-  // Phase 90 Plan 90-06: optional `roleNameOverride` param supports the
-  // nested swap RoleModal → RoleSkillEditorModal. RoleModal already knows the
-  // roleName (it was opened for that role), so it passes it in explicitly
-  // rather than depending on pvIdentity?.role. This also lets a RoleModal
-  // opened via title-line-jump-from-a-different-identity resolve correctly
-  // (though the current UI always jumps to the identity's own role).
-  const handleOpenRoleSkill = useCallback(
-    (roleSkillName: string, roleNameOverride?: string): void => {
-      const roleName = roleNameOverride ?? pvIdentity?.role ?? null;
-      if (roleName === null) {
-        console.debug("[PrettyView] handleOpenRoleSkill: no role — skipping", { roleSkillName });
-        return;
-      }
-      console.debug("[PrettyView] handleOpenRoleSkill: swap", { roleName, roleSkillName });
-      // Capture RoleModal snapshot BEFORE clearing it so we can restore
-      // on RoleSkillEditor close (2026-09-30 UAT swap-back).
-      const parentRoleModalState = roleModalOpenState;
-      setIsIdentityModalOpen(false);
-      setRoleModalOpenState(null);
-      setRoleSkillEditorOpenState({ roleName, roleSkillName, parentRoleModalState });
-    },
-    [pvIdentity, roleModalOpenState],
-  );
 
   // Phase 90 Plan 90-06 (D-04): identity-modal title-line click handler.
   // Swap-not-stack coordination — the identity modal's onClick handler
@@ -4746,29 +4691,19 @@ export function PrettyView({
           onOpenRoleModal={handleOpenRoleModal}
         />
       )}
-      {/* Phase 90 Plan 90-06 (D-04): RoleModal — swap-not-stack sibling of
-          IdentityModal. Portal target defaults to document.body per D-03 (no
-          per-pane context — matches GlobalFilesModal/SkillsEditorModal chrome).
-          RoleSkill row click inside this modal delegates to handleOpenRoleSkill
-          (nested swap: RoleModal → RoleSkillEditorModal). Closing the role modal
-          just clears state — no reopen of the identity modal per D-03. */}
       {roleModalOpenState && (
-        <RoleModal
+        <RolesWindow
           open={true}
           onOpenChange={(open) => {
             if (!open) {
-              console.debug("[PrettyView] role-modal-close: no reopen (D-03 no per-pane context)");
+              console.debug("[PrettyView] roles-window-close: back to the identity modal");
               setRoleModalOpenState(null);
+              setIsIdentityModalOpen(true);
             }
           }}
-          roleName={roleModalOpenState.roleName}
-          roleCosmetics={roleModalOpenState.roleCosmetics}
-          hostId={hostId}
-          onOpenRoleSkill={(roleSkillName) => {
-            // Nested swap-not-stack: close role modal, open role skill editor
-            // with the role modal's own roleName (no reliance on pvIdentity).
-            handleOpenRoleSkill(roleSkillName, roleModalOpenState.roleName);
-          }}
+          // Opened from this agent: the window is scoped to its host.
+          hostTree={roleWindowHostTree}
+          start={{ view: "role", hostId, role: roleModalOpenState.roleCosmetics }}
         />
       )}
       {/* Phase 40 D-05/D-06/D-07: editor modal mounts alongside IdentityModal.
@@ -4780,40 +4715,6 @@ export function PrettyView({
           via the existing AttachmentChipStrip wiring at ComposeBox and the
           existing reply-with-attachment path handles the send, so this plan
           adds zero new plumbing on the return trip. */}
-      {/* Phase 89 Plan 06: RoleSkillEditorModal — mounted as a top-level sibling
-          alongside IdentityModal + EditableFileModal. Portal target defaults
-          to document.body (no `container` prop passed) since this is a top-
-          level surface per D-06 swap-not-stack — the modal is NOT portaled
-          into the chat-region wrapper; it fills the viewport
-          like SkillsEditorModal / GlobalFilesModal do.
-          roleSkillEditorOpenState.roleName + roleSkillName are already validated
-          non-null by handleOpenRoleSkill (the defensive guard rejects null-role
-          calls before setting state). */}
-      {roleSkillEditorOpenState && (
-        <RoleSkillEditorModal
-          open={true}
-          onOpenChange={(open) => {
-            if (!open) {
-              // 2026-09-30 UAT: reverse-swap. If this role skill was opened
-              // from RoleModal, restore that RoleModal on close so the
-              // user lands back where they came from. Otherwise close
-              // terminates as before.
-              const parent = roleSkillEditorOpenState.parentRoleModalState;
-              console.debug("[PrettyView] role-skill-editor-close", {
-                reopenRoleModal: parent !== null,
-              });
-              setRoleSkillEditorOpenState(null);
-              if (parent) setRoleModalOpenState(parent);
-            }
-          }}
-          hostId={hostId}
-          roleName={roleSkillEditorOpenState.roleName}
-          roleSkillName={roleSkillEditorOpenState.roleSkillName}
-          onRenamed={(newName) =>
-            setRoleSkillEditorOpenState((prev) => (prev ? { ...prev, roleSkillName: newName } : prev))
-          }
-        />
-      )}
       {editorOpenState && (
         <EditableFileModal
           open={true}

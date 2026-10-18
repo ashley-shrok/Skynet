@@ -37,7 +37,7 @@ import {
   type SkillFileEntry,
   skillFileUrl,
 } from "@/api/skills-api";
-import { slugifyRoleName } from "@/sidebar/CreateRoleDialog";
+import { slugifyRoleName } from "@/lib/slugify-role-name";
 import SkillFileTab, { type SkillFileTabData } from "./SkillFileTab";
 import { fileViewNeverNeedsContent, type BinaryDraft } from "./file-viewers/registry";
 import type { TabState } from "./IdentityFileTab";
