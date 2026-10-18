@@ -293,20 +293,11 @@ describe("SplitView meeting points", () => {
   });
 
   it("a + where lines from both sides end on one line moves all three", () => {
-    // (a over b) | (c over d), both horizontal lines at y=400.
-    let tree: SplitNode = rowOf(["a", "c"]);
-    tree = insertAtEdge(tree, findLeaf(tree, "a")!, leaf("b"), "bottom");
-    tree = insertAtEdge(tree, findLeaf(tree, "c")!, leaf("d"), "bottom");
     const onResizeRow = vi.fn();
     const { container } = render(
-      <SplitView splitTree={tree} tabs={["a", "b", "c", "d"].map(tab)} onResizeRow={onResizeRow} />,
+      <SplitView splitTree={plusTree()} tabs={["a", "b", "c", "d"].map(tab)} onResizeRow={onResizeRow} />,
     );
-    // Document order: left column's line, the vertical line, right column's.
-    const [, vertical] = layOut(container, [
-      { row: [0, 0, 500, 801], strip: [0, 396, 500, 9] },
-      { row: [0, 0, 1001, 801], strip: [496, 0, 9, 801] },
-      { row: [501, 0, 500, 801], strip: [501, 396, 500, 9] },
-    ]);
+    const [, vertical] = layOut(container, plusLines);
     fireEvent(vertical, pointer("pointerdown", { clientX: 500, clientY: 401 }));
     fireEvent(vertical, pointer("pointermove", { clientX: 550, clientY: 451 }));
     fireEvent(vertical, pointer("pointerup", { clientX: 550, clientY: 451 }));
@@ -315,6 +306,56 @@ describe("SplitView meeting points", () => {
     expect(byPath.get("[]")![0]).toBeCloseTo(550 / 1000, 6);
     expect(byPath.get("[0]")![0]).toBeCloseTo(450 / 800, 6);
     expect(byPath.get("[1]")![0]).toBeCloseTo(450 / 800, 6);
+  });
+
+  // (a over b) | (c over d), both horizontal lines at y=400; document order
+  // of the lines: left column's, the vertical, right column's.
+  function plusTree(withB = true) {
+    let tree: SplitNode = rowOf(["a", "c"]);
+    if (withB) tree = insertAtEdge(tree, findLeaf(tree, "a")!, leaf("b"), "bottom");
+    tree = insertAtEdge(tree, findLeaf(tree, "c")!, leaf("d"), "bottom");
+    return tree;
+  }
+  const plusLines: Array<{ row: [number, number, number, number]; strip: [number, number, number, number] }> = [
+    { row: [0, 0, 500, 801], strip: [0, 396, 500, 9] },
+    { row: [0, 0, 1001, 801], strip: [496, 0, 9, 801] },
+    { row: [501, 0, 500, 801], strip: [501, 396, 500, 9] },
+  ];
+
+  it("a press off-centre of a + still takes every line there", () => {
+    const onResizeRow = vi.fn();
+    const { container } = render(
+      <SplitView splitTree={plusTree()} tabs={["a", "b", "c", "d"].map(tab)} onResizeRow={onResizeRow} />,
+    );
+    const [left] = layOut(container, plusLines);
+    fireEvent(left, pointer("pointerdown", { clientX: 494, clientY: 400 }));
+    fireEvent(left, pointer("pointermove", { clientX: 544, clientY: 450 }));
+    fireEvent(left, pointer("pointerup", { clientX: 544, clientY: 450 }));
+    expect(onResizeRow.mock.calls.map(([p]) => JSON.stringify(p)).sort()).toEqual(["[0]", "[1]", "[]"]);
+  });
+
+  it("the pressed line's row closing mid-drag leaves the other lines dragging", () => {
+    const onResizeRow = vi.fn();
+    const { container, rerender } = render(
+      <SplitView splitTree={plusTree()} tabs={["a", "b", "c", "d"].map(tab)} onResizeRow={onResizeRow} />,
+    );
+    const [left] = layOut(container, plusLines);
+    fireEvent(left, pointer("pointerdown", { clientX: 500, clientY: 400 }));
+    // b closes: the left column (and the pressed strip) is gone.
+    rerender(
+      <SplitView splitTree={plusTree(false)} tabs={["a", "c", "d"].map(tab)} onResizeRow={onResizeRow} />,
+    );
+    expect(left.isConnected).toBe(false);
+    expect(document.body.style.cursor).toBe("move");
+    window.dispatchEvent(pointer("pointermove", { clientX: 500, clientY: 450 }));
+    window.dispatchEvent(pointer("pointerup", { clientX: 500, clientY: 450 }));
+    expect(document.body.style.cursor).toBe("");
+    expect(document.body.hasAttribute("data-split-resizing")).toBe(false);
+    // The right column is untouched by the close and commits; the outer row
+    // changed shape, so it doesn't.
+    expect(onResizeRow).toHaveBeenCalledTimes(1);
+    expect(onResizeRow.mock.calls[0][0]).toEqual([1]);
+    expect(onResizeRow.mock.calls[0][1][0]).toBeCloseTo(450 / 800, 6);
   });
 
   it("hovering a meeting point lights every line there; leaving clears it", () => {

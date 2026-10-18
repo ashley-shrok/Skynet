@@ -192,24 +192,26 @@ interface LineDrag {
 }
 
 interface LineControl {
-  direction: "horizontal" | "vertical";
   /** Starts this line's part in a drag, or null when it can't resize.
    *  `onAbort` runs if the line's row unmounts mid-drag. */
   begin: (clientX: number, clientY: number, onAbort: () => void) => LineDrag | null;
   reset: () => void;
 }
 
-const lineControls = new WeakMap<Element, LineControl>();
+const lineControls = new WeakMap<
+  Element,
+  LineControl & { direction: "horizontal" | "vertical" }
+>();
 
 // How far past a grab strip a press may land and still reach that line —
 // sets the size of a meeting point's grab area (~17px square).
 const MEET_REACH_PX = 4;
 
-/** The lines a press at (x, y) on `pressed` drives: every grab strip within
- *  reach when they run in both directions (a meeting point), otherwise just
- *  the pressed one. */
-function linesAt(pressed: Element, x: number, y: number): Element[] {
-  const near = Array.from(document.querySelectorAll("[data-split-divider-handle]")).filter((el) => {
+/** Grab strips of the split view holding `pressed` that come within reach
+ *  of (x, y). */
+function stripsNear(pressed: Element, x: number, y: number): Element[] {
+  const root = pressed.closest("[data-split-root]") ?? document;
+  return Array.from(root.querySelectorAll("[data-split-divider-handle]")).filter((el) => {
     if (el === pressed) return true;
     if (!lineControls.has(el)) return false;
     const r = el.getBoundingClientRect();
@@ -221,13 +223,28 @@ function linesAt(pressed: Element, x: number, y: number): Element[] {
       y <= r.bottom + MEET_REACH_PX
     );
   });
-  const directions = new Set(near.map((el) => lineControls.get(el)?.direction));
-  return directions.size > 1 ? near : [pressed];
+}
+
+/** The lines a press at (x, y) on `pressed` drives. Near a meeting point
+ *  (lines running both ways within reach) it is every line that reaches
+ *  the meeting point itself — the crossing of those lines' centres — so
+ *  the set doesn't depend on which side of the point the press lands;
+ *  otherwise just the pressed line. */
+function linesAt(pressed: Element, x: number, y: number): Element[] {
+  const near = stripsNear(pressed, x, y);
+  const vertical = near.find((el) => lineControls.get(el)?.direction === "vertical");
+  const horizontal = near.find((el) => lineControls.get(el)?.direction === "horizontal");
+  if (vertical === undefined || horizontal === undefined) return [pressed];
+  const v = vertical.getBoundingClientRect();
+  const h = horizontal.getBoundingClientRect();
+  const lines = stripsNear(pressed, v.left + v.width / 2, h.top + h.height / 2);
+  return lines.includes(pressed) ? lines : [pressed, ...lines];
 }
 
 // Grab strips currently lit as one meeting point under a hovering pointer.
 let hotLines: Element[] = [];
 function setHotLines(lines: Element[]) {
+  if (lines.length === hotLines.length && lines.every((el, i) => el === hotLines[i])) return;
   hotLines.forEach((el) => {
     el.removeAttribute("data-split-meet");
     el.parentElement?.removeAttribute("data-split-meet");
@@ -282,13 +299,28 @@ function startLineDrag(e: React.PointerEvent<HTMLDivElement>) {
       clientY: Math.round(e.clientY),
     });
   }
-  const onMove = (ev: PointerEvent) => drags.forEach((d) => d.move(ev.clientX, ev.clientY));
+  // Moves and the release are heard on the window: the pressed strip can
+  // unmount mid-drag (its pane closed) while other lines in the drag live on.
+  const onMove = (ev: PointerEvent) => {
+    if (ev.pointerId !== pointerId) return;
+    drags.forEach((d) => d.move(ev.clientX, ev.clientY));
+  };
+  const onRelease = (ev: PointerEvent) => {
+    if (ev.pointerId === pointerId) onEnd();
+  };
+  // Capture lost while the strip is still on the page (the browser took the
+  // pointer away) ends the drag; losing it because the strip unmounted
+  // doesn't — the window listeners carry on.
+  const onLostCapture = () => {
+    if (handle.isConnected) onEnd();
+  };
   function teardown() {
     if (ended) return;
     ended = true;
-    handle.removeEventListener("pointermove", onMove);
-    handle.removeEventListener("pointerup", onEnd);
-    handle.removeEventListener("lostpointercapture", onEnd);
+    window.removeEventListener("pointermove", onMove);
+    window.removeEventListener("pointerup", onRelease);
+    window.removeEventListener("pointercancel", onRelease);
+    handle.removeEventListener("lostpointercapture", onLostCapture);
     if (handle.isConnected && handle.hasPointerCapture(pointerId)) {
       handle.releasePointerCapture(pointerId);
     }
@@ -301,9 +333,10 @@ function startLineDrag(e: React.PointerEvent<HTMLDivElement>) {
     teardown();
     drags.forEach((d) => d.finish(true));
   }
-  handle.addEventListener("pointermove", onMove);
-  handle.addEventListener("pointerup", onEnd);
-  handle.addEventListener("lostpointercapture", onEnd);
+  window.addEventListener("pointermove", onMove);
+  window.addEventListener("pointerup", onRelease);
+  window.addEventListener("pointercancel", onRelease);
+  handle.addEventListener("lostpointercapture", onLostCapture);
 }
 
 // Divider between two members of a row. `direction` matches split-tree.ts's
@@ -324,15 +357,6 @@ function Divider({
   active: boolean;
   control: LineControl;
 }) {
-  const controlRef = useRef(control);
-  controlRef.current = control;
-  const registered = useRef<LineControl>({
-    get direction() {
-      return controlRef.current.direction;
-    },
-    begin: (x, y, onAbort) => controlRef.current.begin(x, y, onAbort),
-    reset: () => controlRef.current.reset(),
-  });
   const stacked = direction === "horizontal";
   const lineColor = active
     ? "bg-[hsla(var(--pv-hue,35),55%,50%,0.6)]"
@@ -347,7 +371,7 @@ function Divider({
       <div className={`absolute inset-0 transition-colors ${lineColor}`} data-split-divider-line="" />
       <div
         ref={(el) => {
-          if (el !== null) lineControls.set(el, registered.current);
+          if (el !== null) lineControls.set(el, { ...control, direction });
         }}
         className={`absolute pointer-events-auto touch-none ${stacked ? "left-0 right-0 -top-[4px] h-[9px] cursor-row-resize" : "top-0 bottom-0 -left-[4px] w-[9px] cursor-col-resize"}`}
         data-split-divider-handle=""
@@ -410,12 +434,12 @@ function RowView({
   const endDragRef = useRef<(() => void) | null>(null);
   useEffect(() => () => endDragRef.current?.(), []);
   const committed = rowFractions(node);
-  const [live, setLive] = useState<{ fractions: number[]; divider: number } | null>(null);
+  // Live drag sizes, tagged with the panes they were measured for: if the
+  // row is restructured mid-drag they no longer apply.
+  const [liveDrag, setLive] = useState<{ fractions: number[]; divider: number; signature: string } | null>(null);
+  const live = liveDrag !== null && liveDrag.signature === memberSignature(node) ? liveDrag : null;
   const containerRef = useRef<HTMLDivElement | null>(null);
-  const fractions =
-    live !== null && live.fractions.length === members.length
-      ? live.fractions
-      : committed;
+  const fractions = live !== null ? live.fractions : committed;
   const sideBySide = node.direction === "vertical";
 
   // This row's part in a drag of divider `k` (see startLineDrag, which owns
@@ -439,7 +463,7 @@ function RowView({
     let latest = start;
     let frame = 0;
     let lastFit = 0;
-    setLive({ fractions: start, divider: k });
+    setLive({ fractions: start, divider: k, signature });
     systemLogger.info("pv-split-resize start", {
       operation: "pv_split_resize_start",
       rowPath: JSON.stringify(path),
@@ -447,14 +471,16 @@ function RowView({
       members: members.length,
       lengthPx: Math.round(lengthPx),
     });
+    let ended = false;
     const move = (x: number, y: number) => {
+      if (ended) return;
       const pos = sideBySide ? x : y;
       latest = dragRowFractions(start, k, pos - startPos, lengthPx, minsPx);
       // One re-render per frame, however fast the pointer events come.
       if (frame !== 0) return;
       frame = requestAnimationFrame(() => {
         frame = 0;
-        setLive({ fractions: latest, divider: k });
+        setLive({ fractions: latest, divider: k, signature });
         // Terminals refit on a trailing debounce that a steady drag keeps
         // postponing; nudge them a few times a second so they reflow live.
         const now = performance.now();
@@ -464,7 +490,6 @@ function RowView({
         }
       });
     };
-    let ended = false;
     const finish = (commit: boolean) => {
       if (ended) return;
       ended = true;
@@ -509,7 +534,6 @@ function RowView({
           direction={node.direction}
           active={live !== null && live.divider === k}
           control={{
-            direction: node.direction,
             begin: (x, y, onAbort) => beginDrag(k, x, y, onAbort),
             reset: resetRow,
           }}
@@ -1631,7 +1655,7 @@ export const SplitView = memo(function SplitView({
   }
 
   return (
-    <div className="flex flex-col w-full h-full min-h-0 overflow-hidden relative">
+    <div className="flex flex-col w-full h-full min-h-0 overflow-hidden relative" data-split-root="">
       <PaneTree
         node={splitTree}
         path={[]}
