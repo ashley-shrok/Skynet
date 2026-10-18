@@ -31,7 +31,7 @@ Starting order: foundation, skills, then the remaining modals, then host targeti
 
 - **[declared] shape-ux-foundation** — look A + the shared kit, every modal moved onto it, in-app dialogs, phone sheets (see shape-ux-foundation.closed.md) — closed 2026-10-17
 - **[declared] shape-skills-modal** — library + skill views, who-can-use switches in bulk, files collapsed; shared skills agent-only for non-admins (see shape-skills-modal.closed.md) — closed 2026-10-18
-- **[declared] shape-roles-modals** — roles list, role modal, new-role dialog, runbook editor become one window (see shape-roles-modals.md) — in_progress
+- **[declared] shape-roles-modals** — roles list, role modal, new-role dialog, runbook editor become one window; roles gain a one-line description (see shape-roles-modals.closed.md) — closed 2026-10-18
 - **[declared] shape-identity-modal** — agent modal (agent file, wake-ups + add-wake-up, files, git, desktop tabs) — not started
 - **[declared] shape-project-modals** — project modal + new-project dialog — not started
 - **[declared] shape-scheduled-tasks-modal** — scheduled tasks list + editor — not started
@@ -61,7 +61,7 @@ The foundation already moved every modal onto the kit, so each remaining modal s
 - Unused sidebar-era row styles in the conversation-list stylesheet — clean up in shape-sidebar
 - Markdown files show their Formatted / Plain text switch on its own row under the file toolbar (file viewer, everywhere) — look at it in shape-file-modal
 - New-conversation roles dropdown (upstream's grouped multi-select, revived 2026-10-18 when the host step was dropped) is not on the kit yet — restyle in shape-creation-and-search-dialogs
-- Role description field (frontmatter `description:`, replaces the `## Role`-derived text) plumbed through backend + API by anthem-box-maintainer-6 (spawned 2026-10-18 at Ashley's ask); copper fetches its local commits from anthem's tree and rebases — in progress
+- Role description field (frontmatter `description:`, replaces the `## Role`-derived text) plumbed through backend + API by anthem-box-maintainer-6 (spawned 2026-10-18 at Ashley's ask) — done, b1b842fb on origin
 - Draft a one-line description for every existing role from its role file — after the roles-modals deploy (Ashley, 2026-10-18)
 - Shared-skill hiding for non-admins goes by name and lets skills show if the sync engine is down (logged) — revisit in shape-host-targeting alongside the sync machinery
 
