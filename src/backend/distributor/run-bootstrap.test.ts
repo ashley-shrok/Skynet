@@ -297,6 +297,7 @@ describe("runBootstrapForHost", () => {
     expect(settingsCmd).toContain(`.DISABLE_AUTO_COMPACT = "1"`);
     expect(settingsCmd).toContain(`.skipDangerousModePermissionPrompt = true`);
     expect(settingsCmd).toContain(`.crossSessionInbound = "refuse"`);
+    expect(settingsCmd).toContain(`.enableArtifact = false`);
     // task-field-check UserPromptSubmit hook — the merge must add an entry
     // whose command references task-field-check when absent.
     expect(settingsCmd).toContain(`.UserPromptSubmit`);
@@ -317,6 +318,7 @@ describe("runBootstrapForHost", () => {
     // every sweep, OR a missing key would go undetected.
     expect(settingsCmd).toContain(`.skipDangerousModePermissionPrompt == true`);
     expect(settingsCmd).toContain(`.crossSessionInbound == "refuse"`);
+    expect(settingsCmd).toContain(`.enableArtifact == false`);
     expect(settingsCmd).toContain(`.askUserQuestionTimeout == "never"`);
     expect(settingsCmd).toContain(`.permissions.deny // []) | contains(["AskUserQuestion"])`);
     expect(settingsCmd).toContain(`.env.DISABLE_AUTOUPDATER == "1"`);

@@ -665,6 +665,7 @@ describe("BR2 — bootstrap patches settings.json + runs gsd-context-monitor cle
 
     expect(parsed.skipDangerousModePermissionPrompt).toBe(true);
     expect(parsed.crossSessionInbound).toBe("refuse");
+    expect(parsed.enableArtifact).toBe(false);
     expect(parsed.askUserQuestionTimeout).toBe("never");
     expect(parsed.permissions.deny).toContain("AskUserQuestion");
     expect(parsed.env.DISABLE_AUTOUPDATER).toBe("1");
@@ -731,6 +732,27 @@ describe("BR2 — bootstrap patches settings.json + runs gsd-context-monitor cle
       await fs.readFile(path.join(claudeDir, "settings.json"), "utf-8"),
     );
     expect(parsed.crossSessionInbound).toBe("refuse");
+    expect(parsed.theme).toBe("dark");
+  });
+
+  it("settings.json has enableArtifact: true → merge forces it back to false, other keys preserved", async () => {
+    process.env.SKYNET_PUBLIC_URL = "https://skynet.example.com";
+    const claudeDir = path.join(tmpRoot, ".claude");
+    await fs.mkdir(claudeDir, { recursive: true });
+    await fs.writeFile(
+      path.join(claudeDir, "settings.json"),
+      JSON.stringify({ enableArtifact: true, theme: "dark" }, null, 2),
+    );
+
+    const { bootstrapFleetSubstrateLocally } = await importFresh();
+    const result = await bootstrapFleetSubstrateLocally(host);
+
+    expect(result.hadError).toBe(false);
+    expect(result.settingsPatchOk).toBe(true);
+    const parsed = JSON.parse(
+      await fs.readFile(path.join(claudeDir, "settings.json"), "utf-8"),
+    );
+    expect(parsed.enableArtifact).toBe(false);
     expect(parsed.theme).toBe("dark");
   });
 

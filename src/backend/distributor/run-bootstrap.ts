@@ -36,6 +36,8 @@
  *          Code cross-session peer messages — the Matrix relay is the only
  *          agent-to-agent channel; a stray local SendMessage would otherwise
  *          land in a user's chat as if it were their input)
+ *        - enableArtifact: false (no agent publishes claude.ai Artifacts;
+ *          the Artifact tool is withheld from every session)
  *        - hooks.UserPromptSubmit contains a "task-field-check" entry (nudges
  *          agents whose identity file's `task:` field is still "Untitled
  *          conversation" — see substrate/scripts/task-field-check.sh)
@@ -337,6 +339,7 @@ export const SETTINGS_MERGE_JQ =
   `  | .env = ((.env // {}) | .DISABLE_AUTOUPDATER = "1" | .CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS = "1" | .DISABLE_AUTO_COMPACT = "1")` +
   `  | .skipDangerousModePermissionPrompt = true` +
   `  | .crossSessionInbound = "refuse"` +
+  `  | .enableArtifact = false` +
   `  | .hooks = ((.hooks // {})` +
   `      | .UserPromptSubmit = ((.UserPromptSubmit // []) | if any(.[]?.hooks[]?.command // ""; test("task-field-check")) then . else . + [{"hooks":[{"type":"command","command":"$HOME/.local/bin/task-field-check"}]}] end)` +
   `      | .UserPromptSubmit = ((.UserPromptSubmit // []) | if any(.[]?.hooks[]?.command // ""; test("resume-gap-notice")) then . else . + [{"hooks":[{"type":"command","command":"$HOME/.local/bin/resume-gap-notice"}]}] end)` +
@@ -355,6 +358,7 @@ export const SETTINGS_CHECK_JQ =
   `(.skipDangerousModePermissionPrompt == true)` +
   `  and (.askUserQuestionTimeout == "never")` +
   `  and (.crossSessionInbound == "refuse")` +
+  `  and (.enableArtifact == false)` +
   `  and ((.permissions.deny // []) | contains(["AskUserQuestion"]))` +
   `  and (.env.DISABLE_AUTOUPDATER == "1")` +
   `  and (.env.CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS == "1")` +
@@ -908,6 +912,7 @@ export async function runBootstrapForHost(
   //           - env.DISABLE_AUTO_COMPACT: "1"
   //           - skipDangerousModePermissionPrompt: true
   //           - crossSessionInbound: "refuse"
+  //           - enableArtifact: false
   //           - hooks.UserPromptSubmit contains an entry that runs
   //             $HOME/.local/bin/task-field-check (nudges the agent when its
   //             identity file's `task:` frontmatter is still "Untitled
