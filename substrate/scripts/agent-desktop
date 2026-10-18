@@ -23,6 +23,7 @@
 #   agent-desktop env     [--identity NAME]             # prints DISPLAY=:N (no start)
 #   agent-desktop run     [--identity NAME] -- CMD...   # launch an app on the desktop (detached)
 #   agent-desktop control take|release [--identity NAME] [--by WHO]  # human control lease
+#   agent-desktop browser up|down [--identity NAME] [--quiet]  # the desktop's browser (up prints BROWSER_SOCKET=...)
 #   agent-desktop serve   NAME                          # internal: foreground server (systemd ExecStart)
 #
 # The identity defaults to $FLEET_IDENTITY (exported by agent-supervisor into
@@ -42,12 +43,27 @@
 #   serve.pid      pid of the `serve` process (fallback mode)
 #   serve.log      server + window-manager output
 #   apps.log       output of apps launched via `agent-desktop run`
+#   browser.pid    pid of the browser host (fallback mode)
+#   browser.sock   the browser host's socket (desktop-mcp connects here)
+#   browser.log    browser host + Playwright output
+#   browser-profile/, browser-output/   Chromium profile (sign-ins) and Playwright output
+#
+# Browser: `browser up` starts the browser host (`desktop-mcp browser-host`), which runs
+# Playwright MCP (headed Chromium on this desktop) and serves it on browser.sock, so the
+# box-wide desktop-mcp can restart without closing anyone's tabs, and only this user can
+# reach it. Under systemd it is the transient unit agent-browser@<identity>.service, bound
+# to the desktop's unit: stopping the desktop (down, dormancy, archive) stops it.
 #
 # Env overrides (tests / operator tuning):
 #   AGENT_DESKTOP_GEOMETRY      screen size for NEW allocations (default 1280x800)
 #   AGENT_DESKTOP_BASE_DISPLAY  first display number to allocate (default 100)
 #   AGENT_DESKTOP_NO_SYSTEMD=1  never use systemd; always use the detached fallback
 #   AGENT_DESKTOP_START_TIMEOUT seconds to wait for the display to come up (default 20)
+#   AGENT_DESKTOP_BROWSER_START_TIMEOUT  seconds to wait for the browser host (default 120;
+#                               its first start may download the npm package)
+#   DESKTOP_MCP_PLAYWRIGHT_PKG  Playwright MCP package (default pinned below)
+#   DESKTOP_MCP_PLAYWRIGHT_CMD  command to run instead of `npx -y <pkg>` (tests: a fake)
+#   DESKTOP_BROWSER_EXECUTABLE  a browser binary to use instead of Playwright's own download
 #
 # Set flags: `-e` is intentionally NOT set (matches image-gen / agent-supervisor):
 # several probes below are expected to fail on the not-yet-running paths.
@@ -65,6 +81,10 @@ START_TIMEOUT="${AGENT_DESKTOP_START_TIMEOUT:-20}"
 VNC_PORT_BASE=15900
 # Must match CONTROL_LEASE_SECONDS in desktop-mcp.py.
 CONTROL_LEASE_SECONDS=90
+BROWSER_START_TIMEOUT="${AGENT_DESKTOP_BROWSER_START_TIMEOUT:-120}"
+# Pinned: tool names/shapes are part of the agent's contract (see the desktop
+# skill). Must match PLAYWRIGHT_MCP_PKG in desktop-mcp.py.
+PLAYWRIGHT_MCP_PKG="${DESKTOP_MCP_PLAYWRIGHT_PKG:-@playwright/mcp@0.0.83}"
 SELF="$(command -v agent-desktop 2>/dev/null || true)"
 [ -n "$SELF" ] || SELF="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/$(basename "${BASH_SOURCE[0]}")"
 
@@ -86,6 +106,7 @@ resolve_identity() {
     *[!A-Za-z0-9._-]*|.*) die "invalid identity name: '$identity'" ;;
   esac
   STATE_DIR="${IDENTITIES_DIR}/${identity}/desktop"
+  BROWSER_SOCK="$STATE_DIR/browser.sock"
 }
 
 # Refuse to (re)create state for an identity whose folder is gone (archived): a
@@ -255,6 +276,7 @@ start_server() {
 }
 
 stop_server() {
+  stop_browser
   if use_systemd && systemctl --user is-active --quiet "$(unit_name)" 2>/dev/null; then
     systemctl --user stop "$(unit_name)"
   fi
@@ -267,6 +289,115 @@ stop_server() {
     kill -KILL "$pid" 2>/dev/null || true
   fi
   rm -f "$STATE_DIR/serve.pid"
+}
+
+# ---- browser server ----------------------------------------------------------
+
+browser_unit_name() { printf 'agent-browser@%s.service' "$(systemd-escape -- "$identity")"; }
+
+# The browser host's socket answers once Playwright MCP is up and initialized.
+browser_ready() {
+  [ -S "$BROWSER_SOCK" ] || return 1
+  python3 -c 'import socket, sys
+s = socket.socket(socket.AF_UNIX); s.settimeout(2); s.connect(sys.argv[1])' "$BROWSER_SOCK" 2>/dev/null
+}
+
+start_browser() {
+  local n="$1" cwd argv=() host
+  host="$(command -v desktop-mcp 2>/dev/null || true)"
+  [ -n "$host" ] || host="$(dirname "$SELF")/desktop-mcp.py"
+  [ -f "$host" ] || die "desktop-mcp not found (needed to host the browser)"
+  if [ -n "${DESKTOP_MCP_PLAYWRIGHT_CMD:-}" ]; then
+    read -ra argv <<<"$DESKTOP_MCP_PLAYWRIGHT_CMD"
+  else
+    argv=(npx -y "$PLAYWRIGHT_MCP_PKG")
+  fi
+  argv+=(--browser chromium --user-data-dir "$STATE_DIR/browser-profile" --output-dir "$STATE_DIR/browser-output")
+  [ -n "${DESKTOP_BROWSER_EXECUTABLE:-}" ] && argv+=(--executable-path "$DESKTOP_BROWSER_EXECUTABLE")
+  argv=(python3 "$host" browser-host "$BROWSER_SOCK" -- "${argv[@]}")
+  cwd="${IDENTITIES_DIR}/${identity}/workspace"
+  [ -d "$cwd" ] || cwd="$STATE_DIR"
+  printf '%s agent-desktop: starting browser for %s on :%s\n' "$(date -Is)" "$identity" "$n" >>"$STATE_DIR/browser.log"
+  if use_systemd; then
+    # -p values are C-unescaped by systemd-run, so the desktop unit's own escapes
+    # (\x2d for each '-') must be doubled or it names (and starts) a different unit.
+    local desktop_unit
+    desktop_unit="$(unit_name)"
+    desktop_unit="${desktop_unit//\\/\\\\}"
+    # X11-only env, as in cmd_run: the user manager may carry a graphical login's Wayland setup.
+    systemd-run --user --quiet --collect --unit "$(browser_unit_name)" \
+      -p BindsTo="$desktop_unit" -p After="$desktop_unit" \
+      -p Restart=on-failure -p RestartSec=5 \
+      -p UnsetEnvironment="WAYLAND_DISPLAY ELECTRON_OZONE_PLATFORM_HINT" \
+      -p StandardOutput="append:$STATE_DIR/browser.log" -p StandardError="append:$STATE_DIR/browser.log" \
+      --working-directory="$cwd" \
+      -E PATH="$PATH" -E DISPLAY=":$n" -E XDG_SESSION_TYPE=x11 -E GDK_BACKEND=x11 \
+      -E QT_QPA_PLATFORM=xcb -E MOZ_ENABLE_WAYLAND=0 -E SDL_VIDEODRIVER=x11 \
+      -- "${argv[@]}" || die "systemd-run $(browser_unit_name) failed"
+  else
+    # Only the host itself is backgrounded (not a subshell around it), so $! is its pid
+    # and nothing is left holding the caller's stdout open.
+    ( cd "$cwd" || exit 1
+      env -u WAYLAND_DISPLAY -u ELECTRON_OZONE_PLATFORM_HINT \
+        XDG_SESSION_TYPE=x11 GDK_BACKEND=x11 QT_QPA_PLATFORM=xcb MOZ_ENABLE_WAYLAND=0 SDL_VIDEODRIVER=x11 \
+        DISPLAY=":$n" setsid nohup "${argv[@]}" >>"$STATE_DIR/browser.log" 2>&1 < /dev/null &
+      printf '%s\n' "$!" > "$STATE_DIR/browser.pid" )
+  fi
+}
+
+stop_browser() {
+  if use_systemd; then
+    # Unconditional: a unit waiting to restart reports "activating", not active, and
+    # would block the next systemd-run of the same name.
+    systemctl --user stop "$(browser_unit_name)" >/dev/null 2>&1
+    systemctl --user reset-failed "$(browser_unit_name)" >/dev/null 2>&1
+  fi
+  local pid
+  pid="$(cat "$STATE_DIR/browser.pid" 2>/dev/null || true)"
+  if [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null; then
+    # Own session (setsid): the group takes Playwright and Chromium down with the host.
+    kill -TERM -- "-$pid" 2>/dev/null || kill -TERM "$pid" 2>/dev/null
+    local i=0
+    while kill -0 "$pid" 2>/dev/null && [ "$i" -lt 40 ]; do sleep 0.25; i=$((i + 1)); done
+    kill -KILL -- "-$pid" 2>/dev/null || true
+  fi
+  rm -f "$STATE_DIR/browser.pid" "$BROWSER_SOCK"
+}
+
+cmd_browser() {
+  local action="${1:-}" quiet=0
+  [ $# -gt 0 ] && shift
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --identity) identity="${2:-}"; shift 2 ;;
+      --quiet)    quiet=1; shift ;;
+      *) die "browser: unknown argument '$1'" ;;
+    esac
+  done
+  resolve_identity
+  case "$action" in
+    up)
+      local disp n i=0
+      disp="$(cmd_up --identity "$identity" --quiet)" || exit 1
+      n="${disp#DISPLAY=:}"
+      if ! browser_ready; then
+        [ "$quiet" = 1 ] || printf 'agent-desktop: starting browser for %s\n' "$identity" >&2
+        stop_browser
+        start_browser "$n"
+        until browser_ready; do
+          [ "$i" -lt $((BROWSER_START_TIMEOUT * 4)) ] || die "browser did not come up within ${BROWSER_START_TIMEOUT}s (see $STATE_DIR/browser.log)"
+          sleep 0.25
+          i=$((i + 1))
+        done
+      fi
+      printf 'BROWSER_SOCKET=%s\n' "$BROWSER_SOCK"
+      ;;
+    down)
+      [ -d "$STATE_DIR" ] || return 0
+      stop_browser
+      ;;
+    *) die "browser: expected up or down" ;;
+  esac
 }
 
 # ---- subcommands -------------------------------------------------------------
@@ -416,9 +547,13 @@ cmd_run() {
   # Unsetting WAYLAND_DISPLAY alone isn't enough — libwayland falls back to
   # the wayland-0 socket — so each toolkit is pinned to X11. Mirrors x11_env
   # in desktop-mcp.
+  # Under systemd the app gets its own scope, so it isn't accounted to (or killed with)
+  # whoever launched it — desktop-mcp.service has a MemoryMax meant for the server alone.
+  local scope=()
+  use_systemd && scope=(systemd-run --user --scope --quiet --collect --)
   env -u WAYLAND_DISPLAY -u ELECTRON_OZONE_PLATFORM_HINT \
     XDG_SESSION_TYPE=x11 GDK_BACKEND=x11 QT_QPA_PLATFORM=xcb MOZ_ENABLE_WAYLAND=0 SDL_VIDEODRIVER=x11 \
-    DISPLAY="$disp" setsid nohup "$@" >>"$STATE_DIR/apps.log" 2>&1 < /dev/null &
+    DISPLAY="$disp" FLEET_IDENTITY="$identity" setsid nohup "${scope[@]}" "$@" >>"$STATE_DIR/apps.log" 2>&1 < /dev/null &
   local pid=$!
   disown 2>/dev/null || true
   printf 'started pid %s on DISPLAY=%s\n' "$pid" "$disp"
@@ -491,6 +626,7 @@ case "$sub" in
   env)    cmd_env "$@" ;;
   run)    cmd_run "$@" ;;
   control) cmd_control "$@" ;;
+  browser) cmd_browser "$@" ;;
   serve)  cmd_serve "$@" ;;
   -h|--help|help|"") usage; [ -n "$sub" ] ;;
   *) usage; exit 2 ;;

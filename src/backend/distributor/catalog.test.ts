@@ -121,7 +121,8 @@ describe("FLEET_SUBSTRATE_CATALOG", () => {
     // sensor-runner + sensor-runner.service) — 132 → 136.
     // +2 for relay-mcp (host-wide relay MCP server + relay-mcp.service) —
     // 136 → 138.
-    expect(FLEET_SUBSTRATE_CATALOG.length).toBe(138);
+    // +1 for desktop-mcp.service (box-level desktop MCP server) — 138 → 139.
+    expect(FLEET_SUBSTRATE_CATALOG.length).toBe(139);
   });
 
   it("Test 2: every bundled row's bundledPath starts with /app/fleet-substrate/skills/, /app/fleet-substrate/scripts/, or /app/fleet-substrate/user-onboarding/", () => {
@@ -191,6 +192,8 @@ describe("FLEET_SUBSTRATE_CATALOG", () => {
     //     sensor-runner.service (box-level sensor runner).
     //   relay-mcp + relay-mcp-service-unit → both bounce relay-mcp.service
     //     (box-level relay MCP server).
+    //   desktop-mcp-helper + desktop-mcp-service-unit → both bounce
+    //     desktop-mcp.service (box-level desktop MCP server).
     const expected: Record<string, string> = {
       "agent-supervisor": "agent-supervisor.service",
       "agent-supervisor-service-unit": "agent-supervisor.service",
@@ -202,6 +205,8 @@ describe("FLEET_SUBSTRATE_CATALOG", () => {
       "sensor-runner-service-unit": "sensor-runner.service",
       "relay-mcp": "relay-mcp.service",
       "relay-mcp-service-unit": "relay-mcp.service",
+      "desktop-mcp-helper": "desktop-mcp.service",
+      "desktop-mcp-service-unit": "desktop-mcp.service",
     };
     expect(withRestart.length).toBe(Object.keys(expected).length);
     for (const entry of withRestart) {
@@ -295,8 +300,9 @@ describe("FLEET_SUBSTRATE_CATALOG", () => {
     // to a systemd user unit so byte-changes actually take effect)
     // + agent-desktop@.service (per-identity desktop template unit)
     // + sensor-runner.service (box-level sensor runner)
-    // + relay-mcp.service (box-level relay MCP server).
-    expect(userOnboardingRows.length).toBe(7);
+    // + relay-mcp.service (box-level relay MCP server)
+    // + desktop-mcp.service (box-level desktop MCP server).
+    expect(userOnboardingRows.length).toBe(8);
 
     // id has 4 entries (SKILL.md + 3 companions)
     const idRows = skillRows.filter((e) =>
@@ -503,7 +509,8 @@ describe("FLEET_SUBSTRATE_CATALOG", () => {
     // +1 pending-context-drain.
     // +4 for sensors (skill + sensor-fire + sensor-runner + unit) — 131 → 135.
     // +2 for relay-mcp (server + unit) — 135 → 137.
-    expect(bundled.length).toBe(137);
+    // +1 for desktop-mcp.service — 137 → 138.
+    expect(bundled.length).toBe(138);
     expect(runtime.length).toBe(1);
 
     // Every bundled row retains bundledPath under /app/fleet-substrate/

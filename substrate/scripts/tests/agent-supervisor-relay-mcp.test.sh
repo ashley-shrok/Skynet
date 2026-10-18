@@ -13,7 +13,7 @@
 #   R-04  — server never comes up        → flag absent, wait bounded, stdout stays clean
 #   R-05  — desktop + relay both present → ONE `--mcp-config <desktop> <relay>` flag
 #   R-06  — config rewrite is idempotent → mtime unchanged on second call
-#   R-07  — compute_relay_env            → RELAY_MCP_SECRET=<64 hex> from `relay-mcp secret`;
+#   R-07  — compute_mcp_env            → RELAY_MCP_SECRET=<64 hex> from `relay-mcp secret`;
 #                                          nothing without the binary or on bad output
 #
 # Exits 0 on all-pass; 1 on any failure.
@@ -41,7 +41,7 @@ fail() {
 
 # shellcheck disable=SC1090
 source "$SUPERVISOR" 2>/dev/null || true
-for fn in ensure_relay_mcp_config ensure_relay_mcp_up compute_mcp_flags compute_relay_env; do
+for fn in ensure_relay_mcp_config ensure_relay_mcp_up compute_mcp_flags compute_mcp_env; do
   declare -F "$fn" >/dev/null 2>&1 || { printf 'FATAL: %s not defined after sourcing supervisor\n' "$fn" >&2; exit 1; }
 done
 
@@ -139,14 +139,14 @@ r06() {
 
 r07() {
   local out
-  out="$(compute_relay_env alpha)"
+  out="$(compute_mcp_env alpha)"
   [ -z "$out" ] || { fail "expected nothing without the binary, got [$out]"; return; }
   printf '#!/bin/sh\n[ "$1" = secret ] && [ "$2" = alpha ] && echo %s\n' "$(printf 'a%.0s' $(seq 64))" > "$RELAY_MCP_BIN"
   chmod +x "$RELAY_MCP_BIN"
-  out="$(compute_relay_env alpha)"
+  out="$(compute_mcp_env alpha)"
   [ "$out" = "RELAY_MCP_SECRET=$(printf 'a%.0s' $(seq 64))" ] || { fail "got [$out]"; return; }
   printf '#!/bin/sh\necho not-a-key\n' > "$RELAY_MCP_BIN"
-  out="$(compute_relay_env alpha)"
+  out="$(compute_mcp_env alpha)"
   [ -z "$out" ] || { fail "bad key output should yield nothing, got [$out]"; return; }
   pass
 }

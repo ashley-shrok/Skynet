@@ -1,0 +1,18 @@
+[Unit]
+Description=Desktop MCP — one desktop MCP server shared by every agent session on this box
+After=default.target
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/python3 %h/.local/bin/desktop-mcp serve
+Restart=always
+RestartSec=2
+Environment=PATH=%h/.local/bin:/usr/local/bin:/usr/bin:/bin
+# Desktops, browsers and launched apps run in their own units and scopes, so a stop
+# must not reach past the server itself. The memory cap covers the server plus its
+# occasional one-offs: fetching the browser tool list (npx) and a Chromium install.
+KillMode=process
+MemoryMax=1G
+
+[Install]
+WantedBy=default.target

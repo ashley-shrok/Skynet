@@ -267,41 +267,89 @@ CLAUDE_LAUNCH_FLAGS="${CLAUDE_MODEL:+--model $CLAUDE_MODEL }--dangerously-skip-p
 [ "${AGENT_SUPERVISOR_LIB_ONLY:-0}" = 1 ] || \
   log "claude-model: $([ -n "$CLAUDE_MODEL" ] && echo "pinned to '$CLAUDE_MODEL'" || echo "unpinned (CLAUDE_MODEL empty) — harness default applies")"
 
-# ---- desktop MCP: per-identity virtual desktop tools for every supervised session ----
-# desktop-mcp (substrate/scripts/desktop-mcp.py) gives the agent screenshot/click/type/key tools
-# against its own X display (allocated + started lazily by agent-desktop). Registered per launch via
-# --mcp-config pointing at a small JSON file, so it adds to (never replaces) the user's own MCP
-# servers in ~/.claude.json. Only wired when desktop-mcp is installed, so a box the distributor
-# hasn't reached yet launches exactly as before.
+# ---- desktop MCP: one host-wide desktop server shared by every supervised session ----
+# desktop-mcp (substrate/scripts/desktop-mcp.py, run by desktop-mcp.service as `desktop-mcp serve`)
+# gives each agent screenshot/click/type/key + browser tools against its own X display (allocated
+# and started lazily by agent-desktop). It speaks MCP over HTTP on 127.0.0.1, so a session that
+# never touches the desktop costs nothing — a stdio server was a process per session, used or not.
+# Same shape as relay MCP below: one shared config whose headers are the literals ${FLEET_IDENTITY}
+# and ${DESKTOP_MCP_SECRET} (claude expands them from the launch env; the secret comes from
+# `desktop-mcp secret <name>`), health-checked and started if needed before each launch, because a
+# session that finds the server down at launch never retries.
 #
-# ⚠️ Computed JUST-IN-TIME at each launch call-site (via compute_desktop_mcp_flag below), NOT
-# cached at supervisor startup. Startup-caching had a distributor race: if the supervisor restarted
-# a beat before `desktop-mcp` was written to disk, the flag was permanently absent from launches
-# for that supervisor's whole lifetime. Just-in-time means every launch reflects live filesystem
-# state — self-healing in both directions (binary appears → next launch picks it up; binary
-# removed → next launch drops it).
+# The config also sets a per-server `timeout`: claude gives up on an HTTP MCP call after 60s by
+# default (a stdio call has no such limit), and a first browser call — desktop start, browser
+# server start, maybe a Chromium install — can take longer. Every call is bounded server-side.
+#
+# ⚠️ Computed JUST-IN-TIME at each launch call-site (via compute_mcp_flags below), NOT cached at
+# supervisor startup. Startup-caching had a distributor race: if the supervisor restarted a beat
+# before `desktop-mcp` was written to disk, the flag was permanently absent from launches for that
+# supervisor's whole lifetime. Just-in-time means every launch reflects live filesystem state —
+# self-healing in both directions (binary appears → next launch picks it up; binary removed → next
+# launch drops it).
 DESKTOP_MCP_BIN="$HOME/.local/bin/desktop-mcp"
 # The wake-up scheduler; snapshot_schedule_peek loads its schedule engine.
 WAKEUP_SCHEDULER_BIN="${AGENT_SUPERVISOR_WAKEUP_SCHEDULER:-$HOME/.local/bin/wakeup-scheduler}"
 DESKTOP_MCP_CONFIG="$HOME/.claude/desktop-mcp.json"
+DESKTOP_MCP_PORT="${DESKTOP_MCP_PORT:-7794}"
+DESKTOP_MCP_UNIT="desktop-mcp.service"
+DESKTOP_MCP_WAIT_SEC="${DESKTOP_MCP_WAIT_SEC:-5}"
+DESKTOP_MCP_CALL_TIMEOUT_MS=1800000
+CURL_BIN="${AGENT_CURL_BIN:-curl}"
+
+# write_mcp_config <path> <json> — rewrite only on change, atomically: a launch reading the shared
+# file mid-rewrite must never see it half-written.
+write_mcp_config() {
+  local path="$1" want="$2"
+  [ "$(cat "$path" 2>/dev/null)" = "$want" ] && return 0
+  mkdir -p "$(dirname "$path")" \
+    && printf '%s\n' "$want" > "$path.tmp.$$" \
+    && mv -f "$path.tmp.$$" "$path" || { rm -f "$path.tmp.$$"; return 1; }
+  [ "${AGENT_SUPERVISOR_LIB_ONLY:-0}" = 1 ] || log "mcp: wrote $path"
+  return 0
+}
+mcp_server_healthy() {
+  "$CURL_BIN" -sf -m 1 "http://127.0.0.1:$1/health" >/dev/null 2>&1
+}
+# ensure_mcp_server_up <label> <port> <unit> <wait-sec> <what-the-launch-loses> — 0 once the server
+# answers; starts the unit and waits if it doesn't.
+ensure_mcp_server_up() {
+  local label="$1" port="$2" unit="$3" wait="$4" loses="$5"
+  mcp_server_healthy "$port" && return 0
+  log "$label: not answering on 127.0.0.1:$port — starting $unit"
+  timeout -k 2 10 "$SYSTEMCTL_BIN" --user start "$unit" >/dev/null 2>&1 \
+    || log "WARN: $label: systemctl --user start $unit failed"
+  local i=0 tries=$((wait * 5))
+  while [ "$i" -lt "$tries" ]; do
+    mcp_server_healthy "$port" && { log "$label: up after $((i * 200))ms"; return 0; }
+    sleep 0.2
+    i=$((i + 1))
+  done
+  log "ERROR: $label: still not answering after ${wait}s — this launch gets $loses"
+  return 1
+}
+# `<VAR>=<key>` for an identity's launch env, or nothing when the server's binary isn't installed (a
+# key nobody checks is harmless, so this doesn't wait on the server). Inline in the launch line.
+mcp_secret_env() {
+  local var="$1" bin="$2" name="$3" key
+  [ -x "$bin" ] || return 0
+  key="$(timeout -k 2 5 "$bin" secret "$name" 2>/dev/null)" || return 0
+  [[ "$key" =~ ^[0-9a-f]{64}$ ]] && printf '%s=%s' "$var" "$key"
+  return 0
+}
+
 ensure_desktop_mcp_config() {
   [ -x "$DESKTOP_MCP_BIN" ] || return 1
   command -v jq >/dev/null 2>&1 || return 1
   local want
-  want="$(jq -n --arg cmd "$DESKTOP_MCP_BIN" '{mcpServers:{desktop:{type:"stdio",command:$cmd,args:[]}}}')" || return 1
-  if [ "$(cat "$DESKTOP_MCP_CONFIG" 2>/dev/null)" != "$want" ]; then
-    mkdir -p "$(dirname "$DESKTOP_MCP_CONFIG")" && printf '%s\n' "$want" > "$DESKTOP_MCP_CONFIG" || return 1
-    [ "${AGENT_SUPERVISOR_LIB_ONLY:-0}" = 1 ] || log "desktop-mcp: wrote $DESKTOP_MCP_CONFIG"
-  fi
-  return 0
+  # shellcheck disable=SC2016  # the ${...} are for claude to expand, not this shell
+  want="$(jq -n --arg url "http://127.0.0.1:$DESKTOP_MCP_PORT/mcp" --arg who '${FLEET_IDENTITY}' \
+    --arg key '${DESKTOP_MCP_SECRET}' --argjson timeout "$DESKTOP_MCP_CALL_TIMEOUT_MS" \
+    '{mcpServers:{desktop:{type:"http",url:$url,timeout:$timeout,headers:{"X-Fleet-Identity":$who,"X-Fleet-Desktop-Key":$key}}}}')" || return 1
+  write_mcp_config "$DESKTOP_MCP_CONFIG" "$want"
 }
-# Prints the `--mcp-config <path>` fragment when desktop-mcp is installed and the config is current,
-# otherwise prints nothing. Called inline at every claude-launch send-keys line; cheap because
-# ensure_desktop_mcp_config short-circuits when the on-disk config already matches.
-compute_desktop_mcp_flag() {
-  if ensure_desktop_mcp_config; then
-    printf -- '--mcp-config %s' "$DESKTOP_MCP_CONFIG"
-  fi
+ensure_desktop_mcp_up() {
+  ensure_mcp_server_up desktop-mcp "$DESKTOP_MCP_PORT" "$DESKTOP_MCP_UNIT" "$DESKTOP_MCP_WAIT_SEC" "NO desktop tools"
 }
 
 # ---- relay MCP: one host-wide relay server shared by every supervised session ----
@@ -309,7 +357,7 @@ compute_desktop_mcp_flag() {
 # 127.0.0.1, so sessions connect to the one process instead of each spawning a copy. The config
 # is the same file for every identity: its headers are the literals ${FLEET_IDENTITY} and
 # ${RELAY_MCP_SECRET}, which claude expands from the env this script sets on every launch
-# (compute_relay_env — the secret is the identity's key from `relay-mcp secret <name>`).
+# (compute_mcp_env — the secret is the identity's key from `relay-mcp secret <name>`).
 #
 # A claude session that finds the server down at launch marks it failed and never retries on its
 # own (verified on 2.1.286), so before each launch the server is health-checked, started if
@@ -321,10 +369,6 @@ RELAY_MCP_CONFIG="$HOME/.claude/relay-mcp.json"
 RELAY_MCP_PORT="${RELAY_MCP_PORT:-7793}"
 RELAY_MCP_UNIT="relay-mcp.service"
 RELAY_MCP_WAIT_SEC="${RELAY_MCP_WAIT_SEC:-5}"
-CURL_BIN="${AGENT_CURL_BIN:-curl}"
-relay_mcp_healthy() {
-  "$CURL_BIN" -sf -m 1 "http://127.0.0.1:$RELAY_MCP_PORT/health" >/dev/null 2>&1
-}
 ensure_relay_mcp_config() {
   [ -x "$RELAY_MCP_BIN" ] || return 1
   command -v jq >/dev/null 2>&1 || return 1
@@ -333,37 +377,19 @@ ensure_relay_mcp_config() {
   want="$(jq -n --arg url "http://127.0.0.1:$RELAY_MCP_PORT/mcp" --arg who '${FLEET_IDENTITY}' \
     --arg key '${RELAY_MCP_SECRET}' \
     '{mcpServers:{relay:{type:"http",url:$url,headers:{"X-Fleet-Identity":$who,"X-Fleet-Relay-Key":$key}}}}')" || return 1
-  if [ "$(cat "$RELAY_MCP_CONFIG" 2>/dev/null)" != "$want" ]; then
-    # Atomic: a launch reading the shared file mid-rewrite must never see it half-written.
-    mkdir -p "$(dirname "$RELAY_MCP_CONFIG")" \
-      && printf '%s\n' "$want" > "$RELAY_MCP_CONFIG.tmp.$$" \
-      && mv -f "$RELAY_MCP_CONFIG.tmp.$$" "$RELAY_MCP_CONFIG" || { rm -f "$RELAY_MCP_CONFIG.tmp.$$"; return 1; }
-    [ "${AGENT_SUPERVISOR_LIB_ONLY:-0}" = 1 ] || log "relay-mcp: wrote $RELAY_MCP_CONFIG"
-  fi
-  return 0
+  write_mcp_config "$RELAY_MCP_CONFIG" "$want"
 }
-# 0 once the server answers; starts the unit and waits up to RELAY_MCP_WAIT_SEC if it doesn't.
 ensure_relay_mcp_up() {
-  relay_mcp_healthy && return 0
-  log "relay-mcp: not answering on 127.0.0.1:$RELAY_MCP_PORT — starting $RELAY_MCP_UNIT"
-  timeout -k 2 10 "$SYSTEMCTL_BIN" --user start "$RELAY_MCP_UNIT" >/dev/null 2>&1 \
-    || log "WARN: relay-mcp: systemctl --user start $RELAY_MCP_UNIT failed"
-  local i=0 tries=$((RELAY_MCP_WAIT_SEC * 5))
-  while [ "$i" -lt "$tries" ]; do
-    relay_mcp_healthy && { log "relay-mcp: up after $((i * 200))ms"; return 0; }
-    sleep 0.2
-    i=$((i + 1))
-  done
-  log "ERROR: relay-mcp: still not answering after ${RELAY_MCP_WAIT_SEC}s — this launch gets NO relay tools (curl fallback in the agent-relay skill still works)"
-  return 1
+  ensure_mcp_server_up relay-mcp "$RELAY_MCP_PORT" "$RELAY_MCP_UNIT" "$RELAY_MCP_WAIT_SEC" \
+    "NO relay tools (curl fallback in the agent-relay skill still works)"
 }
-# `RELAY_MCP_SECRET=<key>` for an identity's launch env, or nothing when relay-mcp isn't installed
-# (a key nobody checks is harmless, so this doesn't wait on the server). Inline in the launch line.
-compute_relay_env() {
-  [ -x "$RELAY_MCP_BIN" ] || return 0
-  local key
-  key="$(timeout -k 2 5 "$RELAY_MCP_BIN" secret "$1" 2>/dev/null)" || return 0
-  [[ "$key" =~ ^[0-9a-f]{64}$ ]] && printf 'RELAY_MCP_SECRET=%s' "$key"
+# The MCP keys for an identity's launch env (`RELAY_MCP_SECRET=… DESKTOP_MCP_SECRET=…`), each
+# only when its server is installed. Inline in the launch line.
+compute_mcp_env() {
+  mcp_secret_env RELAY_MCP_SECRET "$RELAY_MCP_BIN" "$1"
+  local d
+  d="$(mcp_secret_env DESKTOP_MCP_SECRET "$DESKTOP_MCP_BIN" "$1")"
+  [ -n "$d" ] && printf ' %s' "$d"
   return 0
 }
 # Every --mcp-config file for a launch, as one flag (claude's --mcp-config is variadic). Prints
@@ -371,7 +397,7 @@ compute_relay_env() {
 # $(...): the helpers' log lines go to stderr (the journal) so they can't land in the command.
 compute_mcp_flags() {
   local paths=()
-  ensure_desktop_mcp_config >&2 && paths+=("$DESKTOP_MCP_CONFIG")
+  ensure_desktop_mcp_config >&2 && ensure_desktop_mcp_up >&2 && paths+=("$DESKTOP_MCP_CONFIG")
   ensure_relay_mcp_config >&2 && ensure_relay_mcp_up >&2 && paths+=("$RELAY_MCP_CONFIG")
   [ "${#paths[@]}" -gt 0 ] && printf -- '--mcp-config %s' "${paths[*]}"
   return 0
@@ -2642,9 +2668,9 @@ redrive_claude() {
   timeout -k 5 10 tmux send-keys -t "$sess" Enter 2>/dev/null
   sleep 0.5
   if [ -n "$resume" ]; then
-    timeout -k 5 10 tmux send-keys -t "$sess" -l "$MEMORY_WRAPPER env FLEET_IDENTITY=$name $(compute_relay_env "$name") $CLAUDE_LAUNCH_ENV $CLAUDE --resume $resume $CLAUDE_LAUNCH_FLAGS $(compute_mcp_flags)" 2>/dev/null
+    timeout -k 5 10 tmux send-keys -t "$sess" -l "$MEMORY_WRAPPER env FLEET_IDENTITY=$name $(compute_mcp_env "$name") $CLAUDE_LAUNCH_ENV $CLAUDE --resume $resume $CLAUDE_LAUNCH_FLAGS $(compute_mcp_flags)" 2>/dev/null
   else
-    timeout -k 5 10 tmux send-keys -t "$sess" -l "$MEMORY_WRAPPER env FLEET_IDENTITY=$name $(compute_relay_env "$name") $CLAUDE_LAUNCH_ENV $CLAUDE $CLAUDE_LAUNCH_FLAGS $(compute_mcp_flags)" 2>/dev/null
+    timeout -k 5 10 tmux send-keys -t "$sess" -l "$MEMORY_WRAPPER env FLEET_IDENTITY=$name $(compute_mcp_env "$name") $CLAUDE_LAUNCH_ENV $CLAUDE $CLAUDE_LAUNCH_FLAGS $(compute_mcp_flags)" 2>/dev/null
   fi
   timeout -k 5 10 tmux send-keys -t "$sess" Enter 2>/dev/null
 }
@@ -2779,7 +2805,7 @@ drive() {
     # the known resume-auto-compact bug (GH #56271 / #64923) at source, so the historical Ctrl-C
     # train that fought it post-hoc is gone — ~9s wall-time savings per wake.
     # bash command-scoped assignment — vars apply to this claude only, not the shell.
-    timeout -k 5 10 tmux send-keys -t "$sess" -l "$MEMORY_WRAPPER env FLEET_IDENTITY=$name $(compute_relay_env "$name") $CLAUDE_LAUNCH_ENV $CLAUDE --resume $resume $CLAUDE_LAUNCH_FLAGS $(compute_mcp_flags)" 2>/dev/null
+    timeout -k 5 10 tmux send-keys -t "$sess" -l "$MEMORY_WRAPPER env FLEET_IDENTITY=$name $(compute_mcp_env "$name") $CLAUDE_LAUNCH_ENV $CLAUDE --resume $resume $CLAUDE_LAUNCH_FLAGS $(compute_mcp_flags)" 2>/dev/null
     timeout -k 5 10 tmux send-keys -t "$sess" Enter 2>/dev/null
     # ⚠️ VERIFY CLAUDE ACTUALLY LAUNCHED (2026-08-29, user witnessed a live failure on workstation).
     # send-keys drops bytes into the pane and returns 0 whether or not they became a viable command.
@@ -2846,7 +2872,7 @@ drive() {
   # Env-var prefix is harmless on a fresh launch (there's no session to summarize) but cheap insurance
   # if a fresh claude ever picks up an older recorded session unexpectedly.
   log "'$name' drive fresh: typing claude launch command into pane '$sess'"
-  timeout -k 5 10 tmux send-keys -t "$sess" -l "$MEMORY_WRAPPER env FLEET_IDENTITY=$name $(compute_relay_env "$name") $CLAUDE_LAUNCH_ENV $CLAUDE $CLAUDE_LAUNCH_FLAGS $(compute_mcp_flags)" 2>/dev/null
+  timeout -k 5 10 tmux send-keys -t "$sess" -l "$MEMORY_WRAPPER env FLEET_IDENTITY=$name $(compute_mcp_env "$name") $CLAUDE_LAUNCH_ENV $CLAUDE $CLAUDE_LAUNCH_FLAGS $(compute_mcp_flags)" 2>/dev/null
   timeout -k 5 10 tmux send-keys -t "$sess" Enter 2>/dev/null
   # ⚠️ VERIFY CLAUDE ACTUALLY LAUNCHED — same failure mode as the resume path above (see the block
   # in the `if [ -n "$resume" ]` branch for the full story). On second failure, bail without pasting

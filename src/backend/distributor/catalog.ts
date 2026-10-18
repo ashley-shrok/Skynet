@@ -454,18 +454,19 @@ export const FLEET_SUBSTRATE_CATALOG: readonly CatalogEntry[] = [
     installPath: "~/.local/bin/agent-desktop",
     restartHook: null,
   },
-  // desktop-mcp: stdio MCP server exposing screenshot/click/type/key/... on
-  // the identity's desktop. Registered per claude launch by agent-supervisor
-  // (--mcp-config ~/.claude/desktop-mcp.json, only when this file exists).
-  // Harness-bound like the ambient watchers: each claude session spawns its
-  // own copy, so new bytes apply on the next session (re)launch. No restart
-  // hook.
+  // desktop-mcp: ONE MCP server per host (HTTP on 127.0.0.1:7794) exposing
+  // screenshot/click/type/key/browser_* on each identity's own desktop;
+  // sessions connect to it instead of each spawning a copy. agent-supervisor
+  // passes ~/.claude/desktop-mcp.json on every launch once the server
+  // answers. Owned by desktop-mcp.service; the server is stateless and the
+  // browsers run outside it, so the restart is invisible to connected
+  // sessions.
   {
     slug: "desktop-mcp-helper",
     sourceKind: "bundled",
     bundledPath: "/app/fleet-substrate/scripts/desktop-mcp.py",
     installPath: "~/.local/bin/desktop-mcp",
-    restartHook: null,
+    restartHook: "desktop-mcp.service",
   },
   // relay-mcp: ONE MCP server per host (HTTP on 127.0.0.1:7793) that sends
   // relay messages for every identity; sessions connect to it instead of each
@@ -613,6 +614,17 @@ export const FLEET_SUBSTRATE_CATALOG: readonly CatalogEntry[] = [
     bundledPath: "/app/fleet-substrate/user-onboarding/relay-mcp.service",
     installPath: "~/.config/systemd/user/relay-mcp.service",
     restartHook: "relay-mcp.service",
+  },
+
+  // desktop-mcp.service — box-level user unit running `desktop-mcp serve`.
+  // Not enabled at bootstrap: agent-supervisor starts it before the first
+  // launch that needs it. Restart hook targets self.
+  {
+    slug: "desktop-mcp-service-unit",
+    sourceKind: "bundled",
+    bundledPath: "/app/fleet-substrate/user-onboarding/desktop-mcp.service",
+    installPath: "~/.config/systemd/user/desktop-mcp.service",
+    restartHook: "desktop-mcp.service",
   },
 
   // interactive-messages-gc.service — oneshot user service, fired by the

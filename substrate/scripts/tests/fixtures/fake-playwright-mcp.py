@@ -3,7 +3,8 @@
 
 Speaks just enough MCP: initialize, tools/list (two browser tools) and
 tools/call, which echoes the tool name, its arguments, and the DISPLAY and
-argv it was started with, so tests can see what the bridge passed through.
+argv it was started with, its pid and how many sessions (initialize calls) it has
+had, so tests can see what the bridge passed through.
 Writes its pid to $FAKE_PW_PIDFILE (when set) so tests can check teardown.
 """
 import json
@@ -19,12 +20,14 @@ TOOLS = [
     {"name": "browser_snapshot", "description": "fake", "inputSchema": {"type": "object", "properties": {}}},
 ]
 
+sessions = 0
 for line in sys.stdin:
     msg = json.loads(line)
     if "id" not in msg:
         continue
     method, rid = msg.get("method"), msg["id"]
     if method == "initialize":
+        sessions += 1
         result = {"protocolVersion": msg["params"]["protocolVersion"], "capabilities": {"tools": {}}, "serverInfo": {"name": "fake-pw", "version": "0"}}
     elif method == "tools/list":
         result = {"tools": TOOLS}
@@ -39,6 +42,8 @@ for line in sys.stdin:
                           "GDK_BACKEND", "QT_QPA_PLATFORM", "MOZ_ENABLE_WAYLAND", "SDL_VIDEODRIVER")
             },
             "argv": sys.argv[1:],
+            "pid": os.getpid(),
+            "sessions": sessions,
         }
         result = {"content": [{"type": "text", "text": json.dumps(info)}], "isError": False}
     else:
