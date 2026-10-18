@@ -6,7 +6,6 @@ import {
   KitBanner,
   KitButton,
   KitCell,
-  KitChip,
   KitEmpty,
   KitLoading,
   KitMark,
@@ -1265,7 +1264,6 @@ export default function SkillsEditorModal({
             <span className="truncate text-[13px] font-semibold text-[var(--k-t1)]" data-testid="skills-editor-modal-current-file">
               {activeTab}
             </span>
-            {readOnly ? <KitChip>view-only</KitChip> : null}
           </>
         }
         mediaUrl={
@@ -1479,17 +1477,17 @@ export default function SkillsEditorModal({
       ) : (
         <div className="flex-1 min-h-0 flex flex-col border-t border-[var(--k-hair)] pt-2">{fileList}</div>
       )}
-      {readOnly ? null : (
-        <ModalFoot>
-          <KitButton
-            onClick={() => {
-              void handleOpenChange(false);
-            }}
-            disabled={saving}
-            data-testid="skills-editor-modal-close-foot"
-          >
-            Close
-          </KitButton>
+      <ModalFoot>
+        <KitButton
+          onClick={() => {
+            void handleOpenChange(false);
+          }}
+          disabled={saving}
+          data-testid="skills-editor-modal-close-foot"
+        >
+          Close
+        </KitButton>
+        {readOnly ? null : (
           <KitButton
             variant="primary"
             onClick={() => {
@@ -1501,8 +1499,8 @@ export default function SkillsEditorModal({
           >
             {saving ? "Saving…" : "Save"}
           </KitButton>
-        </ModalFoot>
-      )}
+        )}
+      </ModalFoot>
     </>
   );
 

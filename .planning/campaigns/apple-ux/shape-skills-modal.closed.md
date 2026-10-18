@@ -74,3 +74,53 @@ The skills modal, rearranged on the foundation's kit into two views inside one m
 - Build only from kit parts; if a part is missing (e.g. a column-labelled list row), add it to the kit rather than one-off markup.
 - The invocation settings today write SKILL.md's frontmatter; the at-least-one rule is enforced in the modal (the on-disk "nobody" state can still exist and must display).
 - Admin-only parts (shared and fleet-distributed sections, sync status) stay out of the id skill; the library, switches, collapsed files and the non-admin Skills-button change go in.
+
+---
+
+## Close-Out
+
+**Closed:** 2026-10-18
+**Overall verdict:** closed-hit (reviewer returned closed-partial pending five questions; Ashley endorsed all five recommendations 2026-10-18 and the two fixes were applied)
+
+### Shape features (conformance)
+
+- **One modal, two views** — present · Opens on the library; picking a skill swaps in its view; "‹ Skills" returns; same on desktop and phone.
+- **Library view: header** — drifted (endorsed) · Title, one-line explanation, host switcher only with several hosts, New skill, close; the explanation is hidden on a phone.
+- **Library view: search and All / You / Agents filter with counts** — present · Search matches name and description; "You" count leaves out fleet-distributed skills, matching the Skills button.
+- **Library view: sections** — present · Shared (admins), your skills, fleet-distributed (admins, note under title, check/dash marks); shared switches write the shared copy.
+- **Library view: row contents and click-to-open** — present · Name, one-line description (two on phone), two switches, chevron; row opens, switches don't.
+- **Library view: switch flip saves at once, no Save** — present
+- **Library view: at least one stays on; "Nobody can use this"** — present
+- **Skill view: header and ⋯ menu** — present · Share / remove / delete only; the two settings moved out.
+- **Skill view: two settings written out, read-only banner, admin sync status** — present
+- **Skill view: editor on SKILL.md, collapsed "N files", side list, phone swap** — present
+- **Skill view: Close and Save at foot; read-only has no Save** — partial → fixed · Read-only skills had lost Close too; Close now stays.
+- **New skill** — present · Name then description (the description step pre-existed and was kept), lands in the new skill's view.
+- **Unsaved edits guard and dimmed switches** — present · Host switching only exists in the library, so it can't race unsaved edits.
+- **Shared skills for non-admins** — present · Left out server-side of the host list (which feeds the Skills button), the shared list, and shared-copy reads.
+- **Philosophy: kit parts only, Skynet look, nothing lost** — present · Missing parts added to the kit.
+- **Prior context: fleet-distributed read-only for admins kept intact** — present
+- **Scope: id skill updated for non-admin-visible parts** — present
+- **What would make it wrong: changing who can use a skill still takes opening it** — present
+- **What would make it wrong: switches or counts disagree with the Skills button / agents** — partial → endorsed · Fleet-distributed rows show a "You" check (runnable by /name) though they never appear in the button; count excludes them and hover explains. Kept, matching the approved tasting.
+- **What would make it wrong: a non-admin can see a shared skill anywhere** — present
+- **What would make it wrong: a read-only skill can be changed, or an editable one looks locked** — present
+- **What would make it wrong: a skill can be switched to "nobody"** — present
+- **What would make it wrong: opens on a file list, or the list crowds a one-file skill** — present
+- **What would make it wrong: files shown as a strip of tabs** — present
+- **What would make it wrong: a typed edit thrown away without asking** — present
+- **What would make it wrong: Apple look-alike or one-off parts** — present
+
+### Additions (in the result, not in the shape)
+
+- "Shared to every host" section has its own note under its title — endorsed-as-drift
+- Read-only skills showed a "view-only" tag beside the file name as well as the banner — removed at Ashley's call
+- On a phone the one-line explanation of skills is hidden from the library header — endorsed-as-drift
+
+### Follow-ups
+
+None.
+
+### Notes
+
+Reviewer found everything else present both ways. Live UAT of switches against real skills was not done (the live server predates this work, and flips would write Ashley's real skills); behaviour is covered by in-process tests.

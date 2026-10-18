@@ -392,6 +392,7 @@ describe("SkillsEditorModal — fleet-distributed section", () => {
     await waitFor(() => expect(screen.queryByText("Loading files…")).toBeNull());
     expect(screen.queryByTestId("skills-editor-modal-add-file")).toBeNull();
     expect(screen.queryByTestId("skills-editor-modal-save")).toBeNull();
+    expect(screen.getByTestId("skills-editor-modal-close-foot")).toBeInTheDocument();
     // The editor itself is view-only, so nothing can go dirty.
     expect(await screen.findByTestId("mdxeditor")).toBeDisabled();
     await openSkillMenu();
