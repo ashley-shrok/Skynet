@@ -61,6 +61,11 @@ class World:
         self.fail = {}  # (method, path) -> (status, errcode): injected homeserver errors
         self.slow = {}  # path -> seconds to stall before answering
         self.puts = []  # paths of PUTs received
+        self.media = {}  # media id -> bytes, served from the download endpoints
+        self.downloads = []  # download paths requested
+        self.v1_media = True  # False: authenticated-media endpoint 404s (older homeserver)
+        self.leaves = []
+        self.message_queries = []  # parsed query dicts of /messages calls
 
     def add_room(self, members, name="", last_ts=0):
         with self.lock:
@@ -70,6 +75,14 @@ class World:
             if last_ts:
                 self.rooms[rid]["events"].append({"origin_server_ts": last_ts, "content": {"body": "old"}})
             return rid
+
+    def add_event(self, rid, content, sender=BETA, etype="m.room.message", ts=None):
+        with self.lock:
+            room = self.rooms[rid]
+            eid = f"$h{len(room['events']) + 1}-{rid[1:4]}"
+            room["events"].append({"type": etype, "sender": sender, "event_id": eid, "content": content,
+                                   "origin_server_ts": ts or 1700000000000 + len(room["events"]) * 1000})
+            return eid
 
 
 class FakeHS(BaseHTTPRequestHandler):
@@ -108,6 +121,19 @@ class FakeHS(BaseHTTPRequestHandler):
         if not self._auth():
             return
         c = "/_matrix/client/v3"
+        for prefix in ("/_matrix/client/v1/media/download/", "/_matrix/media/v3/download/"):
+            if method == "GET" and path.startswith(prefix):
+                w.downloads.append(path)
+                mid = path[len(prefix):].split("/", 1)[1]
+                if (prefix.startswith("/_matrix/client/v1") and not w.v1_media) or mid not in w.media:
+                    return self._send(404, {"errcode": "M_NOT_FOUND"})
+                data = w.media[mid]
+                self.send_response(200)
+                self.send_header("Content-Type", "application/octet-stream")
+                self.send_header("Content-Length", str(len(data)))
+                self.end_headers()
+                self.wfile.write(data)
+                return
         if method == "POST" and path == "/_matrix/media/v3/upload":
             w.uploads.append({"len": len(raw), "type": self.headers.get("Content-Type")})
             return self._send(200, {"content_uri": f"mxc://{HS}/m{len(w.uploads)}"})
@@ -167,12 +193,32 @@ class FakeHS(BaseHTTPRequestHandler):
                 if method == "GET" and sub == "members":
                     if room["members"].get(ME) != "join":  # Synapse: members needs you joined
                         return self._send(403, {"errcode": "M_FORBIDDEN", "error": "not in room"})
-                    chunk = [{"type": "m.room.member", "state_key": m, "content": {"membership": s}}
+                    chunk = [{"type": "m.room.member", "state_key": m,
+                              "content": {"membership": s, "displayname": w.users.get(m, "")}}
                              for m, s in room["members"].items() if s != "leave"]
                     return self._send(200, {"chunk": chunk})
                 if method == "GET" and sub == "messages":
-                    ev = room["events"][-1:]
-                    return self._send(200, {"chunk": list(reversed(ev))})
+                    if room["members"].get(ME) != "join":
+                        return self._send(403, {"errcode": "M_FORBIDDEN"})
+                    qs = dict(urllib.parse.parse_qsl(u.query))
+                    w.message_queries.append(qs)
+                    types = json.loads(qs["filter"]).get("types") if "filter" in qs else None
+                    evs = [ev for ev in room["events"] if types is None or ev.get("type", "m.room.message") in types]
+                    end = int(qs["from"][1:]) if "from" in qs else len(evs)  # token "t<index>"
+                    lim = int(qs.get("limit", 10))
+                    page = evs[max(0, end - lim):end]
+                    out = {"chunk": list(reversed(page))}
+                    if end - lim > 0:
+                        out["end"] = f"t{end - lim}"
+                    return self._send(200, out)
+                if method == "GET" and sub == "state/m.room.canonical_alias":
+                    if room.get("alias"):
+                        return self._send(200, {"alias": room["alias"]})
+                    return self._send(404, {"errcode": "M_NOT_FOUND"})
+                if method == "POST" and sub == "leave":
+                    w.leaves.append(rid)
+                    room["members"][ME] = "leave"
+                    return self._send(200, {})
                 if method == "GET" and sub == "state/m.room.name":
                     if room["name"]:
                         return self._send(200, {"name": room["name"]})
@@ -295,7 +341,8 @@ def t_initialize_and_list(e):
     assert code == 202, code
     _, res = e.post({"jsonrpc": "2.0", "id": 2, "method": "tools/list"})
     names = [t["name"] for t in res["result"]["tools"]]
-    assert names == ["send", "send_file", "find", "list_rooms", "create_room"], names
+    assert names == ["send", "send_file", "find", "list_rooms", "room_members", "read_room", "leave_room",
+                     "create_room"], names
 
 
 def t_send_creates_dm_then_reuses(e):
@@ -370,6 +417,7 @@ def t_send_to_room_joins_if_needed(e):
     assert err is None, err
     assert e.world.join_calls == [rid]
     assert sorted(r["mxid"] for r in out["recipients"]) == sorted([BETA, ROBIN])
+    assert "recipient_count" not in out
     out, err = e.call("send", {"room": rid, "body": "again"})
     assert err is None and e.world.join_calls == [rid], (err, e.world.join_calls)
 
@@ -542,6 +590,171 @@ def t_find_and_list_and_create(e):
     out, err = e.call("list_rooms", {})
     assert err is None, err
     assert out["rooms"][0]["name"] == "topic-1017" and sorted(out["rooms"][0]["members"]) == sorted([BETA, ROBIN])
+    assert out["rooms"][0]["member_count"] == 2
+
+
+def _crowd(n):
+    return {f"@agent{i:03d}:{HS}": "join" for i in range(n)}
+
+
+def t_list_rooms_big_room_shows_count_only(e):
+    big = e.world.add_room({ME: "join", **_crowd(11)}, name="Agents directory (internal)")
+    edge = e.world.add_room({ME: "join", **_crowd(10)}, name="ten")
+    out, err = e.call("list_rooms", {})
+    assert err is None, err
+    rooms = {r["room_id"]: r for r in out["rooms"]}
+    assert rooms[big]["member_count"] == 11 and "members" not in rooms[big], rooms[big]
+    assert "room_members" in rooms[big]["members_note"]
+    assert len(rooms[edge]["members"]) == 10 and "members_note" not in rooms[edge], rooms[edge]
+
+
+def t_send_to_big_room_counts_recipients(e):
+    rid = e.world.add_room({ME: "join", **_crowd(40)})
+    out, err = e.call("send", {"room": rid, "body": "hi all"})
+    assert err is None, err
+    assert out["recipient_count"] == 40 and "recipients" not in out, out
+    assert "room_members" in out["recipients_note"]
+    path = os.path.join(e.tmp, "a.txt")
+    with open(path, "w") as f:
+        f.write("x")
+    out, err = e.call("send_file", {"room": rid, "path": path})
+    assert err is None, err
+    assert out["recipient_count"] == 40 and "recipients" not in out, out
+
+
+def t_room_members(e):
+    rid = e.world.add_room({ME: "join", BETA: "join", ROBIN: "invite", **_crowd(12)})
+    out, err = e.call("room_members", {"room": rid})
+    assert err is None, err
+    assert out["member_count"] == 14 and len(out["members"]) == 14
+    by = {m["mxid"]: m for m in out["members"]}
+    assert ME not in by
+    assert by[BETA] == {"mxid": BETA, "name": "beta", "membership": "join"}, by[BETA]
+    assert by[ROBIN]["membership"] == "invite"
+    other = e.world.add_room({BETA: "join"})
+    _, err = e.call("room_members", {"room": other})
+    assert err and "not in" in err, err
+    _, err = e.call("room_members", {"room": "general"})
+    assert err and "isn't a room id" in err, err
+
+
+def t_read_room_text_and_paging(e):
+    rid = e.world.add_room({ME: "join", BETA: "join"})
+    for i in range(5):
+        e.world.add_event(rid, {"msgtype": "m.text", "body": f"m{i}"}, sender=BETA if i % 2 else ME)
+        e.world.add_event(rid, {"membership": "join"}, etype="m.room.member")  # filtered out
+    out, err = e.call("read_room", {"room": rid, "limit": 3})
+    assert err is None, err
+    assert [m["body"] for m in out["messages"]] == ["m2", "m3", "m4"], out
+    assert out["messages"][1]["sender"] == BETA and out["messages"][0]["sender"] == ME
+    assert out["messages"][0]["time"].endswith("Z") and out["messages"][0]["event_id"].startswith("$")
+    assert "m.room.message" in e.world.message_queries[-1]["filter"]
+    out2, err = e.call("read_room", {"room": rid, "limit": 3, "before": out["older"]})
+    assert err is None, err
+    assert [m["body"] for m in out2["messages"]] == ["m0", "m1"], out2
+    assert "older" not in out2
+    out3, err = e.call("read_room", {"room": rid})
+    assert err is None and len(out3["messages"]) == 5 and "older" not in out3, out3
+    assert e.world.message_queries[-1]["limit"] == "20"
+    e.call("read_room", {"room": rid, "limit": 500})
+    assert e.world.message_queries[-1]["limit"] == "50"
+
+
+def t_read_room_special_messages(e):
+    rid = e.world.add_room({ME: "join", BETA: "join"})
+    long = "word " * 1000
+    e.world.add_event(rid, {"msgtype": "m.text", "body": long})
+    e.world.add_event(rid, {"algorithm": "m.megolm.v1"}, etype="m.room.encrypted")
+    e.world.add_event(rid, {})  # redacted
+    e.world.add_event(rid, {"msgtype": "m.notice", "body": "note 🚀"})
+    out, err = e.call("read_room", {"room": rid})
+    assert err is None, err
+    first, enc, gone, note = out["messages"]
+    assert len(first["body"]) == 2001 and first["body"].endswith("…")
+    assert open(first["full_text"], encoding="utf-8").read() == long
+    assert first["full_text"].startswith(os.path.join(e.fleet, "identities", "alpha-box-maintainer", "relay-state", "messages"))
+    assert "encrypted" in enc["body"] and gone["body"] == "[deleted]" and note["body"] == "note 🚀"
+
+
+def t_read_room_downloads_attachments(e):
+    rid = e.world.add_room({ME: "join", BETA: "join"})
+    e.world.media["pic1"] = b"\x89PNG data"
+    e.world.media["doc1"] = b"%PDF"
+    eid = e.world.add_event(rid, {"msgtype": "m.image", "body": "shot one.png", "url": f"mxc://{HS}/pic1",
+                                  "info": {"mimetype": "image/png", "size": 10}})
+    e.world.add_event(rid, {"msgtype": "m.file", "body": "report.pdf", "url": f"mxc://{HS}/doc1"})
+    e.world.add_event(rid, {"msgtype": "m.file", "body": "gone.bin", "url": f"mxc://{HS}/missing"})
+    e.world.add_event(rid, {"msgtype": "m.video", "body": "huge.mp4", "url": f"mxc://{HS}/huge",
+                            "info": {"size": 41 * 1024 * 1024}})
+    e.world.add_event(rid, {"msgtype": "m.file", "body": "secret.txt", "file": {"url": f"mxc://{HS}/enc"}})
+    out, err = e.call("read_room", {"room": rid})
+    assert err is None, err
+    pic, doc, missing, huge, enc = [m["attachment"] for m in out["messages"]]
+    media = os.path.join(e.fleet, "identities", "alpha-box-maintainer", "relay-state", "media")
+    # same naming as the receiver: <event id, made safe>_<file name, made safe>
+    assert pic["path"] == os.path.join(media, eid.replace("$", "_").replace(":", "_") + "_shot_one.png"), pic
+    assert pic["kind"] == "image" and open(pic["path"], "rb").read() == b"\x89PNG data"
+    assert doc["kind"] == "file" and open(doc["path"], "rb").read() == b"%PDF"
+    assert "download failed" in missing["error"] and "path" not in missing
+    assert "over the" in huge["error"] and "path" not in huge
+    assert "encrypted" in enc["error"]
+    assert not any(f.endswith(".part") for f in os.listdir(media)), os.listdir(media)
+    n = len(e.world.downloads)
+    out, err = e.call("read_room", {"room": rid})
+    assert err is None, err
+    assert len(e.world.downloads) == n + 2, e.world.downloads  # only the missing one is retried (both endpoints)
+
+
+def t_read_room_legacy_media_fallback(e):
+    e.world.v1_media = False
+    rid = e.world.add_room({ME: "join", BETA: "join"})
+    e.world.media["a1"] = b"hello"
+    e.world.add_event(rid, {"msgtype": "m.file", "body": "a.txt", "url": f"mxc://{HS}/a1"})
+    out, err = e.call("read_room", {"room": rid})
+    assert err is None, err
+    assert open(out["messages"][0]["attachment"]["path"], "rb").read() == b"hello"
+    assert [d.split("/download/")[0] for d in e.world.downloads] == ["/_matrix/client/v1/media", "/_matrix/media/v3"]
+
+
+def t_read_room_errors(e):
+    rid = e.world.add_room({ME: "invite", BETA: "join"})
+    _, err = e.call("read_room", {"room": rid})
+    assert err and "not in" in err, err
+    assert e.world.join_calls == []  # reading never joins
+    _, err = e.call("read_room", {"room": "!nope:test.local"})
+    assert err and "not in" in err, err
+    ok = e.world.add_room({ME: "join"})
+    for bad in (0, -1, "5", True):
+        _, err = e.call("read_room", {"room": ok, "limit": bad})
+        assert err and "limit" in err, (bad, err)
+    _, err = e.call("read_room", {"room": ok, "before": 7})
+    assert err and "before" in err, err
+
+
+def t_leave_room(e):
+    rid = e.world.add_room({ME: "join", BETA: "join"})
+    out, err = e.call("send", {"to": BETA, "body": "oops"})
+    assert err is None and out["room_id"] == rid
+    out, err = e.call("leave_room", {"room": rid})
+    assert err is None and out["left"] is True, err
+    assert e.world.leaves == [rid]
+    out, err = e.call("send", {"to": BETA, "body": "again"})  # cached DM is not reused
+    assert err is None and out["room_id"] != rid and out["new_room"] is True, out
+    _, err = e.call("leave_room", {"room": "general"})
+    assert err and "isn't a room id" in err, err
+
+
+def t_leave_room_refuses_directory(e):
+    for alias in (f"#_agents_directory:{HS}", f"#_skynet_agents_directory:{HS}", f"#_humans_directory:{HS}"):
+        rid = e.world.add_room({ME: "join", **_crowd(3)})
+        e.world.rooms[rid]["alias"] = alias
+        _, err = e.call("leave_room", {"room": rid})
+        assert err and "directory" in err, (alias, err)
+    rid = e.world.add_room({ME: "join", BETA: "join"})
+    e.world.rooms[rid]["alias"] = f"#agents-chat:{HS}"
+    _, err = e.call("leave_room", {"room": rid})
+    assert err is None, err
+    assert e.world.leaves == [rid]
 
 
 def t_batch_request(e):

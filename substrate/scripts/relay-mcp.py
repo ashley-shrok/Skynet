@@ -57,6 +57,15 @@ KEY_FILE = os.path.expanduser(os.environ.get("RELAY_MCP_KEY_FILE", "~/.config/re
 MAX_CALLS = int(os.environ.get("RELAY_MCP_MAX_HANDLERS", "16"))
 # Cap on rooms inspected when looking for an existing DM with someone.
 DM_SCAN_LIMIT = 200
+# Rooms with more members than this list a count and point at room_members() instead.
+MEMBER_LIST_MAX = int(os.environ.get("RELAY_MCP_MEMBER_LIST_MAX", "10"))
+# read_room: messages per call, and how much of one message is returned inline.
+READ_DEFAULT = 20
+READ_MAX = 50
+BODY_INLINE_MAX = 2000
+# The fleet's registry rooms (every agent / human account is joined to one). Leaving one
+# makes Skynet stop recognising the account, so leave_room refuses them.
+REGISTRY_ALIAS_RE = re.compile(r"^#_(?:[a-z0-9]+_)*(?:agents|humans)_directory:")
 
 NAME_RE = re.compile(r"^[a-z0-9][a-z0-9._-]{0,127}$")
 ACCOUNT_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$")
@@ -198,16 +207,56 @@ class Matrix:
 
     # --- helpers -----------------------------------------------------------
 
-    def members(self, room_id):
-        """Joined + invited members of a room, as {mxid: membership}."""
+    def member_events(self, room_id):
+        """Joined + invited members of a room, as {mxid: member-event content}."""
         q = urllib.parse.quote(room_id, safe="")
         res = self.request("GET", f"/rooms/{q}/members?not_membership=leave")
         out = {}
         for ev in res.get("chunk", []):
-            m = (ev.get("content") or {}).get("membership")
-            if m in ("join", "invite") and ev.get("state_key"):
-                out[ev["state_key"]] = m
+            content = ev.get("content") or {}
+            if content.get("membership") in ("join", "invite") and ev.get("state_key"):
+                out[ev["state_key"]] = content
         return out
+
+    def members(self, room_id):
+        """Joined + invited members of a room, as {mxid: membership}."""
+        return {m: c["membership"] for m, c in self.member_events(room_id).items()}
+
+    def download(self, mxc, dest):
+        """Fetch an mxc:// URL to `dest` (atomically). Raises ToolError on failure."""
+        if not mxc.startswith("mxc://") or "/" not in mxc[6:]:
+            raise ToolError(f"not a media URL: {mxc!r}")
+        server, media_id = mxc[6:].split("/", 1)
+        sm = f"{urllib.parse.quote(server, safe='')}/{urllib.parse.quote(media_id, safe='')}"
+        last = None
+        # Authenticated media first (Synapse 1.120+), then the legacy endpoint.
+        for path in (f"/_matrix/client/v1/media/download/{sm}", f"/_matrix/media/v3/download/{sm}"):
+            remaining = self.deadline - time.monotonic()
+            if remaining <= 0:
+                raise ToolError("out of time")
+            req = urllib.request.Request(self.media_root + path, headers={"Authorization": f"Bearer {self.token}"})
+            tmp = f"{dest}.{secrets.token_hex(4)}.part"
+            try:
+                with urllib.request.urlopen(req, timeout=min(HTTP_TIMEOUT, remaining)) as resp, open(tmp, "wb") as f:
+                    size = 0
+                    while True:
+                        chunk = resp.read(65536)
+                        if not chunk:
+                            break
+                        size += len(chunk)
+                        if size > MAX_FILE:
+                            raise ToolError(f"bigger than {MAX_FILE} bytes")
+                        f.write(chunk)
+                os.replace(tmp, dest)
+                return
+            except urllib.error.HTTPError as e:
+                last = f"homeserver said {e.code}"
+            except (urllib.error.URLError, TimeoutError, OSError) as e:
+                last = str(e)
+            finally:
+                if os.path.exists(tmp):
+                    os.unlink(tmp)
+        raise ToolError(last or "download failed")
 
     def room_name(self, room_id):
         q = urllib.parse.quote(room_id, safe="")
@@ -402,8 +451,35 @@ def resolve_target(mx, args):
 
 
 def _recipients(mx, room_id):
+    """`recipients` (who else is in the room) for a send result; a count past MEMBER_LIST_MAX."""
     mem = mx.members(room_id)
-    return [{"mxid": m, "membership": s} for m, s in sorted(mem.items()) if m != mx.me]
+    others = sorted((m, s) for m, s in mem.items() if m != mx.me)
+    if len(others) > MEMBER_LIST_MAX:
+        return {"recipient_count": len(others),
+                "recipients_note": f"{len(others)} people — call room_members(room) to see them"}
+    return {"recipients": [{"mxid": m, "membership": s} for m, s in others]}
+
+
+def _require_joined(mx, room):
+    if not ROOM_RE.match(room or ""):
+        raise ToolError(f"{room!r} isn't a room id (expected !something:server)")
+    try:
+        mem = mx.member_events(room)
+    except ToolError as e:
+        if e.status in (403, 404):
+            raise ToolError(f"you're not in {room}")
+        raise
+    if (mem.get(mx.me) or {}).get("membership") != "join":
+        raise ToolError(f"you're not in {room}")
+    return mem
+
+
+def _safe(s):
+    return re.sub(r"[^A-Za-z0-9._-]", "_", s)
+
+
+def _iso(ts):
+    return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime((ts or 0) / 1000))
 
 
 def _send_event(mx, room_id, content):
@@ -471,8 +547,40 @@ TOOLS = [
     },
     {
         "name": "list_rooms",
-        "description": "Rooms you are in, with their names and members.",
+        "description": f"Rooms you are in, with their names and members. A room with more than {MEMBER_LIST_MAX} other members shows only a count — use room_members for those.",
         "inputSchema": {"type": "object", "properties": {"account": ACCOUNT_PROP}},
+    },
+    {
+        "name": "room_members",
+        "description": "Everyone in a room you are in (Matrix ID, display name, joined or invited).",
+        "inputSchema": {
+            "type": "object",
+            "properties": {"room": {"type": "string", "description": "The room id (!something:server)."}, "account": ACCOUNT_PROP},
+            "required": ["room"],
+        },
+    },
+    {
+        "name": "read_room",
+        "description": "Recent messages in a room you are in, oldest first. Attachments are downloaded and given as local paths to Read. To go further back, call again with `before` set to the `older` value returned.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "room": {"type": "string", "description": "The room id (!something:server)."},
+                "limit": {"type": "integer", "description": f"How many messages (default {READ_DEFAULT}, at most {READ_MAX})."},
+                "before": {"type": "string", "description": "The `older` value from an earlier read_room, to page back."},
+                "account": ACCOUNT_PROP,
+            },
+            "required": ["room"],
+        },
+    },
+    {
+        "name": "leave_room",
+        "description": "Leave a room (e.g. one you messaged by mistake, or a finished group room).",
+        "inputSchema": {
+            "type": "object",
+            "properties": {"room": {"type": "string", "description": "The room id (!something:server)."}, "account": ACCOUNT_PROP},
+            "required": ["room"],
+        },
     },
     {
         "name": "create_room",
@@ -497,7 +605,7 @@ def tool_send(mx, args):
     room_id, created = resolve_target(mx, args)
     eid = _send_event(mx, room_id, {"msgtype": "m.text", "body": body})
     log(f"[relay-mcp] sent identity={mx.identity} account={mx.account} room={room_id} event={eid} created={created} bodyLen={len(body)}")
-    return {"ok": True, "room_id": room_id, "event_id": eid, "new_room": created, "recipients": _recipients(mx, room_id)}
+    return {"ok": True, "room_id": room_id, "event_id": eid, "new_room": created, **_recipients(mx, room_id)}
 
 
 def _mime(path):
@@ -534,7 +642,7 @@ def tool_send_file(mx, args):
     caption = args.get("caption")
     if isinstance(caption, str) and caption.strip():
         out["caption_event_id"] = _send_event(mx, room_id, {"msgtype": "m.text", "body": caption})
-    out["recipients"] = _recipients(mx, room_id)
+    out.update(_recipients(mx, room_id))
     log(f"[relay-mcp] sent-file identity={mx.identity} account={mx.account} room={room_id} event={eid} size={size} mime={mime}")
     return out
 
@@ -560,12 +668,127 @@ def tool_list_rooms(mx, args):
             mem = mx.members(rid)
         except ToolError:
             continue
-        rooms.append({
-            "room_id": rid,
-            "name": mx.room_name(rid),
-            "members": sorted(m for m in mem if m != mx.me),
-        })
+        others = sorted(m for m in mem if m != mx.me)
+        room = {"room_id": rid, "name": mx.room_name(rid), "member_count": len(others)}
+        if len(others) > MEMBER_LIST_MAX:
+            room["members_note"] = f"{len(others)} people — call room_members(room) to see them"
+        else:
+            room["members"] = others
+        rooms.append(room)
     return {"ok": True, "rooms": rooms}
+
+
+def tool_room_members(mx, args):
+    room = args.get("room") or ""
+    mem = _require_joined(mx, room)
+    members = [{"mxid": m, "name": c.get("displayname") or "", "membership": c["membership"]}
+               for m, c in sorted(mem.items()) if m != mx.me]
+    return {"ok": True, "room_id": room, "name": mx.room_name(room), "member_count": len(members), "members": members}
+
+
+_MEDIA_KINDS = {"m.image": "image", "m.file": "file", "m.audio": "audio", "m.video": "video"}
+
+
+def _attachment(mx, ev, media_dir):
+    """Local copy of an event's attachment, named the way the receiver names it (so a file
+    it already downloaded is reused)."""
+    c = ev.get("content") or {}
+    name = c.get("filename") or c.get("body") or ""
+    out = {"kind": _MEDIA_KINDS[c["msgtype"]], "name": name}
+    if c.get("file"):
+        out["error"] = "encrypted attachment — can't be opened"
+        return out
+    mxc = c.get("url") or ""
+    stem = _safe(ev.get("event_id") or "")
+    safename = _safe(name).lstrip("._")
+    dest = os.path.join(media_dir, f"{stem}_{safename}" if safename else stem)
+    if not (os.path.isfile(dest) and os.path.getsize(dest) > 0):
+        size = (c.get("info") or {}).get("size")
+        if isinstance(size, int) and size > MAX_FILE:
+            out["error"] = f"{size} bytes — over the {MAX_FILE}-byte limit, not downloaded"
+            return out
+        try:
+            os.makedirs(media_dir, exist_ok=True)
+            mx.download(mxc, dest)
+        except ToolError as e:
+            out["error"] = f"download failed: {e}"
+            return out
+    out["path"] = dest
+    return out
+
+
+def tool_read_room(mx, args):
+    room = args.get("room") or ""
+    limit = args.get("limit", READ_DEFAULT)
+    if not isinstance(limit, int) or isinstance(limit, bool) or limit < 1:
+        raise ToolError("`limit` must be a whole number, 1 or more")
+    limit = min(limit, READ_MAX)
+    before = args.get("before")
+    if before is not None and not isinstance(before, str):
+        raise ToolError("`before` must be the `older` token from an earlier read_room")
+    _require_joined(mx, room)
+    q = urllib.parse.quote(room, safe="")
+    flt = urllib.parse.quote(json.dumps({"types": ["m.room.message", "m.room.encrypted"]}, separators=(",", ":")))
+    path = f"/rooms/{q}/messages?dir=b&limit={limit}&filter={flt}"
+    if before:
+        path += f"&from={urllib.parse.quote(before, safe='')}"
+    res = mx.request("GET", path)
+    chunk = res.get("chunk") or []
+    media_dir = os.path.join(mx.state_dir, "media")
+    msg_dir = os.path.join(mx.state_dir, "messages")
+    messages = []
+    for ev in reversed(chunk):
+        c = ev.get("content") or {}
+        m = {"event_id": ev.get("event_id"), "sender": ev.get("sender"), "time": _iso(ev.get("origin_server_ts"))}
+        if ev.get("type") == "m.room.encrypted":
+            m["body"] = "[encrypted — can't be read]"
+        elif not c:
+            m["body"] = "[deleted]"
+        elif c.get("msgtype") in _MEDIA_KINDS:
+            m["attachment"] = _attachment(mx, ev, media_dir)
+        else:
+            body = c.get("body") if isinstance(c.get("body"), str) else ""
+            if len(body) > BODY_INLINE_MAX:
+                os.makedirs(msg_dir, exist_ok=True)
+                full = os.path.join(msg_dir, f"{_safe(ev.get('event_id') or '')}.txt")
+                if not os.path.isfile(full):
+                    tmp = f"{full}.{secrets.token_hex(4)}"
+                    with open(tmp, "w", encoding="utf-8") as f:
+                        f.write(body)
+                    os.replace(tmp, full)
+                m["body"] = body[:BODY_INLINE_MAX] + "…"
+                m["full_text"] = full
+            else:
+                m["body"] = body
+        messages.append(m)
+    out = {"ok": True, "room_id": room, "messages": messages}
+    atts = [m["attachment"] for m in messages if "attachment" in m]
+    log(f"[relay-mcp] read identity={mx.identity} account={mx.account} room={room} messages={len(messages)} "
+        f"attachments={len(atts)} attachment_errors={sum(1 for a in atts if 'error' in a)} paged={bool(before)}")
+    if len(chunk) == limit and res.get("end"):
+        out["older"] = res["end"]
+    return out
+
+
+def tool_leave_room(mx, args):
+    room = args.get("room") or ""
+    if not ROOM_RE.match(room):
+        raise ToolError(f"{room!r} isn't a room id (expected !something:server)")
+    q = urllib.parse.quote(room, safe="")
+    try:
+        alias = (mx.request("GET", f"/rooms/{q}/state/m.room.canonical_alias") or {}).get("alias") or ""
+    except ToolError as e:
+        if not e.not_found and e.status != 403:
+            raise
+        alias = ""
+    if REGISTRY_ALIAS_RE.match(alias):
+        raise ToolError("that's the fleet directory room — Skynet relies on you staying in it")
+    mx.request("POST", f"/rooms/{q}/leave", {})
+    for k, rid in list(_dm_cache.items()):
+        if rid == room:
+            _dm_cache.pop(k, None)
+    log(f"[relay-mcp] left identity={mx.identity} account={mx.account} room={room}")
+    return {"ok": True, "room_id": room, "left": True}
 
 
 def tool_create_room(mx, args):
@@ -589,6 +812,9 @@ HANDLERS = {
     "send_file": tool_send_file,
     "find": tool_find,
     "list_rooms": tool_list_rooms,
+    "room_members": tool_room_members,
+    "read_room": tool_read_room,
+    "leave_room": tool_leave_room,
     "create_room": tool_create_room,
 }
 
