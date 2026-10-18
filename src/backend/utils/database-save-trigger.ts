@@ -6,6 +6,9 @@ export class DatabaseSaveTrigger {
   private static pendingSave = false;
   private static saveTimeout: NodeJS.Timeout | null = null;
   private static _dirty = false;
+  // A save asked for while another is writing. The running save serialized
+  // the database before that write landed, so one more save runs after it.
+  private static rerunRequested = false;
 
   static initialize(saveFunction: () => Promise<void>): void {
     this.saveFunction = saveFunction;
@@ -38,7 +41,9 @@ export class DatabaseSaveTrigger {
     }
 
     this.saveTimeout = setTimeout(async () => {
+      this.saveTimeout = null;
       if (this.pendingSave) {
+        this.rerunRequested = true;
         return;
       }
 
@@ -55,6 +60,7 @@ export class DatabaseSaveTrigger {
         });
       } finally {
         this.pendingSave = false;
+        this.runRequestedRerun();
       }
     }, 2000);
   }
@@ -77,6 +83,7 @@ export class DatabaseSaveTrigger {
     }
 
     if (this.pendingSave) {
+      this.rerunRequested = true;
       return;
     }
 
@@ -93,7 +100,19 @@ export class DatabaseSaveTrigger {
       throw error;
     } finally {
       this.pendingSave = false;
+      this.runRequestedRerun();
     }
+  }
+
+  private static runRequestedRerun(): void {
+    if (!this.rerunRequested) return;
+    this.rerunRequested = false;
+    databaseLogger.info("Re-running a save requested while another was writing", {
+      operation: "db_save_trigger_rerun",
+    });
+    this.forceSave("rerun_after_overlap").catch(() => {
+      // forceSave already logged the failure.
+    });
   }
 
   static getStatus(): {
@@ -115,6 +134,7 @@ export class DatabaseSaveTrigger {
     }
 
     this.pendingSave = false;
+    this.rerunRequested = false;
     this.isInitialized = false;
     this.saveFunction = null;
   }

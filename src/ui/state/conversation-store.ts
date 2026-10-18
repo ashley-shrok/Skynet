@@ -80,6 +80,7 @@ import {
   resolveEffectiveParents,
 } from "./project-tree";
 import {
+  getLastDmAt,
   getLastFinishAt,
   getUnseenDmAt,
   isUnread,
@@ -890,12 +891,12 @@ const compareByRecencyDesc = (
 // Holding a row in place: when the user opens a DM'd or unread conversation,
 // its sort position (tier + recency at that moment) is frozen while it
 // stays put, so the row doesn't slide out from under the click. The hold
-// ends when the user opens a different conversation or its agent finishes
-// another turn — not when they merely step away from it.
+// ends when the user opens a different conversation, its agent finishes
+// another turn, or its agent DMs again — not when they merely step away.
 
 // Tier 2 = DM'd, 1 = unread, 0 = everything else.
 type SortKey = { tier: 0 | 1 | 2; recency: number | null };
-type RowHold = SortKey & { finishAt: number | null };
+type RowHold = SortKey & { finishAt: number | null; dmAt: number | null };
 const heldRows = new Map<string, RowHold>();
 let visibleConversationIds: ReadonlySet<string> = new Set();
 
@@ -933,8 +934,11 @@ function rowSortKey(row: ConversationRow): SortKey {
 
 function effectiveSortKey(row: ConversationRow): SortKey {
   const hold = heldRows.get(row.id);
-  if (hold && hold.finishAt === getLastFinishAt(attentionKeyForRow(row))) {
-    return { tier: hold.tier, recency: hold.recency };
+  if (hold) {
+    const k = attentionKeyForRow(row);
+    if (hold.finishAt === getLastFinishAt(k) && hold.dmAt === getLastDmAt(k)) {
+      return { tier: hold.tier, recency: hold.recency };
+    }
   }
   return rowSortKey(row);
 }
@@ -992,6 +996,7 @@ export function setVisibleConversationIds(ids: Iterable<string>): void {
         heldRows.set(id, {
           ...rowSortKey(row),
           finishAt: getLastFinishAt(attentionKeyForRow(row)),
+          dmAt: getLastDmAt(attentionKeyForRow(row)),
         });
         changed = true;
       }

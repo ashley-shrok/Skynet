@@ -281,6 +281,12 @@ export function isUnread(k: Key | null): boolean {
   return finish > threshold;
 }
 
+/** The time of this conversation's latest DM, seen or not; null if none. */
+export function getLastDmAt(k: Key | null): number | null {
+  if (k === null) return null;
+  return dms.get(k) ?? null;
+}
+
 /** The time of this conversation's unseen DM, or null when it isn't DM'd. */
 export function getUnseenDmAt(k: Key | null): number | null {
   if (k === null) return null;

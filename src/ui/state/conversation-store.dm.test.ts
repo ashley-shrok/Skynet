@@ -253,4 +253,36 @@ describe("DM marks", () => {
     // ash is a read row now; cedar is held in its unread spot below birch.
     expect(ids(result.current.middle)).toEqual(["t-birch", "t-cedar", "t-ash"]);
   });
+
+  it("a new DM to a held unread row lifts it into the DM'd tier at once", () => {
+    setup(["ash", "birch"]);
+    finish("ash", 1_300);
+    dm("birch", 1_200);
+    const { result } = renderHook(() => useConversations());
+    act(() => {
+      setVisibleConversationIds(["t-ash"]);
+      markSeen("1", "ash");
+    });
+    act(() => setVisibleConversationIds([])); // stepped away, still held
+    expect(ids(result.current.middle)).toEqual(["t-birch", "t-ash"]);
+    dm("ash", 1_400); // mid-turn DM, no new finished turn yet
+    expect(ids(result.current.middle)).toEqual(["t-ash", "t-birch"]);
+    expect(result.current.middle[0].dm).toBe(true);
+  });
+
+  it("a new DM to a held DM'd row moves it back to the top of the DM'd tier", () => {
+    setup(["ash", "birch"]);
+    dm("ash", 1_300);
+    dm("birch", 1_200);
+    const { result } = renderHook(() => useConversations());
+    act(() => {
+      setVisibleConversationIds(["t-birch"]);
+      markSeen("1", "birch");
+    });
+    act(() => setVisibleConversationIds([]));
+    // birch is held in the DM'd tier with its old DM time, below ash.
+    expect(ids(result.current.middle)).toEqual(["t-ash", "t-birch"]);
+    dm("birch", 1_500, 1_200);
+    expect(ids(result.current.middle)).toEqual(["t-birch", "t-ash"]);
+  });
 });
