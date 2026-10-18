@@ -882,8 +882,9 @@ const compareByRecencyDesc = (
 //
 // Holding a row in place: when the user opens an unread conversation, its
 // sort position (unread tier + activity at that moment) is frozen while it
-// stays on screen, so the row doesn't slide out from under the click. The
-// hold ends when it leaves the screen or its agent finishes another turn.
+// stays put, so the row doesn't slide out from under the click. The hold
+// ends when the user opens a different conversation or its agent finishes
+// another turn — not when they merely step away from it.
 
 type RowHold = { finishAt: number | null; activityAt: number | null };
 const heldRows = new Map<string, RowHold>();
@@ -938,13 +939,25 @@ const compareByAttention = (
 export function setVisibleConversationIds(ids: Iterable<string>): void {
   const next = new Set(ids);
   let changed = false;
-  for (const id of heldRows.keys()) {
-    if (!next.has(id)) {
-      heldRows.delete(id);
-      changed = true;
+  // A conversation coming on screen that isn't already held means the user
+  // opened something else: that releases the holds on everything not still
+  // on screen. Stepping away without opening anything (phone back to the
+  // list, sidebar over a narrow screen, browser tab in the background)
+  // releases nothing — the row is still where they left it when they return.
+  const openedSomethingElse = [...next].some(
+    (id) => !visibleConversationIds.has(id) && !heldRows.has(id),
+  );
+  if (openedSomethingElse) {
+    for (const id of heldRows.keys()) {
+      if (!next.has(id)) {
+        heldRows.delete(id);
+        changed = true;
+      }
     }
   }
-  const newlyVisible = [...next].filter((id) => !visibleConversationIds.has(id));
+  const newlyVisible = [...next].filter(
+    (id) => !visibleConversationIds.has(id) && !heldRows.has(id),
+  );
   if (newlyVisible.length > 0) {
     const snap = getSnapshot();
     const rowsById = new Map<string, ConversationRow>();

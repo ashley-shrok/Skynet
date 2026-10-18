@@ -239,6 +239,33 @@ describe("holding an opened row in place", () => {
     expect(ids(result.current.middle)).toEqual(["t-birch", "t-cedar", "t-ash"]);
   });
 
+  it("stepping away without opening anything else keeps the row where it was", () => {
+    setup(["ash", "birch"]);
+    finish("ash", 1_300);
+    finish("birch", 1_200);
+    const { result } = renderHook(() => useConversations());
+    act(() => {
+      setVisibleConversationIds(["t-ash"]);
+      markSeen("1", "ash");
+    });
+    // Back to the list on a phone / tab hidden: nothing on screen.
+    act(() => setVisibleConversationIds([]));
+    expect(ids(result.current.middle)).toEqual(["t-ash", "t-birch"]);
+    // Coming back to the same conversation still holds it.
+    act(() => setVisibleConversationIds(["t-ash"]));
+    expect(ids(result.current.middle)).toEqual(["t-ash", "t-birch"]);
+    // Opening a different conversation releases it.
+    act(() => setVisibleConversationIds([]));
+    act(() => {
+      setVisibleConversationIds(["t-birch"]);
+      markSeen("1", "birch");
+    });
+    // Ash's hold is gone (it's just a read row now); birch, opened while
+    // unread, is the one held in its old top-of-unread spot.
+    expect(ids(result.current.middle)).toEqual(["t-birch", "t-ash"]);
+    expect(result.current.middle.every((r) => r.unread !== true)).toBe(true);
+  });
+
   it("the hold ends when the agent finishes another turn", () => {
     setup(["ash", "birch"]);
     finish("ash", 1_300);
