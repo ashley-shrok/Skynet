@@ -30,7 +30,7 @@ So: this artifact deliberately does NOT list Apple design principles, and no ses
 Starting order: foundation, skills, host targeting, then the remaining modals, then sidebar and conversation view last (Ashley: "save that until we've already gone through the rest").
 
 - **[declared] shape-ux-foundation** — look A + the shared kit, every modal moved onto it, in-app dialogs, phone sheets (see shape-ux-foundation.closed.md) — closed 2026-10-17
-- **[declared] shape-skills-modal** — library + skill views, who-can-use switches in bulk, files collapsed; shared skills agent-only for non-admins (see shape-skills-modal.md) — in_progress
+- **[declared] shape-skills-modal** — library + skill views, who-can-use switches in bulk, files collapsed; shared skills agent-only for non-admins (see shape-skills-modal.closed.md) — closed 2026-10-18
 - **[declared] shape-host-targeting** — admin-only: shared skills and roles target a chosen set of hosts or a permanent "every host"; sync machinery + the admin controls in both skills and roles modals — not started
 - **[declared] shape-roles-modals** — roles list, role modal, new-role dialog, runbook editor — not started
 - **[declared] shape-identity-modal** — agent modal (agent file, wake-ups + add-wake-up, files, git, desktop tabs) — not started
@@ -58,6 +58,8 @@ The foundation already moved every modal onto the kit, so each remaining modal s
 - Remove the dead session finder (command palette) — handed to sparrow-box-maintainer-2 (Ashley, 2026-10-17); copper rebases onto its deletion
 - Kit candidates raised during the foundation (pop-over panel for colour/voice pickers, link-styled button, usage meter, sortable column header) — pick up in the per-modal shapes that need them
 - Unused sidebar-era row styles in the conversation-list stylesheet — clean up in shape-sidebar
+- Markdown files show their Formatted / Plain text switch on its own row under the file toolbar (file viewer, everywhere) — look at it in shape-file-modal
+- Shared-skill hiding for non-admins goes by name and lets skills show if the sync engine is down (logged) — revisit in shape-host-targeting alongside the sync machinery
 
 ## Lingerers (explicitly approved)
 
