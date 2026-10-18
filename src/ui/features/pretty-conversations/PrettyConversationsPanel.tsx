@@ -65,7 +65,7 @@ import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useStat
 // (aliased ArchivedBoxIcon) glyph was the always-visible archived-apps trigger
 // on the Apps section header. Migrated into the Apps header RowKebabMenu
 // (single "Archived apps" item); icon import removed.
-import { ChevronDown, Clock, Crown, Drama, Loader2, MessageSquare, Plus, Search, Settings, SquarePen, X, Zap } from "lucide-react";
+import { ChevronDown, Clock, Crown, Drama, Loader2, Mail, MessageSquare, Plus, Search, Settings, SquarePen, X, Zap } from "lucide-react";
 import { Button } from "@/components/button";
 import SkillsEditorModal from "@/features/pretty-view/SkillsEditorModal";
 // Phase 137 D-08: PreferencesModal — opened from the sidebar footer gear button.
@@ -791,25 +791,35 @@ export function PrettyConversationsPanel({
     pinnedUnassigned,
     projectSections,
   } = useConversations();
-  // Unread marks through collapsed headers: which project sections have an
-  // unread conversation anywhere in their subtree (own rows or any
+  // Marks through collapsed headers: which project sections have an unread
+  // (or DM'd) conversation anywhere in their subtree (own rows or any
   // sub-project, any depth), and whether any project has one at all (the
-  // collapsed Projects super-header).
-  const { unreadSectionKeys, anyProjectUnread } = useMemo(() => {
+  // collapsed Projects super-header). A DM mark outranks the unread dot.
+  const { unreadSectionKeys, anyProjectUnread, dmSectionKeys, anyProjectDm } = useMemo(() => {
     const keyOfSec = (sec: ProjectSection) => projectKey(sec.hostId ?? "", sec.slug);
-    const keys = new Set<string>();
     const parentOf = new Map<string, string | null>();
     for (const sec of projectSections) parentOf.set(keyOfSec(sec), sec.parentKey ?? null);
-    for (const sec of projectSections) {
-      if (!sec.rows.some((r) => r.unread === true)) continue;
-      // Mark this section and every ancestor (guarding against loops).
-      let k: string | null = keyOfSec(sec);
-      while (k !== null && !keys.has(k)) {
-        keys.add(k);
-        k = parentOf.get(k) ?? null;
+    const markedSections = (has: (r: ConversationRowShape) => boolean) => {
+      const keys = new Set<string>();
+      for (const sec of projectSections) {
+        if (!sec.rows.some(has)) continue;
+        // Mark this section and every ancestor (guarding against loops).
+        let k: string | null = keyOfSec(sec);
+        while (k !== null && !keys.has(k)) {
+          keys.add(k);
+          k = parentOf.get(k) ?? null;
+        }
       }
-    }
-    return { unreadSectionKeys: keys, anyProjectUnread: keys.size > 0 };
+      return keys;
+    };
+    const unread = markedSections((r) => r.unread === true);
+    const dm = markedSections((r) => r.dm === true);
+    return {
+      unreadSectionKeys: unread,
+      anyProjectUnread: unread.size > 0,
+      dmSectionKeys: dm,
+      anyProjectDm: dm.size > 0,
+    };
   }, [projectSections]);
   // Subscribe to the projects list so the panel re-renders when the wire
   // event flushes a new set through setProjects. useProjects() also feeds
@@ -3611,14 +3621,23 @@ export function PrettyConversationsPanel({
                   <span className="pv-section-label">
                     Projects
                   </span>
-                  {projectsSectionCollapsed && !sidebarSearchActive && anyProjectUnread && (
+                  {projectsSectionCollapsed && !sidebarSearchActive && anyProjectDm ? (
+                    <span
+                      className="pv-section-dm-mark"
+                      role="img"
+                      aria-label="An agent sent you a message"
+                      data-testid="pv-projects-super-header-dm"
+                    >
+                      <Mail aria-hidden="true" />
+                    </span>
+                  ) : projectsSectionCollapsed && !sidebarSearchActive && anyProjectUnread ? (
                     <span
                       className="pv-section-unread-dot"
                       role="img"
                       aria-label="Has unread conversations"
                       data-testid="pv-projects-super-header-unread"
                     />
-                  )}
+                  ) : null}
                   <span
                     aria-hidden="true"
                     className="flex-1 h-px bg-[linear-gradient(90deg,transparent_0%,rgba(168,154,128,0.20)_30%,rgba(168,154,128,0.20)_70%,transparent_100%)]"
@@ -3675,6 +3694,7 @@ export function PrettyConversationsPanel({
                     // hides its sub-projects with it (they render inside).
                     collapsed={sidebarSearchActive ? false : collapsedProjectSlugs.has(section.slug)}
                     hasUnread={unreadSectionKeys.has(keyOf(section))}
+                    hasDm={dmSectionKeys.has(keyOf(section))}
                     onToggleCollapse={toggleProjectCollapse}
                     onNewConversationClick={(s) => handleNewConversationInProject(s, section.hostId)}
                     onDropRow={handleProjectDrop}

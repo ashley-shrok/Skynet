@@ -145,6 +145,7 @@ type MockRow = {
   roomId?: string;
   roomTitle?: string | null;
   unread?: boolean;
+  dm?: boolean;
 };
 
 type MockGroup = {
@@ -2959,5 +2960,66 @@ describe("PrettyConversationsPanel: unread marks show through collapsed headers"
     expect(row?.querySelector(".pv-row--unread")).not.toBeNull();
     const quietRow = container.querySelector('[data-conversation-id="alpha-row"]');
     expect(quietRow?.getAttribute("data-unread")).toBeNull();
+  });
+});
+
+describe("PrettyConversationsPanel: DM marks", () => {
+  function seedNested() {
+    const hostA = makeHost("1", "hostA");
+    const quiet = makeRow({ id: "alpha-row", host: hostA, targetTmuxSession: "a-sess" });
+    const unread = { ...makeRow({ id: "gamma-row", host: hostA, targetTmuxSession: "g-sess" }), unread: true };
+    const dmd = { ...makeRow({ id: "beta-row", host: hostA, targetTmuxSession: "b-sess" }), unread: true, dm: true };
+    setSnapshot({
+      projectSections: [
+        { slug: "alpha", hostId: "1", displayName: "Alpha", rows: [quiet], parentKey: null },
+        { slug: "beta", hostId: "1", displayName: "Beta", rows: [dmd], parentKey: "1::alpha" },
+        { slug: "gamma", hostId: "1", displayName: "Gamma", rows: [unread], parentKey: null },
+      ],
+    });
+    mockProjects = [
+      { slug: "alpha", displayName: "Alpha", hostId: "1", hostname: "hostA", archived: false },
+      { slug: "beta", displayName: "Beta", hostId: "1", hostname: "hostA", archived: false },
+      { slug: "gamma", displayName: "Gamma", hostId: "1", hostname: "hostA", archived: false },
+    ];
+  }
+  function renderPanel() {
+    return render(
+      <PrettyConversationsPanel
+        variant="desktop"
+        hostTree={HOST_TREE}
+        onCreateSession={() => {}}
+        onDeactivateRow={() => {}}
+      />,
+    );
+  }
+
+  it("a collapsed parent shows the envelope when a sub-project inside has a DM; unread-only shows the dot", () => {
+    seedNested();
+    mockCollapsed = new Set(["alpha", "gamma"]);
+    const { queryByTestId } = renderPanel();
+    expect(queryByTestId("pv-project-section-dm-alpha")).not.toBeNull();
+    expect(queryByTestId("pv-project-section-unread-alpha")).toBeNull();
+    expect(queryByTestId("pv-project-section-dm-gamma")).toBeNull();
+    expect(queryByTestId("pv-project-section-unread-gamma")).not.toBeNull();
+  });
+
+  it("the collapsed Projects super-header shows the envelope over the dot", () => {
+    seedNested();
+    localStorage.setItem("pv-projects-section-collapsed", "1");
+    const { queryByTestId } = renderPanel();
+    expect(queryByTestId("pv-projects-super-header-dm")).not.toBeNull();
+    expect(queryByTestId("pv-projects-super-header-unread")).toBeNull();
+  });
+
+  it("a DM'd row renders the DM class and the red envelope badge", () => {
+    seedNested();
+    mockCollapsed = new Set();
+    const { container } = renderPanel();
+    const row = container.querySelector('[data-conversation-id="beta-row"]');
+    expect(row?.getAttribute("data-dm")).toBe("true");
+    expect(row?.querySelector(".pv-row--dm")).not.toBeNull();
+    expect(row?.querySelector('[data-testid="pv-dm-badge"]')).not.toBeNull();
+    const unreadRow = container.querySelector('[data-conversation-id="gamma-row"]');
+    expect(unreadRow?.querySelector('[data-testid="pv-dm-badge"]')).toBeNull();
   });
 });

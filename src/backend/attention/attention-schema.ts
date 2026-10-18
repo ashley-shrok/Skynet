@@ -20,6 +20,13 @@
  *                             compares server time to the agent machine's
  *                             Stop-file time — fine at the scale of minutes,
  *                             which is all a never-seen conversation needs.
+ *   conversation_dm_state   — per (user, host, identity): when that agent last
+ *                             DM'd that user (the Matrix event's server
+ *                             time, max-wins) and the newest such DM the user
+ *                             has seen. Like the read state, the seen value
+ *                             is an echo of last_dm_at, never a clock. Only
+ *                             DMs the push-trigger loop observes after it
+ *                             starts are recorded, so launch day has none.
  *
  * No imports: db/index.ts execs this at boot and tests exec it against an
  * in-memory database.
@@ -43,6 +50,15 @@ export const ATTENTION_TABLES_SQL = `
       host_id TEXT NOT NULL,
       identity_name TEXT NOT NULL,
       seen_finish_at INTEGER NOT NULL,
+      PRIMARY KEY (user_id, host_id, identity_name),
+      FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE
+  );
+  CREATE TABLE IF NOT EXISTS conversation_dm_state (
+      user_id TEXT NOT NULL,
+      host_id TEXT NOT NULL,
+      identity_name TEXT NOT NULL,
+      last_dm_at INTEGER NOT NULL,
+      seen_dm_at INTEGER NOT NULL DEFAULT 0,
       PRIMARY KEY (user_id, host_id, identity_name),
       FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE
   );

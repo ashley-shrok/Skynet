@@ -81,6 +81,7 @@ import {
 } from "./project-tree";
 import {
   getLastFinishAt,
+  getUnseenDmAt,
   isUnread,
   subscribeAttention,
 } from "./attention-store";
@@ -171,6 +172,11 @@ export type ConversationRow = {
   // Sidebar unread mark: the agent finished a turn this user hasn't seen
   // (attention-store). Set on agent rows at snapshot time; absent otherwise.
   unread?: boolean;
+  // Sidebar DM mark: the agent DM'd this user and they haven't seen the
+  // conversation since. `dmAt` is that DM's time, the recency key within the
+  // DM'd tier. Both absent otherwise.
+  dm?: boolean;
+  dmAt?: number;
   // Most recent activity from either side — the later of lastMessageAt (the
   // user sent) and the agent's last finished turn. The recency key for the
   // Conversations list and the rows inside a project.
@@ -876,17 +882,20 @@ const compareByRecencyDesc = (
 
 // ─── Unread marks + attention ordering ───────────────────────────────────────
 //
-// Conversations and the rows inside each project sort: unread first, then
-// most recent activity (either side), null-to-bottom, then a stable fallback.
-// Pinned keeps its fixed host/role/label order; its rows still carry the mark.
+// Conversations and the rows inside each project sort in tiers: DM'd first
+// (most recent DM first), then unread, then the rest — the last two by most
+// recent activity (either side), null-to-bottom, then a stable fallback.
+// Pinned keeps its fixed host/role/label order; its rows still carry the marks.
 //
-// Holding a row in place: when the user opens an unread conversation, its
-// sort position (unread tier + activity at that moment) is frozen while it
+// Holding a row in place: when the user opens a DM'd or unread conversation,
+// its sort position (tier + recency at that moment) is frozen while it
 // stays put, so the row doesn't slide out from under the click. The hold
 // ends when the user opens a different conversation or its agent finishes
 // another turn — not when they merely step away from it.
 
-type RowHold = { finishAt: number | null; activityAt: number | null };
+// Tier 2 = DM'd, 1 = unread, 0 = everything else.
+type SortKey = { tier: 0 | 1 | 2; recency: number | null };
+type RowHold = SortKey & { finishAt: number | null };
 const heldRows = new Map<string, RowHold>();
 let visibleConversationIds: ReadonlySet<string> = new Set();
 
@@ -907,14 +916,27 @@ function decorateAttention(row: ConversationRow): void {
   else delete row.activityAt;
   if (k !== null && isUnread(k)) row.unread = true;
   else delete row.unread;
+  const dmAt = getUnseenDmAt(k);
+  if (dmAt !== null) {
+    row.dm = true;
+    row.dmAt = dmAt;
+  } else {
+    delete row.dm;
+    delete row.dmAt;
+  }
 }
 
-function effectiveSortKey(row: ConversationRow): { unread: boolean; activityAt: number | null } {
+function rowSortKey(row: ConversationRow): SortKey {
+  if (row.dm === true) return { tier: 2, recency: row.dmAt ?? null };
+  return { tier: row.unread === true ? 1 : 0, recency: row.activityAt ?? null };
+}
+
+function effectiveSortKey(row: ConversationRow): SortKey {
   const hold = heldRows.get(row.id);
   if (hold && hold.finishAt === getLastFinishAt(attentionKeyForRow(row))) {
-    return { unread: true, activityAt: hold.activityAt };
+    return { tier: hold.tier, recency: hold.recency };
   }
-  return { unread: row.unread === true, activityAt: row.activityAt ?? null };
+  return rowSortKey(row);
 }
 
 const compareByAttention = (
@@ -922,11 +944,11 @@ const compareByAttention = (
 ) => (a: ConversationRow, b: ConversationRow): number => {
   const ka = effectiveSortKey(a);
   const kb = effectiveSortKey(b);
-  if (ka.unread !== kb.unread) return ka.unread ? -1 : 1;
-  if (ka.activityAt === null && kb.activityAt !== null) return 1;
-  if (ka.activityAt !== null && kb.activityAt === null) return -1;
-  if (ka.activityAt !== null && kb.activityAt !== null && ka.activityAt !== kb.activityAt) {
-    return kb.activityAt - ka.activityAt;
+  if (ka.tier !== kb.tier) return kb.tier - ka.tier;
+  if (ka.recency === null && kb.recency !== null) return 1;
+  if (ka.recency !== null && kb.recency === null) return -1;
+  if (ka.recency !== null && kb.recency !== null && ka.recency !== kb.recency) {
+    return kb.recency - ka.recency;
   }
   return fallback(a, b);
 };
@@ -934,7 +956,8 @@ const compareByAttention = (
 /**
  * Tell the store which conversations are on screen right now (open in a
  * visible pane of a tab the user is looking at). Call BEFORE marking them
- * seen: a conversation that is unread as it comes on screen is held in place.
+ * seen: a conversation that is DM'd or unread as it comes on screen is held
+ * in place.
  */
 export function setVisibleConversationIds(ids: Iterable<string>): void {
   const next = new Set(ids);
@@ -965,10 +988,10 @@ export function setVisibleConversationIds(ids: Iterable<string>): void {
     for (const sec of snap.projectSections) for (const r of sec.rows) rowsById.set(r.id, r);
     for (const id of newlyVisible) {
       const row = rowsById.get(id);
-      if (row?.unread === true) {
+      if (row?.unread === true || row?.dm === true) {
         heldRows.set(id, {
+          ...rowSortKey(row),
           finishAt: getLastFinishAt(attentionKeyForRow(row)),
-          activityAt: row.activityAt ?? null,
         });
         changed = true;
       }

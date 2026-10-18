@@ -54,7 +54,7 @@ import {
   useState,
   type ReactNode,
 } from "react";
-import { ChevronDown } from "lucide-react";
+import { ChevronDown, Mail } from "lucide-react";
 
 import { useDragPreviewClaim } from "@/shell/drag-preview-session";
 import {
@@ -113,6 +113,11 @@ export interface PrettyProjectSectionHeaderProps {
    * never hidden behind a closed project.
    */
   hasUnread?: boolean;
+  /**
+   * Something anywhere inside was DM'd by its agent. Shown as a red envelope
+   * after the label while collapsed, in place of the unread dot.
+   */
+  hasDm?: boolean;
   /** Fired on header-body click with the section's slug. */
   onToggleCollapse: (slug: string) => void;
   /** Fired on the "New conversation in this project" kebab item click. */
@@ -181,6 +186,7 @@ export function PrettyProjectSectionHeader({
   rows,
   collapsed,
   hasUnread = false,
+  hasDm = false,
   onToggleCollapse,
   onNewConversationClick,
   onDropRow,
@@ -419,14 +425,23 @@ export function PrettyProjectSectionHeader({
         <span className="pv-section-label">
           {displayName}
         </span>
-        {collapsed && hasUnread && (
+        {collapsed && hasDm ? (
+          <span
+            className="pv-section-dm-mark"
+            role="img"
+            aria-label="An agent sent you a message"
+            data-testid={`pv-project-section-dm-${slug}`}
+          >
+            <Mail aria-hidden="true" />
+          </span>
+        ) : collapsed && hasUnread ? (
           <span
             className="pv-section-unread-dot"
             role="img"
             aria-label="Has unread conversations"
             data-testid={`pv-project-section-unread-${slug}`}
           />
-        )}
+        ) : null}
         <span
           aria-hidden="true"
           className="flex-1 h-px bg-[linear-gradient(90deg,transparent_0%,rgba(168,154,128,0.20)_30%,rgba(168,154,128,0.20)_70%,transparent_100%)]"

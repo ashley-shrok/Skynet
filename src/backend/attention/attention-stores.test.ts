@@ -109,7 +109,7 @@ describe("read-state store", () => {
 
   it("creates the baseline once, on first read, and force-saves it", () => {
     const { store, forceSave } = make(5000);
-    expect(store.getForUser("u1")).toEqual({ baselineAt: 5000, seen: [] });
+    expect(store.getForUser("u1")).toEqual({ baselineAt: 5000, seen: [], dms: [] });
     const later = createReadStateStore({ sqlite: () => sqlite, now: () => 9999, save: vi.fn(), forceSave: vi.fn() });
     expect(later.getForUser("u1").baselineAt).toBe(5000);
     expect(forceSave).toHaveBeenCalledTimes(1);
@@ -157,5 +157,59 @@ describe("read-state store", () => {
     expect(store.markSeen("u1", "", "aspen", 1)).toBe(false);
     expect(store.markSeen("u1", "h1", "x".repeat(300), 1)).toBe(false);
     expect(store.markSeen("u1", "h1", "aspen", -1)).toBe(false);
+  });
+});
+
+describe("read-state store — DM marks", () => {
+  const make = () => {
+    const save = vi.fn();
+    const forceSave = vi.fn();
+    const store = createReadStateStore({ sqlite: () => sqlite, now: () => 5000, save, forceSave });
+    return { store, save, forceSave };
+  };
+
+  it("records a DM (max-wins), force-saves it, and returns it on read", () => {
+    const { store, forceSave } = make();
+    expect(store.recordDm("u1", "h1", "aspen", 1000)).toEqual({
+      hostId: "h1", identityName: "aspen", lastDmAt: 1000, seenDmAt: 0,
+    });
+    expect(store.recordDm("u1", "h1", "aspen", 900)).toBeNull();
+    expect(store.recordDm("u1", "h1", "aspen", 1000)).toBeNull();
+    expect(store.recordDm("u1", "h1", "aspen", 2000)?.lastDmAt).toBe(2000);
+    expect(forceSave).toHaveBeenCalledTimes(2);
+    expect(store.getForUser("u1").dms).toEqual([
+      { hostId: "h1", identityName: "aspen", lastDmAt: 2000, seenDmAt: 0 },
+    ]);
+  });
+
+  it("marks a DM seen monotonically, never past the recorded DM", () => {
+    const { store, save } = make();
+    expect(store.markDmSeen("u1", "h1", "aspen", 1000)).toBeNull(); // nothing recorded
+    store.recordDm("u1", "h1", "aspen", 1000);
+    expect(store.markDmSeen("u1", "h1", "aspen", 1500)).toBeNull(); // past the DM
+    expect(store.markDmSeen("u1", "h1", "aspen", 1000)?.seenDmAt).toBe(1000);
+    expect(store.markDmSeen("u1", "h1", "aspen", 1000)).toBeNull();
+    expect(save).toHaveBeenCalledTimes(1);
+    // A newer DM makes it DM'd again; the old seen value stays.
+    expect(store.recordDm("u1", "h1", "aspen", 3000)).toEqual({
+      hostId: "h1", identityName: "aspen", lastDmAt: 3000, seenDmAt: 1000,
+    });
+  });
+
+  it("keeps DMs per user and per host", () => {
+    const { store } = make();
+    store.recordDm("u1", "h1", "aspen", 1000);
+    store.recordDm("u1", "h2", "aspen", 4000);
+    expect(store.getForUser("u2").dms).toEqual([]);
+    expect(store.getForUser("u1").dms).toHaveLength(2);
+    expect(store.markDmSeen("u2", "h1", "aspen", 1000)).toBeNull();
+  });
+
+  it("rejects junk input", () => {
+    const { store } = make();
+    expect(store.recordDm("", "h1", "aspen", 1)).toBeNull();
+    expect(store.recordDm("u1", "h1", "", 1)).toBeNull();
+    expect(store.recordDm("u1", "h1", "aspen", Number.NaN)).toBeNull();
+    expect(store.markDmSeen("u1", "h1", "aspen", 0)).toBeNull();
   });
 });

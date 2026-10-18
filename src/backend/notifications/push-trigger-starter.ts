@@ -66,6 +66,7 @@ import { derivePreviewText } from "./preview-text.js";
 import { resolveAgentLabel } from "./resolve-agent-label.js";
 import { resolveAgentHostId } from "./resolve-agent-host-id.js";
 import { resolveRemoteAgentHostId } from "./resolve-remote-agent-host-id.js";
+import { recordAgentDm } from "../attention/dm-recorder.js";
 
 /** Discriminated-union result of startPushTriggerLoopOnBoot. */
 export type StartPushTriggerLoopResult =
@@ -213,6 +214,7 @@ export async function startPushTriggerLoopOnBoot(): Promise<StartPushTriggerLoop
       },
       // Telegram (see notify-user.ts).
       sendPushToUser: sendNotificationToUser,
+      recordDm: recordAgentDm,
       derivePreviewText,
       resolveAgentLabel,
       // Local probe first (cheap fs lstat), then peer boxes over SSH for

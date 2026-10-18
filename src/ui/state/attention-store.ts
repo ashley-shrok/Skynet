@@ -19,6 +19,13 @@
 //
 // The seen mark is always a lastFinishAt value echoed back, never a clock
 // reading, so clock differences between machines can't create or hide marks.
+//
+// DM marks work the same way. When an agent DMs this user the server records
+// the DM's time (lastDmAt) and pushes it here (dm-state-changed frames, plus
+// the dms list in the read state). Looking at the conversation echoes that
+// time back as the seen DM (POST /attention/dm-seen). A conversation is DM'd
+// while its lastDmAt is newer than its seen DM. No baseline: the server only
+// records DMs sent after it started watching, so launch day has none.
 
 import { useSyncExternalStore } from "react";
 import { authApi } from "@/main-axios";
@@ -27,6 +34,8 @@ type Key = string;
 
 const finishes = new Map<Key, number>();
 const seen = new Map<Key, number>();
+const dms = new Map<Key, number>();
+const dmSeen = new Map<Key, number>();
 let baselineAt: number | null = null;
 let version = 0;
 const listeners = new Set<() => void>();
@@ -36,6 +45,7 @@ let reloadQueued = false;
 // successful read-state load so the user's other devices catch up; the
 // server ignores anything that isn't newer, so re-sending is safe.
 const unsynced = new Map<Key, { hostId: string; identityName: string }>();
+const unsyncedDm = new Map<Key, { hostId: string; identityName: string }>();
 
 export function attentionKey(hostId: string | number, identityName: string): Key {
   return `${hostId}:${identityName}`;
@@ -107,9 +117,46 @@ export function applyRemoteSeen(hostId: string, identityName: string, seenFinish
   }
 }
 
+/** Fold a DM time into a map (max-wins). Returns true iff it advanced. */
+function advanceMax(map: Map<Key, number>, k: Key, at: number): boolean {
+  if (typeof at !== "number" || !Number.isFinite(at)) return false;
+  const prev = map.get(k);
+  if (prev !== undefined && prev >= at) return false;
+  map.set(k, at);
+  return true;
+}
+
+function applyDmEntry(e: DmEntry): boolean {
+  if (!e || typeof e.hostId !== "string" || !e.identityName) return false;
+  const k = attentionKey(e.hostId, e.identityName);
+  const a = advanceMax(dms, k, e.lastDmAt);
+  const b = e.seenDmAt > 0 && advanceMax(dmSeen, k, e.seenDmAt);
+  return a || b;
+}
+
+/**
+ * A dm-state-changed frame: an agent DM'd this user, or they saw a DM on
+ * another tab/device (the echo of this tab's own is a max-wins no-op).
+ */
+export function applyRemoteDm(entry: DmEntry): void {
+  if (applyDmEntry(entry)) {
+    console.info({
+      operation: "attention_remote_dm_applied",
+      hostId: entry.hostId,
+      identityName: entry.identityName,
+      lastDmAt: entry.lastDmAt,
+      seenDmAt: entry.seenDmAt,
+    });
+    notify();
+  }
+}
+
+type DmEntry = { hostId: string; identityName: string; lastDmAt: number; seenDmAt: number };
+
 export function applyReadState(state: {
   baselineAt: number;
   seen: Array<{ hostId: string; identityName: string; seenFinishAt: number }>;
+  dms?: DmEntry[];
 }): void {
   let changed = false;
   if (typeof state.baselineAt === "number" && baselineAt !== state.baselineAt) {
@@ -118,6 +165,9 @@ export function applyReadState(state: {
   }
   for (const e of state.seen ?? []) {
     if (advanceSeen(attentionKey(e.hostId, e.identityName), e.seenFinishAt)) changed = true;
+  }
+  for (const e of state.dms ?? []) {
+    if (applyDmEntry(e)) changed = true;
   }
   if (changed) notify();
 }
@@ -139,17 +189,23 @@ export function loadReadState(): Promise<void> {
       const data = res.data as {
         baselineAt: number;
         seen: Array<{ hostId: string; identityName: string; seenFinishAt: number }>;
+        dms?: DmEntry[];
       };
       applyReadState(data);
       console.info({
         operation: "attention_read_state_loaded",
         baselineAt: data.baselineAt,
         seenCount: data.seen?.length ?? 0,
-        resending: unsynced.size,
+        dmCount: data.dms?.length ?? 0,
+        resending: unsynced.size + unsyncedDm.size,
       });
       for (const [k, t] of [...unsynced]) {
         const at = seen.get(k);
         if (at !== undefined) postSeen(k, t.hostId, t.identityName, at);
+      }
+      for (const [k, t] of [...unsyncedDm]) {
+        const at = dmSeen.get(k);
+        if (at !== undefined) postDmSeen(k, t.hostId, t.identityName, at);
       }
     } catch (err) {
       console.warn({
@@ -189,6 +245,28 @@ function postSeen(k: Key, hostId: string, identityName: string, seenFinishAt: nu
   }
 }
 
+function postDmSeen(k: Key, hostId: string, identityName: string, seenDmAt: number): void {
+  const body = { hostId, identityName, seenDmAt };
+  const failed = (err: unknown, operation: string) => {
+    unsyncedDm.set(k, { hostId, identityName });
+    console.warn({
+      operation,
+      ...body,
+      err: err instanceof Error ? err.message : String(err),
+    });
+  };
+  try {
+    authApi
+      .post("/attention/dm-seen", body)
+      .then(() => {
+        if (dmSeen.get(k) === seenDmAt) unsyncedDm.delete(k);
+      })
+      .catch((err: unknown) => failed(err, "attention_mark_dm_seen_failed"));
+  } catch (err) {
+    failed(err, "attention_mark_dm_seen_failed_sync");
+  }
+}
+
 export function getLastFinishAt(k: Key | null): number | null {
   if (k === null) return null;
   return finishes.get(k) ?? null;
@@ -203,27 +281,51 @@ export function isUnread(k: Key | null): boolean {
   return finish > threshold;
 }
 
+/** The time of this conversation's unseen DM, or null when it isn't DM'd. */
+export function getUnseenDmAt(k: Key | null): number | null {
+  if (k === null) return null;
+  const dm = dms.get(k);
+  if (dm === undefined) return null;
+  const s = dmSeen.get(k);
+  return s !== undefined && s >= dm ? null : dm;
+}
+
+export function isDmd(k: Key | null): boolean {
+  return getUnseenDmAt(k) !== null;
+}
+
 /**
  * The user is looking at this conversation: mark its latest finished turn
- * seen, locally at once and on the server (which tells the user's other
- * tabs). No-op when there's nothing new.
+ * and its latest DM seen, locally at once and on the server (which tells the
+ * user's other tabs). No-op when there's nothing new.
  */
 export function markSeen(hostId: string | number, identityName: string): void {
+  const k = attentionKey(hostId, identityName);
+  let changed = false;
+  // DMs need no baseline: a DM in the map is always one to clear.
+  const dm = getUnseenDmAt(k);
+  if (dm !== null && advanceMax(dmSeen, k, dm)) {
+    changed = true;
+    console.info({ operation: "attention_mark_dm_seen", hostId: String(hostId), identityName, seenDmAt: dm });
+    postDmSeen(k, String(hostId), identityName, dm);
+  }
   // Until the read state has loaded nothing shows as unread, and the load
   // itself notifies — the seen tracker re-runs then.
-  if (baselineAt === null) return;
-  const k = attentionKey(hostId, identityName);
   const finish = finishes.get(k);
-  if (finish === undefined) return;
-  if (!advanceSeen(k, finish)) return;
-  notify();
-  console.info({ operation: "attention_mark_seen", hostId: String(hostId), identityName, seenFinishAt: finish });
-  postSeen(k, String(hostId), identityName, finish);
+  if (baselineAt !== null && finish !== undefined && advanceSeen(k, finish)) {
+    changed = true;
+    console.info({ operation: "attention_mark_seen", hostId: String(hostId), identityName, seenFinishAt: finish });
+    postSeen(k, String(hostId), identityName, finish);
+  }
+  if (changed) notify();
 }
 
 export function __resetAttentionForTest(): void {
   finishes.clear();
   seen.clear();
+  dms.clear();
+  dmSeen.clear();
+  unsyncedDm.clear();
   baselineAt = null;
   loadInFlight = null;
   reloadQueued = false;

@@ -1,11 +1,15 @@
 /**
  * attention-routes.ts — HTTP surface for per-user read state.
  *
- *   GET  /attention/read-state → { baselineAt, seen: [{hostId, identityName, seenFinishAt}] }
+ *   GET  /attention/read-state → { baselineAt, seen: [{hostId, identityName, seenFinishAt}],
+ *                                  dms: [{hostId, identityName, lastDmAt, seenDmAt}] }
  *        Creates the user's baseline on first call (launch day = all read).
  *   POST /attention/seen { hostId, identityName, seenFinishAt } → 204
  *        Advances the user's seen mark (monotonic) and, when it moved, pushes
  *        a read-state-changed frame to every one of that user's open tabs.
+ *   POST /attention/dm-seen { hostId, identityName, seenDmAt } → 204
+ *        Advances the user's seen DM (monotonic, never past the recorded DM)
+ *        and, when it moved, pushes dm-state-changed to that user's tabs.
  *
  * Read state is the caller's own, so the only gate is authentication.
  */
@@ -16,6 +20,7 @@ import { systemLogger } from "../utils/logger.js";
 import { getRegistry } from "../fleet-status/registry-holder.js";
 import { FRAME_SCHEMA_VERSION } from "../fleet-status/wire-protocol.js";
 import { getReadStateStore, isValidIdentityName } from "./read-state-store.js";
+import { publishDmState } from "./dm-recorder.js";
 
 const router = express.Router();
 const authManager = AuthManager.getInstance();
@@ -33,6 +38,7 @@ router.get("/read-state", authenticateJWT, (req: Request, res: Response) => {
       userId,
       baselineAt: state.baselineAt,
       seenCount: state.seen.length,
+      dmCount: state.dms.length,
     });
     return res.json(state);
   } catch (err) {
@@ -104,6 +110,52 @@ router.post("/seen", authenticateJWT, (req: Request, res: Response) => {
       });
     }
   }
+  return res.status(204).end();
+});
+
+router.post("/dm-seen", authenticateJWT, (req: Request, res: Response) => {
+  const userId = (req as AuthenticatedRequest).userId;
+  const body = (req.body ?? {}) as {
+    hostId?: unknown;
+    identityName?: unknown;
+    seenDmAt?: unknown;
+  };
+  const { hostId, identityName, seenDmAt } = body;
+  if (typeof hostId !== "string" || !HOST_ID_RE.test(hostId)) {
+    return res.status(400).json({ error: "invalid hostId" });
+  }
+  if (!isValidIdentityName(identityName)) {
+    return res.status(400).json({ error: "invalid identityName" });
+  }
+  if (typeof seenDmAt !== "number" || !Number.isFinite(seenDmAt) || seenDmAt <= 0) {
+    return res.status(400).json({ error: "invalid seenDmAt" });
+  }
+
+  let entry: ReturnType<ReturnType<typeof getReadStateStore>["markDmSeen"]>;
+  try {
+    entry = getReadStateStore().markDmSeen(userId, hostId, identityName, seenDmAt);
+  } catch (err) {
+    systemLogger.error("attention mark-dm-seen failed", err, {
+      operation: "attention_mark_dm_seen",
+      userId,
+      fleetHostId: hostId,
+      identityName,
+      seenDmAt,
+      resultStatus: 500,
+    });
+    return res.status(500).json({ error: "failed to mark DM seen" });
+  }
+
+  systemLogger.info("attention mark-dm-seen", {
+    operation: "attention_mark_dm_seen",
+    userId,
+    fleetHostId: hostId,
+    identityName,
+    seenDmAt,
+    advanced: entry !== null,
+  });
+
+  if (entry) publishDmState(userId, entry);
   return res.status(204).end();
 });
 

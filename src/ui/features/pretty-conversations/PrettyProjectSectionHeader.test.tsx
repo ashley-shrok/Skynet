@@ -700,3 +700,27 @@ describe("PrettyProjectSectionHeader — unread dot", () => {
     expect(queryByTestId("pv-project-section-unread-alpha")).toBeNull();
   });
 });
+
+describe("PrettyProjectSectionHeader — DM mark", () => {
+  const props = {
+    slug: "alpha",
+    displayName: "Alpha",
+    onToggleCollapse: vi.fn(),
+    onNewConversationClick: vi.fn(),
+    onDropRow: vi.fn(),
+    rows: <div />,
+  };
+
+  it("shows the red envelope instead of the unread dot when collapsed with a DM inside", () => {
+    const { queryByTestId } = render(
+      <PrettyProjectSectionHeader {...props} collapsed={true} hasUnread={true} hasDm={true} />,
+    );
+    expect(queryByTestId("pv-project-section-dm-alpha")).not.toBeNull();
+    expect(queryByTestId("pv-project-section-unread-alpha")).toBeNull();
+  });
+
+  it("no envelope when expanded", () => {
+    const { queryByTestId } = render(<PrettyProjectSectionHeader {...props} collapsed={false} hasDm={true} />);
+    expect(queryByTestId("pv-project-section-dm-alpha")).toBeNull();
+  });
+});

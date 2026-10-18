@@ -812,6 +812,22 @@ export const FrontendReadStateChangedFrameSchema = z.object({
   seenFinishAt: z.number(),
 });
 
+// ---------------------------------------------------------------------------
+// dm-state-changed — an agent DM'd one user, or that user saw the DM. Sent
+// ONLY to that user's own subscribers. The conversation is DM'd while
+// lastDmAt > seenDmAt (both the DM's Matrix server time; seenDmAt is an echo
+// of lastDmAt, 0 when never seen). Additive — FRAME_SCHEMA_VERSION stays at 1.
+// ---------------------------------------------------------------------------
+
+export const FrontendDmStateChangedFrameSchema = z.object({
+  schemaVersion: z.literal(FRAME_SCHEMA_VERSION),
+  type: z.literal("dm-state-changed"),
+  hostId: z.string(),
+  identityName: z.string(),
+  lastDmAt: z.number(),
+  seenDmAt: z.number(),
+});
+
 export const FrontendOutboundFrame = z.discriminatedUnion("type", [
   FrontendSnapshotFrameSchema,
   FrontendUpdateFrameSchema,
@@ -820,6 +836,7 @@ export const FrontendOutboundFrame = z.discriminatedUnion("type", [
   FrontendProjectListChangedFrameSchema,
   FrontendSessionProjectChangedFrameSchema,
   FrontendReadStateChangedFrameSchema,
+  FrontendDmStateChangedFrameSchema,
   AppSnapshotFrameSchema,
   AppUpdateFrameSchema,
   AppGoneFrameSchema,

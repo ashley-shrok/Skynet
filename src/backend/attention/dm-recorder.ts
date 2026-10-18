@@ -1,0 +1,62 @@
+/**
+ * dm-recorder.ts — turns "an agent DM'd this user" into the sidebar DM mark.
+ *
+ * The push-trigger loop already decides, per Matrix event, that an agent sent
+ * a new message into its one-on-one chat with a user (the same event that
+ * sends the Telegram notification). It calls recordAgentDm with the agent's
+ * mxid and the fleet host its identity folder lives on; this records the DM
+ * for that user and tells every one of their open tabs.
+ *
+ * The identity name is the mxid local-part, lowercased — the same mapping the
+ * host resolvers use to find the identity folder.
+ */
+import { systemLogger } from "../utils/logger.js";
+import { getRegistry } from "../fleet-status/registry-holder.js";
+import { FRAME_SCHEMA_VERSION } from "../fleet-status/wire-protocol.js";
+import { getReadStateStore, isValidIdentityName, type DmEntry } from "./read-state-store.js";
+
+const MXID_PATTERN = /^@([^:]+):.+$/;
+
+/** Push a user's current DM state for one conversation to all their tabs. */
+export function publishDmState(userId: string, entry: DmEntry): void {
+  const registry = getRegistry();
+  if (!registry) {
+    systemLogger.warn("attention dm-state: registry not ready, tabs not notified", {
+      operation: "attention_dm_state_no_registry",
+      userId,
+    });
+    return;
+  }
+  registry.publishToUser(userId, {
+    schemaVersion: FRAME_SCHEMA_VERSION,
+    type: "dm-state-changed",
+    hostId: entry.hostId,
+    identityName: entry.identityName,
+    lastDmAt: entry.lastDmAt,
+    seenDmAt: entry.seenDmAt,
+  });
+}
+
+/** Record that `agentMxid` (living on fleet host `hostId`) DM'd `userId` at `dmAt`. */
+export function recordAgentDm(userId: string, hostId: number, agentMxid: string, dmAt: number): void {
+  const match = agentMxid.match(MXID_PATTERN);
+  const identityName = match ? match[1].toLowerCase() : null;
+  if (!isValidIdentityName(identityName)) {
+    systemLogger.warn("attention record-dm: unusable agent mxid", {
+      operation: "attention_record_dm_bad_mxid",
+      userId,
+      agentMxid,
+    });
+    return;
+  }
+  const entry = getReadStateStore().recordDm(userId, String(hostId), identityName, dmAt);
+  systemLogger.info("attention record-dm", {
+    operation: "attention_record_dm",
+    userId,
+    fleetHostId: hostId,
+    identityName,
+    dmAt,
+    advanced: entry !== null,
+  });
+  if (entry) publishDmState(userId, entry);
+}

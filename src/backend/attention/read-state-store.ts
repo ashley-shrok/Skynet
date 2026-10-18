@@ -12,6 +12,11 @@
  * conversation with no read row (its agent first finished later) is unread
  * once a turn finishes after the baseline time.
  *
+ * DM marks sit beside the read state: when an agent DMs a user, the DM's
+ * Matrix server time is recorded per (user, host, identity), and the user
+ * seeing that conversation echoes it back as their seen DM. A conversation is
+ * DM'd while its last DM is newer than its seen DM.
+ *
  * Writes are monotonic and synchronous (better-sqlite3); persistence goes
  * through the save trigger (debounced for seen marks, immediate for the
  * one-off baseline so a crash cannot re-light a user's whole list).
@@ -30,9 +35,17 @@ export interface SeenEntry {
   seenFinishAt: number;
 }
 
+export interface DmEntry {
+  hostId: string;
+  identityName: string;
+  lastDmAt: number;
+  seenDmAt: number;
+}
+
 export interface UserReadState {
   baselineAt: number;
   seen: SeenEntry[];
+  dms: DmEntry[];
 }
 
 export interface ReadStateStore {
@@ -40,6 +53,22 @@ export interface ReadStateStore {
   getForUser(userId: string): UserReadState;
   /** Advance a seen mark. Returns true iff the stored value advanced. */
   markSeen(userId: string, hostId: string, identityName: string, seenFinishAt: number): boolean;
+  /** Record an agent's DM to a user (max-wins). Returns the row iff it advanced. */
+  recordDm(userId: string, hostId: string, identityName: string, dmAt: number): DmEntry | null;
+  /** Advance the user's seen DM. Returns the row iff it advanced. */
+  markDmSeen(userId: string, hostId: string, identityName: string, seenDmAt: number): DmEntry | null;
+}
+
+function isValidKey(userId: unknown, hostId: unknown, identityName: unknown): boolean {
+  return (
+    typeof userId === "string" && userId.length > 0 &&
+    typeof hostId === "string" && hostId.length > 0 &&
+    isValidIdentityName(identityName)
+  );
+}
+
+function isValidTime(t: unknown): t is number {
+  return typeof t === "number" && Number.isFinite(t) && t > 0;
 }
 
 export function createReadStateStore(deps: {
@@ -101,6 +130,11 @@ export function createReadStateStore(deps: {
           "SELECT host_id, identity_name, seen_finish_at FROM conversation_read_state WHERE user_id = ?",
         )
         .all(userId) as Array<{ host_id: string; identity_name: string; seen_finish_at: number }>;
+      const dmRows = db
+        .prepare(
+          "SELECT host_id, identity_name, last_dm_at, seen_dm_at FROM conversation_dm_state WHERE user_id = ?",
+        )
+        .all(userId) as DmRow[];
       return {
         baselineAt,
         seen: rows.map((r) => ({
@@ -108,16 +142,12 @@ export function createReadStateStore(deps: {
           identityName: r.identity_name,
           seenFinishAt: r.seen_finish_at,
         })),
+        dms: dmRows.map(toDmEntry),
       };
     },
 
     markSeen(userId, hostId, identityName, seenFinishAt) {
-      if (
-        typeof userId !== "string" || userId.length === 0 ||
-        typeof hostId !== "string" || hostId.length === 0 ||
-        !isValidIdentityName(identityName) ||
-        typeof seenFinishAt !== "number" || !Number.isFinite(seenFinishAt) || seenFinishAt <= 0
-      ) {
+      if (!isValidKey(userId, hostId, identityName) || !isValidTime(seenFinishAt)) {
         return false;
       }
       const result = deps
@@ -134,7 +164,67 @@ export function createReadStateStore(deps: {
       if (advanced) fireSave(deps.save, "attention-mark-seen");
       return advanced;
     },
+
+    recordDm(userId, hostId, identityName, dmAt) {
+      if (!isValidKey(userId, hostId, identityName) || !isValidTime(dmAt)) return null;
+      const db = deps.sqlite();
+      const result = db
+        .prepare(
+          `INSERT INTO conversation_dm_state (user_id, host_id, identity_name, last_dm_at)
+           VALUES (?, ?, ?, ?)
+           ON CONFLICT (user_id, host_id, identity_name)
+           DO UPDATE SET last_dm_at = excluded.last_dm_at
+           WHERE excluded.last_dm_at > conversation_dm_state.last_dm_at`,
+        )
+        .run(userId, hostId, identityName, dmAt);
+      if (result.changes === 0) return null;
+      // A DM is rare and is the whole point of the mark: persist at once.
+      fireSave(deps.forceSave, "attention-record-dm");
+      return readDm(db, userId, hostId, identityName);
+    },
+
+    markDmSeen(userId, hostId, identityName, seenDmAt) {
+      if (!isValidKey(userId, hostId, identityName) || !isValidTime(seenDmAt)) return null;
+      const db = deps.sqlite();
+      // Only a DM that was actually recorded can be seen, and never past it.
+      const result = db
+        .prepare(
+          `UPDATE conversation_dm_state SET seen_dm_at = ?
+           WHERE user_id = ? AND host_id = ? AND identity_name = ?
+             AND ? > seen_dm_at AND ? <= last_dm_at`,
+        )
+        .run(seenDmAt, userId, hostId, identityName, seenDmAt, seenDmAt);
+      if (result.changes === 0) return null;
+      fireSave(deps.save, "attention-mark-dm-seen");
+      return readDm(db, userId, hostId, identityName);
+    },
   };
+}
+
+type DmRow = { host_id: string; identity_name: string; last_dm_at: number; seen_dm_at: number };
+
+function toDmEntry(r: DmRow): DmEntry {
+  return {
+    hostId: r.host_id,
+    identityName: r.identity_name,
+    lastDmAt: r.last_dm_at,
+    seenDmAt: r.seen_dm_at,
+  };
+}
+
+function readDm(
+  db: Database.Database,
+  userId: string,
+  hostId: string,
+  identityName: string,
+): DmEntry | null {
+  const row = db
+    .prepare(
+      `SELECT host_id, identity_name, last_dm_at, seen_dm_at FROM conversation_dm_state
+       WHERE user_id = ? AND host_id = ? AND identity_name = ?`,
+    )
+    .get(userId, hostId, identityName) as DmRow | undefined;
+  return row ? toDmEntry(row) : null;
 }
 
 let singleton: ReadStateStore | null = null;

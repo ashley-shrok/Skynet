@@ -306,6 +306,13 @@ export interface PushTriggerLoopDeps {
       agentHostId: number;
     },
   ): Promise<void>;
+  /**
+   * Record the DM for the sidebar's DM mark (attention/dm-recorder.ts).
+   * Called for every event that passes the filters and resolves to a host,
+   * whether or not the user has notifications set up. Synchronous; a throw
+   * is caught at the call site and never blocks the push.
+   */
+  recordDm(userId: string, agentHostId: number, agentMxid: string, dmAt: number): void;
   /** Compute the lock-screen preview body (D-07). Pure function. */
   derivePreviewText(event: MatrixMessageEvent): string;
   /**
@@ -645,6 +652,24 @@ export async function runPushTriggerTick(
               },
             );
             continue;
+          }
+          // Sidebar DM mark — independent of the push, so a mark is never
+          // lost to a Telegram failure (or to the user not having Telegram).
+          try {
+            const dmAt =
+              typeof event.origin_server_ts === "number" ? event.origin_server_ts : deps.now();
+            deps.recordDm(userId, agentHostId, event.sender, dmAt);
+          } catch (err) {
+            databaseLogger.warn(
+              "push-trigger tick — recordDm failed, sidebar DM mark not set",
+              {
+                operation: "push_trigger_tick_record_dm_failed",
+                userId,
+                roomId,
+                eventId: event.event_id,
+                error: err instanceof Error ? err.message : "unknown",
+              },
+            );
           }
           // The label is read from the box the agent lives on, so it
           // needs agentHostId first.

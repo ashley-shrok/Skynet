@@ -2279,7 +2279,12 @@
 .pv-row.pv-row--unread:hover,
 .pv-row.pv-row--desktop.pv-row--unread,
 .pv-row.pv-row--desktop.pv-row--unread:hover,
-.pv-row.pv-row--desktop.pv-row--unread.selected {
+.pv-row.pv-row--desktop.pv-row--unread.selected,
+.pv-row.pv-row--dm,
+.pv-row.pv-row--dm:hover,
+.pv-row.pv-row--desktop.pv-row--dm,
+.pv-row.pv-row--desktop.pv-row--dm:hover,
+.pv-row.pv-row--desktop.pv-row--dm.selected {
   border-color: hsla(var(--pv-hue), 80%, 72%, 0.85);
 }
 
@@ -2294,4 +2299,47 @@
   background: #7cc4ff;
   margin-left: 6px;
   vertical-align: middle;
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   DM'D — the agent DM'd this user. The unread outline (above) plus a red
+   envelope badge on the avatar's top-right corner: the same red on every
+   row, whatever its hue, so it reads louder than any unread outline.
+   ═══════════════════════════════════════════════════════════════════════════ */
+.pv-avatar .pv-dm-badge,
+.pv-row.pv-row--desktop .pv-avatar .pv-dm-badge {
+  position: absolute;
+  top: -5px;
+  right: -5px;
+  z-index: 3;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 17px;
+  height: 17px;
+  box-sizing: border-box;
+  border-radius: 999px;
+  background: #e5484d;
+  border: 2px solid #1d1a16;
+  box-shadow: 0 0 6px rgba(229, 72, 77, 0.6);
+}
+.pv-avatar .pv-dm-badge .pv-dm-badge-icon {
+  width: 9px;
+  height: 9px;
+  color: #fff;
+}
+
+/* A collapsed project (or the collapsed Projects super-header) with a DM'd
+   conversation anywhere inside shows a red envelope instead of the dot. */
+.pv-section-dm-mark {
+  display: inline-flex;
+  flex-shrink: 0;
+  margin-left: 6px;
+  vertical-align: middle;
+  color: #ff6b6f;
+  filter: drop-shadow(0 0 4px rgba(229, 72, 77, 0.7));
+}
+.pv-section-dm-mark svg {
+  width: 12px;
+  height: 12px;
 }

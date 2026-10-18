@@ -54,7 +54,7 @@ import {
   lockSkewedSession,
   getSkewLockedSnapshot,
 } from "@/state/skew-lock-store";
-import { applyRemoteSeen, loadReadState, publishLastFinishAt } from "@/state/attention-store";
+import { applyRemoteDm, applyRemoteSeen, loadReadState, publishLastFinishAt } from "@/state/attention-store";
 
 // ---------------------------------------------------------------------------
 // Constants — mirror patch #148 backoff schedule verbatim
@@ -331,6 +331,28 @@ export function createFleetStatusClient(
             break;
           }
           applyRemoteSeen(parsed.hostId, parsed.identityName, parsed.seenFinishAt);
+          break;
+        case "dm-state-changed":
+          // An agent DM'd this user, or they saw a DM on another tab or
+          // device. Raises or clears the DM mark here.
+          if (
+            typeof parsed.hostId !== "string" ||
+            typeof parsed.identityName !== "string" ||
+            typeof parsed.lastDmAt !== "number" ||
+            typeof parsed.seenDmAt !== "number"
+          ) {
+            console.warn({
+              operation: "fleet_status_client_dm_state_changed_malformed",
+              url,
+            });
+            break;
+          }
+          applyRemoteDm({
+            hostId: parsed.hostId,
+            identityName: parsed.identityName,
+            lastDmAt: parsed.lastDmAt,
+            seenDmAt: parsed.seenDmAt,
+          });
           break;
         case "project-list-changed":
           // Phase 117 Plan 117-06 (D-37): distinct wire message published by

@@ -441,6 +441,18 @@ export interface FrontendReadStateChangedFrame {
   seenFinishAt: number;
 }
 
+// dm-state-changed — an agent DM'd this user, or they saw the DM (on this or
+// another tab/device). DM'd while lastDmAt > seenDmAt. Mirrors wire-protocol.ts
+// FrontendDmStateChangedFrameSchema.
+export interface FrontendDmStateChangedFrame {
+  schemaVersion: typeof FRAME_SCHEMA_VERSION;
+  type: "dm-state-changed";
+  hostId: string;
+  identityName: string;
+  lastDmAt: number;
+  seenDmAt: number;
+}
+
 export type FrontendOutboundFrame =
   | FrontendSnapshotFrame
   | FrontendUpdateFrame
@@ -449,6 +461,7 @@ export type FrontendOutboundFrame =
   | FrontendProjectListChangedFrame
   | FrontendSessionProjectChangedFrame
   | FrontendReadStateChangedFrame
+  | FrontendDmStateChangedFrame
   | FrontendAppSnapshotFrame
   | FrontendAppUpdateFrame
   | FrontendAppGoneFrame;

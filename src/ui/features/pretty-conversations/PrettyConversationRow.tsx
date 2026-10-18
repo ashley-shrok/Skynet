@@ -123,7 +123,7 @@ import {
   type DragEvent,
   type KeyboardEvent,
 } from "react";
-import { Pin, GitPullRequestDraft } from "lucide-react";
+import { Pin, GitPullRequestDraft, Mail } from "lucide-react";
 
 import { tabIcon } from "@/shell/tabUtils";
 import { sessionMatchKey } from "@/features/terminal/session-hue";
@@ -549,6 +549,9 @@ function PrettyConversationRowImpl({
     // Unread: the agent finished a turn this user hasn't seen. Brighter
     // outline in the row's own hue (pretty-conversations.css).
     row.unread === true && "pv-row--unread",
+    // DM'd: the agent DM'd this user. Keeps the unread outline and adds a red
+    // envelope badge on the avatar (pretty-conversations.css).
+    row.dm === true && "pv-row--dm",
     // Phase 41 Plan 01: amb-recession className toggle retired.
     // (Phase 115 post-code-review fix 3: `hidden && "hidden"` className toggle
     //  retired alongside the Hide/Show menu branch — hidden prop is gone.)
@@ -707,6 +710,7 @@ function PrettyConversationRowImpl({
       data-selected={selected ? "true" : "false"}
       data-pinned={pinned ? "true" : "false"}
       data-unread={row.unread === true ? "true" : undefined}
+      data-dm={row.dm === true ? "true" : undefined}
       data-variant={variant}
       data-rdp-host-row={isRdp ? "true" : undefined}
     >
@@ -767,6 +771,17 @@ function PrettyConversationRowImpl({
               silent-for-non-participants). Icon: GitPullRequestDraft from
               lucide-react. Tooltip copy VERBATIM per D-07. No click behavior
               (hover-only affordance per D-05). */}
+          {row.dm === true && (
+            <span
+              className="pv-dm-badge"
+              data-testid="pv-dm-badge"
+              role="img"
+              aria-label="Sent you a message"
+              title="Sent you a message"
+            >
+              <Mail className="pv-dm-badge-icon" aria-hidden="true" />
+            </span>
+          )}
           {trappedWork?.hasTrappedWork === true && (
             <span
               className="pv-trapped-work-indicator"

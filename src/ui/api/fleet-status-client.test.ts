@@ -19,6 +19,7 @@ import { FRAME_SCHEMA_VERSION } from "./fleet-status-types.js";
 const attention = vi.hoisted(() => ({
   publishLastFinishAt: vi.fn(),
   applyRemoteSeen: vi.fn(),
+  applyRemoteDm: vi.fn(),
   loadReadState: vi.fn(() => Promise.resolve()),
 }));
 vi.mock("@/state/attention-store", () => attention);
@@ -1829,6 +1830,7 @@ describe("fleet-status-client: unread marks plumbing", () => {
     MockWebSocket.instances = [];
     attention.publishLastFinishAt.mockClear();
     attention.applyRemoteSeen.mockClear();
+    attention.applyRemoteDm.mockClear();
     attention.loadReadState.mockClear();
     vi.spyOn(console, "info").mockImplementation(() => {});
     vi.spyOn(console, "warn").mockImplementation(() => {});
@@ -1902,5 +1904,35 @@ describe("fleet-status-client: unread marks plumbing", () => {
       }),
     });
     expect(attention.applyRemoteSeen).toHaveBeenCalledTimes(1);
+  });
+
+  it("dm-state-changed: applies the DM state; malformed frames are dropped", () => {
+    const ws = open();
+    ws.onmessage?.({
+      data: JSON.stringify({
+        schemaVersion: FRAME_SCHEMA_VERSION,
+        type: "dm-state-changed",
+        hostId: "1",
+        identityName: "ash",
+        lastDmAt: 500,
+        seenDmAt: 0,
+      }),
+    });
+    expect(attention.applyRemoteDm).toHaveBeenCalledWith({
+      hostId: "1",
+      identityName: "ash",
+      lastDmAt: 500,
+      seenDmAt: 0,
+    });
+    ws.onmessage?.({
+      data: JSON.stringify({
+        schemaVersion: FRAME_SCHEMA_VERSION,
+        type: "dm-state-changed",
+        hostId: "1",
+        identityName: "ash",
+        lastDmAt: 500,
+      }),
+    });
+    expect(attention.applyRemoteDm).toHaveBeenCalledTimes(1);
   });
 });

@@ -17,6 +17,8 @@ vi.mock("@/api/user-preferences-api", () => ({
 import { useSeenTracker, type SeenTarget } from "./use-seen-tracker";
 import {
   applyReadState,
+  applyRemoteDm,
+  isDmd,
   isUnread,
   publishLastFinishAt,
   __resetAttentionForTest,
@@ -83,5 +85,21 @@ describe("useSeenTracker", () => {
     rerender({ t: [] });
     act(() => publishLastFinishAt("1", "ash", 3_000));
     expect(isUnread("1:ash")).toBe(true);
+  });
+
+  it("a DM that arrives while watching never marks the conversation", () => {
+    renderHook(() => useSeenTracker([ASH], true));
+    act(() => applyRemoteDm({ hostId: "1", identityName: "ash", lastDmAt: 2_500, seenDmAt: 0 }));
+    expect(isDmd("1:ash")).toBe(false);
+    expect(post).toHaveBeenCalledWith("/attention/dm-seen", { hostId: "1", identityName: "ash", seenDmAt: 2_500 });
+  });
+
+  it("a DM that arrives while the tab is hidden stays until the tab comes back", () => {
+    renderHook(() => useSeenTracker([ASH], true));
+    act(() => setVisibility("hidden"));
+    act(() => applyRemoteDm({ hostId: "1", identityName: "ash", lastDmAt: 2_500, seenDmAt: 0 }));
+    expect(isDmd("1:ash")).toBe(true);
+    act(() => setVisibility("visible"));
+    expect(isDmd("1:ash")).toBe(false);
   });
 });

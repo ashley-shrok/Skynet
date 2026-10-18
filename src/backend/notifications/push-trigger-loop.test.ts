@@ -116,6 +116,7 @@ function makeDeps(
     getAgentsRegistryRoomId: vi.fn(async () => AGENTS_REGISTRY_ROOM_ID),
     getRegistryMembers: vi.fn(async () => new Set<string>([AGENT_MXID])),
     sendPushToUser: vi.fn(async () => {}),
+    recordDm: vi.fn(),
     derivePreviewText: vi.fn(() => "hey"),
     resolveAgentLabel: vi.fn(async () => ({ name: "Fanny", roles: "Scout" })),
     resolveAgentHostId: vi.fn(async () => 42),
@@ -322,6 +323,69 @@ describe("runPushTriggerTick — filter pipeline", () => {
     expect(deps.sendPushToUser).not.toHaveBeenCalled();
     // Cursor still advances — we don't want to re-fire the same event next tick.
     expect(state.cursorByRoom.get(ROOM_ID)).toBe("cursor-2");
+  });
+});
+
+describe("runPushTriggerTick — sidebar DM mark", () => {
+  const withEvents = (events: unknown[], overrides: Partial<PushTriggerLoopDeps> = {}) =>
+    makeDeps({
+      fetchLive: vi.fn(async () => ({
+        ok: true as const,
+        events: events as never,
+        nextSinceToken: "cursor-2",
+      })),
+      ...overrides,
+    });
+
+  it("records the DM with the event's server time and the agent's host", async () => {
+    const deps = withEvents([makeEvent({ origin_server_ts: 1_700_000_123_000 })]);
+    await runPushTriggerTick(USER_A, makeStateWithWarmCursor(USER_A_MXID), deps);
+    expect(deps.recordDm).toHaveBeenCalledWith(USER_A, 42, AGENT_MXID, 1_700_000_123_000);
+  });
+
+  it("falls back to now() when the event has no server time", async () => {
+    const deps = withEvents([makeEvent()], { now: vi.fn(() => 555) });
+    await runPushTriggerTick(USER_A, makeStateWithWarmCursor(USER_A_MXID), deps);
+    expect(deps.recordDm).toHaveBeenCalledWith(USER_A, 42, AGENT_MXID, 555);
+  });
+
+  it("does not record edits, group rooms, or senders with no host", async () => {
+    const edit = makeEvent({
+      content: { msgtype: "m.text", body: "x", "m.relates_to": { rel_type: "m.replace", event_id: "$o" } },
+    });
+    const editDeps = withEvents([edit]);
+    await runPushTriggerTick(USER_A, makeStateWithWarmCursor(USER_A_MXID), editDeps);
+    expect(editDeps.recordDm).not.toHaveBeenCalled();
+
+    const groupDeps = withEvents([makeEvent()], {
+      classifyRoom: vi.fn(() => ({ decision: "materialize" as const, reason: "group_room" })),
+    });
+    await runPushTriggerTick(USER_A, makeStateWithWarmCursor(USER_A_MXID), groupDeps);
+    expect(groupDeps.recordDm).not.toHaveBeenCalled();
+
+    const noHostDeps = withEvents([makeEvent()], { resolveAgentHostId: vi.fn(async () => null) });
+    await runPushTriggerTick(USER_A, makeStateWithWarmCursor(USER_A_MXID), noHostDeps);
+    expect(noHostDeps.recordDm).not.toHaveBeenCalled();
+  });
+
+  it("a recordDm failure never blocks the push", async () => {
+    const deps = withEvents([makeEvent()], {
+      recordDm: vi.fn(() => {
+        throw new Error("db gone");
+      }),
+    });
+    await runPushTriggerTick(USER_A, makeStateWithWarmCursor(USER_A_MXID), deps);
+    expect(deps.sendPushToUser).toHaveBeenCalledTimes(1);
+  });
+
+  it("a push failure doesn't lose the DM mark", async () => {
+    const deps = withEvents([makeEvent()], {
+      sendPushToUser: vi.fn(async () => {
+        throw new Error("telegram down");
+      }),
+    });
+    await runPushTriggerTick(USER_A, makeStateWithWarmCursor(USER_A_MXID), deps);
+    expect(deps.recordDm).toHaveBeenCalledTimes(1);
   });
 });
 

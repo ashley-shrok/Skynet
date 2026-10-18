@@ -27,6 +27,7 @@ vi.mock("../utils/logger.js", () => ({
 const store = {
   getForUser: vi.fn(),
   markSeen: vi.fn(),
+  markDmSeen: vi.fn(),
 };
 vi.mock("./read-state-store.js", () => ({
   getReadStateStore: () => store,
@@ -80,6 +81,7 @@ beforeEach(async () => {
   registryPresent = true;
   store.getForUser.mockReset();
   store.markSeen.mockReset();
+  store.markDmSeen.mockReset();
   publishToUser.mockReset();
   const app = express();
   app.use(express.json());
@@ -93,10 +95,10 @@ afterEach(async () => {
 
 describe("GET /attention/read-state", () => {
   it("returns the caller's read state", async () => {
-    store.getForUser.mockReturnValue({ baselineAt: 10, seen: [{ hostId: "h1", identityName: "a", seenFinishAt: 5 }] });
+    store.getForUser.mockReturnValue({ baselineAt: 10, seen: [{ hostId: "h1", identityName: "a", seenFinishAt: 5 }], dms: [] });
     const res = await request(server, "GET", "/attention/read-state");
     expect(res.status).toBe(200);
-    expect(res.body).toEqual({ baselineAt: 10, seen: [{ hostId: "h1", identityName: "a", seenFinishAt: 5 }] });
+    expect(res.body).toEqual({ baselineAt: 10, seen: [{ hostId: "h1", identityName: "a", seenFinishAt: 5 }], dms: [] });
     expect(store.getForUser).toHaveBeenCalledWith("u1");
   });
 
@@ -153,5 +155,41 @@ describe("POST /attention/seen", () => {
     const res = await request(server, "POST", "/attention/seen", body);
     expect(res.status).toBe(400);
     expect(store.markSeen).not.toHaveBeenCalled();
+  });
+});
+
+describe("POST /attention/dm-seen", () => {
+  const entry = { hostId: "1", identityName: "aspen", lastDmAt: 1000, seenDmAt: 1000 };
+
+  it("advances the seen DM and pushes the DM state to the caller's own tabs", async () => {
+    store.markDmSeen.mockReturnValue(entry);
+    const res = await request(server, "POST", "/attention/dm-seen", { hostId: "1", identityName: "aspen", seenDmAt: 1000 });
+    expect(res.status).toBe(204);
+    expect(store.markDmSeen).toHaveBeenCalledWith("u1", "1", "aspen", 1000);
+    expect(publishToUser).toHaveBeenCalledWith("u1", { schemaVersion: 1, type: "dm-state-changed", ...entry });
+  });
+
+  it("does not push when nothing advanced", async () => {
+    store.markDmSeen.mockReturnValue(null);
+    const res = await request(server, "POST", "/attention/dm-seen", { hostId: "1", identityName: "aspen", seenDmAt: 1000 });
+    expect(res.status).toBe(204);
+    expect(publishToUser).not.toHaveBeenCalled();
+  });
+
+  it("401s without auth", async () => {
+    mockUserId = null;
+    const res = await request(server, "POST", "/attention/dm-seen", { hostId: "1", identityName: "aspen", seenDmAt: 1000 });
+    expect(res.status).toBe(401);
+  });
+
+  it.each([
+    [{ identityName: "aspen", seenDmAt: 1 }],
+    [{ hostId: "x", identityName: "aspen", seenDmAt: 1 }],
+    [{ hostId: "1", seenDmAt: 1 }],
+    [{ hostId: "1", identityName: "aspen", seenDmAt: -5 }],
+  ])("400s on bad body %j", async (body) => {
+    const res = await request(server, "POST", "/attention/dm-seen", body);
+    expect(res.status).toBe(400);
+    expect(store.markDmSeen).not.toHaveBeenCalled();
   });
 });
