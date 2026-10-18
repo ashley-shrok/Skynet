@@ -20,8 +20,10 @@ gets each identity's value from `desktop-mcp secret <name>` and puts it in the l
 env as $DESKTOP_MCP_SECRET, which the shared config expands. Requests carrying an Origin
 header are refused, and only 127.0.0.1 is bound.
 
-Transport: MCP Streamable HTTP, JSON responses only (no SSE), stateless — a restart is
-invisible to connected sessions. stdlib only. Run with no arguments it is instead a
+Transport: MCP Streamable HTTP, JSON responses, stateless — a restart is invisible to idle
+sessions (a call in flight at that moment fails). The only server-initiated message is the
+one-time tools/list_changed on a session's event stream while the browser tool list is
+still being fetched. stdlib only. Run with no arguments it is instead a
 stdio MCP server for $FLEET_IDENTITY alone (what older supervisors launch).
 
 The action set mirrors Anthropic's computer-use tool (screenshot, click, type, key,
@@ -37,7 +39,7 @@ desktop), which keeps one session with it and listens on a Unix socket in the id
 desktop state dir. It lives outside this process so a restart here never closes anyone's
 tabs; this server forwards each browser_* call over that socket. Its tool list is cached
 under ~/.cache/agent-desktop/; on a cold cache `serve` fetches it in the background at
-startup (retrying until it works) — sessions launched before then get no browser tools.
+startup (retrying until it works) and announces it to sessions launched before then.
 Each identity keeps a persistent browser profile in its desktop state dir, so sign-ins
 survive restarts. If Chromium isn't installed, the first failing call triggers one
 best-effort `playwright install`.
@@ -84,6 +86,9 @@ KEY_FILE = os.path.expanduser(os.environ.get("DESKTOP_MCP_KEY_FILE", "~/.config/
 # handshakes never wait.
 MAX_CALLS = int(os.environ.get("DESKTOP_MCP_MAX_HANDLERS", "32"))
 MAX_BODY = 4 * 1024 * 1024
+# How long a session's event stream is held waiting for the browser tool list; it
+# reconnects after, and is held again while the fetch is still going.
+LIST_CHANGED_WAIT = 600
 NAME_RE = re.compile(r"^[a-z0-9][a-z0-9._-]{0,127}$")
 
 # Must match PLAYWRIGHT_MCP_PKG in agent-desktop (which runs the browser); used here
@@ -93,8 +98,9 @@ PLAYWRIGHT_MCP_PKG = os.environ.get("DESKTOP_MCP_PLAYWRIGHT_PKG", "@playwright/m
 PLAYWRIGHT_CMD_OVERRIDE = os.environ.get("DESKTOP_MCP_PLAYWRIGHT_CMD", "")
 TOOLS_CACHE_DIR = os.path.join(os.path.expanduser("~"), ".cache", "agent-desktop")
 BROWSER_CALL_TIMEOUT = 180
-# `agent-desktop browser up`: desktop start + browser server start (first one may download).
-BROWSER_UP_TIMEOUT = 300
+# `agent-desktop browser up`: desktop start (agent-desktop's 20s) + browser host start
+# (agent-desktop waits up to 300s — the host's own handshake limit, for a first download).
+BROWSER_UP_TIMEOUT = 360
 # Must match CONTROL_LEASE_SECONDS in agent-desktop: a control lock not renewed
 # for this long is stale (the user's tab closed) and no longer pauses the agent.
 CONTROL_LEASE_SECONDS = 90
@@ -483,6 +489,7 @@ class BrowserTools:
         self._defs = None
         self._warming = False
         self._lock = threading.Lock()
+        self.ready = threading.Event()  # set once the list is known
 
     @property
     def _cache_path(self):
@@ -498,7 +505,13 @@ class BrowserTools:
                     self._defs = [t for t in defs if str(t.get("name", "")).startswith("browser_")]
             except (OSError, ValueError):
                 pass
+        if self._defs:
+            self.ready.set()
         return self._defs or []
+
+    @property
+    def warming(self):
+        return self._warming
 
     def has(self, name):
         return isinstance(name, str) and any(t["name"] == name for t in self.defs())
@@ -513,6 +526,7 @@ class BrowserTools:
 
         def run():
             child = None
+            retry = True
             try:
                 child = McpChild(_playwright_argv([]), cwd=tempfile.gettempdir())
                 child.handshake(timeout=300)  # first run downloads the npm package
@@ -525,16 +539,20 @@ class BrowserTools:
                         json.dump(defs, f)
                     os.replace(tmp, self._cache_path)
                     self._defs = defs
+                    self.ready.set()
                     log("[desktop-mcp] browser-tools cached count=%d" % len(defs))
                     if on_ready:
                         on_ready()
+            except FileNotFoundError as e:
+                log("[desktop-mcp] browser-tools warm: %s — no browser tools on this box" % e)
+                retry = False
             except Exception as e:
                 log("[desktop-mcp] browser-tools warm failed: %s" % e)  # desktop tools still work
             finally:
                 if child:
                     child.close()
                 self._warming = False
-            if retry_every and not self._defs:
+            if retry and retry_every and not self._defs:
                 log("[desktop-mcp] browser-tools warm: retrying in %ds" % retry_every)
                 threading.Timer(retry_every, self.warm, kwargs={"on_ready": on_ready, "retry_every": retry_every}).start()
 
@@ -856,7 +874,7 @@ def handle_rpc(identity, msg, authorize=None):
         requested = params.get("protocolVersion")
         result = {
             "protocolVersion": requested if requested in SUPPORTED_PROTOCOLS else SUPPORTED_PROTOCOLS[0],
-            "capabilities": {"tools": {"listChanged": authorize is None}},
+            "capabilities": {"tools": {"listChanged": True}},
             "serverInfo": {"name": SERVER_NAME, "version": SERVER_VERSION},
             "instructions": INSTRUCTIONS,
         }
@@ -909,7 +927,26 @@ class Handler(BaseHTTPRequestHandler):
         if self.path == "/health":
             self._reply(200, {"ok": True, "browserTools": bool(browser_tools.defs())})
             return
-        self._reply(405)  # no server-initiated stream
+        if self.path.split("?")[0] != "/mcp" or browser_tools.defs() or not browser_tools.warming:
+            self._reply(405)  # nothing to announce
+            return
+        # The browser tool list is still being fetched (cold cache): hold the session's
+        # event stream open and announce the list once it's in, so sessions launched in the
+        # meantime still get browser tools. A held stream costs a thread, only until then.
+        self.close_connection = True
+        self.send_response(200)
+        self.send_header("Content-Type", "text/event-stream")
+        self.send_header("Cache-Control", "no-cache")
+        self.send_header("Connection", "close")
+        self.end_headers()
+        try:
+            self.wfile.flush()
+            if browser_tools.ready.wait(LIST_CHANGED_WAIT):
+                self.wfile.write(b'event: message\ndata: {"jsonrpc":"2.0","method":"notifications/tools/list_changed"}\n\n')
+                self.wfile.flush()
+                log("[desktop-mcp] list-changed sent")
+        except OSError:
+            pass  # session went away
 
     def do_DELETE(self):
         self._reply(200)  # stateless: nothing to tear down

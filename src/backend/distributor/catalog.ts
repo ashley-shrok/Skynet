@@ -459,8 +459,8 @@ export const FLEET_SUBSTRATE_CATALOG: readonly CatalogEntry[] = [
   // sessions connect to it instead of each spawning a copy. agent-supervisor
   // passes ~/.claude/desktop-mcp.json on every launch once the server
   // answers. Owned by desktop-mcp.service; the server is stateless and the
-  // browsers run outside it, so the restart is invisible to connected
-  // sessions.
+  // browsers run outside it, so the restart keeps every session and browser
+  // (only a call in flight at that moment fails).
   {
     slug: "desktop-mcp-helper",
     sourceKind: "bundled",
@@ -617,8 +617,10 @@ export const FLEET_SUBSTRATE_CATALOG: readonly CatalogEntry[] = [
   },
 
   // desktop-mcp.service — box-level user unit running `desktop-mcp serve`.
-  // Not enabled at bootstrap: agent-supervisor starts it before the first
-  // launch that needs it. Restart hook targets self.
+  // Not enabled at bootstrap; started by the first sweep's restart hook (a
+  // restart starts a stopped unit) and by agent-supervisor before any launch
+  // that finds it down. Restart hook targets self: idle sessions don't
+  // notice, a call in flight at that moment fails.
   {
     slug: "desktop-mcp-service-unit",
     sourceKind: "bundled",

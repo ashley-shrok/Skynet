@@ -365,13 +365,45 @@ test_browser_call_runs_on_desktop() {
 
 # ---- tests: the box-wide HTTP server -----------------------------------------
 
+# Cold tool cache: sessions launched while the list is being fetched hold their event
+# stream open and get tools/list_changed once it's in (the stdio server pushed it too).
+test_http_cold_cache_announces_tools() {
+  local cache stream="$FIXTURE/stream.txt"
+  cache="$(ls "$FIXTURE"/.cache/agent-desktop/*-tools.json)"
+  stop_mcp_server
+  rm -f "$cache"
+  FAKE_PW_LIST_DELAY=2 start_mcp_server
+  assert_eq test_http_cold_health_no_browser_tools false "$(curl -s "http://127.0.0.1:$MCP_PORT/health" | jq -r .browserTools)"
+  curl -s -N -m 15 "http://127.0.0.1:$MCP_PORT/mcp" -H 'Accept: text/event-stream' > "$stream"
+  case "$(cat "$stream")" in
+    *'"method":"notifications/tools/list_changed"'*) pass test_http_cold_list_changed_sent ;;
+    *) fail test_http_cold_list_changed_sent "$(cat "$stream")" ;;
+  esac
+  assert_eq test_http_cold_then_listed 12 \
+    "$(http_rpc "" "" '{"jsonrpc":"2.0","id":2,"method":"tools/list"}' | jq '.result.tools | length')"
+  # Warm: nothing to announce, so no stream is held.
+  assert_eq test_http_warm_get_405 405 "$(curl -s -o /dev/null -w '%{http_code}' "http://127.0.0.1:$MCP_PORT/mcp")"
+}
+
+# Two callers starting the same identity's browser at once get one browser.
+test_browser_up_concurrent_single_host() {
+  agent-desktop browser down --identity carol
+  : > "$FAKE_PW_PIDFILE"
+  local p1 p2
+  agent-desktop browser up --identity carol --quiet >/dev/null & p1=$!
+  agent-desktop browser up --identity carol --quiet >/dev/null & p2=$!
+  wait "$p1" "$p2"  # not a bare wait: the MCP server is a background job too
+  assert_eq test_browser_up_concurrent_one_browser 1 "$(wc -l < "$FAKE_PW_PIDFILE" | tr -d ' ')"
+  agent-desktop down --identity carol
+}
+
 test_http_protocol_and_auth() {
   local init key out
   assert_eq test_http_health_ok true "$(curl -s "http://127.0.0.1:$MCP_PORT/health" | jq -r .ok)"
   init='{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"t","version":"0"}}}'
   out="$(http_rpc "" "" "$init")"
   assert_eq test_http_initialize_name desktop "$(jq -r .result.serverInfo.name <<<"$out")"
-  assert_eq test_http_no_list_changed false "$(jq -r .result.capabilities.tools.listChanged <<<"$out")"
+  assert_eq test_http_announces_list_changed true "$(jq -r .result.capabilities.tools.listChanged <<<"$out")"
   assert_eq test_http_tools_listed 12 \
     "$(http_rpc "" "" '{"jsonrpc":"2.0","id":2,"method":"tools/list"}' | jq '.result.tools | length')"
   assert_eq test_http_notification_202 202 "$(curl -s -o /dev/null -w '%{http_code}' -X POST \
@@ -452,6 +484,7 @@ test_browser_tools_cold_then_cached
 test_control_lease
 start_mcp_server
 test_http_protocol_and_auth
+test_http_cold_cache_announces_tools
 if [ "$HAVE_X" = 1 ]; then
   test_up_allocates_stable_unique_displays
   test_down_then_up_keeps_display
@@ -461,6 +494,7 @@ if [ "$HAVE_X" = 1 ]; then
   test_browser_call_runs_on_desktop
   test_http_actions
   test_http_browser_survives_server_restart
+  test_browser_up_concurrent_single_host
 else
   echo "  SKIP X-server tests (need Xvnc, vncpasswd, openbox, xdotool, import)"
 fi

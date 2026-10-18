@@ -5,11 +5,14 @@ Speaks just enough MCP: initialize, tools/list (two browser tools) and
 tools/call, which echoes the tool name, its arguments, and the DISPLAY and
 argv it was started with, its pid and how many sessions (initialize calls) it has
 had, so tests can see what the bridge passed through.
-Writes its pid to $FAKE_PW_PIDFILE (when set) so tests can check teardown.
+Writes its pid to $FAKE_PW_PIDFILE (when set) so tests can check teardown, and
+answers tools/list $FAKE_PW_LIST_DELAY seconds late (when set) so tests can see a
+cold tool-list fetch in progress.
 """
 import json
 import os
 import sys
+import time
 
 if os.environ.get("FAKE_PW_PIDFILE"):
     with open(os.environ["FAKE_PW_PIDFILE"], "a") as f:
@@ -30,6 +33,7 @@ for line in sys.stdin:
         sessions += 1
         result = {"protocolVersion": msg["params"]["protocolVersion"], "capabilities": {"tools": {}}, "serverInfo": {"name": "fake-pw", "version": "0"}}
     elif method == "tools/list":
+        time.sleep(float(os.environ.get("FAKE_PW_LIST_DELAY") or 0))
         result = {"tools": TOOLS}
     elif method == "tools/call":
         info = {

@@ -59,7 +59,7 @@
 #   AGENT_DESKTOP_BASE_DISPLAY  first display number to allocate (default 100)
 #   AGENT_DESKTOP_NO_SYSTEMD=1  never use systemd; always use the detached fallback
 #   AGENT_DESKTOP_START_TIMEOUT seconds to wait for the display to come up (default 20)
-#   AGENT_DESKTOP_BROWSER_START_TIMEOUT  seconds to wait for the browser host (default 120;
+#   AGENT_DESKTOP_BROWSER_START_TIMEOUT  seconds to wait for the browser host (default 300;
 #                               its first start may download the npm package)
 #   DESKTOP_MCP_PLAYWRIGHT_PKG  Playwright MCP package (default pinned below)
 #   DESKTOP_MCP_PLAYWRIGHT_CMD  command to run instead of `npx -y <pkg>` (tests: a fake)
@@ -81,7 +81,8 @@ START_TIMEOUT="${AGENT_DESKTOP_START_TIMEOUT:-20}"
 VNC_PORT_BASE=15900
 # Must match CONTROL_LEASE_SECONDS in desktop-mcp.py.
 CONTROL_LEASE_SECONDS=90
-BROWSER_START_TIMEOUT="${AGENT_DESKTOP_BROWSER_START_TIMEOUT:-120}"
+# Matches the browser host's own handshake limit (a first start may download the package).
+BROWSER_START_TIMEOUT="${AGENT_DESKTOP_BROWSER_START_TIMEOUT:-300}"
 # Pinned: tool names/shapes are part of the agent's contract (see the desktop
 # skill). Must match PLAYWRIGHT_MCP_PKG in desktop-mcp.py.
 PLAYWRIGHT_MCP_PKG="${DESKTOP_MCP_PLAYWRIGHT_PKG:-@playwright/mcp@0.0.83}"
@@ -327,7 +328,7 @@ start_browser() {
     # X11-only env, as in cmd_run: the user manager may carry a graphical login's Wayland setup.
     systemd-run --user --quiet --collect --unit "$(browser_unit_name)" \
       -p BindsTo="$desktop_unit" -p After="$desktop_unit" \
-      -p Restart=on-failure -p RestartSec=5 \
+      -p Restart=on-failure -p RestartSec=5 -p StartLimitIntervalSec=300 -p StartLimitBurst=5 \
       -p UnsetEnvironment="WAYLAND_DISPLAY ELECTRON_OZONE_PLATFORM_HINT" \
       -p StandardOutput="append:$STATE_DIR/browser.log" -p StandardError="append:$STATE_DIR/browser.log" \
       --working-directory="$cwd" \
@@ -340,8 +341,20 @@ start_browser() {
     ( cd "$cwd" || exit 1
       env -u WAYLAND_DISPLAY -u ELECTRON_OZONE_PLATFORM_HINT \
         XDG_SESSION_TYPE=x11 GDK_BACKEND=x11 QT_QPA_PLATFORM=xcb MOZ_ENABLE_WAYLAND=0 SDL_VIDEODRIVER=x11 \
-        DISPLAY=":$n" setsid nohup "${argv[@]}" >>"$STATE_DIR/browser.log" 2>&1 < /dev/null &
+        DISPLAY=":$n" setsid nohup "${argv[@]}" >>"$STATE_DIR/browser.log" 2>&1 < /dev/null 8>&- &
       printf '%s\n' "$!" > "$STATE_DIR/browser.pid" )
+  fi
+}
+
+# The host process exists but isn't answering yet: it is still starting (handshake, maybe
+# an npm download). Not "activating" — that's a unit waiting to restart after a crash.
+browser_starting() {
+  if use_systemd; then
+    [ "$(systemctl --user is-active "$(browser_unit_name)" 2>/dev/null)" = active ]
+  else
+    local pid
+    pid="$(cat "$STATE_DIR/browser.pid" 2>/dev/null || true)"
+    [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null
   fi
 }
 
@@ -378,12 +391,20 @@ cmd_browser() {
   case "$action" in
     up)
       local disp n i=0
-      disp="$(cmd_up --identity "$identity" --quiet)" || exit 1
+      require_live_identity
+      ensure_state_dir
+      # One starter at a time per identity (the server, an older stdio session, the CLI),
+      # taken before the desktop start too so two first calls can't both start it.
+      exec 8>"$STATE_DIR/browser.lock"
+      flock -w $((BROWSER_START_TIMEOUT + 60)) 8 || die "timed out waiting for $STATE_DIR/browser.lock"
+      disp="$(cmd_up --identity "$identity" --quiet 8>&-)" || exit 1
       n="${disp#DISPLAY=:}"
       if ! browser_ready; then
-        [ "$quiet" = 1 ] || printf 'agent-desktop: starting browser for %s\n' "$identity" >&2
-        stop_browser
-        start_browser "$n"
+        if ! browser_starting; then
+          [ "$quiet" = 1 ] || printf 'agent-desktop: starting browser for %s\n' "$identity" >&2
+          stop_browser
+          start_browser "$n"
+        fi
         until browser_ready; do
           [ "$i" -lt $((BROWSER_START_TIMEOUT * 4)) ] || die "browser did not come up within ${BROWSER_START_TIMEOUT}s (see $STATE_DIR/browser.log)"
           sleep 0.25

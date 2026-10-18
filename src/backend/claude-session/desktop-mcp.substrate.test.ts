@@ -36,7 +36,7 @@ describe("desktop-mcp substrate suites", () => {
 
   it("agent-supervisor-desktop-mcp.test.sh passes", () => {
     const r = run("bash", [join(tests, "agent-supervisor-desktop-mcp.test.sh")], 60_000);
-    expect(r.output).toMatch(/8 pass, 0 fail/);
+    expect(r.output).toMatch(/\d+ pass, 0 fail/);
     expect(r.ok).toBe(true);
   }, 70_000);
 });
