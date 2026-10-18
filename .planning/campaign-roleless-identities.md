@@ -35,7 +35,7 @@ and invite drift.
 
 ## Shapes
 
-- **[declared] shape-roleless-identities** — first-class support for agents with zero roles, end to end, plus the new-conversation picker defaulting to none — in_progress
+- **[declared] shape-roleless-identities** — first-class support for agents with zero roles, end to end, plus the new-conversation picker defaulting to none — closed
 
 ## Other work
 

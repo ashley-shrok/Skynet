@@ -137,3 +137,52 @@ agent instructions live in the repo's substrate copy and reach machines via
 the distributor; the supervisor and file-change watcher scripts likewise.
 The upstream new-conversation picker change (no machine step) landed
 2026-10-18 and is the base this builds on.
+
+---
+
+## Close-Out
+
+**Closed:** 2026-10-18
+**Overall verdict:** closed-hit (reviewer returned closed-partial; the one partial facet was fixed and both flagged additions were adjudicated by Ashley — see below)
+
+### Shape features (conformance)
+
+- **Creating one — the new-conversation picker** — present · "No roles" entries, one-machine preselect, several-machine no preselect with Create disabled, mutual exclusivity, last-untick fallback, no memory, sole-role auto-select removed, born on the picked machine.
+- **Creating one — other ways in** — present · spawns accept an empty roles list; scheduled tasks save, Run now and clock-fire with no roles.
+- **Naming** — present · bare word with numbered suffix ("duet", "duet-2").
+- **Visibility — picker-made roleless agent** — present · creator always recorded, every host; creation refused if the creator can't be looked up.
+- **Visibility — agent-spawned roleless agent** — present (after fix) · reviewer found it partial: it copied only the spawning agent's own list (so a role-gated spawner produced an open agent) and left the agent open when the spawner's file couldn't be read. Fixed: it now copies who can actually see the spawning agent (its own list combined with its roles' lists), and refuses the spawn if that can't be read. Unnamed spawner → open, as agreed.
+- **Visibility — scheduled-task roleless agent** — present · task's list passed through when it has one; otherwise open.
+- **Appearance** — present · initial-on-a-circle avatar everywhere (also the fallback for any failed avatar image); one neutral grey across surfaces, distinct from multi-role gold; taking on a role restores the role's look.
+- **Sidebar row secondary line** — present · machine name in plain text for roleless agents.
+- **Living with no roles** — present · role lookup returns empty; watcher keeps running and watches own file, project files, instructions; gaining a first / losing the last role works; un-archive accepted by server and supervisor.
+- **The agent instructions** — present · loading skips role steps; exact greeting; picker, spawn and scheduled-task descriptions say roles are optional.
+- **Philosophy** — present · locked "no no-role fallback" comments removed; no default role introduced.
+- **Scope edges — tests updated** — present.
+- **Scope edges — out/deferred not built** — present · no role-edit button, no general-assistant role, no machine memory.
+- **Scope edges — tempting-but-no not done** — present.
+- **What would make it wrong: visible to people it shouldn't be** — present (after fix) · see agent-spawned visibility above.
+- **What would make it wrong: loses file-change notices / warning every launch** — present.
+- **What would make it wrong: new roles-list entry or hidden default role** — present.
+- **What would make it wrong: picker allows no-choice create with several machines, or forces a role with one** — present.
+- **What would make it wrong: broken image, empty bold gap, inconsistent color** — present.
+- **What would make it wrong: instructions still require a role** — present.
+- **What would make it wrong: agents with roles behave or look differently** — present · the only change is the watcher addition below, endorsed.
+
+### Additions (in the result, not in the shape)
+
+- The file-change watcher also changed for agents that hold roles: if every listed role is missing from the machine, it now keeps running (watching the agent's own file, project and instructions) instead of refusing to start or keeping stale role watches — endorsed-as-drift (Ashley: "Yes").
+- The agent instructions documented a spawn-request field for setting the newborn's visibility list directly — unsanctioned; removed. Ashley: the id skill should not talk about tagging users in frontmatter fields for any reason. All such mentions (including two older ones about roles and sub-projects) were removed.
+- Creation accepts a request with only extra roles and promotes the first to the main role — endorsed-as-drift.
+- Picker blurb now reads "can adopt roles" — endorsed-as-drift.
+- The picker's "no roles on this host yet" hint was removed — endorsed-as-drift.
+- Planning documents committed to the repo — endorsed-as-drift.
+
+### Follow-ups
+
+- Spawned roleless agents could be left open if the spawner's visibility couldn't be read — fixed in this build (refused instead; new failure reason documented).
+- Stale picker comment about the removed hint — fixed in this build.
+
+### Notes
+
+The reviewer missed that most agents' visibility comes from their roles, not their own list; the copy-only-own-list design would have made every box-maintainer-spawned plain agent visible to everyone. Effective visibility is now computed the same way the sidebar gate computes it.
