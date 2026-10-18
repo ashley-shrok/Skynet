@@ -1480,3 +1480,86 @@ describe("installStopHook (Phase 95 Part A — plan-mode deny)", () => {
     );
   });
 });
+
+describe("readAndMergeHookSettings — matcher-filtered groups", () => {
+  const ACTIVITY = "/home/ubuntu/.claude/hooks/fleet-status-activity.sh";
+
+  it("does not append into a matcher-filtered first group", () => {
+    const settings = {
+      hooks: {
+        PreToolUse: [
+          { matcher: "Write|Edit", hooks: [{ type: "command", command: "/x/baseline" }] },
+        ],
+      },
+    };
+    const { merged, alreadyInstalled } = readAndMergeHookSettings(settings, "PreToolUse", ACTIVITY);
+    expect(alreadyInstalled).toBe(false);
+    expect((merged.hooks as Record<string, unknown>).PreToolUse).toEqual([
+      { matcher: "Write|Edit", hooks: [{ type: "command", command: "/x/baseline" }] },
+      { hooks: [{ type: "command", command: ACTIVITY }] },
+    ]);
+  });
+
+  it("moves an entry an older installer put in a matcher group into an unfiltered group", () => {
+    const settings = {
+      hooks: {
+        PreToolUse: [
+          {
+            matcher: "Write|Edit",
+            hooks: [{ type: "command", command: ACTIVITY }],
+          },
+          { hooks: [{ type: "command", command: "/x/allow-all" }] },
+          { matcher: "Bash", hooks: [{ type: "command", command: "/x/baseline" }] },
+        ],
+      },
+    };
+    const { merged, alreadyInstalled } = readAndMergeHookSettings(settings, "PreToolUse", ACTIVITY);
+    expect(alreadyInstalled).toBe(false);
+    expect((merged.hooks as Record<string, unknown>).PreToolUse).toEqual([
+      {
+        hooks: [
+          { type: "command", command: "/x/allow-all" },
+          { type: "command", command: ACTIVITY },
+        ],
+      },
+      { matcher: "Bash", hooks: [{ type: "command", command: "/x/baseline" }] },
+    ]);
+    // Input untouched.
+    expect(settings.hooks.PreToolUse).toHaveLength(3);
+  });
+
+  it("keeps a matcher group's other hooks when stripping our entry", () => {
+    const settings = {
+      hooks: {
+        PreToolUse: [
+          {
+            matcher: "Write|Edit",
+            hooks: [
+              { type: "command", command: ACTIVITY },
+              { type: "command", command: "/x/other" },
+            ],
+          },
+        ],
+      },
+    };
+    const { merged } = readAndMergeHookSettings(settings, "PreToolUse", ACTIVITY);
+    expect((merged.hooks as Record<string, unknown>).PreToolUse).toEqual([
+      { matcher: "Write|Edit", hooks: [{ type: "command", command: "/x/other" }] },
+      { hooks: [{ type: "command", command: ACTIVITY }] },
+    ]);
+  });
+
+  it("is idempotent once the entry sits in an unfiltered group", () => {
+    const settings = {
+      hooks: {
+        PreToolUse: [
+          { matcher: "Write|Edit", hooks: [{ type: "command", command: "/x/baseline" }] },
+          { hooks: [{ type: "command", command: ACTIVITY }] },
+        ],
+      },
+    };
+    const { merged, alreadyInstalled } = readAndMergeHookSettings(settings, "PreToolUse", ACTIVITY);
+    expect(alreadyInstalled).toBe(true);
+    expect(merged).toBe(settings);
+  });
+});

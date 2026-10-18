@@ -361,9 +361,10 @@ exit 0
  * Returns `{ merged, alreadyInstalled }`. If any entry already present in
  * `hooks.<hookEventName>[*].hooks[*]` has `command === remoteHookPath`, returns
  * the input unchanged with `alreadyInstalled: true`. Otherwise creates the
- * three-level `hooks.<hookEventName>[0].hooks[]` structure if needed and
- * appends the entry — preserving any third-party entries already present in
- * the same hooks[] group (shallow-copy discipline).
+ * appends the entry to the first matcher-less group (creating one if every
+ * group is matcher-filtered), and moves it out of any matcher-filtered group
+ * an older installer put it in — preserving third-party entries
+ * (shallow-copy discipline).
  *
  * This function NEVER mutates its input — all spreads are shallow copies.
  * Callers thread the returned `merged` object through successive calls to
@@ -374,55 +375,64 @@ export function readAndMergeHookSettings(
   hookEventName: string,
   remoteHookPath: string,
 ): MergeResult {
-  // Check if already installed (any hooks[hookEventName][*].hooks[*].command matches)
   const hooks = currentSettings.hooks as Record<string, unknown> | undefined;
-  if (hooks) {
-    const eventArr = hooks[hookEventName] as
-      | Array<{ hooks?: Array<{ command?: string }> }>
-      | undefined;
-    if (Array.isArray(eventArr)) {
-      for (const group of eventArr) {
-        if (Array.isArray(group?.hooks)) {
-          for (const entry of group.hooks) {
-            if (entry?.command === remoteHookPath) {
-              return { merged: currentSettings, alreadyInstalled: true };
-            }
-          }
-        }
-      }
+  const existingEventArr =
+    (hooks?.[hookEventName] as Array<Record<string, unknown>> | undefined) ??
+    [];
+  const isOurs = (entry: unknown) =>
+    (entry as { command?: unknown } | null)?.command === remoteHookPath;
+  // A group with a tool matcher (e.g. PreToolUse "Write|Edit") only fires for
+  // those tools. Fleet-status hooks must fire on every event, so they belong
+  // in a matcher-less group.
+  const isUnfiltered = (group: Record<string, unknown>) =>
+    group.matcher === undefined || group.matcher === "" || group.matcher === "*";
+
+  // Already installed in an unfiltered group → nothing to do.
+  for (const group of existingEventArr) {
+    if (
+      isUnfiltered(group) &&
+      Array.isArray(group?.hooks) &&
+      group.hooks.some(isOurs)
+    ) {
+      return { merged: currentSettings, alreadyInstalled: true };
     }
   }
 
-  // Not installed — merge the entry
   const newEntry = { type: "command", command: remoteHookPath };
 
-  // Shallow-copy settings
-  const merged: Record<string, unknown> = { ...currentSettings };
-
-  // Ensure hooks exists
-  const existingHooks = (merged.hooks as Record<string, unknown> | undefined) ?? {};
-  const newHooks: Record<string, unknown> = { ...existingHooks };
-
-  // Ensure event array exists
-  const existingEventArr =
-    (newHooks[hookEventName] as Array<Record<string, unknown>> | undefined) ?? [];
-  let newEventArr: Array<Record<string, unknown>>;
-
-  if (existingEventArr.length === 0) {
-    // Create the first group with our entry
-    newEventArr = [{ hooks: [newEntry] }];
-  } else {
-    // Append to <event>[0].hooks (create hooks[] if missing)
-    const firstGroup = { ...existingEventArr[0] };
-    const existingGroupHooks =
-      (firstGroup.hooks as Array<Record<string, unknown>> | undefined) ?? [];
-    firstGroup.hooks = [...existingGroupHooks, newEntry];
-    newEventArr = [firstGroup, ...existingEventArr.slice(1)];
+  // Strip our entry from any matcher-filtered group it was previously merged
+  // into (older installers appended to <event>[0] regardless of its matcher),
+  // dropping groups left empty by the strip.
+  const strippedArr: Array<Record<string, unknown>> = [];
+  for (const group of existingEventArr) {
+    const groupHooks = group?.hooks;
+    if (Array.isArray(groupHooks) && groupHooks.some(isOurs)) {
+      const kept = groupHooks.filter((e) => !isOurs(e));
+      if (kept.length > 0) strippedArr.push({ ...group, hooks: kept });
+    } else {
+      strippedArr.push(group);
+    }
   }
 
-  newHooks[hookEventName] = newEventArr;
-  merged.hooks = newHooks;
+  // Append to the first unfiltered group, or add a new one at the end —
+  // preserving any third-party entries already present (shallow copies).
+  const targetIdx = strippedArr.findIndex(isUnfiltered);
+  let newEventArr: Array<Record<string, unknown>>;
+  if (targetIdx === -1) {
+    newEventArr = [...strippedArr, { hooks: [newEntry] }];
+  } else {
+    const target = strippedArr[targetIdx];
+    const targetHooks =
+      (target.hooks as Array<Record<string, unknown>> | undefined) ?? [];
+    newEventArr = strippedArr.map((g, i) =>
+      i === targetIdx ? { ...target, hooks: [...targetHooks, newEntry] } : g,
+    );
+  }
 
+  const merged: Record<string, unknown> = {
+    ...currentSettings,
+    hooks: { ...(hooks ?? {}), [hookEventName]: newEventArr },
+  };
   return { merged, alreadyInstalled: false };
 }
 
