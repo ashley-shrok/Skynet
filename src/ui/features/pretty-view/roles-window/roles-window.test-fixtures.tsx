@@ -1,12 +1,16 @@
 // Fixtures + helpers for the roles-window test suites. Import AFTER the
 // suite's vi.mock calls (see roles-window.test-mocks.tsx).
 
-import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { configure, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { expect, vi } from "vitest";
 import type { Host, HostFolder } from "@/types/ui-types";
 import type { RoleSummary } from "@/api/identities-api";
 import { RolesWindow, type NewRoleHop, type RolesWindowStart } from "./RolesWindow";
+
+// The rich editor loads lazily; on a busy box that can take past the
+// default 1s wait, so these suites wait longer.
+configure({ asyncUtilTimeout: 5000 });
 
 // jsdom lacks ResizeObserver; Radix menus need it.
 if (typeof window !== "undefined" && !window.ResizeObserver) {

@@ -288,7 +288,16 @@ export function RoleView({
   const [draft, setDraft] = useState("");
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
-  const dirty = editing && fileReady && draft !== roleFile.data;
+  // The rich editor can re-serialise the file once more after it loads.
+  // Until the user types or clicks in it, a change is the editor settling,
+  // not an edit: it becomes the baseline instead of marking the file dirty.
+  const [baseline, setBaseline] = useState("");
+  const interacted = useRef(false);
+  const onEditorChange = useCallback((md: string) => {
+    if (!interacted.current) setBaseline(md);
+    setDraft(md);
+  }, []);
+  const dirty = editing && fileReady && draft !== baseline;
 
   const confirmDiscard = useCallback(
     (): Promise<boolean> =>
@@ -713,7 +722,14 @@ export function RoleView({
       <KitBanner tone="danger">Couldn&apos;t load the role file: {roleFile.error}</KitBanner>
     ) : editing ? (
       <div className="flex flex-col h-full min-h-0">
-        <MarkdownEditor filename="role.md" content={draft} onChange={setDraft} disabled={saving} />
+        <div
+          className="flex flex-col flex-1 min-h-0"
+          onKeyDownCapture={() => (interacted.current = true)}
+          onPointerDownCapture={() => (interacted.current = true)}
+          onPasteCapture={() => (interacted.current = true)}
+        >
+          <MarkdownEditor filename="role.md" content={draft} onChange={onEditorChange} disabled={saving} />
+        </div>
         {saveError && (
           <KitBanner tone="danger" className="mt-2">
             Save failed: {saveError}
@@ -850,6 +866,8 @@ export function RoleView({
             <KitButton
               onClick={() => {
                 setDraft(roleFile.data);
+                setBaseline(roleFile.data);
+                interacted.current = false;
                 setSaveError(null);
                 setEditing(true);
               }}

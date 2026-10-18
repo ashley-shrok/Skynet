@@ -40,6 +40,12 @@ import {
   renderWindow,
 } from "./roles-window.test-fixtures";
 
+/** Type in the role-file editor the way a person does (a keypress, then the text). */
+function typeInEditor(el: HTMLElement, init: { target: { value: string } }): void {
+  fireEvent.keyDown(el, { key: "a" });
+  fireEvent.change(el, init);
+}
+
 beforeEach(() => {
   resetRolesWindowMocks();
   m.listRolesForHost.mockResolvedValue([BOX, SUPPORT, ALLY]);
@@ -250,7 +256,7 @@ describe("roles window — moving between views", () => {
     const { onOpenChange } = renderWindow();
     await openRoleFromLibrary("box-maintainer");
     fireEvent.click(await screen.findByTestId("role-view-edit"));
-    fireEvent.change(await screen.findByTestId("mdxeditor"), { target: { value: "# Changed\n" } });
+    typeInEditor(await screen.findByTestId("mdxeditor"), { target: { value: "# Changed\n" } });
 
     fireEvent.click(backButton());
     await waitFor(() => expect(dialogs.calls).toHaveLength(1));

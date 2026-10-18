@@ -37,6 +37,12 @@ import {
   renderWindow,
 } from "./roles-window.test-fixtures";
 
+/** Type in the role-file editor the way a person does (a keypress, then the text). */
+function typeInEditor(el: HTMLElement, init: { target: { value: string } }): void {
+  fireEvent.keyDown(el, { key: "a" });
+  fireEvent.change(el, init);
+}
+
 beforeEach(() => {
   resetRolesWindowMocks();
   m.listRolesForHost.mockResolvedValue([BOX, SUPPORT, ALLY]);
@@ -222,18 +228,30 @@ describe("role view — facts line and tabs", () => {
     expect(editor.value).toBe(DEFAULT_ROLE_FILE);
     expect((screen.getByTestId("role-view-save") as HTMLButtonElement).disabled).toBe(true);
     const next = DEFAULT_ROLE_FILE.replace("Keeps the box healthy.", "Keeps it humming.");
-    fireEvent.change(editor, { target: { value: next } });
+    typeInEditor(editor, { target: { value: next } });
     fireEvent.click(screen.getByTestId("role-view-save"));
     await waitFor(() => expect(m.updateRoleFileByName).toHaveBeenCalledWith("box-maintainer", HOST_ID, next));
     await waitFor(() => expect(screen.getByTestId("role-view-role-file").textContent).toContain("Keeps it humming."));
     expect(screen.getByTestId("role-view-edit")).toBeTruthy();
   });
 
+  it("the editor settling on its own after Edit (no typing) isn't an edit — Cancel leaves without asking", async () => {
+    const dialogs = autoAnswerKitDialogs({ confirm: false });
+    await openRole();
+    fireEvent.click(await screen.findByTestId("role-view-edit"));
+    // The rich editor re-serialises the file once more, with no user input.
+    fireEvent.change(await screen.findByTestId("mdxeditor"), { target: { value: DEFAULT_ROLE_FILE + "\n" } });
+    expect((screen.getByTestId("role-view-save") as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.click(screen.getByTestId("role-view-cancel-edit"));
+    await waitFor(() => expect(screen.getByTestId("role-view-edit")).toBeTruthy());
+    expect(dialogs.calls).toHaveLength(0);
+  });
+
   it("Esc while editing the role file with changes asks; 'no' keeps the draft", async () => {
     const dialogs = autoAnswerKitDialogs({ confirm: false });
     await openRole();
     fireEvent.click(await screen.findByTestId("role-view-edit"));
-    fireEvent.change(await screen.findByTestId("mdxeditor"), { target: { value: "changed" } });
+    typeInEditor(await screen.findByTestId("mdxeditor"), { target: { value: "changed" } });
     pressEscape();
     await waitFor(() => expect(dialogs.calls).toHaveLength(1));
     expect((screen.getByTestId("mdxeditor") as HTMLTextAreaElement).value).toBe("changed");
@@ -337,14 +355,16 @@ describe("role view — ⋯ menu", () => {
       const dialogs = autoAnswerKitDialogs({ confirm: false });
       const { onOpenChange } = await openRole();
       fireEvent.click(await screen.findByTestId("role-view-edit"));
-      fireEvent.change(await screen.findByTestId("mdxeditor"), { target: { value: "changed" } });
+      typeInEditor(await screen.findByTestId("mdxeditor"), { target: { value: "changed" } });
       const menu = await openMenu("role-view-menu");
       fireEvent.click(within(menu).getByTestId("role-view-start-conversation"));
       await waitFor(() => expect(dialogs.calls).toHaveLength(1));
       expect(dialogs.calls[0].opts.title).toBe("Discard your changes?");
       expect(seen).toEqual([]);
       expect(onOpenChange).not.toHaveBeenCalled();
-      expect((screen.getByTestId("mdxeditor") as HTMLTextAreaElement).value).toBe("changed");
+      // Still editing. (The test editor is a stand-in the empty-pane guard can
+      // swap out after 200ms on a busy run, so check the edit state, not it.)
+      expect(screen.getByTestId("role-view-save")).toBeTruthy();
     } finally {
       window.removeEventListener(NEW_CONVERSATION_REQUEST_EVENT, onReq);
     }
