@@ -76,3 +76,44 @@ The roles list, the role modal, the new-role dialog and the runbook editor becom
 - An empty runbook leaves no visible way to add a file.
 - Creating a role from the library dumps you into new conversation.
 - Something the old four surfaces could do is gone (upload a picture, colour, voice, git view, file browser, promote/remove sharing, archive, un-archive, delete runbook, add/delete files, PDF/media viewing in runbooks).
+
+---
+
+## Close-Out
+
+**Closed:** 2026-10-18
+**Overall verdict:** closed-hit (reviewer's closed-partial; Ashley endorsed both omissions and both additions as drift — "All agreed")
+
+### Shape features (conformance)
+
+- **One window, five views (back one level, Esc, X; phone full screen)** — present · Library, role, runbook, new role and archived are views of one window; back goes up exactly one level (new role opened from new conversation goes back there); Esc mirrors back and closes from the library.
+- **Library** — present · Header, search over name and description, "On every host" above "On <host>", rows with picture/name/description/agent count/chevron, no row menus, archived row with count hidden while searching or when none.
+- **Role view** — drifted · Everything present except the runbook rows' file count — Ashley: drop it (the name is what you scan for).
+- **Runbook view** — present · Header, ⋯ (Add file…, Delete runbook…), skills-modal editor with "N files" toggle, Add file at the list's foot, per-file delete, Close/Save; empty runbook has its own Add file.
+- **New role view** — present · Picture first (generate three / upload), name, description, colour, host; Cancel + Create role; library → lands on the new role, new-conversation hop → back there.
+- **Archived roles view** — drifted · Rows show a dimmed initial, not the role's own picture (the archived list carries name and description only) — Ashley: accepted.
+- **Opened from an agent's window** — present · Opens straight onto the role; ‹ Roles goes to the library; closing returns to the agent's window.
+- **Non-admins and shared roles** — present · View-only all the way down, with a plain line saying only an admin can change it.
+- **Unsaved edits** — present · Leaving the role file or a runbook with unsaved edits by any route asks first.
+- **Philosophy / prior context** — present · Nothing the four old surfaces could do is lost; description built on the stored field; no runbook rename.
+- **What would make it wrong: separate windows / back lands wrong** — present · Not violated.
+- **What would make it wrong: line under the name is the role file's start, or empty shows nothing to click** — present · Not violated.
+- **What would make it wrong: agent count or "every host" among the colour/voice buttons** — present · Not violated.
+- **What would make it wrong: Runbooks tab shows a count** — present · Not violated.
+- **What would make it wrong: a non-admin can change a shared role** — present · Not violated.
+- **What would make it wrong: empty runbook has no way to add a file** — present · Not violated.
+- **What would make it wrong: creating from the library dumps you into new conversation** — present · Not violated.
+- **What would make it wrong: something the old four surfaces could do is gone** — present · Not violated.
+
+### Additions (in the result, not in the shape)
+
+- Leaving the new-role form after filling anything in asks "Discard this new role?" first — endorsed-as-drift.
+- Opened from an agent's window, the roles window is scoped to that agent's host (‹ Roles shows that host's roles, no host switcher) — endorsed-as-drift.
+
+### Follow-ups
+
+- The id skill said the roles window's runbooks list their files down the left on desktop; the list only appears on the "N files" toggle — fixed in the id skill the same session (issue, resolved).
+
+### Notes
+
+The material matched the shape closely both ways; all eight failure modes were guarded. Esc on the library closing the window was read as the natural end of "Esc goes up a level". The admin-only sync status on shared roles carried over from the old role modal.

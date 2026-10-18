@@ -1136,10 +1136,10 @@ crown, then gear.
   - **Log out** — signs the user out of the app. Pinned to the bottom of
     the modal's section list.
 
-- **Side-list modals on a phone.** Preferences, Admin and the roles
-  window's runbooks list their sections/files down the left on desktop. On a phone
-  they drill in instead: the list fills the screen, tapping an item opens
-  it full screen with a back arrow (‹ Preferences / ‹ Files) to return.
+- **Side-list modals on a phone.** Preferences and Admin list their
+  sections down the left on desktop. On a phone they drill in instead: the
+  list fills the screen, tapping an item opens it full screen with a back
+  arrow (‹ Preferences) to return.
 
 - **Small modals on a phone are sheets.** Short dialogs — new
   conversation, new project, new role, add wake-up, the feedback form,
