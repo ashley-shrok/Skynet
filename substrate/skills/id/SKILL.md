@@ -256,12 +256,7 @@ External events are automatically fed to you by the agent-supervisor service for
    (long findings are pointed at as a file — Read it). When a wake-up's
    sensor has been broken for ten minutes you get one
    `📡 [sensor broken: <slug> @ <since>] … — Read it` line instead — fix the
-   sensor (`sensor-development` skill), or tell the user if you can't. When a
-   sensor fires more than its hourly limit, the box switches the wake-up off
-   and you get one `📡 [sensor tripped: <slug> @ <time>] … — Read it` line
-   carrying everything it was holding back — evidence, not a to-do list: work
-   out whether it's a real surge or a faulty sensor, act on that, and switch
-   the wake-up back on when it should resume. When you get
+   sensor (`sensor-development` skill), or tell the user if you can't. When you get
    one, **do the instruction**, then carry on. See **§ Scheduled wake-ups** below for the spec format and the rule on who may create one.
 
 3. **Context limit warnings.** At **~90%** it prints ONE soft nudge. **When that nudge lands, act on it:** finish the piece of work you're on (it's not urgent — you have plenty of runway), then run **`/id save`** to flush any deltas, then
@@ -1217,27 +1212,45 @@ crown, then gear.
   *Agent-side:* starting your desktop (`desktop` skill) makes the green
   button appear for the user within a few seconds; stopping it removes it.
 
-- **Identity modal (click the task pill).** Three tabs, plus three that appear
-  only when there's something to show:
-  - **Agent file** — view and edit the identity's own `<name>.md`.
-  - **Wake-ups** — view the identity's scheduled wake-ups (§ Scheduled
-    wake-ups). Each row's line under the name shows the schedule and when
-    it last fired (`daily @ 09:00 · Last fired 3h ago`, or `Never fired`).
-    A sensor-fired wake-up's line reads `📡 Sensor · <status> · Last fired
-    …`. Status is one of
+- **Identity modal (click the task pill).** One window for the agent. Its
+  top shows who the agent is: picture, name, its roles as links (each opens
+  the roles window on that role), the task line with a pencil (edit in
+  place), a quiet line naming the project it sits in — top level down,
+  `In Morpheus 2 › M2 · Runs`, absent when it's in none — and a **Voice**
+  button (the voice's name, or "Role's voice") that opens the voice list.
+  No Close button at the foot; the ✕ and Esc close it. Three tabs, plus
+  three that appear only when there's something to show. A wake-up, a new
+  wake-up, a repo, a commit and a diff each open **one level deeper in the
+  same window** with a back control (‹ the agent's name, or the level
+  above); back and Esc go up exactly one level. Leaving the agent file or a
+  wake-up with unsaved changes by any route asks "Discard your changes?".
+  - **Agent file** — the identity's own `<name>.md`, formatted; **Edit**
+    at the foot switches to the editor with Cancel and Save.
+  - **Wake-ups** — the identity's scheduled wake-ups (§ Scheduled
+    wake-ups) as a list. Each row has a small icon for its kind (clock,
+    sensor, one-time), its name, then the schedule and when it last fired
+    (`Daily at 09:00 · Last fired 3h ago`, or `Never fired`), an on/off
+    switch that saves at once, and a chevron. A sensor-fired wake-up's line
+    reads `📡 Sensor · <status> · Last fired …` plus `· N waiting` when
+    fires are being held. Status is one of
     **Healthy**, **Broken** (red), **Running long**, **Off** (switched
-    off), **Tripped** (amber — it fired more than its hourly limit, so the
-    box switched it off and told an agent; the line adds why), **Not live yet** (sensor not published) or **Unknown** (status
+    off), **Not live yet** (sensor not published) or **Unknown** (status
     can't be read — no health record, one more than 5 minutes old, or the
     machine stopped answering a refresh). A one-time sensor (retires after
     its first delivered fire) reads `📡 Sensor · once · …`; the mark is
-    shown, not editable.
-    Expanding a sensor wake-up shows a read-only sensor section: status,
-    how it runs, last ran (`Running since` for an always-on sensor), last
-    fired, when and why it tripped, and the sensor's last error lines when broken. The on/off switch is the only sensor
-    control in the app — switching a tripped sensor back on resumes it fresh,
-    and switching any sensor off throws away fires still waiting — sensors are built by agents (`sensor-development`
-    skill). The tab re-reads itself every ~30s while it's showing.
+    shown, not editable. The tab re-reads itself every ~30s while it's
+    showing. **New wake-up** sits under the list.
+    Opening a wake-up shows its form: an **On** switch (saves at once),
+    Name, the schedule (Interval / Daily / Weekly / Monthly / Yearly / Once
+    and each kind's options), Time zone (blank = the user's own),
+    Instruction, and a red **Delete wake-up…** at the bottom; Cancel and
+    Save at the foot. **New wake-up** is the same form, blank, with
+    Create. A sensor wake-up shows "When its sensor fires" and a read-only
+    sensor section instead of schedule fields: status, how it runs, last
+    ran (`Running since` for an always-on sensor), last fired, waiting
+    fires, and the sensor's last error lines when broken. The on/off switch
+    is the only sensor control in the app — sensors are built by agents
+    (`sensor-development` skill).
   - **Files** — full workspace explorer for the identity's `workspace/`
     folder: browse, download, upload, create files and folders, and
     edit files inline in the modal for supported types (text, code,
@@ -1260,13 +1273,18 @@ crown, then gear.
     agent's conversation apps, each with its icon, title and description.
     Clicking a row closes the modal and opens the app; each row's ⋮ holds
     one item, **Move to sidebar** (same as in the app's own bar menu).
-  - **Git** (only when the workspace holds a git repo) — read-only view
-    of each repo: branch, sync state, changed files, history, diffs.
-    Nothing in it changes a repo.
+  - **Git** (only when the workspace holds a git repo) — read-only. One
+    repo shows straight away; several show as a list first. A repo shows a
+    summary (branch, commits not pushed / behind, **Check remote**,
+    refresh), then **Changes**, **History**, stashed work and remotes.
+    A changed file opens its diff; a commit opens its list of files (with
+    lines added/removed), and a file there opens its diff; **View all**
+    shows every change at once. Nothing in it changes a repo.
   - **Desktop** (only while the agent's virtual desktop is running) — a
     live view of the agent's own desktop. Picking this tab grows the
-    modal to its large size so the desktop is big enough to work in;
-    other tabs shrink it back. The picture scales to fit and never
+    modal to its large size so the desktop is big enough to work in and
+    shrinks the top to a small picture and the name; other tabs shrink it
+    back. The picture scales to fit and never
     resizes the agent's screen. It starts **View only**; **Take control**
     hands the user's mouse and keyboard to the desktop and pauses the
     agent's own desktop input (Esc then goes to the desktop, not the
@@ -1875,11 +1893,6 @@ name is the wake-up's key. Create one by making the folder and writing
   itself (the 📡 line says so) — don't delete it by hand. If the sensor
   breaks (unhealthy ten minutes), you are told once with a
   `📡 [sensor broken: …]` line; not again until it has recovered.
-  Each sensor has fire controls (keys that drop duplicates, grouping that
-  bundles bursts, and an always-on limit of deliveries per hour — default
-  10); past the limit the wake-up is switched off and you get one
-  `📡 [sensor tripped: …]` line instead. Switched off, its waiting fires are
-  thrown away; switched back on, it starts fresh.
 
 - The scheduler reloads specs every poll, so adding/editing/removing a
   file takes effect within ~30s — no relaunch needed.
@@ -1932,7 +1945,8 @@ either chip for the absolute datetime. Rows that have never actually
 fired (first-sight anchored only — see § On-disk shape below) show just
 `Next`; one_shots past their slot show just `Last`. A sensor-fired
 task has no Next: its line reads `📡 Sensor · <status> · Last fired 3h
-ago` (or `Never fired`) — same statuses as the identity modal's Wake-ups tab
+ago` (or `Never fired`), plus `· N waiting` when fires are being held
+while it's off — same statuses as the identity modal's Wake-ups tab
 (§ Conversation view); a one-time sensor task reads `📡 Sensor · once · …`. Opening one shows the same read-only sensor
 section, including its last error lines when broken. The list re-reads
 itself every ~30s while open; tasks on a machine that isn't answering
@@ -2011,12 +2025,6 @@ to look into it instead — its task line reads `📡 <name> — sensor broken`,
 its instruction is to fix the sensor or tell the user, not to run the task's
 prompt, and it is never told to archive itself, whatever the task's
 `archive_if_nothing_to_report`. Nothing more until the sensor has recovered.
-If a sensor task fires more than its hourly limit (default 10 agents an hour),
-the task is switched off (status **Tripped**) and one agent is born instead —
-task line `📡 <name> — sensor tripped` — holding every fire that was waiting
-as evidence, told to work out whether it's a real surge or a faulty sensor
-and to switch the task back on when it should resume. It is never told to
-archive itself either.
 
 ### Governance — user-reserved
 
