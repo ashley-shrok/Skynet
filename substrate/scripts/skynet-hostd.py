@@ -33,8 +33,9 @@ Behavior:
       command's process group is killed and the helper exits — nothing is
       left behind on the host.
 
-Distribution: substrate catalog row `skynet-hostd` installs this at
-~/.local/bin/skynet-hostd with its execute bit. Stdlib only; Python 3.8+.
+Distribution: not installed anywhere. The backend reads this file from the
+image and starts it as `python3 -c '<this source>'` on each channel open, so
+the helper always matches the running Skynet. Stdlib only; Python 3.8+.
 """
 import base64
 import json

@@ -4,7 +4,7 @@ import {
   HostdDeadlineError,
   HostdUnavailableError,
   hostdChannelFor,
-  type HostdChannel,
+  hostdEnabled,
 } from "./hostd-channel.js";
 
 export interface TmuxSessionInfo {
@@ -101,19 +101,42 @@ function armExecTimeout(
  * hostd-channel.ts) with execCommand's exact result contract: trimmed stdout
  * on success, an Error carrying stderr on a non-zero exit with no stdout,
  * ExecTimeoutError("run") past the time limit. A request the helper never
- * received runs through `fallback` (the plain exec path) instead.
+ * received (it couldn't start, or died first) is retried once on a fresh
+ * channel; there is no plain-exec fallback.
  */
 function viaHostd(
-  hostd: HostdChannel,
+  conn: Client,
   command: string,
   opts: ExecOptions,
   stdinBody: Buffer | undefined,
-  fallback: () => Promise<string>,
 ): Promise<string> {
   const cmdPreview = command.slice(0, 80);
   const timeoutMs = opts.timeoutMs ?? DEFAULT_EXEC_TIMEOUT_MS;
   const tStart = Date.now();
-  const p = hostd.run(command, timeoutMs, stdinBody).then(
+  const send = () => {
+    const hostd = hostdChannelFor(conn);
+    if (!hostd) return Promise.reject(new HostdUnavailableError("connection closed"));
+    return hostd.run(command, timeoutMs, stdinBody);
+  };
+  const runOnce = () => {
+    try {
+      return send();
+    } catch (e) {
+      return Promise.reject(e);
+    }
+  };
+  const p = runOnce()
+    .catch((err: unknown) => {
+      if (err instanceof HostdUnavailableError) {
+        sshLogger.warn(
+          `[tmux-helper] exec-retry via=hostd command="${cmdPreview}" reason="${err.reason}"`,
+          { operation: "tmux_exec_hostd_retry", via: "hostd", reason: err.reason },
+        );
+        return runOnce();
+      }
+      throw err;
+    })
+    .then(
     (r) => {
       const stdout = r.stdout.toString("utf-8");
       const stderr = r.stderr.toString("utf-8");
@@ -147,7 +170,13 @@ function viaHostd(
       return stdout.trim();
     },
     (err: unknown) => {
-      if (err instanceof HostdUnavailableError) return fallback();
+      if (err instanceof HostdUnavailableError) {
+        sshLogger.error(
+          `[tmux-helper] exec-failed via=hostd command="${cmdPreview}" reason="${err.reason}"`,
+          err,
+          { operation: "tmux_exec_hostd_unavailable", via: "hostd", reason: err.reason },
+        );
+      }
       if (err instanceof HostdDeadlineError) {
         throw new ExecTimeoutError("run", timeoutMs);
       }
@@ -181,16 +210,11 @@ export function execCommand(
   command: string,
   opts: ExecOptions = {},
 ): Promise<string> {
-  const hostd = hostdChannelFor(conn);
-  if (hostd) {
-    return viaHostd(hostd, command, opts, undefined, () =>
-      legacyExecCommand(conn, command, opts),
-    );
-  }
-  return legacyExecCommand(conn, command, opts);
+  if (hostdEnabled(conn)) return viaHostd(conn, command, opts, undefined);
+  return plainExecCommand(conn, command, opts);
 }
 
-function legacyExecCommand(
+function plainExecCommand(
   conn: Client,
   command: string,
   opts: ExecOptions,
@@ -318,16 +342,11 @@ export function execCommandWithStdin(
   stdinBody: Buffer,
   opts: ExecOptions = {},
 ): Promise<string> {
-  const hostd = hostdChannelFor(conn);
-  if (hostd) {
-    return viaHostd(hostd, command, opts, stdinBody, () =>
-      legacyExecCommandWithStdin(conn, command, stdinBody, opts),
-    );
-  }
-  return legacyExecCommandWithStdin(conn, command, stdinBody, opts);
+  if (hostdEnabled(conn)) return viaHostd(conn, command, opts, stdinBody);
+  return plainExecCommandWithStdin(conn, command, stdinBody, opts);
 }
 
-function legacyExecCommandWithStdin(
+function plainExecCommandWithStdin(
   conn: Client,
   command: string,
   stdinBody: Buffer,

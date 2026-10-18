@@ -678,19 +678,6 @@ export const FLEET_SUBSTRATE_CATALOG: readonly CatalogEntry[] = [
     restartHook: null,
   },
 
-  // --- skynet-hostd (one login per connection instead of one per command) ---
-  // Long-lived helper the backend starts once per long-lived SSH connection
-  // and sends routine commands through (src/backend/ssh/hostd-channel.ts).
-  // No restart hook — each channel runs the installed bytes when it opens, so
-  // new bytes are picked up on the next connection.
-  {
-    slug: "skynet-hostd",
-    sourceKind: "bundled",
-    bundledPath: "/app/fleet-substrate/scripts/skynet-hostd.py",
-    installPath: "~/.local/bin/skynet-hostd",
-    restartHook: null,
-  },
-
   // --- interactive-messages-gc (Phase 140: seven-day backstop) ---
   // Daily sweep script. Enumerates ~/fleet/interactive-messages/*/, tears
   // down any widget older than 7 days by shelling out to teardown-widget.sh

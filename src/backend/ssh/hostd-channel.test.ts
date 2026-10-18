@@ -1,21 +1,21 @@
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, afterEach } from "vitest";
 import { EventEmitter } from "node:events";
 import { spawn, type ChildProcess } from "node:child_process";
-import path from "node:path";
 import type { Client } from "ssh2";
 import {
-  HOSTD_COMMAND,
   HostdChannelLostError,
+  HostdUnavailableError,
   enableHostd,
-  hostdAllowedForPeer,
   hostdChannelFor,
+  hostdCommand,
+  hostdEnabled,
 } from "./hostd-channel.js";
 import { ExecTimeoutError, execCommand, execCommandWithStdin } from "./tmux-helper.js";
 
-// The real helper, run locally — the fake client below stands in for ssh2 by
-// spawning processes instead of opening exec channels, so these tests drive
-// the actual protocol end to end.
-const HOSTD_SCRIPT = path.resolve(__dirname, "../../../substrate/scripts/skynet-hostd.py");
+// The fake client stands in for ssh2 by running each exec through a local
+// `bash -c`, the way a remote login shell would — including the real helper
+// start command (`exec python3 -c '<source>'`). So these tests drive the
+// actual helper over the actual protocol.
 
 class FakeStream extends EventEmitter {
   stderr = new EventEmitter();
@@ -43,60 +43,45 @@ interface FakeClient extends EventEmitter {
   _sock: { remoteAddress: string; remotePort: number };
 }
 
-function makeClient(opts: { helperCmd?: string[] } = {}): FakeClient & Client {
+/** `helperCmd` replaces what a helper start runs (simulate a broken host). */
+function makeClient(opts: { helperCmd?: string } = {}): FakeClient & Client {
   const ee = new EventEmitter() as FakeClient;
   ee.execs = [];
   ee.helpers = [];
-  ee._sock = { remoteAddress: "100.64.0.9", remotePort: 22 };
+  ee._sock = { remoteAddress: "::ffff:100.64.0.9", remotePort: 22 };
   (ee as unknown as { exec: unknown }).exec = (
     cmd: string,
     cb: (err: Error | null, stream: FakeStream) => void,
   ) => {
     ee.execs.push(cmd);
-    const argv =
-      cmd === HOSTD_COMMAND
-        ? (opts.helperCmd ?? ["python3", HOSTD_SCRIPT])
-        : ["bash", "-c", cmd];
-    const child = spawn(argv[0], argv.slice(1), { stdio: ["pipe", "pipe", "pipe"] });
-    if (cmd === HOSTD_COMMAND) ee.helpers.push(child);
+    const isHelper = cmd === hostdCommand();
+    const run = isHelper && opts.helperCmd ? opts.helperCmd : cmd;
+    const child = spawn("bash", ["-c", run], { stdio: ["pipe", "pipe", "pipe"] });
+    if (isHelper) ee.helpers.push(child);
     queueMicrotask(() => cb(null, new FakeStream(child)));
   };
   return ee as FakeClient & Client;
 }
 
-const legacyExecs = (c: FakeClient) => c.execs.filter((e) => e !== HOSTD_COMMAND);
-const helperExecs = (c: FakeClient) => c.execs.filter((e) => e === HOSTD_COMMAND);
+const plainExecs = (c: FakeClient) => c.execs.filter((e) => e !== hostdCommand());
+const helperExecs = (c: FakeClient) => c.execs.filter((e) => e === hostdCommand());
 
-describe("hostdAllowedForPeer", () => {
-  it("is off when unset or empty", () => {
-    expect(hostdAllowedForPeer("100.1.1.1", {})).toBe(false);
-    expect(hostdAllowedForPeer("100.1.1.1", { SKYNET_HOSTD_PEERS: " " })).toBe(false);
-  });
-  it("'*' turns it on for every peer", () => {
-    expect(hostdAllowedForPeer("100.1.1.1", { SKYNET_HOSTD_PEERS: "*" })).toBe(true);
-  });
-  it("matches a listed IP, including the IPv4-mapped form", () => {
-    const env = { SKYNET_HOSTD_PEERS: "100.2.2.2, 100.1.1.1" };
-    expect(hostdAllowedForPeer("100.1.1.1", env)).toBe(true);
-    expect(hostdAllowedForPeer("::ffff:100.1.1.1", env)).toBe(true);
-    expect(hostdAllowedForPeer("100.3.3.3", env)).toBe(false);
+describe("hostdCommand", () => {
+  it("carries the helper source inline as one quoted argument", () => {
+    const cmd = hostdCommand();
+    expect(cmd.startsWith("exec python3 -c '")).toBe(true);
+    expect(cmd).toContain("PROTOCOL_VERSION = 1");
+    expect(cmd.length).toBeLessThan(128 * 1024);
   });
 });
 
 describe("execCommand through skynet-hostd", () => {
-  const saved = process.env.SKYNET_HOSTD_PEERS;
   const clients: FakeClient[] = [];
   const track = (c: FakeClient & Client) => {
     clients.push(c);
     return c;
   };
-
-  beforeEach(() => {
-    process.env.SKYNET_HOSTD_PEERS = "*";
-  });
   afterEach(() => {
-    if (saved === undefined) delete process.env.SKYNET_HOSTD_PEERS;
-    else process.env.SKYNET_HOSTD_PEERS = saved;
     for (const c of clients.splice(0)) {
       c.emit("close");
       for (const h of c.helpers) h.kill("SIGKILL");
@@ -111,7 +96,7 @@ describe("execCommand through skynet-hostd", () => {
     );
     expect(outs).toEqual(Array.from({ length: 10 }, (_, i) => `n${i}`));
     expect(helperExecs(c)).toHaveLength(1);
-    expect(legacyExecs(c)).toHaveLength(0);
+    expect(plainExecs(c)).toHaveLength(0);
   });
 
   it("keeps execCommand's error contract", async () => {
@@ -123,12 +108,18 @@ describe("execCommand through skynet-hostd", () => {
     await expect(execCommand(c, "echo partial; exit 1")).resolves.toBe("partial");
   });
 
+  it("handles quotes and shell syntax in commands", async () => {
+    const c = track(makeClient());
+    enableHostd(c);
+    await expect(execCommand(c, `printf '%s|' "a b" 'c'\\''d'`)).resolves.toBe("a b|c'd|");
+  });
+
   it("feeds stdin for execCommandWithStdin", async () => {
     const c = track(makeClient());
     enableHostd(c);
     const body = Buffer.from("x".repeat(200_000));
     await expect(execCommandWithStdin(c, "wc -c", body)).resolves.toBe("200000");
-    expect(legacyExecs(c)).toHaveLength(0);
+    expect(plainExecs(c)).toHaveLength(0);
   });
 
   it("turns a helper-side timeout into ExecTimeoutError", async () => {
@@ -139,37 +130,44 @@ describe("execCommand through skynet-hostd", () => {
     expect((err as ExecTimeoutError).phase).toBe("run");
   });
 
-  it("uses plain execs when the connection was never enabled", async () => {
+  it("uses plain execs only for connections that were never enabled", async () => {
     const c = track(makeClient());
+    expect(hostdEnabled(c)).toBe(false);
     await expect(execCommand(c, "echo plain")).resolves.toBe("plain");
     expect(helperExecs(c)).toHaveLength(0);
-    expect(legacyExecs(c)).toEqual(["echo plain"]);
+    expect(plainExecs(c)).toEqual(["echo plain"]);
   });
 
-  it("uses plain execs when the peer isn't switched on", async () => {
-    process.env.SKYNET_HOSTD_PEERS = "100.9.9.9";
-    const c = track(makeClient());
+  it("fails clearly — with no plain-exec fallback — when the helper can't start", async () => {
+    const c = track(makeClient({ helperCmd: "echo 'python3: command not found' >&2; exit 127" }));
     enableHostd(c);
-    await expect(execCommand(c, "echo plain")).resolves.toBe("plain");
-    expect(helperExecs(c)).toHaveLength(0);
+    const err = await execCommand(c, "echo one").catch((e) => e);
+    expect(err).toBeInstanceOf(HostdUnavailableError);
+    expect(String(err.message)).toContain("code=127");
+    // One retry on a fresh channel, then the error — never a plain exec.
+    expect(helperExecs(c)).toHaveLength(2);
+    expect(plainExecs(c)).toHaveLength(0);
   });
 
-  it("falls back to plain execs when the helper is missing, and stops retrying it", async () => {
-    const c = track(makeClient({ helperCmd: ["bash", "-c", "echo 'skynet-hostd: not found' >&2; exit 127"] }));
+  it("fails fast after repeated helper failures instead of reopening", async () => {
+    const c = track(makeClient({ helperCmd: "exit 127" }));
     enableHostd(c);
-    await expect(execCommand(c, "echo one")).resolves.toBe("one");
-    await expect(execCommand(c, "echo two")).resolves.toBe("two");
-    expect(helperExecs(c)).toHaveLength(1);
-    expect(legacyExecs(c)).toEqual(["echo one", "echo two"]);
+    await execCommand(c, "true").catch(() => {});
+    await execCommand(c, "true").catch(() => {});
+    const opened = helperExecs(c).length;
+    expect(opened).toBeGreaterThanOrEqual(3);
+    expect(() => hostdChannelFor(c)).toThrow(HostdUnavailableError);
+    await execCommand(c, "true").catch(() => {});
+    expect(helperExecs(c).length).toBe(opened);
   });
 
-  it("falls back when the helper speaks another protocol version", async () => {
-    const c = track(
-      makeClient({ helperCmd: ["bash", "-c", `echo '{"t":"hello","v":99}'; cat >/dev/null`] }),
-    );
+  it("rejects a helper speaking another protocol version", async () => {
+    const c = track(makeClient({ helperCmd: `echo '{"t":"hello","v":99}'; cat >/dev/null` }));
     enableHostd(c);
-    await expect(execCommand(c, "echo ok")).resolves.toBe("ok");
-    expect(legacyExecs(c)).toEqual(["echo ok"]);
+    const err = await execCommand(c, "echo ok").catch((e) => e);
+    expect(err).toBeInstanceOf(HostdUnavailableError);
+    expect(String(err.message)).toContain("protocol v99");
+    expect(plainExecs(c)).toHaveLength(0);
   });
 
   it("fails an in-flight command when the channel dies, without re-running it", async () => {
@@ -180,7 +178,7 @@ describe("execCommand through skynet-hostd", () => {
     await new Promise((r) => setTimeout(r, 200));
     c.helpers[0].kill("SIGKILL");
     await expect(inflight).rejects.toBeInstanceOf(HostdChannelLostError);
-    expect(legacyExecs(c)).toHaveLength(0);
+    expect(plainExecs(c)).toHaveLength(0);
     // Next command opens a fresh helper channel.
     await expect(execCommand(c, "echo again")).resolves.toBe("again");
     expect(helperExecs(c)).toHaveLength(2);
@@ -194,6 +192,7 @@ describe("execCommand through skynet-hostd", () => {
     const exited = new Promise<void>((r) => helper.on("exit", () => r()));
     c.emit("close");
     await exited;
+    expect(hostdEnabled(c)).toBe(false);
     expect(hostdChannelFor(c)).toBeNull();
   });
 });

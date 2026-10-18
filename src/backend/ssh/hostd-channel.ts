@@ -1,9 +1,13 @@
+import { readFileSync } from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 import type { Client, ClientChannel } from "ssh2";
 import { sshLogger } from "../utils/logger.js";
 
 /**
- * One long-lived exec channel per SSH connection, running the substrate
- * helper `~/.local/bin/skynet-hostd` (substrate/scripts/skynet-hostd.py).
+ * One long-lived exec channel per SSH connection, running the skynet-hostd
+ * helper (substrate/scripts/skynet-hostd.py). This is how Skynet runs routine
+ * commands on every host it keeps a long-lived connection to.
  *
  * Why: over Tailscale SSH every exec channel is a fresh login on the host (a
  * logind session per command). Skynet's pollers send several commands a
@@ -11,35 +15,67 @@ import { sshLogger } from "../utils/logger.js";
  * routine command through one helper channel makes the whole stream cost one
  * login per connection.
  *
- * Opt-in on two axes, both required:
- *   1. The connection is long-lived and its owner called `enableHostd(conn)`.
- *      Short one-shot connections gain nothing (they're one login anyway).
- *   2. The peer is listed in env SKYNET_HOSTD_PEERS: "*" for every host, or a
- *      comma list of peer IPs. Empty/unset = off everywhere.
+ * Which connections: the owner of a long-lived connection calls
+ * `enableHostd(conn)` once after connecting. Short one-shot connections run
+ * plain execs (they're one login anyway).
  *
- * Fallback: if the helper can't start (missing on a host the distributor
- * hasn't reached, too old, python missing) the connection is marked
- * unavailable for UNAVAILABLE_COOLDOWN_MS and `execCommand` runs commands the
- * old way. A request that never reached the helper always falls back; one
- * that was already sent is never re-run (commands aren't all idempotent) and
- * fails with a HostdChannelLostError instead.
+ * Nothing is installed on the host: the helper's source travels with the
+ * channel open (`python3 -c '<source>'`), so its version always matches the
+ * running Skynet and a brand-new host works with no distributor sweep. The
+ * host needs python3, which every fleet host already has.
+ *
+ * No fallback: if the helper can't start, commands on that connection fail
+ * with a HostdUnavailableError naming why. A request the helper never
+ * received is retried once on a fresh channel; one that was already sent is
+ * never re-run (commands aren't all idempotent) and fails with a
+ * HostdChannelLostError.
  *
  * Protocol: see the docblock in skynet-hostd.py. Keep the two in lockstep.
  */
 
 export const HOSTD_PROTOCOL_VERSION = 1;
-export const HOSTD_COMMAND = "exec ~/.local/bin/skynet-hostd";
 const HELLO_TIMEOUT_MS = 10_000;
 const PING_INTERVAL_MS = 10_000;
 const PONG_TIMEOUT_MS = 10_000;
 /** Client-side grace past the helper's own time limit before we give up. */
 const CLIENT_DEADLINE_GRACE_MS = 5_000;
-const UNAVAILABLE_COOLDOWN_MS = 10 * 60 * 1000;
-/** Bodies past this go over a plain exec instead of base64 inside JSON. */
-export const HOSTD_MAX_STDIN_BYTES = 4 * 1024 * 1024;
-/** Channel deaths within DEATH_WINDOW_MS that mark the connection unavailable. */
+/** Sanity cap on a stdin body (sent base64 inside one JSON line). */
+export const HOSTD_MAX_STDIN_BYTES = 64 * 1024 * 1024;
+/** After this many channel deaths within DEATH_WINDOW_MS, fail fast instead
+ *  of reopening until the window passes. */
 const MAX_DEATHS_IN_WINDOW = 3;
 const DEATH_WINDOW_MS = 60_000;
+
+/** Where the helper's source lives: bundled in the image, or the repo in dev/tests. */
+const HOSTD_SOURCE_CANDIDATES = [
+  "/app/fleet-substrate/scripts/skynet-hostd.py",
+  path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../../substrate/scripts/skynet-hostd.py"),
+];
+
+let cachedCommand: string | null = null;
+
+/** Shell-quote for a POSIX shell: wrap in single quotes, escape embedded ones. */
+function shQuote(s: string): string {
+  return `'${s.replace(/'/g, `'\\''`)}'`;
+}
+
+/**
+ * The exec command that starts the helper: its whole source as one argv
+ * element (~10 KB, far under the 128 KB per-argument limit).
+ */
+export function hostdCommand(): string {
+  if (cachedCommand) return cachedCommand;
+  for (const p of HOSTD_SOURCE_CANDIDATES) {
+    try {
+      const src = readFileSync(p, "utf-8");
+      cachedCommand = `exec python3 -c ${shQuote(src)}`;
+      return cachedCommand;
+    } catch {
+      /* try the next */
+    }
+  }
+  throw new Error(`skynet-hostd source not found (looked in ${HOSTD_SOURCE_CANDIDATES.join(", ")})`);
+}
 
 export interface HostdResult {
   code: number | null;
@@ -50,7 +86,7 @@ export interface HostdResult {
   truncated: boolean;
 }
 
-/** The request never reached the helper — safe to run it the old way. */
+/** The request never reached the helper (it couldn't start, or died first). */
 export class HostdUnavailableError extends Error {
   constructor(readonly reason: string) {
     super(`skynet-hostd unavailable: ${reason}`);
@@ -126,7 +162,7 @@ export class HostdChannel {
     this.helloTimer = setTimeout(() => this.die("no hello", true), HELLO_TIMEOUT_MS);
     this.helloTimer.unref?.();
     try {
-      this.conn.exec(HOSTD_COMMAND, (err, stream) => {
+      this.conn.exec(hostdCommand(), (err, stream) => {
         if (err) {
           this.die(`exec failed: ${err.message}`, true);
           return;
@@ -315,8 +351,8 @@ export class HostdChannel {
         inFlight: this.pending.size,
       },
     );
-    // Never-sent requests fall back to a plain exec; sent ones can't be
-    // safely re-run.
+    // Never-sent requests may be retried on a fresh channel; sent ones can't
+    // be safely re-run.
     for (const q of this.queuedUntilReady) {
       clearTimeout(q.pending.timer);
       q.pending.reject(new HostdUnavailableError(reason));
@@ -333,8 +369,8 @@ export class HostdChannel {
 
 interface ConnState {
   channel: HostdChannel | null;
-  unavailableUntil: number;
   deaths: number[];
+  lastDeathReason: string;
 }
 
 const enabled = new WeakMap<Client, ConnState>();
@@ -342,30 +378,21 @@ const enabled = new WeakMap<Client, ConnState>();
 function peerOf(conn: Client): string {
   try {
     const sock = (conn as unknown as { _sock?: { remoteAddress?: string; remotePort?: number } })._sock;
-    if (sock?.remoteAddress) return sock.remoteAddress;
+    if (sock?.remoteAddress) return sock.remoteAddress.replace(/^::ffff:/, "");
   } catch {
     /* ignore */
   }
-  return "";
-}
-
-/** Whether env SKYNET_HOSTD_PEERS turns the helper on for this peer IP. */
-export function hostdAllowedForPeer(peer: string, env: NodeJS.ProcessEnv = process.env): boolean {
-  const raw = (env.SKYNET_HOSTD_PEERS ?? "").trim();
-  if (!raw) return false;
-  const list = raw.split(",").map((s) => s.trim()).filter(Boolean);
-  if (list.includes("*")) return true;
-  return peer !== "" && list.includes(peer.replace(/^::ffff:/, ""));
+  return "?";
 }
 
 /**
- * Mark a long-lived connection as eligible for the helper. Call once, right
- * after the connection opens. Idempotent. The helper channel itself opens
- * lazily on the first command and closes with the connection.
+ * Mark a long-lived connection so its commands go through the helper. Call
+ * once, right after the connection opens. Idempotent. The helper channel
+ * itself opens lazily on the first command and closes with the connection.
  */
 export function enableHostd(conn: Client): void {
   if (enabled.has(conn)) return;
-  const state: ConnState = { channel: null, unavailableUntil: 0, deaths: [] };
+  const state: ConnState = { channel: null, deaths: [], lastDeathReason: "" };
   enabled.set(conn, state);
   // A closed connection never gets a new helper; its later execs fail the
   // plain way, as they always have.
@@ -382,29 +409,32 @@ export function enableHostd(conn: Client): void {
   }
 }
 
+/** Whether commands on `conn` go through the helper. */
+export function hostdEnabled(conn: Client): boolean {
+  return enabled.has(conn);
+}
+
 /**
- * The helper channel to use for a command on `conn`, or null to run it the
- * old way (not enabled, peer not switched on, or in an unavailable cooldown).
+ * The helper channel for `conn`, opening one if needed. Null when `conn`
+ * isn't enabled (plain exec). Throws HostdUnavailableError when the helper
+ * has died repeatedly in the last minute (fail fast rather than reopen).
  */
 export function hostdChannelFor(conn: Client, now = Date.now()): HostdChannel | null {
   const state = enabled.get(conn);
   if (!state) return null;
-  const peer = peerOf(conn);
-  if (!hostdAllowedForPeer(peer)) return null;
-  if (now < state.unavailableUntil) return null;
   if (state.channel && !state.channel.isDead) return state.channel;
-  state.channel = new HostdChannel(conn, peer || "?", (ch, reason, neverReady) => {
+  state.deaths = state.deaths.filter((d) => now - d < DEATH_WINDOW_MS);
+  if (state.deaths.length >= MAX_DEATHS_IN_WINDOW) {
+    throw new HostdUnavailableError(
+      `${state.deaths.length} helper failures in the last ${DEATH_WINDOW_MS / 1000}s, last: ${state.lastDeathReason}`,
+    );
+  }
+  const peer = peerOf(conn);
+  state.channel = new HostdChannel(conn, peer, (ch, reason) => {
     if (state.channel === ch) state.channel = null;
-    const t = Date.now();
-    state.deaths = state.deaths.filter((d) => t - d < DEATH_WINDOW_MS);
-    state.deaths.push(t);
-    if (neverReady || state.deaths.length >= MAX_DEATHS_IN_WINDOW) {
-      state.unavailableUntil = t + UNAVAILABLE_COOLDOWN_MS;
-      sshLogger.warn(
-        `[hostd] fallback peer=${peer} reason="${neverReady ? reason : `${state.deaths.length} channel deaths in ${DEATH_WINDOW_MS / 1000}s`}" cooldownMs=${UNAVAILABLE_COOLDOWN_MS}`,
-        { operation: "hostd_fallback", peer, reason },
-      );
-    }
+    if (reason === "connection closed") return;
+    state.deaths.push(Date.now());
+    state.lastDeathReason = reason;
   });
   return state.channel;
 }
