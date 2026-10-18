@@ -301,7 +301,7 @@ export function NewSessionDialog({
    * "New role…" row at the top of the Roles dropdown. The caller swaps this
    * dialog for CreateRoleDialog and brings the user back afterwards; the
    * current host + picked roles are handed over so they can be restored.
-   * Absent = no row (and a host with zero roles shows a plain hint).
+   * Absent = no row.
    */
   onNewRole?: (ctx: { host: Host | null; roles: string[]; name: string | null }) => void;
   /**
@@ -1312,7 +1312,7 @@ export function NewSessionDialog({
               {/* Phase 22 SRIC-02: Role dropdown — first field in the identity
                   cluster. Lists every host's "No roles" entry and roles
                   (sectioned by host when there are several); the pick decides
-                  the host. A fleet with zero roles renders an inline hint. */}
+                  the host. */}
               <div className="flex flex-col gap-1.5">
                 {/* Multi-role: a dropdown multi-select replaces the old
                     single-pick <select>. Pick one or more; the order of

@@ -150,11 +150,9 @@ that role), and it inherits **no** role's look — the avatar, title and
 voice a single-role agent picks up from its role are left at the app's
 defaults unless the identity file sets its own. Color is the exception: a multi-role identity shows in **gold**
 color. That's deliberate:
-borrowing one role's face would misstate what you are. Visibility (a
-role's `users:` list) applies for every listed role. A zero-role identity
+borrowing one role's face would misstate what you are. A zero-role identity
 likewise shows plain defaults — its initial on a neutral circle as avatar
-and a neutral color — unless the identity file sets its own; its
-visibility is only its own `users:` list.
+and a neutral color — unless the identity file sets its own.
 
 Note the frontmatter's `task:` field — the record of what you are working
 on. Its content is shown to the user in TWO places in the app: the top-middle
@@ -841,7 +839,7 @@ not something agents drive.
   it shows at top level instead. A sub-project is shown only to users who
   can see every project above it. Moving a project never widens who can
   see it: if a move would let in more users, its current audience is
-  written into its own `users:` list. Archiving is refused when some
+  kept. Archiving is refused when some
   sub-project inside is hidden from the person archiving.
   *Agent-side:* nesting is one optional frontmatter line in the
   sub-project's `project.md`: `parent: <parent-slug>`. Folders stay side
@@ -1496,11 +1494,9 @@ Extra fields are rejected as malformed.
   final name.
 - `project` (optional) — project slug; the newborn is born already in that
   project (`project:` frontmatter).
-- `users` (optional) — array of user names the newborn is visible to
-  (its `users:` frontmatter).
 - `requested_by` (optional) — your own identity name. Logged by the
-  backend. A zero-role spawn with no `users` copies your own `users:`
-  list when this names you.
+  backend. A zero-role newborn is visible to whoever can see you when
+  this names you; without it, to everyone on the box.
 
 ### Write atomically, single-line
 
@@ -1525,7 +1521,9 @@ request (on the target host for a cross-box spawn):
   the name, delete the file.
 - `<uuid>.failure.json` — contains `{reason, message?}`. `reason` is one
   of `malformed`, `role_unknown`, `birth_failed`,
-  `homeserver_unreachable`, `pool_exhausted`, `matrix_creds_missing`.
+  `homeserver_unreachable`, `pool_exhausted`, `matrix_creds_missing`,
+  `visibility_unresolved` (a zero-role spawn whose `requested_by` couldn't
+  be read — nothing was created).
 
 Safety timeout: ~90 seconds per identity. On failure, surface to the
 user. Retry ONLY if `reason == "malformed"` and you have a specific

@@ -187,6 +187,8 @@ function buildTestDeps(overrides?: Partial<WorkerDeps>): WorkerDeps {
     // Fresh census per test — the process-wide one would leak recorded
     // births across tests.
     nameCensus: new FleetNameCensus(),
+    // Requester roles default to role files with no `users:` gate.
+    readRoleFileByName: vi.fn().mockResolvedValue({ markdown: "" }),
   };
 
   return { ...deps, ...overrides };
@@ -641,12 +643,48 @@ describe("spawn-request worker", () => {
         expect(captured.opts?.users).toEqual(["ashley", "zoey"]);
       });
 
-      it("Test 17r3: roleless, requester has no users: list → left open", async () => {
+      it("Test 17r3: roleless, neither the requester nor its roles have a users: list → left open", async () => {
         const { captured, birthIdentity } = captureOpts();
         const readIdentityFile = vi.fn().mockResolvedValue({ markdown: "---\nroles: [coordinator]\n---\n" });
-        const deps = buildTestDeps({ birthIdentity, readIdentityFile });
+        const readRoleFileByName = vi.fn().mockResolvedValue({ markdown: "---\ndisplayName: Coord\n---\n" });
+        const deps = buildTestDeps({ birthIdentity, readIdentityFile, readRoleFileByName });
         await processBirth(makePendingBirth({ roles: [], requested_by: "aster-coordinator" }), deps);
+        expect(readRoleFileByName).toHaveBeenCalledWith(expect.anything(), "coordinator");
         expect(captured.opts?.users).toBeUndefined();
+      });
+
+      it("Test 17r3b: roleless, requester gated only by its role → copies the role's users: list", async () => {
+        const { captured, birthIdentity } = captureOpts();
+        const readIdentityFile = vi.fn().mockResolvedValue({ markdown: "---\nroles: [coordinator]\n---\n" });
+        const readRoleFileByName = vi.fn().mockResolvedValue({ markdown: "---\nusers: [ashley]\n---\n" });
+        const deps = buildTestDeps({ birthIdentity, readIdentityFile, readRoleFileByName });
+        await processBirth(makePendingBirth({ roles: [], requested_by: "aster-coordinator" }), deps);
+        expect(captured.opts?.users).toEqual(["ashley"]);
+      });
+
+      it("Test 17r3c: roleless, identity + several roles gated → intersection of every list", async () => {
+        const { captured, birthIdentity } = captureOpts();
+        const readIdentityFile = vi.fn().mockResolvedValue({
+          markdown: "---\nroles: [coordinator, scout]\nusers: [ashley, zoey, sam]\n---\n",
+        });
+        const readRoleFileByName = vi.fn().mockImplementation(async (_c: unknown, role: string) => ({
+          markdown: role === "coordinator" ? "---\nusers: [ashley, zoey]\n---\n" : "---\nusers: [zoey, sam]\n---\n",
+        }));
+        const deps = buildTestDeps({ birthIdentity, readIdentityFile, readRoleFileByName });
+        await processBirth(makePendingBirth({ roles: [], requested_by: "aster-coordinator" }), deps);
+        expect(captured.opts?.users).toEqual(["zoey"]);
+      });
+
+      it("Test 17r3d: roleless, nobody can see the requester → refused, nothing born", async () => {
+        const { birthIdentity } = captureOpts();
+        const readIdentityFile = vi.fn().mockResolvedValue({ markdown: "---\nroles: [coordinator]\nusers: [ashley]\n---\n" });
+        const readRoleFileByName = vi.fn().mockResolvedValue({ markdown: "---\nusers: [zoey]\n---\n" });
+        const deps = buildTestDeps({ birthIdentity, readIdentityFile, readRoleFileByName });
+        await processBirth(makePendingBirth({ roles: [], requested_by: "aster-coordinator" }), deps);
+        expect(birthIdentity).not.toHaveBeenCalled();
+        const [, path, body] = (deps.writeMarkdownFileAtomic as ReturnType<typeof vi.fn>).mock.calls[0];
+        expect(path).toContain(".failure.json");
+        expect(JSON.parse(body as string).reason).toBe("visibility_unresolved");
       });
 
       it("Test 17r4: roleless, request names its own users → requester not read", async () => {
@@ -676,13 +714,27 @@ describe("spawn-request worker", () => {
         expect(captured.opts?.users).toBeUndefined();
       });
 
-      it("Test 17r7: requester read failure → birth proceeds, left open", async () => {
-        const { captured, birthIdentity } = captureOpts();
+      it("Test 17r7: requester read failure → refused with visibility_unresolved, nothing born", async () => {
+        const { birthIdentity } = captureOpts();
         const readIdentityFile = vi.fn().mockRejectedValue(new Error("remote exec timeout"));
         const deps = buildTestDeps({ birthIdentity, readIdentityFile });
         await processBirth(makePendingBirth({ roles: [], requested_by: "aster-coordinator" }), deps);
-        expect(birthIdentity).toHaveBeenCalled();
-        expect(captured.opts?.users).toBeUndefined();
+        expect(birthIdentity).not.toHaveBeenCalled();
+        const [, path, body] = (deps.writeMarkdownFileAtomic as ReturnType<typeof vi.fn>).mock.calls[0];
+        expect(path).toContain(".failure.json");
+        const parsed = JSON.parse(body as string);
+        expect(parsed.reason).toBe("visibility_unresolved");
+        expect(parsed.message).toMatch(/aster-coordinator/);
+      });
+
+      it("Test 17r7b: requester identity file missing → refused with visibility_unresolved", async () => {
+        const { birthIdentity } = captureOpts();
+        const readIdentityFile = vi.fn().mockResolvedValue({ markdown: "" });
+        const deps = buildTestDeps({ birthIdentity, readIdentityFile });
+        await processBirth(makePendingBirth({ roles: [], requested_by: "aster-coordinator" }), deps);
+        expect(birthIdentity).not.toHaveBeenCalled();
+        const [, , body] = (deps.writeMarkdownFileAtomic as ReturnType<typeof vi.fn>).mock.calls[0];
+        expect(JSON.parse(body as string).reason).toBe("visibility_unresolved");
       });
 
       it("Test 17r8: a request WITH roles never reads the requester", async () => {

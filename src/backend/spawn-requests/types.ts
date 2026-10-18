@@ -185,6 +185,8 @@ export type FailureReason =
   | "pool_exhausted"
   | "matrix_creds_missing"
   | "birth_timeout"
+  // A roleless spawn naming its requester, whose visibility couldn't be read:
+  | "visibility_unresolved"
   // Role requests:
   | "avatar_failed"        // avatar generation failed; nothing was created
   | "role_create_failed";  // provisioning the role folder failed

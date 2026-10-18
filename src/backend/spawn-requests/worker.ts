@@ -23,10 +23,12 @@ import { getHostSemaphore } from "../ssh/host-semaphore-registry.js";
 import { execCommand } from "../ssh/tmux-helper.js";
 import {
   extractCosmeticsFromFrontmatter,
+  extractRolesFromMarkdown,
   IDENTITY_KEY_RE,
   isLocalHostId,
   listIdentityKeysOnHost,
   readIdentityFile,
+  readRoleFileByName,
   writeMarkdownFileAtomic,
 } from "../claude-session/identity-artifact-reader.js";
 import {
@@ -206,9 +208,12 @@ export interface WorkerDeps {
   listArchivedIdentityEntries: typeof listArchivedIdentityEntriesOnHost;
   /** Fleet name census; absent = the process-wide instance. */
   nameCensus?: FleetNameCensus;
-  /** Identity-file reader for the requester's `users:` list (roleless
+  /** Identity-file reader for the requester's visibility (roleless
    *  requests); absent = the real readIdentityFile. */
   readIdentityFile?: typeof readIdentityFile;
+  /** Role-file reader for the requester's roles' `users:` lists; absent =
+   *  the real readRoleFileByName. */
+  readRoleFileByName?: typeof readRoleFileByName;
 }
 
 // ---------------------------------------------------------------------------
@@ -233,6 +238,7 @@ export function buildProductionDeps(): WorkerDeps {
     listArchivedIdentityEntries: listArchivedIdentityEntriesOnHost,
     nameCensus: getFleetNameCensus(),
     readIdentityFile,
+    readRoleFileByName,
   };
 }
 
@@ -395,19 +401,41 @@ const freeTypedSlug = (base: string, existing: ReadonlySet<string>): string => {
 };
 
 /**
- * The requesting identity's own `users:` list, read from its identity file on
- * the target host (`~/fleet/identities/<requested_by>/<requested_by>.md`).
- * Undefined when `requested_by` isn't an identity key, the file is missing, or
- * it has no (non-empty) list — the newborn is then left open.
+ * Who can see the requesting identity, as one `users` list for a roleless
+ * newborn: the intersection of the requester's own `users:` list and each of
+ * its roles' lists, mirroring the visibility gate (an absent or empty list is
+ * no gate; a missing role file is no gate). Undefined = the requester is
+ * visible to everyone, so the newborn is left open too.
+ *
+ * THROWS when the requester's identity file can't be read or doesn't exist, or
+ * when nobody can see the requester (an empty `users:` list would fall open) —
+ * the caller refuses the spawn rather than leave the newborn open.
  */
-const readRequesterUsers = async (
+const readRequesterVisibility = async (
   conn: Awaited<ReturnType<typeof connectOneShot>> | null,
   requestedBy: string,
-  readFn: typeof readIdentityFile,
+  readIdentity: typeof readIdentityFile,
+  readRole: typeof readRoleFileByName,
 ): Promise<string[] | undefined> => {
-  if (!IDENTITY_KEY_RE.test(requestedBy)) return undefined;
-  const { markdown } = await readFn(conn, requestedBy);
-  return extractCosmeticsFromFrontmatter(markdown).users;
+  const { markdown } = await readIdentity(conn, requestedBy);
+  if (markdown.trim() === "") {
+    throw new Error(`requester identity ${requestedBy} not found on this host`);
+  }
+  const lists: string[][] = [];
+  const own = extractCosmeticsFromFrontmatter(markdown).users;
+  if (own && own.length > 0) lists.push(own);
+  for (const role of extractRolesFromMarkdown(markdown)) {
+    if (!ROLE_NAME_PATTERN.test(role)) continue;
+    const { markdown: roleMd } = await readRole(conn, role);
+    const roleUsers = extractCosmeticsFromFrontmatter(roleMd).users;
+    if (roleUsers && roleUsers.length > 0) lists.push(roleUsers);
+  }
+  if (lists.length === 0) return undefined;
+  const users = lists.reduce((acc, l) => acc.filter((u) => l.includes(u)));
+  if (users.length === 0) {
+    throw new Error(`requester identity ${requestedBy} is visible to nobody`);
+  }
+  return users;
 };
 
 export const processBirth = async (item: PendingBirth, deps: WorkerDeps): Promise<void> => {
@@ -609,15 +637,22 @@ const doBirth = async (item: PendingBirth, deps: WorkerDeps): Promise<void> => {
   // resolveFreeIdentitySlug pre-check.
   let activeFolderNames = new Set<string>();
   let archivedEntries: readonly ArchivedIdentityEntry[] = [];
-  // Roleless request with no `users` of its own: inherit the requesting
-  // identity's `users:` list (read over the same connection below), so a
-  // plain agent spawned by a private agent stays private.
+  // Roleless request with no `users` of its own, naming its requester:
+  // inherit who can see the requester (read over the same connection below),
+  // so a plain agent spawned by a private agent stays private. A
+  // `requested_by` that isn't an identity key names no agent — left open.
   const requestedBy = item.requested_by;
   const inheritRequesterUsers =
     item.roles.length === 0 &&
     (item.users === undefined || item.users.length === 0) &&
-    requestedBy !== undefined;
+    requestedBy !== undefined &&
+    IDENTITY_KEY_RE.test(requestedBy);
   let requesterUsers: string[] | undefined;
+  // Stays set unless the requester's visibility was actually read — a read
+  // failure or a total enumeration failure refuses the spawn below.
+  let requesterVisibilityError: string | undefined = inheritRequesterUsers
+    ? "host unreachable while reading the requester"
+    : undefined;
   let enumConn: Awaited<ReturnType<typeof connectOneShot>> | null = null;
   // REMOTE: the handshake and each of the two parallel exec channels take
   // their own slot on the shared per-host semaphore (verify:ssh-cap), so the
@@ -683,23 +718,37 @@ const doBirth = async (item: PendingBirth, deps: WorkerDeps): Promise<void> => {
       }),
       inheritRequesterUsers
         ? withSlot(() =>
-            readRequesterUsers(enumConn, requestedBy, deps.readIdentityFile ?? readIdentityFile),
-          ).catch((err: unknown) => {
-            systemLogger.warn(
-              "spawn-request worker: requester identity read failed — roleless newborn left open",
-              {
-                operation: "spawn_request_requester_users_read_failed",
-                uuid: item.uuid,
-                hostId: item.hostIdNum,
-                identityKey: requestedBy,
-                error: err instanceof Error ? err.message : String(err),
-              },
-            );
-            return undefined;
-          })
+            readRequesterVisibility(
+              enumConn,
+              requestedBy,
+              deps.readIdentityFile ?? readIdentityFile,
+              deps.readRoleFileByName ?? readRoleFileByName,
+            ),
+          ).then(
+            (users) => ({ ok: true as const, users }),
+            (err: unknown) => {
+              const error = err instanceof Error ? err.message : String(err);
+              systemLogger.warn(
+                "spawn-request worker: requester visibility unresolved — roleless spawn will be refused",
+                {
+                  operation: "spawn_request_requester_users_read_failed",
+                  uuid: item.uuid,
+                  hostId: item.hostIdNum,
+                  identityKey: requestedBy,
+                  error,
+                },
+              );
+              return { ok: false as const, error };
+            },
+          )
         : Promise.resolve(undefined),
     ]);
-    requesterUsers = requesterUsersRead;
+    if (requesterUsersRead?.ok) {
+      requesterUsers = requesterUsersRead.users;
+      requesterVisibilityError = undefined;
+    } else if (requesterUsersRead) {
+      requesterVisibilityError = requesterUsersRead.error;
+    }
     // Reduce full folder names (`clipper-box-maintainer-3`) to pool bases
     // (`clipper`) before handing to the ranker — its filter compares against
     // pool bases, and a shape mismatch silently bypasses the LRU logic
@@ -740,7 +789,15 @@ const doBirth = async (item: PendingBirth, deps: WorkerDeps): Promise<void> => {
       identityKey: requestedBy,
       inherited: requesterUsers !== undefined,
       users: requesterUsers ?? null,
+      refused: requesterVisibilityError !== undefined,
     });
+    if (requesterVisibilityError !== undefined) {
+      await writeFailureFile(item, deps, {
+        reason: "visibility_unresolved",
+        message: `Could not work out who can see ${requestedBy} (${requesterVisibilityError}); a plain agent spawned by it would have been visible to everyone, so nothing was created.`,
+      });
+      return;
+    }
   }
 
   // Fold in the fleet name census (names live on other machines, newest
