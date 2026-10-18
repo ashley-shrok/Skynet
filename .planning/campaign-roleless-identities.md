@@ -42,7 +42,7 @@ and invite drift.
 - Cross-machine spawns of a plain agent that name their requester are refused (requester's file isn't on the target machine, so its visibility can't be read) — noted-only; fail-closed by design, revisit if cross-box roleless spawns become common.
 - Code-review fixes applied: un-archive refuses an unreadable identity file; strict role reads for spawn visibility; picker default tracks machine count / shell toggle / failed role load; `roles: null` / `~` / `""` mean zero roles in every parser; spawn example names its requester — done.
 
-- UAT follow-ups (b1cc498f): agent picker + new scheduled tasks limited to fleet machines; explicit "No roles" in scheduled tasks; births skip handles whose folder exists live or archived on the target machine — pushed 2026-10-18, NOT deployed (Ashley: "Push but don't deploy").
+- UAT follow-ups (b1cc498f): agent picker + new scheduled tasks limited to fleet machines; explicit "No roles" in scheduled tasks; births skip handles whose folder exists live or archived on the target machine — pushed 2026-10-18, NOT deployed (user: "Push but don't deploy").
 - Post-deploy check still owed: spawn a roleless agent, archive it, un-archive it (the archive step is what broke for "ace"/"anchor", now archived as ace-2/anchor-2) — noted-only; owner archived before deploy.
 
 ## Lingerers (explicitly approved)
