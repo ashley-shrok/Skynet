@@ -640,7 +640,8 @@ export function ScheduledAgentsModalForm({
                 <button
                   type="button"
                   onClick={toggleNoRoles}
-                  aria-pressed={noRoles}
+                  role="checkbox"
+                  aria-checked={noRoles}
                   className="inline-flex items-center gap-1 rounded-full px-2 py-[2px] text-[11px] font-medium leading-[16px] cursor-pointer"
                   style={noRoles ? ROLE_CHIP_SELECTED : ROLE_CHIP_ADDABLE}
                   data-testid="scheduled-agents-modal-form-no-roles"

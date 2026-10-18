@@ -872,7 +872,7 @@ describe("ScheduledAgentsModal: UAT 2026-10-01", () => {
     await screen.findByTestId("scheduled-agents-modal-form-role-addable-assistant");
     const noRoles = screen.getByTestId("scheduled-agents-modal-form-no-roles");
     expect(noRoles).toHaveTextContent("No roles");
-    expect(noRoles).toHaveAttribute("aria-pressed", "false");
+    expect(noRoles).toHaveAttribute("aria-checked", "false");
     expect(screen.getByTestId("scheduled-agents-modal-form-roles-hint")).toHaveTextContent(
       "Pick roles, or No roles.",
     );
@@ -882,7 +882,7 @@ describe("ScheduledAgentsModal: UAT 2026-10-01", () => {
     expect(saveBtn.disabled).toBe(true);
 
     fireEvent.click(noRoles);
-    expect(noRoles).toHaveAttribute("aria-pressed", "true");
+    expect(noRoles).toHaveAttribute("aria-checked", "true");
     expect(screen.queryByTestId("scheduled-agents-modal-form-roles-hint")).toBeNull();
     expect(saveBtn.disabled).toBe(false);
 
@@ -906,30 +906,30 @@ describe("ScheduledAgentsModal: UAT 2026-10-01", () => {
 
     // "No roles" → picking a role clears it.
     fireEvent.click(noRoles);
-    expect(noRoles).toHaveAttribute("aria-pressed", "true");
+    expect(noRoles).toHaveAttribute("aria-checked", "true");
     fireEvent.click(await screen.findByTestId("scheduled-agents-modal-form-role-addable-assistant"));
-    expect(noRoles).toHaveAttribute("aria-pressed", "false");
+    expect(noRoles).toHaveAttribute("aria-checked", "false");
     expect(screen.getByTestId("scheduled-agents-modal-form-role-selected-assistant")).toBeInTheDocument();
     expect(saveBtn.disabled).toBe(false);
 
     // Picking "No roles" clears the roles.
     fireEvent.click(screen.getByTestId("scheduled-agents-modal-form-role-addable-ops"));
     fireEvent.click(noRoles);
-    expect(noRoles).toHaveAttribute("aria-pressed", "true");
+    expect(noRoles).toHaveAttribute("aria-checked", "true");
     expect(screen.queryByTestId("scheduled-agents-modal-form-role-selected-assistant")).toBeNull();
     expect(screen.queryByTestId("scheduled-agents-modal-form-role-selected-ops")).toBeNull();
 
     // Unticking the last role does NOT fall back to "No roles".
     fireEvent.click(screen.getByTestId("scheduled-agents-modal-form-role-addable-ops"));
     fireEvent.click(screen.getByTestId("scheduled-agents-modal-form-role-selected-ops"));
-    expect(noRoles).toHaveAttribute("aria-pressed", "false");
+    expect(noRoles).toHaveAttribute("aria-checked", "false");
     expect(saveBtn.disabled).toBe(true);
     expect(screen.getByTestId("scheduled-agents-modal-form-roles-hint")).toBeInTheDocument();
 
     // Unticking "No roles" leaves nothing picked either.
     fireEvent.click(noRoles);
     fireEvent.click(noRoles);
-    expect(noRoles).toHaveAttribute("aria-pressed", "false");
+    expect(noRoles).toHaveAttribute("aria-checked", "false");
     expect(saveBtn.disabled).toBe(true);
   });
 
@@ -941,7 +941,7 @@ describe("ScheduledAgentsModal: UAT 2026-10-01", () => {
     render(<ScheduledAgentsModal open={true} onOpenChange={vi.fn()} hostTree={ONE_HOST_TREE} />);
     fireEvent.click(await screen.findByText("Morning triage"));
     const noRoles = await screen.findByTestId("scheduled-agents-modal-form-no-roles");
-    expect(noRoles).toHaveAttribute("aria-pressed", "true");
+    expect(noRoles).toHaveAttribute("aria-checked", "true");
     const saveBtn = screen.getByTestId("scheduled-agents-modal-form-save") as HTMLButtonElement;
     expect(saveBtn.disabled).toBe(false);
     fireEvent.click(saveBtn);
@@ -954,7 +954,7 @@ describe("ScheduledAgentsModal: UAT 2026-10-01", () => {
     render(<ScheduledAgentsModal open={true} onOpenChange={vi.fn()} hostTree={ONE_HOST_TREE} />);
     fireEvent.click(await screen.findByText("Morning triage"));
     const noRoles = await screen.findByTestId("scheduled-agents-modal-form-no-roles");
-    expect(noRoles).toHaveAttribute("aria-pressed", "false");
+    expect(noRoles).toHaveAttribute("aria-checked", "false");
     expect(screen.getByTestId("scheduled-agents-modal-form-role-selected-assistant")).toBeInTheDocument();
   });
 
