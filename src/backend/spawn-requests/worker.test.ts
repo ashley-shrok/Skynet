@@ -649,7 +649,7 @@ describe("spawn-request worker", () => {
         const readRoleFileByName = vi.fn().mockResolvedValue({ markdown: "---\ndisplayName: Coord\n---\n" });
         const deps = buildTestDeps({ birthIdentity, readIdentityFile, readRoleFileByName });
         await processBirth(makePendingBirth({ roles: [], requested_by: "aster-coordinator" }), deps);
-        expect(readRoleFileByName).toHaveBeenCalledWith(expect.anything(), "coordinator");
+        expect(readRoleFileByName).toHaveBeenCalledWith(expect.anything(), "coordinator", { strict: true });
         expect(captured.opts?.users).toBeUndefined();
       });
 
@@ -673,6 +673,17 @@ describe("spawn-request worker", () => {
         const deps = buildTestDeps({ birthIdentity, readIdentityFile, readRoleFileByName });
         await processBirth(makePendingBirth({ roles: [], requested_by: "aster-coordinator" }), deps);
         expect(captured.opts?.users).toEqual(["zoey"]);
+      });
+
+      it("Test 17r3e: roleless, a requester role file can't be read → refused, nothing born", async () => {
+        const { birthIdentity } = captureOpts();
+        const readIdentityFile = vi.fn().mockResolvedValue({ markdown: "---\nroles: [coordinator]\n---\n" });
+        const readRoleFileByName = vi.fn().mockRejectedValue(new Error("cat: Permission denied"));
+        const deps = buildTestDeps({ birthIdentity, readIdentityFile, readRoleFileByName });
+        await processBirth(makePendingBirth({ roles: [], requested_by: "aster-coordinator" }), deps);
+        expect(birthIdentity).not.toHaveBeenCalled();
+        const [, , body] = (deps.writeMarkdownFileAtomic as ReturnType<typeof vi.fn>).mock.calls[0];
+        expect(JSON.parse(body as string).reason).toBe("visibility_unresolved");
       });
 
       it("Test 17r3d: roleless, nobody can see the requester → refused, nothing born", async () => {

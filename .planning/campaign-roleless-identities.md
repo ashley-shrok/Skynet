@@ -39,6 +39,9 @@ and invite drift.
 
 ## Other work
 
+- Cross-machine spawns of a plain agent that name their requester are refused (requester's file isn't on the target machine, so its visibility can't be read) — noted-only; fail-closed by design, revisit if cross-box roleless spawns become common.
+- Code-review fixes applied: un-archive refuses an unreadable identity file; strict role reads for spawn visibility; picker default tracks machine count / shell toggle / failed role load; `roles: null` / `~` / `""` mean zero roles in every parser; spawn example names its requester — done.
+
 ## Lingerers (explicitly approved)
 
 ## Open questions

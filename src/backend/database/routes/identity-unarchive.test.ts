@@ -630,6 +630,39 @@ describe("POST /identities/:key/unarchive", () => {
     expect(writeIdentityArchiveFile).toHaveBeenCalledTimes(2);
   });
 
+  it("Test 5e: archived identity file missing → 409 identity_unreadable, nothing restored", async () => {
+    mockPython3Returns("[]");
+    mockFsAccess.mockImplementation((p: string) => {
+      if (p.startsWith(FAKE_LIVE_ROOT) || p.endsWith(".md")) {
+        return Promise.reject(Object.assign(new Error("ENOENT"), { code: "ENOENT" }));
+      }
+      return Promise.resolve();
+    });
+    const res = await httpRequest(server, {
+      method: "POST",
+      path: "/identities/wren/unarchive",
+      body: { hostId: 42 },
+    });
+    expect(res.status).toBe(409);
+    expect(res.body).toEqual({ reason: "identity_unreadable" });
+    expect(createOrUpdateUser).not.toHaveBeenCalled();
+    expect(writeIdentityArchiveFile).not.toHaveBeenCalled();
+  });
+
+  it("Test 5f: roles parse failure → 409 identity_unreadable (never treated as roleless)", async () => {
+    mockExecFile.mockImplementation((_c: string, _a: string[], callback: ExecFileCallback) => {
+      callback(new Error("python3 crashed"), "", "boom");
+    });
+    const res = await httpRequest(server, {
+      method: "POST",
+      path: "/identities/wren/unarchive",
+      body: { hostId: 42 },
+    });
+    expect(res.status).toBe(409);
+    expect(res.body).toEqual({ reason: "identity_unreadable" });
+    expect(createOrUpdateUser).not.toHaveBeenCalled();
+  });
+
   it("Test 5c: roles are read from the real identity file `<key>/<key>.md`", async () => {
     mockPython3Returns('["ops-oncall"]');
     await httpRequest(server, {
@@ -925,6 +958,23 @@ describe("POST /identities/:key/unarchive", () => {
   // -------------------------------------------------------------------------
   // Test 17: Happy REMOTE — Matrix flow runs; conn threaded through read + write
   // -------------------------------------------------------------------------
+
+  it("Test 17m: REMOTE archived identity file missing → 409 identity_unreadable", async () => {
+    (execCommand as Mock).mockImplementation((_conn, cmd: string) => {
+      if (cmd.includes("if [ -f")) return Promise.resolve("__SKYNET_IDENTITY_FILE_MISSING__");
+      if (cmd.includes("identities-archive/wren")) return Promise.resolve("yes\n");
+      if (cmd.includes("identities/wren")) return Promise.resolve("no\n");
+      return Promise.resolve("");
+    });
+    const res = await httpRequest(server, {
+      method: "POST",
+      path: "/identities/wren/unarchive",
+      body: { hostId: 43 },
+    });
+    expect(res.status).toBe(409);
+    expect(res.body).toEqual({ reason: "identity_unreadable" });
+    expect(createOrUpdateUser).not.toHaveBeenCalled();
+  });
 
   it("Test 17: happy REMOTE → conn threaded through readIdentityArchiveFile + both writes; sentinel dropped last", async () => {
     // On REMOTE, the preconditions use `test -d` via execCommand. Shape the

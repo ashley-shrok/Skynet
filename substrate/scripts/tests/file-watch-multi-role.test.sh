@@ -45,6 +45,11 @@
 #          identity-file edits still fire.
 #   T-M12 — first role ADDED to a `roles: []` identity: pointer line, the
 #          new role file is then watched.
+#   T-M13 — last role REMOVED mid-session by writing `roles: null` (YAML
+#          null = no roles): same as T-M11 — removal line, re-exec, no
+#          "unusable" diagnostic, watcher keeps running.
+#   T-M14 — startup with `roles: null` / `~` / `""` / `''`: zero roles, the
+#          watcher keeps running, watches the identity file, logs nothing.
 #
 # Exits 0 on all-pass; 1 on any failure with a diagnostic naming the failing
 # test.
@@ -683,6 +688,84 @@ test_T_M12_first_role_added() {
   fi
 }
 
+# ============================================================
+# T-M13: last role removed mid-session by writing `roles: null` → treated
+# as zero roles (same as `roles: []`), not as malformed.
+# ============================================================
+test_T_M13_last_role_removed_via_null() {
+  local name="nullname"
+  seed_multi_role_fixture "$name" "roles: [nullrole]" nullrole
+  local bdir="$IDENT_DIR/file-watch"
+  launch_watcher "$HOME_DIR" "$IDENT_DIR"
+  if ! wait_for_baseline "$bdir/last-snapshot.role.nullrole"; then
+    fail "T-M13: nullrole baseline never landed (err=$(cat "$ERR_LOG"))"; return
+  fi
+  wait_for_baseline "$bdir/last-snapshot.identity" || true
+  sleep 1
+  write_identity_fm "roles: null"
+  if ! wait_for_stdout_match '📝 \[role-file: nullrole\] you no longer hold role nullrole' "$OUT_LOG"; then
+    fail "T-M13: no removal line; out=$(cat "$OUT_LOG"); err=$(cat "$ERR_LOG")"; return
+  fi
+  local elapsed=0
+  while [ -f "$bdir/last-snapshot.role.nullrole" ] && [ "$elapsed" -lt 50 ]; do
+    sleep 0.1; elapsed=$((elapsed + 1))
+  done
+  if [ -f "$bdir/last-snapshot.role.nullrole" ]; then
+    fail "T-M13: nullrole baseline not removed"; return
+  fi
+  sleep 1.5
+  if ! kill -0 "$WATCHER_PID" 2>/dev/null; then
+    fail "T-M13: watcher died after roles: null (err=$(cat "$ERR_LOG"))"; return
+  fi
+  if grep -qE "unusable|role 'null'" "$ERR_LOG"; then
+    fail "T-M13: roles: null not read as zero roles; err=$(cat "$ERR_LOG")"; return
+  fi
+  atomic_write "$ROLE_MD_1" "# nullrole (edited after removal)
+"
+  write_identity_fm "roles: null
+task: still watched"
+  if ! wait_for_stdout_match '📝 \[identity-file: nullname\] .*still watched' "$OUT_LOG"; then
+    fail "T-M13: identity edit not emitted with roles: null; out=$(cat "$OUT_LOG"); err=$(cat "$ERR_LOG")"; return
+  fi
+  if grep -q 'nullrole (edited after removal)' "$OUT_LOG"; then
+    fail "T-M13: removed role's edit still emitted; out=$(cat "$OUT_LOG")"; return
+  fi
+}
+
+# ============================================================
+# T-M14: startup with a YAML-null / empty-string roles value → zero roles,
+# watcher keeps running (no exit, no diagnostic).
+# ============================================================
+test_T_M14_startup_null_roles_keeps_running() {
+  local val i=0
+  for val in "null" "~" '""' "''"; do
+    i=$((i + 1))
+    local name="nullstart$i"
+    seed_multi_role_fixture "$name" "roles: $val" somerole
+    local bdir="$IDENT_DIR/file-watch"
+    launch_watcher "$HOME_DIR" "$IDENT_DIR"
+    if ! wait_for_baseline "$bdir/last-snapshot.identity"; then
+      fail "T-M14[roles: $val]: identity baseline never landed (err=$(cat "$ERR_LOG"))"; return
+    fi
+    sleep 1
+    if ! kill -0 "$WATCHER_PID" 2>/dev/null; then
+      fail "T-M14[roles: $val]: watcher exited at startup (err=$(cat "$ERR_LOG"))"; return
+    fi
+    if [ -s "$ERR_LOG" ]; then
+      fail "T-M14[roles: $val]: stderr not empty; err=$(cat "$ERR_LOG")"; return
+    fi
+    if ls "$bdir"/last-snapshot.role.* >/dev/null 2>&1; then
+      fail "T-M14[roles: $val]: a role baseline was written"; return
+    fi
+    write_identity_fm "roles: $val
+task: edited $i"
+    if ! wait_for_stdout_match "📝 \[identity-file: $name\] .*edited $i" "$OUT_LOG"; then
+      fail "T-M14[roles: $val]: identity edit not emitted; out=$(cat "$OUT_LOG"); err=$(cat "$ERR_LOG")"; return
+    fi
+    kill "$WATCHER_PID" 2>/dev/null
+  done
+}
+
 # ---- run ----
 
 run_test test_T_M1_flow_list_both_watched
@@ -697,6 +780,8 @@ run_test test_T_M9_role_removed_mid_session
 run_test test_T_M10_invalid_roles_edit_keeps_old_set
 run_test test_T_M11_last_role_removed
 run_test test_T_M12_first_role_added
+run_test test_T_M13_last_role_removed_via_null
+run_test test_T_M14_startup_null_roles_keeps_running
 
 # ---- summary ----
 

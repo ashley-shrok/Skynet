@@ -1507,8 +1507,9 @@ the body corrupts parsing.
     UUID=$(uuidgen); export TS=$(date -u +%Y-%m-%dT%H:%M:%SZ)
     export TASK='<short task pill, ≤500 chars>'
     export PROMPT='<full instructions the fresh actor receives via /id load>'
-    export ROLE='<role slug>'
-    python3 -c "import json, os; print(json.dumps({'roles': [os.environ['ROLE']], 'task': os.environ['TASK'], 'prompt': os.environ['PROMPT'], 'requested_at': os.environ['TS']}, separators=(',', ':')))" \
+    export ROLE='<role slug>'          # or ROLE='' for a plain agent with no roles
+    export ME='<your identity name>'
+    python3 -c "import json, os; r = os.environ['ROLE']; print(json.dumps({'roles': [r] if r else [], 'task': os.environ['TASK'], 'prompt': os.environ['PROMPT'], 'requested_at': os.environ['TS'], 'requested_by': os.environ['ME']}, separators=(',', ':')))" \
       > ~/fleet/spawn-requests/$UUID.json.tmp
     mv ~/fleet/spawn-requests/$UUID.json.tmp ~/fleet/spawn-requests/$UUID.json
 

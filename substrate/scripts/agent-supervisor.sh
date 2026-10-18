@@ -1733,6 +1733,8 @@ def parse_roles_frontmatter(text):
         if not m:
             continue
         inline = re.sub(r"(^|\s)#.*$", "", m.group(1)).strip()
+        if inline in ("~", "null", "Null", "NULL"):
+            break  # YAML null (`roles: ~` / `roles: null`): zero roles
         if inline:
             if inline.startswith("[") and inline.endswith("]"):
                 inline = inline[1:-1]

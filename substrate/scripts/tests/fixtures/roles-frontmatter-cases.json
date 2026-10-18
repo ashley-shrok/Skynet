@@ -33,5 +33,14 @@
   {"name": "indented item without dash", "md": "---\nroles:\n  a\n---\n", "roles": []},
   {"name": "tab-indented key not matched", "md": "---\n\troles: a\n---\n", "roles": []},
   {"name": "folded scalar marker", "md": "---\nroles: >\n  a\n---\n", "roles": []},
-  {"name": "numeric-looking slug stays a string", "md": "---\nroles: [007]\n---\n", "roles": ["007"]}
+  {"name": "numeric-looking slug stays a string", "md": "---\nroles: [007]\n---\n", "roles": ["007"]},
+  {"name": "empty double-quoted string", "md": "---\nroles: \"\"\ntask: x\n---\n", "roles": []},
+  {"name": "empty single-quoted string", "md": "---\nroles: ''\ntask: x\n---\n", "roles": []},
+  {"name": "YAML null tilde", "md": "---\nroles: ~\ntask: x\n---\n", "roles": []},
+  {"name": "YAML null lowercase", "md": "---\nroles: null\ntask: x\n---\n", "roles": []},
+  {"name": "YAML null capitalized", "md": "---\nroles: Null\n---\n", "roles": []},
+  {"name": "YAML null uppercase", "md": "---\nroles: NULL\n---\n", "roles": []},
+  {"name": "YAML null with trailing comment", "md": "---\nroles: null  # dropped my last role\n---\n", "roles": []},
+  {"name": "YAML null does not read a following block list", "md": "---\nroles: null\n  - a\n---\n", "roles": []},
+  {"name": "quoted null is a role name, not YAML null", "md": "---\nroles: \"null\"\n---\n", "roles": ["null"]}
 ]

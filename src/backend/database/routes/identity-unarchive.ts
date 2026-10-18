@@ -192,6 +192,8 @@ const EXTRACT_ROLES_PYTHON = [
   "        if not m:",
   "            continue",
   "        inline = re.sub(r\"(^|\\s)#.*$\", \"\", m.group(1)).strip()",
+  "        if inline in (\"~\", \"null\", \"Null\", \"NULL\"):",
+  "            break  # YAML null: zero roles",
   "        if inline:",
   "            if inline.startswith(\"[\") and inline.endswith(\"]\"):",
   "                inline = inline[1:-1]",
@@ -220,37 +222,37 @@ const EXTRACT_ROLES_PYTHON = [
 
 /**
  * Parse the `roles:` frontmatter from a LOCAL identity.md file using the Python
- * inline (D-02). Returns a list of role names. Returns [] on file-not-found or
- * any parse failure (the precondition is vacuously satisfied with an empty list).
+ * inline (D-02). Returns a list of role names ([] = a roleless identity), or
+ * null when the file is missing or couldn't be read/parsed — "couldn't tell"
+ * must never pass as "no roles", or the role check would be skipped.
  */
 async function parseRolesFromLocalIdentityMd(
   identityMdPath: string,
-): Promise<string[]> {
+): Promise<string[] | null> {
   try {
     await fs.access(identityMdPath);
   } catch {
-    // identity.md missing — treat as no roles (precondition satisfied).
-    return [];
+    return null;
   }
   try {
     const { stdout } = await execFileAsync("python3", ["-c", EXTRACT_ROLES_PYTHON, identityMdPath]);
     const roles = JSON.parse(stdout.trim() || "[]") as string[];
-    return Array.isArray(roles) ? roles : [];
+    return Array.isArray(roles) ? roles : null;
   } catch {
-    // Parse failure → treat as empty roles list (precondition satisfied).
-    return [];
+    return null;
   }
 }
 
 /**
  * Parse the `roles:` frontmatter from a REMOTE identity.md file using the Python
- * inline over SSH (D-02). Returns a list of role names. Returns [] on any error.
+ * inline over SSH (D-02). Returns a list of role names ([] = a roleless
+ * identity), or null when the file is missing or couldn't be read/parsed.
  */
 async function parseRolesFromRemoteIdentityMd(
   conn: Awaited<ReturnType<typeof connectOneShot>>,
   key: string,
-): Promise<string[]> {
-  // cat the file; if missing (cat exits non-zero) we get empty output — treat as no roles.
+): Promise<string[] | null> {
+  const MISSING = "__SKYNET_IDENTITY_FILE_MISSING__";
   let fileContent: string;
   try {
     fileContent = await execCommand(
@@ -258,13 +260,17 @@ async function parseRolesFromRemoteIdentityMd(
       // Identity files are `<key>/<key>.md`; `identity.md` kept as a legacy
       // fallback. (Reading only identity.md made roles always [] → the
       // missing_roles precondition never fired and the supervisor refused
-      // silently after a 200.)
-      `cat "$HOME/fleet/identities-archive/${key}/${key}.md" 2>/dev/null || cat "$HOME/fleet/identities-archive/${key}/identity.md" 2>/dev/null || true`,
+      // silently after a 200.) A missing file prints a marker rather than
+      // nothing, so it can't be mistaken for a roleless identity.
+      `d="$HOME/fleet/identities-archive/${key}"; if [ -f "$d/${key}.md" ]; then cat "$d/${key}.md"; elif [ -f "$d/identity.md" ]; then cat "$d/identity.md"; else printf '%s' '${MISSING}'; fi`,
     );
   } catch {
-    return [];
+    return null;
   }
 
+  if (fileContent.trim() === MISSING) {
+    return null;
+  }
   if (!fileContent.trim()) {
     return [];
   }
@@ -288,7 +294,7 @@ async function parseRolesFromRemoteIdentityMd(
     ].join(" && ");
     const result = await execCommand(conn, cmd);
     const parsed = JSON.parse(result.trim() || "[]") as string[];
-    return Array.isArray(parsed) ? parsed : [];
+    return Array.isArray(parsed) ? parsed : null;
   } catch {
     // Clean up on error
     try {
@@ -296,7 +302,7 @@ async function parseRolesFromRemoteIdentityMd(
     } catch {
       /* ignore */
     }
-    return [];
+    return null;
   }
 }
 
@@ -430,19 +436,32 @@ router.post(
         // Parse the archived identity's roles: frontmatter and check every listed
         // role has a live folder. Refuse with missingRoles listing if any are
         // still archived.
-        let roles: string[];
+        let roles: string[] | null;
         if (conn === null) {
           // LOCAL branch
           // `<key>/<key>.md` is the identity file; identity.md is a legacy
           // fallback (see the remote branch).
           const archivedDir = path.join(getLocalArchivedIdentitiesRoot(), key);
-          roles = await parseRolesFromLocalIdentityMd(path.join(archivedDir, `${key}.md`));
-          if (roles.length === 0) {
-            roles = await parseRolesFromLocalIdentityMd(path.join(archivedDir, "identity.md"));
-          }
+          const primary = path.join(archivedDir, `${key}.md`);
+          const primaryExists = await fs.access(primary).then(() => true, () => false);
+          roles = await parseRolesFromLocalIdentityMd(
+            primaryExists ? primary : path.join(archivedDir, "identity.md"),
+          );
         } else {
           // REMOTE branch
           roles = await parseRolesFromRemoteIdentityMd(conn, key);
+        }
+
+        if (roles === null) {
+          // Missing or unreadable identity file. Refuse BEFORE any Matrix
+          // work — treating it as roleless would skip the role check and
+          // leave a half-restored identity the supervisor then refuses.
+          databaseLogger.warn("identity-unarchive: identity file unreadable, refusing", {
+            operation: "identity_unarchive_identity_unreadable",
+            identityKey: key,
+            hostId,
+          });
+          return res.status(409).json({ reason: "identity_unreadable" });
         }
 
         if (roles.length === 0) {

@@ -13,6 +13,8 @@ key in whatever shape comes to mind, so every reader accepts all of these
 Trailing `# comments` are ignored. Only the first `---` … `---` block is read.
 The singular `role:` key is NOT read. Names failing ROLES_SLUG_RE are dropped;
 duplicates collapse keeping first occurrence. Returns [] when nothing valid.
+An unquoted YAML null (`roles: ~` / `null` / `Null` / `NULL`) and an empty
+quoted string (`roles: ""` / `''`) mean zero roles, same as `roles: []`.
 
 Copies live in: file-watch.py, fleet-status-sweep.py, ambient-monitor.py,
 agent-supervisor.sh (embedded), and src/backend/database/routes/identity-unarchive.ts
@@ -46,6 +48,8 @@ def parse_roles_frontmatter(text):
         if not m:
             continue
         inline = re.sub(r"(^|\s)#.*$", "", m.group(1)).strip()
+        if inline in ("~", "null", "Null", "NULL"):
+            break  # YAML null (`roles: ~` / `roles: null`): zero roles
         if inline:
             if inline.startswith("[") and inline.endswith("]"):
                 inline = inline[1:-1]

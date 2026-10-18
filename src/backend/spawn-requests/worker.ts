@@ -407,7 +407,8 @@ const freeTypedSlug = (base: string, existing: ReadonlySet<string>): string => {
  * no gate; a missing role file is no gate). Undefined = the requester is
  * visible to everyone, so the newborn is left open too.
  *
- * THROWS when the requester's identity file can't be read or doesn't exist, or
+ * THROWS when the requester's identity file or one of its role files can't be
+ * read, the identity file doesn't exist, or
  * when nobody can see the requester (an empty `users:` list would fall open) —
  * the caller refuses the spawn rather than leave the newborn open.
  */
@@ -426,7 +427,9 @@ const readRequesterVisibility = async (
   if (own && own.length > 0) lists.push(own);
   for (const role of extractRolesFromMarkdown(markdown)) {
     if (!ROLE_NAME_PATTERN.test(role)) continue;
-    const { markdown: roleMd } = await readRole(conn, role);
+    // Strict: a role file that exists but can't be read throws (→ refused)
+    // rather than silently dropping that role's restriction.
+    const { markdown: roleMd } = await readRole(conn, role, { strict: true });
     const roleUsers = extractCosmeticsFromFrontmatter(roleMd).users;
     if (roleUsers && roleUsers.length > 0) lists.push(roleUsers);
   }

@@ -482,7 +482,13 @@ export function NewSessionDialog({
   // re-runs on every `flatHosts` change while open, and re-seeding then would
   // silently revert picks the user changed since.
   const seededThisOpenRef = useRef(false);
-  const noRolesDefaultedRef = useRef(false);
+  // The user (or a pre-fill seed) has made a roles pick this open, so the
+  // one-machine "No roles" default must not override it. Cleared on close and
+  // on entering shell-only mode (which drops all picks).
+  const rolesTouchedRef = useRef(false);
+  // The current "No roles" pick is the untouched one-machine default, not a
+  // choice — so it is withdrawn if a second machine appears.
+  const noRolesIsDefaultRef = useRef(false);
   useEffect(() => {
     if (open) {
       const firstRun = !seededThisOpenRef.current;
@@ -497,7 +503,7 @@ export function NewSessionDialog({
         const seedRoles = initialRoles ?? (initialRole ? [initialRole] : []);
         if (firstRun && seedRoles.length > 0 && !shellOnly) {
           setSelectedRoles(seedRoles);
-          noRolesDefaultedRef.current = true;
+          rolesTouchedRef.current = true;
         }
         if (firstRun && initialName) {
           nameRef.current = initialName;
@@ -507,19 +513,15 @@ export function NewSessionDialog({
       } else if (flatHosts.length === 1) {
         setSelectedHost(flatHosts[0]);
       }
-      // One machine and no seeded roles: "No roles" is preselected, so Create
-      // works straight away. Applied once per open so a later pick is never
-      // reverted.
-      if (flatHosts.length === 1 && !noRolesDefaultedRef.current) {
-        noRolesDefaultedRef.current = true;
-        setNoRoles(true);
-      }
+      // The one-machine "No roles" default is applied by its own effect
+      // below, which tracks the machine count for as long as the dialog is open.
       // Phase 86 Plan 86-04: initialBrief seeding removed with the brief
       // textarea (cosmetic-strip per D-CTX-86-surface-4). Prop still
       // accepted for backward-compat but ignored.
     } else {
       seededThisOpenRef.current = false;
-      noRolesDefaultedRef.current = false;
+      rolesTouchedRef.current = false;
+      noRolesIsDefaultRef.current = false;
       // Abort any in-flight birth stream
       abortControllerRef.current?.abort();
       // Reset all state to defaults on close
@@ -586,6 +588,10 @@ export function NewSessionDialog({
       if (shellOnly) {
         setSelectedRoles((prev) => (prev.length > 0 ? [] : prev));
         setNoRoles(false);
+        // Leaving shell-only mode starts the roles pick fresh, so the
+        // one-machine default applies again.
+        rolesTouchedRef.current = false;
+        noRolesIsDefaultRef.current = false;
       }
       return;
     }
@@ -617,6 +623,27 @@ export function NewSessionDialog({
     }
   }, [open, shellOnly, flatHosts]);
 
+  // One-machine "No roles" default. While there is exactly one pickable
+  // machine and nothing has been picked by the user (or seeded), "No roles" is
+  // preselected so Create works straight away. It tracks the machine count:
+  // if a second machine appears while the pick is still the untouched
+  // default, the default is withdrawn (several machines → nothing
+  // preselected, Create disabled until the user picks).
+  useEffect(() => {
+    if (!open || shellOnly) return;
+    if (flatHosts.length === 1) {
+      if (!rolesTouchedRef.current && !noRoles && selectedRoles.length === 0) {
+        noRolesIsDefaultRef.current = true;
+        setNoRoles(true);
+      }
+    } else if (noRolesIsDefaultRef.current) {
+      noRolesIsDefaultRef.current = false;
+      setNoRoles(false);
+      // The sole-machine auto-pick goes with it; a caller-supplied host stays.
+      if (!initialHost) setSelectedHost(null);
+    }
+  }, [open, shellOnly, flatHosts, noRoles, selectedRoles, initialHost]);
+
   // Phase 22 SRIC-05 Test 6: stale-role guard. After the picked host's roles
   // land, if selectedRoles was seeded from initialRole (chain pre-fill) but
   // that role name is not actually present on that host, clear the
@@ -632,7 +659,10 @@ export function NewSessionDialog({
     if (valid.length !== selectedRoles.length) {
       setSelectedRoles(valid);
       // With one machine an empty pick is "No roles", as on open.
-      if (valid.length === 0 && !multiHost) setNoRoles(true);
+      if (valid.length === 0 && !multiHost) {
+        noRolesIsDefaultRef.current = true;
+        setNoRoles(true);
+      }
     }
   }, [rolesForHost, rolesLoading, selectedRoles, multiHost]);
 
@@ -641,12 +671,14 @@ export function NewSessionDialog({
   // roles are on all of them); with one host it is the bare role name.
   // Each host's entries start with "No roles" (value NO_ROLES_OPTION in place
   // of a role name), so a host with no roles still offers somewhere to land.
-  // A host whose roles couldn't be fetched gets no section at all.
+  // With several hosts, a host whose roles couldn't be fetched gets no section
+  // at all. With one host, its "No roles" entry stays (it doesn't depend on
+  // roles loading) so the preselected default is always visible.
   const roleOptionValue = (host: Host, role: string) =>
     multiHost ? `${host.id}/${role}` : role;
   const noRolesLabel = t("nav.newSessionNoRoles", { defaultValue: "No roles" });
   const roleOptions = sortedHosts.flatMap((host) => {
-    if (hostRoles[host.id]?.error) return [];
+    if (hostRoles[host.id]?.error && multiHost) return [];
     const group = multiHost ? { group: host.name } : {};
     const noRolesOption = {
       value: roleOptionValue(host, NO_ROLES_OPTION),
@@ -670,6 +702,9 @@ export function NewSessionDialog({
     ? (noRoles ? [NO_ROLES_OPTION] : selectedRoles).map((r) => roleOptionValue(selectedHost, r))
     : [];
   function handleRolesChange(next: string[]) {
+    // Any pick from here on is the user's own choice.
+    rolesTouchedRef.current = true;
+    noRolesIsDefaultRef.current = false;
     const parse = (v: string) => {
       if (!multiHost) return { hostId: selectedHost?.id ?? "", role: v };
       const slash = v.indexOf("/");

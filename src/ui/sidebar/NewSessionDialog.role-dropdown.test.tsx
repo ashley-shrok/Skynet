@@ -634,6 +634,84 @@ describe("NewSessionDialog roles: \"No roles\" entry", () => {
   });
 });
 
+describe("NewSessionDialog roles: one-machine \"No roles\" default tracks the machine count", () => {
+  const props = { onClose: vi.fn(), onCreate: vi.fn(), isAdmin: true };
+
+  it("a second machine appearing while open withdraws the untouched default; Create disabled", async () => {
+    mockListRolesForHost.mockImplementation(rolesByHost({ 1: [role("tina")], 2: [role("ops")] }));
+    const { rerender } = render(<NewSessionDialog open {...props} hostTree={oneHostTree} />);
+    await waitFor(() => expect(pickedRoleValues()).toEqual([NO_ROLES_VALUE]));
+    typeCustomName();
+    await waitFor(() => expect(createBtn().disabled).toBe(false));
+
+    rerender(<NewSessionDialog open {...props} hostTree={twoHostTree} />);
+    await waitFor(() => expect(roleOptionValues()).toHaveLength(2));
+    await waitFor(() => expect(pickedRoleValues()).toEqual([]));
+    closeRoleDropdown();
+    expect(createBtn().disabled).toBe(true);
+  });
+
+  it("a machine appearing after open (0 → 1) gets the default", async () => {
+    const empty: HostFolder = { name: "root", children: [] };
+    const { rerender } = render(<NewSessionDialog open {...props} hostTree={empty} />);
+    rerender(<NewSessionDialog open {...props} hostTree={oneHostTree} />);
+    await waitFor(() => expect(pickedRoleValues()).toEqual([NO_ROLES_VALUE]));
+  });
+
+  it("a user's own pick survives a second machine appearing", async () => {
+    mockListRolesForHost.mockImplementation(rolesByHost({ 1: [role("tina")], 2: [role("ops")] }));
+    const { rerender } = render(<NewSessionDialog open {...props} hostTree={oneHostTree} />);
+    await waitFor(() => expect(roleOptionValues()).toEqual(["tina"]));
+    toggleRole("tina");
+    await waitFor(() => expect(pickedRoleValues()).toEqual(["tina"]));
+    rerender(<NewSessionDialog open {...props} hostTree={twoHostTree} />);
+    await waitFor(() => expect(roleOptionValues()).toHaveLength(2));
+    expect(pickedRoleValues()).toEqual(["1/tina"]);
+  });
+
+  it("unticking the default \"No roles\" on one machine is not re-seeded", async () => {
+    renderDialog({ hostTree: oneHostTree });
+    await waitFor(() => expect(pickedRoleValues()).toEqual([NO_ROLES_VALUE]));
+    await waitFor(() => expect(queryRolesGroup()!.disabled).toBe(false));
+    toggleNoRoles();
+    await waitFor(() => expect(pickedRoleValues()).toEqual([]));
+    await new Promise((r) => setTimeout(r, 20));
+    expect(pickedRoleValues()).toEqual([]);
+  });
+
+  it("toggling \"Just a shell\" on and off re-seeds \"No roles\" on one machine; Create enabled", async () => {
+    mockListRolesForHost.mockImplementation(rolesByHost({ 1: [role("tina")] }));
+    renderDialog({ hostTree: oneHostTree });
+    await waitFor(() => expect(pickedRoleValues()).toEqual([NO_ROLES_VALUE]));
+    const shell = () => screen.getByRole("checkbox", { name: /just a shell.*no agent/i });
+    fireEvent.click(shell());
+    await waitFor(() => expect(queryRolesGroup()).toBeFalsy());
+    fireEvent.click(shell());
+    await waitFor(() => expect(queryRolesGroup()).toBeTruthy());
+    await waitFor(() => expect(pickedRoleValues()).toEqual([NO_ROLES_VALUE]));
+    typeCustomName();
+    await waitFor(() => expect(createBtn().disabled).toBe(false));
+  });
+
+  it("one machine whose roles fail to load still shows its preselected \"No roles\" entry", async () => {
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    mockOpenBirthStream.mockReturnValueOnce(emptyStream());
+    mockListRolesForHost.mockImplementation(rolesByHost({ 1: new Error("boom") }));
+    renderDialog({ hostTree: oneHostTree });
+    await waitFor(() => expect(screen.queryByText("boom")).toBeTruthy());
+    expect(roleListRows()).toEqual([NO_ROLES_VALUE]);
+    expect(pickedRoleValues()).toEqual([NO_ROLES_VALUE]);
+    closeRoleDropdown();
+    typeCustomName();
+    await waitFor(() => expect(createBtn().disabled).toBe(false));
+    fireEvent.click(createBtn());
+    await waitFor(() => expect(mockOpenBirthStream).toHaveBeenCalledTimes(1));
+    const [payload] = mockOpenBirthStream.mock.calls[0] as [Record<string, unknown>];
+    expect(payload.hostId).toBe(1);
+    expect("role" in payload).toBe(false);
+  });
+});
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Test 25: zero-roles response renders inline hint
 // ─────────────────────────────────────────────────────────────────────────────

@@ -230,6 +230,8 @@ def parse_roles_frontmatter(text):
         if not m:
             continue
         inline = re.sub(r"(^|\s)#.*$", "", m.group(1)).strip()
+        if inline in ("~", "null", "Null", "NULL"):
+            break  # YAML null (`roles: ~` / `roles: null`): zero roles
         if inline:
             if inline.startswith("[") and inline.endswith("]"):
                 inline = inline[1:-1]
@@ -258,7 +260,8 @@ def _parse_roles_from_frontmatter(identity_file_path):
 
     The role list comes solely from parse_roles_frontmatter (the reference
     copy above). An identity with no roles — no `roles:` key, `roles:` with
-    no value, or `roles: []` — returns ([], None): holding zero roles is a
+    no value, `roles: []`, `roles: ""`/`''`, or a YAML null (`roles: ~`,
+    `roles: null`) — returns ([], None): holding zero roles is a
     normal state. The extra inspection below only tells that apart from a
     `roles:` line that names something but no valid slug (malformed), and
     shapes the diagnostic for it — it never changes which roles are
@@ -289,7 +292,12 @@ def _parse_roles_from_frontmatter(identity_file_path):
     if idx is None:
         return [], None
     inline = re.sub(r"(^|\s)#.*$", "", fm[idx][len("roles:"):]).strip()
-    if re.match(r"^\[\s*\]$", inline):
+    # Explicit "no roles" values: `[]`, an empty quoted string (`""` / `''`),
+    # or a YAML null (`~`, `null`, `Null`, `NULL` — the 1.1/1.2 core forms
+    # the parser above also reads as zero roles).
+    if re.match(r"^\[\s*\]$", inline) or inline in (
+        '""', "''", "~", "null", "Null", "NULL",
+    ):
         return [], None
     if not inline:
         for ln in fm[idx + 1:]:

@@ -503,6 +503,8 @@ export function extractRoleFromMarkdown(markdown: string): string | null {
 /** Slug gate every role name must pass — same as ROLES_SLUG_RE in
  *  substrate/scripts/tests/fixtures/roles_frontmatter_reference.py. */
 const ROLES_SLUG_RE = /^[a-z0-9][a-z0-9_-]{0,63}$/;
+/** Plain YAML null scalars (1.1/1.2 core) — `roles: null` means zero roles. */
+const YAML_NULL_SCALARS = new Set(["~", "null", "Null", "NULL"]);
 
 /**
  * Every role named in an identity file's `roles:` frontmatter, in file order.
@@ -539,6 +541,7 @@ export function extractRolesFromMarkdown(markdown: string): string[] {
     const m = /^roles:(.*)$/.exec(lines[i]);
     if (!m) continue;
     let inline = m[1].replace(/(^|\s)#.*$/, "").trim();
+    if (YAML_NULL_SCALARS.has(inline)) break; // `roles: ~` / `roles: null`: zero roles
     if (inline) {
       if (inline.startsWith("[") && inline.endsWith("]")) inline = inline.slice(1, -1);
       raw = inline.split(",").map(clean);
@@ -1760,6 +1763,10 @@ export async function readRoleFile(
 export async function readRoleFileByName(
   conn: SSHClientType | null,
   roleName: string,
+  /** strict: a REMOTE read error throws instead of reading as "" — only a
+   *  genuinely missing file returns "". For callers where an unreadable role
+   *  must not pass as an absent one (visibility inheritance). */
+  opts: { strict?: boolean } = {},
 ): Promise<{ markdown: string }> {
   // Gate the roleName BEFORE any I/O — same defense-in-depth pattern as
   // resolveRoleForIdentity's IDENTITY_KEY_RE gate above.
@@ -1789,7 +1796,10 @@ export async function readRoleFileByName(
 
   // REMOTE branch — roleName passed ROLE_NAME_PATTERN above, so direct
   // interpolation is shell-safe (same defense as readRoleFile L578).
-  const cmd = `cat "$HOME/fleet/roles/${roleName}/${roleName}.md" 2>/dev/null || true`;
+  const file = `"$HOME/fleet/roles/${roleName}/${roleName}.md"`;
+  const cmd = opts.strict
+    ? `if [ -e ${file} ]; then cat ${file}; fi`
+    : `cat ${file} 2>/dev/null || true`;
   const stdout = await execWithTimeout(conn, cmd);
   return { markdown: stdout };
 }
