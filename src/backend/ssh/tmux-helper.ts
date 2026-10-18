@@ -1,5 +1,11 @@
 import type { Client, ClientChannel } from "ssh2";
 import { sshLogger } from "../utils/logger.js";
+import {
+  HostdDeadlineError,
+  HostdUnavailableError,
+  hostdChannelFor,
+  type HostdChannel,
+} from "./hostd-channel.js";
 
 export interface TmuxSessionInfo {
   name: string;
@@ -91,6 +97,69 @@ function armExecTimeout(
 }
 
 /**
+ * Run a command through the connection's skynet-hostd channel (see
+ * hostd-channel.ts) with execCommand's exact result contract: trimmed stdout
+ * on success, an Error carrying stderr on a non-zero exit with no stdout,
+ * ExecTimeoutError("run") past the time limit. A request the helper never
+ * received runs through `fallback` (the plain exec path) instead.
+ */
+function viaHostd(
+  hostd: HostdChannel,
+  command: string,
+  opts: ExecOptions,
+  stdinBody: Buffer | undefined,
+  fallback: () => Promise<string>,
+): Promise<string> {
+  const cmdPreview = command.slice(0, 80);
+  const timeoutMs = opts.timeoutMs ?? DEFAULT_EXEC_TIMEOUT_MS;
+  const tStart = Date.now();
+  const p = hostd.run(command, timeoutMs, stdinBody).then(
+    (r) => {
+      const stdout = r.stdout.toString("utf-8");
+      const stderr = r.stderr.toString("utf-8");
+      const totalMs = Date.now() - tStart;
+      if (r.timeout) {
+        sshLogger.warn(
+          `[tmux-helper] exec-timeout via=hostd command="${cmdPreview}" timeoutMs=${timeoutMs} totalMs=${totalMs}`,
+          { operation: "tmux_exec_timeout", via: "hostd", phase: "run", timeoutMs, totalMs },
+        );
+        throw new ExecTimeoutError("run", timeoutMs);
+      }
+      if (r.truncated) {
+        sshLogger.warn(
+          `[tmux-helper] exec-truncated via=hostd command="${cmdPreview}" bytes=${stdout.length}`,
+          { operation: "tmux_exec_truncated", via: "hostd" },
+        );
+      }
+      if (r.code !== 0 && stdout === "") {
+        sshLogger.warn(
+          `[tmux-helper] exec-nonzero via=hostd command="${cmdPreview}" code=${r.code} stderrLen=${stderr.length} totalMs=${totalMs}`,
+          { operation: "tmux_exec_nonzero", via: "hostd", totalMs, stderrLen: stderr.length },
+        );
+        throw new Error(stderr.trim() || `Command exited with code ${r.code}`);
+      }
+      if (totalMs >= 500) {
+        sshLogger.info(
+          `[tmux-helper] exec-slow via=hostd command="${cmdPreview}" runMs=${r.ms} totalMs=${totalMs} bytes=${stdout.length}`,
+          { operation: "tmux_exec_slow", via: "hostd", totalMs, bytes: stdout.length },
+        );
+      }
+      return stdout.trim();
+    },
+    (err: unknown) => {
+      if (err instanceof HostdUnavailableError) return fallback();
+      if (err instanceof HostdDeadlineError) {
+        throw new ExecTimeoutError("run", timeoutMs);
+      }
+      throw err;
+    },
+  );
+  // See execCommand's unhandled-rejection guard docblock — same rationale.
+  p.catch(() => {});
+  return p;
+}
+
+/**
  * Run a command on the remote host via a separate exec channel.
  * Returns stdout as a string. Does not pollute the interactive shell.
  *
@@ -111,6 +180,20 @@ export function execCommand(
   conn: Client,
   command: string,
   opts: ExecOptions = {},
+): Promise<string> {
+  const hostd = hostdChannelFor(conn);
+  if (hostd) {
+    return viaHostd(hostd, command, opts, undefined, () =>
+      legacyExecCommand(conn, command, opts),
+    );
+  }
+  return legacyExecCommand(conn, command, opts);
+}
+
+function legacyExecCommand(
+  conn: Client,
+  command: string,
+  opts: ExecOptions,
 ): Promise<string> {
   const cmdPreview = command.slice(0, 80);
   // 2026-09-25 (tina): lifecycle timing to attribute where slow execs spend
@@ -234,6 +317,21 @@ export function execCommandWithStdin(
   command: string,
   stdinBody: Buffer,
   opts: ExecOptions = {},
+): Promise<string> {
+  const hostd = hostdChannelFor(conn);
+  if (hostd) {
+    return viaHostd(hostd, command, opts, stdinBody, () =>
+      legacyExecCommandWithStdin(conn, command, stdinBody, opts),
+    );
+  }
+  return legacyExecCommandWithStdin(conn, command, stdinBody, opts);
+}
+
+function legacyExecCommandWithStdin(
+  conn: Client,
+  command: string,
+  stdinBody: Buffer,
+  opts: ExecOptions,
 ): Promise<string> {
   sshLogger.info(`[tmux-helper] exec-stdin command="${command.slice(0, 80)}" bodyLen=${stdinBody.length}`, { operation: "tmux_exec_stdin" });
   const timeoutMs = opts.timeoutMs ?? DEFAULT_EXEC_TIMEOUT_MS;

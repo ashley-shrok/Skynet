@@ -13,6 +13,7 @@ import { extractSkewTag } from "../utils/skew-tag.js";
 import { getServerBuildId } from "../config/server-build-id.js";
 import { resolveHostById } from "../ssh/host-resolver.js";
 import { connectOneShot } from "../ssh/ssh-one-shot.js";
+import { enableHostd } from "../ssh/hostd-channel.js";
 import { discoverClaudeSession, discoverClaudeSessionBatched } from "./session-file-discovery.js";
 import { readSessionFileCache } from "../fleet-status/session-file-cache.js";
 import { discoverIdentitySessionFile } from "./discover-identity-session-file.js";
@@ -6239,6 +6240,9 @@ wss.on("connection", async (ws: WebSocket, req) => {
 
     // Store immediately so a WS close during discovery still tears down.
     sshConn = conn;
+    // Long-lived for the pane's lifetime: route its pollers' commands through
+    // one skynet-hostd channel instead of a login per command.
+    enableHostd(conn);
     if (stopped) {
       teardownPane();
       return;

@@ -121,7 +121,8 @@ describe("FLEET_SUBSTRATE_CATALOG", () => {
     // sensor-runner + sensor-runner.service) — 132 → 136.
     // +2 for relay-mcp (host-wide relay MCP server + relay-mcp.service) —
     // 136 → 138.
-    expect(FLEET_SUBSTRATE_CATALOG.length).toBe(138);
+    // +1 for skynet-hostd (one login per connection) — 138 → 139.
+    expect(FLEET_SUBSTRATE_CATALOG.length).toBe(139);
   });
 
   it("Test 2: every bundled row's bundledPath starts with /app/fleet-substrate/skills/, /app/fleet-substrate/scripts/, or /app/fleet-substrate/user-onboarding/", () => {
@@ -287,7 +288,8 @@ describe("FLEET_SUBSTRATE_CATALOG", () => {
     // +1 pending-context-drain +
     // sensor-fire + sensor-runner (sensors: fire command + box-level runner)
     // + relay-mcp (host-wide relay MCP server)
-    expect(scriptRows.length).toBe(23);
+    // + skynet-hostd (long-lived command helper, one login per connection)
+    expect(scriptRows.length).toBe(24);
     // 4 user-onboarding files: agent-supervisor.service +
     // interactive-messages-gc.service + interactive-messages-gc.timer (Phase 140)
     // + scheduled-agents-scheduler.service (this ship: move
@@ -503,7 +505,8 @@ describe("FLEET_SUBSTRATE_CATALOG", () => {
     // +1 pending-context-drain.
     // +4 for sensors (skill + sensor-fire + sensor-runner + unit) — 131 → 135.
     // +2 for relay-mcp (server + unit) — 135 → 137.
-    expect(bundled.length).toBe(137);
+    // +1 for skynet-hostd — 137 → 138.
+    expect(bundled.length).toBe(138);
     expect(runtime.length).toBe(1);
 
     // Every bundled row retains bundledPath under /app/fleet-substrate/

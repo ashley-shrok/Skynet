@@ -539,6 +539,7 @@ if (process.env.VITEST !== "true") {
         "./ssh/semaphored-exec-channel.js"
       );
       const { connectOneShot } = await import("./ssh/ssh-one-shot.js");
+      const { enableHostd } = await import("./ssh/hostd-channel.js");
       const { execCommand, execCommandWithStdin, ExecTimeoutError } = await import("./ssh/tmux-helper.js");
       const { getDb } = await import("./database/db/index.js");
       const { hosts: hostsTable } = await import(
@@ -1127,6 +1128,9 @@ if (process.env.VITEST !== "true") {
               10000,
             );
             hostClients.set(host.id, client);
+            // Long-lived per-host connection: every fleet-status command on it
+            // goes through one skynet-hostd channel instead of a login each.
+            enableHostd(client);
 
             // Auto-remove on disconnect
             client.on("end", () => hostClients.delete(host.id));
