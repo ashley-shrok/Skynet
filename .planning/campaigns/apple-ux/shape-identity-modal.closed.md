@@ -85,3 +85,49 @@ The agent's own window (opened from the task pill) is laid out as a sibling of t
 - Identity: copper-box-maintainer-2, local only on `feat/tab-title-from-tmux`, not pushed (campaign shipping rule).
 - Follow the roles window's build as the pattern (one window with views and a back control); the schedule fields are shared with the scheduled-tasks editor — change their layout without changing that editor's behaviour.
 - Non-admin-visible change → id skill edit (agent window section and the wake-up wording).
+
+---
+
+## Close-Out
+
+**Closed:** 2026-10-18
+**Overall verdict:** closed-hit
+
+### Shape features (conformance)
+
+- **Top (every tab but Desktop)** — present · close X only; picture (avatar / initial / grey), name, comma-separated role links that open the roles window and come back, task line edited in place, quiet project lineage with no host (absent when none), one Voice button with its pop-over.
+- **Tabs** — present · Agent file, Wake-ups, Files, plus Git / Desktop when they apply; no counts; the pill's round buttons still land on Desktop or Git.
+- **Agent file** — present · formatted reading, Edit at the foot, Cancel and Save while editing.
+- **Wake-ups list** — present · note, grouped rows with kind icon, schedule / last fired or sensor line, switch that saves at once, chevron, dimmed when off; New wake-up; empty and coordinator states; re-reads every 30s.
+- **Wake-up view (one level deeper)** — drifted (endorsed) · everything present except the "Next: …" line (the app has no next-fire time); the name stays editable (it was renamable before); the schedule kinds keep the shared control's wording and order; the time zone is an editable field.
+- **New wake-up view** — drifted (endorsed) · keeps an On switch so a wake-up can still be created switched off.
+- **Files** — present · the workspace browser unchanged.
+- **Git** — present · one repo straight in, several listed first; summary card, Changes, History, stashes, remotes; file and commit diffs one level deeper; read-only.
+- **Desktop** — present · grows as before, small top, view-only line, Take control / Hand back.
+- **Back / Esc / unsaved edits** — present · one level up; discard prompt on every route out.
+- **Phone** — present · full screen, sideways-scrolling tabs, same views.
+- **Id skill description** — present · rewritten for the new window as built.
+- **What would make it wrong: adding/editing a wake-up opens a second window, or back/Esc lands anywhere but one level up** — present · same window, one level deeper.
+- **What would make it wrong: host on the project line, or a sub-project without its parents** — present · full lineage, no host.
+- **What would make it wrong: voice back in a corner chip, or project line looks like a control** — present · Voice in the top block, project line plain text.
+- **What would make it wrong: a Close button reappears at the foot** — present · none.
+- **What would make it wrong: flipping a wake-up's switch needs a Save, or unsaved form edits vanish without asking** — present · switches save at once; edits guarded.
+- **What would make it wrong: something the window could do is gone** — present · nothing lost.
+- **Scope edges / tempting-but-no** — present · no picture upload, no agent rename, no ⋯ menu; pill, roles window and scheduled-tasks editor untouched.
+
+### Additions (in the result, not in the shape)
+
+- New wake-up view has an On switch (create switched off) — endorsed-as-drift
+- Editable Time zone field on every wake-up (editing keeps the wake-up's own zone) — endorsed-as-drift
+- Repo / commit / diff views make the window larger — endorsed-as-drift (final call in shape-modal-sizing)
+- "This wake-up is gone." when an open wake-up is deleted elsewhere — endorsed-as-drift
+
+### Follow-ups
+
+- "Next: …" fire time on a wake-up needs the server to supply it — deferred (campaign other work)
+- Schedule-kind wording and order ("Every…" last) — deferred to shape-scheduled-tasks-modal, which shares the control
+- Git views' window size — deferred to shape-modal-sizing
+
+### Notes
+
+All six divergences ruled on by Ashley together (2026-10-18, thumbs-up on the recommendations). Name editability and the On switch on new wake-ups were shape-text errors carried over from the tasting; keeping them honours "nothing lost".

@@ -32,7 +32,7 @@ Starting order: foundation, skills, then the remaining modals, then host targeti
 - **[declared] shape-ux-foundation** — look A + the shared kit, every modal moved onto it, in-app dialogs, phone sheets (see shape-ux-foundation.closed.md) — closed 2026-10-17
 - **[declared] shape-skills-modal** — library + skill views, who-can-use switches in bulk, files collapsed; shared skills agent-only for non-admins (see shape-skills-modal.closed.md) — closed 2026-10-18
 - **[declared] shape-roles-modals** — roles list, role modal, new-role dialog, runbook editor become one window; roles gain a one-line description (see shape-roles-modals.closed.md) — closed 2026-10-18
-- **[declared] shape-identity-modal** — agent window: who the agent is on top, wake-ups / new wake-up / git one level deeper in the same window (see shape-identity-modal.md) — in_progress
+- **[declared] shape-identity-modal** — agent window: who the agent is on top, wake-ups / new wake-up / git one level deeper in the same window (see shape-identity-modal.closed.md) — closed 2026-10-18
 - **[declared] shape-project-modals** — project modal + new-project dialog — not started
 - **[declared] shape-scheduled-tasks-modal** — scheduled tasks list + editor — not started
 - **[declared] shape-preferences-modal** — preferences (and the feedback dialog) — not started
@@ -63,6 +63,10 @@ The foundation already moved every modal onto the kit, so each remaining modal s
 - New-conversation roles dropdown (upstream's grouped multi-select, revived 2026-10-18 when the host step was dropped) is not on the kit yet — restyle in shape-creation-and-search-dialogs
 - Role description field (frontmatter `description:`, replaces the `## Role`-derived text) plumbed through backend + API by anthem-box-maintainer-6 (spawned 2026-10-18 at Ashley's ask) — done, b1b842fb on origin
 - Draft a one-line description for every existing role from its role file — after the roles-modals deploy (Ashley, 2026-10-18)
+- Wake-up "Next: …" fire time — the agent window's wake-up view shows schedule + last fired only; showing the next fire needs the server to work it out the scheduler's way (Ashley, 2026-10-18) — not started
+- Schedule-kind wording and order ("Every…" last, as tasted) — the control is shared with scheduled tasks; change both in shape-scheduled-tasks-modal — not started
+- The agent window's repo / commit / diff views open at the editor size (the rest stays at its old size) — settle in shape-modal-sizing — not started
+- A wake-up's schedule line says "(box-local)" even when it carries a time zone (server-side description) — not started
 - Shared-skill hiding for non-admins goes by name and lets skills show if the sync engine is down (logged) — revisit in shape-host-targeting alongside the sync machinery
 
 ## Lingerers (explicitly approved)
