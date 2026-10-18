@@ -4620,7 +4620,12 @@ export function PrettyView({
               visibility:hidden (not display:none) preserves layout so the scroll
               container's geometry is measurable during the landing window.
               Per shape-pv-autoscroll-rewrite.md § Mount landing LOCKED. */}
-          <div style={{ visibility: revealed ? "visible" : "hidden" }}>
+          {/* Centered message column: on wide panes the bubbles sit in an
+              860px column (agent on its left edge, user on its right) instead
+              of hugging the pane edges; narrower panes fill as before. The
+              scroll container stays full-width so the scrollbar keeps to the
+              pane edge. ComposeBox's root carries the same column. */}
+          <div className="mx-auto max-w-[860px]" style={{ visibility: revealed ? "visible" : "hidden" }}>
           {/* Header clearance: the badge / task pill / mobile back button float
               over the top of this scroll container (absolute top-4, badge
               ~66px tall). Always-present spacer so the first bubble starts

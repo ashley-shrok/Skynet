@@ -2309,6 +2309,9 @@ export function ComposeBox({
         // 250ms `.pv-btn-pressed` window to any button tapped inside.
         // CSS styles live in src/ui/index.css.
         "pv-composebox",
+        // Same centered column as PrettyView's message list, so the
+        // compose box lines up under the bubbles on wide panes.
+        "w-full max-w-[860px] mx-auto",
         // Phase 4 Glass: QUIET compose surround (VISUAL-06) — still no
         // card, no border, no hard separator; compose does NOT compete
         // with the chat above for attention. But the previous
