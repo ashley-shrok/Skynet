@@ -83,16 +83,15 @@ export function BackgroundedAgentsPanel({
             >
               <ArrowRight className="size-3.5 shrink-0 text-[color:var(--color-pv-fg)] mt-0.5" />
               <span className="min-w-0 flex items-baseline gap-2 flex-wrap">
-                {/* Phase 4: subagentType tag picks up the per-pane identity
-                    hue so the panel visually ties to the pane it belongs
-                    to (VISUAL-03 color-chain). */}
+                {/* Neutral tag — the subagent type is not the identity, so it
+                    does not borrow the per-pane identity hue. */}
                 <span
                   className={cn(
                     "text-[10px] font-medium uppercase tracking-wide shrink-0",
                     "px-1.5 py-0.5 rounded-sm",
-                    "bg-[hsla(var(--pv-id-hue),75%,52%,0.14)]",
-                    "border border-[hsla(var(--pv-id-hue),75%,52%,0.24)]",
-                    "text-[hsla(var(--pv-id-hue),45%,72%,1)]",
+                    "bg-[var(--color-pv-border-quiet-strong)]",
+                    "border border-[var(--color-pv-border-quiet-strong)]",
+                    "text-[var(--color-pv-fg-muted)]",
                   )}
                 >
                   {tag}

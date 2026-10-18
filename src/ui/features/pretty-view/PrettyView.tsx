@@ -4923,8 +4923,14 @@ export function PrettyView({
               pre-Phase-43 rendering (WipBubble → WaitingBubble → AsideBubble
               → jump-to-bottom pill; former overlay and bubble siblings
               were retired — Phase 56 Plan 03 and Phase 95 Part B). */}
-          {(isWorking || optimisticWip) &&
-            (!interruptedTail || interruptWipReleased || pendingSends.some((p) => p.state === "sending")) && <WipBubble />}
+          {/* A background sub-agent keeps working after the main turn's Stop
+              hook darkens isWorking, so a running Agents-panel entry also
+              lights the bubble. Shells are excluded — servers run for hours.
+              The interrupt gate applies to the main turn only; background
+              agents keep running through an interrupt. */}
+          {(((isWorking || optimisticWip) &&
+            (!interruptedTail || interruptWipReleased || pendingSends.some((p) => p.state === "sending"))) ||
+            (status === "streaming" && backgroundedAgents.length > 0)) && <WipBubble />}
           {/* Phase 34 Plan 06: WaitingBubble — harness permission/dialog waiting state.
               Mounts when the fleet-status channel reports status='waiting' for this
               session's (hostId, tmuxSession) key. Sibling of WipBubble in the
