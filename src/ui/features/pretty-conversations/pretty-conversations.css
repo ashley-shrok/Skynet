@@ -498,6 +498,13 @@
   margin-top: 14px;
 }
 
+/* Parent header → first sub-project header: cancel the section's 8px flex
+   gap so it reads 20px (pb-1.5 + pt-3.5), same as sibling sub-project
+   headers, instead of 28px. */
+[id^="pv-project-section-content-"] > .pv-project-section:first-child {
+  margin-top: -8px;
+}
+
 /* Phase 41 Plan 02 (user 2026-08-14): messaging-app default search-input
    shape — flex row with a leading search icon, transparent input, and a
    trailing × clear affordance that appears only when there is text. Uses
