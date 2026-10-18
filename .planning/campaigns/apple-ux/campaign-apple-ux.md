@@ -67,6 +67,7 @@ The foundation already moved every modal onto the kit, so each remaining modal s
 - Schedule-kind wording and order ("Every…" last, as tasted) — the control is shared with scheduled tasks; change both in shape-scheduled-tasks-modal — not started
 - The agent window's repo / commit / diff views open at the editor size (the rest stays at its old size) — settle in shape-modal-sizing — not started
 - A wake-up's schedule line says "(box-local)" even when it carries a time zone (server-side description) — not started
+- Long project lineages ("In A › B › C") cut off from the end, losing the nearest parent — consider trimming from the start (agent window, project window, new sub-project dialog) — not started
 - Shared-skill hiding for non-admins goes by name and lets skills show if the sync engine is down (logged) — revisit in shape-host-targeting alongside the sync machinery
 
 ## Lingerers (explicitly approved)
