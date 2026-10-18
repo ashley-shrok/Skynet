@@ -140,6 +140,7 @@ import { playTink } from "@/audio/ready-cue";
 // via this hook. Zero UX change; zero behavior change end-to-end.
 import { useSessionContextPct } from "@/api/fleet-status-client";
 import { WaitingBubble } from "./WaitingBubble";
+import { usePermissionPrompt } from "./use-permission-prompt";
 // Phase 124 Plan 02 (shape 3 — message thumbs): PrettyView owns the
 // exchange-text computation, the feedback fire paths, and the thumbs-down
 // FeedbackModal mount. ChatMessage exposes onThumbsUp / onThumbsDown
@@ -2238,6 +2239,28 @@ export function PrettyView({
   const waitingFor = useSessionWaitingFor(waitingKey);
 
   const wsRef = useRef<WebSocket | null>(null);
+
+  // WaitingBubble Allow / Deny: probe + answer the on-screen permission prompt
+  // over this WS while fleet-status reports the pane as waiting.
+  const sendPermissionFrame = useCallback(
+    (frame: Record<string, unknown>): boolean => {
+      const ws = wsRef.current;
+      if (!ws || ws.readyState !== WebSocket.OPEN) return false;
+      try {
+        ws.send(JSON.stringify(frame));
+        return true;
+      } catch {
+        return false;
+      }
+    },
+    [],
+  );
+  const permissionPrompt = usePermissionPrompt(
+    waitingFor !== null,
+    sendPermissionFrame,
+  );
+  const permissionFrameRef = useRef(permissionPrompt.handleFrame);
+  permissionFrameRef.current = permissionPrompt.handleFrame;
   // Phase 41 code-review H1 fix: reactive mirror of the WS instance for
   // downstream hooks whose effects key on WS identity (usePrettyViewUploads
   // in particular). `wsRef.current` mutations are invisible to React's
@@ -3736,6 +3759,11 @@ export function PrettyView({
         // Fires INSTANTLY (not after a 20s wait) — same visual outcome as
         // the timer path. reason encodes where in the split-send the throw
         // landed (exec_throw_body / exec_throw_enter / exec_throw).
+        case "permission_prompt_state":
+        case "permission_answer_result": {
+          permissionFrameRef.current(parsed);
+          break;
+        }
         case "send_keys_error": {
           if (parsed.mqid) {
             console.info(`[diag-dormant-send] ws-send-keys-error mqid=${parsed.mqid ?? "none"} reason=${parsed.reason ?? "send_keys_error"} action=flipToFailed-from-backend-frame`);
@@ -4939,9 +4967,19 @@ export function PrettyView({
           {/* Phase 34 Plan 06: WaitingBubble — harness permission/dialog waiting state.
               Mounts when the fleet-status channel reports status='waiting' for this
               session's (hostId, tmuxSession) key. Sibling of WipBubble in the
-              in-flow message-list column. Presence-only — no interactive controls
-              (user must switch to terminal to answer). See WaitingBubble.tsx header. */}
-          {waitingFor !== null && <WaitingBubble reason={waitingFor} />}
+              in-flow message-list column. Allow / Deny when a permission prompt
+              is readable off the pane; hidden once its auto-deny countdown runs
+              out. See WaitingBubble.tsx header. */}
+          {waitingFor !== null && !permissionPrompt.hidden && (
+            <WaitingBubble
+              reason={waitingFor}
+              prompt={permissionPrompt.prompt}
+              secondsLeft={permissionPrompt.secondsLeft}
+              answer={permissionPrompt.answer}
+              onAnswer={permissionPrompt.onAnswer}
+              agentName={pvIdentity?.displayName ?? null}
+            />
+          )}
           {/* Phase 56 (2026-08-23): former dormant-overlay mount site DELETED.
               Dormancy is now invisible — PrettyView on a dormant pane renders
               identically to PrettyView on an awake-idle pane. Backend still

@@ -104,6 +104,10 @@ import {
 import { ROLE_NAME_PATTERN } from "../database/routes/identity-birth-orchestrator.js";
 import { getHostSemaphore } from "../ssh/host-semaphore-registry.js";
 import { settleWithConcurrency } from "../utils/settle-with-concurrency.js";
+import {
+  parsePermissionPromptScreen,
+  type PermissionPromptScreen,
+} from "./permission-prompt-screen.js";
 
 /**
  * Live Claude-session WebSocket server on port 30011.
@@ -3541,6 +3545,125 @@ export async function __applyInterruptMessageForTests(deps: {
   return verdict;
 }
 
+// ─── Permission prompt read + answer (WaitingBubble Allow / Deny) ────────────
+//
+// When fleet-status reports the pane as waiting, pretty-view polls
+// `permission_probe` to learn what the prompt says, and sends
+// `permission_answer` when the user clicks Allow or Deny. Both re-read the
+// pane: an answer is only typed when the SAME prompt (by fingerprint) is still
+// on screen, so a late click can never leak a stray digit into the compose
+// line. Target pane comes from the connection-scoped tmux session only.
+
+export type PermissionPromptStateFrame = {
+  type: "permission_prompt_state";
+  prompt: PermissionPromptScreen | null;
+};
+
+export type PermissionAnswerResultFrame = {
+  type: "permission_answer_result";
+  choice: "allow" | "deny";
+  fingerprint: string;
+  status: "sent" | "gone" | "error";
+};
+
+async function capturePermissionPrompt(
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  sshConn: any,
+  tmuxSession: string,
+  exec: (conn: unknown, cmd: string) => Promise<string>,
+): Promise<PermissionPromptScreen | null> {
+  const screen = await exec(
+    sshConn,
+    `tmux capture-pane -p -t ${shellQuote(tmuxSession)}`,
+  );
+  return parsePermissionPromptScreen(screen);
+}
+
+export async function applyPermissionProbe(deps: {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  sshConn: any | null;
+  currentTmuxSession: string | null;
+  currentHostId: number | null;
+  execCommand: (conn: unknown, cmd: string) => Promise<string>;
+}): Promise<PermissionPromptStateFrame> {
+  const { sshConn, currentTmuxSession, currentHostId, execCommand: exec } = deps;
+  if (!sshConn || !currentTmuxSession) {
+    return { type: "permission_prompt_state", prompt: null };
+  }
+  try {
+    const prompt = await capturePermissionPrompt(sshConn, currentTmuxSession, exec);
+    return { type: "permission_prompt_state", prompt };
+  } catch (err) {
+    sshLogger.warn("permission probe capture failed", {
+      operation: "permission_probe_error",
+      hostId: currentHostId,
+      tmuxSession: currentTmuxSession,
+      error: err instanceof Error ? err.message : String(err),
+    });
+    return { type: "permission_prompt_state", prompt: null };
+  }
+}
+
+export async function applyPermissionAnswer(deps: {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  sshConn: any | null;
+  currentTmuxSession: string | null;
+  currentHostId: number | null;
+  execCommand: (conn: unknown, cmd: string) => Promise<string>;
+  choice: unknown;
+  fingerprint: unknown;
+}): Promise<PermissionAnswerResultFrame | null> {
+  const { sshConn, currentTmuxSession, currentHostId, execCommand: exec } = deps;
+  if (deps.choice !== "allow" && deps.choice !== "deny") return null;
+  if (typeof deps.fingerprint !== "string" || deps.fingerprint.length === 0) {
+    return null;
+  }
+  const choice = deps.choice;
+  const fingerprint = deps.fingerprint;
+  const result = (status: PermissionAnswerResultFrame["status"]) =>
+    ({ type: "permission_answer_result", choice, fingerprint, status }) as const;
+  if (!sshConn || !currentTmuxSession) return result("gone");
+  try {
+    const prompt = await capturePermissionPrompt(sshConn, currentTmuxSession, exec);
+    if (!prompt || prompt.fingerprint !== fingerprint) {
+      sshLogger.info("permission answer dropped — prompt no longer on screen", {
+        operation: "permission_answer_gone",
+        hostId: currentHostId,
+        tmuxSession: currentTmuxSession,
+        choice,
+        fingerprint,
+        onScreenFingerprint: prompt?.fingerprint ?? null,
+      });
+      return result("gone");
+    }
+    const key = choice === "allow" ? prompt.yesKey : prompt.noKey;
+    // The parser only yields single digits; re-check before it reaches a shell.
+    if (!/^\d$/.test(key)) return result("error");
+    await exec(sshConn, `tmux send-keys -t ${shellQuote(currentTmuxSession)} ${key}`);
+    sshLogger.info("permission answer sent", {
+      operation: "permission_answer_sent",
+      hostId: currentHostId,
+      tmuxSession: currentTmuxSession,
+      choice,
+      key,
+      fingerprint,
+      title: prompt.title,
+      autoDenySeconds: prompt.autoDenySeconds,
+    });
+    return result("sent");
+  } catch (err) {
+    sshLogger.warn("permission answer failed", {
+      operation: "permission_answer_error",
+      hostId: currentHostId,
+      tmuxSession: currentTmuxSession,
+      choice,
+      fingerprint,
+      error: err instanceof Error ? err.message : String(err),
+    });
+    return result("error");
+  }
+}
+
 // Phase 56 (2026-08-23): the former wake-message test seam and its
 // production wake handler are DELETED. The frontend no longer emits
 // the wake message — Plan 56-03 deleted the DormancyOverlay + Wake button.
@@ -6438,6 +6561,34 @@ wss.on("connection", async (ws: WebSocket, req) => {
           );
         } catch {
           /* ws may be mid-close; drop */
+        }
+      }
+      return;
+    }
+
+    // WaitingBubble: read the on-screen permission prompt / answer it.
+    if (msg.type === "permission_probe" || msg.type === "permission_answer") {
+      const deps = { sshConn, currentTmuxSession, currentHostId, execCommand };
+      const answer = msg as { choice?: unknown; fingerprint?: unknown };
+      const frame =
+        msg.type === "permission_probe"
+          ? await applyPermissionProbe(deps)
+          : await applyPermissionAnswer({
+              ...deps,
+              choice: answer.choice,
+              fingerprint: answer.fingerprint,
+            });
+      if (frame && ws.readyState === WebSocket.OPEN) {
+        try {
+          ws.send(JSON.stringify(frame));
+        } catch (err) {
+          sshLogger.warn("permission frame send failed", {
+            operation: "permission_frame_send_error",
+            hostId: currentHostId,
+            tmuxSession: currentTmuxSession,
+            frameType: frame.type,
+            error: err instanceof Error ? err.message : String(err),
+          });
         }
       }
       return;

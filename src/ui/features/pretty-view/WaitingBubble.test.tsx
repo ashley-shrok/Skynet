@@ -109,3 +109,77 @@ describe("WaitingBubble — null/empty reason fallback", () => {
     expect(label.toLowerCase()).toContain("waiting");
   });
 });
+
+// ─── Permission prompt form (Allow / Deny) ────────────────────────────────────
+
+import { fireEvent } from "@testing-library/react";
+import { vi } from "vitest";
+import type { PermissionPromptInfo } from "../../api/claude-session-api";
+
+const PROMPT: PermissionPromptInfo = {
+  title: "Bash command",
+  description: "Stop dev server, remove scratch DB, show status",
+  body: 'pkill -f "vite --port 5173"; rm -f $S/*.db*',
+  reason: "Dangerous rm operation on possibly-empty variable path: $S/*.db*",
+  autoDenySeconds: 20,
+  yesKey: "1",
+  noKey: "2",
+  fingerprint: "abc123",
+};
+
+describe("WaitingBubble — permission prompt form", () => {
+  it("says in plain words what the agent wants and why", () => {
+    render(
+      <WaitingBubble reason="permission prompt" prompt={PROMPT} onAnswer={() => {}} agentName="Leopard" />,
+    );
+    expect(screen.getByText("Leopard wants to run a command")).toBeTruthy();
+    expect(screen.getByText(/Stop dev server, remove scratch DB/)).toBeTruthy();
+    expect(screen.getByText(/possibly risky delete/)).toBeTruthy();
+    expect(screen.queryByText("permission prompt")).toBeNull();
+  });
+
+  it("Allow / Deny call onAnswer with the choice", () => {
+    const onAnswer = vi.fn();
+    render(<WaitingBubble reason="permission prompt" prompt={PROMPT} onAnswer={onAnswer} />);
+    fireEvent.click(screen.getByRole("button", { name: "Allow" }));
+    fireEvent.click(screen.getByRole("button", { name: "Deny" }));
+    expect(onAnswer.mock.calls).toEqual([["allow"], ["deny"]]);
+  });
+
+  it("shows the countdown", () => {
+    render(<WaitingBubble reason="permission prompt" prompt={PROMPT} secondsLeft={17} onAnswer={() => {}} />);
+    expect(screen.getByText("Auto-denies in 0:17")).toBeTruthy();
+  });
+
+  it("hides the command until Show details is clicked", () => {
+    render(<WaitingBubble reason="permission prompt" prompt={PROMPT} onAnswer={() => {}} />);
+    expect(screen.queryByTestId("permission-prompt-body")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Show details" }));
+    expect(screen.getByTestId("permission-prompt-body").textContent).toContain("rm -f");
+  });
+
+  it("locks the buttons and explains a sent Deny", () => {
+    render(
+      <WaitingBubble
+        reason="permission prompt"
+        prompt={PROMPT}
+        onAnswer={() => {}}
+        answer={{ fingerprint: "abc123", choice: "deny", status: "sent" }}
+      />,
+    );
+    expect((screen.getByRole("button", { name: "Allow" }) as HTMLButtonElement).disabled).toBe(true);
+    expect(screen.getByText(/waiting for you to say what to do instead/)).toBeTruthy();
+  });
+
+  it("re-enables the buttons after a send error", () => {
+    render(
+      <WaitingBubble
+        reason="permission prompt"
+        prompt={PROMPT}
+        onAnswer={() => {}}
+        answer={{ fingerprint: "abc123", choice: "allow", status: "error" }}
+      />,
+    );
+    expect((screen.getByRole("button", { name: "Allow" }) as HTMLButtonElement).disabled).toBe(false);
+  });
+});

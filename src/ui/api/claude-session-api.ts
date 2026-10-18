@@ -488,6 +488,35 @@ export type SendKeysErrorEvent = {
   message: string;
 };
 
+// WaitingBubble Allow / Deny — the on-screen tool-permission prompt, parsed
+// server-side from a tmux capture (permission-prompt-screen.ts). Reply to a
+// {type:"permission_probe"} client frame; prompt is null when no answerable
+// Yes/No prompt is on screen.
+export type PermissionPromptInfo = {
+  title: string;
+  description: string | null;
+  body: string;
+  reason: string | null;
+  autoDenySeconds: number | null;
+  yesKey: string;
+  noKey: string;
+  fingerprint: string;
+};
+
+export type PermissionPromptStateEvent = {
+  type: "permission_prompt_state";
+  prompt: PermissionPromptInfo | null;
+};
+
+// Reply to {type:"permission_answer", choice, fingerprint}. "gone" = the
+// prompt had already closed (or changed) so no key was sent.
+export type PermissionAnswerResultEvent = {
+  type: "permission_answer_result";
+  choice: "allow" | "deny";
+  fingerprint: string;
+  status: "sent" | "gone" | "error";
+};
+
 export type ErrorEvent = {
   type: "error";
   message: string;
@@ -608,6 +637,9 @@ export type ClaudeSessionServerEvent =
   // Phase 50 Plan 02 (D-15 + D-21) — signal-driven send-path watchdog frames
   | PasteSendFailedEvent
   | SendKeysErrorEvent
+  // WaitingBubble Allow / Deny
+  | PermissionPromptStateEvent
+  | PermissionAnswerResultEvent
   // Phase 47 (load-more button) — response to FetchOlderRangePayload
   | FetchOlderRangeBatchEvent
   // shape-interrupt-button

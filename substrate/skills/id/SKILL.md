@@ -1202,6 +1202,22 @@ crown, then gear.
   fires, it arrives as a real `/id reset` — save + recycle sentinel +
   stop, same as always.
 
+- **Permission bubble (in the conversation, below the last message).**
+  When Claude Code stops to ask the user's OK for a tool call (a safety
+  check the fleet's auto-allow can't skip, e.g. a risky `rm`), the
+  conversation shows a bubble with a hand icon saying what the agent wants
+  to do ("<agent> wants to run a command"), the tool's one-line description,
+  and why it was flagged, with **Allow** and **Deny** buttons and **Show
+  details** (the exact command). Allow lets the call run; Deny refuses it
+  and stops the agent's turn until the user says what to do instead. When
+  Claude Code shows an auto-deny countdown, the bubble shows it too and
+  disappears when it runs out (the call is refused and the agent carries
+  on). Other waits it can't read (e.g. a folder-trust dialog) show as a
+  one-line bubble to answer in the terminal view.
+  *Agent-side:* a denied or timed-out call comes back to you as a refusal;
+  rewriting it so the check doesn't fire (e.g. `"${VAR:?}"` in `rm` paths)
+  avoids the prompt entirely.
+
 - **Mic (in the compose box) — dictation.** Tap the mic to dictate;
   hold it to record and release to send.
   *Agent-side: none.*

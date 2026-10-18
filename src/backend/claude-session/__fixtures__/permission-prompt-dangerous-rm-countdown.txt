@@ -1,0 +1,23 @@
+● Stopping the dev server and cleaning up the scratch DB.
+
+────────────────────────────────────────────────────────────────────────
+ Bash command
+ Stop dev server, remove scratch DB, show status
+╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌
+ S=/tmp/claude-1000/-home-ubuntu-fleet-identities-winter-morpheus
+ -two-maintainer-workspace/a53445b8/scratchpad/uat; kill $(cat $S/vite.pid) 2>/dev/null;
+ pkill -f "vite --port 5173" ; rm -f $S/*.db*; cd ~/Pantheon && git status
+ --short | cat
+╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌
+ Dangerous rm operation on possibly-empty variable path: $S/*.db*
+ in `rm -f $S/*.db*` (rewrite it as "${S:?}"/*.db* or use a
+ literal path)
+ ⚠ Claude Code will automatically deny this request in 0:20, to
+ avoid blocking progress on an unattended session
+
+
+ Do you want to proceed?
+ ❯ 1. Yes
+   2. No
+
+ Esc to cancel · Tab to amend
