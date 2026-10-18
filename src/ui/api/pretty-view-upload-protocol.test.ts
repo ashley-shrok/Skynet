@@ -352,6 +352,16 @@ describe("parseInjectedUserTurn edge cases (Plan 05-03)", () => {
     expect(parsed?.files).toHaveLength(1);
   });
 
+  it("parses an empty-caption turn whose leading blank lines Claude Code trimmed (queued mid-turn)", () => {
+    const parsed = parseInjectedUserTurn(
+      "--- attached files ---\n1. image.png (80.7 KB, image/png) → `/tmp/192241-image.png`\n   uploaded 2026-10-18T19:22:41",
+    );
+    expect(parsed?.caption).toBe("");
+    expect(parsed?.files).toHaveLength(1);
+    expect(parsed?.files[0]?.filename).toBe("image.png");
+    expect(parsed?.files[0]?.landingPath).toBe("/tmp/192241-image.png");
+  });
+
   it("Test 3: multi-line caption preserves internal newlines exactly", () => {
     const s = formatInjectedUserTurn({
       caption: "line1\nline2\nline3",

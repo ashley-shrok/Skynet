@@ -312,18 +312,27 @@ export function parseInjectedUserTurn(
   // T-05-11: bail out on pathologically large input BEFORE any parsing.
   if (raw.length > PARSE_MAX_INPUT_BYTES) return null;
 
-  const delimIdx = raw.indexOf(`\n${INJECTED_DELIMITER}\n`);
-  if (delimIdx < 0) return null;
+  // An empty-caption turn that Claude Code queued mid-turn has its leading
+  // blank lines trimmed, so the delimiter can open the text with no "\n"
+  // before it.
+  let caption: string;
+  let afterDelim: string;
+  if (raw.startsWith(`${INJECTED_DELIMITER}\n`)) {
+    caption = "";
+    afterDelim = raw.slice(`${INJECTED_DELIMITER}\n`.length);
+  } else {
+    const delimIdx = raw.indexOf(`\n${INJECTED_DELIMITER}\n`);
+    if (delimIdx < 0) return null;
 
-  // caption is everything before the delimiter, minus the trailing "\n\n"
-  // (one \n belongs to the last caption line, one blank line separates
-  // caption from delimiter). If caption is empty, the raw string starts
-  // with "\n" + delimiter + "\n"; strip a single leading blank line.
-  let captionRaw = raw.slice(0, delimIdx);
-  if (captionRaw.endsWith("\n")) captionRaw = captionRaw.slice(0, -1);
-  const caption = captionRaw;
-
-  const afterDelim = raw.slice(delimIdx + `\n${INJECTED_DELIMITER}\n`.length);
+    // caption is everything before the delimiter, minus the trailing "\n\n"
+    // (one \n belongs to the last caption line, one blank line separates
+    // caption from delimiter). If caption is empty, the raw string starts
+    // with "\n" + delimiter + "\n"; strip a single leading blank line.
+    let captionRaw = raw.slice(0, delimIdx);
+    if (captionRaw.endsWith("\n")) captionRaw = captionRaw.slice(0, -1);
+    caption = captionRaw;
+    afterDelim = raw.slice(delimIdx + `\n${INJECTED_DELIMITER}\n`.length);
+  }
   const fileLines = afterDelim.split("\n").filter((l) => l.length > 0);
 
   const files: ParsedInjectedTurn["files"] = [];
