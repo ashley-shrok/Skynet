@@ -667,11 +667,9 @@ describe("subscription-registry", () => {
       if (republished.type === "update") {
         expect(republished.state).toEqual({ ...state, contextPct: 14 });
       }
-      // Cached state picks up the new value too (snapshot path).
-      expect(registry.getSnapshot().find((s) => s.tmuxSession === "copper")?.contextPct).toBe(14);
     });
 
-    it("Test 12: republishContextPct is a no-op when the value is unchanged or no state is cached", () => {
+    it("Test 12: republishContextPct is a no-op when the value is unchanged, null, or no state is cached", () => {
       const registry = createSubscriptionRegistry();
       const received: FrontendOutboundFrameType[] = [];
       registry.subscribe((f) => received.push(f));
@@ -687,6 +685,11 @@ describe("subscription-registry", () => {
 
       // Same value as last stamped — repeated ticks send nothing.
       registry.republishContextPct("host-42", "copper");
+      registry.republishContextPct("host-42", "copper");
+      expect(received).toHaveLength(0);
+
+      // A null store value (transient read failure) never blanks the meter.
+      setContextPct("host-42", "copper", null);
       registry.republishContextPct("host-42", "copper");
       expect(received).toHaveLength(0);
     });

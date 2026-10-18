@@ -172,8 +172,8 @@ export interface SubscriptionRegistry {
    * Without this, a contextPct change only reaches clients on the next frame
    * published for some other reason (status flip etc.), so the meter freezes
    * for the length of a busy turn — e.g. pinned at the pre-recycle value.
-   * No-op when no state is cached or the value is unchanged, so callers can
-   * invoke it on every context-pct tick.
+   * No-op when no state is cached, the value is unchanged, or the stored
+   * value is null, so callers can invoke it on every context-pct tick.
    */
   republishContextPct(hostId: string, tmuxSession: string): void;
 
@@ -965,7 +965,11 @@ export function createSubscriptionRegistry(
       const cached = state.get(key);
       if (cached === undefined) return;
       const pct = getContextPct(hostId, tmuxSession) ?? null;
-      if ((cached.contextPct ?? null) === pct) return;
+      // A null is usually a transient read failure, not a real value —
+      // republishing it would blink the meter to its loading placeholder.
+      // Nulls still ride the next status-driven frame, as before.
+      if (pct === null) return;
+      if (cached.contextPct === pct) return;
       const stampedState: SessionState = { ...cached, contextPct: pct };
       state.set(key, stampedState);
       systemLogger.info("Fleet-status: contextPct change republished", {

@@ -236,6 +236,8 @@ class MockRegistry implements SubscriptionRegistry {
     return () => this.subscribers.delete(sendFrame);
   }
 
+  republishContextPct(_hostId: string, _tmuxSession: string): void {}
+
   publishSessionState(hostId: string, state: SessionState): void {
     this.publishedStates.push({ hostId, state });
   }
