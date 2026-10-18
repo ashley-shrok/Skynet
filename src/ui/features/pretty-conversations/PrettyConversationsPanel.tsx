@@ -1041,7 +1041,7 @@ export function PrettyConversationsPanel({
     role?: string;
     roles?: string[];
     name?: string | null;
-    host: Host;
+    host: Host | null;
     description?: string;
   } | null>(null);
   // "New role…" hop from the new-agent dialog's Roles dropdown: the dialog is
@@ -1051,7 +1051,9 @@ export function PrettyConversationsPanel({
   // then onClose in the same tick — onClose must see the chain's clear.
   // The pending project slug/hostId state is deliberately left untouched
   // across the hop so a per-project new-agent flow keeps its project.
-  const newRoleHopRef = useRef<{ host: Host; roles: string[]; name: string | null } | null>(null);
+  // `host` is null when the hop starts before any role is picked (the
+  // new-agent dialog has no host step; the host follows the roles).
+  const newRoleHopRef = useRef<{ host: Host | null; roles: string[]; name: string | null } | null>(null);
   const [createRoleInitialHost, setCreateRoleInitialHost] = useState<Host | null>(null);
 
   // Scroll region ref for save/restore across unmount — see savedListScrollTop
@@ -4106,7 +4108,7 @@ export function PrettyConversationsPanel({
           const hop = newRoleHopRef.current;
           if (hop) {
             newRoleHopRef.current = null;
-            console.log(`[new-role-hop] cancelled — restoring new-agent dialog hostId=${hop.host.id}`);
+            console.log(`[new-role-hop] cancelled — restoring new-agent dialog hostId=${hop.host?.id ?? "-"}`);
             setChainPrefill({ host: hop.host, roles: hop.roles, name: hop.name });
             setNewSessionDialogOpen(true);
           }
@@ -4121,18 +4123,19 @@ export function PrettyConversationsPanel({
           newRoleHopRef.current = null;
           setCreateRoleDialogOpen(false);
           // Back from a hop on the same host: keep the earlier picks and add
-          // the new role. A different host invalidates the earlier picks.
-          const roles =
-            hop && hop.host.id === host.id
-              ? [...hop.roles.filter((r) => r !== role), role]
-              : undefined;
+          // the new role. A different host invalidates the earlier picks. A
+          // hop with no host had no picks, so only its name carries over.
+          const sameHost = hop !== null && (hop.host === null || hop.host.id === host.id);
+          const roles = sameHost
+            ? [...hop.roles.filter((r) => r !== role), role]
+            : undefined;
           console.log(
             `[new-role-hop] role created role=${role} hostId=${host.id} fromHop=${hop !== null} roles=${roles?.join(",") ?? role}`,
           );
           setChainPrefill({
             role,
             roles,
-            name: hop && hop.host.id === host.id ? hop.name : null,
+            name: sameHost ? hop.name : null,
             host,
             description,
           });

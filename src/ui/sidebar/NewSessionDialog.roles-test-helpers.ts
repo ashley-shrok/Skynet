@@ -10,6 +10,13 @@
 //   - `select.options`                → roleOptionValues()
 //   - `select.disabled`               → getRolesGroup().disabled
 //   - `fireEvent.change(select, "x")` → toggleRole("x")
+//
+// 2026-10-18 (no host step for agents): the dialog lists every host's roles
+// in one dropdown. With one host an option's data-value is the bare slug;
+// with several it is `${hostId}/${slug}`, under a per-host header row
+// ([data-testid="multi-select-group"]), and the pill carries the same
+// composite value. toggleRole(slug, hostId?) accepts the bare slug either
+// way; pickedRoleSlugs() strips the host prefix off the pills.
 
 import { fireEvent, screen } from "@testing-library/react";
 
@@ -32,8 +39,8 @@ function queryTrigger(): HTMLButtonElement | null {
 }
 
 /**
- * The Roles trigger, or null when it isn't usable yet — absent (no host /
- * shell mode) or still showing the "Loading roles..." placeholder. Mirrors
+ * The Roles trigger, or null when it isn't usable yet — absent (shell
+ * mode) or still showing the "Loading roles..." placeholder. Mirrors
  * when the old select had its options populated.
  */
 export function queryRolesGroup(): HTMLButtonElement | null {
@@ -60,12 +67,12 @@ export function roleOptions(): HTMLButtonElement[] {
   return Array.from(list.querySelectorAll<HTMLButtonElement>('[role="option"]'));
 }
 
-/** Role slugs offered by the host, in list order. */
+/** Option data-values in list order (bare slugs single-host, `${hostId}/${slug}` multi-host). */
 export function roleOptionValues(): string[] {
   return roleOptions().map((o) => o.dataset.value ?? "");
 }
 
-/** Picked role slugs, in pick order (read off the trigger's pills). */
+/** Picked option values, in pick order (read off the trigger's pills). */
 export function pickedRoleValues(): string[] {
   const t = queryTrigger();
   if (!t) return [];
@@ -74,15 +81,73 @@ export function pickedRoleValues(): string[] {
   );
 }
 
-/** Toggle the role `slug` via its list option. Throws if no such role. */
-export function toggleRole(slug: string): void {
-  const opt = roleOptions().find((o) => o.dataset.value === slug);
-  if (!opt) {
+/**
+ * Toggle the role `slug` via its list option. Matches an option whose
+ * data-value is `slug` (single-host, flat list) or ends with `/${slug}`
+ * (multi-host, `${hostId}/${slug}`). Pass `hostId` to pick that host's copy
+ * when the same role is on several hosts. Throws if no option matches, or if
+ * more than one does and `hostId` was not given.
+ */
+export function toggleRole(slug: string, hostId?: string): void {
+  const matches = roleOptions().filter((o) => {
+    const v = o.dataset.value ?? "";
+    if (hostId !== undefined) return v === `${hostId}/${slug}`;
+    return v === slug || v.endsWith(`/${slug}`);
+  });
+  if (matches.length === 0) {
     throw new Error(
-      `toggleRole: no role option "${slug}" (have: ${roleOptionValues().join(", ") || "none"})`,
+      `toggleRole: no role option "${slug}"${hostId ? ` on host ${hostId}` : ""} (have: ${roleOptionValues().join(", ") || "none"})`,
     );
   }
-  fireEvent.click(opt);
+  if (matches.length > 1) {
+    throw new Error(
+      `toggleRole: role "${slug}" is on several hosts (${matches.map((o) => o.dataset.value).join(", ")}) — pass a hostId`,
+    );
+  }
+  fireEvent.click(matches[0]);
+}
+
+/** Picked role slugs with any `${hostId}/` prefix stripped, in pick order. */
+export function pickedRoleSlugs(): string[] {
+  return pickedRoleValues().map((v) => v.slice(v.indexOf("/") + 1));
+}
+
+/** Pill texts on the trigger, in pick order. */
+export function pickedRoleLabels(): string[] {
+  const t = queryTrigger();
+  if (!t) return [];
+  return Array.from(t.querySelectorAll<HTMLElement>("[data-selected-value]")).map(
+    (el) => el.textContent ?? "",
+  );
+}
+
+/** Host section headers in the open Roles list, in list order. */
+export function roleGroupHeaders(): string[] {
+  roleOptions(); // opens the list if needed
+  const list = screen.queryByRole("listbox", { name: /^roles$/i });
+  if (!list) return [];
+  return Array.from(
+    list.querySelectorAll<HTMLElement>('[data-testid="multi-select-group"]'),
+  ).map((el) => el.textContent ?? "");
+}
+
+/**
+ * The open Roles list as rows in DOM order: `# <host>` for a header, the
+ * option's data-value otherwise. Pins sectioning + ordering in one assert.
+ */
+export function roleListRows(): string[] {
+  roleOptions();
+  const list = screen.queryByRole("listbox", { name: /^roles$/i });
+  if (!list) return [];
+  return Array.from(
+    list.querySelectorAll<HTMLElement>(
+      '[data-testid="multi-select-group"], [role="option"]',
+    ),
+  ).map((el) =>
+    el.dataset.testid === "multi-select-group"
+      ? `# ${el.textContent ?? ""}`
+      : (el.dataset.value ?? ""),
+  );
 }
 
 /**
@@ -99,4 +164,40 @@ export function closeRoleDropdown(): void {
   if (!t) return;
   if (t.getAttribute("aria-expanded") !== "true") return;
   fireEvent.keyDown(t, { key: "Escape", code: "Escape" });
+}
+
+type RoleStub = { name: string; description: string; displayName?: string | null; instanceWide?: boolean };
+
+/**
+ * A listRolesForHost mock implementation answering per host, keyed by the
+ * numeric host id the dialog passes (parseInt of Host.id — fixtures must use
+ * numeric-string ids like "1" for this to tell hosts apart). A value can be
+ * a role list (resolves), an Error (rejects), or a Promise (e.g. from
+ * deferred(), to hold a host in its loading state). Unlisted hosts answer [].
+ */
+export function rolesByHost(
+  map: Record<number, RoleStub[] | Error | Promise<RoleStub[]>>,
+): (hostId: number) => Promise<RoleStub[]> {
+  return (hostId: number) => {
+    const v = map[hostId];
+    if (v === undefined) return Promise.resolve([]);
+    if (v instanceof Error) return Promise.reject(v);
+    if (v instanceof Promise) return v;
+    return Promise.resolve(v);
+  };
+}
+
+/** A promise plus its resolve/reject, for holding a host's roles request open. */
+export function deferred<T>(): {
+  promise: Promise<T>;
+  resolve: (v: T) => void;
+  reject: (e: unknown) => void;
+} {
+  let resolve!: (v: T) => void;
+  let reject!: (e: unknown) => void;
+  const promise = new Promise<T>((res, rej) => {
+    resolve = res;
+    reject = rej;
+  });
+  return { promise, resolve, reject };
 }

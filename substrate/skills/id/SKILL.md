@@ -641,11 +641,16 @@ menu in the header and no "new group conversation" control in the app.
   role picker; the new agent is auto-named unless the user ticks "name
   it myself." The role picker is a multi-select — at least one role is
   required; picking several writes them to the identity file as
-  `roles: [a, b, ...]` in the order they were picked. The first row of the
-  roles dropdown is **New role…**: it swaps to the new-role dialog (host
-  already picked) and, once the role is made, comes back with the earlier
-  picks plus the new role; cancelling comes back as the user left it. A
-  new conversation opens automatically.
+  `roles: [a, b, ...]` in the order they were picked. There is no host
+  step: the dropdown lists the roles of every machine the user has, in
+  one section per machine (alphabetical) when there are several and with
+  no machine names at all when there is one. The agent is born on the
+  machine its roles come from; picking a role from a different machine
+  replaces the earlier picks. The first row of the roles dropdown is
+  **New role…**: it swaps to the new-role dialog (on the machine of the
+  roles already picked, if any) and, once the role is made, comes back
+  with the earlier picks plus the new role; cancelling comes back as the
+  user left it. A new conversation opens automatically.
   *Agent-side:* see § Spawning another agent — the same mechanism, but
   the agent-side lets you seed the newborn with an initial prompt, which
   the button cannot. User-gated.

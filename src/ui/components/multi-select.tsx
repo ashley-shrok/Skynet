@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { Fragment, useMemo, useState } from "react";
 import { Check, ChevronDown, Plus } from "lucide-react";
 import { Popover, PopoverTrigger, PopoverContent } from "@/components/popover";
 import { cn } from "@/lib/utils";
@@ -6,6 +6,14 @@ import { cn } from "@/lib/utils";
 export interface MultiSelectOption {
   value: string;
   label: string;
+  /**
+   * Section the option is listed under. Options sharing a group must be
+   * adjacent; a header row is drawn wherever the group changes. Omit on
+   * every option for a flat list.
+   */
+  group?: string;
+  /** Text for the option's pill once picked, when it differs from `label`. */
+  pillLabel?: string;
 }
 
 /**
@@ -24,6 +32,9 @@ export interface MultiSelectOption {
  * wheel/touch-move events outside its own content — the list couldn't be
  * scrolled. A modal Popover pushes its own lock, which is the active one
  * while open and lets its content scroll.
+ *
+ * `group` on the options splits the list into headed sections; the filter
+ * matches a group's name too, keeping that whole section.
  *
  * `leadingAction` adds a non-option row above the list (e.g. "New role…")
  * that closes the list and runs its callback. When set, the list can open
@@ -52,7 +63,7 @@ export function MultiSelect({
   const [query, setQuery] = useState("");
 
   const labelOf = useMemo(() => {
-    const m = new Map(options.map((o) => [o.value, o.label]));
+    const m = new Map(options.map((o) => [o.value, o.pillLabel ?? o.label]));
     return (v: string) => m.get(v) ?? v;
   }, [options]);
 
@@ -60,7 +71,9 @@ export function MultiSelect({
   const visible = q
     ? options.filter(
         (o) =>
-          o.label.toLowerCase().includes(q) || o.value.toLowerCase().includes(q),
+          o.label.toLowerCase().includes(q) ||
+          o.value.toLowerCase().includes(q) ||
+          (o.group?.toLowerCase().includes(q) ?? false),
       )
     : options;
 
@@ -151,27 +164,38 @@ export function MultiSelect({
           aria-multiselectable="true"
           className="max-h-60 overflow-y-auto"
         >
-          {visible.map((o) => {
+          {visible.map((o, i) => {
             const selected = value.includes(o.value);
+            const header =
+              o.group !== undefined && o.group !== visible[i - 1]?.group ? (
+                <div
+                  data-testid="multi-select-group"
+                  className="px-2 pt-2 pb-1 text-[10px] font-bold uppercase tracking-widest text-[#f0ebe0]/50"
+                >
+                  {o.group}
+                </div>
+              ) : null;
             return (
-              <button
-                key={o.value}
-                type="button"
-                role="option"
-                aria-selected={selected}
-                data-value={o.value}
-                onClick={() => toggle(o.value)}
-                className={cn(
-                  "flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-left text-xs outline-none",
-                  "hover:bg-white/[0.08] focus-visible:bg-white/[0.08]",
-                )}
-              >
-                <Check
-                  className={cn("size-3.5 shrink-0", selected ? "opacity-100" : "opacity-0")}
-                  aria-hidden
-                />
-                {o.label}
-              </button>
+              <Fragment key={o.value}>
+                {header}
+                <button
+                  type="button"
+                  role="option"
+                  aria-selected={selected}
+                  data-value={o.value}
+                  onClick={() => toggle(o.value)}
+                  className={cn(
+                    "flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-left text-xs outline-none",
+                    "hover:bg-white/[0.08] focus-visible:bg-white/[0.08]",
+                  )}
+                >
+                  <Check
+                    className={cn("size-3.5 shrink-0", selected ? "opacity-100" : "opacity-0")}
+                    aria-hidden
+                  />
+                  {o.label}
+                </button>
+              </Fragment>
             );
           })}
           {visible.length === 0 && (options.length > 0 || !leadingAction) && (

@@ -7,6 +7,10 @@
 //   4. pickPoolName auto-prefill on role change — Task 2
 //   5. Prefill respects user-typed name (no overwrite when name != "") — Task 2
 //   6. Role-select bug fix: "pick a host" hint OR widened auto-pick — Task 3
+//      (2026-10-18: the hint is gone — agent mode has no host step and the
+//      Roles dropdown lists every host's roles at open; Task 3c now pins
+//      that the roles group shows with no host picked, and Task 2e re-suggests
+//      on a host switch made by picking another host's role)
 //
 // Mock scaffolding lifted from NewSessionDialog.role-dropdown.test.tsx so this
 // file is self-contained. Follows the sibling-test-file pattern (Landmine 10 —
@@ -74,7 +78,9 @@ import { NewSessionDialog } from "./NewSessionDialog";
 import {
   queryRolesGroup,
   pickedRoleValues,
+  roleOptionValues,
   toggleRole,
+  closeRoleDropdown,
 } from "./NewSessionDialog.roles-test-helpers";
 import type { Host, HostFolder } from "@/types/ui-types";
 
@@ -461,29 +467,30 @@ describe("NewSessionDialog task input: pickPoolName auto-prefill", () => {
     ).toBe("sample");
   });
 
-  it("Task 2e: switching hosts re-suggests, replacing an unedited suggestion", async () => {
+  it("Task 2e: switching hosts (via another host's role) re-suggests, replacing an unedited suggestion", async () => {
     // A suggestion is only trustworthy for the host it was checked against, so a
     // host switch must replace an untouched suggestion rather than leave the
     // previous host's name sitting there. Distinct from Task 2b: that guards a
     // USER-TYPED name; this one is a name only we wrote.
+    //
+    // 2026-10-18: there is no host list in agent mode — the host switches when
+    // the user picks a role from a different host's section.
     mockPickPoolName
       .mockResolvedValueOnce({ name: "willow" })
       .mockResolvedValueOnce({ name: "aster" });
+    // Every host answers with the same two roles.
     mockListRolesForHost.mockResolvedValue([
       { name: "box-maintainer", description: "" },
       { name: "general-assistant", description: "" },
     ]);
     // Numeric ids so the effect's Number.isFinite guard passes.
-    const numericTwoHostTree: HostFolder = {
-      name: "root",
-      children: [
-        makeHost("1", "alpha", { username: "root", ip: "10.0.0.1" }),
-        makeHost("2", "bravo", { username: "root", ip: "10.0.0.2" }),
-      ],
-    };
-    renderDialog({ hostTree: numericTwoHostTree });
+    renderDialog({ hostTree: twoHostTree });
 
-    fireEvent.click(screen.getByText("alpha"));
+    await waitFor(() => expect(queryRolesGroup()).toBeTruthy());
+    // No host yet → no suggestion yet.
+    expect(mockPickPoolName).not.toHaveBeenCalled();
+    toggleRole("box-maintainer", "1");
+    closeRoleDropdown();
     // 2026-09-27: reveal the manual input so we can observe its value.
     fireEvent.click(screen.getByLabelText(/choose a custom agent name/i));
     await waitFor(() => {
@@ -491,13 +498,16 @@ describe("NewSessionDialog task input: pickPoolName auto-prefill", () => {
         (screen.getByLabelText(/^name$/i) as HTMLInputElement).value,
       ).toBe("willow");
     });
+    expect(mockPickPoolName.mock.calls[0][0]).toBe(1);
 
-    fireEvent.click(screen.getByText("bravo"));
+    toggleRole("box-maintainer", "2");
+    closeRoleDropdown();
     await waitFor(() => {
       expect(
         (screen.getByLabelText(/^name$/i) as HTMLInputElement).value,
       ).toBe("aster");
     });
+    expect(mockPickPoolName.mock.calls[1][0]).toBe(2);
   });
 
   it("Task 2c: pickPoolName failure is silent (no toast/error/throw) — user can type", async () => {
@@ -595,25 +605,21 @@ describe("NewSessionDialog task input: poolPicked wire signal end-to-end", () =>
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Task 3 — Role-select bug fix: "pick a host first" affordance
+// 2026-10-18: superseded — there is no host step in agent mode, so the hint
+// it added is gone. The roles group renders with no host picked instead.
 // ─────────────────────────────────────────────────────────────────────────────
 
 describe("NewSessionDialog role-select bug fix: host-null affordance", () => {
-  it("Task 3c: agent mode (default) + no host picked → 'Pick a host to see available roles' hint is visible", async () => {
-    // Phase 88: agent mode is the new default (shellOnly=false). Use
-    // two-host tree so no auto-select fires → selectedHost stays null on
-    // open. The literal we check for is DISTINCT from the modal-description
-    // text ("Pick a role and (optionally) name the agent.") so this cannot
-    // be satisfied by the pre-existing L787 description alone — it must be
-    // the new Task-3 hint block rendered inside the agent-cluster.
+  it("Task 3c: agent mode (default) + several hosts, none picked → roles group shows every host's roles; no 'Pick a host' hint", async () => {
+    // Was: the "Pick a host to see available roles." hint showed until a host
+    // was clicked. Agent mode no longer has a host list, so the dropdown itself
+    // is the affordance — it must be there, populated, with no host chosen.
     renderDialog({ hostTree: twoHostTree });
-    await waitFor(() => {
-      expect(
-        screen.queryByText(/pick a host to see available roles/i),
-      ).toBeTruthy();
-    });
-    // Sanity: roles group is still absent when host is null (existing
-    // L1022 gate {selectedHost !== null && (...)} unchanged by Approach A).
-    expect(queryRolesGroup()).toBeFalsy();
+    await waitFor(() => expect(queryRolesGroup()).toBeTruthy());
+    expect(roleOptionValues()).toEqual(["1/box-maintainer", "2/box-maintainer"]);
+    closeRoleDropdown();
+    expect(pickedRoleValues()).toEqual([]);
+    expect(screen.queryByText(/pick a host/i)).toBeFalsy();
   });
 
   it("Task 3d: agent mode (default) + one host auto-picked → hint is NOT visible + roles group appears", async () => {
