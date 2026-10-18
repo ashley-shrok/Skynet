@@ -1,5 +1,6 @@
 /**
- * SkillsEditorModal — instance-wide section tests (shape-instance-wide-roles-and-skills).
+ * SkillsEditorModal — "Shared to every host" (instance-wide) and fleet-distributed
+ * sections (shape-instance-wide-roles-and-skills, shape-skills-modal).
  *
  * Byte-shape mirror of GlobalFilesModal.test.tsx (quick 260805-7rq) with the
  * skill dimension threaded into every fixture. The primary test (#1) is the
@@ -207,7 +208,7 @@ if (typeof window !== "undefined" && !window.ResizeObserver) {
   };
 }
 
-/** Open the picker row's ⋮ skill menu ("User-invoked only", "Agent-invoked only", "Delete skill…"). */
+/** Open the skill view's ⋮ menu (share / remove / delete). */
 async function openSkillMenu(): Promise<void> {
   const trigger = await screen.findByTestId("skills-editor-modal-skill-menu");
   await userEvent.setup().click(trigger);
@@ -215,12 +216,7 @@ async function openSkillMenu(): Promise<void> {
 }
 
 async function selectSkill(skillName: string): Promise<void> {
-  await waitFor(() => {
-    const select = screen.getByRole("combobox", { name: /skill/i }) as HTMLSelectElement;
-    expect(select.disabled).toBe(false);
-  });
-  const skillSelect = screen.getByRole("combobox", { name: /skill/i });
-  fireEvent.change(skillSelect, { target: { value: skillName } });
+  fireEvent.click(await screen.findByRole("button", { name: `Open ${skillName}` }));
 }
 
 // ── Test suite ────────────────────────────────────────────────────────────────
@@ -251,7 +247,7 @@ function renderModal(): void {
   );
 }
 
-describe("SkillsEditorModal — instance-wide section", () => {
+describe("SkillsEditorModal — shared to every host", () => {
   beforeEach(() => {
     vi.clearAllMocks();
   });
@@ -260,33 +256,52 @@ describe("SkillsEditorModal — instance-wide section", () => {
     __resetKitDialogsForTests();
   });
 
-  it("lists instance-wide skills in their own group and edits the master copy (hostId 0)", async () => {
+  it("admin: shared skills have their own section and edit the master copy (hostId 0)", async () => {
     vi.mocked(iwApi.listInstanceWide).mockResolvedValue({ isAdmin: true, items: [IW_ITEM] });
     renderModal();
-    await waitFor(() =>
-      expect(screen.getByRole("group", { name: /instance-wide/i })).toBeInTheDocument(),
-    );
+    const sectionEl = await screen.findByTestId("skills-editor-modal-section-shared");
+    expect(within(sectionEl).getByText("Shared to every host")).toBeInTheDocument();
+    expect(within(sectionEl).getByRole("button", { name: "Open shared-skill" })).toBeInTheDocument();
     await selectSkill("shared-skill");
     await waitFor(() =>
       expect(skillsApi.enumerateSkillFiles).toHaveBeenCalledWith(0, "shared-skill"),
     );
-    expect(screen.getByTestId("instance-wide-chip")).toBeInTheDocument();
     // Quiet status: one host behind → warning chip with detail on click.
-    const warn = screen.getByTestId("instance-wide-sync-warning");
+    const warn = await screen.findByTestId("instance-wide-sync-warning");
     expect(warn).toHaveTextContent("1 host behind");
     fireEvent.click(warn);
     expect(screen.getByTestId("instance-wide-sync-detail")).toHaveTextContent("laptop");
   });
 
-  it("an instance-wide skill also present in the host's folder shows only in the instance-wide group", async () => {
+  it("admin: a shared skill also present in the host's folder shows only in the shared section", async () => {
     vi.mocked(iwApi.listInstanceWide).mockResolvedValue({ isAdmin: true, items: [IW_ITEM] });
     vi.mocked(skillsApi.listSkills).mockResolvedValueOnce([{ name: "build" }, { name: "shared-skill" }]);
     renderModal();
-    const group = await screen.findByRole("group", { name: /instance-wide/i });
-    await waitFor(() => expect(screen.getByRole("group", { name: "thenasty" })).toBeInTheDocument());
-    expect(within(group).getAllByRole("option").map((o) => o.textContent)).toEqual(["shared-skill"]);
-    const hostGroup = screen.getByRole("group", { name: "thenasty" });
-    expect(within(hostGroup).getAllByRole("option").map((o) => o.textContent)).toEqual(["build"]);
+    const shared = await screen.findByTestId("skills-editor-modal-section-shared");
+    const own = await screen.findByTestId("skills-editor-modal-section-own");
+    expect(within(shared).getAllByRole("button", { name: /^Open / }).map((b) => b.getAttribute("aria-label"))).toEqual([
+      "Open shared-skill",
+    ]);
+    expect(within(own).getAllByRole("button", { name: /^Open / }).map((b) => b.getAttribute("aria-label"))).toEqual([
+      "Open build",
+    ]);
+  });
+
+  it("admin: a shared skill's switches write its master copy", async () => {
+    vi.mocked(iwApi.listInstanceWide).mockResolvedValue({ isAdmin: true, items: [IW_ITEM] });
+    vi.mocked(skillsApi.readSkillFile).mockResolvedValue({ content: "---\nname: shared-skill\n---\n", mtime: 7, size: 1, isText: true });
+    renderModal();
+    await screen.findByRole("button", { name: "Open shared-skill" });
+    fireEvent.click(screen.getByTestId("skills-editor-modal-switch-agents-shared-skill"));
+    await waitFor(() =>
+      expect(skillsApi.writeSkillFile).toHaveBeenCalledWith({
+        hostId: 0,
+        skill: "shared-skill",
+        path: "SKILL.md",
+        content: "---\nname: shared-skill\ndisable-model-invocation: true\n---\n",
+        expectedMtime: 7,
+      }),
+    );
   });
 
   it("shows no warning when every host is current", async () => {
@@ -296,11 +311,11 @@ describe("SkillsEditorModal — instance-wide section", () => {
     });
     renderModal();
     await selectSkill("shared-skill");
-    await screen.findByTestId("instance-wide-chip");
+    await screen.findByTestId("skills-editor-modal-switch-you-shared-skill");
     expect(screen.queryByTestId("instance-wide-sync-warning")).toBeNull();
   });
 
-  it("admin: Make instance-wide previews, warns, and promotes", async () => {
+  it("admin: Share to every host previews, warns, and promotes", async () => {
     vi.mocked(iwApi.listInstanceWide).mockResolvedValue({ isAdmin: true, items: [] });
     const dialogs = autoAnswerKitDialogs({ confirm: true });
     renderModal();
@@ -327,19 +342,15 @@ describe("SkillsEditorModal — instance-wide section", () => {
     expect(String(dialogs.calls[0].opts.body)).toMatch(/3 hosts/);
   });
 
-  it("non-admin: instance-wide skill is read-only", async () => {
+  it("non-admin: no shared section, even if the list somehow carries one", async () => {
     vi.mocked(iwApi.listInstanceWide).mockResolvedValue({ isAdmin: false, items: [IW_ITEM] });
     renderModal();
-    await selectSkill("shared-skill");
-    await screen.findByTestId("instance-wide-chip");
-    expect(screen.queryByTestId("skills-editor-modal-add-file")).toBeNull();
-    await openSkillMenu();
-    expect(screen.getByTestId("skills-editor-modal-instance-readonly")).toBeInTheDocument();
-    expect(screen.queryByTestId("skills-editor-modal-remove-instance-skill")).toBeNull();
-    expect(screen.queryByTestId("skills-editor-modal-delete-skill")).toBeNull();
+    await screen.findByRole("button", { name: "Open build" });
+    expect(screen.queryByTestId("skills-editor-modal-section-shared")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Open shared-skill" })).toBeNull();
   });
 
-  it("non-admin: no Make instance-wide on host skills", async () => {
+  it("non-admin: no Share to every host on their own skills", async () => {
     vi.mocked(iwApi.listInstanceWide).mockResolvedValue({ isAdmin: false, items: [] });
     renderModal();
     await selectSkill("build");
@@ -362,36 +373,38 @@ describe("SkillsEditorModal — fleet-distributed section", () => {
     __resetKitDialogsForTests();
   });
 
-  it("asks for distributed skills and lists them in their own group", async () => {
+  it("asks for distributed skills and lists them in their own section", async () => {
     renderModal();
-    const group = await screen.findByRole("group", { name: /fleet-distributed/i });
+    const dist = await screen.findByTestId("skills-editor-modal-section-distributed");
     expect(skillsApi.listSkills).toHaveBeenCalledWith(1, { includeDistributed: true });
-    expect(within(group).getAllByRole("option").map((o) => o.textContent)).toEqual(["stt"]);
-    const hostGroup = screen.getByRole("group", { name: "thenasty" });
-    expect(within(hostGroup).getAllByRole("option").map((o) => o.textContent)).toEqual(["build"]);
+    expect(within(dist).getByText("Fleet-distributed — read-only")).toBeInTheDocument();
+    expect(within(dist).getByRole("button", { name: "Open stt" })).toBeInTheDocument();
+    const own = screen.getByTestId("skills-editor-modal-section-own");
+    expect(within(own).queryByRole("button", { name: "Open stt" })).toBeNull();
   });
 
-  it("a distributed skill is read-only: no add file, no delete, no promote, no invocation toggles", async () => {
+  it("a distributed skill is read-only: banner, no switches, no add file, no delete, no promote", async () => {
     renderModal();
     await selectSkill("stt");
     await waitFor(() => expect(skillsApi.enumerateSkillFiles).toHaveBeenCalledWith(1, "stt"));
-    expect(screen.getByTestId("skills-editor-modal-distributed-chip")).toBeInTheDocument();
+    expect(screen.getByTestId("skills-editor-modal-readonly-banner")).toHaveTextContent(/Skynet repo/);
+    expect(screen.queryByTestId("skills-editor-modal-switch-you-stt")).toBeNull();
     await waitFor(() => expect(screen.queryByText("Loading files…")).toBeNull());
     expect(screen.queryByTestId("skills-editor-modal-add-file")).toBeNull();
+    expect(screen.queryByTestId("skills-editor-modal-save")).toBeNull();
     // The editor itself is view-only, so nothing can go dirty.
     expect(await screen.findByTestId("mdxeditor")).toBeDisabled();
     await openSkillMenu();
     expect(screen.getByTestId("skills-editor-modal-distributed-readonly")).toBeInTheDocument();
     expect(screen.queryByTestId("skills-editor-modal-delete-skill")).toBeNull();
     expect(screen.queryByTestId("skills-editor-modal-promote-skill")).toBeNull();
-    expect(screen.queryByTestId("skills-editor-modal-disable-model-invocation")).toBeNull();
   });
 
   it("the host's own skills stay editable", async () => {
     renderModal();
     await selectSkill("build");
     await waitFor(() => expect(skillsApi.enumerateSkillFiles).toHaveBeenCalledWith(1, "build"));
-    expect(screen.queryByTestId("skills-editor-modal-distributed-chip")).toBeNull();
+    expect(screen.queryByTestId("skills-editor-modal-readonly-banner")).toBeNull();
     await openSkillMenu();
     expect(screen.getByTestId("skills-editor-modal-delete-skill")).toBeInTheDocument();
   });

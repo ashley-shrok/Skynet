@@ -68,6 +68,7 @@ import yaml from "js-yaml";
 import type { Request, Response } from "express";
 import { AuthManager } from "../../utils/auth-manager.js";
 import { callerIsAdmin } from "../../instance-wide/admin.js";
+import { getInstanceWide } from "../../instance-wide/production.js";
 import { resolveHostById } from "../../ssh/host-resolver.js";
 import { connectOneShot } from "../../ssh/ssh-one-shot.js";
 import { execCommand } from "../../ssh/tmux-helper.js";
@@ -94,6 +95,19 @@ import {
   deleteInstanceSkill,
   downloadInstanceSkillFile,
 } from "../../instance-wide/skill-files.js";
+
+/** Names of the shared (instance-wide) skills; empty when sync isn't running or can't be read. */
+async function sharedSkillNames(): Promise<string[]> {
+  try {
+    return (await getInstanceWide()?.listNames("skill")) ?? [];
+  } catch (err) {
+    sshLogger.warn("skills-editor skills: couldn't read shared skill names", {
+      operation: "skills_editor_shared_names",
+      error: err instanceof Error ? err.message : "Unknown",
+    });
+    return [];
+  }
+}
 
 const router = express.Router();
 const authManager = AuthManager.getInstance();
@@ -274,6 +288,8 @@ export type ListedSkill = {
   name: string;
   description?: string;
   userInvocable?: false;
+  /** `disable-model-invocation: true` — agents won't use it on their own. */
+  modelInvocable?: false;
   distributed?: true;
 };
 
@@ -367,12 +383,15 @@ export function parseSkillListOutput(output: string): ListedSkill[] {
     const frontmatter = nl === -1 ? "" : record.slice(nl + 1);
     let description: string | undefined;
     let agentOnly = false;
+    let userOnly = false;
     const distributed = DISTRIBUTED_LINE_RE.test(frontmatter.replace(/\r/g, ""));
     try {
       const parsed = yaml.load(frontmatter);
       if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
         const ui = (parsed as Record<string, unknown>)["user-invocable"];
         agentOnly = ui === false || (typeof ui === "string" && ui.trim().toLowerCase() === "false");
+        const dmi = (parsed as Record<string, unknown>)["disable-model-invocation"];
+        userOnly = dmi === true || (typeof dmi === "string" && dmi.trim().toLowerCase() === "true");
         const raw = (parsed as Record<string, unknown>).description;
         if (typeof raw === "string") {
           const flat = raw.replace(/\s+/g, " ").trim();
@@ -389,6 +408,7 @@ export function parseSkillListOutput(output: string): ListedSkill[] {
     }
     const skill: ListedSkill = description === undefined ? { name } : { name, description };
     if (agentOnly) skill.userInvocable = false;
+    if (userOnly) skill.modelInvocable = false;
     if (distributed) skill.distributed = true;
     skills.push(skill);
   }
@@ -487,10 +507,15 @@ router.get(
       // Instance-wide skills sit in the same folder and are listed here too
       // (the skill-actions menu needs every skill on the box); the skills
       // window moves them into its instance-wide section client-side.
+      // Shared (instance-wide) skills are agent-only for non-admins: left out
+      // here, so they reach neither the skills window nor the Skills menu.
       const parsed = parseSkillListOutput(output);
-      const showDistributed =
-        req.query.includeDistributed === "1" && (await callerIsAdmin(userId));
-      const skills = showDistributed ? parsed : parsed.filter((s) => !s.distributed);
+      const isAdmin = await callerIsAdmin(userId);
+      const shared = isAdmin ? new Set<string>() : new Set(await sharedSkillNames());
+      const showDistributed = req.query.includeDistributed === "1" && isAdmin;
+      const skills = parsed.filter(
+        (s) => (showDistributed || !s.distributed) && !shared.has(s.name),
+      );
 
       sshLogger.info("skills-editor skills: listed", {
         operation: "skills_editor_skills_listed",
@@ -499,6 +524,8 @@ router.get(
         distributed: skills.filter((s) => s.distributed).length,
         withDescription: skills.filter((s) => s.description !== undefined).length,
         agentOnly: skills.filter((s) => s.userInvocable === false).length,
+        userOnly: skills.filter((s) => s.modelInvocable === false).length,
+        hiddenShared: parsed.filter((s) => shared.has(s.name)).length,
       });
       res.json({ skills });
     } catch (err) {

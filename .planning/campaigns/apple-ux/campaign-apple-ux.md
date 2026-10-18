@@ -20,7 +20,7 @@ So: this artifact deliberately does NOT list Apple design principles, and no ses
 - The modals read as one family.
 - The result looks like Skynet, not an Apple look-alike.
 - Every modal works on a phone as well as on a desktop.
-- No modal loses anything it can do today, including read-only states (fleet-distributed skills; shared skills and roles for non-admins stay view-only all the way into the editor).
+- No modal loses anything it can do today, including read-only states (fleet-distributed skills; shared roles for non-admins stay view-only all the way into the editor). Shared skills are invisible to non-admins and agent-only for them (Ashley, 2026-10-18).
 - Admins can share a skill or role to a chosen set of hosts, kept in sync across exactly those, or to "every host", which also reaches hosts added later; ticking all of today's hosts one by one does NOT include future hosts. Non-admins see none of this.
 - The id skill describes every non-admin-visible change as it ships (admin-only features stay out of it).
 - After the modals, the sidebar and the conversation view have had the same pass.
@@ -30,7 +30,7 @@ So: this artifact deliberately does NOT list Apple design principles, and no ses
 Starting order: foundation, skills, host targeting, then the remaining modals, then sidebar and conversation view last (Ashley: "save that until we've already gone through the rest").
 
 - **[declared] shape-ux-foundation** — look A + the shared kit, every modal moved onto it, in-app dialogs, phone sheets (see shape-ux-foundation.closed.md) — closed 2026-10-17
-- **[declared] shape-skills-modal** — the skills modal redesigned on the foundation, keeping fleet-distributed and instance-wide read-only behaviour — not started
+- **[declared] shape-skills-modal** — library + skill views, who-can-use switches in bulk, files collapsed; shared skills agent-only for non-admins (see shape-skills-modal.md) — in_progress
 - **[declared] shape-host-targeting** — admin-only: shared skills and roles target a chosen set of hosts or a permanent "every host"; sync machinery + the admin controls in both skills and roles modals — not started
 - **[declared] shape-roles-modals** — roles list, role modal, new-role dialog, runbook editor — not started
 - **[declared] shape-identity-modal** — agent modal (agent file, wake-ups + add-wake-up, files, git, desktop tabs) — not started

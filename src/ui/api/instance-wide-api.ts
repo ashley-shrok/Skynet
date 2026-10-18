@@ -32,6 +32,10 @@ export type InstanceWideItem = {
   /** Hosts the item currently sits on. */
   hostCount: number;
   hosts: InstanceWideHostStatus[];
+  /** Skills only: `user-invocable: false` — not offered to the user. */
+  userInvocable?: false;
+  /** Skills only: `disable-model-invocation: true` — agents won't use it. */
+  modelInvocable?: false;
 };
 
 export type InstanceWideList = { isAdmin: boolean; items: InstanceWideItem[] };

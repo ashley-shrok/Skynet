@@ -4,8 +4,9 @@
  * request carries hostId=0 (the "instance-wide" section of the skills window),
  * so the editor UI talks one contract for both.
  *
- * Reads are open to every signed-in user; writes are admin-only and land in the
- * master copy, which the engine then pushes to every machine.
+ * Admin-only end to end: to everyone else a shared skill is agent-only, so it
+ * doesn't exist in the skills window (reads 404, the list is empty). Writes land
+ * in the master copy, which the engine then pushes to every machine.
  */
 import path from "path";
 import type { Request, Response } from "express";
@@ -58,8 +59,12 @@ function args(req: Request): Record<string, unknown> {
   return { ...(req.query as Record<string, unknown>), ...((req.body ?? {}) as Record<string, unknown>) };
 }
 
-async function skillOr404(res: Response, skill: unknown): Promise<string | null> {
+async function skillOr404(req: Request, res: Response, skill: unknown): Promise<string | null> {
   const engine = getInstanceWide();
+  if (!(await callerIsAdmin((req as AuthenticatedRequest).userId))) {
+    res.status(404).json({ error: "skill not found" });
+    return null;
+  }
   if (!isValidItemName(skill)) {
     res.status(400).json({ error: "invalid skill name" });
     return null;
@@ -79,7 +84,11 @@ async function masterText(skill: string): Promise<string> {
 }
 
 // GET /skills
-export async function listInstanceSkills(_req: Request, res: Response): Promise<void> {
+export async function listInstanceSkills(req: Request, res: Response): Promise<void> {
+  if (!(await callerIsAdmin((req as AuthenticatedRequest).userId))) {
+    res.json({ skills: [] });
+    return;
+  }
   const engine = engineOr503(res);
   if (!engine) return;
   const skills = [];
@@ -102,7 +111,7 @@ export async function listInstanceSkills(_req: Request, res: Response): Promise<
 
 // GET /files
 export async function listInstanceSkillFiles(req: Request, res: Response): Promise<void> {
-  const skill = await skillOr404(res, args(req).skill);
+  const skill = await skillOr404(req, res, args(req).skill);
   if (!skill) return;
   const files = await getInstanceWide()!.masterStore.listFiles("skill", skill);
   res.json({ files: files.map((p) => ({ path: p })) });
@@ -111,7 +120,7 @@ export async function listInstanceSkillFiles(req: Request, res: Response): Promi
 // POST /read
 export async function readInstanceSkillFile(req: Request, res: Response): Promise<void> {
   const a = args(req);
-  const skill = await skillOr404(res, a.skill);
+  const skill = await skillOr404(req, res, a.skill);
   if (!skill) return;
   if (!isSafeRelPath(a.path)) {
     res.status(400).json({ error: "invalid path" });
@@ -132,7 +141,7 @@ export async function readInstanceSkillFile(req: Request, res: Response): Promis
 export async function writeInstanceSkillFile(req: Request, res: Response): Promise<void> {
   if (!(await requireAdmin(req, res))) return;
   const a = args(req);
-  const skill = await skillOr404(res, a.skill);
+  const skill = await skillOr404(req, res, a.skill);
   if (!skill) return;
   if (!isSafeRelPath(a.path)) {
     res.status(400).json({ error: "invalid path" });
@@ -166,7 +175,7 @@ export async function writeInstanceSkillFile(req: Request, res: Response): Promi
 export async function writeInstanceSkillBinary(req: Request, res: Response): Promise<void> {
   if (!(await requireAdmin(req, res))) return;
   const a = args(req);
-  const skill = await skillOr404(res, a.skill);
+  const skill = await skillOr404(req, res, a.skill);
   if (!skill) return;
   if (!isSafeRelPath(a.path)) {
     res.status(400).json({ error: "invalid path" });
@@ -189,7 +198,7 @@ export async function writeInstanceSkillBinary(req: Request, res: Response): Pro
 export async function createInstanceSkillFile(req: Request, res: Response): Promise<void> {
   if (!(await requireAdmin(req, res))) return;
   const a = args(req);
-  const skill = await skillOr404(res, a.skill);
+  const skill = await skillOr404(req, res, a.skill);
   if (!skill) return;
   if (!isSafeRelPath(a.path)) {
     res.status(400).json({ error: "invalid path" });
@@ -232,7 +241,7 @@ export async function createInstanceSkill(req: Request, res: Response, seed: (sl
 export async function deleteInstanceSkillFile(req: Request, res: Response): Promise<void> {
   if (!(await requireAdmin(req, res))) return;
   const a = args(req);
-  const skill = await skillOr404(res, a.skill);
+  const skill = await skillOr404(req, res, a.skill);
   if (!skill) return;
   if (!isSafeRelPath(a.path)) {
     res.status(400).json({ error: "invalid path" });
@@ -250,7 +259,7 @@ export async function deleteInstanceSkillFile(req: Request, res: Response): Prom
 // DELETE /skill  (remove the instance-wide skill everywhere)
 export async function deleteInstanceSkill(req: Request, res: Response): Promise<void> {
   if (!(await requireAdmin(req, res))) return;
-  const skill = await skillOr404(res, args(req).skill);
+  const skill = await skillOr404(req, res, args(req).skill);
   if (!skill) return;
   const result = await getInstanceWide()!.removeItem("skill", skill);
   res.json({ ok: true, ...result });
@@ -261,7 +270,7 @@ export async function deleteInstanceSkill(req: Request, res: Response): Promise<
 // always attachments; anything unknown is an octet-stream attachment.
 export async function downloadInstanceSkillFile(req: Request, res: Response): Promise<void> {
   const a = args(req);
-  const skill = await skillOr404(res, a.skill);
+  const skill = await skillOr404(req, res, a.skill);
   if (!skill) return;
   if (!isSafeRelPath(a.path)) {
     res.status(400).json({ error: "invalid path" });

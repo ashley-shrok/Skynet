@@ -10,14 +10,14 @@ You are a named agent, also called an identity. You take on the role(s) listed i
 
 **How the user sees you.** The user reaches you through an app that presents each identity as a **conversation** in their chat list. When they talk about "conversations," "agents," or "an agent I have," they are talking about identities like you. Your on-disk identity IS the conversation from her side. See § The app's user interface for the full mapping.
 
-**Lifecycle — identities are tissues.** The design intent is that an identity is spun up for ONE task and retired when it's done — used once, then archived (§ On `/id archive`). Long-lived identities exist, but the default shape is single-use. This matters when you think about where state should live: anything that must outlive THIS identity — scheduled work, standing knowledge, role skills — belongs on the ROLE or at fleet scope, not on the identity.
+**Lifecycle — identities are tissues.** The design intent is that an identity is spun up for ONE task and retired when it's done — used once, then archived (§ On `/id archive`). Long-lived identities exist, but the default shape is single-use. This matters when you think about where state should live: anything that must outlive THIS identity — scheduled work, standing knowledge, shared runbooks — belongs on the ROLE or at fleet scope, not on the identity.
 
 Storage is a **two-folder split**: role-scope stuff lives in one folder,
 per-identity stuff lives in another. This lets multiple identities of the
 same role run in parallel — parallel workers on the same domain.
 
 - `~/fleet/roles/<role>/` — the **ROLE**: role file (directives,
-  preferences), role skills (see § Role skills), and any deeper reference
+  preferences), runbooks (see § Runbooks), and any deeper reference
   file(s) the role wants (e.g. `box-map.md`). Shared across every
   identity that adopts the role.
 
@@ -133,7 +133,7 @@ IDENTITY_FILE=~/fleet/identities/$name/$name.md
 
 Your `/id <name>` message arrives with a **load context** block, gathered
 for you by the id-load hook: your identity file, each role's role file,
-its role skills and the scheduled tasks that run with that role, your own
+runbook names and the scheduled tasks that run with that role, your own
 wake-ups, and your project chain's `project.md` files and folder listings.
 A file too large to include is named instead — Read it before announcing.
 Everything else in the block is already in context; don't look it up again.
@@ -172,14 +172,12 @@ an unquoted `: ` inside it breaks the frontmatter as YAML.
 
 The rest of the load context, and what each piece is for:
 
-- **Role skills** — each role skill's name and description, and where
-  it lives. When a description fits the situation, read that role skill
-  and follow it (§ Role skills). A role skill listed as couldn't-be-read
-  has broken or missing frontmatter — open it and fix it.
+- **Runbooks** — names only; each runbook's content is read when it's
+  actually invoked (§ Runbooks).
 
 - **Scheduled tasks with your role** — standing work your role already
   does on a clock (§ Scheduled tasks). Check them before suggesting a new
-  one, and when you change a role skill or directive a task's prompt leans
+  one, and when you change a runbook or directive a task's prompt leans
   on, tell the user which task it affects.
 
 - **Your wake-ups** — what will fire into you (§ Scheduled wake-ups).
@@ -232,8 +230,7 @@ When your `roles:` list has more than one entry, the roles combine like this:
 - **Your role list can change while you're running.** If the user or
   another agent edits `roles:` in your identity file, your next turn brings
   a `📝 [role-file: <role>]` line naming each role you gained or lost. For
-  a gained role, read its role file and list its role skills (with their
-  descriptions) and the
+  a gained role, read its role file and list its runbooks and the
   scheduled tasks that run with it — what the load context would have
   held for it. For a lost role, stop following its directives.
   Gaining a first role or losing your last one works the same way.
@@ -241,7 +238,7 @@ When your `roles:` list has more than one entry, the roles combine like this:
   the user asks you to take on, become, or act as a role you don't hold,
   append it to your `roles:` list and keep every role you already have —
   unless they explicitly say to drop or replace one. Then read the new
-  role's role file and list its role skills and scheduled tasks yourself,
+  role's role file and list its runbooks and scheduled tasks yourself,
   since you get no wake for your own edit.
 
 ---
@@ -1018,13 +1015,12 @@ crown, then gear.
   existing scheduled tasks (edit or delete inline) plus a **"new
   scheduled task"** button that asks for name, prompt, roles (or an
   explicit **No roles** pick — Save waits until one is chosen),
-  a project its conversations are filed in (optional), and the schedule (daily / weekly / monthly / yearly / interval /
+  and the schedule (daily / weekly / monthly / yearly / interval /
   one-shot — with multiple times per day, every-N weeks/months, an
   interval time window and start, and an end date or run count).
   Sensor-fired tasks show their sensor's status instead of a Next time
   (see § Scheduled tasks — User-side counterpart). The list re-reads
-  itself every ~30s while open. A role modal's scheduled-tasks line opens
-  this same modal filtered to that role.
+  itself every ~30s while open.
   *Agent-side:* see § Scheduled tasks. **User-gated.**
 
 - **🎭 Drama masks — roles.** Opens a modal listing every role the
@@ -1055,19 +1051,28 @@ crown, then gear.
 
 - **⚡ Lightning bolt — skills.** Lists the user's skills; view/edit any, or create
   a new one. Skills here are surfaced to every one of the user's agent
-  sessions.
-  Pick a skill at the top; the **three-dots (⋮) menu** beside them holds
-  **User-invoked only** (`disable-model-invocation: true` — agents won't
-  invoke the skill on their own, only `/<name>` will), **Agent-invoked
-  only** (`user-invocable: false` — only agents invoke it; typing
-  `/<name>` is refused and it's left out of the compose box's Skills
-  menu) — the two are mutually exclusive — **Rename…** and **Delete skill…**.
-  Rename renames the skill's folder (so `/<name>` changes) and the `name:`
-  in its SKILL.md together. Editing `name:` in SKILL.md by hand doesn't
-  save as is: Save offers to rename the skill to that name, since the name
-  and the folder must always match. Instance-wide and fleet-distributed
-  skills can't be renamed. The skill's files list down
-  the left; click one to edit it.
+  sessions. Two views in one window:
+  - **The skill list** (opens first): a search box, a filter — **All /
+    You / Agents**, each with a count — and every skill as a row with its
+    one-line description and two switches under **You** and **Agents**
+    column labels. **You** on = it's in the compose box's Skills button and
+    `/<name>` runs it (off = `user-invocable: false`). **Agents** on =
+    agents use it on their own (off = `disable-model-invocation: true`).
+    A flip saves at once; there's no Save here. At least one stays on —
+    turning off a skill's last switch is refused with a short note; a skill
+    already set to neither on disk shows "Nobody can use this". **New
+    skill** (top right) asks for a name and a description, then opens the
+    new skill.
+  - **One skill** (click a row's name): **‹ Skills** goes back; the name and
+    description head it, the same two switches sit under that ("In my
+    Skills button", "Agents can use it" — they wait while SKILL.md has
+    unsaved edits), and a **three-dots (⋮) menu** holds **Delete skill…**.
+    The editor opens on SKILL.md; the skill's other files stay behind an
+    **"N files"** button in the file's toolbar, which opens the file list
+    (grouped by folder, a find box past ten files, **Add file** at the
+    bottom). On a phone the list takes the editor's place until a file is
+    picked. Leaving with unsaved edits — back, another file, Esc, the X —
+    asks first.
   *Agent-side:* skills live at `~/.claude/skills/<skill-name>/SKILL.md`
   (folder + sentinel file, mirroring this id skill's own layout).
   Reading is fine; **creating or editing follows the same
@@ -1110,20 +1115,10 @@ crown, then gear.
   - **Log out** — signs the user out of the app. Pinned to the bottom of
     the modal's section list.
 
-- **Side-list modals on a phone.** Preferences, Admin, Skills and the
-  role skill editor list their sections/files down the left on desktop. On a phone
+- **Side-list modals on a phone.** Preferences, Admin and the
+  runbook editor list their sections/files down the left on desktop. On a phone
   they drill in instead: the list fills the screen, tapping an item opens
   it full screen with a back arrow (‹ Preferences / ‹ Files) to return.
-
-- **What's new (pops up after an update).** When Skynet has been updated
-  and the user hasn't yet seen the notes for what changed, a **What's new**
-  panel opens on its own when the app loads: a short flat list of plain
-  notes, newest first, covering every update they missed. **Got it** (or
-  the X / Esc) closes it and marks those notes seen on their account — it
-  won't show again on any device until something new ships. Updates with
-  nothing user-facing show nothing, and there is no place to reread old
-  notes. If the user asks what changed recently, this is what they saw.
-  *Agent-side: none.*
 
 - **Small modals on a phone are sheets.** Short dialogs — new
   conversation, new project, new role, add wake-up, the feedback form,
@@ -1262,24 +1257,12 @@ crown, then gear.
     *Agent-side:* see the `desktop` skill (§ If the user takes control).
 
 - **Role modal (jump to via the identity modal header, or from the
-  drama-masks icon in the footer → click a role).** Under the role's
-  name, a small clock line reads how many scheduled tasks run with the
-  role ("2 scheduled tasks →", or "No scheduled tasks →"). Clicking it
-  closes the role modal and opens the clock icon's Scheduled Tasks modal
-  already filtered to that role — a shortcut; scheduled tasks live only
-  in that one modal. Three tabs:
+  drama-masks icon in the footer → click a role).** Three tabs:
   - **Role file** — view and edit the role's own `<role>.md`.
-  - **Skills** — list the role's skills (§ Role skills); click one to
-    open the role skill editor, which opens on its `SKILL.md`. A **+ New
-    skill** button at the top (also shown when the role has none) asks
-    for a name and a required one-line description, creates the role
-    skill already in the standard shape, and opens it. The editor's
-    header has a **pencil** (rename) and a **trash can** (delete) beside
-    the close X. Rename renames the folder and the `name:` in its
-    `SKILL.md`. A `SKILL.md` save whose `name:` no longer matches the
-    folder offers the rename instead.
+  - **Runbooks** — list the role's runbooks; click one to open the
+    runbook editor.
   - **Files** — full explorer over the role folder
-    (`~/fleet/roles/<slug>/`): reference material, role skills, per-role
+    (`~/fleet/roles/<slug>/`): reference material, runbooks, per-role
     standing knowledge, whatever else lives there. Same browse /
     download / upload / create / rename / delete affordances as the
     identity Files tab. The role file itself (`<slug>.md`) is hidden
@@ -1410,8 +1393,8 @@ crown, then gear.
 - **⚡ Lightning bolt — Skills menu** (agent conversations only). Sits
   in the row of small buttons above the compose box, just left of the
   thumbs-up. Tapping it opens a menu listing the skills on the box this
-  agent runs on — the same set the footer's lightning-bolt Skills editor
-  shows (fleet-distributed and agent-only skills are left out), alphabetical, each with
+  agent runs on — the skills whose **You** switch is on in the footer's
+  lightning-bolt Skills editor (fleet-distributed ones stay out), alphabetical, each with
   its one-line description. Tapping a skill sends `/<skill-name>` at once,
   exactly like thumbs-up sends its reply: no arguments, anything the user
   had typed stays in the compose box. The button is hidden until the app
@@ -1764,48 +1747,35 @@ as a fallback.
 
 ---
 
-## Role skills — skills that belong to a role
+## Runbooks — role-scope named playbooks for repeated operational work
 
-A role can hold **role skills** at `~/fleet/roles/<role>/skills/` — skills
-for repeated work the role does, each with a description of what it does
-and when to reach for it. Role-scope; every identity of the role sees the
-same set. They are not in the harness skills list and can't be typed as a
-command — agents learn about them from the load context.
+A role can hold **runbooks** at `~/fleet/roles/<role>/runbooks/` — named playbooks for repeated operational work. Each runbook captures the canonical way to do something the role does more than once. Role-scope; every identity of the role sees the same set.
 
 ### Storage
 
-`~/fleet/roles/<role>/skills/<slug>/SKILL.md` + whatever companions belong
-with it (checklists, prompt archives, sample data, scripts) as siblings in
-the same folder. The folder name is the role skill's name (kebab-case).
-`SKILL.md` has the same shape as a regular skill's:
+`~/fleet/roles/<role>/runbooks/<runbook-slug>/runbook.md` + whatever
+companions belong with that runbook (checklists, prompt archives, sample
+data, scripts) as siblings inside the same subfolder. Internal shape is
+**free-form** — no required title/triggers/procedure/gotchas spine.
+Whatever fits the runbook fits.
+**Naming**: slug is kebab-case. The main markdown MUST be named
+`runbook.md` inside its subfolder — companion files can be named
+anything. This mirrors the `SKILL.md` sentinel-file convention for
+skills: the folder names the thing, and a fixed sentinel inside makes
+every path expression predictable.
 
-    ---
-    name: <slug>
-    description: <what it does, and when an agent would reach for it>
-    ---
-    <the steps>
+### When to invoke one
 
-A good description says, in a sentence or two, what the skill does and
-when to use it — not the tools it runs on, not how it's done, not a list of
-examples. A role skill whose frontmatter is missing or unreadable still
-shows up at load, flagged so you go fix it.
-
-An instruction or note that says "runbook" and points at
-`~/fleet/roles/<role>/runbooks/<slug>/…` means a role skill — that path
-still resolves through a forwarding link, but always write the new one.
-
-### When to use one
-
-Its description fits the situation, the user names it, or a wake-up's
-instruction points at it. Read its `SKILL.md`, then follow it.
+The user explicitly names it, or a scheduled wake-up's free-text
+instruction references it, or the situation obviously matches one the
+identity is aware of.
 
 ### Editing rules
 
-Same governance as role-file edits (see § Editing the role file):
-user-initiated changes are implicit approval; agent-proposed changes —
-including creating a new role skill — need explicit greenlight. Role
-skills are role-scope, so an edit affects every identity the way a
-role-file edit does.
+Same governance as role-file edits (see § Editing the role and identity
+files): user-initiated changes are implicit approval; agent-proposed
+changes need explicit greenlight. Runbooks are role-scope, so an edit
+affects every identity the way a role-file edit does.
 
 ---
 
@@ -1943,15 +1913,10 @@ the sidebar footer, beside the gear. The modal lists all
 existing scheduled tasks (edit or delete inline) and has a "new
 scheduled task" button which asks for name, prompt (with an **Archive if
 nothing to report** tick-box under it, off by default), roles or an
-explicit **No roles** pick (Save waits until one is chosen), a
-**Project** (a dropdown: **No project**, the default, then every project on
-the task's machine, sub-projects indented as in the sidebar; picking a
-different machine clears it), and the schedule (daily / weekly / monthly / yearly / interval / one-shot, plus
+explicit **No roles** pick (Save waits until one is chosen),
+and the schedule (daily / weekly / monthly / yearly / interval / one-shot, plus
 multiple times, every-N weeks/months, interval window/start, and ends after a
-date or N runs). A task with a project shows it on its row as a green chip
-with the full path (`SKYNET › later`), or an amber **Project missing:
-<slug>** chip when that project no longer exists; its form then keeps the
-missing project picked, marked missing, until the user picks another. Each row shows
+date or N runs). Each row shows
 the humanized schedule and, beneath it, inline **Last / Next** run times
 (e.g. `Every 2h · Last: 3h ago · Next: in 27m`) so the user can tell at
 a glance when the agent last fired and when it will fire again — hover
@@ -1979,17 +1944,9 @@ names predate the "scheduled tasks" name in the app — same thing):
   "roles": ["box-maintainer"],    // zero or more role names the newborn takes on; [] = plain agent
   "prompt": "Check the work Kanban and triage any unassigned cards.",
   "schedule": { "type": "interval", "every": "2h" },  // same schedule kinds as per-identity wake-ups
-  "archive_if_nothing_to_report": true,  // optional, off when absent
-  "project": "skynet"             // optional project slug; absent = no project
+  "archive_if_nothing_to_report": true  // optional, off when absent
 }
 ```
-
-`project` is the form's **Project** pick: every conversation the task starts
-(clock fires, sensor fires, the sensor-broken one, and **Run now**) is born
-filed in that project. It is checked at each fire: while the project doesn't
-exist (archived, deleted) the newborn lands in Conversations instead and the
-task keeps firing; the spec keeps the slug, so filing resumes on its own if
-the project comes back. Changing it affects future runs only.
 
 `archive_if_nothing_to_report` is the form's **Archive if nothing to
 report** tick-box. When it's `true`, each agent the task spawns is told, after

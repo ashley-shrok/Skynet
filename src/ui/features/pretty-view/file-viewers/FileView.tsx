@@ -65,6 +65,9 @@ export interface FileViewProps {
   onDraftContentChange?: (draft: string) => void;
   /** Extra controls at the start of the toolbar row (e.g. a delete button). */
   toolbarStart?: ReactNode;
+  /** Pinned to the far left of the toolbar, ahead of the mode switcher
+   *  (e.g. the skills window's files toggle + file name). */
+  toolbarLead?: ReactNode;
   /** Controlled mode id. Omit to let FileView keep it. */
   mode?: string;
   onModeChange?: (mode: string) => void;
@@ -192,6 +195,7 @@ export function FileView({
   onDraftChange,
   onDraftContentChange,
   toolbarStart,
+  toolbarLead,
   mode: modeProp,
   onModeChange,
   hideModeSwitcher = false,
@@ -296,12 +300,15 @@ export function FileView({
     state.status === "ready" &&
     state.data.isText !== false;
   const toolbar =
-    toolbarStart || showSwitcher || showSave || showSpeak ? (
+    toolbarLead || toolbarStart || showSwitcher || showSave || showSpeak ? (
       <div className="flex justify-end gap-2 shrink-0 items-center">
+        {toolbarLead ? (
+          <div className="mr-auto order-first flex items-center gap-2 min-w-0">{toolbarLead}</div>
+        ) : null}
         {toolbarStart}
         {showSpeak ? <FileSpeakButton filename={filename} text={draft} /> : null}
         {showSwitcher ? (
-          <div className="mr-auto order-first">
+          <div className={toolbarLead ? "order-first" : "mr-auto order-first"}>
             <FileViewModeSwitcher filename={filename} mode={mode.id} onModeChange={setMode} />
           </div>
         ) : null}

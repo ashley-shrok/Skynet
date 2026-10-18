@@ -82,6 +82,12 @@ vi.mock("../../instance-wide/admin.js", () => ({
   callerIsAdmin: vi.fn(),
 }));
 
+// Shared (instance-wide) skill names; tests set `mockSharedNames`.
+let mockSharedNames: string[] = [];
+vi.mock("../../instance-wide/production.js", () => ({
+  getInstanceWide: () => ({ listNames: async () => mockSharedNames }),
+}));
+
 vi.mock("../../claude-session/identity-artifact-reader.js", () => ({
   writeMarkdownFileAtomic: vi.fn(),
 }));
@@ -390,6 +396,40 @@ describe("GET /skills-editor/skills", () => {
       expect((res.body as { skills: unknown[] }).skills).toEqual([{ name: "build" }]);
     });
   });
+
+  describe("shared skills", () => {
+    beforeEach(() => {
+      mockSharedNames = ["house-style"];
+      (execCommand as Mock).mockImplementation(
+        async (_conn: unknown, cmd: string) => {
+          if (cmd === "echo $HOME") return "/home/testuser\n";
+          if (cmd.startsWith("find") && cmd.includes("-maxdepth 1"))
+            return "\x1ebuild\nname: build\n\x1ehouse-style\nname: house-style\n";
+          return "";
+        },
+      );
+    });
+    afterEach(() => {
+      mockSharedNames = [];
+    });
+
+    it("are left out for a non-admin — agent-only, not theirs to see", async () => {
+      (callerIsAdmin as Mock).mockResolvedValue(false);
+      const res = await httpRequest(server, { method: "GET", path: "/skills-editor/skills?hostId=1" });
+      expect(res.status).toBe(200);
+      expect((res.body as { skills: unknown[] }).skills).toEqual([{ name: "build" }]);
+    });
+
+    it("are listed for an admin", async () => {
+      (callerIsAdmin as Mock).mockResolvedValue(true);
+      const res = await httpRequest(server, { method: "GET", path: "/skills-editor/skills?hostId=1" });
+      expect(res.status).toBe(200);
+      expect((res.body as { skills: unknown[] }).skills).toEqual([
+        { name: "build" },
+        { name: "house-style" },
+      ]);
+    });
+  });
 });
 
 // ===========================================================================
@@ -587,6 +627,20 @@ describe("parseSkillListOutput", () => {
       { name: "broken" },
       { name: "numeric" },
       { name: "blank" },
+    ]);
+  });
+
+  it("marks both invocation settings — user-invocable: false and disable-model-invocation: true", () => {
+    const out =
+      "\x1eagent-only\nuser-invocable: false\n" +
+      "\x1euser-only\ndisable-model-invocation: true\n" +
+      "\x1equoted\ndisable-model-invocation: 'true'\n" +
+      "\x1enobody\nuser-invocable: false\ndisable-model-invocation: true\n";
+    expect(parseSkillListOutput(out)).toEqual([
+      { name: "agent-only", userInvocable: false },
+      { name: "user-only", modelInvocable: false },
+      { name: "quoted", modelInvocable: false },
+      { name: "nobody", userInvocable: false, modelInvocable: false },
     ]);
   });
 

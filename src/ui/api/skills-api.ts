@@ -19,6 +19,8 @@ export type SkillEntry = {
   name: string;
   description?: string;
   userInvocable?: false;
+  /** `disable-model-invocation: true` — agents won't use it on their own. */
+  modelInvocable?: false;
   distributed?: true;
 };
 

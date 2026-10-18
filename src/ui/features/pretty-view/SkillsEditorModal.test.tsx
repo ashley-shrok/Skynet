@@ -1,5 +1,7 @@
 /**
- * Phase 44 SKILLED-05 — SkillsEditorModal tests.
+ * SkillsEditorModal tests — library view (switches, sections, filter) and
+ * skill view (opens on SKILL.md, collapsed files, unsaved-edit guards), plus
+ * the Phase 44 file/skill CRUD seams.
  *
  * Byte-shape mirror of GlobalFilesModal.test.tsx (quick 260805-7rq) with the
  * skill dimension threaded into every fixture. The primary test (#1) is the
@@ -56,7 +58,6 @@ vi.mock("@/api/skills-api", async (importOriginal) => {
     createSkill: vi.fn().mockResolvedValue({ slug: "new-skill", mtime: 1_700_000_200 }),
     deleteSkillFile: vi.fn().mockResolvedValue(undefined),
     deleteSkill: vi.fn().mockResolvedValue(undefined),
-    renameSkill: vi.fn().mockResolvedValue({ name: "ship", mtime: 1_700_000_300 }),
   };
 });
 
@@ -203,12 +204,16 @@ async function openSkillMenu(): Promise<void> {
 }
 
 async function selectSkill(skillName: string): Promise<void> {
-  await waitFor(() => {
-    const select = screen.getByRole("combobox", { name: /skill/i }) as HTMLSelectElement;
-    expect(select.disabled).toBe(false);
-  });
-  const skillSelect = screen.getByRole("combobox", { name: /skill/i });
-  fireEvent.change(skillSelect, { target: { value: skillName } });
+  // The library lists every skill; its row's text opens the skill's own view.
+  const open = await screen.findByRole("button", { name: `Open ${skillName}` });
+  fireEvent.click(open);
+}
+
+/** The skill view starts with its file list collapsed; open it. */
+async function openFileList(): Promise<void> {
+  const toggle = await screen.findByTestId("skills-editor-modal-files-toggle");
+  if (toggle.getAttribute("aria-pressed") !== "true") fireEvent.click(toggle);
+  await waitFor(() => expect(screen.getByTestId("skills-editor-modal-file-strip")).not.toHaveClass("hidden"));
 }
 
 // ── Test suite ────────────────────────────────────────────────────────────────
@@ -343,10 +348,8 @@ describe("SkillsEditorModal — Phase 44 SKILLED-05", () => {
     );
 
     await selectSkill("build");
+    await openFileList();
 
-    // Wait for the tab strip to render its "+ Add file" pill (only
-    // present once a skill is picked and the file list resolves).
-    // Modal-unification 2026-09-29 relabeled New file → Add file.
     await waitFor(() =>
       expect(screen.getByTestId("skills-editor-modal-add-file")).toBeTruthy(),
     );
@@ -405,9 +408,9 @@ describe("SkillsEditorModal — Phase 44 SKILLED-05", () => {
     );
 
     await waitFor(() =>
-      expect(screen.getByRole("button", { name: /\+ new skill/i })).toBeTruthy(),
+      expect(screen.getByRole("button", { name: /^new skill$/i })).toBeTruthy(),
     );
-    fireEvent.click(screen.getByRole("button", { name: /\+ new skill/i }));
+    fireEvent.click(screen.getByRole("button", { name: /^new skill$/i }));
 
     await waitFor(() => {
       expect(skillsApi.createSkill).toHaveBeenCalledWith(1, "my-cool-skill", "A cool skill.");
@@ -418,13 +421,11 @@ describe("SkillsEditorModal — Phase 44 SKILLED-05", () => {
     await waitFor(() =>
       expect(skillsApi.listSkills).toHaveBeenCalledTimes(2),
     );
-    // …and the skill combobox transitions to the new slug (setSelectedSkillName).
-    await waitFor(() => {
-      const skillCombo = screen.getByRole("combobox", {
-        name: /skill/i,
-      }) as HTMLSelectElement;
-      expect(skillCombo.value).toBe("my-cool-skill");
-    });
+    // …and the modal moves into the new skill's own view.
+    await waitFor(() =>
+      expect(screen.getByRole("heading", { name: "my-cool-skill" })).toBeInTheDocument(),
+    );
+    expect(screen.getByTestId("skills-editor-modal-back")).toBeInTheDocument();
   });
 
   it("+ New skill button is disabled when defaultHostId is null (host not auto-picked)", async () => {
@@ -450,7 +451,7 @@ describe("SkillsEditorModal — Phase 44 SKILLED-05", () => {
     );
 
     const btn = screen.getByRole("button", {
-      name: /\+ new skill/i,
+      name: /^new skill$/i,
     }) as HTMLButtonElement;
     expect(btn.disabled).toBe(true);
   });
@@ -469,9 +470,9 @@ describe("SkillsEditorModal — Phase 44 SKILLED-05", () => {
     );
 
     await waitFor(() =>
-      expect(screen.getByRole("button", { name: /\+ new skill/i })).toBeTruthy(),
+      expect(screen.getByRole("button", { name: /^new skill$/i })).toBeTruthy(),
     );
-    fireEvent.click(screen.getByRole("button", { name: /\+ new skill/i }));
+    fireEvent.click(screen.getByRole("button", { name: /^new skill$/i }));
 
     // Only one prompt fires (the name); description prompt never fires;
     // createSkill is never called.
@@ -494,9 +495,9 @@ describe("SkillsEditorModal — Phase 44 SKILLED-05", () => {
     );
 
     await waitFor(() =>
-      expect(screen.getByRole("button", { name: /\+ new skill/i })).toBeTruthy(),
+      expect(screen.getByRole("button", { name: /^new skill$/i })).toBeTruthy(),
     );
-    fireEvent.click(screen.getByRole("button", { name: /\+ new skill/i }));
+    fireEvent.click(screen.getByRole("button", { name: /^new skill$/i }));
 
     // Exactly two prompts fire (name + description); createSkill never called.
     await waitFor(() => expect(dialogs.calls.length).toBe(2));
@@ -518,9 +519,9 @@ describe("SkillsEditorModal — Phase 44 SKILLED-05", () => {
     );
 
     await waitFor(() =>
-      expect(screen.getByRole("button", { name: /\+ new skill/i })).toBeTruthy(),
+      expect(screen.getByRole("button", { name: /^new skill$/i })).toBeTruthy(),
     );
-    fireEvent.click(screen.getByRole("button", { name: /\+ new skill/i }));
+    fireEvent.click(screen.getByRole("button", { name: /^new skill$/i }));
 
     // Step 1 — name (slugifies to "my-skill").
     const nameInput = await screen.findByTestId("kit-prompt-input");
@@ -559,9 +560,9 @@ describe("SkillsEditorModal — Phase 44 SKILLED-05", () => {
       />,
     );
     await waitFor(() =>
-      expect(screen.getByRole("button", { name: /\+ new skill/i })).toBeTruthy(),
+      expect(screen.getByRole("button", { name: /^new skill$/i })).toBeTruthy(),
     );
-    fireEvent.click(screen.getByRole("button", { name: /\+ new skill/i }));
+    fireEvent.click(screen.getByRole("button", { name: /^new skill$/i }));
     await waitFor(() => expect(dialogs.calls.length).toBe(1));
     const validate = (dialogs.calls[0].opts as { validate?: (v: string) => string | null | undefined }).validate!;
     expect(validate("!!!")).toMatch(/at least one letter or number/i);
@@ -593,11 +594,9 @@ describe("SkillsEditorModal — Phase 44 SKILLED-05", () => {
     );
     await selectSkill("build");
     await waitFor(() => expect(screen.queryByRole("textbox")).toBeTruthy());
+    await openFileList();
 
-    // Modal-unification 2026-09-29 relabeled New file → Add file and moved
-    // the strip to the top of the modal. The Add-file pill is pinned as
-    // the last child of the strip regardless of file count (shrink-0
-    // last-child).
+    // "Add file" sits at the bottom of the file list.
     const strip = screen.getByTestId("skills-editor-modal-file-strip");
     const stripButtons = Array.from(
       strip.querySelectorAll("button"),
@@ -623,6 +622,7 @@ describe("SkillsEditorModal — Phase 44 SKILLED-05", () => {
     );
     await selectSkill("build");
     await waitFor(() => expect(screen.queryByRole("textbox")).toBeTruthy());
+    await openFileList();
 
     const addFileBtn = screen.getByTestId("skills-editor-modal-add-file");
     // Capture the pre-click active tab's aria-pressed state to prove the
@@ -652,8 +652,7 @@ describe("SkillsEditorModal — Phase 44 SKILLED-05", () => {
       />,
     );
 
-    const comboboxes = screen.queryAllByRole("combobox");
-    expect(comboboxes).toHaveLength(1); // only the skill picker
+    await screen.findByRole("button", { name: "Open build" });
     expect(screen.queryByRole("combobox", { name: /host/i })).toBeNull();
   });
 
@@ -715,13 +714,14 @@ describe("SkillsEditorModal — Phase 44 SKILLED-05", () => {
     // Switch to tests/basic.py — a non-SKILL.md tab. The Trash2 delete
     // affordance renders because SkillFileTab's D-10 gate only hides the
     // Trash2 button when filename === "SKILL.md".
-    fireEvent.click(screen.getByRole("button", { name: /tests\/basic\.py/i }));
+    await openFileList();
+    fireEvent.click(screen.getByTestId("skills-editor-modal-tab-tests/basic.py"));
     await waitFor(() =>
       expect(screen.queryByTitle(/delete this file/i)).toBeTruthy(),
     );
   });
 
-  it("+ Add file pill: empty-file-list body copy points at it (strip is hidden in this state)", async () => {
+  it("+ Add file: an empty skill offers Add file in its empty state", async () => {
     // Modal-unification 2026-09-29: when the file list is empty, the strip
     // is not rendered (the strip renders only when files.status === "ready"
     // AND there are files to tab through). The empty-state body copy
@@ -746,11 +746,8 @@ describe("SkillsEditorModal — Phase 44 SKILLED-05", () => {
     await waitFor(() =>
       expect(screen.getByText(/no files/i)).toBeInTheDocument(),
     );
-    // Empty-state copy points at the Add-file button in the sidebar
-    // (2026-09-30 UAT: moved from tab-strip above to vertical sidebar).
-    expect(
-      screen.getByText(/Use .+ Add file. in the sidebar/i),
-    ).toBeInTheDocument();
+    // The empty state carries its own Add file button.
+    expect(screen.getByTestId("skills-editor-modal-add-file")).toBeInTheDocument();
   });
 
   it("delete-file fires deleteSkillFile after native confirm accepts", async () => {
@@ -777,7 +774,8 @@ describe("SkillsEditorModal — Phase 44 SKILLED-05", () => {
     // tab, but SkillFileTab hides its Trash2 affordance for filename ===
     // "SKILL.md". Switch to a non-SKILL.md tab (tests/basic.py) BEFORE
     // triggering the delete flow so the delete affordance renders.
-    fireEvent.click(screen.getByRole("button", { name: /tests\/basic\.py/i }));
+    await openFileList();
+    fireEvent.click(screen.getByTestId("skills-editor-modal-tab-tests/basic.py"));
     await waitFor(() =>
       expect(screen.queryByTitle(/delete this file/i)).toBeTruthy(),
     );
@@ -807,7 +805,7 @@ describe("SkillsEditorModal — Phase 44 SKILLED-05", () => {
 
     await selectSkill("build");
 
-    // Delete lives in the picker row's ⋮ skill menu.
+    // Delete lives in the skill view's ⋮ menu.
     await openSkillMenu();
     await userEvent.setup().click(
       screen.getByTestId("skills-editor-modal-delete-skill"),
@@ -819,149 +817,7 @@ describe("SkillsEditorModal — Phase 44 SKILLED-05", () => {
     expect(dialogs.calls[0].kind).toBe("confirm");
   });
 
-  it("Rename… moves the skill and reselects it under the new name", async () => {
-    const promptSpy = vi.spyOn(window, "prompt").mockReturnValue("Ship It");
-    render(
-      <SkillsEditorModal
-        open={true}
-        onOpenChange={vi.fn()}
-        hostTree={HOST_TREE}
-        defaultHostId={1}
-        container={document.body}
-      />,
-    );
-    await selectSkill("build");
-    (skillsApi.listSkills as ReturnType<typeof vi.fn>).mockResolvedValueOnce([
-      { name: "ship-it" },
-      { name: "explain" },
-    ]);
-    await openSkillMenu();
-    await userEvent.setup().click(screen.getByTestId("skills-editor-modal-rename-skill"));
-
-    await waitFor(() => {
-      expect(skillsApi.renameSkill).toHaveBeenCalledWith(1, "build", "ship-it", undefined);
-    });
-    await waitFor(() => {
-      expect(
-        (screen.getByRole("combobox", { name: /skill/i }) as HTMLSelectElement).value,
-      ).toBe("ship-it");
-    });
-    expect(promptSpy).toHaveBeenCalled();
-  });
-
-  it("saving SKILL.md with a changed name: offers the rename instead of a mismatched save", async () => {
-    (skillsApi.readSkillFile as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
-      content: "---\nname: build\n---\n\n# Build\n",
-      mtime: 1_700_000_042,
-      size: 30,
-      isText: true,
-    });
-    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(true);
-    render(
-      <SkillsEditorModal
-        open={true}
-        onOpenChange={vi.fn()}
-        hostTree={HOST_TREE}
-        defaultHostId={1}
-        container={document.body}
-      />,
-    );
-    await selectSkill("build");
-    const editor = (await screen.findByRole("textbox", {}, { timeout: 5000 })) as HTMLTextAreaElement;
-    fireEvent.change(editor, { target: { value: editor.value.replace("name: build", "name: ship") } });
-    await waitFor(
-      () => {
-        expect(screen.getByTestId("skills-editor-modal-save")).not.toBeDisabled();
-      },
-      { timeout: 5000 },
-    );
-    fireEvent.click(screen.getByTestId("skills-editor-modal-save"));
-
-    // The draft rides along with the rename, checked against the mtime it was loaded at.
-    await waitFor(() => {
-      expect(skillsApi.renameSkill).toHaveBeenCalledWith(1, "build", "ship", {
-        content: "---\nname: ship\n---\n\n# Build\n",
-        expectedMtime: 1_700_000_042,
-      });
-    });
-    expect(confirmSpy).toHaveBeenCalled();
-    expect(skillsApi.writeSkillFile).not.toHaveBeenCalled();
-  });
-
-  it("SKILL.md name change: Cancel keeps the close guard on", async () => {
-    (skillsApi.readSkillFile as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
-      content: "---\nname: build\n---\n\n# Build\n",
-      mtime: 1_700_000_042,
-      size: 30,
-      isText: true,
-    });
-    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(false);
-    const onOpenChange = vi.fn();
-    render(
-      <SkillsEditorModal
-        open={true}
-        onOpenChange={onOpenChange}
-        hostTree={HOST_TREE}
-        defaultHostId={1}
-        container={document.body}
-      />,
-    );
-    await selectSkill("build");
-    const editor = (await screen.findByRole("textbox", {}, { timeout: 5000 })) as HTMLTextAreaElement;
-    fireEvent.change(editor, { target: { value: editor.value.replace("name: build", "name: ship") } });
-    await waitFor(
-      () => {
-        expect(screen.getByTestId("skills-editor-modal-save")).not.toBeDisabled();
-      },
-      { timeout: 5000 },
-    );
-    fireEvent.click(screen.getByTestId("skills-editor-modal-save"));
-    await waitFor(() => expect(confirmSpy).toHaveBeenCalledTimes(1));
-    // Closing now must still ask about the unsaved edits.
-    fireEvent.click(screen.getByTestId("skills-editor-modal-close-foot"));
-    expect(confirmSpy).toHaveBeenCalledTimes(2);
-    expect(confirmSpy.mock.calls[1][0]).toMatch(/discard unsaved changes/i);
-    expect(onOpenChange).not.toHaveBeenCalled();
-  });
-
-  it("SKILL.md name change: Cancel saves nothing", async () => {
-    (skillsApi.readSkillFile as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
-      content: "---\nname: build\n---\n\n# Build\n",
-      mtime: 1_700_000_042,
-      size: 30,
-      isText: true,
-    });
-    vi.spyOn(window, "confirm").mockReturnValue(false);
-    render(
-      <SkillsEditorModal
-        open={true}
-        onOpenChange={vi.fn()}
-        hostTree={HOST_TREE}
-        defaultHostId={1}
-        container={document.body}
-      />,
-    );
-    await selectSkill("build");
-    const editor = (await screen.findByRole("textbox", {}, { timeout: 5000 })) as HTMLTextAreaElement;
-    fireEvent.change(editor, { target: { value: editor.value.replace("name: build", "name: ship") } });
-    await waitFor(
-      () => {
-        expect(screen.getByTestId("skills-editor-modal-save")).not.toBeDisabled();
-      },
-      { timeout: 5000 },
-    );
-    fireEvent.click(screen.getByTestId("skills-editor-modal-save"));
-    await waitFor(() => expect(window.confirm).toHaveBeenCalled());
-    expect(skillsApi.renameSkill).not.toHaveBeenCalled();
-    expect(skillsApi.writeSkillFile).not.toHaveBeenCalled();
-  });
-
-  it("skill menu keeps 'Delete skill…' in place while SKILL.md is still loading", async () => {
-    // A fast click must not land on an item that popped in above Delete.
-    (skillsApi.readSkillFile as ReturnType<typeof vi.fn>).mockImplementation(
-      () => new Promise(() => {}),
-    );
-
+  it("skill menu holds sharing and delete only — the two settings moved out of it", async () => {
     render(
       <SkillsEditorModal
         open={true}
@@ -975,10 +831,9 @@ describe("SkillsEditorModal — Phase 44 SKILLED-05", () => {
     await selectSkill("build");
     await openSkillMenu();
 
-    const items = screen.getAllByRole("menuitem").concat(screen.queryAllByRole("menuitemcheckbox"));
-    const slashOnly = screen.getByTestId("skills-editor-modal-disable-model-invocation");
-    expect(slashOnly).toHaveAttribute("data-disabled");
-    expect(items).toContain(screen.getByTestId("skills-editor-modal-delete-skill"));
+    expect(screen.getByTestId("skills-editor-modal-delete-skill")).toBeInTheDocument();
+    expect(screen.queryByTestId("skills-editor-modal-disable-model-invocation")).toBeNull();
+    expect(screen.queryByTestId("skills-editor-modal-agent-invoked-only")).toBeNull();
   });
 
   it("RDP-only hosts are filtered from the host <select>", async () => {
@@ -1002,7 +857,74 @@ describe("SkillsEditorModal — Phase 44 SKILLED-05", () => {
     expect(within(hostSelect).queryByText("second-ssh-host")).toBeTruthy();
     expect(within(hostSelect).queryByText("windows-box")).toBeNull();
   });
-  it("'User-invoked only' toggle writes disable-model-invocation into SKILL.md", async () => {
+  // ── Library: who can use which skill, at a glance ─────────────────────────
+
+  const LIB_SKILLS = [
+    { name: "build", description: "Builds things" },
+    { name: "call-me", userInvocable: undefined, modelInvocable: false as const },
+    { name: "gmail", userInvocable: false as const },
+    { name: "parked", userInvocable: false as const, modelInvocable: false as const },
+    { name: "stt", description: "Transcribe", distributed: true as const },
+  ];
+
+  function renderLibrary(): void {
+    (skillsApi.listSkills as ReturnType<typeof vi.fn>).mockResolvedValue(LIB_SKILLS);
+    render(
+      <SkillsEditorModal
+        open={true}
+        onOpenChange={vi.fn()}
+        hostTree={HOST_TREE}
+        defaultHostId={1}
+        container={document.body}
+      />,
+    );
+  }
+
+  it("library: every skill shows a You and an Agents switch matching its settings", async () => {
+    renderLibrary();
+    await screen.findByRole("button", { name: "Open build" });
+
+    const sw = (which: string, name: string) =>
+      screen.getByTestId(`skills-editor-modal-switch-${which}-${name}`) as HTMLInputElement;
+    expect(sw("you", "build").checked).toBe(true);
+    expect(sw("agents", "build").checked).toBe(true);
+    expect(sw("you", "call-me").checked).toBe(true);
+    expect(sw("agents", "call-me").checked).toBe(false);
+    expect(sw("you", "gmail").checked).toBe(false);
+    expect(sw("agents", "gmail").checked).toBe(true);
+    // A skill already set to "nobody" on disk is flagged.
+    expect(screen.getByTestId("skills-editor-modal-nobody-parked")).toHaveTextContent("Nobody can use this");
+  });
+
+  it("library: fleet-distributed skills get their own read-only section with fixed marks", async () => {
+    renderLibrary();
+    const sectionEl = await screen.findByTestId("skills-editor-modal-section-distributed");
+    expect(within(sectionEl).getByText(/Installed on every machine from the Skynet repo/)).toBeInTheDocument();
+    expect(screen.queryByTestId("skills-editor-modal-switch-you-stt")).toBeNull();
+    expect(screen.getByTestId("skills-editor-modal-mark-you-stt")).toBeInTheDocument();
+    expect(screen.getByTestId("skills-editor-modal-mark-agents-stt")).toBeInTheDocument();
+  });
+
+  it("library: the filter counts and narrows — You leaves out agent-only and distributed skills", async () => {
+    renderLibrary();
+    await screen.findByRole("button", { name: "Open build" });
+    // All 5 · You: build, call-me (stt is distributed, gmail/parked off) = 2 · Agents: build, gmail, stt = 3
+    expect(screen.getByTestId("skills-editor-modal-filter-all")).toHaveTextContent("All 5");
+    expect(screen.getByTestId("skills-editor-modal-filter-you")).toHaveTextContent("You 2");
+    expect(screen.getByTestId("skills-editor-modal-filter-agents")).toHaveTextContent("Agents 3");
+
+    fireEvent.click(screen.getByTestId("skills-editor-modal-filter-you"));
+    expect(screen.getByRole("button", { name: "Open build" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Open gmail" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Open stt" })).toBeNull();
+
+    fireEvent.click(screen.getByTestId("skills-editor-modal-filter-all"));
+    fireEvent.change(screen.getByRole("searchbox", { name: "Search skills" }), { target: { value: "transcr" } });
+    expect(screen.getByRole("button", { name: "Open stt" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Open build" })).toBeNull();
+  });
+
+  it("library: flipping a switch rewrites that skill's SKILL.md without opening it", async () => {
     const seed = '---\nname: build\ndescription: "Builds"\n---\n\n# Build\n';
     (skillsApi.readSkillFile as ReturnType<typeof vi.fn>).mockResolvedValue({
       content: seed,
@@ -1010,6 +932,68 @@ describe("SkillsEditorModal — Phase 44 SKILLED-05", () => {
       size: seed.length,
       isText: true,
     });
+    renderLibrary();
+    await screen.findByRole("button", { name: "Open build" });
+
+    fireEvent.click(screen.getByTestId("skills-editor-modal-switch-agents-build"));
+
+    await waitFor(() => {
+      expect(skillsApi.writeSkillFile).toHaveBeenCalledWith({
+        hostId: 1,
+        skill: "build",
+        path: "SKILL.md",
+        content: '---\nname: build\ndescription: "Builds"\ndisable-model-invocation: true\n---\n\n# Build\n',
+        expectedMtime: 1_700_000_042,
+      });
+    });
+    expect(skillsApi.readSkillFile).toHaveBeenCalledWith(1, "build", "SKILL.md");
+    // Still in the library, switch now off, counts follow.
+    expect((screen.getByTestId("skills-editor-modal-switch-agents-build") as HTMLInputElement).checked).toBe(false);
+    expect(screen.getByTestId("skills-editor-modal-filter-agents")).toHaveTextContent("Agents 2");
+    expect(skillsApi.enumerateSkillFiles).not.toHaveBeenCalled();
+  });
+
+  it("library: turning off a skill's last switch is refused", async () => {
+    renderLibrary();
+    await screen.findByRole("button", { name: "Open call-me" });
+
+    // call-me: You on, Agents off — You is the last one on.
+    fireEvent.click(screen.getByTestId("skills-editor-modal-switch-you-call-me"));
+
+    expect(await screen.findByText(/One of these has to stay on/)).toBeInTheDocument();
+    expect((screen.getByTestId("skills-editor-modal-switch-you-call-me") as HTMLInputElement).checked).toBe(true);
+    expect(skillsApi.readSkillFile).not.toHaveBeenCalled();
+    expect(skillsApi.writeSkillFile).not.toHaveBeenCalled();
+  });
+
+  it("library: a failed write puts the switch back and says so", async () => {
+    (skillsApi.readSkillFile as ReturnType<typeof vi.fn>).mockResolvedValue({
+      content: "---\nname: build\n---\n",
+      mtime: 1,
+      size: 1,
+      isText: true,
+    });
+    (skillsApi.writeSkillFile as ReturnType<typeof vi.fn>).mockRejectedValueOnce(new Error("SSH connect failed"));
+    const dialogs = autoAnswerKitDialogs({});
+    renderLibrary();
+    await screen.findByRole("button", { name: "Open build" });
+
+    fireEvent.click(screen.getByTestId("skills-editor-modal-switch-you-build"));
+
+    await waitFor(() => expect(dialogs.calls.some((c) => c.kind === "alert")).toBe(true));
+    await waitFor(() =>
+      expect((screen.getByTestId("skills-editor-modal-switch-you-build") as HTMLInputElement).checked).toBe(true),
+    );
+  });
+
+  // ── Skill view ────────────────────────────────────────────────────────────
+
+  it("skill view opens on SKILL.md with the file list collapsed, even when SKILL.md isn't first", async () => {
+    (skillsApi.enumerateSkillFiles as ReturnType<typeof vi.fn>).mockResolvedValueOnce([
+      { path: "README.md" },
+      { path: "SKILL.md" },
+      { path: "scripts/run.sh" },
+    ]);
     render(
       <SkillsEditorModal
         open={true}
@@ -1021,35 +1005,20 @@ describe("SkillsEditorModal — Phase 44 SKILLED-05", () => {
     );
     await selectSkill("build");
 
-    await openSkillMenu();
-    const item = await screen.findByTestId("skills-editor-modal-disable-model-invocation");
-    expect(item.getAttribute("aria-checked")).toBe("false");
-    expect(screen.queryByTestId("skills-editor-modal-user-only-chip")).toBeNull();
+    await waitFor(() =>
+      expect(screen.getByTestId("skills-editor-modal-current-file")).toHaveTextContent("SKILL.md"),
+    );
+    expect(screen.getByTestId("skills-editor-modal-file-strip")).toHaveClass("hidden");
+    expect(screen.getByTestId("skills-editor-modal-files-toggle")).toHaveTextContent("3 files");
 
-    await userEvent.setup().click(item);
-    await waitFor(() => {
-      expect(skillsApi.writeSkillFile).toHaveBeenCalledWith({
-        hostId: 1,
-        skill: "build",
-        path: "SKILL.md",
-        content:
-          '---\nname: build\ndescription: "Builds"\ndisable-model-invocation: true\n---\n\n# Build\n',
-        expectedMtime: 1_700_000_042,
-      });
-    });
-    // State is visible without opening the menu via the chip…
-    await screen.findByTestId("skills-editor-modal-user-only-chip");
-    // …and the menu item reads checked on reopen.
-    await openSkillMenu();
-    expect(
-      screen
-        .getByTestId("skills-editor-modal-disable-model-invocation")
-        .getAttribute("aria-checked"),
-    ).toBe("true");
+    await openFileList();
+    const strip = screen.getByTestId("skills-editor-modal-file-strip");
+    expect(within(strip).getByText("scripts/")).toBeInTheDocument();
+    expect(within(strip).getByText("run.sh")).toBeInTheDocument();
   });
 
-  it("'Agent-invoked only' writes user-invocable: false and clears 'User-invoked only'", async () => {
-    const seed = '---\nname: build\ndisable-model-invocation: true\n---\n\n# Build\n';
+  it("skill view: the two settings are switches under the header and write SKILL.md", async () => {
+    const seed = "---\nname: build\n---\n\n# Build\n";
     (skillsApi.readSkillFile as ReturnType<typeof vi.fn>).mockResolvedValue({
       content: seed,
       mtime: 1_700_000_043,
@@ -1066,12 +1035,10 @@ describe("SkillsEditorModal — Phase 44 SKILLED-05", () => {
       />,
     );
     await selectSkill("build");
-    await screen.findByTestId("skills-editor-modal-user-only-chip");
+    const you = await screen.findByTestId("skills-editor-modal-switch-you-build");
+    await waitFor(() => expect(you).not.toBeDisabled());
 
-    await openSkillMenu();
-    const item = await screen.findByTestId("skills-editor-modal-agent-invoked-only");
-    expect(item.getAttribute("aria-checked")).toBe("false");
-    await userEvent.setup().click(item);
+    fireEvent.click(you);
     await waitFor(() => {
       expect(skillsApi.writeSkillFile).toHaveBeenCalledWith({
         hostId: 1,
@@ -1081,23 +1048,14 @@ describe("SkillsEditorModal — Phase 44 SKILLED-05", () => {
         expectedMtime: 1_700_000_043,
       });
     });
-    await screen.findByTestId("skills-editor-modal-agent-only-chip");
-    expect(screen.queryByTestId("skills-editor-modal-user-only-chip")).toBeNull();
+    // Back in the library the row reflects it.
+    fireEvent.click(screen.getByTestId("skills-editor-modal-back"));
+    await waitFor(() =>
+      expect((screen.getByTestId("skills-editor-modal-switch-you-build") as HTMLInputElement).checked).toBe(false),
+    );
   });
 
-  it("'User-invoked only' toggle reads SKILL.md even when it isn't the first tab", async () => {
-    (skillsApi.enumerateSkillFiles as ReturnType<typeof vi.fn>).mockResolvedValueOnce([
-      { path: "README.md" },
-      { path: "SKILL.md" },
-    ]);
-    (skillsApi.readSkillFile as ReturnType<typeof vi.fn>).mockImplementation(
-      async (_h: number, _s: string, path: string) => ({
-        content: path === "SKILL.md" ? "---\ndisable-model-invocation: true\n---\n" : "readme",
-        mtime: 1,
-        size: 1,
-        isText: true,
-      }),
-    );
+  it("skill view: switches wait while SKILL.md has unsaved edits", async () => {
     render(
       <SkillsEditorModal
         open={true}
@@ -1108,14 +1066,61 @@ describe("SkillsEditorModal — Phase 44 SKILLED-05", () => {
       />,
     );
     await selectSkill("build");
+    const textarea = (await screen.findByRole("textbox")) as HTMLTextAreaElement;
+    fireEvent.change(textarea, { target: { value: "edited" } });
 
-    await screen.findByTestId("skills-editor-modal-user-only-chip");
-    await openSkillMenu();
-    expect(
-      screen
-        .getByTestId("skills-editor-modal-disable-model-invocation")
-        .getAttribute("aria-checked"),
-    ).toBe("true");
-    expect(skillsApi.readSkillFile).toHaveBeenCalledWith(1, "build", "SKILL.md");
+    await waitFor(() =>
+      expect(screen.getByTestId("skills-editor-modal-switch-you-build")).toBeDisabled(),
+    );
+    expect(screen.getByText("Save or discard your edits first")).toBeInTheDocument();
+  });
+
+  it("skill view: going back with unsaved edits asks first", async () => {
+    const answers = [false, true];
+    const dialogs = autoAnswerKitDialogs({ confirm: () => answers.shift() ?? true });
+    render(
+      <SkillsEditorModal
+        open={true}
+        onOpenChange={vi.fn()}
+        hostTree={HOST_TREE}
+        defaultHostId={1}
+        container={document.body}
+      />,
+    );
+    await selectSkill("build");
+    const textarea = (await screen.findByRole("textbox")) as HTMLTextAreaElement;
+    fireEvent.change(textarea, { target: { value: "edited" } });
+
+    // Cancel: stays in the skill.
+    fireEvent.click(screen.getByTestId("skills-editor-modal-back"));
+    await waitFor(() => expect(dialogs.calls.length).toBe(1));
+    expect(screen.getByTestId("skills-editor-modal-back")).toBeInTheDocument();
+
+    // Discard: back to the library.
+    fireEvent.click(screen.getByTestId("skills-editor-modal-back"));
+    expect(await screen.findByRole("button", { name: "Open build" })).toBeInTheDocument();
+    expect(dialogs.calls[1].kind).toBe("confirm");
+  });
+
+  it("skill view: switching file with unsaved edits asks first", async () => {
+    const dialogs = autoAnswerKitDialogs({ confirm: false });
+    render(
+      <SkillsEditorModal
+        open={true}
+        onOpenChange={vi.fn()}
+        hostTree={HOST_TREE}
+        defaultHostId={1}
+        container={document.body}
+      />,
+    );
+    await selectSkill("build");
+    const textarea = (await screen.findByRole("textbox")) as HTMLTextAreaElement;
+    fireEvent.change(textarea, { target: { value: "edited" } });
+
+    await openFileList();
+    fireEvent.click(screen.getByTestId("skills-editor-modal-tab-tests/basic.py"));
+
+    await waitFor(() => expect(dialogs.calls.length).toBe(1));
+    expect(screen.getByTestId("skills-editor-modal-current-file")).toHaveTextContent("SKILL.md");
   });
 });

@@ -1,3 +1,4 @@
+import type * as React from "react";
 import { Trash2 } from "lucide-react";
 import { KitIconButton } from "@/components/kit";
 import type { TabState } from "./IdentityFileTab";
@@ -35,6 +36,7 @@ export default function SkillFileTab({
   downloadUrl,
   onBinaryDraftChange,
   readOnly = false,
+  leading,
 }: {
   state: TabState<SkillFileTabData>;
   onSave: (content: string, expectedMtime: number) => Promise<void>;
@@ -82,6 +84,8 @@ export default function SkillFileTab({
   onBinaryDraftChange?: (draft: BinaryDraft | null) => void;
   /** View only: no typing, annotating or saving (see FileView). */
   readOnly?: boolean;
+  /** Controls at the very start of the file's toolbar (e.g. the files toggle). */
+  leading?: React.ReactNode;
 }): JSX.Element {
   return (
     <FileView
@@ -95,6 +99,7 @@ export default function SkillFileTab({
       hideSaveButton={hideSaveButton}
       onDraftChange={onDraftChange}
       onDraftContentChange={onDraftContentChange}
+      toolbarLead={leading}
       toolbarStart={
         state.status === "ready" && filename !== "SKILL.md" && onRequestDelete ? (
           <KitIconButton

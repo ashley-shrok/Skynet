@@ -78,6 +78,16 @@ function sendPromoteError(res: Response, err: unknown): void {
 // ---------------------------------------------------------------------------
 // GET /instance-wide/items?kind=skill|role
 // ---------------------------------------------------------------------------
+/** The two "who can invoke" frontmatter settings, in the skills list's wire shape. */
+function invocationFlags(fm: Record<string, unknown>): { userInvocable?: false; modelInvocable?: false } {
+  const isTrue = (v: unknown) => v === true || (typeof v === "string" && v.trim().toLowerCase() === "true");
+  const isFalse = (v: unknown) => v === false || (typeof v === "string" && v.trim().toLowerCase() === "false");
+  return {
+    ...(isFalse(fm["user-invocable"]) ? { userInvocable: false as const } : {}),
+    ...(isTrue(fm["disable-model-invocation"]) ? { modelInvocable: false as const } : {}),
+  };
+}
+
 router.get("/items", authenticateJWT, async (req: Request, res: Response) => {
   const userId = (req as AuthenticatedRequest).userId;
   const engine = getInstanceWide();
@@ -92,6 +102,8 @@ router.get("/items", authenticateJWT, async (req: Request, res: Response) => {
     const items = [];
     for (const st of await engine.status()) {
       if (kindFilter && st.kind !== kindFilter) continue;
+      // A shared skill is agent-only for non-admins — it isn't theirs to see.
+      if (st.kind === "skill" && !isAdmin) continue;
       const mainFile = st.kind === "skill" ? "SKILL.md" : `${st.name}.md`;
       let fm: Record<string, unknown> = {};
       try {
@@ -115,6 +127,7 @@ router.get("/items", authenticateJWT, async (req: Request, res: Response) => {
         // gets the counts only.
         hosts: isAdmin ? st.hosts : [],
         description,
+        ...(st.kind === "skill" ? invocationFlags(fm) : {}),
         hostCount: await engine.hostCount(st.kind, st.name),
       });
     }

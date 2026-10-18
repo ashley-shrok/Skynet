@@ -638,6 +638,8 @@ interface ModalSidebarProps<V extends string> {
   rowTestId?: string;
   /** Rendered below the list (e.g. "+ Add file"). */
   trailing?: React.ReactNode;
+  /** Rendered above the list (e.g. a find box). */
+  header?: React.ReactNode;
   /** The right-column pane content. */
   children: React.ReactNode;
   className?: string;
@@ -647,6 +649,11 @@ interface ModalSidebarProps<V extends string> {
   width?: number;
   /** Controlled drill-in (when the caller needs it, e.g. to reset on close). */
   drill?: ReturnType<typeof useModalDrillIn<V>>;
+  /** Hide the list column (desktop) while keeping the pane mounted — for a
+   *  caller that shows the list on demand. */
+  listHidden?: boolean;
+  /** No back bar above the drilled-in pane (the caller has its own way back). */
+  hideDrillBack?: boolean;
 }
 
 function ModalSidebar<V extends string>({
@@ -656,18 +663,21 @@ function ModalSidebar<V extends string>({
   testIdPrefix,
   rowTestId,
   trailing,
+  header,
   children,
   className,
   backLabel = "Files",
   width = 196,
   drill,
+  listHidden = false,
+  hideDrillBack = false,
 }: ModalSidebarProps<V>): JSX.Element {
   // Mobile: drill-in (list OR pane, never both). A one-item list starts on
   // its pane. See useModalDrillIn.
   const own = useModalDrillIn(value, tabs.length <= 1);
   const { fullscreen, drilled, drillIn, back } = drill ?? own;
   const drillMode = fullscreen;
-  const showList = !drillMode || !drilled;
+  const showList = drillMode ? !drilled : !listHidden;
   const showPane = !drillMode || drilled;
   const currentLabel = tabs.find((t) => t.value === value)?.label;
   const main = tabs.filter((t) => !t.pinned);
@@ -741,6 +751,9 @@ function ModalSidebar<V extends string>({
         data-slot="modal-sidebar"
         data-testid={rowTestId}
       >
+        {header ? (
+          <div className={cn("shrink-0", drillMode ? "px-3 pb-2" : "px-2 pb-1.5")}>{header}</div>
+        ) : null}
         <div
           className={cn(
             "flex-1 min-h-0 overflow-y-auto flex flex-col gap-0.5",
@@ -766,7 +779,7 @@ function ModalSidebar<V extends string>({
           !showPane && "hidden",
         )}
       >
-        {drillMode ? (
+        {drillMode && !hideDrillBack ? (
           <ModalDrillBack
             backLabel={backLabel}
             current={currentLabel}

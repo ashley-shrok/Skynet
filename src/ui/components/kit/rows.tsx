@@ -1,5 +1,5 @@
 import * as React from "react";
-import { ChevronRight } from "lucide-react";
+import { Check, ChevronRight, Minus } from "lucide-react";
 
 import { cn } from "@/lib/utils";
 
@@ -7,14 +7,30 @@ import { cn } from "@/lib/utils";
 
 // ─── Settings rows ───────────────────────────────────────────────────────
 
+export interface KitColumn {
+  label: React.ReactNode;
+  icon?: React.ReactNode;
+  /** Hover text explaining the column. */
+  hint?: string;
+}
+
 export function KitSettingsGroup({
   title,
+  note,
+  columns,
+  chevronSpace,
   footer,
   className,
   children,
   "data-testid": testId,
 }: {
   title?: React.ReactNode;
+  /** A line right under the title — what this group is. */
+  note?: React.ReactNode;
+  /** Labels over the rows' controls; each row puts one KitCell per column. */
+  columns?: ReadonlyArray<KitColumn>;
+  /** Leave room for the rows' chevrons at the end of the column labels. */
+  chevronSpace?: boolean;
   footer?: React.ReactNode;
   className?: string;
   children: React.ReactNode;
@@ -23,6 +39,19 @@ export function KitSettingsGroup({
   return (
     <section className={cn("k-group-wrap", className)} data-testid={testId}>
       {title ? <h3 className="k-group-title">{title}</h3> : null}
+      {note ? <p className="k-group-note">{note}</p> : null}
+      {columns?.length ? (
+        <div className="k-cols" aria-hidden="true">
+          <span className="k-cols-grow" />
+          {columns.map((c, i) => (
+            <span key={i} className="k-cell" title={c.hint}>
+              {c.icon}
+              {c.label}
+            </span>
+          ))}
+          {chevronSpace ? <span className="k-cols-chev" /> : null}
+        </div>
+      ) : null}
       <div className="k-group">{children}</div>
       {footer ? <p className="k-group-foot">{footer}</p> : null}
     </section>
@@ -43,6 +72,10 @@ export interface KitSettingsRowProps {
   disabled?: boolean;
   /** Label on top, control full-width below (for wide controls). */
   stacked?: boolean;
+  /** One-line description (two on a phone) instead of wrapping. */
+  truncate?: boolean;
+  /** Accessible name for the row's open button (when onClick + control). */
+  openLabel?: string;
   className?: string;
   "data-testid"?: string;
   children?: React.ReactNode;
@@ -59,16 +92,47 @@ export function KitSettingsRow({
   tone = "default",
   disabled,
   stacked,
+  truncate,
+  openLabel,
   className,
   "data-testid": testId,
   children,
 }: KitSettingsRowProps): JSX.Element {
+  const text = (
+    <span className="k-row-text">
+      <span className="k-row-label">{label}</span>
+      {description ? <span className="k-row-desc">{description}</span> : null}
+    </span>
+  );
+  // Opens something AND has its own controls: the text is the button and
+  // the controls sit beside it, so no control ends up inside a button.
+  if (onClick && control) {
+    return (
+      <div
+        className={cn("k-row", className)}
+        data-split="true"
+        data-truncate={truncate ? "true" : undefined}
+        data-disabled={disabled ? "true" : undefined}
+        data-testid={testId}
+        onClick={(e) => {
+          const target = e.target as Element;
+          if (target.closest("button, input, select, textarea, a, label")) return;
+          onClick();
+        }}
+      >
+        <button type="button" className="k-row-main" onClick={onClick} disabled={disabled} aria-label={openLabel}>
+          {text}
+        </button>
+        {value != null ? <span className="k-row-value">{value}</span> : null}
+        {control}
+        {children}
+        {chevron !== false ? <ChevronRight className="k-row-chev" aria-hidden="true" /> : null}
+      </div>
+    );
+  }
   const inner = (
     <>
-      <span className="k-row-text">
-        <span className="k-row-label">{label}</span>
-        {description ? <span className="k-row-desc">{description}</span> : null}
-      </span>
+      {text}
       {value != null ? <span className="k-row-value">{value}</span> : null}
       {control}
       {children}
@@ -80,6 +144,7 @@ export function KitSettingsRow({
     "data-tone": tone === "danger" ? "danger" : undefined,
     "data-disabled": disabled ? "true" : undefined,
     "data-stack": stacked ? "true" : undefined,
+    "data-truncate": truncate ? "true" : undefined,
     "data-testid": testId,
   };
   if (onClick) {
@@ -90,6 +155,29 @@ export function KitSettingsRow({
     );
   }
   return <div {...common}>{inner}</div>;
+}
+
+/** One column's slot in a row, under a KitSettingsGroup column label. */
+export function KitCell({ className, ...props }: React.ComponentProps<"span">): JSX.Element {
+  return <span className={cn("k-cell", className)} {...props} />;
+}
+
+/** A setting shown but not changeable here: a check when on, a dash when off. */
+export function KitMark({
+  on,
+  label,
+  "data-testid": testId,
+}: {
+  on: boolean;
+  /** Says what the mark means — hover text and screen-reader name. */
+  label: string;
+  "data-testid"?: string;
+}): JSX.Element {
+  return (
+    <span className="k-mark" data-on={on ? "true" : "false"} title={label} role="img" aria-label={label} data-testid={testId}>
+      {on ? <Check strokeWidth={2.8} /> : <Minus strokeWidth={2.6} />}
+    </span>
+  );
 }
 
 // ─── List rows ───────────────────────────────────────────────────────────

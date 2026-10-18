@@ -225,6 +225,36 @@
   .k-row-desc { font-size: 12.5px; color: var(--k-t3); line-height: 1.4; }
   .k-row-value { color: var(--k-t2); font-size: 13.5px; flex-shrink: 0; }
   .k-row-chev { color: var(--k-t3); width: 14px; height: 14px; flex-shrink: 0; }
+  /* A row that opens something AND carries its own controls: the text is the
+     button, the controls sit beside it (never inside a button). */
+  .k-row[data-split="true"] { cursor: pointer; }
+  .k-row[data-split="true"]:hover { background: rgba(255, 255, 255, 0.03); }
+  .k-row-main {
+    appearance: none; border: 0; background: none; padding: 0; margin: 0;
+    flex: 1; min-width: 0; display: flex; align-items: center; gap: 12px;
+    text-align: left; color: inherit; font: inherit; cursor: pointer; border-radius: 6px;
+  }
+  .k-row-main:focus-visible { outline: 2px solid var(--k-acc); outline-offset: 3px; }
+  .k-row[data-truncate="true"] .k-row-desc { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  @media (max-width: 639px) {
+    .k-row[data-truncate="true"] .k-row-desc { white-space: normal; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+  }
+  .k-row-warn { color: var(--k-warn); }
+  /* Labelled columns over a group's controls (one .k-cell per column). */
+  .k-group-note { font-size: 12.5px; color: var(--k-t3); line-height: 1.45; margin: -4px 4px 8px; }
+  .k-cols { display: flex; align-items: flex-end; gap: 12px; padding: 0 14px 6px; font-size: 11.5px; font-weight: 600; color: var(--k-t3); }
+  .k-cols > .k-cols-grow { flex: 1; }
+  .k-cols > .k-cell { flex-direction: column; gap: 3px; }
+  .k-cols svg { width: 15px; height: 15px; opacity: 0.8; }
+  .k-cols-chev { width: 14px; flex-shrink: 0; }
+  .k-cell { width: 52px; display: flex; align-items: center; justify-content: center; flex-shrink: 0; text-align: center; }
+  @media (max-width: 639px) { .k-cell { width: 48px; } }
+  /* A setting shown, not changeable: check = on, dash = off. */
+  .k-mark { width: 22px; height: 22px; display: grid; place-items: center; color: var(--k-t3); }
+  .k-mark[data-on="true"] { color: var(--k-t2); }
+  .k-mark svg { width: 14px; height: 14px; }
+  @keyframes k-nudge { 0%, 100% { transform: none; } 25% { transform: translateX(-3px); } 75% { transform: translateX(3px); } }
+  .k-nudge { animation: k-nudge 0.22s 2; }
   .k-row .k-select { width: auto; max-width: 60%; height: 30px; background-color: transparent; padding-left: 8px; color: var(--k-t2); }
   .k-row .k-select:hover { background-color: var(--k-s2); }
 

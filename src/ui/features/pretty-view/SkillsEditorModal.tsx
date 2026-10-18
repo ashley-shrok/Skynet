@@ -1,14 +1,21 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { FileText, Plus } from "lucide-react";
+import { Bot, ChevronLeft, FileText, PanelLeft, Plus, User } from "lucide-react";
 import { RowKebabMenu } from "@/features/pretty-conversations/RowKebabMenu";
-import { Modal, ModalHead, ModalBody, ModalFoot, ModalSidebar } from "@/components/modal";
+import { Modal, ModalHead, ModalBody, ModalFoot, ModalSidebar, useModalFullscreen } from "@/components/modal";
 import {
   KitBanner,
   KitButton,
+  KitCell,
   KitChip,
   KitEmpty,
   KitLoading,
+  KitMark,
+  KitSearch,
+  KitSegmented,
   KitSelect,
+  KitSettingsGroup,
+  KitSettingsRow,
+  KitSwitch,
   kitAlert,
   kitConfirm,
   kitPrompt,
@@ -52,57 +59,57 @@ import {
   removeInstanceWide,
   type InstanceWideList,
 } from "@/api/instance-wide-api";
-import { InstanceWideChip, InstanceWideSyncStatus } from "./InstanceWideStatus";
+import { InstanceWideSyncStatus } from "./InstanceWideStatus";
 
-// SkillsEditorModal — cross-host cross-skill multi-file editor.
+// SkillsEditorModal — the skills window (footer lightning bolt).
+// Shape: .planning/campaigns/apple-ux/shape-skills-modal.md
 //
-// Modal-unification 2026-09-29 (revised 2026-09-30 UAT):
-//   - Shell: canonical <Modal>. Blocking (proper backdrop + focus trap)
-//     with document.body as the portal target — the earlier "blocking=false"
-//     kept the composer typable but rendered the modal without any dim
-//     behind it, making the whole surface easy to lose against live chat
-//     content. Same retirement as IdentityModal 2026-09-30.
-//   - Head: two rows.
-//     Row 1: title="Skills" (static — this modal browses across skills,
-//     not scoped to one) + "+ New" action + close X via <ModalHead>
-//     (matches ScheduledAgentsModal's header "+ New").
-//     Row 2 (picker bar sibling directly under head): host select
-//     (hidden on single-host installs), skill select, delete-skill
-//     Trash (only when a skill is picked).
-//   - File strip MOVED from bottom to TOP (matches RoleSkillEditor
-//     translation — IDE convention: tabs atop the surface they select).
-//     "+ New file" pill pinned at the end of the strip.
-//   - Body: layered branches preserved (no-host / loading-skills /
-//     error-skills / no-skills / no-skill-picked / loading-files /
-//     error-files / no-files / editor). Active tab renders SkillFileTab
-//     directly (Radix Tabs dropped — matches Role skill).
-//   - Foot: canonical <ModalFoot> with Close (secondary) + Save
-//     (primary). Save dispatches to active tab's write. Per-tab draft
-//     state tracked at modal level via drafts Map + dirtySet.
+// Two views in one modal:
+//   - Library (no skill picked): every skill on the host in sections —
+//     "Shared to every host" (admins), "Your skills", "Fleet-distributed —
+//     read-only" (admins) — each row with a You and an Agents switch that
+//     save at once (read-only rows show fixed marks). Search + All/You/Agents
+//     filter with counts. At least one switch stays on per skill; a skill
+//     already set to "nobody" on disk is flagged.
+//   - Skill (picked): back to the library, name + description, ⋯ menu
+//     (share to every host / remove / delete), the two settings written out,
+//     then the editor opened on SKILL.md. The file list starts collapsed
+//     behind an "N files" toggle; on a phone it stands in for the editor.
 //
-// SkillFileTab passes `hideSaveButton={true}` — outer foot owns save.
-// Delete-file affordance stays inside SkillFileTab (Trash next to the
-// hidden Save slot). Delete-skill lives in the picker row's ⋮ skill menu.
-//
-// Close/draft-guard: any dirty tab AND !savingRef → kitConfirm.
-// savingRef bypasses on save-success and delete-skill closes.
-//
-// "User-invoked only" / "Agent-invoked only" (⋮ skill menu items, + a "user
-// only" / "agent only" chip when on) toggle `disable-model-invocation: true` /
-// `user-invocable: false` in SKILL.md's frontmatter — mutually exclusive,
-// turning one on clears the other. Agent-only skills are also left out of
-// the compose box's Skills menu (skill-actions-store). They read from
-// the SKILL.md tabData entry (prefetched on skill pick even when SKILL.md
-// isn't the first tab) and writes immediately — no foot Save. Disabled while
-// SKILL.md has unsaved edits, since the write bumps mtime and SkillFileTab
-// reseeds its draft from the new content on an mtime change.
-//
-// All D-XX behaviors preserved: host auto-select, skill list refetch on
-// host change, file list refetch on skill change, per-tab lazy load,
-// mtime-409 conflict-reload, kit confirm/prompt dialogs for
-// create/delete flows, Phase 113 New-skill / New-file split.
+// Non-admins never see shared skills: the server leaves them out of the
+// host list and the shared list. Every way out of a skill with unsaved
+// edits (back, another file, Esc, X) asks first; the in-skill switches wait
+// while SKILL.md has unsaved edits (they rewrite that file).
 
 const SKILL_MD = "SKILL.md";
+
+// The two "who can use it" switches. You = offered to the user (Skills menu
+// and /name; off = `user-invocable: false`). Agents = agents use it on their
+// own (off = `disable-model-invocation: true`). At least one stays on.
+type InvocationSwitch = "you" | "agents";
+type InvocationFlags = { you: boolean; agents: boolean };
+
+function flagsOf(e: { userInvocable?: false; modelInvocable?: false }): InvocationFlags {
+  return { you: e.userInvocable !== false, agents: e.modelInvocable !== false };
+}
+
+function applyInvocationSwitch(content: string, which: InvocationSwitch, on: boolean): string {
+  return which === "you"
+    ? setUserInvocationDisabled(content, !on)
+    : setModelInvocationDisabled(content, !on);
+}
+
+type LibrarySection = "shared" | "own" | "distributed";
+interface LibraryRow {
+  name: string;
+  description?: string;
+  section: LibrarySection;
+  /** Served from the shared master copy (hostId 0) rather than the host. */
+  instance: boolean;
+  readOnly: boolean;
+  flags: InvocationFlags;
+}
+type LibraryFilter = "all" | "you" | "agents";
 
 function isFolder(item: Host | HostFolder): item is HostFolder {
   return "children" in item;
@@ -288,10 +295,13 @@ export default function SkillsEditorModal({
       .then((entries) => {
         if (cancelled) return;
         setFiles({ status: "ready", data: entries });
-        if (entries.length > 0) setActiveTab(entries[0].path);
-        // The invocation toggle reads SKILL.md. When it's the first tab the
+        // A skill opens on its SKILL.md — almost always the only file anyone
+        // touches; the rest wait behind the collapsed file list.
+        const first = entries.some((e) => e.path === SKILL_MD) ? SKILL_MD : entries[0]?.path;
+        if (first != null) setActiveTab(first);
+        // The invocation switches read SKILL.md. When it's the opening tab the
         // lazy-load effect below fetches it; otherwise prefetch it here.
-        if (entries.some((e) => e.path === SKILL_MD) && entries[0].path !== SKILL_MD) {
+        if (entries.some((e) => e.path === SKILL_MD) && first !== SKILL_MD) {
           readSkillFile(apiHostId, selectedSkillName, SKILL_MD)
             .then((result) => {
               if (cancelled) return;
@@ -507,21 +517,103 @@ export default function SkillsEditorModal({
   const userInvocationDisabled = skillMd ? isUserInvocationDisabled(skillMd.content) : false;
   const skillMdDirty = dirtySet.has(SKILL_MD);
 
+  // Mirror a skill's two settings into whichever list it came from, so the
+  // library shows the change without a refetch.
+  const patchListedFlags = useCallback(
+    (name: string, instance: boolean, flags: InvocationFlags): void => {
+      const apply = <T extends { name: string; userInvocable?: false; modelInvocable?: false }>(e: T): T => {
+        if (e.name !== name) return e;
+        const { userInvocable: _u, modelInvocable: _m, ...rest } = e;
+        return {
+          ...rest,
+          ...(flags.you ? {} : { userInvocable: false as const }),
+          ...(flags.agents ? {} : { modelInvocable: false as const }),
+        } as T;
+      };
+      if (instance) {
+        setInstanceWide((prev) => (prev ? { ...prev, items: prev.items.map(apply) } : prev));
+      } else {
+        setSkills((prev) => (prev.status === "ready" ? { status: "ready", data: prev.data.map(apply) } : prev));
+      }
+    },
+    [],
+  );
+
+  // The library's switches: read the skill's SKILL.md, flip the one setting,
+  // write it back. Optimistic in the list; reverted (with a note) on failure.
+  const [libraryBusy, setLibraryBusy] = useState<Set<string>>(new Set());
+  const [refused, setRefused] = useState<{ name: string; which: InvocationSwitch } | null>(null);
+  const handleLibrarySwitch = useCallback(
+    async (row: LibraryRow, which: InvocationSwitch, on: boolean): Promise<void> => {
+      const hostForRow = row.instance ? INSTANCE_HOST_ID : selectedHostId;
+      if (hostForRow == null || row.readOnly || libraryBusy.has(row.name)) return;
+      const next: InvocationFlags = { ...row.flags, [which]: on };
+      if (!next.you && !next.agents) {
+        console.info(`[skills-editor] library-switch refused (last one on) skill=${row.name} switch=${which}`);
+        setRefused({ name: row.name, which });
+        return;
+      }
+      setRefused(null);
+      setLibraryBusy((prev) => new Set(prev).add(row.name));
+      patchListedFlags(row.name, row.instance, next);
+      try {
+        const current = await readSkillFile(hostForRow, row.name, SKILL_MD);
+        await writeSkillFile({
+          hostId: hostForRow,
+          skill: row.name,
+          path: SKILL_MD,
+          content: applyInvocationSwitch(current.content, which, on),
+          expectedMtime: current.mtime,
+        });
+        console.info(
+          `[skills-editor] library-switch hostId=${hostForRow} skill=${row.name} switch=${which} on=${on}`,
+        );
+        // The compose Skills menu shows only skills the user can run —
+        // refresh its remembered list so the next open isn't stale.
+        if (selectedHostId != null) void refreshSkillActions(selectedHostId, "invocation-toggle");
+      } catch (err) {
+        patchListedFlags(row.name, row.instance, row.flags);
+        console.warn(
+          `[skills-editor] library-switch failed hostId=${hostForRow} skill=${row.name} switch=${which} err="${err instanceof Error ? err.message : String(err)}"`,
+        );
+        void kitAlert({
+          title: `Couldn't change "${row.name}"`,
+          body: err instanceof Error ? err.message : undefined,
+        });
+      } finally {
+        setLibraryBusy((prev) => {
+          const n = new Set(prev);
+          n.delete(row.name);
+          return n;
+        });
+      }
+    },
+    [selectedHostId, libraryBusy, patchListedFlags],
+  );
+
+  // The same two switches inside an open skill: they rewrite the SKILL.md
+  // already loaded there, so they wait while it has unsaved edits.
   const handleToggleInvocation = useCallback(
-    async (which: "user-only" | "agent-only", on: boolean): Promise<void> => {
-      if (!skillMd || skillMdDirty || togglingInvocation) return;
+    async (which: InvocationSwitch, on: boolean): Promise<void> => {
+      if (!skillMd || skillMdDirty || togglingInvocation || selectedSkillName == null) return;
+      const flags: InvocationFlags = {
+        you: !userInvocationDisabled,
+        agents: !modelInvocationDisabled,
+        [which]: on,
+      };
+      if (!flags.you && !flags.agents) {
+        console.info(`[skills-editor] invocation-toggle refused (last one on) skill=${selectedSkillName} switch=${which}`);
+        setRefused({ name: selectedSkillName, which });
+        return;
+      }
+      setRefused(null);
       setTogglingInvocation(true);
       try {
-        const next =
-          which === "user-only"
-            ? setModelInvocationDisabled(skillMd.content, on)
-            : setUserInvocationDisabled(skillMd.content, on);
         console.info(
-          `[skills-editor] invocation-toggle hostId=${apiHostId} skill=${selectedSkillName} mode=${which} on=${on}`,
+          `[skills-editor] invocation-toggle hostId=${apiHostId} skill=${selectedSkillName} switch=${which} on=${on}`,
         );
-        await handleSave(SKILL_MD, next, skillMd.mtime);
-        // The compose Skills menu leaves agent-only skills out — refresh its
-        // remembered list now so the next open doesn't show a stale entry.
+        await handleSave(SKILL_MD, applyInvocationSwitch(skillMd.content, which, on), skillMd.mtime);
+        patchListedFlags(selectedSkillName, selectedIsInstance, flags);
         if (selectedHostId != null) void refreshSkillActions(selectedHostId, "invocation-toggle");
       } catch (err) {
         void kitAlert({ title: "Save failed", body: err instanceof Error ? err.message : undefined });
@@ -529,7 +621,19 @@ export default function SkillsEditorModal({
         setTogglingInvocation(false);
       }
     },
-    [skillMd, skillMdDirty, togglingInvocation, handleSave, apiHostId, selectedSkillName, selectedHostId],
+    [
+      skillMd,
+      skillMdDirty,
+      togglingInvocation,
+      handleSave,
+      apiHostId,
+      selectedSkillName,
+      selectedHostId,
+      selectedIsInstance,
+      userInvocationDisabled,
+      modelInvocationDisabled,
+      patchListedFlags,
+    ],
   );
 
   const handleAddFile = useCallback(async (): Promise<void> => {
@@ -680,6 +784,7 @@ export default function SkillsEditorModal({
   }, [selectedHostId, selectedSkillName, selectedIsInstance]);
 
   const clearSkillSelection = useCallback(() => {
+    setBinaryDrafts(new Map());
     setSelectedSkillName(null);
     setSelectedIsInstance(false);
     setFiles({ status: "loading" });
@@ -760,9 +865,9 @@ export default function SkillsEditorModal({
   // Close/draft-guard.
   const handleOpenChange = useCallback(
     async (nextOpen: boolean) => {
-      if (!nextOpen && dirtySet.size > 0 && !savingRef.current) {
+      if (!nextOpen && (dirtySet.size > 0 || binaryDrafts.size > 0) && !savingRef.current) {
         const confirmed = await kitConfirm({
-          title: "Discard unsaved changes?",
+          title: "Discard your changes?",
           body: "Your edits to this skill haven't been saved.",
           confirmLabel: "Discard",
           destructive: true,
@@ -771,8 +876,128 @@ export default function SkillsEditorModal({
       }
       onOpenChange(nextOpen);
     },
-    [dirtySet, onOpenChange],
+    [dirtySet, binaryDrafts, onOpenChange],
   );
+
+
+  // ── Navigation guards ──────────────────────────────────────────────────
+  // Any way out of a skill with unsaved edits asks first.
+  const hasUnsaved = dirtySet.size > 0 || binaryDrafts.size > 0;
+  const confirmDiscard = useCallback(async (): Promise<boolean> => {
+    if (!hasUnsaved) return true;
+    return kitConfirm({
+      title: "Discard your changes?",
+      body: "Your edits to this skill haven't been saved.",
+      confirmLabel: "Discard",
+      destructive: true,
+    });
+  }, [hasUnsaved]);
+
+  const [filesOpen, setFilesOpen] = useState(false);
+  const [fileQuery, setFileQuery] = useState("");
+  const [query, setQuery] = useState("");
+  const [filter, setFilter] = useState<LibraryFilter>("all");
+  const fullscreen = useModalFullscreen();
+
+  useEffect(() => {
+    if (open) return;
+    setFilesOpen(false);
+    setFileQuery("");
+    setQuery("");
+    setFilter("all");
+    setRefused(null);
+    setBinaryDrafts(new Map());
+  }, [open]);
+
+  const openSkill = useCallback((row: LibraryRow) => {
+    console.info(`[skills-editor] open-skill hostId=${row.instance ? INSTANCE_HOST_ID : selectedHostId} skill=${row.name}`);
+    setRefused(null);
+    setFilesOpen(false);
+    setFileQuery("");
+    setSelectedSkillName(row.name);
+    setSelectedIsInstance(row.instance);
+  }, [selectedHostId]);
+
+  const backToLibrary = useCallback(async () => {
+    if (!(await confirmDiscard())) return;
+    setRefused(null);
+    setFilesOpen(false);
+    setFileQuery("");
+    setBinaryDrafts(new Map());
+    clearSkillSelection();
+  }, [confirmDiscard, clearSkillSelection]);
+
+  const switchFile = useCallback(
+    async (path: string) => {
+      if (activeTab != null && path !== activeTab && (dirtySet.has(activeTab) || binaryDrafts.has(activeTab))) {
+        const ok = await kitConfirm({
+          title: "Discard your changes?",
+          body: `Your edits to ${activeTab} haven't been saved.`,
+          confirmLabel: "Discard",
+          destructive: true,
+        });
+        if (!ok) return;
+        const left = activeTab;
+        setDirtySet((prev) => {
+          const n = new Set(prev);
+          n.delete(left);
+          return n;
+        });
+        setDrafts((prev) => {
+          const n = new Map(prev);
+          n.delete(left);
+          return n;
+        });
+        setBinaryDrafts((prev) => {
+          const n = new Map(prev);
+          n.delete(left);
+          return n;
+        });
+      }
+      setActiveTab(path);
+      // On a phone the list stands in for the editor; picking a file returns to it.
+      if (fullscreen) setFilesOpen(false);
+    },
+    [activeTab, dirtySet, binaryDrafts, fullscreen],
+  );
+
+  // ── Library rows ───────────────────────────────────────────────────────
+  // Admins: shared skills, the host's own, fleet-distributed. Everyone else:
+  // the host's own only (the server leaves the rest out for them).
+  const libraryRows = useMemo<LibraryRow[]>(() => {
+    const rows: LibraryRow[] = [];
+    if (isAdmin) {
+      for (const i of iwItems) {
+        rows.push({ name: i.name, description: i.description, section: "shared", instance: true, readOnly: false, flags: flagsOf(i) });
+      }
+    }
+    for (const s of ownSkills) {
+      rows.push({ name: s.name, description: s.description, section: "own", instance: false, readOnly: false, flags: flagsOf(s) });
+    }
+    for (const s of distributedSkills) {
+      rows.push({ name: s.name, description: s.description, section: "distributed", instance: false, readOnly: true, flags: flagsOf(s) });
+    }
+    return rows;
+  }, [isAdmin, iwItems, ownSkills, distributedSkills]);
+
+  // "You" counts what the Skills menu actually shows: fleet-distributed
+  // skills stay out of it even though /name runs them.
+  const inYourMenu = (r: LibraryRow) => r.flags.you && r.section !== "distributed";
+  const counts = {
+    all: libraryRows.length,
+    you: libraryRows.filter(inYourMenu).length,
+    agents: libraryRows.filter((r) => r.flags.agents).length,
+  };
+  const q = query.trim().toLowerCase();
+  const visibleRows = libraryRows.filter(
+    (r) =>
+      (q === "" || r.name.toLowerCase().includes(q) || (r.description ?? "").toLowerCase().includes(q)) &&
+      (filter === "all" || (filter === "you" ? inYourMenu(r) : r.flags.agents)),
+  );
+
+  const selectedRow = selectedSkillName == null
+    ? null
+    : libraryRows.find((r) => r.name === selectedSkillName && r.instance === selectedIsInstance) ?? null;
 
   const activeTabState =
     activeTab != null ? tabData.get(activeTab) : undefined;
@@ -784,299 +1009,446 @@ export default function SkillsEditorModal({
     !readOnly;
 
   const showHostSelect = flatHosts.length > 1;
-  const skillPickerDisabled =
-    iwItems.length === 0 && (selectedHostId == null || skills.status !== "ready");
-  const hostLabel =
-    flatHosts.find((h) => Number(h.id) === selectedHostId)?.name ?? "This host";
 
-  return (
-    <Modal
-      open={open}
-      onOpenChange={(o) => {
-        void handleOpenChange(o);
-      }}
-      size="editor"
-      // `container` prop still accepted for test injection (see .test.tsx —
-      // 20 sites pass document.body explicitly). Default undefined portals
-      // to document.body naturally.
-      container={container ?? undefined}
-      data-testid="skills-editor-modal"
-    >
+  const switchFor = (row: LibraryRow, which: InvocationSwitch, inSkill: boolean): JSX.Element => {
+    const on = row.flags[which];
+    const what = which === "you" ? "You" : "Agents";
+    if (row.readOnly) {
+      const label =
+        which === "you"
+          ? on
+            ? row.section === "distributed"
+              ? "You can run it with /" + row.name + " — fleet-distributed skills stay out of the Skills button"
+              : "In your Skills button"
+            : "Not offered to you"
+          : on
+            ? "Agents can use it"
+            : "Agents won't use it";
+      return <KitMark on={on} label={label} data-testid={`skills-editor-modal-mark-${which}-${row.name}`} />;
+    }
+    const nudge = refused?.name === row.name && refused.which === which;
+    return (
+      <KitSwitch
+        key={nudge ? "nudge" : "still"}
+        checked={on}
+        onCheckedChange={(next) => {
+          if (inSkill) void handleToggleInvocation(which, next);
+          else void handleLibrarySwitch(row, which, next);
+        }}
+        disabled={inSkill ? skillMd == null || skillMdDirty || togglingInvocation : libraryBusy.has(row.name)}
+        aria-label={`${what} — ${row.name}`}
+        title={
+          inSkill && skillMdDirty
+            ? "Save or discard your edits first"
+            : which === "you"
+              ? "In your Skills button, and runs with /" + row.name
+              : "Agents can use it on their own"
+        }
+        className={nudge ? "k-nudge" : undefined}
+        data-testid={`skills-editor-modal-switch-${which}-${row.name}`}
+      />
+    );
+  };
+
+  const columns = [
+    { label: "You", icon: <User />, hint: "In your Skills button, and runs with /name" },
+    { label: "Agents", icon: <Bot />, hint: "Agents can use it on their own" },
+  ];
+
+  const renderRow = (row: LibraryRow): JSX.Element => {
+    const nobody = !row.flags.you && !row.flags.agents;
+    const refusedHere = refused?.name === row.name;
+    return (
+      <KitSettingsRow
+        key={`${row.section}:${row.name}`}
+        label={row.name}
+        description={
+          refusedHere ? (
+            <span className="k-row-warn">One of these has to stay on — a skill nobody can use would just sit there.</span>
+          ) : nobody ? (
+            <span className="k-row-warn" data-testid={`skills-editor-modal-nobody-${row.name}`}>Nobody can use this</span>
+          ) : (
+            row.description
+          )
+        }
+        truncate
+        onClick={() => openSkill(row)}
+        openLabel={`Open ${row.name}`}
+        control={
+          <>
+            <KitCell>{switchFor(row, "you", false)}</KitCell>
+            <KitCell>{switchFor(row, "agents", false)}</KitCell>
+          </>
+        }
+        data-testid={`skills-editor-modal-row-${row.name}`}
+      />
+    );
+  };
+
+  const section = (key: LibrarySection, title: string, note?: string): JSX.Element | null => {
+    const rows = visibleRows.filter((r) => r.section === key);
+    if (rows.length === 0) return null;
+    return (
+      <KitSettingsGroup
+        title={title}
+        note={note}
+        columns={columns}
+        chevronSpace
+        data-testid={`skills-editor-modal-section-${key}`}
+      >
+        {rows.map(renderRow)}
+      </KitSettingsGroup>
+    );
+  };
+
+  // ── Library view ───────────────────────────────────────────────────────
+  const libraryView = (
+    <>
       <ModalHead
         title="Skills"
-        subtitle="Skills are instructions available to all of your agents that you can invoke on-demand. After you create one, you can ask an agent to invoke it, or invoke it yourself using a slash command like /name-of-skill"
+        // Hidden on a phone, where the host picker and New skill crowd it.
+        subtitle={<span className="max-sm:hidden">Instructions your agents can use — or you can run with /name.</span>}
         closeTestId="skills-editor-modal-close"
         actions={
-          <KitButton
-            variant="primary"
-            size="sm"
-            onClick={() => {
-              void handleNewSkill();
-            }}
-            disabled={selectedHostId == null}
-            aria-label="+ New skill"
-            title="New skill"
-            data-testid="skills-editor-modal-new-skill"
-          >
-            <Plus /> New
-          </KitButton>
+          <>
+            {showHostSelect && (
+              <KitSelect
+                aria-label="Host"
+                value={selectedHostId ?? ""}
+                onChange={(e) => setSelectedHostId(e.target.value ? Number(e.target.value) : null)}
+                data-testid="skills-editor-modal-host-select"
+                className="w-auto max-w-[160px] h-8"
+              >
+                <option value="">Pick a host…</option>
+                {flatHosts.map((h) => (
+                  <option key={h.id} value={h.id}>
+                    {h.name}
+                  </option>
+                ))}
+              </KitSelect>
+            )}
+            <KitButton
+              variant="primary"
+              size="sm"
+              onClick={() => {
+                void handleNewSkill();
+              }}
+              disabled={selectedHostId == null}
+              aria-label="New skill"
+              title="New skill"
+              data-testid="skills-editor-modal-new-skill"
+            >
+              <Plus /> <span className="max-sm:hidden">New skill</span>
+            </KitButton>
+          </>
         }
       />
-
-      {/* Picker row — sits directly under the head. Host select (multi-host
-          only) and skill select share the width; when a skill is picked, a
-          "user only" / "agent only" chip (if set) and a ⋮ menu holding
-          "User-invoked only", "Agent-invoked only" + "Delete skill…". Never wraps, so the selects stay legible
-          on phones. */}
-      <div className="px-6 max-sm:px-5 pb-3 flex flex-row items-center gap-2 flex-shrink-0">
-        {showHostSelect && (
-          <KitSelect
-            aria-label="Host"
-            value={selectedHostId ?? ""}
-            onChange={(e) =>
-              setSelectedHostId(e.target.value ? Number(e.target.value) : null)
-            }
-            data-testid="skills-editor-modal-host-select"
-            className="flex-1 min-w-0"
-          >
-            <option value="">
-              Pick a host…
-            </option>
-            {flatHosts.map((h) => (
-              <option key={h.id} value={h.id}>
-                {h.name}
-              </option>
-            ))}
-          </KitSelect>
-        )}
-        <KitSelect
-          aria-label="Skill"
-          value={selectedSkillName ?? ""}
-          onChange={(e) => {
-            const name = e.target.value ? e.target.value : null;
-            setSelectedSkillName(name);
-            setSelectedIsInstance(name != null && iwItems.some((i) => i.name === name));
-          }}
-          disabled={skillPickerDisabled}
-          data-testid="skills-editor-modal-skill-select"
-          className="flex-1 min-w-0"
-        >
-          <option value="">
-            {selectedHostId != null && skills.status === "loading"
-              ? "Loading skills…"
-              : selectedHostId != null && skills.status === "error"
-              ? "Couldn't load skills"
-              : "Pick a skill…"}
-          </option>
-          {iwItems.length > 0 && (
-            <optgroup label="Instance-wide — every host">
-              {iwItems.map((i) => (
-                <option key={`iw:${i.name}`} value={i.name}>
-                  {i.name}
-                </option>
-              ))}
-            </optgroup>
-          )}
-          {skills.status === "ready" &&
-            (iwItems.length > 0 || distributedSkills.length > 0 ? (
-              ownSkills.length > 0 && (
-                <optgroup label={hostLabel}>
-                  {ownSkills.map((s) => (
-                    <option key={s.name} value={s.name}>
-                      {s.name}
-                    </option>
-                  ))}
-                </optgroup>
-              )
-            ) : (
-              ownSkills.map((s) => (
-                <option key={s.name} value={s.name}>
-                  {s.name}
-                </option>
-              ))
-            ))}
-          {skills.status === "ready" && distributedSkills.length > 0 && (
-            <optgroup label="Fleet-distributed — read-only">
-              {distributedSkills.map((s) => (
-                <option key={`dist:${s.name}`} value={s.name}>
-                  {s.name}
-                </option>
-              ))}
-            </optgroup>
-          )}
-        </KitSelect>
-        {selectedIsInstance && <InstanceWideChip />}
-        {selectedIsDistributed && (
-          <KitChip
-            title="Installed by the fleet distributor from the Skynet repo — change it there"
-            data-testid="skills-editor-modal-distributed-chip"
-            className="shrink-0 whitespace-nowrap"
-          >
-            distributed
-          </KitChip>
-        )}
-        {selectedIwItem && <InstanceWideSyncStatus item={selectedIwItem} />}
-        {selectedSkillName != null && skillMd != null && (modelInvocationDisabled || userInvocationDisabled) && (
-          <KitChip
-            tone="accent"
-            title={
-              modelInvocationDisabled && userInvocationDisabled
-                ? "Both modes are set, so nobody can invoke this skill — turn one off"
-                : modelInvocationDisabled
-                  ? "Only you can invoke this skill, with /" + selectedSkillName
-                  : "Only agents can invoke this skill"
-            }
-            data-testid={
-              modelInvocationDisabled && userInvocationDisabled
-                ? "skills-editor-modal-no-one-chip"
-                : modelInvocationDisabled
-                  ? "skills-editor-modal-user-only-chip"
-                  : "skills-editor-modal-agent-only-chip"
-            }
-            className="shrink-0 whitespace-nowrap"
-          >
-            {modelInvocationDisabled && userInvocationDisabled
-              ? "no one"
-              : modelInvocationDisabled
-                ? "user only"
-                : "agent only"}
-          </KitChip>
-        )}
-        {selectedSkillName != null && (
-          <RowKebabMenu
-            ariaLabel="Skill options"
-            testId="skills-editor-modal-skill-menu"
-            items={[
-              // Items render from the start (disabled while their data
-              // loads) so nothing pops in above "Delete skill…" and shifts it
-              // under a fast click.
-              ...(!readOnly
-                ? [
-                    {
-                      label: "User-invoked only",
-                      hint: skillMd == null
-                        ? "Loading…"
-                        : skillMdDirty
-                          ? "Save or discard your SKILL.md edits first"
-                          : "Agents won't use it on their own — only /" +
-                            selectedSkillName +
-                            " will",
-                      checked: modelInvocationDisabled,
-                      disabled: skillMd == null || skillMdDirty || togglingInvocation,
-                      testId: "skills-editor-modal-disable-model-invocation",
-                      onClick: () => {
-                        void handleToggleInvocation("user-only", !modelInvocationDisabled);
-                      },
-                    },
-                    {
-                      label: "Agent-invoked only",
-                      hint: skillMd == null
-                        ? "Loading…"
-                        : skillMdDirty
-                          ? "Save or discard your SKILL.md edits first"
-                          : "Only agents use it — /" +
-                            selectedSkillName +
-                            " won't run, and it's left out of the Skills menu",
-                      checked: userInvocationDisabled,
-                      disabled: skillMd == null || skillMdDirty || togglingInvocation,
-                      testId: "skills-editor-modal-agent-invoked-only",
-                      onClick: () => {
-                        void handleToggleInvocation("agent-only", !userInvocationDisabled);
-                      },
-                    },
-                  ]
-                : []),
-              // Admin status is unknown until the instance-wide list loads;
-              // hold the slot (disabled) until then.
-              ...(!selectedIsInstance && !selectedIsDistributed && (isAdmin || instanceWide == null)
-                ? [
-                    {
-                      label: "Make instance-wide…",
-                      hint: instanceWide == null
-                        ? "Loading…"
-                        : "Keep one copy of this skill in step on every host",
-                      disabled: instanceWide == null,
-                      separatorBefore: !readOnly,
-                      testId: "skills-editor-modal-promote-skill",
-                      onClick: () => {
-                        void handlePromote();
-                      },
-                    },
-                  ]
-                : []),
-              ...(selectedIsInstance
-                ? isAdmin
-                  ? [
-                      {
-                        label: "Remove from every host…",
-                        danger: true,
-                        separatorBefore: !readOnly,
-                        testId: "skills-editor-modal-remove-instance-skill",
-                        onClick: () => {
-                          void handleRemoveInstance();
-                        },
-                      },
-                    ]
-                  : [
-                      {
-                        label: "Managed instance-wide — only an admin can change it",
-                        disabled: true,
-                        testId: "skills-editor-modal-instance-readonly",
-                        onClick: () => {},
-                      },
-                    ]
-                : selectedIsDistributed
-                ? [
-                    {
-                      label: "Managed by the fleet distributor — change it in the Skynet repo",
-                      disabled: true,
-                      testId: "skills-editor-modal-distributed-readonly",
-                      onClick: () => {},
-                    },
-                  ]
-                : [
-                    {
-                      label: "Delete skill…",
-                      danger: true,
-                      separatorBefore: true,
-                      testId: "skills-editor-modal-delete-skill",
-                      onClick: () => {
-                        void handleDeleteSkill();
-                      },
-                    },
-                  ]),
-            ]}
-          />
-        )}
-      </div>
-
-      {/* Layered branches for the skill/file state. Once ready + a
-          skill is picked + files loaded, we drop into <ModalSidebar>
-          (vertical file list + editor pane). */}
-      {!selectedIsInstance && selectedHostId == null ? (
+      {selectedHostId == null ? (
         <ModalBody className="flex items-center justify-center">
           <KitEmpty title="Pick a host to load its skills." />
         </ModalBody>
-      ) : !selectedIsInstance && skills.status === "loading" ? (
+      ) : skills.status === "loading" ? (
         <ModalBody>
           <KitLoading label="Loading skills…" />
         </ModalBody>
-      ) : !selectedIsInstance && skills.status === "error" ? (
+      ) : skills.status === "error" ? (
         <ModalBody>
           <KitBanner tone="danger">Couldn&apos;t load skills: {skills.error}</KitBanner>
         </ModalBody>
-      ) : !selectedIsInstance &&
-        skills.status === "ready" &&
-        hostSkills.length === 0 &&
-        iwItems.length === 0 ? (
+      ) : libraryRows.length === 0 ? (
         <ModalBody className="flex items-center justify-center">
-          <KitEmpty title="No skills on this host." body="Nothing to edit here yet." />
+          <KitEmpty
+            title="No skills on this host yet."
+            body="A skill is a set of instructions your agents can pick up when it fits, or you can run yourself with /name. Make one with New skill."
+          />
         </ModalBody>
-      ) : selectedSkillName == null ? (
-        <ModalBody className="flex items-center justify-center">
-          <KitEmpty title="Pick a skill." />
-        </ModalBody>
-      ) : files.status === "loading" ? (
+      ) : (
+        <>
+          <div className="px-6 max-sm:px-5 pb-3 flex flex-row flex-wrap items-center gap-2.5 flex-shrink-0">
+            <KitSearch
+              value={query}
+              onValueChange={setQuery}
+              placeholder="Search skills"
+              aria-label="Search skills"
+              wrapperClassName="flex-1 min-w-[200px]"
+              data-testid="skills-editor-modal-search"
+            />
+            <KitSegmented<LibraryFilter>
+              aria-label="Show"
+              value={filter}
+              onValueChange={setFilter}
+              testIdPrefix="skills-editor-modal-filter"
+              options={[
+                { value: "all", label: `All ${counts.all}` },
+                { value: "you", label: `You ${counts.you}`, Icon: User },
+                { value: "agents", label: `Agents ${counts.agents}`, Icon: Bot },
+              ]}
+            />
+          </div>
+          <ModalBody className="pt-1" data-testid="skills-editor-modal-library">
+            {section("shared", "Shared to every host", "One copy, kept in step on every host. Changes here reach every host.")}
+            {section("own", "Your skills")}
+            {section(
+              "distributed",
+              "Fleet-distributed — read-only",
+              "Installed on every machine from the Skynet repo — change them there. They run with /name but stay out of your Skills button.",
+            )}
+            {visibleRows.length === 0 ? <KitEmpty title="No skills match." /> : null}
+          </ModalBody>
+        </>
+      )}
+    </>
+  );
+
+  // ── Skill view ─────────────────────────────────────────────────────────
+  const fileCount = files.status === "ready" ? files.data.length : 0;
+  const filesToggle = (
+    <KitButton
+      size="sm"
+      onClick={() => {
+        setFileQuery("");
+        setFilesOpen((o) => !o);
+      }}
+      aria-pressed={filesOpen}
+      aria-expanded={filesOpen}
+      title={filesOpen ? "Hide the file list" : "Show every file in this skill"}
+      data-variant={filesOpen ? "plain" : undefined}
+      data-testid="skills-editor-modal-files-toggle"
+    >
+      <PanelLeft /> {fileCount === 1 ? "Files" : `${fileCount} files`}
+    </KitButton>
+  );
+
+  const fq = fileQuery.trim().toLowerCase();
+  const listedFiles = files.status === "ready" ? files.data.filter((f) => fq === "" || f.path.toLowerCase().includes(fq)) : [];
+  const fileTabs = listedFiles.map((f) => {
+    const slash = f.path.lastIndexOf("/");
+    return {
+      value: f.path,
+      label: slash < 0 ? f.path : f.path.slice(slash + 1),
+      Icon: FileText,
+      group: slash < 0 ? undefined : f.path.slice(0, slash) + "/",
+    };
+  });
+  // The list shows only on demand. On a phone it stands in for the editor
+  // while open (the editor stays mounted underneath, so no draft is lost),
+  // and picking any file — even the open one — goes back to the editor.
+  const fileDrill = {
+    fullscreen,
+    drilled: !filesOpen,
+    drillIn: () => setFilesOpen(false),
+    back: () => setFilesOpen(false),
+  };
+
+  const editor = activeTab != null && (
+    <div className="flex-1 min-h-0 overflow-y-auto px-6 max-sm:px-4 py-3" data-testid="skills-editor-modal-body">
+      <SkillFileTab
+        key={`${selectedIsInstance ? "iw" : "host"}:${selectedSkillName}:${activeTab}`}
+        state={tabData.get(activeTab) ?? { status: "loading" }}
+        onSave={(content, expectedMtime) => handleSave(activeTab, content, expectedMtime)}
+        onRequestDelete={
+          readOnly
+            ? undefined
+            : () => {
+                void handleDeleteFile(activeTab);
+              }
+        }
+        filename={activeTab}
+        readOnly={readOnly}
+        hideSaveButton={true}
+        onDraftContentChange={handleDraftContentChange(activeTab)}
+        onDraftChange={handleDraftDirtyChange(activeTab)}
+        onBinaryDraftChange={handleBinaryDraftChange(activeTab)}
+        leading={
+          <>
+            {filesToggle}
+            <span className="truncate text-[13px] font-semibold text-[var(--k-t1)]" data-testid="skills-editor-modal-current-file">
+              {activeTab}
+            </span>
+            {readOnly ? <KitChip>view-only</KitChip> : null}
+          </>
+        }
+        mediaUrl={
+          apiHostId != null && selectedSkillName != null
+            ? skillFileUrl(apiHostId, selectedSkillName, activeTab, { inline: true })
+            : undefined
+        }
+        downloadUrl={
+          apiHostId != null && selectedSkillName != null
+            ? skillFileUrl(apiHostId, selectedSkillName, activeTab)
+            : undefined
+        }
+      />
+    </div>
+  );
+
+  const fileList = (
+    <ModalSidebar
+      tabs={fileTabs}
+      value={activeTab ?? ""}
+      onValueChange={(v) => {
+        void switchFile(v);
+      }}
+      drill={fileDrill}
+      listHidden={!filesOpen}
+      hideDrillBack
+      width={232}
+      rowTestId="skills-editor-modal-file-strip"
+      testIdPrefix="skills-editor-modal-tab"
+      header={
+        <>
+          {fullscreen ? <div className="flex items-center gap-2 pb-2">{filesToggle}</div> : null}
+          {fileCount > 10 ? (
+            <KitSearch
+              value={fileQuery}
+              onValueChange={setFileQuery}
+              placeholder="Find a file"
+              aria-label="Find a file"
+              data-testid="skills-editor-modal-file-search"
+            />
+          ) : null}
+        </>
+      }
+      trailing={
+        readOnly ? undefined : (
+          <KitButton
+            variant="plain"
+            size="sm"
+            full
+            onClick={() => {
+              void handleAddFile();
+            }}
+            data-testid="skills-editor-modal-add-file"
+          >
+            <Plus /> Add file
+          </KitButton>
+        )
+      }
+    >
+      {editor}
+    </ModalSidebar>
+  );
+
+  const nobodyInSkill = skillMd != null && modelInvocationDisabled && userInvocationDisabled;
+  const settingsStrip =
+    selectedRow == null ? null : selectedRow.readOnly ? (
+      <KitBanner tone="info" data-testid="skills-editor-modal-readonly-banner">
+        {selectedRow.section === "distributed"
+          ? "Fleet-distributed — installed on every machine from the Skynet repo. Change it there; here it's view-only."
+          : "Kept in step on every host by an admin — view-only."}
+      </KitBanner>
+    ) : (
+      <div className="flex flex-row flex-wrap items-center gap-x-5 gap-y-2.5">
+        <label className="flex items-center gap-2.5 text-[13.5px] text-[var(--k-t2)]">
+          {switchFor(
+            { ...selectedRow, flags: { you: !userInvocationDisabled, agents: !modelInvocationDisabled } },
+            "you",
+            true,
+          )}
+          <User className="size-[15px] opacity-80" aria-hidden="true" />
+          In my Skills button
+        </label>
+        <label className="flex items-center gap-2.5 text-[13.5px] text-[var(--k-t2)]">
+          {switchFor(
+            { ...selectedRow, flags: { you: !userInvocationDisabled, agents: !modelInvocationDisabled } },
+            "agents",
+            true,
+          )}
+          <Bot className="size-[15px] opacity-80" aria-hidden="true" />
+          Agents can use it
+        </label>
+        {selectedIwItem && isAdmin ? <InstanceWideSyncStatus item={selectedIwItem} /> : null}
+        {skillMdDirty ? (
+          <span className="text-[12.5px] text-[var(--k-t3)]">Save or discard your edits first</span>
+        ) : refused?.name === selectedRow.name ? (
+          <span className="k-row-warn text-[12.5px]">One of these has to stay on.</span>
+        ) : nobodyInSkill ? (
+          <span className="k-row-warn text-[12.5px]">Nobody can use this — turn one on.</span>
+        ) : null}
+      </div>
+    );
+
+  const skillMenu = selectedSkillName != null && (
+    <RowKebabMenu
+      ariaLabel="Skill options"
+      testId="skills-editor-modal-skill-menu"
+      items={[
+        // Admin status is unknown until the shared list loads; hold the
+        // slot (disabled) until then.
+        ...(!selectedIsInstance && !selectedIsDistributed && (isAdmin || instanceWide == null)
+          ? [
+              {
+                label: "Share to every host…",
+                hint: instanceWide == null ? "Loading…" : "Keep one copy of this skill in step on every host",
+                disabled: instanceWide == null,
+                testId: "skills-editor-modal-promote-skill",
+                onClick: () => {
+                  void handlePromote();
+                },
+              },
+            ]
+          : []),
+        ...(selectedIsInstance
+          ? isAdmin
+            ? [
+                {
+                  label: "Remove from every host…",
+                  danger: true,
+                  testId: "skills-editor-modal-remove-instance-skill",
+                  onClick: () => {
+                    void handleRemoveInstance();
+                  },
+                },
+              ]
+            : []
+          : selectedIsDistributed
+            ? [
+                {
+                  label: "Managed by the fleet distributor — change it in the Skynet repo",
+                  disabled: true,
+                  testId: "skills-editor-modal-distributed-readonly",
+                  onClick: () => {},
+                },
+              ]
+            : [
+                {
+                  label: "Delete skill…",
+                  danger: true,
+                  separatorBefore: isAdmin || instanceWide == null,
+                  testId: "skills-editor-modal-delete-skill",
+                  onClick: () => {
+                    void handleDeleteSkill();
+                  },
+                },
+              ]),
+      ]}
+    />
+  );
+
+  const skillView = (
+    <>
+      <ModalHead
+        title={selectedSkillName ?? ""}
+        subtitle={
+          selectedRow?.description ? <span className="line-clamp-2">{selectedRow.description}</span> : undefined
+        }
+        closeTestId="skills-editor-modal-close"
+        leading={
+          <KitButton
+            variant="plain"
+            size="sm"
+            onClick={() => {
+              void backToLibrary();
+            }}
+            data-testid="skills-editor-modal-back"
+          >
+            <ChevronLeft /> Skills
+          </KitButton>
+        }
+        actions={skillMenu}
+      />
+      {settingsStrip ? <div className="px-6 max-sm:px-5 pb-3 flex-shrink-0">{settingsStrip}</div> : null}
+      {files.status === "loading" ? (
         <ModalBody>
           <KitLoading label="Loading files…" />
         </ModalBody>
@@ -1088,114 +1460,64 @@ export default function SkillsEditorModal({
         <ModalBody className="flex items-center justify-center">
           <KitEmpty
             title="This skill has no files."
-            body={<>Use &quot;+ Add file&quot; in the sidebar to create one.</>}
+            action={
+              readOnly ? undefined : (
+                <KitButton
+                  variant="primary"
+                  size="sm"
+                  onClick={() => {
+                    void handleAddFile();
+                  }}
+                  data-testid="skills-editor-modal-add-file"
+                >
+                  <Plus /> Add file
+                </KitButton>
+              )
+            }
           />
         </ModalBody>
       ) : (
-        <ModalSidebar
-          tabs={files.data.map((f) => ({
-            value: f.path,
-            label: f.path,
-            Icon: FileText,
-          }))}
-          value={activeTab ?? ""}
-          onValueChange={(v) => {
-            void (async () => {
-              if (
-                activeTab != null &&
-                v !== activeTab &&
-                binaryDrafts.has(activeTab) &&
-                !(await kitConfirm({
-                  title: "Discard unsaved changes to this PDF?",
-                  body: "Your annotations haven't been saved.",
-                  confirmLabel: "Discard",
-                  destructive: true,
-                }))
-              ) {
-                return;
-              }
-              setActiveTab(v);
-            })();
-          }}
-          rowTestId="skills-editor-modal-file-strip"
-          testIdPrefix="skills-editor-modal-tab"
-          trailing={
-            readOnly ? undefined : (
-            <KitButton
-              variant="plain"
-              size="sm"
-              full
-              onClick={() => {
-                void handleAddFile();
-              }}
-              data-testid="skills-editor-modal-add-file"
-            >
-              <Plus /> Add file
-            </KitButton>
-            )
-          }
-        >
-          <div
-            className="flex-1 min-h-0 overflow-y-auto px-6 py-4"
-            data-testid="skills-editor-modal-body"
-          >
-            {activeTab != null && (
-              <SkillFileTab
-                state={tabData.get(activeTab) ?? { status: "loading" }}
-                onSave={(content, expectedMtime) =>
-                  handleSave(activeTab, content, expectedMtime)
-                }
-                onRequestDelete={
-                  readOnly
-                    ? undefined
-                    : () => {
-                        void handleDeleteFile(activeTab);
-                      }
-                }
-                filename={activeTab}
-                readOnly={readOnly}
-                hideSaveButton={true}
-                onDraftContentChange={handleDraftContentChange(activeTab)}
-                onDraftChange={handleDraftDirtyChange(activeTab)}
-                onBinaryDraftChange={handleBinaryDraftChange(activeTab)}
-                mediaUrl={
-                  apiHostId != null && selectedSkillName != null
-                    ? skillFileUrl(apiHostId, selectedSkillName, activeTab, { inline: true })
-                    : undefined
-                }
-                downloadUrl={
-                  apiHostId != null && selectedSkillName != null
-                    ? skillFileUrl(apiHostId, selectedSkillName, activeTab)
-                    : undefined
-                }
-              />
-            )}
-          </div>
-        </ModalSidebar>
+        <div className="flex-1 min-h-0 flex flex-col border-t border-[var(--k-hair)] pt-2">{fileList}</div>
       )}
+      {readOnly ? null : (
+        <ModalFoot>
+          <KitButton
+            onClick={() => {
+              void handleOpenChange(false);
+            }}
+            disabled={saving}
+            data-testid="skills-editor-modal-close-foot"
+          >
+            Close
+          </KitButton>
+          <KitButton
+            variant="primary"
+            onClick={() => {
+              void handleFootSave();
+            }}
+            disabled={!canFootSave}
+            busy={saving}
+            data-testid="skills-editor-modal-save"
+          >
+            {saving ? "Saving…" : "Save"}
+          </KitButton>
+        </ModalFoot>
+      )}
+    </>
+  );
 
-      <ModalFoot>
-        <KitButton
-          onClick={() => {
-            void handleOpenChange(false);
-          }}
-          disabled={saving}
-          data-testid="skills-editor-modal-close-foot"
-        >
-          Close
-        </KitButton>
-        <KitButton
-          variant="primary"
-          onClick={() => {
-            void handleFootSave();
-          }}
-          disabled={!canFootSave}
-          busy={saving}
-          data-testid="skills-editor-modal-save"
-        >
-          {saving ? "Saving…" : "Save"}
-        </KitButton>
-      </ModalFoot>
+  return (
+    <Modal
+      open={open}
+      onOpenChange={(o) => {
+        void handleOpenChange(o);
+      }}
+      size="editor"
+      // `container` prop still accepted for test injection.
+      container={container ?? undefined}
+      data-testid="skills-editor-modal"
+    >
+      {selectedSkillName == null ? libraryView : skillView}
     </Modal>
   );
 }
