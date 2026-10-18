@@ -57,6 +57,7 @@ export function describeAction(title: string): string {
   if (/^bash\b/i.test(title)) return "wants to run a command";
   if (/edit/i.test(title)) return "wants to edit a file";
   if (/(create|write)/i.test(title)) return "wants to create a file";
+  if (/search/i.test(title)) return "wants to search the web";
   if (/(fetch|web)/i.test(title)) return "wants to fetch a web page";
   return `wants to use a tool (${title})`;
 }
@@ -143,20 +144,23 @@ export function WaitingBubble({
           </div>
         </div>
 
-        {showDetails && (
-          <div className="flex flex-col gap-1 min-w-0">
-            {prompt.body.length > 0 && (
-              <pre
-                data-testid="permission-prompt-body"
-                className="whitespace-pre-wrap break-all font-mono text-xs bg-black/30 rounded px-2 py-1"
-              >
-                {prompt.body}
-              </pre>
+        {/* The real command is always visible — the description is the
+            agent's own summary, so approving on it alone would hide exactly
+            what the safety check flagged. Show details un-clamps it and adds
+            Claude Code's exact reason. */}
+        {prompt.body.length > 0 && (
+          <pre
+            data-testid="permission-prompt-body"
+            className={cn(
+              "whitespace-pre-wrap break-all font-mono text-xs bg-black/30 rounded px-2 py-1",
+              !showDetails && "max-h-[4.5em] overflow-hidden",
             )}
-            {prompt.reason && (
-              <span className="text-xs opacity-80 break-words">{prompt.reason}</span>
-            )}
-          </div>
+          >
+            {prompt.body}
+          </pre>
+        )}
+        {showDetails && prompt.reason && (
+          <span className="text-xs opacity-80 break-words">{prompt.reason}</span>
         )}
 
         <div className="flex flex-wrap items-center gap-2">
@@ -181,7 +185,7 @@ export function WaitingBubble({
             onClick={() => setShowDetails((v) => !v)}
             className="text-xs underline opacity-80"
           >
-            {showDetails ? "Hide details" : "Show details"}
+            {showDetails ? "Show less" : "Show details"}
           </button>
           {secondsLeft !== null && !locked && (
             <span className="text-xs opacity-80 ml-auto" aria-live="off">

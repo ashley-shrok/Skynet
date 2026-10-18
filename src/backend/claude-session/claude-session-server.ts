@@ -3604,6 +3604,19 @@ export async function applyPermissionProbe(deps: {
   }
 }
 
+// Answers are serialized per pane (two tabs, or a tab plus the terminal, can
+// click at once) and a fingerprint answered moments ago is refused, so the
+// second click can't land its digit on whatever comes after the prompt.
+const permissionAnswerChains = new Map<string, Promise<unknown>>();
+const recentPermissionAnswers = new Map<string, { fingerprint: string; at: number }>();
+const PERMISSION_ANSWER_DEDUP_MS = 3000;
+
+/** Test-only: clear the per-pane answer state between tests. */
+export function __resetPermissionAnswerStateForTests(): void {
+  permissionAnswerChains.clear();
+  recentPermissionAnswers.clear();
+}
+
 export async function applyPermissionAnswer(deps: {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   sshConn: any | null;
@@ -3623,44 +3636,92 @@ export async function applyPermissionAnswer(deps: {
   const result = (status: PermissionAnswerResultFrame["status"]) =>
     ({ type: "permission_answer_result", choice, fingerprint, status }) as const;
   if (!sshConn || !currentTmuxSession) return result("gone");
-  try {
-    const prompt = await capturePermissionPrompt(sshConn, currentTmuxSession, exec);
-    if (!prompt || prompt.fingerprint !== fingerprint) {
-      sshLogger.info("permission answer dropped — prompt no longer on screen", {
-        operation: "permission_answer_gone",
+  const tmuxSession = currentTmuxSession;
+  const paneKey = `${currentHostId ?? "?"}:${tmuxSession}`;
+  const prev = permissionAnswerChains.get(paneKey) ?? Promise.resolve();
+  const run = prev.then(() => answerOnce());
+  const tail = run.catch(() => undefined);
+  permissionAnswerChains.set(paneKey, tail);
+  void tail.then(() => {
+    if (permissionAnswerChains.get(paneKey) === tail) {
+      permissionAnswerChains.delete(paneKey);
+    }
+  });
+  return run;
+
+  async function answerOnce(): Promise<PermissionAnswerResultFrame> {
+    const recent = recentPermissionAnswers.get(paneKey);
+    if (
+      recent &&
+      recent.fingerprint === fingerprint &&
+      Date.now() - recent.at < PERMISSION_ANSWER_DEDUP_MS
+    ) {
+      sshLogger.info("permission answer dropped — already answered", {
+        operation: "permission_answer_duplicate",
+        hostId: currentHostId,
+        tmuxSession,
+        choice,
+        fingerprint,
+      });
+      return result("gone");
+    }
+    try {
+      const prompt = await capturePermissionPrompt(sshConn, tmuxSession, exec);
+      if (!prompt || prompt.fingerprint !== fingerprint) {
+        sshLogger.info("permission answer dropped — prompt no longer on screen", {
+          operation: "permission_answer_gone",
+          hostId: currentHostId,
+          tmuxSession: currentTmuxSession,
+          choice,
+          fingerprint,
+          onScreenFingerprint: prompt?.fingerprint ?? null,
+        });
+        return result("gone");
+      }
+      const key = choice === "allow" ? prompt.yesKey : prompt.noKey;
+      // The parser only yields single digits; re-check before it reaches a shell.
+      if (!/^\d$/.test(key)) return result("error");
+      // A pane left in tmux copy-mode would swallow the digit as a count, so
+      // only type it in normal mode.
+      const target = shellQuote(tmuxSession);
+      const out = await exec(
+        sshConn,
+        `if [ "$(tmux display-message -p -t ${target} '#{pane_in_mode}')" = "0" ]; then tmux send-keys -t ${target} ${key} && echo sent; else echo in_mode; fi`,
+      );
+      if (out.trim() !== "sent") {
+        sshLogger.warn("permission answer not sent — pane not in normal mode", {
+          operation: "permission_answer_pane_in_mode",
+          hostId: currentHostId,
+          tmuxSession,
+          choice,
+          fingerprint,
+          output: out.trim().slice(0, 200),
+        });
+        return result("error");
+      }
+      recentPermissionAnswers.set(paneKey, { fingerprint, at: Date.now() });
+      sshLogger.info("permission answer sent", {
+        operation: "permission_answer_sent",
+        hostId: currentHostId,
+        tmuxSession: currentTmuxSession,
+        choice,
+        key,
+        fingerprint,
+        title: prompt.title,
+        autoDenySeconds: prompt.autoDenySeconds,
+      });
+      return result("sent");
+    } catch (err) {
+      sshLogger.warn("permission answer failed", {
+        operation: "permission_answer_error",
         hostId: currentHostId,
         tmuxSession: currentTmuxSession,
         choice,
         fingerprint,
-        onScreenFingerprint: prompt?.fingerprint ?? null,
+        error: err instanceof Error ? err.message : String(err),
       });
-      return result("gone");
+      return result("error");
     }
-    const key = choice === "allow" ? prompt.yesKey : prompt.noKey;
-    // The parser only yields single digits; re-check before it reaches a shell.
-    if (!/^\d$/.test(key)) return result("error");
-    await exec(sshConn, `tmux send-keys -t ${shellQuote(currentTmuxSession)} ${key}`);
-    sshLogger.info("permission answer sent", {
-      operation: "permission_answer_sent",
-      hostId: currentHostId,
-      tmuxSession: currentTmuxSession,
-      choice,
-      key,
-      fingerprint,
-      title: prompt.title,
-      autoDenySeconds: prompt.autoDenySeconds,
-    });
-    return result("sent");
-  } catch (err) {
-    sshLogger.warn("permission answer failed", {
-      operation: "permission_answer_error",
-      hostId: currentHostId,
-      tmuxSession: currentTmuxSession,
-      choice,
-      fingerprint,
-      error: err instanceof Error ? err.message : String(err),
-    });
-    return result("error");
   }
 }
 

@@ -45,9 +45,15 @@ export interface PermissionPromptScreen {
 
 const QUESTION_RE = /^Do you want to .+\?$/;
 const OPTION_RE = /^(?:❯\s*)?(\d)\.\s+(.+)$/;
+// Claude Code draws its border and separators from column 0 while every
+// content line is indented, so matching the UNTRIMMED line keeps a ─ / ╌ run
+// inside a command or diff from being mistaken for prompt structure.
 const SOLID_BORDER_RE = /^─{10,}$/;
 const DASHED_SEP_RE = /^╌{10,}$/;
-const COUNTDOWN_RE = /automatically deny this request in (\d+):(\d{2})/;
+// Matched against the notice's lines joined with spaces — on a narrow pane
+// the sentence wraps mid-phrase.
+const COUNTDOWN_RE = /automatically\s+deny\s+this\s+request\s+in\s+(\d+):(\d{2})/;
+const COUNTDOWN_START_RE = /⚠|Claude Code will automatically/;
 
 function stripGutter(line: string): string {
   return line.replace(/^\s*│\s?/, "").trim();
@@ -100,7 +106,7 @@ export function parsePermissionPromptScreen(
 
   let border = -1;
   for (let i = q - 1; i >= 0; i -= 1) {
-    if (SOLID_BORDER_RE.test(lines[i]!.trim())) {
+    if (SOLID_BORDER_RE.test(lines[i]!)) {
       border = i;
       break;
     }
@@ -112,17 +118,15 @@ export function parsePermissionPromptScreen(
   // Pull the auto-deny notice out of the region (it can wrap onto the next
   // line; it runs until the next blank line).
   let autoDenySeconds: number | null = null;
-  const cd = region.findIndex((l) => COUNTDOWN_RE.test(l));
-  if (cd !== -1) {
-    const m = COUNTDOWN_RE.exec(region[cd]!)!;
-    autoDenySeconds = Number(m[1]) * 60 + Number(m[2]);
-    let start = cd;
-    if (!/⚠/.test(region[cd]!) && cd > 0 && /⚠/.test(region[cd - 1]!)) {
-      start = cd - 1;
-    }
-    let end = cd + 1;
+  for (let start = 0; start < region.length; start += 1) {
+    if (!COUNTDOWN_START_RE.test(region[start]!)) continue;
+    let end = start + 1;
     while (end < region.length && region[end]!.trim() !== "") end += 1;
+    const m = COUNTDOWN_RE.exec(region.slice(start, end).join(" "));
+    if (!m) continue;
+    autoDenySeconds = Number(m[1]) * 60 + Number(m[2]);
     region = [...region.slice(0, start), ...region.slice(end)];
+    break;
   }
 
   region = trimBlankEdges(region);
@@ -132,7 +136,7 @@ export function parsePermissionPromptScreen(
 
   const seps: number[] = [];
   rest.forEach((l, i) => {
-    if (DASHED_SEP_RE.test(l.trim())) seps.push(i);
+    if (DASHED_SEP_RE.test(l)) seps.push(i);
   });
 
   let description: string | null = null;
@@ -143,14 +147,20 @@ export function parsePermissionPromptScreen(
     bodyLines = rest.slice(seps[0]! + 1, seps[1]);
     reason = joinProse(rest.slice(seps[1]! + 1));
   } else {
-    bodyLines = rest.filter((l) => !DASHED_SEP_RE.test(l.trim()));
+    bodyLines = rest.filter((l) => !DASHED_SEP_RE.test(l));
   }
   const body = trimBlankEdges(bodyLines)
     .map((l) => l.replace(/^ /, ""))
     .join("\n");
 
   const fingerprint = createHash("sha256")
-    .update([title, description ?? "", body, reason ?? ""].join("\u0000"))
+    // Any m:ss left in the reason (a countdown the notice regex missed)
+    // must not make the id tick.
+    .update(
+      [title, description ?? "", body, (reason ?? "").replace(/\d+:\d{2}/g, "")].join(
+        "\u0000",
+      ),
+    )
     .digest("hex")
     .slice(0, 16);
 

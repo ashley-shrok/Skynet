@@ -1207,12 +1207,14 @@ crown, then gear.
   check the fleet's auto-allow can't skip, e.g. a risky `rm`), the
   conversation shows a bubble with a hand icon saying what the agent wants
   to do ("<agent> wants to run a command"), the tool's one-line description,
-  and why it was flagged, with **Allow** and **Deny** buttons and **Show
-  details** (the exact command). Allow lets the call run; Deny refuses it
+  the actual command, and why it was flagged, with **Allow** and **Deny**
+  buttons and **Show details** (the full command plus Claude Code's exact
+  reason). Allow lets the call run; Deny refuses it
   and stops the agent's turn until the user says what to do instead. When
   Claude Code shows an auto-deny countdown, the bubble shows it too and
   disappears when it runs out (the call is refused and the agent carries
-  on). Other waits it can't read (e.g. a folder-trust dialog) show as a
+  on); if the agent is still waiting on something else a few seconds later,
+  a one-line bubble takes its place. Other waits it can't read (e.g. a folder-trust dialog) show as a
   one-line bubble to answer in the terminal view.
   *Agent-side:* a denied or timed-out call comes back to you as a refusal;
   rewriting it so the check doesn't fire (e.g. `"${VAR:?}"` in `rm` paths)

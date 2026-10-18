@@ -4972,6 +4972,7 @@ export function PrettyView({
               out. See WaitingBubble.tsx header. */}
           {waitingFor !== null && !permissionPrompt.hidden && (
             <WaitingBubble
+              key={permissionPrompt.prompt?.fingerprint ?? "presence"}
               reason={waitingFor}
               prompt={permissionPrompt.prompt}
               secondsLeft={permissionPrompt.secondsLeft}

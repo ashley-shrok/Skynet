@@ -10,7 +10,13 @@
 // window (seen 0:20 and 0:50). Each probe reply re-anchors the deadline from
 // the on-screen countdown; once it passes, `hidden` turns true and stays true
 // until a different prompt appears or the pane stops waiting — the bubble
-// never lingers past the timer.
+// never lingers past the timer. If the pane is still waiting a few seconds
+// later with nothing readable on screen (some other dialog), the presence
+// form comes back so the user is never left with no bubble at all.
+//
+// Same-looking prompts: a retry of the identical command has the same
+// fingerprint. A prompt counts as a NEW one when the screen showed no prompt
+// in between, or when its countdown jumped back up.
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import type {
@@ -20,6 +26,12 @@ import type {
 } from "../../api/claude-session-api";
 
 export const PROBE_INTERVAL_MS = 2000;
+/** After the countdown runs out, how long a blank screen keeps the bubble hidden. */
+export const EXPIRY_GRACE_MS = 5000;
+/** A probe with no reply for this long no longer blocks the next one. */
+const PROBE_STALE_MS = 6000;
+/** Countdown rising by more than this between probes = a new prompt. */
+const COUNTDOWN_JUMP_MS = 3000;
 const TICK_MS = 250;
 
 export type PermissionAnswerState = {
@@ -52,6 +64,7 @@ export function usePermissionPrompt(
   );
   const [answer, setAnswer] = useState<PermissionAnswerState | null>(null);
   const [now, setNow] = useState(() => Date.now());
+  const [graceOver, setGraceOver] = useState(false);
 
   const sendRef = useRef(send);
   sendRef.current = send;
@@ -59,6 +72,11 @@ export function usePermissionPrompt(
   promptRef.current = prompt;
   const answerRef = useRef(answer);
   answerRef.current = answer;
+  const deadlineRef = useRef(deadline);
+  deadlineRef.current = deadline;
+  // True once a probe saw no prompt since the current one was shown.
+  const closedSinceShownRef = useRef(false);
+  const probeSentAtRef = useRef<number | null>(null);
 
   // Reset everything when the pane stops waiting.
   useEffect(() => {
@@ -67,13 +85,21 @@ export function usePermissionPrompt(
     setDeadline(null);
     setExpiredFingerprint(null);
     setAnswer(null);
+    closedSinceShownRef.current = false;
+    probeSentAtRef.current = null;
   }, [waiting]);
 
   // Probe loop.
   useEffect(() => {
     if (!waiting) return;
     const probe = () => {
-      sendRef.current({ type: "permission_probe" });
+      // One probe in flight at a time, so slow hosts don't pile up captures
+      // whose replies arrive out of order.
+      const sentAt = probeSentAtRef.current;
+      if (sentAt !== null && Date.now() - sentAt < PROBE_STALE_MS) return;
+      if (sendRef.current({ type: "permission_probe" })) {
+        probeSentAtRef.current = Date.now();
+      }
     };
     probe();
     const id = window.setInterval(probe, PROBE_INTERVAL_MS);
@@ -99,6 +125,14 @@ export function usePermissionPrompt(
     }
   }, [now, deadline, prompt, expiredFingerprint]);
 
+  // Grace window after expiry.
+  useEffect(() => {
+    setGraceOver(false);
+    if (expiredFingerprint === null) return;
+    const id = window.setTimeout(() => setGraceOver(true), EXPIRY_GRACE_MS);
+    return () => window.clearTimeout(id);
+  }, [expiredFingerprint]);
+
   const handleFrame = useCallback(
     (frame: PermissionPromptStateEvent | PermissionAnswerResultEvent) => {
       if (frame.type === "permission_answer_result") {
@@ -113,9 +147,11 @@ export function usePermissionPrompt(
         setAnswer({ ...current, status: frame.status });
         return;
       }
+      probeSentAtRef.current = null;
       const next = frame.prompt;
       const current = promptRef.current;
       if (next === null) {
+        closedSinceShownRef.current = true;
         // Keep the answered prompt on screen (showing "Allowed"/"Denied")
         // until fleet-status clears the waiting state.
         if (answerRef.current !== null) return;
@@ -123,15 +159,28 @@ export function usePermissionPrompt(
         setDeadline(null);
         return;
       }
-      if (current === null || current.fingerprint !== next.fingerprint) {
+      const prevDeadline = deadlineRef.current;
+      const countdownJumped =
+        next.autoDenySeconds !== null &&
+        prevDeadline !== null &&
+        next.autoDenySeconds * 1000 > prevDeadline - Date.now() + COUNTDOWN_JUMP_MS;
+      if (
+        current === null ||
+        current.fingerprint !== next.fingerprint ||
+        closedSinceShownRef.current ||
+        countdownJumped
+      ) {
         console.info({
           operation: "permission_prompt_seen",
           fingerprint: next.fingerprint,
           title: next.title,
           autoDenySeconds: next.autoDenySeconds,
+          reason: current === null ? "first" : current.fingerprint !== next.fingerprint ? "changed" : closedSinceShownRef.current ? "reappeared" : "countdown_reset",
         });
         setAnswer(null);
+        setExpiredFingerprint(null);
       }
+      closedSinceShownRef.current = false;
       setPrompt(next);
       setDeadline(
         next.autoDenySeconds === null
@@ -160,7 +209,7 @@ export function usePermissionPrompt(
 
   const hidden =
     expiredFingerprint !== null &&
-    (prompt === null || prompt.fingerprint === expiredFingerprint);
+    (prompt === null ? !graceOver : prompt.fingerprint === expiredFingerprint);
 
   const secondsLeft =
     deadline === null ? null : Math.max(0, Math.ceil((deadline - now) / 1000));

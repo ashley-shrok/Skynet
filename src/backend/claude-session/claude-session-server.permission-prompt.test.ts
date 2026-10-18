@@ -34,6 +34,7 @@ vi.mock("../utils/logger.js", () => {
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import {
+  __resetPermissionAnswerStateForTests,
   applyPermissionAnswer,
   applyPermissionProbe,
 } from "./claude-session-server.js";
@@ -51,7 +52,10 @@ const IDLE = readFileSync(
 const FP = parsePermissionPromptScreen(PROMPT)!.fingerprint;
 const base = { sshConn: fakeConn, currentTmuxSession: "legit-session", currentHostId: 1 };
 
-afterEach(() => vi.clearAllMocks());
+afterEach(() => {
+  vi.clearAllMocks();
+  __resetPermissionAnswerStateForTests();
+});
 
 describe("applyPermissionProbe", () => {
   it("captures the connection's own pane and returns the parsed prompt", async () => {
@@ -80,18 +84,20 @@ describe("applyPermissionProbe", () => {
 
 describe("applyPermissionAnswer", () => {
   it("allow → re-captures, then sends the Yes digit", async () => {
-    const exec = vi.fn().mockResolvedValueOnce(PROMPT).mockResolvedValueOnce("");
+    const exec = vi.fn().mockResolvedValueOnce(PROMPT).mockResolvedValueOnce("sent\n");
     const frame = await applyPermissionAnswer({ ...base, execCommand: exec, choice: "allow", fingerprint: FP });
     expect(frame).toEqual({ type: "permission_answer_result", choice: "allow", fingerprint: FP, status: "sent" });
     expect(exec).toHaveBeenCalledTimes(2);
-    expect(exec.mock.calls[1][1]).toBe("tmux send-keys -t 'legit-session' 1");
+    const cmd = exec.mock.calls[1][1] as string;
+    expect(cmd).toContain("tmux send-keys -t 'legit-session' 1 ");
+    expect(cmd).toContain("#{pane_in_mode}");
   });
 
   it("deny → sends the No digit", async () => {
-    const exec = vi.fn().mockResolvedValueOnce(PROMPT).mockResolvedValueOnce("");
+    const exec = vi.fn().mockResolvedValueOnce(PROMPT).mockResolvedValueOnce("sent\n");
     const frame = await applyPermissionAnswer({ ...base, execCommand: exec, choice: "deny", fingerprint: FP });
     expect(frame?.status).toBe("sent");
-    expect(exec.mock.calls[1][1]).toBe("tmux send-keys -t 'legit-session' 2");
+    expect(exec.mock.calls[1][1]).toContain("tmux send-keys -t 'legit-session' 2 ");
   });
 
   it("prompt gone from screen → status gone, no keystroke", async () => {
@@ -119,5 +125,25 @@ describe("applyPermissionAnswer", () => {
     const exec = vi.fn().mockResolvedValueOnce(PROMPT).mockRejectedValueOnce(new Error("ssh down"));
     const frame = await applyPermissionAnswer({ ...base, execCommand: exec, choice: "allow", fingerprint: FP });
     expect(frame?.status).toBe("error");
+  });
+
+  it("pane in copy-mode → status error (digit not typed)", async () => {
+    const exec = vi.fn().mockResolvedValueOnce(PROMPT).mockResolvedValueOnce("in_mode\n");
+    const frame = await applyPermissionAnswer({ ...base, execCommand: exec, choice: "allow", fingerprint: FP });
+    expect(frame?.status).toBe("error");
+  });
+
+  it("two simultaneous clicks on one pane → only the first types a key", async () => {
+    const exec = vi.fn(async (_c: unknown, cmd: string) =>
+      cmd.startsWith("tmux capture-pane") ? PROMPT : "sent\n",
+    );
+    const [a, b] = await Promise.all([
+      applyPermissionAnswer({ ...base, execCommand: exec, choice: "allow", fingerprint: FP }),
+      applyPermissionAnswer({ ...base, execCommand: exec, choice: "deny", fingerprint: FP }),
+    ]);
+    expect(a?.status).toBe("sent");
+    expect(b?.status).toBe("gone");
+    const sends = exec.mock.calls.filter((c) => (c[1] as string).includes("send-keys"));
+    expect(sends).toHaveLength(1);
   });
 });

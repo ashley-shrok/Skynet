@@ -25,13 +25,16 @@ afterEach(() => {
 describe("usePermissionPrompt", () => {
   it("probes immediately and every interval while waiting, and stops when not", () => {
     const send = vi.fn(() => true);
-    const { rerender } = renderHook(({ w }) => usePermissionPrompt(w, send), {
+    const { result, rerender } = renderHook(({ w }) => usePermissionPrompt(w, send), {
       initialProps: { w: true },
     });
     expect(send).toHaveBeenCalledWith({ type: "permission_probe" });
-    act(() => {
-      vi.advanceTimersByTime(PROBE_INTERVAL_MS * 2);
-    });
+    for (let i = 0; i < 2; i += 1) {
+      act(() => result.current.handleFrame({ type: "permission_prompt_state", prompt: null }));
+      act(() => {
+        vi.advanceTimersByTime(PROBE_INTERVAL_MS);
+      });
+    }
     expect(send).toHaveBeenCalledTimes(3);
     rerender({ w: false });
     act(() => {
@@ -106,5 +109,58 @@ describe("usePermissionPrompt", () => {
     rerender({ w: false });
     expect(result.current.prompt).toBeNull();
     expect(result.current.hidden).toBe(false);
+  });
+});
+
+describe("usePermissionPrompt — review hardening", () => {
+  it("after expiry, an unreadable wait shows the presence form once the grace window passes", () => {
+    const { result } = renderHook(() => usePermissionPrompt(true, () => true));
+    act(() => result.current.handleFrame({ type: "permission_prompt_state", prompt: prompt({ autoDenySeconds: 1 }) }));
+    act(() => {
+      vi.advanceTimersByTime(1500);
+    });
+    act(() => result.current.handleFrame({ type: "permission_prompt_state", prompt: null }));
+    expect(result.current.hidden).toBe(true);
+    act(() => {
+      vi.advanceTimersByTime(5100);
+    });
+    expect(result.current.hidden).toBe(false);
+    expect(result.current.prompt).toBeNull();
+  });
+
+  it("an identical prompt after the first one closed is treated as new", () => {
+    const { result } = renderHook(() => usePermissionPrompt(true, () => true));
+    act(() => result.current.handleFrame({ type: "permission_prompt_state", prompt: prompt() }));
+    act(() => result.current.onAnswer("allow"));
+    act(() =>
+      result.current.handleFrame({ type: "permission_answer_result", choice: "allow", fingerprint: "fp1", status: "sent" }),
+    );
+    act(() => result.current.handleFrame({ type: "permission_prompt_state", prompt: null }));
+    act(() => result.current.handleFrame({ type: "permission_prompt_state", prompt: prompt() }));
+    expect(result.current.answer).toBeNull();
+  });
+
+  it("an identical prompt whose countdown jumped back up is treated as new", () => {
+    const { result } = renderHook(() => usePermissionPrompt(true, () => true));
+    act(() => result.current.handleFrame({ type: "permission_prompt_state", prompt: prompt({ autoDenySeconds: 20 }) }));
+    act(() => result.current.onAnswer("allow"));
+    act(() => {
+      vi.advanceTimersByTime(10000);
+    });
+    act(() => result.current.handleFrame({ type: "permission_prompt_state", prompt: prompt({ autoDenySeconds: 20 }) }));
+    expect(result.current.answer).toBeNull();
+  });
+
+  it("does not send a second probe while one is unanswered", () => {
+    const send = vi.fn(() => true);
+    renderHook(() => usePermissionPrompt(true, send));
+    act(() => {
+      vi.advanceTimersByTime(PROBE_INTERVAL_MS * 2);
+    });
+    expect(send).toHaveBeenCalledTimes(1);
+    act(() => {
+      vi.advanceTimersByTime(PROBE_INTERVAL_MS * 2);
+    });
+    expect(send).toHaveBeenCalledTimes(2);
   });
 });

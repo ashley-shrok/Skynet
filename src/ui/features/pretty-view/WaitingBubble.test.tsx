@@ -151,11 +151,12 @@ describe("WaitingBubble — permission prompt form", () => {
     expect(screen.getByText("Auto-denies in 0:17")).toBeTruthy();
   });
 
-  it("hides the command until Show details is clicked", () => {
+  it("always shows the real command; Show details adds Claude Code's exact reason", () => {
     render(<WaitingBubble reason="permission prompt" prompt={PROMPT} onAnswer={() => {}} />);
-    expect(screen.queryByTestId("permission-prompt-body")).toBeNull();
-    fireEvent.click(screen.getByRole("button", { name: "Show details" }));
     expect(screen.getByTestId("permission-prompt-body").textContent).toContain("rm -f");
+    expect(screen.queryByText(/possibly-empty variable path/)).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Show details" }));
+    expect(screen.getByText(/possibly-empty variable path/)).toBeTruthy();
   });
 
   it("locks the buttons and explains a sent Deny", () => {

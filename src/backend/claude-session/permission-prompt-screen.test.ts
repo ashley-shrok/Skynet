@@ -86,3 +86,31 @@ describe("parsePermissionPromptScreen", () => {
     expect(parsePermissionPromptScreen(s)).toBeNull();
   });
 });
+
+describe("parsePermissionPromptScreen — review hardening", () => {
+  const base = fixture("permission-prompt-dangerous-rm-countdown.txt");
+
+  it("reads a countdown whose sentence wraps mid-phrase on a narrow pane", () => {
+    const s = base.replace(
+      " ⚠ Claude Code will automatically deny this request in 0:20, to\n avoid blocking progress on an unattended session",
+      " ⚠ Claude Code will automatically deny this\n request in 0:20, to avoid blocking progress\n on an unattended session",
+    );
+    const p = parsePermissionPromptScreen(s)!;
+    expect(p.autoDenySeconds).toBe(20);
+    expect(p.reason).not.toContain("automatically");
+    const later = parsePermissionPromptScreen(s.replace("in 0:20,", "in 0:13,"))!;
+    expect(later.fingerprint).toBe(p.fingerprint);
+  });
+
+  it("does not take an indented ─ / ╌ line inside the command for structure", () => {
+    const s = base.replace(
+      " --short | cat\n",
+      " --short | cat\n " + "─".repeat(40) + "\n " + "╌".repeat(40) + "\n",
+    );
+    const p = parsePermissionPromptScreen(s)!;
+    expect(p.title).toBe("Bash command");
+    expect(p.body).toContain("S=/tmp/claude-1000");
+    expect(p.body).toContain("─".repeat(40));
+    expect(p.reason).toMatch(/^Dangerous rm/);
+  });
+});
