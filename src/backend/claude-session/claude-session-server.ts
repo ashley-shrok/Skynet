@@ -1461,9 +1461,9 @@ export const __handleIdentityProbeTrappedWorkForTests = handleIdentityProbeTrapp
 //
 // Backend does the two-step (identity file → role: frontmatter → role artifact)
 // inside readRoleFile — the WS handler is a mechanical mirror of the
-// identity-file version and does NOT parse frontmatter itself. Missing role:
-// frontmatter surfaces as {error: "..."} per D-CONTEXT § "No no-role fallback
-// branches" (LOCKED with user 2026-08-04).
+// identity-file version and does NOT parse frontmatter itself. An identity
+// with zero (or several) roles has no single role file and surfaces as
+// {error: "..."}.
 
 export async function handleIdentityGetRoleFile(
   ws: WebSocket,

@@ -288,10 +288,10 @@ def _parse_roles_frontmatter(text):
 def _read_frontmatter(identity_file):
     """Return (roles, is_coordinator) parsed from the identity file's YAML frontmatter.
     Frontmatter is the block between the FIRST two `---` fence lines. Missing file /
-    missing frontmatter / no roles → ([], False), and the caller decides how
-    loudly to complain (file-watch logs its own setup failures to stderr into
-    the ambient-monitor log; the launcher stays quiet and lets pieces surface their
-    own diagnostics).
+    missing frontmatter / no roles → ([], False). No roles is a normal state (a
+    plain agent), not a problem; for real setup failures the launcher stays quiet
+    and lets pieces surface their own diagnostics (file-watch logs to stderr into
+    the ambient-monitor log).
 
     `roles` comes from `_parse_roles_frontmatter` (copy of the reference parser):
     every role listed under `roles:`, invalid slugs dropped, deduped in order. The

@@ -446,10 +446,13 @@ router.post(
         }
 
         if (roles.length === 0) {
-          // A restored identity with no roles gets no role-file watcher and
-          // falls open in the visibility gate (visible to every user). Refuse
-          // rather than restore it half-formed.
-          return res.status(409).json({ reason: "no_roles" });
+          // Roleless identities restore normally — there are just no role
+          // folders to check.
+          databaseLogger.info("identity-unarchive: roleless identity, no role check", {
+            operation: "identity_unarchive_roleless",
+            identityKey: key,
+            hostId,
+          });
         }
 
         {

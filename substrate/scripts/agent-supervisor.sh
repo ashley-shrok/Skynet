@@ -1877,7 +1877,8 @@ PYEOF
 #     Read the archived $name.md frontmatter roles via _extract_frontmatter_roles.
 #     Every listed role must have a live folder at $ROLES_DIR/<role>. Any
 #     missing → LOUD ERROR log naming ALL missing roles, delete the sentinel,
-#     skip. User un-archives roles first, then re-issues.
+#     skip. User un-archives roles first, then re-issues. An identity with no
+#     roles has nothing to check and passes.
 #
 #   Safety check (whoami probe, half-un-archive guard — 2026-10-01):
 #     Read base + access_token from the archive folder's relay.json. GET
@@ -1965,11 +1966,6 @@ scan_identity_unarchive_requested_sentinels() {
     local roles_json
     if ! roles_json=$(_extract_frontmatter_roles "$ident_file"); then
       log "ERROR: '$name' un-archive REFUSED: could not parse role frontmatter in $ident_file. Sentinel deleted."
-      rm -f "$d/.unarchive-requested"
-      continue
-    fi
-    if [ "$(printf '%s' "$roles_json" | jq -r 'length' 2>/dev/null)" = "0" ]; then
-      log "ERROR: '$name' un-archive REFUSED: no roles in the \`roles:\` frontmatter of $ident_file (a restored identity with no roles has no watcher and is visible to every user). Fix the file, then re-issue. Sentinel deleted."
       rm -f "$d/.unarchive-requested"
       continue
     fi

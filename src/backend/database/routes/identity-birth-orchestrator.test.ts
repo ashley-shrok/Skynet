@@ -415,6 +415,81 @@ describe("peer-commit script content", () => {
 });
 
 // ---------------------------------------------------------------------------
+// Roleless births — `roles: []`, bare-name handle, creator recorded
+// ---------------------------------------------------------------------------
+
+describe("roleless birth", () => {
+  function decodeIdentityFile(script: string): string {
+    const m = script.match(
+      /printf '%s' '([^']+)' \| base64 -d > "\$STAGING\/\$KEY\.md"/,
+    );
+    expect(m).not.toBeNull();
+    return Buffer.from(m![1], "base64").toString("utf-8");
+  }
+
+  it("pool-picked, no role → bare-name key, `roles: []`, `users: [creator]`, no role guard", async () => {
+    const { events, emit } = collectEvents();
+    const deps = makeDeps();
+
+    const birthPromise = birthIdentity(
+      makeOpts({ name: "duet", role: undefined, poolPicked: true, creatorUsername: "ashley" }),
+      emit,
+      deps,
+    );
+    await vi.runAllTimersAsync();
+    await birthPromise;
+
+    expect(events.at(-1)).toMatchObject({ type: "ended", ok: true });
+    const script = mockExecCommand.mock.calls[0][1] as string;
+    expect(script).toMatch(/KEY="duet"/);
+    expect(script).toContain("for ROLE in ; do");
+    const decoded = decodeIdentityFile(script);
+    expect(decoded).toMatch(/^---\nroles: \[\]\n/);
+    expect(decoded).toContain("users:\n  - ashley");
+    expect(deps.matrixCountUsersMatching).toHaveBeenCalledWith("@duet:synapse.example.com");
+  });
+
+  it("bare name taken on Synapse (e.g. a human account) → ordinal suffix `duet-2`", async () => {
+    const { emit } = collectEvents();
+    const deps = makeDeps({
+      matrixCountUsersMatching: vi
+        .fn()
+        .mockImplementation(async (mxid: string) => ({
+          ok: true,
+          total: mxid === "@duet:synapse.example.com" ? 1 : 0,
+        })),
+    });
+
+    const birthPromise = birthIdentity(
+      makeOpts({ name: "duet", role: undefined, poolPicked: true }),
+      emit,
+      deps,
+    );
+    await vi.runAllTimersAsync();
+    await birthPromise;
+
+    const script = mockExecCommand.mock.calls[0][1] as string;
+    expect(script).toMatch(/KEY="duet-2"/);
+  });
+
+  it("extraRoles without a role → step 1 fails, nothing minted", async () => {
+    const { events, emit } = collectEvents();
+    const deps = makeDeps();
+
+    const birthPromise = birthIdentity(
+      makeOpts({ role: undefined, extraRoles: ["sky-uat"] }),
+      emit,
+      deps,
+    );
+    await vi.runAllTimersAsync();
+    await birthPromise;
+
+    expect(events.at(-1)).toMatchObject({ type: "ended", ok: false, failedStep: 1 });
+    expect(deps.matrixCreateOrUpdateUser).not.toHaveBeenCalled();
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Rollback semantics — matrixDeactivateUser
 // ---------------------------------------------------------------------------
 

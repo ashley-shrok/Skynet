@@ -139,7 +139,13 @@ import { armOutboundDrag, mintDragId } from "@/shell/cross-window-drag";
 import { promptAndRenameIdentity } from "@/shell/rename-identity";
 import type { ConversationRow as ConversationRowShape } from "@/state/conversation-store";
 import { specForTab, encodeWorkspaceSpec } from "@/lib/tab-url";
-import { identityRolesLabel, isMultiRole } from "@/lib/identity-roles";
+import {
+  hasNeutralLook,
+  identityRolesLabel,
+  isMultiRole,
+  NEUTRAL_HUE,
+} from "@/lib/identity-roles";
+import { AvatarImage } from "@/components/avatar-image";
 
 // shape-sidebar-header-affordances: row context menu + long-press machinery
 // retired; the row's five actions now live in a RowKebabMenu rendered inside
@@ -372,7 +378,9 @@ function PrettyConversationRowImpl({
   // useTrappedWork and the rename gate below.
   const rowHostIdNum = row.host ? parseInt(row.host.id, 10) : NaN;
 
-  const hue: number | null = identity?.colorHue ?? null;
+  // An identity with no roles and no colorHue paints in the neutral grey.
+  const neutralLook = hasNeutralLook(identity);
+  const hue: number | null = identity?.colorHue ?? (neutralLook ? NEUTRAL_HUE : null);
 
   // Phase 104 Plan 02 (D-05, D-06, D-07): per-identity trapped-work snapshot.
   // Hook short-circuits to undefined when identityKey is null. Both undefined
@@ -543,6 +551,7 @@ function PrettyConversationRowImpl({
     //  retired alongside the Hide/Show menu branch — hidden prop is gone.)
     isRdp && "rdp",
     isMultiRole(identity) && "pv-multi-role",
+    neutralLook && "pv-neutral",
   );
 
   // ─── Hue custom property ─────────────────────────────────────────────────
@@ -553,10 +562,6 @@ function PrettyConversationRowImpl({
 
   // ─── Render tree ───────────────────────────────────────────────────────────
   const wrapperClass = "relative";
-
-  const initialLetter = identity
-    ? (identity.displayName ?? "?").charAt(0).toUpperCase()
-    : null;
 
   // Kebab items (shared by the ⋮ trigger and right-click on the row body).
   // (Open in new tab / Rename… / Move to / Close / Kill / Archive).
@@ -735,19 +740,17 @@ function PrettyConversationRowImpl({
             // producing a broken-image affordance. user 2026-09-01:
             // "some conversation-list rows show broken-image icons" — this
             // gates on avatarUrl truthiness (Phase 68: hostId is baked in by backend).
-            identity.avatarUrl ? (
-              <img
-                // Phase 68 Plan 04: avatarUrlWithHost deleted — backend bakes hostId
-                // into identity.avatarUrl at emit time; render directly.
-                src={identity.avatarUrl}
-                alt=""
-                className="pv-avatar-img"
-                style={{ width: "100%", height: "100%", objectFit: "cover", borderRadius: "999px" }}
-                draggable={false}
-              />
-            ) : (
-              <span className="pv-avatar-initial">{initialLetter}</span>
-            )
+            // An image that fails to load (e.g. a roleless agent with no
+            // avatar of its own) falls back to the initial too.
+            <AvatarImage
+              // Phase 68 Plan 04: avatarUrlWithHost deleted — backend bakes hostId
+              // into identity.avatarUrl at emit time; render directly.
+              src={identity.avatarUrl}
+              name={identity.displayName}
+              className="pv-avatar-img"
+              style={{ width: "100%", height: "100%", objectFit: "cover", borderRadius: "999px" }}
+              initialClassName="pv-avatar-initial"
+            />
           ) : (
             <span className="pv-avatar-fallback-icon" aria-hidden="true">
               {tabIcon(row.type)}
@@ -814,9 +817,13 @@ function PrettyConversationRowImpl({
             <>
               <span className="pv-label">{identity.task}</span>
               <span className="pv-ai-title">
-                <strong>
-                  {identityRolesLabel(identity)}
-                </strong>
+                {/* No roles: the machine name instead, as the no-task
+                    branch's parenthetical does. */}
+                {identityRolesLabel(identity) ? (
+                  <strong>{identityRolesLabel(identity)}</strong>
+                ) : (
+                  row.host?.name
+                )}
               </span>
             </>
           ) : (

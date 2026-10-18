@@ -475,11 +475,12 @@ export function getLocalAppsRoot(): string {
 //
 // These helpers (extractRolesFromMarkdown + resolveRolesForIdentity, and their
 // single-role views extractRoleFromMarkdown / resolveRoleForIdentity) are the
-// SINGLE source of truth for that two-step. Per D-CONTEXT §"No no-role
-// fallback branches" (LOCKED with user 2026-08-04), resolveRoleForIdentity
-// THROWS when role is missing or fails the shell-safety gate — never returns
-// null / undefined / empty. Callers propagate the throw to the WS `error`
-// field via the existing claude-session-server.ts error-envelope pattern.
+// SINGLE source of truth for that two-step. Zero roles is a normal state
+// (a plain assistant): resolveRolesForIdentity returns [] for it. The
+// single-role view resolveRoleForIdentity THROWS when there is no one role to
+// address (zero or several) or a role fails the shell-safety gate — callers
+// propagate the throw to the WS `error` field via the existing
+// claude-session-server.ts error-envelope pattern.
 
 /**
  * Extract the single role name from an identity markdown file's `roles:`
@@ -492,7 +493,7 @@ export function getLocalAppsRoot(): string {
  * so there is exactly one frontmatter reader.
  *
  * The caller decides whether null is fatal — resolveRoleForIdentity below
- * treats it as fatal (throws) per D-CONTEXT no-fallback rule.
+ * throws, since it addresses "the identity's role file".
  */
 export function extractRoleFromMarkdown(markdown: string): string | null {
   const roles = extractRolesFromMarkdown(markdown);
@@ -584,18 +585,14 @@ export function flowRolesInYamlDump(yamlBody: string): string {
  * Resolve EVERY role name for a given identity by reading the identity file
  * and extracting `roles:` from its YAML frontmatter (extractRolesFromMarkdown).
  *
- * THROWS Error (never returns []) when:
- *   - identity file body has no frontmatter block, OR
- *   - frontmatter has no `roles:` key / no valid role name, OR
- *   - any role fails the IDENTITY_KEY_RE = /^[a-z0-9_-]{1,64}$/ gate.
+ * Returns [] for a roleless identity (`roles: []`, no `roles:` key, or no
+ * frontmatter) — zero roles is a first-class state, not a data error.
  *
- * The IDENTITY_KEY_RE gate is defense-in-depth: roles are shell-interpolated
- * into SSH exec commands by callers, so re-validating with the same regex that
- * guards identityKey shell-safety is required. See threat model
+ * THROWS when any role fails the IDENTITY_KEY_RE = /^[a-z0-9_-]{1,64}$/ gate.
+ * The gate is defense-in-depth: roles are shell-interpolated into SSH exec
+ * commands by callers, so re-validating with the same regex that guards
+ * identityKey shell-safety is required. See threat model
  * T-22-01-01 / T-22-01-02.
- *
- * Per D-CONTEXT (LOCKED 2026-08-04): "No no-role fallback branches anywhere."
- * A throw here is correct behavior for a data-integrity violation, not a bug.
  */
 export async function resolveRolesForIdentity(
   conn: SSHClientType | null,
@@ -603,11 +600,6 @@ export async function resolveRolesForIdentity(
 ): Promise<string[]> {
   const { markdown } = await readIdentityFile(conn, identityKey);
   const roles = extractRolesFromMarkdown(markdown);
-  if (roles.length === 0) {
-    throw new Error(
-      `identity ${identityKey} has no roles: frontmatter in identity file`,
-    );
-  }
   for (const role of roles) {
     if (!IDENTITY_KEY_RE.test(role)) {
       throw new Error(
@@ -620,13 +612,13 @@ export async function resolveRolesForIdentity(
 
 /**
  * Resolve the SINGLE role name for a given identity (see
- * resolveRolesForIdentity for the full list and the throw contract).
+ * resolveRolesForIdentity for the full list and the slug gate).
  *
  * Used by the identity-scoped role-file accessors (readRoleFile /
  * writeRoleFile), which address "the identity's role file" and so have no
- * meaningful answer for a multi-role identity. THROWS (in addition to
- * resolveRolesForIdentity's cases) when the identity names several roles —
- * callers that must work for multi-role identities use
+ * meaningful answer for a roleless or multi-role identity. THROWS (in
+ * addition to resolveRolesForIdentity's cases) when the identity names zero
+ * or several roles — callers that must work for any identity use
  * resolveRolesForIdentity instead.
  */
 export async function resolveRoleForIdentity(
@@ -634,6 +626,9 @@ export async function resolveRoleForIdentity(
   identityKey: string,
 ): Promise<string> {
   const roles = await resolveRolesForIdentity(conn, identityKey);
+  if (roles.length === 0) {
+    throw new Error(`identity ${identityKey} has no roles, so no role file`);
+  }
   if (roles.length > 1) {
     throw new Error(
       `identity ${identityKey} has multiple roles (${roles.join(", ")}); ` +
@@ -1686,9 +1681,8 @@ export async function listIdentityKeysOnHost(
  * the same role → path substitution (matches the pattern established by
  * readIdentityBounties in Plan 22-01).
  *
- * Throws (via resolveRoleForIdentity) when the identity file lacks roles:
- * frontmatter or names several roles — no fallback per D-CONTEXT § "No no-role fallback branches"
- * (LOCKED with user 2026-08-04). Returns {markdown: ""} when the role file
+ * Throws (via resolveRoleForIdentity) when the identity names zero or several
+ * roles — there is no single role file to read. Returns {markdown: ""} when the role file
  * itself is missing on disk (LOCAL ENOENT / REMOTE empty stdout via `|| true`)
  * but the identity did have valid role frontmatter — this is normal for a
  * freshly-birthed role that hasn't been edited yet.
@@ -3713,9 +3707,8 @@ export async function writeIdentityHandoff(
  * Guards run in this order (defense-in-depth per T-22-06-01/02/03/04):
  *   1. IDENTITY_KEY_RE.test(identityKey) — rejects before any I/O.
  *   2. Byte cap (IDMEDIT_MAX_MARKDOWN_BYTES = 2MB) — rejects before any I/O.
- *   3. resolveRoleForIdentity(conn, identityKey) — throws when identity file
- *      lacks roles: frontmatter or names several roles (no fallback per
- *      D-CONTEXT).
+ *   3. resolveRoleForIdentity(conn, identityKey) — throws when the identity
+ *      names zero or several roles (no single role file to write).
  *
  * REMOTE branch uses writeMarkdownFileAtomic (SFTP tmp+rename via
  * posix-rename@openssh.com) — the SAME helper that carries the EEXIST fix

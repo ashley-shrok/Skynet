@@ -33,6 +33,7 @@ import { promptAndRenameIdentity } from "./rename-identity";
 // Badge-menu Move-to-project (2026-09-27): same wire the row menu uses via
 // PrettyConversationsPanel.handleRowMoveToProject.
 import { setSessionProject } from "@/api/session-project-api";
+import { hasNeutralLook, NEUTRAL_HUE } from "@/lib/identity-roles";
 import type { Tab, Host } from "@/types/ui-types";
 import type { SSHHost } from "@/types";
 // Phase 137 Plan 03 (D-16): UserPreferences threaded to PrettyView for
@@ -542,7 +543,9 @@ export const IdentitySessionPane = forwardRef<IdentityPaneHandle, IdentitySessio
     const identityColorHue = resolvedIdentity?.colorHue ?? null;
     const sessionHue = identityColorHue != null
       ? identityColorHue
-      : hueFromSessionName(effectiveTmuxSession);
+      : hasNeutralLook(resolvedIdentity)
+        ? NEUTRAL_HUE
+        : hueFromSessionName(effectiveTmuxSession);
 
     return (
       <CommandHistoryProvider>

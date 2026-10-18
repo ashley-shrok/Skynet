@@ -774,6 +774,56 @@ button[data-hold-active="true"] {
     0 0 20px hsla(var(--pv-mr-h), 70%, 55%, 0.45);
 }
 
+/* Roleless look. An identity with no roles and no colorHue of its own has no
+   role to borrow a look from, so it paints in one neutral grey everywhere
+   rather than each surface's own default hue. `pv-neutral` sits where
+   `pv-multi-role` does (PrettyView root, identity modal, sidebar row) and on
+   the search row; surfaces that build their colors in JS (badge, task pill,
+   modal header) use identityTint() for the same greys. The hue these
+   elements still carry (NEUTRAL_HUE) only reaches small accents. */
+.pv-neutral {
+  --pv-neutral-fill: linear-gradient(160deg, hsla(0, 0%, 38%, 0.55), hsla(0, 0%, 24%, 0.60));
+  --pv-neutral-disc: linear-gradient(160deg, hsla(0, 0%, 25%, 0.72), hsla(0, 0%, 15%, 0.82));
+  --pv-neutral-rim: hsla(0, 0%, 60%, 0.36);
+  --pv-neutral-glow: hsla(0, 0%, 60%, 0.18);
+}
+.pv-neutral .pv-hue-surface,
+.pv-row.pv-neutral:not(.pv-row--desktop) {
+  background-image: var(--pv-neutral-fill) !important;
+  border-color: var(--pv-neutral-rim) !important;
+}
+.pv-row.pv-neutral:not(.pv-row--desktop) {
+  box-shadow:
+    0 8px 24px rgba(0, 0, 0, 0.5),
+    inset 0 1px 0 rgba(255, 220, 170, 0.18),
+    0 0 0 0.5px var(--pv-neutral-glow),
+    0 0 32px var(--pv-neutral-glow);
+}
+.pv-row.pv-row--desktop.pv-neutral:hover {
+  background: hsla(0, 0%, 50%, 0.14);
+}
+.pv-row.pv-row--desktop.pv-neutral.selected {
+  background: hsla(0, 0%, 55%, 0.26);
+}
+.pv-row.pv-neutral .pv-avatar,
+.pv-search-row.pv-neutral .pv-search-row-avatar {
+  background-image: var(--pv-neutral-disc) !important;
+  border-color: var(--pv-neutral-rim) !important;
+  box-shadow:
+    0 4px 12px rgba(0, 0, 0, 0.6),
+    inset 0 2px 0 rgba(255, 235, 190, 0.35),
+    0 0 24px var(--pv-neutral-glow);
+}
+.pv-search-row.pv-neutral,
+.pv-search-row.pv-neutral:hover {
+  border-color: var(--pv-neutral-rim);
+}
+/* Opaque, like the hued modal it replaces (painted via inline style). */
+.pv-neutral[data-slot="modal-content"] {
+  background-image: linear-gradient(160deg, hsl(0, 0%, 30%), hsl(0, 0%, 17%)) !important;
+  border-color: var(--pv-neutral-rim) !important;
+}
+
 /* Split-view divider drag: embedded frames ignore the pointer while a resize
    is live, so a frame can never swallow the drag (backstop to pointer
    capture). */

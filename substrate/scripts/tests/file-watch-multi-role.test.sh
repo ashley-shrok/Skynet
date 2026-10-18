@@ -2,7 +2,7 @@
 # shellcheck shell=bash
 # Test driver for file-watch.py multi-role support.
 #
-# An identity may list one OR MORE roles in its frontmatter. Agents edit these
+# An identity may list zero, one OR MORE roles in its frontmatter. Agents edit these
 # files freely and don't always stick to one YAML shape, so the parser
 # (`parse_roles_frontmatter`, a copy of tests/fixtures/roles_frontmatter_reference.py)
 # reads the `roles:` key in any shape: flow lists, block sequences, plain
@@ -29,15 +29,22 @@
 #          (`last-snapshot.runbook.<role>.<slug>`) and edits to one don't
 #          bleed into the other.
 #   T-M6 — bare comma-separated frontmatter (`roles: a, b`): both watched.
-#   T-M7 — singular `role:` key is rejected: watcher exits non-zero with a
-#          stderr diagnostic naming the missing `roles:` key.
+#   T-M7 — no `roles:` key (only a singular `role:`, which is not read):
+#          zero roles — the watcher keeps running, watches the identity
+#          file, id skill and project file, watches no role file, and logs
+#          no warning.
 #   T-M8 — role ADDED mid-session (identity-file edit): pointer line to the
 #          new role file (+ runbooks folder) emitted, watcher re-execs in
 #          place, the new role file is then watched.
 #   T-M9 — role REMOVED mid-session: removal line emitted, its baseline
 #          dropped, its edits go silent, the remaining role still fires.
-#   T-M10 — mid-session edit to an unusable `roles:` (singular `role:`):
+#   T-M10 — mid-session edit to a malformed `roles:` (names no valid slug):
 #          no re-exec, stderr diagnostic, the old set is still watched.
+#   T-M11 — last role REMOVED mid-session (`roles: []`): removal line
+#          emitted, watcher re-execs and keeps running with no role targets,
+#          identity-file edits still fire.
+#   T-M12 — first role ADDED to a `roles: []` identity: pointer line, the
+#          new role file is then watched.
 #
 # Exits 0 on all-pass; 1 on any failure with a diagnostic naming the failing
 # test.
@@ -435,29 +442,43 @@ test_T_M6_bare_comma_both_watched() {
 }
 
 # ============================================================
-# T-M7: singular `role:` is no longer read — watcher refuses to start.
+# T-M7: no `roles:` key (the singular `role:` is not read) → zero roles:
+# watcher keeps running on the identity file, id skill and project file.
 # ============================================================
-test_T_M7_singular_role_rejected() {
+test_T_M7_no_roles_key_keeps_running() {
   local name="singname"
-  seed_multi_role_fixture "$name" "role: singrole" singrole
+  seed_multi_role_fixture "$name" "role: singrole
+project: solo" singrole
+  mkdir -p "$HOME_DIR/fleet/projects/solo" "$HOME_DIR/.claude/skills/id"
+  printf -- '---\ndisplayName: solo\n---\n\nproject body\n' > "$HOME_DIR/fleet/projects/solo/project.md"
+  printf '# id skill\n' > "$HOME_DIR/.claude/skills/id/SKILL.md"
+  local bdir="$IDENT_DIR/file-watch"
   launch_watcher "$HOME_DIR" "$IDENT_DIR"
-  local elapsed=0
-  while kill -0 "$WATCHER_PID" 2>/dev/null && [ "$elapsed" -lt 50 ]; do
-    sleep 0.1; elapsed=$((elapsed + 1))
+  local b
+  for b in identity id-skill project.solo; do
+    if ! wait_for_baseline "$bdir/last-snapshot.$b"; then
+      fail "T-M7: $b baseline never landed (err=$(cat "$ERR_LOG"))"; return
+    fi
   done
-  if kill -0 "$WATCHER_PID" 2>/dev/null; then
-    fail "T-M7: watcher still running with only a singular role: key"; return
+  sleep 1
+  if ! kill -0 "$WATCHER_PID" 2>/dev/null; then
+    fail "T-M7: watcher exited with zero roles (err=$(cat "$ERR_LOG"))"; return
   fi
-  local rc=0
-  wait "$WATCHER_PID" || rc=$?
-  if [ "$rc" -eq 0 ]; then
-    fail "T-M7: watcher exited 0; expected non-zero"; return
-  fi
-  if ! grep -q 'no `roles:` key found' "$ERR_LOG"; then
-    fail "T-M7: missing stderr diagnostic; err=$(cat "$ERR_LOG")"; return
-  fi
-  if [ -f "$IDENT_DIR/file-watch/last-snapshot.role.singrole" ]; then
+  if [ -f "$bdir/last-snapshot.role.singrole" ]; then
     fail "T-M7: singrole baseline written from a singular role: key"; return
+  fi
+  if [ -s "$ERR_LOG" ]; then
+    fail "T-M7: stderr not empty with zero roles; err=$(cat "$ERR_LOG")"; return
+  fi
+  atomic_write "$HOME_DIR/fleet/projects/solo/project.md" "$(printf -- '---\ndisplayName: solo\n---\n\nproject body edited\n')
+"
+  if ! wait_for_stdout_match '📝 \[project-file: solo\] .*project body edited' "$OUT_LOG"; then
+    fail "T-M7: project edit not emitted; out=$(cat "$OUT_LOG"); err=$(cat "$ERR_LOG")"; return
+  fi
+  atomic_write "$HOME_DIR/.claude/skills/id/SKILL.md" "# id skill (edited)
+"
+  if ! wait_for_stdout_match 'id skill \(edited\)' "$OUT_LOG"; then
+    fail "T-M7: id skill edit not emitted; out=$(cat "$OUT_LOG"); err=$(cat "$ERR_LOG")"; return
   fi
 }
 
@@ -548,7 +569,7 @@ test_T_M9_role_removed_mid_session() {
 }
 
 # ============================================================
-# T-M10: mid-session edit to an unusable roles list → no re-exec,
+# T-M10: mid-session edit to a malformed roles list → no re-exec,
 # stderr diagnostic, old set still watched.
 # ============================================================
 test_T_M10_invalid_roles_edit_keeps_old_set() {
@@ -561,7 +582,7 @@ test_T_M10_invalid_roles_edit_keeps_old_set() {
   fi
   wait_for_baseline "$bdir/last-snapshot.identity" || true
   sleep 1
-  write_identity_fm "role: badkeep"
+  write_identity_fm "roles: [Bad Name]"
   local elapsed=0
   while ! grep -q 'identity roles unusable' "$ERR_LOG" 2>/dev/null && [ "$elapsed" -lt 50 ]; do
     sleep 0.1; elapsed=$((elapsed + 1))
@@ -570,10 +591,10 @@ test_T_M10_invalid_roles_edit_keeps_old_set() {
     fail "T-M10: no stderr diagnostic; err=$(cat "$ERR_LOG")"; return
   fi
   if grep -q 'reloading in place' "$ERR_LOG"; then
-    fail "T-M10: watcher re-execed on an unusable roles list; err=$(cat "$ERR_LOG")"; return
+    fail "T-M10: watcher re-execed on a malformed roles list; err=$(cat "$ERR_LOG")"; return
   fi
   if grep -q 'no longer hold role' "$OUT_LOG"; then
-    fail "T-M10: removal line emitted for an unusable roles list"; return
+    fail "T-M10: removal line emitted for a malformed roles list"; return
   fi
   if ! kill -0 "$WATCHER_PID" 2>/dev/null; then
     fail "T-M10: watcher died (err=$(cat "$ERR_LOG"))"; return
@@ -585,6 +606,83 @@ test_T_M10_invalid_roles_edit_keeps_old_set() {
   fi
 }
 
+# ============================================================
+# T-M11: last role removed mid-session → removal line, re-exec, watcher
+# keeps running with no role targets.
+# ============================================================
+test_T_M11_last_role_removed() {
+  local name="lastname"
+  seed_multi_role_fixture "$name" "roles: [lastrole]" lastrole
+  local bdir="$IDENT_DIR/file-watch"
+  launch_watcher "$HOME_DIR" "$IDENT_DIR"
+  if ! wait_for_baseline "$bdir/last-snapshot.role.lastrole"; then
+    fail "T-M11: lastrole baseline never landed (err=$(cat "$ERR_LOG"))"; return
+  fi
+  wait_for_baseline "$bdir/last-snapshot.identity" || true
+  sleep 1
+  write_identity_fm "roles: []"
+  if ! wait_for_stdout_match '📝 \[role-file: lastrole\] you no longer hold role lastrole' "$OUT_LOG"; then
+    fail "T-M11: no removal line; out=$(cat "$OUT_LOG"); err=$(cat "$ERR_LOG")"; return
+  fi
+  local elapsed=0
+  while [ -f "$bdir/last-snapshot.role.lastrole" ] && [ "$elapsed" -lt 50 ]; do
+    sleep 0.1; elapsed=$((elapsed + 1))
+  done
+  if [ -f "$bdir/last-snapshot.role.lastrole" ]; then
+    fail "T-M11: lastrole baseline not removed"; return
+  fi
+  sleep 1.5
+  if ! kill -0 "$WATCHER_PID" 2>/dev/null; then
+    fail "T-M11: watcher died after dropping to zero roles (err=$(cat "$ERR_LOG"))"; return
+  fi
+  if grep -q 'unusable' "$ERR_LOG"; then
+    fail "T-M11: zero roles reported as unusable; err=$(cat "$ERR_LOG")"; return
+  fi
+  atomic_write "$ROLE_MD_1" "# lastrole (edited after removal)
+"
+  write_identity_fm "roles: []
+task: still watched"
+  if ! wait_for_stdout_match '📝 \[identity-file: lastname\] .*still watched' "$OUT_LOG"; then
+    fail "T-M11: identity edit not emitted with zero roles; out=$(cat "$OUT_LOG"); err=$(cat "$ERR_LOG")"; return
+  fi
+  if grep -q 'lastrole (edited after removal)' "$OUT_LOG"; then
+    fail "T-M11: removed role's edit still emitted; out=$(cat "$OUT_LOG")"; return
+  fi
+}
+
+# ============================================================
+# T-M12: first role added to a roleless identity → pointer, then watched.
+# ============================================================
+test_T_M12_first_role_added() {
+  local name="firstname"
+  seed_multi_role_fixture "$name" "roles: []" firstrole
+  local bdir="$IDENT_DIR/file-watch"
+  launch_watcher "$HOME_DIR" "$IDENT_DIR"
+  if ! wait_for_baseline "$bdir/last-snapshot.identity"; then
+    fail "T-M12: identity baseline never landed (err=$(cat "$ERR_LOG"))"; return
+  fi
+  sleep 1
+  if ! kill -0 "$WATCHER_PID" 2>/dev/null; then
+    fail "T-M12: watcher exited with roles: [] (err=$(cat "$ERR_LOG"))"; return
+  fi
+  if [ -f "$bdir/last-snapshot.role.firstrole" ]; then
+    fail "T-M12: firstrole watched before it was added"; return
+  fi
+  write_identity_fm "roles: [firstrole]"
+  if ! wait_for_stdout_match "📝 \[role-file: firstrole\] you now hold role firstrole — Read $ROLE_MD_1" "$OUT_LOG"; then
+    fail "T-M12: no add pointer; out=$(cat "$OUT_LOG"); err=$(cat "$ERR_LOG")"; return
+  fi
+  if ! wait_for_baseline "$bdir/last-snapshot.role.firstrole"; then
+    fail "T-M12: firstrole baseline never landed after add (err=$(cat "$ERR_LOG"))"; return
+  fi
+  sleep 1
+  atomic_write "$ROLE_MD_1" "# firstrole (edited after add)
+"
+  if ! wait_for_stdout_match '📝 \[role-file: firstrole\] your role file changed — .*edited after add' "$OUT_LOG"; then
+    fail "T-M12: firstrole edit not emitted after add; out=$(cat "$OUT_LOG"); err=$(cat "$ERR_LOG")"; return
+  fi
+}
+
 # ---- run ----
 
 run_test test_T_M1_flow_list_both_watched
@@ -593,10 +691,12 @@ run_test test_T_M3_missing_role_skipped
 run_test test_T_M4_legacy_baseline_migration
 run_test test_T_M5_runbook_slug_per_role
 run_test test_T_M6_bare_comma_both_watched
-run_test test_T_M7_singular_role_rejected
+run_test test_T_M7_no_roles_key_keeps_running
 run_test test_T_M8_role_added_mid_session
 run_test test_T_M9_role_removed_mid_session
 run_test test_T_M10_invalid_roles_edit_keeps_old_set
+run_test test_T_M11_last_role_removed
+run_test test_T_M12_first_role_added
 
 # ---- summary ----
 

@@ -25,7 +25,8 @@ import { databaseLogger, sshLogger } from "../../utils/logger.js";
 // BirthOptions.creatorUsername so buildIdentityFileBody emits the users:
 // pair. On single-user hosts both lookups are skipped and creatorUsername
 // stays undefined — the identity file carries no users: key (absent-⇒-omit
-// fallback per D-3; shape §"invisible in majority case").
+// fallback per D-3; shape §"invisible in majority case"). Roleless births
+// are the exception: always tagged with the creator, fail-closed.
 //
 // Write-side fail-open EXCEPTION per PATTERNS.md § "Read-path fail-open,
 // write-path fail-closed": if getUsernameForUserId returns null on a
@@ -385,18 +386,25 @@ router.post(
       return;
     }
 
-    // Phase 22 SRIC-02: role is REQUIRED and must be kebab-case-lowercase.
-    // Defense in depth — the orchestrator re-validates before shell interpolation.
-    if (typeof role !== "string" || !ROLE_NAME_PATTERN.test(role.trim())) {
+    // Roles are optional: absent / null / blank `role` with no `roles` is a
+    // roleless birth (`roles: []`). Any role that IS given must be
+    // kebab-case-lowercase. Defense in depth — the orchestrator re-validates
+    // before shell interpolation.
+    const roleGiven =
+      role !== undefined && role !== null && !(typeof role === "string" && !role.trim());
+    if (roleGiven && (typeof role !== "string" || !ROLE_NAME_PATTERN.test(role.trim()))) {
       res.status(400).json({
-        error: "role is required and must be kebab-case-lowercase",
+        error: "role must be kebab-case-lowercase",
       });
       return;
     }
 
     // Multi-role: optional `roles` array of ADDITIONAL roles beyond the
     // first `role`. Same kebab-case gate as `role`; duplicates (and a
-    // repeat of `role`) collapse silently.
+    // repeat of `role`) collapse silently. With no `role`, the first of
+    // `roles` takes its place.
+    let firstRole: string | undefined =
+      roleGiven ? (role as string).trim() : undefined;
     let extraRoles: string[] = [];
     if (roles !== undefined && roles !== null) {
       if (
@@ -411,11 +419,14 @@ router.post(
         });
         return;
       }
-      const first = role.trim();
       extraRoles = Array.from(
         new Set((roles as string[]).map((r) => r.trim())),
-      ).filter((r) => r !== first);
+      ).filter((r) => r !== firstRole);
+      if (firstRole === undefined && extraRoles.length > 0) {
+        firstRole = extraRoles.shift();
+      }
     }
+    const isRoleless = firstRole === undefined;
 
     // colorHue and voice are optional (nullable)
     if (colorHue !== null && colorHue !== undefined && typeof colorHue !== "number") {
@@ -471,7 +482,11 @@ router.post(
     // rethrow mid-birth (Step 6 failure) on malformed segments — leaving a
     // partial state (identity folder on disk, no relay account). Reject at
     // the HTTP door instead of falling into the orchestrator's throw-path.
-    if (poolPicked === true && !ROLE_NAME_RE.test(role.trim())) {
+    if (
+      poolPicked === true &&
+      firstRole !== undefined &&
+      !ROLE_NAME_RE.test(firstRole)
+    ) {
       res.status(400).json({
         error:
           "role must be kebab-case-lowercase with no leading digit per segment when poolPicked=true",
@@ -570,6 +585,34 @@ router.post(
           throw err;
         }
       }
+    }
+
+    // -----------------------------------------------------------------------
+    // Roleless births are visible only to their creator, on every host —
+    // single-user or not. Resolve the creator's username BEFORE opening SSE
+    // and fail closed: a roleless agent with no `users:` key would be
+    // visible to everyone on the host.
+    // -----------------------------------------------------------------------
+    let rolelessCreator: string | undefined = undefined;
+    if (isRoleless) {
+      const resolved = await getUsernameForUserId(userId).catch(() => null);
+      if (!resolved) {
+        sshLogger.warn(
+          "identity-birth: roleless birth refused — creator username lookup failed",
+          {
+            operation: "identity_birth_roleless_username_lookup_failed",
+            userId,
+            hostId,
+            name: name.trim(),
+          },
+        );
+        res.status(500).json({
+          error:
+            "Could not record you as this agent's owner, so it was not created. Try again.",
+        });
+        return;
+      }
+      rolelessCreator = resolved;
     }
 
     // -----------------------------------------------------------------------
@@ -729,6 +772,9 @@ router.post(
     };
 
     // -----------------------------------------------------------------------
+    // Roleless births already resolved their creator above (always tagged,
+    // fail-closed) and skip the multi-user probe.
+    //
     // Phase 129 Plan 07 D-4 auto-tag: check if the target host is multi-user;
     // if so, resolve the caller's Skynet username so the orchestrator can
     // auto-tag the new identity file's frontmatter with `users: [creator]`.
@@ -757,20 +803,29 @@ router.post(
     // shape from Plan 129-06 so ops has a single grep target for D-4
     // auto-tag decisions across both endpoints.
     // -----------------------------------------------------------------------
-    let creatorUsername: string | undefined = undefined;
+    let creatorUsername: string | undefined = rolelessCreator;
     let isMultiUser = false;
-    try {
-      isMultiUser = await isHostMultiUser(hostId);
-    } catch (err) {
-      sshLogger.warn(
-        "Phase 129: identity-birth isHostMultiUser threw — treating as single-user (fail-open)",
-        {
-          operation: "identity_birth_multi_user_probe_failed",
-          userId,
-          hostId,
-          error: err instanceof Error ? err.message : String(err),
-        },
-      );
+    if (rolelessCreator !== undefined) {
+      sshLogger.info("identity-birth: roleless birth tagged with creator", {
+        operation: "identity_birth_roleless_auto_tagged",
+        name: name.trim(),
+        hostId,
+        creatorUsername,
+      });
+    } else {
+      try {
+        isMultiUser = await isHostMultiUser(hostId);
+      } catch (err) {
+        sshLogger.warn(
+          "Phase 129: identity-birth isHostMultiUser threw — treating as single-user (fail-open)",
+          {
+            operation: "identity_birth_multi_user_probe_failed",
+            userId,
+            hostId,
+            error: err instanceof Error ? err.message : String(err),
+          },
+        );
+      }
     }
     if (isMultiUser) {
       const resolved = await getUsernameForUserId(userId);
@@ -815,7 +870,7 @@ router.post(
           path: parsedPath,
           colorHue: parsedColorHue,
           voice: parsedVoice,
-          role: role.trim(),
+          role: firstRole,
           extraRoles,
           // Phase 80 Plan 80-03: thread task through opts. ?? undefined so
           // parsedTask=null → orchestrator sees undefined (omit-empty matches
@@ -832,9 +887,10 @@ router.post(
           // browser navigation / tab close instead of pinning an SSH conn.
           abortSignal: abortController.signal,
           // Phase 129 Plan 07 D-4 auto-tag: resolved above from
-          // isHostMultiUser + getUsernameForUserId. undefined on single-user
-          // hosts OR on lookup failure — orchestrator's buildIdentityFileBody
-          // omits the users: key in either case (absent-⇒-omit fallback).
+          // isHostMultiUser + getUsernameForUserId (always set for a roleless
+          // birth). undefined on single-user hosts OR on lookup failure —
+          // orchestrator's buildIdentityFileBody omits the users: key in
+          // either case (absent-⇒-omit fallback).
           creatorUsername,
         },
         emit,

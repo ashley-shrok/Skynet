@@ -395,6 +395,22 @@ describe("buildIdentityFileBody — multi-role", () => {
   });
 });
 
+describe("buildIdentityFileBody — roleless", () => {
+  it("no role → `roles: []` as the first frontmatter line", () => {
+    const body = buildIdentityFileBody(makeOpts({ role: undefined }), "Duet", "");
+    expect(body).toMatch(/^---\nroles: \[\]\n/);
+    expect(extractFrontmatter(body).roles).toEqual([]);
+  });
+
+  it("no role + creatorUsername → `users: [creator]`", () => {
+    const fm = extractFrontmatter(
+      buildIdentityFileBody(makeOpts({ role: undefined, creatorUsername: "ashley" }), "Duet", ""),
+    );
+    expect(fm.roles).toEqual([]);
+    expect(fm.users).toEqual(["ashley"]);
+  });
+});
+
 it("project set → `project:` key emitted after task; absent → omitted", () => {
   const withProject = extractFrontmatter(
     buildIdentityFileBody(

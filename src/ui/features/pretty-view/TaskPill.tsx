@@ -25,7 +25,13 @@ import { useProjects } from "@/state/conversation-store";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { useTrappedWork } from "@/state/trapped-work-store";
 import { useSessionDesktopRunning } from "@/api/fleet-status-client";
-import { identityRolesLabel } from "@/lib/identity-roles";
+import {
+  hasNeutralLook,
+  identityRolesLabel,
+  identityTint,
+  NEUTRAL_HUE,
+} from "@/lib/identity-roles";
+import { AvatarImage } from "@/components/avatar-image";
 import { writeBadgeDragData, type BadgeDragSource } from "@/shell/badge-drag";
 import {
   RowKebabMenu,
@@ -76,7 +82,9 @@ export function TaskPill({
 
   if (!identity) return null;
 
-  const hue = identity.colorHue ?? 35;
+  // An identity with no roles and no colorHue paints in the neutral grey.
+  const neutralLook = hasNeutralLook(identity);
+  const tint = identityTint(identity.colorHue ?? (neutralLook ? NEUTRAL_HUE : 35), neutralLook);
   const label = identity.task || identity.displayName || identity.identityKey;
   const roles = identityRolesLabel(identity);
   const projectName = identity.project
@@ -133,9 +141,9 @@ export function TaskPill({
           // No backdrop-filter: the pill floats over the scrolling chat, so a
           // blur is re-sampled every scroll frame (iPhone jank). Denser fill.
           // The breathe is the class's ::after overlay (opacity-only).
-          background: `linear-gradient(160deg, hsla(${hue}, 45%, 25%, 0.88), hsla(${hue}, 40%, 15%, 0.94))`,
-          border: `1px solid hsla(${hue}, 65%, 55%, 0.4)`,
-          boxShadow: `0 4px 12px rgba(0,0,0,0.4), inset 0 1px 0 rgba(255,220,170,0.14), 0 0 24px hsla(${hue}, 65%, 55%, 0.24)`,
+          background: `linear-gradient(160deg, ${tint(45, 25, 0.88)}, ${tint(40, 15, 0.94)})`,
+          border: `1px solid ${tint(65, 55, 0.4)}`,
+          boxShadow: `0 4px 12px rgba(0,0,0,0.4), inset 0 1px 0 rgba(255,220,170,0.14), 0 0 24px ${tint(65, 55, 0.24)}`,
           color: "#e8e4d8",
         }}
       >
@@ -148,33 +156,25 @@ export function TaskPill({
           data-testid="pv-task-pill-open"
           className="flex flex-row items-center gap-2 min-w-0 text-left cursor-pointer rounded-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/50"
         >
-          {identity.avatarUrl ? (
-            <img
-              src={identity.avatarUrl}
-              alt=""
-              draggable={false}
-              className="shrink-0 object-cover"
-              style={{
-                width: 26,
-                height: 26,
-                borderRadius: "50%",
-                boxShadow: `0 2px 6px rgba(0,0,0,0.5), 0 0 12px hsla(${hue}, 65%, 55%, 0.4)`,
-              }}
-            />
-          ) : (
-            <span
-              className="shrink-0 inline-flex items-center justify-center font-semibold"
-              style={{
-                width: 26,
-                height: 26,
-                borderRadius: "50%",
-                fontSize: 12,
-                background: `hsla(${hue}, 45%, 35%, 0.9)`,
-              }}
-            >
-              {(identity.displayName ?? "?").charAt(0).toUpperCase()}
-            </span>
-          )}
+          <AvatarImage
+            src={identity.avatarUrl}
+            name={identity.displayName}
+            className="shrink-0 object-cover"
+            style={{
+              width: 26,
+              height: 26,
+              borderRadius: "50%",
+              boxShadow: `0 2px 6px rgba(0,0,0,0.5), 0 0 12px ${tint(65, 55, 0.4)}`,
+            }}
+            initialClassName="shrink-0 inline-flex items-center justify-center font-semibold"
+            initialStyle={{
+              width: 26,
+              height: 26,
+              borderRadius: "50%",
+              fontSize: 12,
+              background: tint(45, 35, 0.9),
+            }}
+          />
           <span
             data-testid="pv-task-pill-label"
             className="truncate min-w-0"

@@ -1122,7 +1122,9 @@ router.get(
  * Read an identity's avatar from its home box: its own sibling file, else its
  * role's avatar (Phase 85 Plan 85-01 role-folder fallback), else — for a
  * multi-role identity — a split avatar composed from every role's avatar.
- * Returns normalized bytes, or null when nothing applies. SSH errors throw.
+ * Returns normalized bytes, or null when nothing applies (e.g. a roleless
+ * identity with no avatar of its own — a plain 404; the frontend draws an
+ * initial). SSH errors throw.
  */
 async function loadAvatarFromDisk(
   hostId: number,

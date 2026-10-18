@@ -415,13 +415,18 @@ describe("resolveRolesForIdentity", () => {
     ]);
   });
 
-  it("throws when the identity has no roles", async () => {
+  it("returns [] for a roleless identity (no roles: key)", async () => {
     (execCommand as unknown as ReturnType<typeof vi.fn>).mockResolvedValueOnce(
       "---\ntitle: x\n---\n",
     );
-    await expect(resolveRolesForIdentity({} as SSHClientType, "tina")).rejects.toThrow(
-      /no roles/,
+    await expect(resolveRolesForIdentity({} as SSHClientType, "tina")).resolves.toEqual([]);
+  });
+
+  it("returns [] for an explicit `roles: []`", async () => {
+    (execCommand as unknown as ReturnType<typeof vi.fn>).mockResolvedValueOnce(
+      "---\nroles: []\ndisplayName: Duet\n---\n",
     );
+    await expect(resolveRolesForIdentity({} as SSHClientType, "duet")).resolves.toEqual([]);
   });
 });
 

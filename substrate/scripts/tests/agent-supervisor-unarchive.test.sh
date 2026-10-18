@@ -166,6 +166,7 @@ teardown_unarchive_scratch() {
 #     block:name1,name2,...      → `roles:\n  - name1\n  - name2`
 #     legacy:<name>              → `role: <name>` (retired singular key; must be ignored)
 #     none                       → no roles: line at all
+#     empty                      → `roles: []`
 #     malformed                  → no frontmatter fences
 fixture_archived_identity() {
   local scratch="$1" name="$2" role_spec="$3"
@@ -188,6 +189,9 @@ fixture_archived_identity() {
       ;;
     none)
       printf -- '---\ndisplayName: test\n---\nbody\n' > "$ident_file"
+      ;;
+    empty)
+      printf -- '---\nroles: []\ndisplayName: test\n---\nbody\n' > "$ident_file"
       ;;
     legacy:*)
       # Retired singular key — must NOT be read by any parser.
@@ -505,21 +509,31 @@ test_identity_role_missing_scalar_refuses() {
   teardown_unarchive_scratch "$scratch"
 }
 
-test_identity_no_roles_refuses() {
+# _assert_roleless_unarchives <role_spec> — an identity with no roles has
+# nothing to check in pre-flight 2 and un-archives like any other.
+_assert_roleless_unarchives() {
+  local spec="$1"
   local scratch; scratch=$(setup_unarchive_scratch)
-  # Only the retired singular key — parses to no roles at all.
-  fixture_archived_identity "$scratch" zeta "legacy:researcher"
-  mkdir -p "$scratch/../roles/researcher" 2>/dev/null || true
+  fixture_archived_identity "$scratch" zeta "$spec"
+  start_stub_admin "200" || { teardown_unarchive_scratch "$scratch"; return; }
+  sed -i "s|STUB_PORT|$STUB_PORT|" "${scratch}-archive/zeta/relay.json"
 
   local out
   out=$( _source_supervisor_unarchive "$scratch"
          scan_identity_unarchive_requested_sentinels 2>&1 ) || true
+  stop_stub_admin
 
-  assert_nofile "$scratch/zeta"                                "no-roles: no folder moved"
-  assert_file   "${scratch}-archive/zeta"                      "no-roles: archive folder retained"
-  assert_nofile "${scratch}-archive/zeta/.unarchive-requested" "no-roles: sentinel deleted per REFUSE discipline"
-  assert_grep "REFUSED: no roles" "$out" "no-roles: LOUD refuse log"
+  assert_file   "$scratch/zeta"                       "no-roles ($spec): live folder present after mv"
+  assert_nofile "${scratch}-archive/zeta"             "no-roles ($spec): archive folder gone after mv"
+  assert_nofile "$scratch/zeta/.unarchive-requested"  "no-roles ($spec): un-archive sentinel deleted"
+  assert_nogrep "REFUSED" "$out"                      "no-roles ($spec): not refused"
+  assert_grep "un-archive COMPLETE" "$out"            "no-roles ($spec): completion log present"
   teardown_unarchive_scratch "$scratch"
+}
+
+test_identity_no_roles_unarchives() {
+  _assert_roleless_unarchives "empty"
+  _assert_roleless_unarchives "none"
 }
 
 test_identity_role_missing_multi_names_only_missing() {
@@ -1066,7 +1080,7 @@ run_test test_identity_happy_path_flow_list_all_live
 run_test test_identity_happy_path_block_list_all_live
 run_test test_identity_no_dormancy_preserved
 run_test test_identity_role_missing_scalar_refuses
-run_test test_identity_no_roles_refuses
+run_test test_identity_no_roles_unarchives
 run_test test_identity_role_missing_multi_names_only_missing
 run_test test_identity_name_collision_refuses
 run_test test_identity_whoami_401_refuses_sentinel_retained

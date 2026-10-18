@@ -81,6 +81,7 @@ import {
   roleOptionValues,
   toggleRole,
   closeRoleDropdown,
+  NO_ROLES_VALUE,
 } from "./NewSessionDialog.roles-test-helpers";
 import type { Host, HostFolder } from "@/types/ui-types";
 
@@ -168,11 +169,12 @@ function renderDialog(overrides: {
   return { ...result, onCreate, onClose };
 }
 
-// Ensure `slug` is checked in the Roles group. A single-role host auto-selects
-// its role, and clicking an already-checked box would UNcheck it, so only
-// click when it is not already picked.
+// Ensure `slug` is checked in the Roles group (clicking an already-checked
+// option would UNcheck it, so only click when it is not already picked), and
+// leave the dropdown closed so the dialog's buttons stay queryable.
 function ensureRolePicked(slug: string) {
   if (!pickedRoleValues().includes(slug)) toggleRole(slug);
+  closeRoleDropdown();
 }
 
 // Helper that fills in a full identity form ready to submit, given a
@@ -185,7 +187,7 @@ async function fillFormForSubmit(opts: {
   const { name = "alicia", editNameAfterPrefill, waitForPrefill } = opts;
   // Wait for the roles group to appear
   await waitFor(() => expect(queryRolesGroup()).toBeTruthy());
-  // Pick a role (no-op if sole-role auto-select already picked it)
+  // Pick a role
   ensureRolePicked("box-maintainer");
   // 2026-09-27: the manual name input is hidden by default now (auto-generate
   // mode is default). Every helper caller here needs to either observe the
@@ -358,9 +360,6 @@ describe("NewSessionDialog task input: pickPoolName auto-prefill", () => {
     //
     // Signature is (hostId, role?) with hostId leading, since it is the only
     // required argument now.
-    //
-    // Two roles, so sole-role auto-select does not pick one for us and the
-    // role pick below is a genuine user change.
     mockListRolesForHost.mockResolvedValue([
       { name: "box-maintainer", description: "" },
       { name: "tina", description: "" },
@@ -531,9 +530,7 @@ describe("NewSessionDialog task input: pickPoolName auto-prefill", () => {
     // anything to do with name availability — it was only there to compose the
     // MXID the old probe checked. With availability answered by the host, the
     // suggestion lands as soon as a host is known.
-    //
-    // Multi-role host so sole-role auto-select does NOT fire and selectedRole
-    // genuinely stays empty — otherwise this would pass for the wrong reason.
+
     mockListRolesForHost.mockResolvedValue([
       { name: "box-maintainer", description: "" },
       { name: "general-assistant", description: "" },
@@ -548,8 +545,9 @@ describe("NewSessionDialog task input: pickPoolName auto-prefill", () => {
       expect(nameInput.value).toBe("willow");
     });
 
-    // Role is still unpicked, and the call carried role === undefined.
-    expect(pickedRoleValues()).toEqual([]);
+    // No role picked ("No roles" is the one-host default), and the call
+    // carried role === undefined.
+    expect(pickedRoleValues()).toEqual([NO_ROLES_VALUE]);
     const [hostId, role] = mockPickPoolName.mock.calls[0] as [
       number,
       string | undefined,

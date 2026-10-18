@@ -48,7 +48,7 @@
 //   Tests 3, 4: the host list render/filter now run in shell mode.
 //   Tests F-K, R, V, 106A-E, Phase 88 T3/T4: "click host alpha" became
 //     "pick box-maintainer from alpha" (pickRoleFromAlpha below). The mock
-//     answers one role per host, so with three hosts nothing auto-selects.
+//     answers one role per host; with three hosts nothing is preselected.
 //
 // PRESERVED (non-cosmetic identity-mode surface):
 //   Tests A-D — path field + identity-mode checkbox.
@@ -84,8 +84,8 @@ const mockGetIdentityExistsOnHost = vi.fn().mockResolvedValue(false);
 const mockOpenBirthStream = vi.fn();
 // Phase 22 SRIC-02: listRolesForHost is called for every pickable host when
 // the dialog opens in agent mode. Default to a single role per host — on the
-// one-host tree sole-role auto-select picks it; on the three-host tree there
-// are three copies, so tests pick alpha's (pickRoleFromAlpha). Shell-mode
+// three-host tree there are three copies, so tests pick alpha's
+// (pickRoleFromAlpha). Shell-mode
 // tests are unaffected because the fetch is skipped there.
 const mockListRolesForHost = vi.fn().mockResolvedValue([
   { name: "box-maintainer", description: "" },

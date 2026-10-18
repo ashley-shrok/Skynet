@@ -302,7 +302,7 @@ function httpPost(
   });
 }
 
-// Valid request body — Phase 22 SRIC-02 adds required `role` field.
+// Valid request body — carries a `role`; roleless births omit it.
 // Phase 98 Plan 07: `voice` swapped from the legacy Chatterbox filename shape
 // to a valid Polly generative voice ID ("Joanna") so the tightened whitelist
 // validator in identity-birth.ts accepts it.
@@ -830,16 +830,42 @@ it("Test 5b: deps.relayJsonHomeserverBase falls back to homeserverBase when host
 // Test 18: Phase 22 SRIC-02 — missing role → 400, orchestrator not called
 // ---------------------------------------------------------------------------
 
-it("Test 18: missing role field → 400, orchestrator not called", async () => {
-  const invalidBody = { ...VALID_BODY };
-  delete (invalidBody as Partial<typeof VALID_BODY>).role;
+it("Test 18: missing role field → roleless birth (role undefined, no extras)", async () => {
+  mockGetUsernameForUserId.mockResolvedValue("ashley");
+  const body: Partial<typeof VALID_BODY> = { ...VALID_BODY };
+  delete body.role;
 
-  const result = await httpPost(port, "/identities/birth", invalidBody);
+  const result = await httpPost(port, "/identities/birth", body);
 
-  expect(result.status).toBe(400);
-  const parsed = JSON.parse(result.body);
-  expect(parsed.error).toMatch(/role/i);
-  expect(mockBirthIdentity).not.toHaveBeenCalled();
+  expect(result.status).toBe(200);
+  const o = mockBirthIdentity.mock.calls[0][0] as Record<string, unknown>;
+  expect(o.role).toBeUndefined();
+  expect(o.extraRoles).toEqual([]);
+});
+
+it("Test 18b: role null / blank → roleless birth", async () => {
+  mockGetUsernameForUserId.mockResolvedValue("ashley");
+  for (const role of [null, "  "]) {
+    mockBirthIdentity.mockClear();
+    const result = await httpPost(port, "/identities/birth", { ...VALID_BODY, role, roles: [] });
+    expect(result.status).toBe(200);
+    const o = mockBirthIdentity.mock.calls[0][0] as Record<string, unknown>;
+    expect(o.role).toBeUndefined();
+    expect(o.extraRoles).toEqual([]);
+  }
+});
+
+it("Test 18c: no role but roles[] given → first of roles[] becomes the primary", async () => {
+  const body: Partial<typeof VALID_BODY> & { roles: string[] } = {
+    ...VALID_BODY,
+    roles: ["sky-uat", "tina"],
+  };
+  delete body.role;
+  const result = await httpPost(port, "/identities/birth", body);
+  expect(result.status).toBe(200);
+  const o = mockBirthIdentity.mock.calls[0][0] as Record<string, unknown>;
+  expect(o.role).toBe("sky-uat");
+  expect(o.extraRoles).toEqual(["tina"]);
 });
 
 // ---------------------------------------------------------------------------
@@ -1657,8 +1683,7 @@ describe("Phase 129: auto-tag on multi-user hosts", () => {
   // isHostMultiUser from being called. This locks the ordering: validation
   // → auto-tag DB lookups → birthIdentity call.
   it("Test E: 400 validation fail short-circuits BEFORE isHostMultiUser is called", async () => {
-    const invalidBody = { ...VALID_BODY };
-    delete (invalidBody as Partial<typeof VALID_BODY>).role;
+    const invalidBody = { ...VALID_BODY, role: "Bad_Role" };
 
     const result = await httpPost(port, "/identities/birth", invalidBody);
 
@@ -1725,6 +1750,64 @@ describe("Phase 129: auto-tag on multi-user hosts", () => {
     expect(payload.name).toBe(VALID_BODY.name);
     expect(payload.hostId).toBe(VALID_BODY.hostId);
     expect(payload.creatorUsername).toBe("user");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Roleless births: always visible only to their creator, fail-closed
+// ---------------------------------------------------------------------------
+
+describe("roleless birth visibility", () => {
+  const rolelessBody = (): Record<string, unknown> => {
+    const b: Record<string, unknown> = { ...VALID_BODY, poolPicked: true };
+    delete b.role;
+    return b;
+  };
+
+  it("single-user host → creatorUsername still recorded, multi-user probe skipped", async () => {
+    mockIsHostMultiUser.mockResolvedValue(false);
+    mockGetUsernameForUserId.mockResolvedValue("ashley");
+
+    const result = await httpPost(port, "/identities/birth", rolelessBody());
+
+    expect(result.status).toBe(200);
+    expect(mockGetUsernameForUserId).toHaveBeenCalledWith("1");
+    expect(mockIsHostMultiUser).not.toHaveBeenCalled();
+    const o = mockBirthIdentity.mock.calls[0][0] as Record<string, unknown>;
+    expect(o.role).toBeUndefined();
+    expect(o.creatorUsername).toBe("ashley");
+    const infoCall = mockSshLoggerInfo.mock.calls.find(
+      (call: unknown[]) =>
+        (call[1] as Record<string, unknown> | undefined)?.operation ===
+        "identity_birth_roleless_auto_tagged",
+    );
+    expect(infoCall).toBeDefined();
+  });
+
+  it("username lookup fails → refused before SSE (JSON error), orchestrator not called", async () => {
+    mockGetUsernameForUserId.mockResolvedValue(null);
+
+    const result = await httpPost(port, "/identities/birth", rolelessBody());
+
+    expect(result.status).toBe(500);
+    expect(result.headers["content-type"] ?? "").toContain("application/json");
+    expect(JSON.parse(result.body).error).toMatch(/owner/i);
+    expect(mockBirthIdentity).not.toHaveBeenCalled();
+    const warnCall = mockSshLoggerWarn.mock.calls.find(
+      (call: unknown[]) =>
+        (call[1] as Record<string, unknown> | undefined)?.operation ===
+        "identity_birth_roleless_username_lookup_failed",
+    );
+    expect(warnCall).toBeDefined();
+  });
+
+  it("birth WITH a role on a single-user host is unchanged (no tag, no lookup)", async () => {
+    mockIsHostMultiUser.mockResolvedValue(false);
+    const result = await httpPost(port, "/identities/birth", VALID_BODY);
+    expect(result.status).toBe(200);
+    expect(mockGetUsernameForUserId).not.toHaveBeenCalled();
+    const o = mockBirthIdentity.mock.calls[0][0] as Record<string, unknown>;
+    expect(o.creatorUsername).toBeUndefined();
   });
 });
 

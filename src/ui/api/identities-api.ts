@@ -556,8 +556,9 @@ export interface BirthRequest {
    *  avatar-sibling write skipped when candidate is absent). */
   avatarCandidateId?: string;
   /** Phase 22 SRIC-02: kebab-case-lowercase role name from the target host.
-   *  The first of the agent's roles when `roles` is also sent. */
-  role: string;
+   *  The first of the agent's roles when `roles` is also sent. Omit (with
+   *  `roles`) for an agent with no roles. */
+  role?: string;
   /** Multi-role: additional roles beyond `role`, in pick order. Omit for a
    *  single-role agent. The identity file records `roles: [role, ...roles]`. */
   roles?: string[];

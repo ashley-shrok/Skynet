@@ -188,6 +188,7 @@ vi.mock("fs/promises", () => ({
 import { connectOneShot } from "../../ssh/ssh-one-shot.js";
 import { execCommand } from "../../ssh/tmux-helper.js";
 import { resolveHostById } from "../../ssh/host-resolver.js";
+import { parseRequestBody } from "../../spawn-requests/parse-request-body.js";
 import {
   writeMarkdownFileAtomic,
   isLocalHostId,
@@ -1171,9 +1172,25 @@ describe("POST /scheduled-agents/:slug/run-now", () => {
 describe("buildRunNowSpawnRequest (helper)", () => {
   const at = "2026-10-07T12:00:00Z";
 
-  it("rejects empty roles (parse-request-body would reject the request as malformed)", () => {
+  it("empty or absent roles → roleless request (`roles: []`), users still carried", () => {
+    const r = buildRunNowSpawnRequest({ ...validSpec, roles: [], users: ["zoey"] }, "x", at);
+    expect(r.ok).toBe(true);
+    if (r.ok) {
+      expect(r.body.roles).toEqual([]);
+      expect(r.body.users).toEqual(["zoey"]);
+    }
+    const { roles: _roles, ...noRoles } = validSpec;
+    const r2 = buildRunNowSpawnRequest(noRoles, "x", at);
+    expect(r2.ok).toBe(true);
+    if (r2.ok) expect(r2.body.roles).toEqual([]);
+  });
+
+  it("roleless Run-now body passes the spawn-request parser", () => {
     const r = buildRunNowSpawnRequest({ ...validSpec, roles: [] }, "x", at);
-    expect(r.ok).toBe(false);
+    expect(r.ok).toBe(true);
+    if (r.ok) {
+      expect(parseRequestBody("x", JSON.stringify(r.body)).ok).toBe(true);
+    }
   });
 
   it("rejects missing prompt", () => {

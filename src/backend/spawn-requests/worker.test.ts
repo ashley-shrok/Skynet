@@ -311,10 +311,21 @@ describe("spawn-request worker", () => {
       }
     });
 
-    it("Test 9: empty roles array rejected as malformed + message:/roles/i", () => {
+    it("Test 9: empty roles array accepted (roleless request)", () => {
       const result = parseRequestBody(
         "test-uuid",
         JSON.stringify({ roles: [], prompt: "do something", task: null, requested_at: "2026-09-10T00:00:00Z" }),
+      );
+      expect(result.ok).toBe(true);
+      if (result.ok) {
+        expect(result.body.roles).toEqual([]);
+      }
+    });
+
+    it("Test 9b: missing roles field rejected as malformed + message:/roles/i", () => {
+      const result = parseRequestBody(
+        "test-uuid",
+        JSON.stringify({ prompt: "do something", task: null, requested_at: "2026-09-10T00:00:00Z" }),
       );
       expect(result.ok).toBe(false);
       if (!result.ok) {
@@ -598,6 +609,90 @@ describe("spawn-request worker", () => {
 
       expect(capturedOpts).not.toBeNull();
       expect((capturedOpts as unknown as BirthOptions).users).toBeUndefined();
+    });
+
+    describe("roleless requests", () => {
+      const captureOpts = () => {
+        const captured: { opts: BirthOptions | null } = { opts: null };
+        const birthIdentity = vi.fn().mockImplementation(async (opts: BirthOptions, emit: (e: BirthEvent) => void) => {
+          captured.opts = opts;
+          emit({ type: "ended", ok: true, identityId: "willow", sessionName: "Willow" });
+        });
+        return { captured, birthIdentity };
+      };
+
+      it("Test 17r1: roles [] → BirthOptions has no role, still pool-picked", async () => {
+        const { captured, birthIdentity } = captureOpts();
+        const deps = buildTestDeps({ birthIdentity, readIdentityFile: vi.fn().mockResolvedValue({ markdown: "" }) });
+        await processBirth(makePendingBirth({ roles: [] }), deps);
+        expect(captured.opts?.role).toBeUndefined();
+        expect(captured.opts?.extraRoles).toEqual([]);
+        expect(captured.opts?.poolPicked).toBe(true);
+      });
+
+      it("Test 17r2: roleless + no users → copies the requester's identity users: list", async () => {
+        const { captured, birthIdentity } = captureOpts();
+        const readIdentityFile = vi.fn().mockResolvedValue({
+          markdown: "---\nroles: [coordinator]\nusers: [ashley, zoey]\n---\n\n# aster\n",
+        });
+        const deps = buildTestDeps({ birthIdentity, readIdentityFile });
+        await processBirth(makePendingBirth({ roles: [], requested_by: "aster-coordinator" }), deps);
+        expect(readIdentityFile).toHaveBeenCalledWith(expect.anything(), "aster-coordinator");
+        expect(captured.opts?.users).toEqual(["ashley", "zoey"]);
+      });
+
+      it("Test 17r3: roleless, requester has no users: list → left open", async () => {
+        const { captured, birthIdentity } = captureOpts();
+        const readIdentityFile = vi.fn().mockResolvedValue({ markdown: "---\nroles: [coordinator]\n---\n" });
+        const deps = buildTestDeps({ birthIdentity, readIdentityFile });
+        await processBirth(makePendingBirth({ roles: [], requested_by: "aster-coordinator" }), deps);
+        expect(captured.opts?.users).toBeUndefined();
+      });
+
+      it("Test 17r4: roleless, request names its own users → requester not read", async () => {
+        const { captured, birthIdentity } = captureOpts();
+        const readIdentityFile = vi.fn();
+        const deps = buildTestDeps({ birthIdentity, readIdentityFile });
+        await processBirth(makePendingBirth({ roles: [], users: ["zoey"], requested_by: "aster-coordinator" }), deps);
+        expect(readIdentityFile).not.toHaveBeenCalled();
+        expect(captured.opts?.users).toEqual(["zoey"]);
+      });
+
+      it("Test 17r5: roleless, no requested_by → left open, nothing read", async () => {
+        const { captured, birthIdentity } = captureOpts();
+        const readIdentityFile = vi.fn();
+        const deps = buildTestDeps({ birthIdentity, readIdentityFile });
+        await processBirth(makePendingBirth({ roles: [] }), deps);
+        expect(readIdentityFile).not.toHaveBeenCalled();
+        expect(captured.opts?.users).toBeUndefined();
+      });
+
+      it("Test 17r6: roleless, requested_by not an identity key → not read, left open", async () => {
+        const { captured, birthIdentity } = captureOpts();
+        const readIdentityFile = vi.fn();
+        const deps = buildTestDeps({ birthIdentity, readIdentityFile });
+        await processBirth(makePendingBirth({ roles: [], requested_by: "wakeup scheduler: daily" }), deps);
+        expect(readIdentityFile).not.toHaveBeenCalled();
+        expect(captured.opts?.users).toBeUndefined();
+      });
+
+      it("Test 17r7: requester read failure → birth proceeds, left open", async () => {
+        const { captured, birthIdentity } = captureOpts();
+        const readIdentityFile = vi.fn().mockRejectedValue(new Error("remote exec timeout"));
+        const deps = buildTestDeps({ birthIdentity, readIdentityFile });
+        await processBirth(makePendingBirth({ roles: [], requested_by: "aster-coordinator" }), deps);
+        expect(birthIdentity).toHaveBeenCalled();
+        expect(captured.opts?.users).toBeUndefined();
+      });
+
+      it("Test 17r8: a request WITH roles never reads the requester", async () => {
+        const { captured, birthIdentity } = captureOpts();
+        const readIdentityFile = vi.fn();
+        const deps = buildTestDeps({ birthIdentity, readIdentityFile });
+        await processBirth(makePendingBirth({ requested_by: "aster-coordinator" }), deps);
+        expect(readIdentityFile).not.toHaveBeenCalled();
+        expect(captured.opts?.users).toBeUndefined();
+      });
     });
 
     it("Test 17h: typed name → slug, bare-name MXID shape, no pool pick", async () => {

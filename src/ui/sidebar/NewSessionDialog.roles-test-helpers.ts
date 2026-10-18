@@ -17,6 +17,11 @@
 // ([data-testid="multi-select-group"]), and the pill carries the same
 // composite value. toggleRole(slug, hostId?) accepts the bare slug either
 // way; pickedRoleSlugs() strips the host prefix off the pills.
+//
+// Roles are optional: each host's entries start with a "No roles" option
+// whose data-value is NO_ROLES_VALUE (`${hostId}/${NO_ROLES_VALUE}` with
+// several hosts). roleOptionValues() leaves those out so it lists real roles
+// only; roleListRows() keeps them; toggleNoRoles(hostId?) clicks one.
 
 import { fireEvent, screen } from "@testing-library/react";
 
@@ -67,9 +72,28 @@ export function roleOptions(): HTMLButtonElement[] {
   return Array.from(list.querySelectorAll<HTMLButtonElement>('[role="option"]'));
 }
 
-/** Option data-values in list order (bare slugs single-host, `${hostId}/${slug}` multi-host). */
+/** The "No roles" option's data-value (bare, single-host). */
+export const NO_ROLES_VALUE = ":no-roles";
+
+const isNoRolesValue = (v: string) =>
+  v === NO_ROLES_VALUE || v.endsWith(`/${NO_ROLES_VALUE}`);
+
+/**
+ * Role option data-values in list order (bare slugs single-host,
+ * `${hostId}/${slug}` multi-host). "No roles" entries are left out.
+ */
 export function roleOptionValues(): string[] {
-  return roleOptions().map((o) => o.dataset.value ?? "");
+  return roleOptions()
+    .map((o) => o.dataset.value ?? "")
+    .filter((v) => !isNoRolesValue(v));
+}
+
+/** Toggle the "No roles" entry — the flat one, or `hostId`'s with several hosts. */
+export function toggleNoRoles(hostId?: string): void {
+  const want = hostId === undefined ? NO_ROLES_VALUE : `${hostId}/${NO_ROLES_VALUE}`;
+  const match = roleOptions().find((o) => o.dataset.value === want);
+  if (!match) throw new Error(`toggleNoRoles: no "${want}" option`);
+  fireEvent.click(match);
 }
 
 /** Picked option values, in pick order (read off the trigger's pills). */

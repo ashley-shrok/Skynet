@@ -4,7 +4,8 @@
 // NewSessionDialog that let a parent (PrettyConversationsPanel) chain in from
 // CreateRoleDialog with role + host pre-filled. Behavior spec:
 //   - Test 1: open with initialHost + initialRole + identity-mode ON → both pre-filled
-//   - Test 2: open with no props → existing behavior preserved (auto-select-single-host if 1 host, else null)
+//   - Test 2: open with no props → existing behavior preserved (auto-select-single-host if 1 host, else null);
+//              one host also preselects "No roles"
 //   - Test 3: initialHost only → host pre-filled, role empty (user must pick manually)
 //   - Test 4: initialRole only (no host) → role stays empty (can't seed without host —
 //              with no host step the role group still renders, unseeded);
@@ -25,7 +26,7 @@
 // not through an aria-selected host row (that list is shell-mode only now).
 //   Test 2b / 4a / 8: the roles group renders with no host picked (was:
 //     absent until a host was picked).
-//   Test 3c: new — a sole role on ANOTHER host wins over initialHost.
+//   Test 3b: a lone role anywhere is not auto-selected.
 //   Test 7: "change host" is now "pick a role from the other host".
 // Host ids are numeric strings so rolesByHost() can answer per host.
 //
@@ -112,6 +113,7 @@ import {
   toggleRole,
   closeRoleDropdown,
   rolesByHost,
+  NO_ROLES_VALUE,
 } from "./NewSessionDialog.roles-test-helpers";
 import type { Host, HostFolder } from "@/types/ui-types";
 
@@ -218,10 +220,7 @@ describe("NewSessionDialog chain: Test 1 — initialHost + initialRole pre-fill 
 // Test 2: no props → existing behavior preserved (regression gate)
 // ─────────────────────────────────────────────────────────────────────────────
 describe("NewSessionDialog chain: Test 2 — no props preserves existing behavior", () => {
-  it("Test 2a: open with 1-host tree + no props → auto-select-single-host (roles group appears with empty selection)", async () => {
-    // Two roles, overriding the one-role beforeEach default, so sole-role
-    // auto-select does not fill the selection — with no props nothing should
-    // be seeded, and that emptiness is what this test observes.
+  it("Test 2a: open with 1-host tree + no props → auto-select-single-host (roles group appears with \"No roles\" picked)", async () => {
     mockListRolesForHost.mockResolvedValue([
       { name: "box-maintainer", description: "" },
       { name: "tina", description: "" },
@@ -241,16 +240,15 @@ describe("NewSessionDialog chain: Test 2 — no props preserves existing behavio
         onNewRole={onNewRole}
       />,
     );
-    // Flat list (single host): bare role names, empty selection.
+    // Flat list (single host): bare role names; no role seeded, so the
+    // one-host default "No roles" is what's picked.
     await waitFor(() => expect(roleOptionValues()).toEqual(["box-maintainer", "tina"]));
     closeRoleDropdown();
-    expect(pickedRoleValues()).toEqual([]);
+    expect(pickedRoleValues()).toEqual([NO_ROLES_VALUE]);
     expect(selectedHostViaNewRole(onNewRole)?.id).toBe("1");
   });
 
   it("Test 2b: open with 2-host tree + no props → no host list, nothing picked; roles group lists both hosts' roles", async () => {
-    // Default mock: one role per host → two roles total, so sole-role
-    // auto-select stays out of it.
     const onNewRole = vi.fn();
     render(
       <NewSessionDialog
@@ -278,11 +276,6 @@ describe("NewSessionDialog chain: Test 2 — no props preserves existing behavio
 // ─────────────────────────────────────────────────────────────────────────────
 describe("NewSessionDialog chain: Test 3 — initialHost alone", () => {
   it("Test 3: initialHost=box-a, initialRole not provided → host pre-filled + role empty", async () => {
-    // 2026-09-14: TWO roles, overriding the one-role beforeEach default. This
-    // test proves that without initialRole nothing is SEEDED — but sole-role
-    // auto-select would legitimately fill a one-roles group, masking the
-    // very absence being asserted. Two roles keeps the empty state observable;
-    // Test 3b covers the one-role case on purpose.
     mockListRolesForHost.mockResolvedValue([
       { name: "box-maintainer", description: "" },
       { name: "general-assistant", description: "" },
@@ -307,11 +300,9 @@ describe("NewSessionDialog chain: Test 3 — initialHost alone", () => {
     expect(selectedHostViaNewRole(onNewRole)?.id).toBe("1");
   });
 
-  it("Test 3b: initialHost + a single available role → that role auto-selects", async () => {
-    // The complement of Test 3: no initialRole seed, but only one role exists
-    // (on the pre-filled host, across every host), so there is no decision left
-    // to make and the roles group resolves itself rather than gating Create
-    // behind a mandatory click.
+  it("Test 3b: initialHost + a single available role anywhere → nothing is auto-selected", async () => {
+    // A host's only role is not picked for the user: with several hosts
+    // nothing is preselected, "No roles" included.
     mockListRolesForHost.mockImplementation(rolesByHost({ 1: [role("box-maintainer")], 2: [] }));
     render(
       <NewSessionDialog
@@ -322,28 +313,9 @@ describe("NewSessionDialog chain: Test 3 — initialHost alone", () => {
         initialHost={hostA}
       />,
     );
-    await waitFor(() => {
-      expect(pickedRoleValues()).toEqual(["1/box-maintainer"]);
-    });
-  });
-
-  it("Test 3c: initialHost=box-a but the only role anywhere is on box-b → that role and box-b are selected", async () => {
-    // Sole-role auto-select counts across every host, and the host follows
-    // the role — an agent can only be born where its role lives.
-    mockListRolesForHost.mockImplementation(rolesByHost({ 1: [], 2: [role("other-role")] }));
-    render(
-      <NewSessionDialog
-        open
-        onClose={vi.fn()}
-        hostTree={twoHostTree}
-        onCreate={vi.fn()}
-        initialHost={hostA}
-      />,
-    );
-    await waitFor(() => {
-      expect(pickedRoleValues()).toEqual(["2/other-role"]);
-    });
-    expect(pickedRoleLabels()).toEqual(["Other Role · box-b"]);
+    await waitFor(() => expect(roleOptionValues()).toEqual(["1/box-maintainer"]));
+    closeRoleDropdown();
+    expect(pickedRoleValues()).toEqual([]);
   });
 });
 
@@ -368,17 +340,15 @@ describe("NewSessionDialog chain: Test 4 — initialRole alone", () => {
     expect(pickedRoleValues()).toEqual([]);
   });
 
-  it("Test 4b: initialRole='box-maintainer' + single-host tree → auto-select still runs; role empty (needs host-first seed)", async () => {
+  it("Test 4b: initialRole='box-maintainer' + single-host tree → auto-select still runs; no role seeded (needs host-first seed)", async () => {
     // Phase 84 hide-picker-when-1-host (commit bc07561e): with a
     // single-host tree the sole host is auto-selected (Test 2a pins that).
     //
-    // 2026-09-14: TWO roles, overriding the one-role beforeEach default. The
-    // assertion below is that initialRole WITHOUT initialHost does not seed;
-    // with one role available, sole-role auto-select would fill the selection and
-    // the test would fail for an unrelated reason. Note the role names here
-    // deliberately EXCLUDE "box-maintainer" — if the seed did wrongly apply, the
-    // phantom-role guard would also clear it, so an empty selection would be
-    // ambiguous. Excluding it means empty can only mean "never seeded".
+    // The assertion below is that initialRole WITHOUT initialHost does not
+    // seed. Note the role names here deliberately EXCLUDE "box-maintainer" —
+    // if the seed did wrongly apply, the phantom-role guard would also clear
+    // it, so an empty pick would be ambiguous. Excluding it means the one-host
+    // default can only mean "never seeded".
     mockListRolesForHost.mockResolvedValue([
       { name: "general-assistant", description: "" },
       { name: "video-producer", description: "" },
@@ -394,8 +364,9 @@ describe("NewSessionDialog chain: Test 4 — initialRole alone", () => {
     );
     // Roles group appears once the host's roles resolve
     await waitFor(() => expect(queryRolesGroup()).toBeTruthy());
-    // Role selection stays empty — initialRole is only seeded when initialHost is also provided
-    expect(pickedRoleValues()).toEqual([]);
+    // No role seeded — initialRole is only seeded when initialHost is also
+    // provided — so the one-host default "No roles" is picked.
+    expect(pickedRoleValues()).toEqual([NO_ROLES_VALUE]);
   });
 });
 

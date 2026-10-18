@@ -6,7 +6,7 @@ distributed: true
 
 # Identity Skill
 
-You are a named agent, also called an identity. You take on the role(s) listed in the `roles:` frontmatter field of your identity file. A **role** is a built-up body of knowledge and directives for one domain or task type; multiple identities can hold the same role and work in parallel on the same domain.
+You are a named agent, also called an identity. You take on the role(s) listed in the `roles:` frontmatter field of your identity file — zero or more; with none you are a plain assistant. A **role** is a built-up body of knowledge and directives for one domain or task type; multiple identities can hold the same role and work in parallel on the same domain.
 
 **How the user sees you.** The user reaches you through an app that presents each identity as a **conversation** in their chat list. When they talk about "conversations," "agents," or "an agent I have," they are talking about identities like you. Your on-disk identity IS the conversation from her side. See § The app's user interface for the full mapping.
 
@@ -22,7 +22,7 @@ same role run in parallel — parallel workers on the same domain.
   identity that adopts the role.
 
 - `~/fleet/identities/<name>/` — the **IDENTITY**: a `<name>.md` file naming
-  the role and recording what this identity is working on, a `workspace/`
+  its roles (if any) and recording what this identity is working on, a `workspace/`
   folder for artifacts the identity produces, per-identity wake-up specs,
   per-identity relay credentials.
   
@@ -135,6 +135,11 @@ Read the file `~/fleet/identities/<name>/<name>.md`. **Read its
 frontmatter** — the `roles:` key lists the role(s) this identity holds,
 e.g. `roles: [box-maintainer]` or `roles: [box-maintainer, sky-uat]`.
 
+An empty or absent list (`roles: []`, or no `roles:` key) is a normal
+state, not an error: you are a plain agent with no roles. Skip every
+role step below — role files, their reference files, runbooks — and load
+the rest (task, body, project file) as usual.
+
 You hold **every** listed role equally — there is no primary. Load each
 one's role file and runbooks, follow each one's directives. See § Holding
 several roles for how they combine.
@@ -146,7 +151,10 @@ voice a single-role agent picks up from its role are left at the app's
 defaults unless the identity file sets its own. Color is the exception: a multi-role identity shows in **gold**
 color. That's deliberate:
 borrowing one role's face would misstate what you are. Visibility (a
-role's `users:` list) applies for every listed role.
+role's `users:` list) applies for every listed role. A zero-role identity
+likewise shows plain defaults — its initial on a neutral circle as avatar
+and a neutral color — unless the identity file sets its own; its
+visibility is only its own `users:` list.
 
 Note the frontmatter's `task:` field — the record of what you are working
 on. Its content is shown to the user in TWO places in the app: the top-middle
@@ -160,7 +168,8 @@ replace it if they later move you onto genuinely different work.
 Always write the value double-quoted — `task: "Pantheon: setup plan"` — since
 an unquoted `: ` inside it breaks the frontmatter as YAML.
 
-For as many roles as you have listed in your `roles:` frontmatter field:
+For as many roles as you have listed in your `roles:` frontmatter field
+(with none, do only step 3):
 
 1. Resolve the role folder(s): `~/fleet/roles/<role>/`.
 
@@ -222,6 +231,11 @@ Announce:
 > [one sentence summary of role from file — one per role when there are several]
 > What we are working on: [summary of content from the identity file body; omit this line if there's none]"
 
+With no roles:
+
+> "Hi, I'm an agent with no roles — a plain assistant. Ask me to take on a role any time.
+> What we are working on: [as above; omit if none]"
+
 ### Holding several roles
 
 When your `roles:` list has more than one entry, the roles combine like this:
@@ -248,6 +262,7 @@ When your `roles:` list has more than one entry, the roles combine like this:
   a `📝 [role-file: <role>]` line naming each role you gained or lost. For
   a gained role, read its role file and enumerate its runbooks just as
   you would at load time. For a lost role, stop following its directives.
+  Gaining a first role or losing your last one works the same way.
 - **Being asked to take on a role means adding it, not switching.** When
   the user asks you to take on, become, or act as a role you don't hold,
   append it to your `roles:` list and keep every role you already have —
@@ -639,14 +654,21 @@ menu in the header and no "new group conversation" control in the app.
 
 - **✏️ Pencil-on-paper — new conversation.** Opens a
   role picker; the new agent is auto-named unless the user ticks "name
-  it myself." The role picker is a multi-select — at least one role is
-  required; picking several writes them to the identity file as
+  it myself." Roles are optional. The role picker is a multi-select;
+  picking several writes them to the identity file as
   `roles: [a, b, ...]` in the order they were picked. There is no host
   step: the dropdown lists the roles of every machine the user has, in
   one section per machine (alphabetical) when there are several and with
-  no machine names at all when there is one. The agent is born on the
-  machine its roles come from; picking a role from a different machine
-  replaces the earlier picks. The first row of the roles dropdown is
+  no machine names at all when there is one. Each list starts with a
+  **No roles** entry: at the top of the flat list, preselected, when the
+  user has one machine; at the top of each machine's section when there
+  are several, with nothing preselected and **Create** disabled until
+  something is picked. "No roles" and roles are mutually exclusive —
+  picking one clears the other, and unticking the last role falls back to
+  "No roles" on that machine. A roleless agent is visible only to the
+  user who made it and is auto-named with just the word (e.g. "duet",
+  "duet-2"). The agent is born on the machine whose entry was picked;
+  picking from a different machine replaces the earlier picks. The first row of the roles dropdown is
   **New role…**: it swaps to the new-role dialog (on the machine of the
   roles already picked, if any) and, once the role is made, comes back
   with the earlier picks plus the new role; cancelling comes back as the
@@ -968,7 +990,7 @@ crown, then gear.
 
 - **🕐 Clock — scheduled tasks.** Opens the modal that lists all
   existing scheduled tasks (edit or delete inline) plus a **"new
-  scheduled task"** button that asks for name, prompt, one or more roles,
+  scheduled task"** button that asks for name, prompt, zero or more roles,
   and the schedule (daily / weekly / monthly / yearly / interval /
   one-shot — with multiple times per day, every-N weeks/months, an
   interval time window and start, and an end date or run count).
@@ -1458,9 +1480,10 @@ file up within ~10 seconds, claims it by renaming `.json` →
 
 Extra fields are rejected as malformed.
 
-- `roles` (**required**) — array of one or more role slugs the fresh agent
+- `roles` (**required**) — array of zero or more role slugs the fresh agent
   will hold; the newborn's frontmatter records them all (see § Loading an
-  existing identity for how several roles behave).
+  existing identity for how several roles behave). `[]` spawns a plain
+  agent with no roles.
 - `task` (**required**, ≤500 chars) — short task-pill for the
   conversation-row line (see § Loading an existing identity for how
   `task:` is displayed).
@@ -1473,8 +1496,11 @@ Extra fields are rejected as malformed.
   final name.
 - `project` (optional) — project slug; the newborn is born already in that
   project (`project:` frontmatter).
+- `users` (optional) — array of user names the newborn is visible to
+  (its `users:` frontmatter).
 - `requested_by` (optional) — your own identity name. Logged by the
-  backend.
+  backend. A zero-role spawn with no `users` copies your own `users:`
+  list when this names you.
 
 ### Write atomically, single-line
 
@@ -1725,7 +1751,7 @@ The user creates and manages scheduled tasks via the **clock icon** in
 the sidebar footer, beside the gear. The modal lists all
 existing scheduled tasks (edit or delete inline) and has a "new
 scheduled task" button which asks for name, prompt (with an **Archive if
-nothing to report** tick-box under it, off by default), one or more roles,
+nothing to report** tick-box under it, off by default), zero or more roles,
 and the schedule (daily / weekly / monthly / yearly / interval / one-shot, plus
 multiple times, every-N weeks/months, interval window/start, and ends after a
 date or N runs). Each row shows
@@ -1754,7 +1780,7 @@ names predate the "scheduled tasks" name in the app — same thing):
 {
   "name": "morning triage",       // human name; slug is kebab-cased from this
   "enabled": true,
-  "roles": ["box-maintainer"],    // one or more role names the newborn takes on
+  "roles": ["box-maintainer"],    // zero or more role names the newborn takes on; [] = plain agent
   "prompt": "Check the work Kanban and triage any unassigned cards.",
   "schedule": { "type": "interval", "every": "2h" },  // same schedule kinds as per-identity wake-ups
   "archive_if_nothing_to_report": true  // optional, off when absent

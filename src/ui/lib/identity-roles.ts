@@ -49,3 +49,33 @@ export function isMultiRole(
 ): boolean {
   return identity != null && identityRoles(identity).length > 1;
 }
+
+/**
+ * True when the identity holds no roles and has no colorHue of its own. With
+ * no role to borrow a look from, it paints in one neutral grey on every
+ * surface (the `pv-neutral` class, index.css; `identityTint` for surfaces that
+ * build their colors in JS) rather than each surface's own default hue.
+ */
+export function hasNeutralLook(
+  identity: Pick<Identity, "role" | "roles" | "colorHue"> | null | undefined,
+): boolean {
+  return identity != null && identity.colorHue == null && identityRoles(identity).length === 0;
+}
+
+/**
+ * The hue a neutral identity carries in --pv-hue / --pv-id-hue — the
+ * canonical modal's slate. Only small accents the grey doesn't cover reach it.
+ */
+export const NEUTRAL_HUE = 220;
+
+/**
+ * hsla() for an identity tint at the given saturation / lightness / alpha —
+ * the same lightness and alpha in grey when `neutral`.
+ */
+export function identityTint(
+  hue: number,
+  neutral: boolean,
+): (saturation: number, lightness: number, alpha: number) => string {
+  return (s, l, a) =>
+    neutral ? `hsla(0, 0%, ${l}%, ${a})` : `hsla(${hue}, ${s}%, ${l}%, ${a})`;
+}

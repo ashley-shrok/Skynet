@@ -30,7 +30,7 @@
 //      throwing and the task text appears in the .pv-label span.
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render } from "@testing-library/react";
+import { fireEvent, render } from "@testing-library/react";
 import type { Identity } from "@/api/identities-api";
 import type { ConversationRow as ConversationRowShape } from "@/state/conversation-store";
 import type { Host } from "@/types/ui-types";
@@ -388,5 +388,58 @@ describe("PrettyConversationRow: long task string reuses .pv-label fade-truncati
     const label = container.querySelector(".pv-label") as HTMLElement | null;
     expect(label).toBeTruthy();
     expect(label!.textContent).toBe(longTask);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Roleless identities — no roles is a supported state.
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe("PrettyConversationRow: identity with no roles", () => {
+  const renderRow = () =>
+    render(
+      <PrettyConversationRow
+        row={makeRow()}
+        selected={false}
+        pinned={false}
+        variant="desktop"
+        onSelect={vi.fn()}
+        onTogglePin={vi.fn()}
+        aiTitle={null}
+      />,
+    );
+
+  it("task-primary subtitle shows the machine name, with no empty bold span", () => {
+    currentIdentity = makeIdentityWithTask({ role: null, roles: [], colorHue: null });
+    const { container } = renderRow();
+    const subtitle = container.querySelector(".pv-ai-title") as HTMLElement;
+    expect(subtitle.textContent).toBe("thenasty");
+    expect(subtitle.querySelector("strong")).toBeNull();
+  });
+
+  it("paints neutral (pv-neutral) when it has no colorHue; a roled identity does not", () => {
+    currentIdentity = makeIdentityWithTask({ role: null, roles: [], colorHue: null });
+    const { container, unmount } = renderRow();
+    expect(container.querySelector(".pv-row")!.className).toContain("pv-neutral");
+    unmount();
+
+    currentIdentity = makeIdentityWithTask({ colorHue: null });
+    const { container: roled } = renderRow();
+    expect(roled.querySelector(".pv-row")!.className).not.toContain("pv-neutral");
+  });
+
+  it("an avatar image that fails to load falls back to the initial", () => {
+    currentIdentity = makeIdentityWithTask({
+      role: null,
+      roles: [],
+      colorHue: null,
+      avatarUrl: "/identities/willow/avatar?hostId=1",
+    });
+    const { container } = renderRow();
+    const img = container.querySelector(".pv-avatar img") as HTMLImageElement;
+    expect(img).toBeTruthy();
+    fireEvent.error(img);
+    expect(container.querySelector(".pv-avatar img")).toBeNull();
+    expect(container.querySelector(".pv-avatar-initial")!.textContent).toBe("W");
   });
 });

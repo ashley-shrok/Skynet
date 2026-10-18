@@ -24,6 +24,8 @@
   {"name": "no frontmatter", "md": "roles: box-maintainer\n", "roles": []},
   {"name": "empty value", "md": "---\nroles:\ntask: x\n---\n", "roles": []},
   {"name": "empty flow", "md": "---\nroles: []\n---\n", "roles": []},
+  {"name": "empty flow with inner space and comment", "md": "---\nroles: [ ]  # plain agent\ntask: x\n---\n", "roles": []},
+  {"name": "no roles key", "md": "---\ndisplayName: Duet\ntask: x\n---\nbody\n", "roles": []},
   {"name": "rolesX key not matched", "md": "---\nroles_old: a\n---\n", "roles": []},
   {"name": "two roles lines, first wins", "md": "---\nroles: a\nroles: b\n---\n", "roles": ["a"]},
   {"name": "opening fence with trailing space", "md": "--- \nroles: a\n---\n", "roles": ["a"]},

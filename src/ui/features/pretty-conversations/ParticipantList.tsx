@@ -12,6 +12,7 @@
 import { type CSSProperties } from "react";
 import { Check } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { AvatarImage } from "@/components/avatar-image";
 import type { PickedParticipant } from "./participant-types";
 
 // ─── ParticipantList (public export) ─────────────────────────────────────────
@@ -134,7 +135,6 @@ function ParticipantRow({
   const avatarBg = `hsl(${hue ?? 210}, 60%, 45%)`;
 
   const displayName = participant.displayName;
-  const initialLetter = displayName.charAt(0).toUpperCase();
 
   return (
     <div
@@ -164,17 +164,12 @@ function ParticipantRow({
         className="size-8 rounded-full shrink-0 overflow-hidden"
         style={{ background: avatarBg }}
       >
-        {participant.avatarUrl ? (
-          <img
-            src={participant.avatarUrl}
-            alt=""
-            className="size-full object-cover"
-          />
-        ) : (
-          <span className="flex items-center justify-center size-full text-sm font-medium text-white">
-            {initialLetter}
-          </span>
-        )}
+        <AvatarImage
+          src={participant.avatarUrl}
+          name={displayName}
+          className="size-full object-cover"
+          initialClassName="flex items-center justify-center size-full text-sm font-medium text-white"
+        />
       </div>
 
       {/* Body — displayName + optional agent subtitle */}

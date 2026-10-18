@@ -7,8 +7,9 @@
 //      Helper text below explains delete-and-recreate is the rename path.
 //   2) Prompt (textarea, min-height ~96px) — hint copy verbatim from the
 //      shape file § Shape.
-//   3) Roles (multi-select chip-picker) — populated via listRolesForHost
-//      when a host is selected; dim "Pick a host first" when none.
+//   3) Roles (multi-select chip-picker, optional — zero roles is allowed) —
+//      populated via listRolesForHost when a host is selected; dim "Pick a
+//      host first" when none.
 //   4) Host (single-select chip-picker) — disabled on edit-mode per D-21
 //      (cross-host management is delete-and-recreate). Auto-selects the
 //      single available host per Phase 84 CreateProjectModal pattern.
@@ -300,10 +301,6 @@ export function ScheduledAgentsModalForm({
       setError("Pick a host to save.");
       return;
     }
-    if (selectedRoles.length === 0) {
-      setError("Pick at least one role.");
-      return;
-    }
     const scheduleError = isSensor ? null : validateForm(formSchedule);
     if (scheduleError !== null) {
       setError(scheduleError);
@@ -479,8 +476,7 @@ export function ScheduledAgentsModalForm({
     scheduleValidationMsg !== null ||
     name.trim().length === 0 ||
     prompt.trim().length === 0 ||
-    selectedHost === null ||
-    selectedRoles.length === 0;
+    selectedHost === null;
 
   return (
     <div
@@ -636,14 +632,6 @@ export function ScheduledAgentsModalForm({
               {selectedRoles.length === 0 && addableRoles.length === 0 && (
                 <p className="text-[11px] text-[color:var(--color-pv-fg-dim)]">
                   No roles on this host.
-                </p>
-              )}
-              {selectedRoles.length === 0 && addableRoles.length > 0 && (
-                <p
-                  className="text-[11px] text-[color:var(--color-pv-fg-dim)]"
-                  data-testid="scheduled-agents-modal-form-roles-required-hint"
-                >
-                  Pick at least one role.
                 </p>
               )}
             </>

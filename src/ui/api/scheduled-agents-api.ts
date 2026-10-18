@@ -179,8 +179,8 @@ export async function toggleScheduledAgentEnabled(
  * outside its schedule. The server drops a spawn-request on the target host
  * exactly as a clock fire would (the new identity appears once the spawn-scan
  * picks it up). The schedule itself is untouched — `lastFiredAt` /
- * `nextFireAt` don't move. Works on disabled specs; 400 on one_shot specs or
- * specs with no roles; 404 on unknown slug/host; 502 on transport.
+ * `nextFireAt` don't move. Works on disabled specs; 400 on one_shot specs;
+ * 404 on unknown slug/host; 502 on transport.
  */
 export async function runScheduledAgentNow(
   slug: string,

@@ -149,7 +149,7 @@ import { WaitingBubble } from "./WaitingBubble";
 import { postFeedback } from "@/feedback/feedback-api";
 import { FeedbackModal } from "@/feedback/FeedbackModal";
 import { toast } from "sonner";
-import { isMultiRole } from "@/lib/identity-roles";
+import { hasNeutralLook, isMultiRole, NEUTRAL_HUE } from "@/lib/identity-roles";
 
 // An OS file drag (upload) — not a FileChip drag, which split view owns even
 // if a browser ever tags it with Files.
@@ -2393,7 +2393,9 @@ export function PrettyView({
     [isWorking, messages, speakVoices],
   );
   const pvIdentityKey = sessionMatchKey(tmuxSession);
-  const pvHue = pvIdentityHue ?? 35;
+  // An identity with no roles and no colorHue paints in the neutral grey.
+  const pvNeutralLook = hasNeutralLook(pvIdentity);
+  const pvHue = pvIdentityHue ?? (pvNeutralLook ? NEUTRAL_HUE : 35);
 
   // Phase 40 D-05/D-06: editor open + save-deposit callbacks. handleOpenEditor
   // captures the pvIdentity displayName snapshot at click-time so the modal's
@@ -4275,6 +4277,8 @@ export function PrettyView({
         "h-full w-full flex flex-col relative overflow-hidden",
         // Multi-role identities: gold sheen on hue surfaces (index.css).
         isMultiRole(pvIdentity) && "pv-multi-role",
+        // Roleless identities: neutral grey on hue surfaces (index.css).
+        pvNeutralLook && "pv-neutral",
         "text-[var(--color-pv-fg)]",
         className,
       )}

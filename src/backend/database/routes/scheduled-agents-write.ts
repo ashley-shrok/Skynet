@@ -415,8 +415,10 @@ export type RunNowBuildResult =
  * Rejects (instead of dropping a request the birth pipeline would fail on):
  *   - one_shot schedules — firing early would have to consume the spec
  *     (sentinel + self-delete); the UI hides Run now for these.
- *   - empty prompt / empty roles — parse-request-body.ts would reject the
- *     request as malformed after the fact.
+ *   - empty prompt — parse-request-body.ts would reject the request as
+ *     malformed after the fact.
+ * Empty / absent roles are fine: the request carries `roles: []` and births
+ * a roleless agent, same as a clock fire.
  * `enabled: false` is allowed on purpose: running a paused task is the way
  * to test it before switching it on.
  */
@@ -437,9 +439,6 @@ export function buildRunNowSpawnRequest(
     return { ok: false, error: "scheduled agent has no prompt" };
   }
   const roles = Array.isArray(s.roles) ? s.roles.filter((r): r is string => typeof r === "string" && r.length > 0) : [];
-  if (roles.length === 0) {
-    return { ok: false, error: "scheduled agent needs at least one role to run" };
-  }
   const name = typeof s.name === "string" && s.name.length > 0 ? s.name : null;
   const body: Record<string, unknown> = {
     roles,

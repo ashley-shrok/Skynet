@@ -192,11 +192,15 @@ export interface BirthOptions {
    * Multi-role: the FIRST of the identity's roles. It's the role segment of
    * a pool-picked MXID; it carries no other special meaning (a multi-role
    * identity inherits no single role's look).
+   *
+   * Absent (with no extraRoles) → a roleless identity: frontmatter is
+   * `roles: []` and a pool-picked MXID is the bare name (`duet`, `duet-2`).
    */
-  role: string;
+  role?: string;
   /**
-   * Additional roles the identity also takes on, beyond `role`. Absent /
-   * empty → single-role identity, frontmatter is `roles: [<role>]`.
+   * Additional roles the identity also takes on, beyond `role`. Only
+   * meaningful alongside `role`. Absent / empty → single-role identity,
+   * frontmatter is `roles: [<role>]`.
    * Non-empty → frontmatter is the flow list `roles: [<role>, ...extras]`
    * (`role` first). Each entry is gated with ROLE_NAME_PATTERN and must
    * exist as a role folder on the target host, same as `role`.
@@ -563,8 +567,10 @@ const TMUX_SAFE_NAME_RE = /^[a-z][a-z0-9_-]*$/;
 //   forceQuotes: false — let yaml.dump decide per-value; it correctly
 //                        quotes strings containing colons/newlines
 //                        automatically (T-66-01-04)
-/** Every role an identity is born with, `role` first, de-duplicated. */
+/** Every role an identity is born with, `role` first, de-duplicated.
+ *  Empty for a roleless identity. */
 export function identityRoles(opts: Pick<BirthOptions, "role" | "extraRoles">): string[] {
+  if (typeof opts.role !== "string") return [];
   return Array.from(new Set([opts.role, ...(opts.extraRoles ?? [])]));
 }
 
@@ -580,7 +586,7 @@ export function buildIdentityFileBody(
   const pairs: Array<[string, string | number | string[]]> = [];
 
   // roles: is NOT pushed here — it is written as the first frontmatter line
-  // after the dump (see below). role is ALWAYS present (validated upstream).
+  // after the dump (see below). It may be empty (a roleless identity).
   // displayName is ALWAYS present (derived from opts.name)
   pairs.push(["displayName", displayName]);
 
@@ -654,7 +660,8 @@ export function buildIdentityFileBody(
   );
 
   // `roles:` is always the first frontmatter line, always in flow form —
-  // `roles: [a]` for a single role, `roles: [a, b]` for several, `role` first.
+  // `roles: []` for none, `roles: [a]` for one, `roles: [a, b]` for several,
+  // `role` first.
   // Written by hand (not via yaml.dump, which would emit a block sequence)
   // because the flow form is the shape the id skill documents. Role names are
   // ROLE_NAME_PATTERN-gated kebab-case, so they need no quoting.
@@ -777,9 +784,11 @@ async function deriveMxidAndFolderName(
       ? deps.matrixServerName
       : extractServerName(deps.matrixHomeserver);
 
-  // Base handle: `<pool-name>-<role>` for pool-picked names, else the bare
-  // name (typed-name births, and pool births whose name was edited out of
-  // pool shape).
+  // Base handle: `<pool-name>-<role>` for pool-picked names with a role, else
+  // the bare name (roleless births, typed-name births, and pool births whose
+  // name was edited out of pool shape). The ordinal search below suffixes the
+  // bare name too (`duet`, `duet-2`) against every Synapse account, human
+  // accounts included.
   let baseHandle = input.name;
   if (input.poolPicked === true && typeof input.role === "string") {
     try {
@@ -1481,11 +1490,14 @@ export async function birthIdentity(
     // -----------------------------------------------------------------------
     // Step 1: Skynet-side MXID derivation (consults Synapse admin API for
     //         ordinal collision resolution when poolPicked=true). No SSH.
-    //         The failure surface is: local role-name validation + one
-    //         Synapse admin API call.
+    //         The failure surface is: local role-name validation (zero roles
+    //         is valid) + one Synapse admin API call.
     // -----------------------------------------------------------------------
     await runStep(1, async () => {
-      for (const r of [opts.role, ...(opts.extraRoles ?? [])]) {
+      if (opts.role === undefined && (opts.extraRoles?.length ?? 0) > 0) {
+        throw new Error("extraRoles given without role");
+      }
+      for (const r of identityRoles(opts)) {
         if (!r || !ROLE_NAME_PATTERN.test(r)) {
           throw new Error(
             `role must match ${ROLE_NAME_PATTERN}; got: ${JSON.stringify(r)}`,
@@ -1502,6 +1514,14 @@ export async function birthIdentity(
       );
       mxid = derived.mxid;
       identityFolderName = derived.identityFolderName;
+      if (identityRoles(opts).length === 0) {
+        databaseLogger.info("Identity birth: roleless identity, bare-name handle", {
+          operation: "identity_birth_roleless",
+          hostId: opts.hostId,
+          identityKey: identityFolderName,
+          name: opts.name,
+        });
+      }
     });
 
     // -----------------------------------------------------------------------

@@ -119,7 +119,7 @@ Schedule specs live at `~/fleet/scheduled-agents/<slug>/scheduled-agent.json`
 (D-01, D-03):
 
     {"name": "standup-spawn", "enabled": true,
-     "roles": ["box-maintainer"],   # one or more role names the newborn takes on (D-04)
+     "roles": ["box-maintainer"],   # zero or more role names the newborn takes on (D-04); [] births a plain agent
      "prompt": "Check the work Kanban and triage any unassigned cards.",  # newborn's first turn (D-05)
      "schedule": {"type": "interval", "every": "2h"},  # same schedule kinds as per-identity
      "archive_if_nothing_to_report": true}  # optional, off when absent — tells the newborn to

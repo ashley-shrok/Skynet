@@ -1,7 +1,8 @@
 // IdentityModal — per-identity editor + record view.
 //
 // Modal-unification 2026-09-29 (revised 2026-09-30 UAT):
-//   - Shell: canonical <Modal hue={identity.colorHue ?? 220}>. Portals to
+//   - Shell: canonical <Modal hue={identity.colorHue ?? 220}> (grey for an
+//     identity with no roles and no colorHue — `pv-neutral`). Portals to
 //     document.body (blocking default = true) with a proper backdrop and
 //     focus trap. The earlier "per-pane, blocking=false" treatment made
 //     the modal show only inside the pane's stacking context — in split
@@ -34,7 +35,13 @@ import { Tabs, TabsContent } from "@/components/tabs";
 import { updateIdentity } from "@/api/identities-api";
 import { applyIdentityChange, refreshIdentities } from "@/state/identities-store";
 import { roleDisplayName } from "@/lib/role-display-name";
-import { identityRoles, isMultiRole } from "@/lib/identity-roles";
+import {
+  hasNeutralLook,
+  identityRoles,
+  identityTint,
+  isMultiRole,
+} from "@/lib/identity-roles";
+import { AvatarImage } from "@/components/avatar-image";
 import { toast } from "sonner";
 import { VoicePicker } from "./pickers/VoicePicker";
 import { useVoiceLabel } from "./pickers/useVoiceCatalog";
@@ -607,6 +614,9 @@ export function IdentityModal({
   // inherited-look role has its displayName on hand (roleDefaults); the
   // others render title-cased slugs.
   const roles = identityRoles(identity);
+  // No roles and no colorHue: the neutral grey (the caller passes NEUTRAL_HUE).
+  const neutralLook = hasNeutralLook(identity);
+  const tint = identityTint(hue, neutralLook);
   const roleLinks = roles.map((roleName) => ({
     roleName,
     label: roleDisplayName(
@@ -614,6 +624,13 @@ export function IdentityModal({
       roleName === identity.role ? identity.roleDefaults?.displayName : undefined,
     ),
   }));
+
+  const avatarStyle: React.CSSProperties = {
+    width: 44,
+    height: 44,
+    borderRadius: "50%",
+    boxShadow: `0 4px 12px rgba(0,0,0,0.5), inset 0 1px 0 rgba(255,220,190,0.25), 0 0 20px ${tint(65, 55, 0.35)}`,
+  };
 
   return (
     <Modal
@@ -624,7 +641,11 @@ export function IdentityModal({
       // desktop's shape) so the agent's desktop is big enough to work in;
       // every other tab keeps the normal size.
       size={shownTab === "desktop" ? "viewer" : "xl"}
-      className={cn("max-h-[90vh] flex flex-col", isMultiRole(identity) && "pv-multi-role")}
+      className={cn(
+        "max-h-[90vh] flex flex-col",
+        isMultiRole(identity) && "pv-multi-role",
+        neutralLook && "pv-neutral",
+      )}
       dismissible={!desktopControl}
       data-testid="identity-modal"
     >
@@ -635,21 +656,17 @@ export function IdentityModal({
       <div
         className="px-5 py-4 flex flex-row items-start gap-3 flex-shrink-0"
         style={{
-          borderBottom: `1px solid hsla(${hue}, 50%, 50%, 0.22)`,
+          borderBottom: `1px solid ${tint(50, 50, 0.22)}`,
         }}
       >
-        <img
+        <AvatarImage
           // avatarUrl already carries the sweep's avatar version (`&v=`).
           src={identity.avatarUrl}
-          alt=""
-          draggable={false}
+          name={identity.displayName}
           className="shrink-0 object-cover"
-          style={{
-            width: 44,
-            height: 44,
-            borderRadius: "50%",
-            boxShadow: `0 4px 12px rgba(0,0,0,0.5), inset 0 1px 0 rgba(255,220,190,0.25), 0 0 20px hsla(${hue}, 65%, 55%, 0.35)`,
-          }}
+          style={avatarStyle}
+          initialClassName="shrink-0 inline-flex items-center justify-center font-semibold"
+          initialStyle={{ ...avatarStyle, fontSize: 18, color: "#f0ebe0", background: tint(45, 35, 0.9) }}
         />
         <div className="flex flex-col flex-1 min-w-0 gap-1">
           {/* Line 1: display name — plain text, never clickable. The
@@ -786,7 +803,7 @@ export function IdentityModal({
                   "border border-[hsla(var(--pv-id-hue),60%,55%,0.32)]",
                 )}
                 style={{
-                  background: `linear-gradient(160deg, hsla(${hue}, 40%, 22%, 0.98), hsla(${hue}, 40%, 15%, 0.98))`,
+                  background: `linear-gradient(160deg, ${tint(40, 22, 0.98)}, ${tint(40, 15, 0.98)})`,
                   boxShadow: "0 10px 32px rgba(0, 0, 0, 0.55)",
                 }}
               >

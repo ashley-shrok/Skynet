@@ -18,7 +18,13 @@ import {
 // Phase 104 Plan 02: per-identity trapped-work indicator (D-05 same visual
 // across both surfaces — conv-list row + this pretty-view header badge).
 import { useTrappedWork } from "@/state/trapped-work-store";
-import { identityRolesLabel } from "@/lib/identity-roles";
+import {
+  hasNeutralLook,
+  identityRolesLabel,
+  identityTint,
+  NEUTRAL_HUE,
+} from "@/lib/identity-roles";
+import { AvatarImage } from "@/components/avatar-image";
 
 export interface IdentityBadgeProps {
   identityKey: string | null;
@@ -169,9 +175,11 @@ export function IdentityBadge({
   if (!identity) return null;
 
   // Identity hue drives border + inset rim + outer glow. NULL colorHue
-  // falls back to hue 35 (warm amber, matches PrettyView's neutral
-  // --pv-id-hue fallback).
-  const hue = identity.colorHue ?? 35;
+  // falls back to hue 35 (warm amber, matches PrettyView's --pv-id-hue
+  // fallback) — except an identity with no roles, which paints in grey.
+  const neutralLook = hasNeutralLook(identity);
+  const hue = identity.colorHue ?? (neutralLook ? NEUTRAL_HUE : 35);
+  const tint = identityTint(hue, neutralLook);
   // `[-webkit-touch-callout:none]` suppresses iOS Safari's native long-
   // press callout (magnifier, share sheet, "Look Up") on the pill. Matches
   // the pattern established for MicButton (ComposeBox.hold-to-mic.test —
@@ -189,9 +197,9 @@ export function IdentityBadge({
     // No backdrop-filter: the badge floats over the scrolling chat, so a blur
     // here is re-sampled every scroll frame (iPhone jank). A denser fill keeps
     // the glass read.
-    background: `linear-gradient(160deg, hsla(${hue}, 45%, 25%, 0.88), hsla(${hue}, 40%, 15%, 0.94))`,
-    border: `1px solid hsla(${hue}, 65%, 55%, 0.4)`,
-    boxShadow: `0 8px 24px rgba(0,0,0,0.6), inset 0 1px 0 rgba(255,220,170,0.18), 0 0 40px hsla(${hue}, 65%, 55%, 0.28)`,
+    background: `linear-gradient(160deg, ${tint(45, 25, 0.88)}, ${tint(40, 15, 0.94)})`,
+    border: `1px solid ${tint(65, 55, 0.4)}`,
+    boxShadow: `0 8px 24px rgba(0,0,0,0.6), inset 0 1px 0 rgba(255,220,170,0.18), 0 0 40px ${tint(65, 55, 0.28)}`,
     color: "#e8e4d8",
   };
   // Phase 68 Plan 04: avatarUrlWithHost deleted — backend bakes hostId into
@@ -203,21 +211,23 @@ export function IdentityBadge({
   // row and IdentityModal show. The wire `title` is not consulted: it is empty
   // for multi-role identities and for roles with no `displayName:`.
   const roleLine = identityRolesLabel(identity);
+  const avatarStyle: React.CSSProperties = {
+    position: "relative",
+    zIndex: 1,
+    width: 50,
+    height: 50,
+    borderRadius: "50%",
+    boxShadow: `0 4px 12px rgba(0,0,0,0.6), inset 0 2px 0 rgba(255,235,190,0.35), 0 0 24px ${tint(65, 55, 0.4)}`,
+  };
   const pillMain = (
     <>
-      <img
+      <AvatarImage
         src={avatarSrc}
-        alt=""
+        name={identity.displayName}
         className="object-cover shrink-0"
-        style={{
-          position: "relative",
-          zIndex: 1,
-          width: 50,
-          height: 50,
-          borderRadius: "50%",
-          boxShadow: `0 4px 12px rgba(0,0,0,0.6), inset 0 2px 0 rgba(255,235,190,0.35), 0 0 24px hsla(${hue}, 65%, 55%, 0.4)`,
-        }}
-        draggable={false}
+        style={avatarStyle}
+        initialClassName="shrink-0 inline-flex items-center justify-center font-semibold"
+        initialStyle={{ ...avatarStyle, fontSize: 20, color: "#f0ebe0", background: tint(45, 35, 0.9) }}
       />
       <div
         className="flex flex-col min-w-0"
@@ -246,7 +256,7 @@ export function IdentityBadge({
             style={{
               fontSize: 9,
               fontWeight: 600,
-              color: `hsla(${hue}, 40%, 78%, 0.85)`,
+              color: tint(40, 78, 0.85),
               textTransform: "uppercase",
               letterSpacing: "0.12em",
               lineHeight: 1,
@@ -296,7 +306,7 @@ export function IdentityBadge({
             strokeWidth={2}
             aria-hidden="true"
             style={{
-              filter: `drop-shadow(0 0 3px hsla(${hue}, 80%, 60%, 0.55))`,
+              filter: `drop-shadow(0 0 3px ${tint(80, 60, 0.55)})`,
             }}
           />
         </span>

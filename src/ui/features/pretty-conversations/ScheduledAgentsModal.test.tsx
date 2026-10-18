@@ -568,7 +568,7 @@ describe("ScheduledAgentsModal: Save + Cancel flow (D-19, D-25, D-27)", () => {
     fireEvent.change(nameInput, { target: { value: "new-agent" } });
     fireEvent.change(promptInput, { target: { value: "hello" } });
 
-    // Required-role gate (UAT 2026-10-01): pick a role before Save.
+    // Pick a role (optional) so the save carries one.
     const roleChip = await screen.findByTestId(
       "scheduled-agents-modal-form-role-addable-assistant",
     );
@@ -852,11 +852,17 @@ describe("ScheduledAgentsModal: UAT 2026-10-01", () => {
     resolveRefetch!([]);
   });
 
-  it("T-17: required-role gate — Save disabled on empty roles, enabled after a role is picked", async () => {
+  it("T-17: roles are optional — Save enabled with none picked, and the spec saves with roles: []", async () => {
     listScheduledAgentsMock.mockResolvedValueOnce([]);
     listRolesForHostMock.mockResolvedValue([
       { name: "assistant", description: "" },
     ]);
+    createScheduledAgentMock.mockResolvedValueOnce({
+      slug: "no-roles",
+      host: 1,
+      spec: {},
+    });
+    listScheduledAgentsMock.mockResolvedValueOnce([]);
 
     render(
       <ScheduledAgentsModal
@@ -874,31 +880,23 @@ describe("ScheduledAgentsModal: UAT 2026-10-01", () => {
     const promptInput = screen.getByTestId(
       "scheduled-agents-modal-form-prompt",
     ) as HTMLTextAreaElement;
-    fireEvent.change(nameInput, { target: { value: "needs-a-role" } });
+    fireEvent.change(nameInput, { target: { value: "no-roles" } });
     fireEvent.change(promptInput, { target: { value: "x" } });
 
-    // Required-role hint visible, Save disabled.
-    const hint = await screen.findByTestId(
-      "scheduled-agents-modal-form-roles-required-hint",
-    );
-    expect(hint).toBeInTheDocument();
+    // Roles offered, none picked — no "at least one role" hint, Save enabled.
+    await screen.findByTestId("scheduled-agents-modal-form-role-addable-assistant");
+    expect(screen.queryByText(/at least one role/i)).toBeNull();
     const saveBtn = screen.getByTestId(
       "scheduled-agents-modal-form-save",
     ) as HTMLButtonElement;
-    expect(saveBtn.disabled).toBe(true);
-
-    // Pick the role — hint disappears, Save becomes enabled.
-    const roleChip = await screen.findByTestId(
-      "scheduled-agents-modal-form-role-addable-assistant",
-    );
-    fireEvent.click(roleChip);
-
-    await waitFor(() => {
-      expect(
-        screen.queryByTestId("scheduled-agents-modal-form-roles-required-hint"),
-      ).toBeNull();
-    });
     expect(saveBtn.disabled).toBe(false);
+
+    fireEvent.click(saveBtn);
+    await waitFor(() => {
+      expect(createScheduledAgentMock).toHaveBeenCalledTimes(1);
+    });
+    expect(JSON.stringify(createScheduledAgentMock.mock.calls[0])).toContain('"roles":[]');
+    expect(screen.queryByTestId("scheduled-agents-modal-form-error")).toBeNull();
   });
 });
 
@@ -939,7 +937,7 @@ describe("ScheduledAgentsModal: Run now", () => {
     const user = userEvent.setup();
     listScheduledAgentsMock.mockResolvedValueOnce([makeRow()]);
     runScheduledAgentNowMock.mockRejectedValueOnce(
-      new FakeApiError("scheduled agent needs at least one role to run", 400),
+      new FakeApiError("host unreachable", 502),
     );
     render(
       <ScheduledAgentsModal
@@ -956,7 +954,7 @@ describe("ScheduledAgentsModal: Run now", () => {
       await screen.findByTestId("scheduled-agents-modal-row-morning-triage-run-now"),
     );
     const banner = await screen.findByTestId("scheduled-agents-modal-write-error");
-    expect(banner.textContent).toMatch(/at least one role/);
+    expect(banner.textContent).toMatch(/host unreachable/);
     expect(toastSuccessMock).not.toHaveBeenCalled();
   });
 

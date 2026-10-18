@@ -14,7 +14,9 @@
  * rejected by parseRequestBody as malformed (D-05).
  */
 export interface SpawnRequestBody {
-  roles: string[];       // one or more role names (replaces single role: string — D-12)
+  // Zero or more role names (replaces single role: string — D-12). Required
+  // field; `[]` births a roleless agent with a bare-name identity key.
+  roles: string[];
   prompt: string;        // first user message to the newborn agent (D-05)
   task: string | null;   // kept for coord-drop backwards compat; wake fires set null (D-12)
   requested_at: string;  // ISO-Z timestamp for debug tracing
@@ -22,15 +24,18 @@ export interface SpawnRequestBody {
   // When present + non-empty, overrides the host-owner creatorUsername auto-tag
   // at birth. Used by scheduled-agent specs that name whose box this spawn
   // belongs to (e.g. news-watcher-zoey-email → users:["zoey"] so the newborn
-  // lands under Zoey, not the host owner).
+  // lands under Zoey, not the host owner). For a roleless request without
+  // `users`, the worker copies the requester's (`requested_by`) own identity
+  // `users:` list when it has one; otherwise the newborn is open.
   users?: string[];
   // Optional typed name (pretty name → slug, same as the dialog's "name it
   // myself"). Absent → pool-picked name.
   name?: string;
   // Optional project slug → newborn's `project:` frontmatter.
   project?: string;
-  // Optional log-only tag naming who dropped the request. Never written to
-  // the newborn's identity file.
+  // Optional tag naming who dropped the request. Logged; never written to
+  // the newborn's identity file. When it names an identity on the same host,
+  // a roleless request without `users` inherits that identity's `users:`.
   requested_by?: string;
 }
 
@@ -57,7 +62,7 @@ export interface PendingBirth {
   hostId: string;      // HostRecord.id (string from PerHostState)
   hostIdNum: number;   // parseInt(hostId, 10) for BirthOptions.hostId (Pitfall 2)
   uuid: string;        // from filename (strip .json)
-  roles: string[];     // one or more role names (replaces role: string — D-12)
+  roles: string[];     // zero or more role names (replaces role: string — D-12)
   prompt: string;      // first user message to the newborn agent (D-05)
   task: string | null;
   requested_at: string;

@@ -71,10 +71,13 @@ export function parseRequestBody(
 
   const obj = parsed as Record<string, unknown>;
 
-  // roles[] validation — replaces single role: string (D-12)
+  // roles[] validation — replaces single role: string (D-12). The field is
+  // required, but may be empty: `roles: []` births a roleless agent. Keeping
+  // it required means a typo (e.g. singular `role:`) fails loudly instead of
+  // silently birthing a plain assistant.
   const roles = obj["roles"];
-  if (!Array.isArray(roles) || roles.length === 0) {
-    return { ok: false, reason: "malformed", message: "missing required field: roles (must be non-empty array)" };
+  if (!Array.isArray(roles)) {
+    return { ok: false, reason: "malformed", message: "missing required field: roles (must be an array; [] for no roles)" };
   }
   for (const r of roles) {
     if (typeof r !== "string" || r.length === 0) {

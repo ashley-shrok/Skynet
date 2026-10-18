@@ -1,10 +1,10 @@
 // ─── NewSessionDialog role-dropdown coverage (Phase 22 SRIC-02 Plan 22-02 Task 4)
 //
-// Tests 20-27 cover the REQUIRED Role dropdown added to NewSessionDialog when
+// Tests 20-27 cover the Role dropdown added to NewSessionDialog when
 // identity-mode is ON. Behavior spec:
 //   - Populates via GET /roles?hostId=<n> (listRolesForHost) for every
 //     pickable host when the dialog opens
-//   - Blocks submit until a role is picked
+//   - Blocks submit until "No roles" or a role is picked
 //   - Zero-roles response renders an inline "no roles … yet" hint
 //   - Role state resets on modal close
 //   - Dropdown is NOT shown when identity-mode is OFF (CREATE-only surface)
@@ -18,11 +18,16 @@
 //   Test 20: was "click a host → fetch"; now "open → fetch every host once".
 //   Test 22: was "host change clears role + refetches" (no host change exists
 //     any more); now "a role from another host replaces the picks".
-//   Test 22b: was "change to a single-role host auto-selects"; now the sole
-//     role across ALL hosts auto-selects, with its host, once all answered.
+//   Test 22b: was "change to a single-role host auto-selects"; a lone role
+//     is no longer auto-selected at all.
 //   Test 26: re-open now shows the roles group straight away (no host gate).
 //   New: sectioning/headers, pill labels, per-host errors, partial loading,
 //     multi-host zero-roles hint, null host in the New role… hand-over.
+//
+// Roles are optional: every host's entries start with "No roles"
+// (NO_ROLES_VALUE). One host → it is preselected; several → nothing is.
+// roleOptionValues() leaves the "No roles" entries out; roleListRows() shows
+// them.
 //
 // Fixture host ids are numeric strings ("1", "2"): the dialog passes
 // parseInt(host.id) to listRolesForHost, and rolesByHost() keys on that.
@@ -107,6 +112,8 @@ import {
   closeRoleDropdown,
   rolesByHost,
   deferred,
+  toggleNoRoles,
+  NO_ROLES_VALUE,
 } from "./NewSessionDialog.roles-test-helpers";
 import type { Host, HostFolder } from "@/types/ui-types";
 
@@ -268,6 +275,7 @@ describe("NewSessionDialog role dropdown: Test 21 — roles render as options", 
       expect(queryRolesGroup()).toBeTruthy();
     });
     expect(roleOptionValues()).toEqual(["box-maintainer", "tina"]);
+    expect(roleListRows()).toEqual([NO_ROLES_VALUE, "box-maintainer", "tina"]);
     expect(roleGroupHeaders()).toEqual([]);
     toggleRole("tina");
     await waitFor(() => expect(pickedRoleValues()).toEqual(["tina"]));
@@ -284,14 +292,18 @@ describe("NewSessionDialog role dropdown: Test 21 — roles render as options", 
     expect(payload.role).toBe("tina");
   });
 
-  it("Test 21b: several hosts → sections alphabetical by host name (case-insensitive), a header each, composite values; zero-role hosts get no header", async () => {
+  it("Test 21b: several hosts → sections alphabetical by host name (case-insensitive), a header each, composite values; a zero-role host's section holds just \"No roles\"", async () => {
     mockListRolesForHost.mockImplementation(
       rolesByHost({ 1: [role("zed")], 2: [role("ay"), role("bee")], 3: [] }),
     );
     renderDialog({ hostTree: mixedTree });
     await waitFor(() => expect(roleOptionValues()).toHaveLength(3));
-    expect(roleListRows()).toEqual(["# Alpha", "2/ay", "2/bee", "# zulu", "1/zed"]);
-    expect(roleGroupHeaders()).toEqual(["Alpha", "zulu"]);
+    expect(roleListRows()).toEqual([
+      "# Alpha", `2/${NO_ROLES_VALUE}`, "2/ay", "2/bee",
+      "# mike", `3/${NO_ROLES_VALUE}`,
+      "# zulu", `1/${NO_ROLES_VALUE}`, "1/zed",
+    ]);
+    expect(roleGroupHeaders()).toEqual(["Alpha", "mike", "zulu"]);
   });
 
   it("Test 21c: three hosts with roles → headers Alpha, mike, zulu in that order", async () => {
@@ -300,7 +312,11 @@ describe("NewSessionDialog role dropdown: Test 21 — roles render as options", 
     );
     renderDialog({ hostTree: mixedTree });
     await waitFor(() => expect(roleOptionValues()).toHaveLength(3));
-    expect(roleListRows()).toEqual(["# Alpha", "2/ay", "# mike", "3/em", "# zulu", "1/zed"]);
+    expect(roleListRows()).toEqual([
+      "# Alpha", `2/${NO_ROLES_VALUE}`, "2/ay",
+      "# mike", `3/${NO_ROLES_VALUE}`, "3/em",
+      "# zulu", `1/${NO_ROLES_VALUE}`, "1/zed",
+    ]);
   });
 
   it("Test 21d: multi-host pill label is '<Role> · <host>'; instance-wide marker kept", async () => {
@@ -368,33 +384,15 @@ describe("NewSessionDialog role dropdown: Test 22 — role from another host swi
     expect("roles" in payload).toBe(false);
   });
 
-  it("Test 22b: exactly one role across all hosts → it auto-selects, with its host, once every host has answered", async () => {
-    // Was: "host change to a single-role host auto-selects". Sole-role now
-    // counts across every host, and must wait for all of them — a slow host
-    // could still turn up a second role.
-    const alpha = deferred<ReturnType<typeof role>[]>();
+  it("Test 22b: exactly one role across all hosts → nothing auto-selects", async () => {
     mockListRolesForHost.mockImplementation(
-      rolesByHost({ 1: alpha.promise, 2: [role("only-role")] }),
+      rolesByHost({ 1: [], 2: [role("only-role")] }),
     );
-    mockOpenBirthStream.mockReturnValueOnce(emptyStream());
     renderDialog();
-    // bravo answered; alpha still loading → its role is listed, not picked.
     await waitFor(() => expect(roleOptionValues()).toEqual(["2/only-role"]));
     closeRoleDropdown();
     await new Promise((r) => setTimeout(r, 20));
     expect(pickedRoleValues()).toEqual([]);
-
-    alpha.resolve([]);
-    await waitFor(() => expect(pickedRoleValues()).toEqual(["2/only-role"]));
-    expect(pickedRoleLabels()).toEqual(["Only Role · bravo"]);
-
-    typeCustomName();
-    await waitFor(() => expect(createBtn().disabled).toBe(false));
-    fireEvent.click(createBtn());
-    await waitFor(() => expect(mockOpenBirthStream).toHaveBeenCalledTimes(1));
-    const [payload] = mockOpenBirthStream.mock.calls[0] as [Record<string, unknown>];
-    expect(payload.hostId).toBe(2);
-    expect(payload.role).toBe("only-role");
   });
 
   it("Test 22c: one role on each of two hosts → nothing auto-selects", async () => {
@@ -418,14 +416,13 @@ describe("NewSessionDialog role dropdown: Test 23 — Create blocked without rol
     // color / avatar generate). Post-Plan-86-04 canOpen requires only
     // host + valid name + role in identity-mode. With no host step, no host
     // is chosen until a role is — so this pins both gates at once.
-    // Two roles (one per host) so sole-role auto-select stays out of the way.
     mockListRolesForHost.mockImplementation(
       rolesByHost({ 1: [role("box-maintainer")], 2: [role("general-assistant")] }),
     );
     renderDialog();
     await waitFor(() => expect(queryRolesGroup()).toBeTruthy());
     typeCustomName();
-    // Create still disabled — role (and so host) not picked
+    // Create still disabled — nothing (and so no host) picked
     expect(createBtn().disabled).toBe(true);
     // Pick role → Create enabled
     toggleRole("box-maintainer");
@@ -435,39 +432,28 @@ describe("NewSessionDialog role dropdown: Test 23 — Create blocked without rol
     });
   });
 
-  it("Test 23b: a single role across the hosts → Create enabled without the user touching the roles", async () => {
-    // The payoff of sole-role auto-select: name is prefilled and the only role
-    // (and its host) is selected, so Create is reachable with zero
-    // interactions beyond opening the modal. This is the case Aither-style
-    // one-role deployments hit constantly.
+  it("Test 23b: one host with a single role → \"No roles\" preselected, Create enabled without touching the roles", async () => {
+    // A lone role is not auto-selected; the one-host default is "No roles",
+    // so Create is still reachable with zero interactions beyond opening.
     mockListRolesForHost.mockImplementation(
-      rolesByHost({ 1: [role("box-maintainer")], 2: [] }),
+      rolesByHost({ 1: [role("box-maintainer")] }),
     );
     mockPickPoolName.mockResolvedValue({ name: "willow" });
-    const { getByRole } = renderDialog();
+    mockOpenBirthStream.mockReturnValueOnce(emptyStream());
+    renderDialog({ hostTree: oneHostTree });
 
-    await waitFor(() => {
-      expect(pickedRoleValues()).toEqual(["1/box-maintainer"]);
-    });
-    // 2026-09-27: reveal the manual input so we can observe the prefilled
-    // value. The auto path submits the same value silently, but this test
-    // encodes "prefill actually populated the state" which is only visible in
-    // the DOM once the input renders.
-    fireEvent.click(screen.getByLabelText(/choose a custom agent name/i));
-    // Name must actually prefill for Create to enable, so assert it landed
-    // before checking the button (this suite's default pickPoolName mock
-    // REJECTS — see the module-level mock — so the resolved override above is
-    // load-bearing here).
-    await waitFor(() => {
-      const nameInput = screen.getByLabelText(/^name$/i) as HTMLInputElement;
-      expect(nameInput.value).toBe("willow");
-    });
-    await waitFor(() => {
-      const btn = getByRole("button", {
-        name: /^(open|create|creating)/i,
-      }) as HTMLButtonElement;
-      expect(btn.disabled).toBe(false);
-    });
+    await waitFor(() => expect(roleOptionValues()).toEqual(["box-maintainer"]));
+    closeRoleDropdown();
+    expect(pickedRoleValues()).toEqual([NO_ROLES_VALUE]);
+    expect(pickedRoleLabels()).toEqual(["No roles"]);
+    await waitFor(() => expect(createBtn().disabled).toBe(false));
+    fireEvent.click(createBtn());
+    await waitFor(() => expect(mockOpenBirthStream).toHaveBeenCalledTimes(1));
+    const [payload] = mockOpenBirthStream.mock.calls[0] as [Record<string, unknown>];
+    expect(payload.hostId).toBe(1);
+    expect(payload.name).toBe("willow");
+    expect("role" in payload).toBe(false);
+    expect("roles" in payload).toBe(false);
   });
 });
 
@@ -488,11 +474,12 @@ describe("NewSessionDialog role dropdown: Test 24 — birth payload carries role
     await waitFor(() => expect(queryRolesGroup()).toBeTruthy());
     // 2026-09-27: reveal the manual name input for typing.
     typeCustomName();
-    // The sole role auto-selects — clicking it again would UNcheck it, so
-    // just confirm it is picked.
+    // Picking the role replaces the preselected "No roles".
+    toggleRole("box-maintainer");
     await waitFor(() => {
       expect(pickedRoleValues()).toEqual(["box-maintainer"]);
     });
+    closeRoleDropdown();
     await waitFor(() => expect(createBtn().disabled).toBe(false));
     fireEvent.click(createBtn());
     await waitFor(() => {
@@ -509,7 +496,7 @@ describe("NewSessionDialog roles: multi-select", () => {
   const threeRoles = [role("box-maintainer"), role("sky-uat"), role("tina")];
 
   // alpha holds the three roles; bravo holds one more so the tree stays
-  // multi-host (composite values, sections) without auto-selecting.
+  // multi-host (composite values, sections).
   async function openWithName() {
     mockListRolesForHost.mockImplementation(
       rolesByHost({ 1: threeRoles, 2: [role("bravo-only")] }),
@@ -543,13 +530,31 @@ describe("NewSessionDialog roles: multi-select", () => {
     expect(payload.roles).toEqual(["box-maintainer"]);
   });
 
-  it("unchecking every role leaves Create disabled", async () => {
+  it("unchecking the last role falls back to \"No roles\" on that role's host", async () => {
+    mockOpenBirthStream.mockReturnValueOnce(emptyStream());
     await openWithName();
     expect(createBtn().disabled).toBe(true);
     toggleRole("tina");
+    toggleRole("sky-uat");
+    toggleRole("sky-uat");
+    await waitFor(() => expect(pickedRoleValues()).toEqual(["1/tina"]));
+    toggleRole("tina");
+    await waitFor(() => expect(pickedRoleValues()).toEqual([`1/${NO_ROLES_VALUE}`]));
     closeRoleDropdown();
     await waitFor(() => expect(createBtn().disabled).toBe(false));
-    toggleRole("tina");
+    fireEvent.click(createBtn());
+    await waitFor(() => expect(mockOpenBirthStream).toHaveBeenCalledTimes(1));
+    const [payload] = mockOpenBirthStream.mock.calls[0] as [Record<string, unknown>];
+    expect(payload.hostId).toBe(1);
+    expect("role" in payload).toBe(false);
+    expect("roles" in payload).toBe(false);
+  });
+
+  it("unticking \"No roles\" with several hosts leaves nothing picked and Create disabled", async () => {
+    await openWithName();
+    toggleNoRoles("2");
+    await waitFor(() => expect(pickedRoleValues()).toEqual([`2/${NO_ROLES_VALUE}`]));
+    toggleNoRoles("2");
     await waitFor(() => expect(pickedRoleValues()).toEqual([]));
     closeRoleDropdown();
     expect(createBtn().disabled).toBe(true);
@@ -569,25 +574,90 @@ describe("NewSessionDialog roles: multi-select", () => {
   });
 });
 
+describe("NewSessionDialog roles: \"No roles\" entry", () => {
+  async function openTwoHosts() {
+    mockListRolesForHost.mockImplementation(
+      rolesByHost({ 1: [role("box-maintainer"), role("tina")], 2: [role("ops")] }),
+    );
+    renderDialog();
+    await waitFor(() => expect(roleOptionValues()).toHaveLength(3));
+    closeRoleDropdown();
+    typeCustomName();
+  }
+
+  it("several hosts: nothing preselected, Create disabled; \"No roles\" in bravo's section picks bravo and births there with no role", async () => {
+    mockOpenBirthStream.mockReturnValueOnce(emptyStream());
+    await openTwoHosts();
+    expect(pickedRoleValues()).toEqual([]);
+    expect(createBtn().disabled).toBe(true);
+    toggleNoRoles("2");
+    await waitFor(() => expect(pickedRoleValues()).toEqual([`2/${NO_ROLES_VALUE}`]));
+    expect(pickedRoleLabels()).toEqual(["No roles · bravo"]);
+    closeRoleDropdown();
+    await waitFor(() => expect(createBtn().disabled).toBe(false));
+    fireEvent.click(createBtn());
+    await waitFor(() => expect(mockOpenBirthStream).toHaveBeenCalledTimes(1));
+    const [payload] = mockOpenBirthStream.mock.calls[0] as [Record<string, unknown>];
+    expect(payload.hostId).toBe(2);
+    expect("role" in payload).toBe(false);
+    expect("roles" in payload).toBe(false);
+  });
+
+  it("\"No roles\" and roles are mutually exclusive", async () => {
+    await openTwoHosts();
+    // Roles, then "No roles" on the same host → roles cleared.
+    toggleRole("tina");
+    toggleRole("box-maintainer");
+    await waitFor(() => expect(pickedRoleSlugs()).toEqual(["tina", "box-maintainer"]));
+    toggleNoRoles("1");
+    await waitFor(() => expect(pickedRoleValues()).toEqual([`1/${NO_ROLES_VALUE}`]));
+    // A role on the same host → "No roles" cleared.
+    toggleRole("tina");
+    await waitFor(() => expect(pickedRoleValues()).toEqual(["1/tina"]));
+    // "No roles" on another host → replaces the picks and switches host.
+    toggleNoRoles("2");
+    await waitFor(() => expect(pickedRoleValues()).toEqual([`2/${NO_ROLES_VALUE}`]));
+    // A role on another host → replaces "No roles" and switches back.
+    toggleRole("box-maintainer");
+    await waitFor(() => expect(pickedRoleValues()).toEqual(["1/box-maintainer"]));
+  });
+
+  it("single host: picking a role clears \"No roles\"; picking \"No roles\" clears the role", async () => {
+    mockListRolesForHost.mockImplementation(rolesByHost({ 1: [role("tina")] }));
+    renderDialog({ hostTree: oneHostTree });
+    await waitFor(() => expect(roleOptionValues()).toEqual(["tina"]));
+    expect(pickedRoleValues()).toEqual([NO_ROLES_VALUE]);
+    toggleRole("tina");
+    await waitFor(() => expect(pickedRoleValues()).toEqual(["tina"]));
+    toggleNoRoles();
+    await waitFor(() => expect(pickedRoleValues()).toEqual([NO_ROLES_VALUE]));
+  });
+});
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Test 25: zero-roles response renders inline hint
 // ─────────────────────────────────────────────────────────────────────────────
-describe("NewSessionDialog role dropdown: Test 25 — zero roles renders inline hint", () => {
-  it("Test 25: single host, listRolesForHost returns [] → 'no roles on this host' hint (not a link)", async () => {
+describe("NewSessionDialog role dropdown: Test 25 — zero roles is a normal choice", () => {
+  it("Test 25: single host, listRolesForHost returns [] → no hint; \"No roles\" picked", async () => {
     renderDialog({ hostTree: oneHostTree });
-    await waitFor(() => {
-      expect(screen.queryByText(/no roles on this host yet\./i)).toBeTruthy();
-    });
-    expect(screen.queryByText(/no roles on this host/i)!.tagName).not.toBe("BUTTON");
-    // Without onNewRole the dropdown stays disabled and has no New role row.
-    expect(queryRolesGroup()!.disabled).toBe(true);
+    await waitFor(() => expect(pickedRoleValues()).toEqual([NO_ROLES_VALUE]));
+    expect(screen.queryByText(/no roles on this host/i)).toBeNull();
+    // The dropdown stays usable — "No roles" is a real choice — and it is
+    // the one-host default.
+    expect(queryRolesGroup()!.disabled).toBe(false);
+    expect(pickedRoleValues()).toEqual([NO_ROLES_VALUE]);
   });
 
-  it("Test 25b: several hosts, none with roles → 'No roles yet.' (no 'on this host')", async () => {
+  it("Test 25b: several hosts, none with roles → no hint; each host offers \"No roles\"", async () => {
     renderDialog();
-    await waitFor(() => expect(screen.queryByText(/^no roles yet\.$/i)).toBeTruthy());
-    expect(screen.queryByText(/on this host/i)).toBeNull();
-    expect(queryRolesGroup()!.disabled).toBe(true);
+    await waitFor(() => expect(roleListRows()).toHaveLength(4));
+    expect(screen.queryByText(/no roles (on this host )?yet/i)).toBeNull();
+    expect(queryRolesGroup()!.disabled).toBe(false);
+    expect(pickedRoleValues()).toEqual([]);
+    expect(roleListRows()).toEqual([
+      "# alpha", `1/${NO_ROLES_VALUE}`,
+      "# bravo", `2/${NO_ROLES_VALUE}`,
+    ]);
   });
 });
 
@@ -611,7 +681,7 @@ describe("NewSessionDialog role dropdown: per-host loading and errors", () => {
     expect(trigger().disabled).toBe(false);
     expect(roleOptionValues()).toEqual(["2/tina", "2/ops"]);
     // No zero-roles hint while a host is still loading.
-    expect(screen.queryByText(/no roles/i)).toBeNull();
+    expect(screen.queryByText(/no roles (on this host )?yet/i)).toBeNull();
     toggleRole("tina");
     await waitFor(() => expect(pickedRoleValues()).toEqual(["2/tina"]));
 
@@ -634,7 +704,7 @@ describe("NewSessionDialog role dropdown: per-host loading and errors", () => {
     expect(screen.queryByText(/couldn't load roles/i)).toBeNull();
     expect(screen.queryByText(/ETIMEDOUT/)).toBeNull();
     // An error is not "no roles".
-    expect(screen.queryByText(/no roles/i)).toBeNull();
+    expect(screen.queryByText(/no roles (on this host )?yet/i)).toBeNull();
     // The failure still reaches the logs.
     expect(warn).toHaveBeenCalledWith(expect.stringMatching(/roles fetch failed hostId=1/));
   });
@@ -650,7 +720,7 @@ describe("NewSessionDialog role dropdown: per-host loading and errors", () => {
     await waitFor(() => expect(trigger().textContent).not.toMatch(/loading roles/i));
     expect(screen.queryByText(/boom/)).toBeNull();
     expect(screen.queryByText(/couldn't load roles/i)).toBeNull();
-    expect(screen.queryByText(/no roles/i)).toBeNull();
+    expect(screen.queryByText(/no roles (on this host )?yet/i)).toBeNull();
   });
 
   it("single host failing → no error line", async () => {
@@ -712,11 +782,8 @@ describe("NewSessionDialog role dropdown: New role… row", () => {
 
   it("keeps the dropdown openable when no host has roles", async () => {
     const { onNewRole } = renderWithNewRole();
-    await waitFor(() =>
-      expect(
-        screen.queryByText("No roles yet — create one from the Roles dropdown."),
-      ).toBeTruthy(),
-    );
+    await waitFor(() => expect(queryRolesGroup()).toBeTruthy());
+    await waitFor(() => expect(queryRolesGroup()!.disabled).toBe(false));
     const trigger = queryRolesGroup()!;
     expect(trigger.disabled).toBe(false);
     fireEvent.click(trigger);
@@ -725,14 +792,10 @@ describe("NewSessionDialog role dropdown: New role… row", () => {
     expect(onNewRole.mock.calls[0][0].roles).toEqual([]);
   });
 
-  it("single host with zero roles → 'No roles on this host yet — create one…' and openable", async () => {
+  it("single host with zero roles → no nudge to create a role; dropdown openable", async () => {
     renderWithNewRole({ hostTree: oneHostTree });
-    await waitFor(() =>
-      expect(
-        screen.queryByText("No roles on this host yet — create one from the Roles dropdown."),
-      ).toBeTruthy(),
-    );
-    expect(queryRolesGroup()!.disabled).toBe(false);
+    await waitFor(() => expect(queryRolesGroup()!.disabled).toBe(false));
+    expect(screen.queryByText(/No roles (on this host )?yet/)).toBeNull();
   });
 
   it("a new hostTree object while open does not re-seed over the user's picks or refetch", async () => {

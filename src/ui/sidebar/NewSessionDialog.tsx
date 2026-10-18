@@ -115,6 +115,15 @@
 // whichever one the picked roles come from; an agent lives on one machine, so
 // picking a role from a different host replaces the earlier picks. The host
 // list stays for the admin-only shell branch, where there is no role.
+//
+// ─── 2026-10-18 (roles are optional) ───────────────────────────────────────
+// An agent may hold zero roles. The Roles dropdown carries a "No roles" entry
+// — at the top of the flat list with one host (preselected, so Create works
+// straight away), and at the top of every host's section with several (nothing
+// preselected; picking one also picks that host). "No roles" and roles are
+// mutually exclusive, and unticking the last role falls back to "No roles" on
+// that role's host. Birth then sends no role at all. A host's only role is
+// not auto-selected.
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -172,6 +181,10 @@ export function normalizePath(p: string): string {
 }
 
 const NO_ROLES: RoleSummary[] = [];
+
+// Option value of the "No roles" entry. Role names are kebab-case
+// ([a-z0-9-]), so a leading colon can never collide with a real role.
+const NO_ROLES_OPTION = ":no-roles";
 
 type HostRolesState = {
   roles: RoleSummary[];
@@ -383,12 +396,15 @@ export function NewSessionDialog({
   const birthStartedRef = useRef(false);
 
   // Phase 22 SRIC-02: Role dropdown state (populated from GET /roles?hostId=<n>
-  // for every pickable host while agent mode is on). Selection blocks Create
-  // until the user picks a role. Reset on modal close.
+  // for every pickable host while agent mode is on). Create is blocked until
+  // the user picks "No roles" or at least one role. Reset on modal close.
   // Multi-role: every role the agent will hold, in pick order — the first
   // becomes the frontmatter list's first entry (and the pool-picked MXID's
-  // role segment). At least one is required.
+  // role segment). Empty when "No roles" is picked.
   const [selectedRoles, setSelectedRoles] = useState<string[]>([]);
+  // "No roles" picked (on selectedHost). Never true while selectedRoles is
+  // non-empty — the two are mutually exclusive.
+  const [noRoles, setNoRoles] = useState(false);
   // Mirror for the name-prefill effect (declared above with the other refs) —
   // role is sent along with the pick request but must not be a dep of it.
   selectedRoleRef.current = selectedRoles[0] ?? "";
@@ -452,7 +468,6 @@ export function NewSessionDialog({
   const rolesLoading = selectedHost
     ? selectedHostRoles === undefined || selectedHostRoles.loading
     : anyRolesLoading;
-  const anyRolesError = flatHosts.some((h) => !!hostRoles[h.id]?.error);
 
   // On open: seed from chain pre-fill props if provided, else auto-select the
   // sole host when the tree has exactly one (existing Test 9 behavior).
@@ -467,6 +482,7 @@ export function NewSessionDialog({
   // re-runs on every `flatHosts` change while open, and re-seeding then would
   // silently revert picks the user changed since.
   const seededThisOpenRef = useRef(false);
+  const noRolesDefaultedRef = useRef(false);
   useEffect(() => {
     if (open) {
       const firstRun = !seededThisOpenRef.current;
@@ -481,6 +497,7 @@ export function NewSessionDialog({
         const seedRoles = initialRoles ?? (initialRole ? [initialRole] : []);
         if (firstRun && seedRoles.length > 0 && !shellOnly) {
           setSelectedRoles(seedRoles);
+          noRolesDefaultedRef.current = true;
         }
         if (firstRun && initialName) {
           nameRef.current = initialName;
@@ -490,11 +507,19 @@ export function NewSessionDialog({
       } else if (flatHosts.length === 1) {
         setSelectedHost(flatHosts[0]);
       }
+      // One machine and no seeded roles: "No roles" is preselected, so Create
+      // works straight away. Applied once per open so a later pick is never
+      // reverted.
+      if (flatHosts.length === 1 && !noRolesDefaultedRef.current) {
+        noRolesDefaultedRef.current = true;
+        setNoRoles(true);
+      }
       // Phase 86 Plan 86-04: initialBrief seeding removed with the brief
       // textarea (cosmetic-strip per D-CTX-86-surface-4). Prop still
       // accepted for backward-compat but ignored.
     } else {
       seededThisOpenRef.current = false;
+      noRolesDefaultedRef.current = false;
       // Abort any in-flight birth stream
       abortControllerRef.current?.abort();
       // Reset all state to defaults on close
@@ -522,6 +547,7 @@ export function NewSessionDialog({
       }
       // Phase 22 SRIC-02: reset role dropdown state on modal close.
       setSelectedRoles([]);
+      setNoRoles(false);
       setHostRoles({});
       rolesRequestedRef.current = new Set();
       // Reset birth state — Phase 106 Plan 106-02 (D-13/D-15): the only
@@ -557,7 +583,10 @@ export function NewSessionDialog({
   const rolesRequestedRef = useRef<Set<string>>(new Set());
   useEffect(() => {
     if (!open || shellOnly) {
-      if (shellOnly) setSelectedRoles((prev) => (prev.length > 0 ? [] : prev));
+      if (shellOnly) {
+        setSelectedRoles((prev) => (prev.length > 0 ? [] : prev));
+        setNoRoles(false);
+      }
       return;
     }
     const pending = flatHosts.filter((h) => !rolesRequestedRef.current.has(h.id));
@@ -600,68 +629,57 @@ export function NewSessionDialog({
     const valid = selectedRoles.filter((sel) =>
       rolesForHost.some((r) => r.name === sel),
     );
-    if (valid.length !== selectedRoles.length) setSelectedRoles(valid);
-  }, [rolesForHost, rolesLoading, selectedRoles]);
-
-  // 2026-09-14: sole-role auto-select. When exactly one role is on offer
-  // (across every host) there is no decision to make, so select it — and its
-  // host — rather than parking the user on a "Pick roles…" placeholder that
-  // gates the Create button. Waits for every host to answer: until then a
-  // second role could still turn up.
-  //
-  // Ordering vs the two neighbours it must not fight:
-  //   - The chain-prefill seed (open-effect) sets selectedRoles BEFORE any fetch
-  //     resolves. The non-empty `selectedRoles` bail below means a seeded role is
-  //     never overwritten — and when the seed matches the only available role,
-  //     the assignment would be a no-op anyway.
-  //   - The stale-role guard directly above may CLEAR a phantom seed once the
-  //     fetch lands. That clear re-runs this effect (selectedRoles is a dep) and
-  //     the lone role is then selected — the user ends up on the only valid
-  //     choice instead of an empty dropdown. Neither loops, because this effect
-  //     only ever writes a value the guard considers valid.
-  const soleRole = !anyRolesLoading && allRoles.length === 1 ? allRoles[0] : null;
-  const soleRoleHost = soleRole?.host ?? null;
-  const soleRoleName = soleRole?.role.name ?? null;
-  useEffect(() => {
-    if (shellOnly || !soleRoleHost || !soleRoleName) return;
-    if (selectedRoles.length > 0) return;
-    setSelectedHost(soleRoleHost);
-    setSelectedRoles([soleRoleName]);
-  }, [soleRoleHost, soleRoleName, shellOnly, selectedRoles]);
+    if (valid.length !== selectedRoles.length) {
+      setSelectedRoles(valid);
+      // With one machine an empty pick is "No roles", as on open.
+      if (valid.length === 0 && !multiHost) setNoRoles(true);
+    }
+  }, [rolesForHost, rolesLoading, selectedRoles, multiHost]);
 
   // Roles dropdown wiring. With several hosts an option's value is
   // `<hostId>/<role>` (a role can exist on more than one host — instance-wide
   // roles are on all of them); with one host it is the bare role name.
+  // Each host's entries start with "No roles" (value NO_ROLES_OPTION in place
+  // of a role name), so a host with no roles still offers somewhere to land.
+  // A host whose roles couldn't be fetched gets no section at all.
   const roleOptionValue = (host: Host, role: string) =>
     multiHost ? `${host.id}/${role}` : role;
-  const roleOptions = allRoles.map(({ host, role }) => {
-    // Instance-wide roles carry a marker (same role on every host).
-    const label =
-      roleDisplayName(role.name, role.displayName) +
-      (role.instanceWide ? " · instance-wide" : "");
-    return {
-      value: roleOptionValue(host, role.name),
-      label,
-      ...(multiHost ? { group: host.name, pillLabel: `${label} · ${host.name}` } : {}),
+  const noRolesLabel = t("nav.newSessionNoRoles", { defaultValue: "No roles" });
+  const roleOptions = sortedHosts.flatMap((host) => {
+    if (hostRoles[host.id]?.error) return [];
+    const group = multiHost ? { group: host.name } : {};
+    const noRolesOption = {
+      value: roleOptionValue(host, NO_ROLES_OPTION),
+      label: noRolesLabel,
+      ...(multiHost ? { ...group, pillLabel: `${noRolesLabel} · ${host.name}` } : {}),
     };
+    const hostOptions = (hostRoles[host.id]?.roles ?? []).map((role) => {
+      // Instance-wide roles carry a marker (same role on every host).
+      const label =
+        roleDisplayName(role.name, role.displayName) +
+        (role.instanceWide ? " · instance-wide" : "");
+      return {
+        value: roleOptionValue(host, role.name),
+        label,
+        ...(multiHost ? { ...group, pillLabel: `${label} · ${host.name}` } : {}),
+      };
+    });
+    return [noRolesOption, ...hostOptions];
   });
   const pickedRoleValues = selectedHost
-    ? selectedRoles.map((r) => roleOptionValue(selectedHost, r))
+    ? (noRoles ? [NO_ROLES_OPTION] : selectedRoles).map((r) => roleOptionValue(selectedHost, r))
     : [];
   function handleRolesChange(next: string[]) {
-    if (!multiHost) {
-      setSelectedRoles(next);
-      return;
-    }
     const parse = (v: string) => {
+      if (!multiHost) return { hostId: selectedHost?.id ?? "", role: v };
       const slash = v.indexOf("/");
       return { hostId: v.slice(0, slash), role: v.slice(slash + 1) };
     };
     const added = next.find((v) => !pickedRoleValues.includes(v));
     if (added) {
       const { hostId, role } = parse(added);
-      if (selectedHost?.id !== hostId) {
-        // A role from another host: the agent will live there instead, and
+      if (multiHost && selectedHost?.id !== hostId) {
+        // An entry from another host: the agent will live there instead, and
         // roles picked from the previous host can't come along.
         const host = flatHosts.find((h) => h.id === hostId);
         if (!host) return;
@@ -669,14 +687,31 @@ export function NewSessionDialog({
           `[new-session] role host switch from=${selectedHost?.id ?? "-"} to=${hostId} role=${role} dropped=${selectedRoles.join(",") || "-"}`,
         );
         setSelectedHost(host);
-        setSelectedRoles([role]);
+        setNoRoles(role === NO_ROLES_OPTION);
+        setSelectedRoles(role === NO_ROLES_OPTION ? [] : [role]);
+        return;
+      }
+      if (role === NO_ROLES_OPTION) {
+        // "No roles" clears any picked roles.
+        setNoRoles(true);
+        setSelectedRoles([]);
         return;
       }
     }
-    // Nothing picked: no host either, so "New role…" asks for one and a typed
-    // name isn't checked against a machine the user has backed out of.
-    if (next.length === 0) setSelectedHost(null);
-    setSelectedRoles(next.map((v) => parse(v).role));
+    // Picking a role clears "No roles".
+    const roles = next.map((v) => parse(v).role).filter((r) => r !== NO_ROLES_OPTION);
+    if (roles.length === 0 && selectedRoles.length > 0 && !noRoles) {
+      // Unticked the last role: fall back to "No roles" on its host.
+      setNoRoles(true);
+      setSelectedRoles([]);
+      return;
+    }
+    setNoRoles(false);
+    setSelectedRoles(roles);
+    // "No roles" unticked: nothing is picked, so no host either (with several
+    // hosts) — "New role…" then asks for one and a typed name isn't checked
+    // against a machine the user has backed out of.
+    if (roles.length === 0 && multiHost) setSelectedHost(null);
   }
 
   // Phase 80 Plan 80-06 Task 2: auto-prefill Name via pickPoolName.
@@ -691,8 +726,7 @@ export function NewSessionDialog({
   // Keyed on selectedHost only — NOT on selectedRoles. Role does not affect the
   // answer any more (availability is host-scoped and role-independent), so
   // re-picking when a role lands would issue a second request whose result is
-  // always discarded. Sole-role auto-select makes that the common path, so the
-  // waste would be one redundant SSH connection per modal open.
+  // always discarded — one redundant SSH connection per role pick.
   //
   // Records the applied value in `poolPickedName` so the birth-submit path can
   // decide whether to send `poolPicked: true` (A1 MXID lock). Silent on failure
@@ -883,10 +917,10 @@ export function NewSessionDialog({
           // publicIdentity merge (identity ?? role ?? null).
           colorHue: null,
           voice: null,
-          // Phase 22 SRIC-02: required role. Multi-role: the first pick goes
-          // in `role`, any further picks in `roles`; the identity file lists
-          // them all, in pick order.
-          role: selectedRoles[0],
+          // Multi-role: the first pick goes in `role`, any further picks in
+          // `roles`; the identity file lists them all, in pick order. "No
+          // roles" sends neither.
+          ...(selectedRoles.length > 0 ? { role: selectedRoles[0] } : {}),
           ...(selectedRoles.length > 1 ? { roles: selectedRoles.slice(1) } : {}),
           // 2026-09-14: always the stand-in. The user is no longer asked what
           // the agent will work on at creation time; the agent writes the real
@@ -994,7 +1028,7 @@ export function NewSessionDialog({
 
   // canOpen (Create button) computation:
   // - Agent mode (!shellOnly, the Phase-88 new default): require host +
-  //   valid name + role + no collisions. Phase 86 Plan 86-04
+  //   valid name + a roles pick ("No roles" counts) + no collisions. Phase 86 Plan 86-04
   //   (D-CTX-86-surface-4): title / brief / avatar-picked gates removed —
   //   cosmetics live at role level; new identities inherit.
   // - Shell-only mode (shellOnly, admin opt-in via Phase-88 checkbox):
@@ -1036,8 +1070,8 @@ export function NewSessionDialog({
       !skynetCollision &&
       !hostCollision &&
       !collisionChecking &&
-      // Phase 22 SRIC-02: at least one role is REQUIRED and CREATE-only.
-      selectedRoles.length > 0
+      // Something must be picked: "No roles", or one or more roles.
+      (noRoles || selectedRoles.length > 0)
     : selectedHost !== null && nameValid && pathValid);
 
   // Phase 106 Plan 106-02 (D-13/D-15): form fields disabled ONLY while birthing.
@@ -1062,7 +1096,7 @@ export function NewSessionDialog({
   // ADOPTS a role"). See 88-CONTEXT.md §Verbatim copy for LOCKED text.
   const startDescription = t("nav.newSessionDescription", {
     defaultValue:
-      "Agents are the workers you chat with. Each one adopts a role that shapes what they know and how they help.",
+      "Agents are the workers you chat with. Each one can adopt roles that shape what they know and how they help.",
   });
   const searchPlaceholder = t("nav.newSessionSearchHosts", {
     defaultValue: "Search hosts",
@@ -1275,10 +1309,10 @@ export function NewSessionDialog({
           {!effectiveShellOnly && (
             <div className="flex flex-col gap-3 pt-1 border-t border-[color:var(--color-pv-border-quiet)]">
 
-              {/* Phase 22 SRIC-02: REQUIRED Role dropdown — first field in the
-                  identity cluster. Lists every host's roles (sectioned by host
-                  when there are several); the picked roles decide the host.
-                  Zero roles renders an inline hint. */}
+              {/* Phase 22 SRIC-02: Role dropdown — first field in the identity
+                  cluster. Lists every host's "No roles" entry and roles
+                  (sectioned by host when there are several); the pick decides
+                  the host. A fleet with zero roles renders an inline hint. */}
               <div className="flex flex-col gap-1.5">
                 {/* Multi-role: a dropdown multi-select replaces the old
                     single-pick <select>. Pick one or more; the order of
@@ -1295,13 +1329,13 @@ export function NewSessionDialog({
                   // Options show as each host answers; the placeholder only
                   // says "loading" while there is nothing to pick yet.
                   placeholder={
-                    anyRolesLoading && roleOptions.length === 0
+                    anyRolesLoading && allRoles.length === 0
                       ? "Loading roles..."
                       : "Pick roles…"
                   }
                   disabled={
                     formDisabled ||
-                    (anyRolesLoading && roleOptions.length === 0) ||
+                    (anyRolesLoading && allRoles.length === 0) ||
                     (roleOptions.length === 0 && !onNewRole)
                   }
                   options={roleOptions}
@@ -1328,19 +1362,7 @@ export function NewSessionDialog({
                   }
                 />
                 {/* Role fetch errors are not shown — an unreachable host is
-                    routine, its roles just don't list (console.warn logs it).
-                    Zero-roles hint: with onNewRole wired the dropdown stays
-                    openable and its "New role…" row is the way forward. An
-                    errored host is not "no roles", so the hint stays hidden. */}
-                {!anyRolesLoading &&
-                  !anyRolesError &&
-                  roleOptions.length === 0 && (
-                    <span className="text-xs italic text-[color:var(--color-pv-fg-muted)]">
-                      {onNewRole
-                        ? `No roles ${multiHost ? "yet" : "on this host yet"} — create one from the Roles dropdown.`
-                        : `No roles ${multiHost ? "yet" : "on this host yet"}.`}
-                    </span>
-                  )}
+                    routine, its roles just don't list (console.warn logs it). */}
               </div>
 
               {/* 2026-09-14: the "What will this agent work on?" textarea that

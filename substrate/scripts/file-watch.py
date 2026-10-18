@@ -26,13 +26,16 @@ and stale memory of the command outweighed re-reading the updated runbook. Every
 fresh /id load STILL reads role + identity + id skill + enumerates runbooks;
 this is purely additive.
 
-Role coverage: the identity file's frontmatter `roles:` key (one or more role
+Role coverage: the identity file's frontmatter `roles:` key (zero or more role
 slugs, any YAML shape — see parse_roles_frontmatter; the singular `role:` key is
 NOT read) names the roles whose `~/fleet/roles/<role>/<role>.md` files and
-runbooks are watched. Editing `roles:` mid-session re-execs the watcher so the
-targets follow: an added role emits a pointer to read its role file, a removed
-role emits a notice and its baselines are dropped. An empty/invalid `roles:`
-edit does not re-exec — the old set stays watched and stderr says why.
+runbooks are watched. An identity with no roles (`roles: []`, an empty `roles:`,
+or no key) is normal: there are no role targets, and everything else below is
+watched as usual. Editing `roles:` mid-session re-execs the watcher so the
+targets follow: an added role (including a first one) emits a pointer to read
+its role file, a removed role (including the last one) emits a notice and its
+baselines are dropped. A malformed `roles:` edit (it names something, but no
+valid slug) does not re-exec — the old set stays watched and stderr says why.
 
 Project coverage: when the identity file's frontmatter has `project: <slug>`, the
 watch includes `~/fleet/projects/<slug>/project.md` (event tag `project-file`).
@@ -254,8 +257,12 @@ def _parse_roles_from_frontmatter(identity_file_path):
     """Read the identity file and return (roles, None) or (None, err_msg).
 
     The role list comes solely from parse_roles_frontmatter (the reference
-    copy above). The extra inspection below only shapes the diagnostic when
-    the list is empty — it never changes which roles are returned."""
+    copy above). An identity with no roles — no `roles:` key, `roles:` with
+    no value, or `roles: []` — returns ([], None): holding zero roles is a
+    normal state. The extra inspection below only tells that apart from a
+    `roles:` line that names something but no valid slug (malformed), and
+    shapes the diagnostic for it — it never changes which roles are
+    returned."""
     try:
         with open(identity_file_path, encoding="utf-8", errors="replace") as f:
             text = f.read()
@@ -278,11 +285,22 @@ def _parse_roles_from_frontmatter(identity_file_path):
     if end is None:
         return None, "no YAML frontmatter block found in %s" % identity_file_path
     fm = lines[1:end]
-    if not any(re.match(r"^roles:", ln) for ln in fm):
-        return None, (
-            "no `roles:` key found in frontmatter of %s (the singular `role:` "
-            "key is no longer read — use `roles:`)" % identity_file_path
-        )
+    idx = next((i for i, ln in enumerate(fm) if re.match(r"^roles:", ln)), None)
+    if idx is None:
+        return [], None
+    inline = re.sub(r"(^|\s)#.*$", "", fm[idx][len("roles:"):]).strip()
+    if re.match(r"^\[\s*\]$", inline):
+        return [], None
+    if not inline:
+        for ln in fm[idx + 1:]:
+            s = ln.strip()
+            if not s or s.startswith("#"):
+                continue
+            if ln[:1].isspace() or s.startswith("-"):
+                break
+            return [], None
+        else:
+            return [], None
     return None, "no valid role slug under `roles:` in frontmatter of %s" % (
         identity_file_path,
     )
@@ -662,15 +680,14 @@ def _roles_changed(identity_file_path, watched_roles):
     """(added, removed) role lists when the identity's `roles:` set differs
     from the one this process watches, else None.
 
-    An empty/invalid `roles:` (or one naming no role with a file on disk)
-    returns None after logging to stderr: the new process would exit at
-    startup, so re-execing would trade a working watch for a dead one. We keep
-    watching the old set until the line is fixed. Order-only changes are not a
-    change — the same files are watched either way."""
+    Dropping to zero roles is an ordinary change (every watched role comes
+    back as removed). A malformed `roles:` line returns None after logging to
+    stderr: the new process would exit at startup, so re-execing would trade
+    a working watch for a dead one. We keep watching the old set until the
+    line is fixed. Order-only changes are not a change — the same files are
+    watched either way."""
     global _last_roles_err
     new_roles, err = _parse_roles_from_frontmatter(identity_file_path)
-    if err is None and not any(os.path.exists(_role_file_path(r)) for r in new_roles):
-        err = "no role file on disk for any role in %r" % (new_roles,)
     if err is not None:
         if err != _last_roles_err:
             print(
@@ -711,7 +728,8 @@ def _restart_if_scope_changed(identity_file_path, watched_project, watched_roles
     Roles: same idea per role. Each newly added role gets a pointer to its
     role file (and runbooks folder, if any) since the agent never read it;
     each removed role gets a one-line notice and its baselines are dropped.
-    An unusable new `roles:` value never re-execs (see _roles_changed)."""
+    Gaining a first role or losing the last one is no different. A malformed
+    new `roles:` value never re-execs (see _roles_changed)."""
     reasons = []
 
     new_slug, new_path = _resolve_project(identity_file_path)
@@ -1527,8 +1545,10 @@ def main():
     watched_roles = list(roles)
 
     # --- Resolve role file paths — one per role. Missing role files are logged
-    # to stderr and skipped rather than fatal, so a typo in a multi-role list
-    # doesn't kill the whole watcher (the other role's file still gets watched).
+    # to stderr and skipped rather than fatal, so a typo in a role list doesn't
+    # kill the whole watcher. With no roles (or none whose file exists) there
+    # are simply no role targets; the identity file, id skill and project
+    # files below are still watched.
     role_files = []  # list of (role, role_file_path)
     for role in roles:
         role_file_path = _role_file_path(role)
@@ -1541,18 +1561,11 @@ def main():
                 file=sys.stderr,
                 flush=True,
             )
-    if not role_files:
-        print(
-            "⚠️ [file-watch] no watchable role files for identity %s (roles=%r)"
-            % (name, roles),
-            file=sys.stderr,
-            flush=True,
-        )
-        sys.exit(1)
     # Primary role: first in the list. Used for legacy baseline migration
     # (single-role installs get their old `last-snapshot.role` promoted onto
-    # the first role in the new multi-role list).
-    primary_role = role_files[0][0]
+    # the first role in the new multi-role list). None with no role files —
+    # the role-scoped migrations below are then skipped.
+    primary_role = role_files[0][0] if role_files else None
 
     # Identity file path already resolved above (identity_file_path).
     # Each target: (kind, label-for-emit, source-file, per-file-baseline).
@@ -1655,12 +1668,17 @@ def main():
     #     so we discriminate by checking for `.` in the suffix.
     # All migrations are best-effort — a failure logs to stderr and falls
     # through to cold-start (one silent snapshot instead of continuity).
+    # All three need a primary role, so a roleless identity skips them.
     legacy_bare_baseline = os.path.join(baseline_dir, "last-snapshot")
     legacy_role_baseline = os.path.join(baseline_dir, "last-snapshot.role")
     primary_role_baseline = os.path.join(
         baseline_dir, "last-snapshot.role.%s" % primary_role
-    )
-    if os.path.exists(legacy_bare_baseline) and not os.path.exists(legacy_role_baseline):
+    ) if primary_role is not None else None
+    if (
+        primary_role is not None
+        and os.path.exists(legacy_bare_baseline)
+        and not os.path.exists(legacy_role_baseline)
+    ):
         try:
             os.replace(legacy_bare_baseline, legacy_role_baseline)
         except OSError as e:
@@ -1669,7 +1687,11 @@ def main():
                 file=sys.stderr,
                 flush=True,
             )
-    if os.path.exists(legacy_role_baseline) and not os.path.exists(primary_role_baseline):
+    if (
+        primary_role_baseline is not None
+        and os.path.exists(legacy_role_baseline)
+        and not os.path.exists(primary_role_baseline)
+    ):
         try:
             os.replace(legacy_role_baseline, primary_role_baseline)
         except OSError as e:
@@ -1680,31 +1702,32 @@ def main():
                 flush=True,
             )
     # Runbook baseline migration (old unprefixed slug → new role-namespaced).
-    old_runbook_prefix = "last-snapshot.runbook."
-    new_runbook_prefix = "last-snapshot.runbook.%s." % primary_role
-    try:
-        for entry in os.listdir(baseline_dir):
-            if not entry.startswith(old_runbook_prefix):
-                continue
-            suffix = entry[len(old_runbook_prefix):]
-            if "." in suffix:
-                continue  # already role-namespaced (new scheme)
-            new_entry = new_runbook_prefix + suffix
-            src = os.path.join(baseline_dir, entry)
-            dst = os.path.join(baseline_dir, new_entry)
-            if os.path.exists(dst):
-                continue  # don't clobber a new-scheme baseline
-            try:
-                os.replace(src, dst)
-            except OSError as e:
-                print(
-                    "⚠️ [file-watch] runbook baseline migration failed for %s: %s"
-                    % (entry, e),
-                    file=sys.stderr,
-                    flush=True,
-                )
-    except OSError:
-        pass
+    if primary_role is not None:
+        old_runbook_prefix = "last-snapshot.runbook."
+        new_runbook_prefix = "last-snapshot.runbook.%s." % primary_role
+        try:
+            for entry in os.listdir(baseline_dir):
+                if not entry.startswith(old_runbook_prefix):
+                    continue
+                suffix = entry[len(old_runbook_prefix):]
+                if "." in suffix:
+                    continue  # already role-namespaced (new scheme)
+                new_entry = new_runbook_prefix + suffix
+                src = os.path.join(baseline_dir, entry)
+                dst = os.path.join(baseline_dir, new_entry)
+                if os.path.exists(dst):
+                    continue  # don't clobber a new-scheme baseline
+                try:
+                    os.replace(src, dst)
+                except OSError as e:
+                    print(
+                        "⚠️ [file-watch] runbook baseline migration failed for %s: %s"
+                        % (entry, e),
+                        file=sys.stderr,
+                        flush=True,
+                    )
+        except OSError:
+            pass
 
     # --- Single-instance guard ---
     _single_instance(state_dir, ident_dir)

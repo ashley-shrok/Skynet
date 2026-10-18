@@ -35,12 +35,13 @@
  * it naturally. Parent (ConversationSearchModal) provides the onClick.
  */
 
-import { useState } from "react";
 import type {
   ConversationSearchPassage,
   ConversationSearchResult,
 } from "@/api/conversation-search-api";
 import { roleDisplayName } from "@/lib/role-display-name";
+import { NEUTRAL_HUE } from "@/lib/identity-roles";
+import { AvatarImage } from "@/components/avatar-image";
 import { cn } from "@/lib/utils";
 import {
   RowKebabMenu,
@@ -141,15 +142,15 @@ export function ConversationSearchRow({
 }: ConversationSearchRowProps): JSX.Element {
   const name = result.displayName ?? result.identityKey;
   const title = result.aiTitle ?? result.task ?? name;
-  const hue = result.colorHue ?? FALLBACK_HUE;
-  const when = formatRelativeTime(result.transcriptMtime, now ?? Date.now());
   const roles = result.roles ?? [];
+  // No roles and no colorHue: the neutral grey every surface uses for it.
+  const neutralLook = result.colorHue == null && roles.length === 0;
+  const hue = result.colorHue ?? (neutralLook ? NEUTRAL_HUE : FALLBACK_HUE);
+  const when = formatRelativeTime(result.transcriptMtime, now ?? Date.now());
   const rolesLabel = roles
     .map((r) => roleDisplayName(r.slug, r.displayName))
     .join(", ");
   const isMultiRole = roles.length > 1;
-  const [avatarFailed, setAvatarFailed] = useState(false);
-  const showAvatarImg = result.avatarUrl != null && !avatarFailed;
 
   const passages = result.passages ?? [];
   let body: JSX.Element;
@@ -229,21 +230,20 @@ export function ConversationSearchRow({
       onContextMenu={kebabContextMenu.onContextMenu}
       data-testid={`conversation-search-row-${result.transcriptPath}`}
       data-archived={result.isArchived ? "true" : "false"}
-      className={cn("pv-search-row", isMultiRole && "pv-multi-role")}
+      className={cn(
+        "pv-search-row",
+        isMultiRole && "pv-multi-role",
+        neutralLook && "pv-neutral",
+      )}
       style={{ ["--pv-search-row-hue" as string]: String(hue) }}
     >
       <div className="pv-search-row-header">
         <span className="pv-search-row-avatar" aria-hidden="true">
-          {showAvatarImg ? (
-            <img
-              src={result.avatarUrl!}
-              alt=""
-              className="pv-search-row-avatar-img"
-              onError={() => setAvatarFailed(true)}
-            />
-          ) : (
-            name.charAt(0).toUpperCase()
-          )}
+          <AvatarImage
+            src={result.avatarUrl}
+            name={name}
+            className="pv-search-row-avatar-img"
+          />
         </span>
         <span className="pv-search-row-lines">
           <span className="pv-search-row-line1">

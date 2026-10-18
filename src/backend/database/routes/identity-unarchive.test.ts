@@ -617,17 +617,17 @@ describe("POST /identities/:key/unarchive", () => {
     expect(writeIdentityArchiveFile).not.toHaveBeenCalled();
   });
 
-  it("Test 5d: archived identity with no readable roles → 409 no_roles, nothing restored", async () => {
+  it("Test 5d: roleless archived identity → 200, restored normally (relay + sentinel)", async () => {
     mockPython3Returns("[]");
     const res = await httpRequest(server, {
       method: "POST",
       path: "/identities/wren/unarchive",
       body: { hostId: 42 },
     });
-    expect(res.status).toBe(409);
-    expect(res.body).toEqual({ reason: "no_roles" });
-    expect(createOrUpdateUser).not.toHaveBeenCalled();
-    expect(writeIdentityArchiveFile).not.toHaveBeenCalled();
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ ok: true });
+    expect(createOrUpdateUser).toHaveBeenCalled();
+    expect(writeIdentityArchiveFile).toHaveBeenCalledTimes(2);
   });
 
   it("Test 5c: roles are read from the real identity file `<key>/<key>.md`", async () => {

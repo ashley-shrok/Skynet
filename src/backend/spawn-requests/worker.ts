@@ -22,8 +22,11 @@ import { connectOneShot } from "../ssh/ssh-one-shot.js";
 import { getHostSemaphore } from "../ssh/host-semaphore-registry.js";
 import { execCommand } from "../ssh/tmux-helper.js";
 import {
+  extractCosmeticsFromFrontmatter,
+  IDENTITY_KEY_RE,
   isLocalHostId,
   listIdentityKeysOnHost,
+  readIdentityFile,
   writeMarkdownFileAtomic,
 } from "../claude-session/identity-artifact-reader.js";
 import {
@@ -203,6 +206,9 @@ export interface WorkerDeps {
   listArchivedIdentityEntries: typeof listArchivedIdentityEntriesOnHost;
   /** Fleet name census; absent = the process-wide instance. */
   nameCensus?: FleetNameCensus;
+  /** Identity-file reader for the requester's `users:` list (roleless
+   *  requests); absent = the real readIdentityFile. */
+  readIdentityFile?: typeof readIdentityFile;
 }
 
 // ---------------------------------------------------------------------------
@@ -226,6 +232,7 @@ export function buildProductionDeps(): WorkerDeps {
     listActiveIdentityKeys: listIdentityKeysOnHost,
     listArchivedIdentityEntries: listArchivedIdentityEntriesOnHost,
     nameCensus: getFleetNameCensus(),
+    readIdentityFile,
   };
 }
 
@@ -385,6 +392,22 @@ const freeTypedSlug = (base: string, existing: ReadonlySet<string>): string => {
     candidate = `${base}-${n}`;
   }
   return candidate;
+};
+
+/**
+ * The requesting identity's own `users:` list, read from its identity file on
+ * the target host (`~/fleet/identities/<requested_by>/<requested_by>.md`).
+ * Undefined when `requested_by` isn't an identity key, the file is missing, or
+ * it has no (non-empty) list — the newborn is then left open.
+ */
+const readRequesterUsers = async (
+  conn: Awaited<ReturnType<typeof connectOneShot>> | null,
+  requestedBy: string,
+  readFn: typeof readIdentityFile,
+): Promise<string[] | undefined> => {
+  if (!IDENTITY_KEY_RE.test(requestedBy)) return undefined;
+  const { markdown } = await readFn(conn, requestedBy);
+  return extractCosmeticsFromFrontmatter(markdown).users;
 };
 
 export const processBirth = async (item: PendingBirth, deps: WorkerDeps): Promise<void> => {
@@ -586,6 +609,15 @@ const doBirth = async (item: PendingBirth, deps: WorkerDeps): Promise<void> => {
   // resolveFreeIdentitySlug pre-check.
   let activeFolderNames = new Set<string>();
   let archivedEntries: readonly ArchivedIdentityEntry[] = [];
+  // Roleless request with no `users` of its own: inherit the requesting
+  // identity's `users:` list (read over the same connection below), so a
+  // plain agent spawned by a private agent stays private.
+  const requestedBy = item.requested_by;
+  const inheritRequesterUsers =
+    item.roles.length === 0 &&
+    (item.users === undefined || item.users.length === 0) &&
+    requestedBy !== undefined;
+  let requesterUsers: string[] | undefined;
   let enumConn: Awaited<ReturnType<typeof connectOneShot>> | null = null;
   // REMOTE: the handshake and each of the two parallel exec channels take
   // their own slot on the shared per-host semaphore (verify:ssh-cap), so the
@@ -626,7 +658,7 @@ const doBirth = async (item: PendingBirth, deps: WorkerDeps): Promise<void> => {
         ),
       );
     }
-    const [activeList, archivedList] = await Promise.all([
+    const [activeList, archivedList, requesterUsersRead] = await Promise.all([
       withSlot(() => deps.listActiveIdentityKeys(enumConn)).catch((err: unknown) => {
         systemLogger.warn(
           "spawn-request worker: active-identity enumeration failed — soft-degrading to empty",
@@ -649,7 +681,25 @@ const doBirth = async (item: PendingBirth, deps: WorkerDeps): Promise<void> => {
         );
         return [] as ArchivedIdentityEntry[];
       }),
+      inheritRequesterUsers
+        ? withSlot(() =>
+            readRequesterUsers(enumConn, requestedBy, deps.readIdentityFile ?? readIdentityFile),
+          ).catch((err: unknown) => {
+            systemLogger.warn(
+              "spawn-request worker: requester identity read failed — roleless newborn left open",
+              {
+                operation: "spawn_request_requester_users_read_failed",
+                uuid: item.uuid,
+                hostId: item.hostIdNum,
+                identityKey: requestedBy,
+                error: err instanceof Error ? err.message : String(err),
+              },
+            );
+            return undefined;
+          })
+        : Promise.resolve(undefined),
     ]);
+    requesterUsers = requesterUsersRead;
     // Reduce full folder names (`clipper-box-maintainer-3`) to pool bases
     // (`clipper`) before handing to the ranker — its filter compares against
     // pool bases, and a shape mismatch silently bypasses the LRU logic
@@ -680,6 +730,17 @@ const doBirth = async (item: PendingBirth, deps: WorkerDeps): Promise<void> => {
         /* ignore */
       }
     }
+  }
+
+  if (inheritRequesterUsers) {
+    systemLogger.info("spawn-request worker: roleless request visibility", {
+      operation: "spawn_request_roleless_users",
+      uuid: item.uuid,
+      hostId: item.hostIdNum,
+      identityKey: requestedBy,
+      inherited: requesterUsers !== undefined,
+      users: requesterUsers ?? null,
+    });
   }
 
   // Fold in the fleet name census (names live on other machines, newest
@@ -735,6 +796,7 @@ const doBirth = async (item: PendingBirth, deps: WorkerDeps): Promise<void> => {
       path: `~/${pickedName.toLowerCase()}/`,
       colorHue: null,
       voice: null,
+      // Empty roles → roleless birth (`roles: []`, bare-name handle).
       role: item.roles[0],
       extraRoles: item.roles.slice(1),
       task: item.task ?? undefined,
@@ -748,8 +810,9 @@ const doBirth = async (item: PendingBirth, deps: WorkerDeps): Promise<void> => {
       // (news-watcher-zoey-email → users:["zoey"] → newborn's frontmatter).
       // When absent, buildIdentityFileBody falls through to the single-string
       // creatorUsername auto-tag path (which the worker never sets, so on a
-      // bare scan-spawn no `users:` key is emitted).
-      users: item.users,
+      // bare scan-spawn no `users:` key is emitted). A roleless request
+      // without its own list carries the requester's (see above).
+      users: item.users && item.users.length > 0 ? item.users : requesterUsers,
       // Typed-name births use the bare-name MXID shape, same as the dialog's
       // "name it myself" path; everything else is pool-picked (Pattern 6).
       poolPicked: typedNameSlug === null,
@@ -780,8 +843,9 @@ const doBirth = async (item: PendingBirth, deps: WorkerDeps): Promise<void> => {
       // The failure marker carries the partial identity name so operators can
       // check `fleet/identities/<partialName>` before deciding whether to retry.
       if (err instanceof Error && err.message === "BIRTH_ATTEMPT_TIMEOUT") {
+        // Pool picks compose `<name>-<role>` — or the bare name when roleless.
         const partialName =
-          typedNameSlug !== null
+          typedNameSlug !== null || item.roles.length === 0
             ? pickedName.toLowerCase()
             : `${pickedName.toLowerCase()}-${item.roles[0]}`;
         // May have been born — over-counting is the safe direction.
