@@ -21,9 +21,14 @@ The interrupt button in pretty view does exactly one honest thing in each situat
 
 ## Other work
 
+- Pushed 2026-10-18, NOT deployed (user: "Please push, no deploy"). Deploy needs its own greenlight: full suite, then the skynet-ship runbook (includes the Stacy ping) — open
+- Re-run the live-harness check against the deployed build (script kept in Chorus's archived workspace, interrupt-proof/uat-live-harness.test.ts.txt) — open
+
 ## Lingerers (explicitly approved)
 
 ## Open questions
+
+- Code-review fix keeps an in-memory list of live-cancelled prompts (never persisted, lost on restart, never decides what the view shows) so a reload or second view can't cancel the same prompt twice. Shape said "nothing extra is stored" — user hasn't ruled on whether this fits. Alternative: drop it and accept a harmless stray Ctrl-C on a re-press after reload.
 
 ## Prior context
 
