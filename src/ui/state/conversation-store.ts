@@ -79,6 +79,11 @@ import {
   projectKey,
   resolveEffectiveParents,
 } from "./project-tree";
+import {
+  getLastFinishAt,
+  isUnread,
+  subscribeAttention,
+} from "./attention-store";
 
 // ─── Public derived types ────────────────────────────────────────────────────
 
@@ -163,6 +168,13 @@ export type ConversationRow = {
   kind?: "harness" | "relay-room";
   roomId?: string;
   roomTitle?: string | null;
+  // Sidebar unread mark: the agent finished a turn this user hasn't seen
+  // (attention-store). Set on agent rows at snapshot time; absent otherwise.
+  unread?: boolean;
+  // Most recent activity from either side — the later of lastMessageAt (the
+  // user sent) and the agent's last finished turn. The recency key for the
+  // Conversations list and the rows inside a project.
+  activityAt?: number | null;
 };
 
 export type HostGroup = {
@@ -862,6 +874,97 @@ const compareByRecencyDesc = (
   return aKey - bKey;
 };
 
+// ─── Unread marks + attention ordering ───────────────────────────────────────
+//
+// Conversations and the rows inside each project sort: unread first, then
+// most recent activity (either side), null-to-bottom, then a stable fallback.
+// Pinned keeps its fixed host/role/label order; its rows still carry the mark.
+//
+// Holding a row in place: when the user opens an unread conversation, its
+// sort position (unread tier + activity at that moment) is frozen while it
+// stays on screen, so the row doesn't slide out from under the click. The
+// hold ends when it leaves the screen or its agent finishes another turn.
+
+type RowHold = { finishAt: number | null; activityAt: number | null };
+const heldRows = new Map<string, RowHold>();
+let visibleConversationIds: ReadonlySet<string> = new Set();
+
+function attentionKeyForRow(row: ConversationRow): string | null {
+  if (row.rdpHostRow === true || row.kind === "relay-room" || row.roomId !== undefined) return null;
+  if (!row.targetTmuxSession) return null;
+  return sessionWorkingKeyForRow(row.host, row.targetTmuxSession);
+}
+
+function decorateAttention(row: ConversationRow): void {
+  const k = attentionKeyForRow(row);
+  const finishAt = getLastFinishAt(k);
+  const sent = row.lastMessageAt ?? null;
+  const activityAt =
+    finishAt === null ? sent : sent === null ? finishAt : Math.max(sent, finishAt);
+  // Omitted when unknown, like the other optional row fields.
+  if (activityAt !== null) row.activityAt = activityAt;
+  else delete row.activityAt;
+  if (k !== null && isUnread(k)) row.unread = true;
+  else delete row.unread;
+}
+
+function effectiveSortKey(row: ConversationRow): { unread: boolean; activityAt: number | null } {
+  const hold = heldRows.get(row.id);
+  if (hold && hold.finishAt === getLastFinishAt(attentionKeyForRow(row))) {
+    return { unread: true, activityAt: hold.activityAt };
+  }
+  return { unread: row.unread === true, activityAt: row.activityAt ?? null };
+}
+
+const compareByAttention = (
+  fallback: (a: ConversationRow, b: ConversationRow) => number,
+) => (a: ConversationRow, b: ConversationRow): number => {
+  const ka = effectiveSortKey(a);
+  const kb = effectiveSortKey(b);
+  if (ka.unread !== kb.unread) return ka.unread ? -1 : 1;
+  if (ka.activityAt === null && kb.activityAt !== null) return 1;
+  if (ka.activityAt !== null && kb.activityAt === null) return -1;
+  if (ka.activityAt !== null && kb.activityAt !== null && ka.activityAt !== kb.activityAt) {
+    return kb.activityAt - ka.activityAt;
+  }
+  return fallback(a, b);
+};
+
+/**
+ * Tell the store which conversations are on screen right now (open in a
+ * visible pane of a tab the user is looking at). Call BEFORE marking them
+ * seen: a conversation that is unread as it comes on screen is held in place.
+ */
+export function setVisibleConversationIds(ids: Iterable<string>): void {
+  const next = new Set(ids);
+  let changed = false;
+  for (const id of heldRows.keys()) {
+    if (!next.has(id)) {
+      heldRows.delete(id);
+      changed = true;
+    }
+  }
+  const newlyVisible = [...next].filter((id) => !visibleConversationIds.has(id));
+  if (newlyVisible.length > 0) {
+    const snap = getSnapshot();
+    const rowsById = new Map<string, ConversationRow>();
+    for (const r of snap.middle) rowsById.set(r.id, r);
+    for (const sec of snap.projectSections) for (const r of sec.rows) rowsById.set(r.id, r);
+    for (const id of newlyVisible) {
+      const row = rowsById.get(id);
+      if (row?.unread === true) {
+        heldRows.set(id, {
+          finishAt: getLastFinishAt(attentionKeyForRow(row)),
+          activityAt: row.activityAt ?? null,
+        });
+        changed = true;
+      }
+    }
+  }
+  visibleConversationIds = next;
+  if (changed) notify();
+}
+
 function computeSnapshot(): ConversationList {
   // RDP tabs on RDP-enabled hosts live in the RDP section (see rdpRows
   // below) — never as their own row in pinned/middle, so they can't be
@@ -1053,6 +1156,7 @@ function computeSnapshot(): ConversationList {
     emittedIds.add(row.id);
   }
   pinned.sort(compareByHostRoleLabel);
+  for (const row of pinned) decorateAttention(row);
 
   // ── Middle zone (Phase 41 Plan 01): FLAT list of non-pinned / non-RDP
   //    identity-tmux + fleet-synthetic rows, sorted by compareByRecencyDesc.
@@ -1094,7 +1198,8 @@ function computeSnapshot(): ConversationList {
     middleRows.push(row);
     middleInsertionOrder.set(row, middlePushIndex++);
   }
-  middleRows.sort(compareByRecencyDesc(middleInsertionOrder));
+  for (const row of middleRows) decorateAttention(row);
+  middleRows.sort(compareByAttention(compareByRecencyDesc(middleInsertionOrder)));
   // Consume the fleet hostName fallback + host-tree order to keep the
   // ESLint no-unused-vars / TypeScript unused-symbol linters quiet — both
   // survived the retirement for downstream consumers (RDP synthesis below
@@ -1316,10 +1421,12 @@ function computeSnapshot(): ConversationList {
   for (const project of state.projects) {
     const k = projectKey(project.hostId, project.slug);
     const rows = [...(projectRowsByKey.get(k) ?? [])];
-    rows.sort((a, b) =>
-      rowDisplayName(a).localeCompare(rowDisplayName(b), undefined, {
-        sensitivity: "base",
-      }),
+    rows.sort(
+      compareByAttention((a, b) =>
+        rowDisplayName(a).localeCompare(rowDisplayName(b), undefined, {
+          sensitivity: "base",
+        }),
+      ),
     );
     sectionsByKey.set(k, {
       slug: project.slug,
@@ -3169,3 +3276,11 @@ export function __getFleetOnlyRowsForTest(): ConversationRow[] {
 subscribeSessionWorkingStore(() => {
   notify();
 });
+subscribeAttention(() => {
+  notify();
+});
+
+export function __resetRowHoldsForTest(): void {
+  heldRows.clear();
+  visibleConversationIds = new Set();
+}

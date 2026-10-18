@@ -2267,3 +2267,31 @@
 .pv-variant-tab:hover:not(.on) {
   color: hsla(var(--pv-id-hue), 22%, 92%, 0.85);
 }
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   UNREAD — the agent finished a turn this user hasn't seen. A brighter
+   outline in the row's own hue and nothing else (no dot, bar, glow or label
+   change): the DM mark has to be able to stand out more. Listed last and with
+   explicit hover/selected/desktop arms so the outline holds over the desktop
+   rows' transparent border and their bare hover/selection fills.
+   ═══════════════════════════════════════════════════════════════════════════ */
+.pv-row.pv-row--unread,
+.pv-row.pv-row--unread:hover,
+.pv-row.pv-row--desktop.pv-row--unread,
+.pv-row.pv-row--desktop.pv-row--unread:hover,
+.pv-row.pv-row--desktop.pv-row--unread.selected {
+  border-color: hsla(var(--pv-hue), 80%, 72%, 0.85);
+}
+
+/* A collapsed project (or the collapsed Projects super-header) with something
+   unread anywhere inside shows a small dot after its label. */
+.pv-section-unread-dot {
+  display: inline-block;
+  flex-shrink: 0;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #7cc4ff;
+  margin-left: 6px;
+  vertical-align: middle;
+}

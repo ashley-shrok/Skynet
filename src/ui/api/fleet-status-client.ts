@@ -54,6 +54,7 @@ import {
   lockSkewedSession,
   getSkewLockedSnapshot,
 } from "@/state/skew-lock-store";
+import { applyRemoteSeen, loadReadState, publishLastFinishAt } from "@/state/attention-store";
 
 // ---------------------------------------------------------------------------
 // Constants — mirror patch #148 backoff schedule verbatim
@@ -262,7 +263,11 @@ export function createFleetStatusClient(
           // session-waiting-store, session-tmux-store all publish first.
           for (const s of parsed.states) {
             publishSessionContextPct(s.hostId, s.tmuxSession, s.contextPct ?? null);
+            publishLastFinishAt(s.hostId, s.tmuxSession, s.lastFinishAt);
           }
+          // Every (re)connect: catch up on read marks cleared elsewhere
+          // while this tab was offline.
+          void loadReadState();
           // A snapshot is the full fleet: rebuild the desktop flags from it so
           // a session missing from it can't keep a stale "running".
           replaceSessionDesktopRunning(parsed.states);
@@ -281,6 +286,11 @@ export function createFleetStatusClient(
             parsed.state.hostId,
             parsed.state.tmuxSession,
             parsed.state.contextPct ?? null,
+          );
+          publishLastFinishAt(
+            parsed.state.hostId,
+            parsed.state.tmuxSession,
+            parsed.state.lastFinishAt,
           );
           publishSessionDesktopRunning(
             parsed.state.hostId,
@@ -305,6 +315,22 @@ export function createFleetStatusClient(
           break;
         case "pong":
           // No-op — keepalive reply
+          break;
+        case "read-state-changed":
+          // This user read a conversation on another tab or device (or this
+          // one — the echo is a max-wins no-op). Clears the unread mark here.
+          if (
+            typeof parsed.hostId !== "string" ||
+            typeof parsed.identityName !== "string" ||
+            typeof parsed.seenFinishAt !== "number"
+          ) {
+            console.warn({
+              operation: "fleet_status_client_read_state_changed_malformed",
+              url,
+            });
+            break;
+          }
+          applyRemoteSeen(parsed.hostId, parsed.identityName, parsed.seenFinishAt);
           break;
         case "project-list-changed":
           // Phase 117 Plan 117-06 (D-37): distinct wire message published by

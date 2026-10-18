@@ -107,6 +107,12 @@ export interface PrettyProjectSectionHeaderProps {
   rows: ReactNode;
   /** Controlled collapse state. `true` = header only; `false` = header + rows. */
   collapsed: boolean;
+  /**
+   * Something anywhere inside (own rows or any sub-project, any depth) is
+   * unread. Shown as a dot after the label while collapsed, so a mark is
+   * never hidden behind a closed project.
+   */
+  hasUnread?: boolean;
   /** Fired on header-body click with the section's slug. */
   onToggleCollapse: (slug: string) => void;
   /** Fired on the "New conversation in this project" kebab item click. */
@@ -174,6 +180,7 @@ export function PrettyProjectSectionHeader({
   displayName,
   rows,
   collapsed,
+  hasUnread = false,
   onToggleCollapse,
   onNewConversationClick,
   onDropRow,
@@ -412,6 +419,14 @@ export function PrettyProjectSectionHeader({
         <span className="pv-section-label">
           {displayName}
         </span>
+        {collapsed && hasUnread && (
+          <span
+            className="pv-section-unread-dot"
+            role="img"
+            aria-label="Has unread conversations"
+            data-testid={`pv-project-section-unread-${slug}`}
+          />
+        )}
         <span
           aria-hidden="true"
           className="flex-1 h-px bg-[linear-gradient(90deg,transparent_0%,rgba(168,154,128,0.20)_30%,rgba(168,154,128,0.20)_70%,transparent_100%)]"

@@ -144,6 +144,7 @@ type MockRow = {
   kind?: "harness" | "relay-room";
   roomId?: string;
   roomTitle?: string | null;
+  unread?: boolean;
 };
 
 type MockGroup = {
@@ -163,6 +164,7 @@ type MockSnapshot = {
     hostId?: string;
     displayName: string;
     rows: MockRow[];
+    parentKey?: string | null;
   }>;
   rdp: MockGroup | null;
   selectedId: string | null;
@@ -2890,5 +2892,72 @@ describe("PrettyConversationsPanel: badge drops file the conversation", () => {
     dispatchDrop(section, dt);
     expect(setSessionProjectSpy).not.toHaveBeenCalled();
     expect(pinConversationSpy).not.toHaveBeenCalled();
+  });
+});
+
+describe("PrettyConversationsPanel: unread marks show through collapsed headers", () => {
+  function seedNested() {
+    const hostA = makeHost("1", "hostA");
+    const quiet = makeRow({ id: "alpha-row", host: hostA, targetTmuxSession: "a-sess" });
+    const loud = { ...makeRow({ id: "beta-row", host: hostA, targetTmuxSession: "b-sess" }), unread: true };
+    setSnapshot({
+      projectSections: [
+        { slug: "alpha", hostId: "1", displayName: "Alpha", rows: [quiet], parentKey: null },
+        { slug: "beta", hostId: "1", displayName: "Beta", rows: [loud], parentKey: "1::alpha" },
+        { slug: "gamma", hostId: "1", displayName: "Gamma", rows: [quiet], parentKey: null },
+      ],
+    });
+    mockProjects = [
+      { slug: "alpha", displayName: "Alpha", hostId: "1", hostname: "hostA", archived: false },
+      { slug: "beta", displayName: "Beta", hostId: "1", hostname: "hostA", archived: false },
+      { slug: "gamma", displayName: "Gamma", hostId: "1", hostname: "hostA", archived: false },
+    ];
+  }
+  function renderPanel() {
+    return render(
+      <PrettyConversationsPanel
+        variant="desktop"
+        hostTree={HOST_TREE}
+        onCreateSession={() => {}}
+        onDeactivateRow={() => {}}
+      />,
+    );
+  }
+
+  it("a collapsed parent shows the dot when a sub-project inside it has an unread conversation", () => {
+    seedNested();
+    mockCollapsed = new Set(["alpha", "gamma"]);
+    const { queryByTestId } = renderPanel();
+    expect(queryByTestId("pv-project-section-unread-alpha")).not.toBeNull();
+    expect(queryByTestId("pv-project-section-unread-gamma")).toBeNull();
+  });
+
+  it("the collapsed Projects super-header shows the dot when anything in any project is unread", () => {
+    seedNested();
+    localStorage.setItem("pv-projects-section-collapsed", "1");
+    const { queryByTestId } = renderPanel();
+    expect(queryByTestId("pv-projects-super-header-unread")).not.toBeNull();
+  });
+
+  it("no super-header dot while expanded, or when nothing is unread", () => {
+    seedNested();
+    const first = renderPanel();
+    expect(first.queryByTestId("pv-projects-super-header-unread")).toBeNull();
+    first.unmount();
+    setSnapshot({ projectSections: [{ slug: "gamma", hostId: "1", displayName: "Gamma", rows: [], parentKey: null }] });
+    localStorage.setItem("pv-projects-section-collapsed", "1");
+    const second = renderPanel();
+    expect(second.queryByTestId("pv-projects-super-header-unread")).toBeNull();
+  });
+
+  it("an unread row renders with the unread class", () => {
+    seedNested();
+    mockCollapsed = new Set();
+    const { container } = renderPanel();
+    const row = container.querySelector('[data-conversation-id="beta-row"]');
+    expect(row?.getAttribute("data-unread")).toBe("true");
+    expect(row?.querySelector(".pv-row--unread")).not.toBeNull();
+    const quietRow = container.querySelector('[data-conversation-id="alpha-row"]');
+    expect(quietRow?.getAttribute("data-unread")).toBeNull();
   });
 });

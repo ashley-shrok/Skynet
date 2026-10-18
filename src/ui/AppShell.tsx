@@ -123,6 +123,7 @@ import {
   setIdentityProjectAssignments,
 } from "@/state/conversation-store";
 import type { ProjectRow } from "@/state/conversation-store";
+import { useSeenTracker, type SeenTarget } from "@/state/use-seen-tracker";
 // Cold-boot paint hint for the host tree — seeds hostsFlat so
 // projectForRow() resolves identity carriers on first render and
 // sidebar project sections + RDP rows paint immediately. See module
@@ -1324,6 +1325,30 @@ export function AppShell({
     }
     return activeTabId;
   }, [selectedConversationId, activeTabId, tabs]);
+
+  // Unread marks: which agent conversations are on screen right now. With a
+  // split on desktop that's every pane leaf; otherwise (single view, or any
+  // phone layout) the one selected conversation. They only count while the
+  // conversation is actually showing — not behind the phone's list screen or
+  // the narrow-screen sidebar — and while this browser tab is in front
+  // (use-seen-tracker checks that part).
+  const seenTargets = useMemo<SeenTarget[]>(() => {
+    const ids =
+      !isMobile && splitTree !== null
+        ? visibleInSplitTreeTabIds
+        : new Set(effectiveSelectedTabId ? [effectiveSelectedTabId] : []);
+    const out: SeenTarget[] = [];
+    for (const t of tabs) {
+      if (!ids.has(t.id)) continue;
+      if (t.sessionKind === "relay-room" || !t.host || !t.targetTmuxSession) continue;
+      out.push({ id: t.id, hostId: String(t.host.id), identityName: t.targetTmuxSession });
+    }
+    return out;
+  }, [tabs, isMobile, splitTree, visibleInSplitTreeTabIds, effectiveSelectedTabId]);
+  const screenShowsConversation = isTouchDevice
+    ? mobileScreen === "view"
+    : !(isMobile && sidebarOpen);
+  useSeenTracker(seenTargets, screenShowsConversation);
 
   // One-way store → AppShell sync: when the ConversationsPanel selects a
   // conversation, mirror it into `activeTabId` so downstream consumers

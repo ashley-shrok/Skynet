@@ -790,6 +790,26 @@ export function PrettyConversationsPanel({
     pinnedUnassigned,
     projectSections,
   } = useConversations();
+  // Unread marks through collapsed headers: which project sections have an
+  // unread conversation anywhere in their subtree (own rows or any
+  // sub-project, any depth), and whether any project has one at all (the
+  // collapsed Projects super-header).
+  const { unreadSectionKeys, anyProjectUnread } = useMemo(() => {
+    const keyOfSec = (sec: ProjectSection) => `${sec.hostId ?? ""}::${sec.slug}`;
+    const keys = new Set<string>();
+    const parentOf = new Map<string, string | null>();
+    for (const sec of projectSections) parentOf.set(keyOfSec(sec), sec.parentKey ?? null);
+    for (const sec of projectSections) {
+      if (!sec.rows.some((r) => r.unread === true)) continue;
+      // Mark this section and every ancestor (guarding against loops).
+      let k: string | null = keyOfSec(sec);
+      while (k !== null && !keys.has(k)) {
+        keys.add(k);
+        k = parentOf.get(k) ?? null;
+      }
+    }
+    return { unreadSectionKeys: keys, anyProjectUnread: keys.size > 0 };
+  }, [projectSections]);
   // Subscribe to the projects list so the panel re-renders when the wire
   // event flushes a new set through setProjects. useProjects() also feeds
   // the derived selector's projectSections computation — subscribing here is
@@ -3590,6 +3610,14 @@ export function PrettyConversationsPanel({
                   <span className="pv-section-label">
                     Projects
                   </span>
+                  {projectsSectionCollapsed && !sidebarSearchActive && anyProjectUnread && (
+                    <span
+                      className="pv-section-unread-dot"
+                      role="img"
+                      aria-label="Has unread conversations"
+                      data-testid="pv-projects-super-header-unread"
+                    />
+                  )}
                   <span
                     aria-hidden="true"
                     className="flex-1 h-px bg-[linear-gradient(90deg,transparent_0%,rgba(168,154,128,0.20)_30%,rgba(168,154,128,0.20)_70%,transparent_100%)]"
@@ -3645,6 +3673,7 @@ export function PrettyConversationsPanel({
                     // reapplies when the search clears. Collapsing a parent
                     // hides its sub-projects with it (they render inside).
                     collapsed={sidebarSearchActive ? false : collapsedProjectSlugs.has(section.slug)}
+                    hasUnread={unreadSectionKeys.has(keyOf(section))}
                     onToggleCollapse={toggleProjectCollapse}
                     onNewConversationClick={(s) => handleNewConversationInProject(s, section.hostId)}
                     onDropRow={handleProjectDrop}

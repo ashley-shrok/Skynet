@@ -16,6 +16,13 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { FRAME_SCHEMA_VERSION } from "./fleet-status-types.js";
 
+const attention = vi.hoisted(() => ({
+  publishLastFinishAt: vi.fn(),
+  applyRemoteSeen: vi.fn(),
+  loadReadState: vi.fn(() => Promise.resolve()),
+}));
+vi.mock("@/state/attention-store", () => attention);
+
 // ---------------------------------------------------------------------------
 // Minimal WS stub matching the browser WebSocket API surface used by the client
 // ---------------------------------------------------------------------------
@@ -1813,5 +1820,87 @@ describe("useSessionDesktopRunning — follows the fleet-status stream", () => {
     expect(watch.current).toBe(true);
     expect(seen.includes(false)).toBe(false);
     __disposeAllClientsForTest();
+  });
+});
+
+describe("fleet-status-client: unread marks plumbing", () => {
+  beforeEach(() => {
+    __disposeAllClientsForTest();
+    MockWebSocket.instances = [];
+    attention.publishLastFinishAt.mockClear();
+    attention.applyRemoteSeen.mockClear();
+    attention.loadReadState.mockClear();
+    vi.spyOn(console, "info").mockImplementation(() => {});
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+  });
+
+  const baseState = {
+    hostId: "1",
+    tmuxSession: "ash",
+    sessionId: "s1",
+    pid: 1,
+    status: "idle",
+    backgroundTasks: [],
+    updatedAt: 1,
+  };
+
+  function open() {
+    createFleetStatusClient({
+      url: "ws://localhost/fleet-status/ws",
+      onSnapshot: vi.fn(),
+      onUpdate: vi.fn(),
+      onGone: vi.fn(),
+    });
+    const ws = latestWs();
+    ws.onopen?.();
+    return ws;
+  }
+
+  it("snapshot: feeds every lastFinishAt and reloads read state (catch-up on reconnect)", () => {
+    const ws = open();
+    ws.onmessage?.({
+      data: JSON.stringify({
+        schemaVersion: FRAME_SCHEMA_VERSION,
+        type: "snapshot",
+        states: [{ ...baseState, lastFinishAt: 1234 }],
+      }),
+    });
+    expect(attention.publishLastFinishAt).toHaveBeenCalledWith("1", "ash", 1234);
+    expect(attention.loadReadState).toHaveBeenCalledTimes(1);
+  });
+
+  it("update: feeds lastFinishAt", () => {
+    const ws = open();
+    ws.onmessage?.({
+      data: JSON.stringify({
+        schemaVersion: FRAME_SCHEMA_VERSION,
+        type: "update",
+        state: { ...baseState, lastFinishAt: 5678 },
+      }),
+    });
+    expect(attention.publishLastFinishAt).toHaveBeenCalledWith("1", "ash", 5678);
+  });
+
+  it("read-state-changed: applies the seen mark; malformed frames are dropped", () => {
+    const ws = open();
+    ws.onmessage?.({
+      data: JSON.stringify({
+        schemaVersion: FRAME_SCHEMA_VERSION,
+        type: "read-state-changed",
+        hostId: "1",
+        identityName: "ash",
+        seenFinishAt: 99,
+      }),
+    });
+    expect(attention.applyRemoteSeen).toHaveBeenCalledWith("1", "ash", 99);
+    ws.onmessage?.({
+      data: JSON.stringify({
+        schemaVersion: FRAME_SCHEMA_VERSION,
+        type: "read-state-changed",
+        hostId: "1",
+        identityName: "ash",
+      }),
+    });
+    expect(attention.applyRemoteSeen).toHaveBeenCalledTimes(1);
   });
 });

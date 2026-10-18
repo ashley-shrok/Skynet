@@ -546,6 +546,9 @@ function PrettyConversationRowImpl({
     showSpinnerOn && "spinner-on",
     isRecycling === true && "recycling",
     pinned && "pinned",
+    // Unread: the agent finished a turn this user hasn't seen. Brighter
+    // outline in the row's own hue (pretty-conversations.css).
+    row.unread === true && "pv-row--unread",
     // Phase 41 Plan 01: amb-recession className toggle retired.
     // (Phase 115 post-code-review fix 3: `hidden && "hidden"` className toggle
     //  retired alongside the Hide/Show menu branch — hidden prop is gone.)
@@ -703,6 +706,7 @@ function PrettyConversationRowImpl({
       data-conversation-id={row.id}
       data-selected={selected ? "true" : "false"}
       data-pinned={pinned ? "true" : "false"}
+      data-unread={row.unread === true ? "true" : undefined}
       data-variant={variant}
       data-rdp-host-row={isRdp ? "true" : undefined}
     >

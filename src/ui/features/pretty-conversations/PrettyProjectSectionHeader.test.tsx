@@ -674,3 +674,29 @@ describe("PrettyProjectSectionHeader — isolation invariant", () => {
 // sidebar surfaces; the kebab tap is the sole gesture. The kebab-item tests
 // above (Test 4, 4b, 4c, 4d, 4e) are the new coverage for the four actions
 // that used to live behind right-click / long-press.
+
+describe("PrettyProjectSectionHeader — unread dot", () => {
+  const props = {
+    slug: "alpha",
+    displayName: "Alpha",
+    onToggleCollapse: vi.fn(),
+    onNewConversationClick: vi.fn(),
+    onDropRow: vi.fn(),
+    rows: <div />,
+  };
+
+  it("shows the dot when collapsed with something unread inside", () => {
+    const { queryByTestId } = render(<PrettyProjectSectionHeader {...props} collapsed={true} hasUnread={true} />);
+    expect(queryByTestId("pv-project-section-unread-alpha")).not.toBeNull();
+  });
+
+  it("no dot when expanded — the rows themselves carry the mark", () => {
+    const { queryByTestId } = render(<PrettyProjectSectionHeader {...props} collapsed={false} hasUnread={true} />);
+    expect(queryByTestId("pv-project-section-unread-alpha")).toBeNull();
+  });
+
+  it("no dot when nothing inside is unread", () => {
+    const { queryByTestId } = render(<PrettyProjectSectionHeader {...props} collapsed={true} />);
+    expect(queryByTestId("pv-project-section-unread-alpha")).toBeNull();
+  });
+});

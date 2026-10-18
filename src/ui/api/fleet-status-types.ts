@@ -277,6 +277,11 @@ export interface SessionState {
   // schema — any change to wire-protocol.ts MUST be mirrored here.
   activityMtime?: number | null;
   stoppedMtime?: number | null;
+  // When this identity's agent last finished a turn, kept durably per (host,
+  // identity) server-side so it survives session rotation and dormancy.
+  // Mirrors backend `SessionStateSchema.lastFinishAt`. Feeds the attention
+  // store (sidebar unread marks + recency ordering).
+  lastFinishAt?: number | null;
   // Phase 90 Plan 00 (Wave 0, 2026-09-08 — D-10 delivery mechanism): per-session
   // context% (0-100). Populated by subscription-registry at frame-publish time
   // from the backend contextpct-store shared map, which is dual-written by the
@@ -425,6 +430,17 @@ export interface FrontendAppGoneFrame {
   slug: string;
 }
 
+// read-state-changed — this user's "seen up to" mark for one agent
+// conversation advanced (on this or another of their tabs/devices). Mirrors
+// wire-protocol.ts FrontendReadStateChangedFrameSchema.
+export interface FrontendReadStateChangedFrame {
+  schemaVersion: typeof FRAME_SCHEMA_VERSION;
+  type: "read-state-changed";
+  hostId: string;
+  identityName: string;
+  seenFinishAt: number;
+}
+
 export type FrontendOutboundFrame =
   | FrontendSnapshotFrame
   | FrontendUpdateFrame
@@ -432,6 +448,7 @@ export type FrontendOutboundFrame =
   | FrontendPongFrame
   | FrontendProjectListChangedFrame
   | FrontendSessionProjectChangedFrame
+  | FrontendReadStateChangedFrame
   | FrontendAppSnapshotFrame
   | FrontendAppUpdateFrame
   | FrontendAppGoneFrame;
