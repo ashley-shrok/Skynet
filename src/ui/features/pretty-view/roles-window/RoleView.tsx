@@ -727,6 +727,8 @@ export function RoleView({
           onKeyDownCapture={() => (interacted.current = true)}
           onPointerDownCapture={() => (interacted.current = true)}
           onPasteCapture={() => (interacted.current = true)}
+          onDropCapture={() => (interacted.current = true)}
+          onBeforeInputCapture={() => (interacted.current = true)}
         >
           <MarkdownEditor filename="role.md" content={draft} onChange={onEditorChange} disabled={saving} />
         </div>

@@ -13,7 +13,7 @@
 // and create go back to the new-conversation dialog).
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Modal } from "@/components/modal";
+import { Modal, escBelongsElsewhere } from "@/components/modal";
 import type { Host, HostFolder } from "@/types/ui-types";
 import { listRolesForHost, type RoleSummary } from "@/api/identities-api";
 import { listInstanceWide, type InstanceWideList } from "@/api/instance-wide-api";
@@ -282,9 +282,7 @@ export function RolesWindow({
     if (!open) return;
     const onKey = (e: KeyboardEvent): void => {
       if (e.key !== "Escape" || e.defaultPrevented) return;
-      const t = e.target instanceof Element ? e.target : null;
-      if (t?.closest("[data-modal-esc-local]")) return;
-      if (document.querySelector(".k-dialog-body, [role='menu']")) return;
+      if (escBelongsElsewhere(e)) return;
       if (escapeRef.current?.()) {
         e.preventDefault();
         e.stopPropagation();

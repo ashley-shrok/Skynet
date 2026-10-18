@@ -115,6 +115,21 @@ function escHandledLocally(target: EventTarget | null): boolean {
   return target instanceof Element && target.closest("[data-modal-esc-local]") !== null;
 }
 
+/**
+ * True when an Esc a window would act on (leave an editor, go back a level)
+ * belongs to something on top of it instead: a field using Esc itself, an
+ * in-app dialog or menu, or one of the rich editor's own pop-ups (link,
+ * block type, frontmatter) — those close themselves on Esc.
+ */
+export function escBelongsElsewhere(e: KeyboardEvent): boolean {
+  if (escHandledLocally(e.target)) return true;
+  return (
+    document.querySelector(
+      ".k-dialog-body, [role='menu'], .mdxeditor-popup-container [role='dialog'], .mdxeditor-popup-container [role='listbox']",
+    ) !== null
+  );
+}
+
 /** Elements a sheet drag must never start on. */
 const DRAG_EXCLUDE = "button, a, input, select, textarea, label, [contenteditable], [role='menuitem'], [role='option']";
 /** Where a sheet drag may start: its grab zone, its head, a kit dialog body. */

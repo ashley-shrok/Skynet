@@ -214,7 +214,12 @@ export function CreateProjectModal({
   return (
     <Modal
       open={open}
-      onOpenChange={onOpenChange}
+      // No closing mid-create: the caller's follow-up (moving a conversation
+      // into the new project) needs the dialog's context when it lands.
+      onOpenChange={(next) => {
+        if (!next && inFlight) return;
+        onOpenChange(next);
+      }}
       size="md"
       data-testid="create-project-modal"
     >

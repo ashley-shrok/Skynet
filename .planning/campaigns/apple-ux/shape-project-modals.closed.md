@@ -71,3 +71,44 @@ The project window (opened from a project's menu → Open project) is laid out l
 - Identity: copper-box-maintainer-2, local only on `feat/tab-title-from-tmux`, not pushed (campaign shipping rule).
 - Follow the agent window's agent-file pattern (reading → Edit → Cancel/Save, edit baseline after first keypress) and its project-lineage helper.
 - Non-admin-visible change → id skill edit (Project modal and new-project wording).
+
+---
+
+## Close-Out
+
+**Closed:** 2026-10-18
+**Overall verdict:** closed-hit
+
+### Shape features (conformance)
+
+- **What this is** — present · project window laid out like the agent window; creation dialogs are short forms with Cancel and Create.
+- **Project window — top** — present · X only, folder tile, quiet "In A › B" line for sub-projects only, large name, quiet count taken live from what the sidebar shows this user.
+- **Tabs** — present · Project file and Files; opens on Project file.
+- **Project file** — present · formatted reading without the settings block; read aloud left, Edit right; Cancel / Save while editing; Save returns to reading; empty state with Write it and no foot.
+- **Files** — present · same browser, project file hidden at the top; empty top level says "No files yet".
+- **Unsaved edits** — present · Cancel, Esc, X and tab switch all ask; Esc leaves the editor, Esc while reading closes.
+- **New project dialog** — drifted (endorsed) · everything present; the machine choice keeps today's searchable picker (search box, online dots, user names) instead of a plain tick-list.
+- **New sub-project dialog** — present · titled so, "Inside <full parent chain>", no host.
+- **Phone** — drifted (endorsed) · project window full screen; the two creation dialogs are the kit's bottom sheet, like every short dialog since the foundation.
+- **Philosophy** — present · reading first, plain-text facts, kit parts only, nothing lost.
+- **Prior context** — present · always-on editor, foot Close and header read-aloud gone; dialog gained Cancel.
+- **Scope edges** — present · no rename in the window, no conversation list, no machine shown, no parent chooser.
+- **Handoff notes** — present · agent-file pattern and lineage helper followed; id skill updated.
+- **What would make it wrong: window opens straight into the editor, or a Close button at the foot** — present · opens on reading; no foot Close.
+- **What would make it wrong: lineage or count looks like a control, or a sub-project shows without its parents** — present · plain text, full chain.
+- **What would make it wrong: an empty project file shows a blank editor or page** — present · empty state with Write it.
+- **What would make it wrong: unsaved edits vanish without asking** — present · every route asks.
+- **What would make it wrong: dialog asks for a host when there's one, when fixed, or for a sub-project** — present · hidden in all three.
+- **What would make it wrong: something either window could do is gone** — present · read aloud, edit/save, every Files action, chosen host, Move to → New project…, sub-project all wired.
+
+### Additions (in the result, not in the shape)
+
+- Machine choice keeps a search box, online dots and user names (today's picker, same as the new-role dialog) — endorsed-as-drift
+
+### Follow-ups
+
+- Phone creation dialogs are a bottom sheet rather than full screen — accepted-as-drift (revisit in shape-modal-sizing if wanted)
+
+### Notes
+
+An empty project's count reads "0 conversations". The host help line, Files intro line and the "Inside" panel are word for word from the agreed tasting.

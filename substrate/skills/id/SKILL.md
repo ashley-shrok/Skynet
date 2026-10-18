@@ -805,8 +805,8 @@ not something agents drive.
   plus) collapses or expands the whole Projects section; a chevron on the
   far right shows which. The choice is remembered in that browser, and a
   sidebar search always shows matching projects even when it's collapsed.
-  - **➕ Plus — new project.** A short dialog: a name, plus a tick-list
-    of machines when the user has more than one, then Cancel / Create
+  - **➕ Plus — new project.** A short dialog: a name, plus a searchable
+    list of machines when the user has more than one, then Cancel / Create
     (Enter in the name also creates). Slug is derived from the name
     (kebab-case, `/^[a-z0-9-]{1,64}$/`); a name whose slug is taken gets
     `-2`, `-3`, … added.

@@ -33,7 +33,7 @@ Starting order: foundation, skills, then the remaining modals, then host targeti
 - **[declared] shape-skills-modal** — library + skill views, who-can-use switches in bulk, files collapsed; shared skills agent-only for non-admins (see shape-skills-modal.closed.md) — closed 2026-10-18
 - **[declared] shape-roles-modals** — roles list, role modal, new-role dialog, runbook editor become one window; roles gain a one-line description (see shape-roles-modals.closed.md) — closed 2026-10-18
 - **[declared] shape-identity-modal** — agent window: who the agent is on top, wake-ups / new wake-up / git one level deeper in the same window (see shape-identity-modal.closed.md) — closed 2026-10-18
-- **[declared] shape-project-modals** — project modal + new-project dialog — not started
+- **[declared] shape-project-modals** — project window like the agent window (folder tile, lineage, count; read → Edit), new-project dialogs with Cancel (see shape-project-modals.closed.md) — closed 2026-10-18
 - **[declared] shape-scheduled-tasks-modal** — scheduled tasks list + editor — not started
 - **[declared] shape-preferences-modal** — preferences (and the feedback dialog) — not started
 - **[declared] shape-admin-modals** — admin panel + admin user modal — not started

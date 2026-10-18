@@ -24,7 +24,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { FileText, Folder, Pencil } from "lucide-react";
-import { Modal, ModalHead, ModalFoot, ModalTabs } from "@/components/modal";
+import { Modal, ModalHead, ModalFoot, ModalTabs, escBelongsElsewhere } from "@/components/modal";
 import { Tabs, TabsContent } from "@/components/tabs";
 import { KitBanner, KitButton, KitEmpty, KitLoading, kitConfirm } from "@/components/kit";
 import { getProjectFile, updateProjectFile } from "@/api/project-list-api";
@@ -93,6 +93,7 @@ export function ProjectModal({
   const [draft, setDraft] = useState("");
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
+  const [loadAttempt, setLoadAttempt] = useState(0);
 
   // Parents only — the project's own name is the title.
   const projects = useProjects();
@@ -130,7 +131,7 @@ export function ProjectModal({
     return () => {
       cancelled = true;
     };
-  }, [open, slug, hostId]);
+  }, [open, slug, hostId, loadAttempt]);
 
   // ── Editing ──────────────────────────────────────────────────────────────
   // The rich editor can re-serialise the file once more after it loads.
@@ -204,7 +205,7 @@ export function ProjectModal({
     const onKey = (e: KeyboardEvent): void => {
       if (e.key !== "Escape" || e.defaultPrevented) return;
       if (!escState.current.editing) return;
-      if (document.querySelector(".k-dialog-body, [role='menu']")) return;
+      if (escBelongsElsewhere(e)) return;
       e.preventDefault();
       e.stopPropagation();
       if (!escState.current.saving) void leaveEditing();
@@ -237,10 +238,15 @@ export function ProjectModal({
   }, [saving, hostId, slug, draft]);
 
   // ── Top ──────────────────────────────────────────────────────────────────
+  // The last known count stays up if the sidebar briefly loses the project
+  // (a refetch, or it's archived elsewhere) rather than the line blinking out.
+  const lastContents = useRef(contents);
+  if (contents) lastContents.current = contents;
+  const shownContents = contents ?? lastContents.current;
   const countBits: string[] = [];
-  if (contents) {
-    countBits.push(plural(contents.conversations, "conversation"));
-    if (contents.subProjects > 0) countBits.push(plural(contents.subProjects, "sub-project"));
+  if (shownContents) {
+    countBits.push(plural(shownContents.conversations, "conversation"));
+    if (shownContents.subProjects > 0) countBits.push(plural(shownContents.subProjects, "sub-project"));
   }
 
   const hero = (
@@ -280,7 +286,16 @@ export function ProjectModal({
     fileState.status === "loading" ? (
       <KitLoading lines={5} />
     ) : fileState.status === "error" ? (
-      <KitBanner tone="danger">Couldn&apos;t load project file: {fileState.error}</KitBanner>
+      <KitBanner
+        tone="danger"
+        action={
+          <KitButton size="sm" onClick={() => setLoadAttempt((n) => n + 1)} data-testid="project-modal-retry">
+            Try again
+          </KitButton>
+        }
+      >
+        Couldn&apos;t load project file: {fileState.error}
+      </KitBanner>
     ) : editing ? (
       <div className="flex flex-col h-full min-h-0">
         <div
@@ -288,6 +303,8 @@ export function ProjectModal({
           onKeyDownCapture={() => (interacted.current = true)}
           onPointerDownCapture={() => (interacted.current = true)}
           onPasteCapture={() => (interacted.current = true)}
+          onDropCapture={() => (interacted.current = true)}
+          onBeforeInputCapture={() => (interacted.current = true)}
         >
           <MarkdownEditor filename="project.md" content={draft} onChange={onEditorChange} disabled={saving} />
         </div>

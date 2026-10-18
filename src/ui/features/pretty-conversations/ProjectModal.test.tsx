@@ -323,4 +323,45 @@ describe("ProjectModal", () => {
     fireEvent.click(screen.getByTestId("project-modal-nav-files"));
     expect(await screen.findByTestId("workspace-empty-root", {}, { timeout: 5000 })).toHaveTextContent("No files yet");
   });
+
+  it("Esc while one of the editor's own pop-ups is open is left to the pop-up", async () => {
+    const { onOpenChange } = renderModal();
+    await editTo("changed");
+    const pop = document.createElement("div");
+    pop.className = "mdxeditor-popup-container";
+    pop.innerHTML = '<div role="dialog">link</div>';
+    document.body.appendChild(pop);
+    const dialogs = autoAnswerKitDialogs({ confirm: true });
+    fireEvent.keyDown(window, { key: "Escape" });
+    await new Promise((r) => setTimeout(r, 30));
+    expect(dialogs.calls).toHaveLength(0);
+    expect((await editor()).value).toBe("changed");
+    expect(onOpenChange).not.toHaveBeenCalled();
+    pop.remove();
+  });
+
+  it("text dropped into the editor counts as an edit", async () => {
+    renderModal();
+    fireEvent.click(await screen.findByTestId("project-modal-edit"));
+    const ed = await editor();
+    fireEvent.drop(ed);
+    fireEvent.change(ed, { target: { value: "dropped in" } });
+    await waitFor(() => expect(screen.getByTestId("project-modal-save")).not.toBeDisabled());
+  });
+
+  it("a failed load offers Try again, which loads again", async () => {
+    getProjectFileSpy.mockRejectedValueOnce(new Error("host unreachable"));
+    renderModal();
+    fireEvent.click(await screen.findByTestId("project-modal-retry"));
+    expect(await screen.findByTestId("project-modal-file")).toHaveTextContent("Pack light.");
+    expect(getProjectFileSpy).toHaveBeenCalledTimes(2);
+  });
+
+  it("keeps the last count if the sidebar briefly loses the project", () => {
+    const { rerender } = renderModal({ contents: { conversations: 2, subProjects: 0 } });
+    rerender(
+      <ProjectModal open onOpenChange={vi.fn()} slug="alpha" displayName="Alpha" hostId={1} />,
+    );
+    expect(screen.getByTestId("project-modal-count")).toHaveTextContent("2 conversations");
+  });
 });

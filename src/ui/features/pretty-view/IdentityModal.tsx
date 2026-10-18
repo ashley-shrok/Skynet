@@ -20,7 +20,7 @@ import type React from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { AlarmClock, ChevronLeft, Folder, GitBranch, Mic, Monitor, Pencil, User } from "lucide-react";
-import { Modal, ModalFoot, ModalHead, ModalTabs } from "@/components/modal";
+import { Modal, ModalFoot, ModalHead, ModalTabs, escBelongsElsewhere } from "@/components/modal";
 import { KitBanner, KitButton, KitEmpty, KitInput, KitLoading, kitConfirm } from "@/components/kit";
 import { Tabs, TabsContent } from "@/components/tabs";
 import { updateIdentity } from "@/api/identities-api";
@@ -303,9 +303,7 @@ export function IdentityModal({
       if (e.key !== "Escape" || e.defaultPrevented) return;
       const s = escState.current;
       if (s.desktopControl) return;
-      const t = e.target instanceof Element ? e.target : null;
-      if (t?.closest("[data-modal-esc-local]")) return;
-      if (document.querySelector(".k-dialog-body, [role='menu']")) return;
+      if (escBelongsElsewhere(e)) return;
       const stop = (): void => {
         e.preventDefault();
         e.stopPropagation();
@@ -808,6 +806,8 @@ export function IdentityModal({
           onKeyDownCapture={() => (interacted.current = true)}
           onPointerDownCapture={() => (interacted.current = true)}
           onPasteCapture={() => (interacted.current = true)}
+          onDropCapture={() => (interacted.current = true)}
+          onBeforeInputCapture={() => (interacted.current = true)}
         >
           <MarkdownEditor filename="identity.md" content={draft} onChange={onEditorChange} disabled={savingFile} />
         </div>

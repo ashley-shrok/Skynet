@@ -445,4 +445,18 @@ describe("CreateProjectModal", () => {
     await waitFor(() => expect(createProjectSpy).toHaveBeenCalledWith(6, "Parked", "mid"));
     setProjects([]);
   });
+
+  it("can't be closed while the create is in flight", async () => {
+    let finish: (v: { ok: true; slug: string }) => void = () => {};
+    createProjectSpy.mockImplementationOnce(() => new Promise((r) => { finish = r; }));
+    const { onOpenChange } = renderModal();
+    typeName("Trip Planning");
+    fireEvent.click(screen.getByRole("button", { name: /^create$/i }));
+    await waitFor(() => expect(createProjectSpy).toHaveBeenCalledTimes(1));
+    fireEvent.click(screen.getByTestId("create-project-close"));
+    fireEvent.keyDown(document.activeElement ?? document.body, { key: "Escape" });
+    expect(onOpenChange).not.toHaveBeenCalled();
+    finish({ ok: true as const, slug: "trip-planning" });
+    await waitFor(() => expect(onOpenChange).toHaveBeenCalledWith(false));
+  });
 });
