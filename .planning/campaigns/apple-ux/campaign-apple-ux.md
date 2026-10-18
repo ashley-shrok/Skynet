@@ -27,11 +27,10 @@ So: this artifact deliberately does NOT list Apple design principles, and no ses
 
 ## Shapes
 
-Starting order: foundation, skills, host targeting, then the remaining modals, then sidebar and conversation view last (Ashley: "save that until we've already gone through the rest").
+Starting order: foundation, skills, then the remaining modals, then host targeting, then sidebar and conversation view last (Ashley: "save that until we've already gone through the rest"). Host targeting moved after the modals 2026-10-18 (Ashley: "we're just gonna have to end up redesigning the interface for it anyways") — its controls live in the skills and roles modals, so it waits until those are redesigned.
 
 - **[declared] shape-ux-foundation** — look A + the shared kit, every modal moved onto it, in-app dialogs, phone sheets (see shape-ux-foundation.closed.md) — closed 2026-10-17
 - **[declared] shape-skills-modal** — library + skill views, who-can-use switches in bulk, files collapsed; shared skills agent-only for non-admins (see shape-skills-modal.closed.md) — closed 2026-10-18
-- **[declared] shape-host-targeting** — admin-only: shared skills and roles target a chosen set of hosts or a permanent "every host"; sync machinery + the admin controls in both skills and roles modals — not started
 - **[declared] shape-roles-modals** — roles list, role modal, new-role dialog, runbook editor — not started
 - **[declared] shape-identity-modal** — agent modal (agent file, wake-ups + add-wake-up, files, git, desktop tabs) — not started
 - **[declared] shape-project-modals** — project modal + new-project dialog — not started
@@ -40,6 +39,7 @@ Starting order: foundation, skills, host targeting, then the remaining modals, t
 - **[declared] shape-admin-modals** — admin panel + admin user modal — not started
 - **[declared] shape-creation-and-search-dialogs** — new conversation, new session, conversation search, archived apps — not started
 - **[declared] shape-file-modal** — the editable file modal — not started
+- **[declared] shape-host-targeting** — admin-only: shared skills and roles target a chosen set of hosts or a permanent "every host"; sync machinery + the admin controls in both skills and roles modals — not started
 - **[declared] shape-sidebar** — the conversation list / sidebar, after all modals — not started
 - **[declared] shape-conversation-view** — the chat view itself, last — not started
 
