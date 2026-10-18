@@ -99,11 +99,11 @@ function errorCopy(errorClass: string): WorkspaceErrorCopy {
   return GIT_ERROR_COPY[errorClass] ?? resolveWorkspaceErrorCopy(errorClass);
 }
 
-function errorClassOf(err: unknown): string {
+export function errorClassOf(err: unknown): string {
   return err instanceof Error ? err.message : "host_unreachable";
 }
 
-function timeAgo(ms: number): string {
+export function timeAgo(ms: number): string {
   if (!ms) return "—";
   const mins = Math.floor(Math.max(0, Date.now() - ms) / 60_000);
   if (mins < 1) return "just now";
@@ -125,7 +125,7 @@ const STATUS_WORD: Record<string, string> = {
 };
 
 /** One-letter badge + description for a changed file. */
-function describeChange(f: GitFileChange): { letter: string; label: string; tone: KitChipTone } {
+export function describeChange(f: GitFileChange): { letter: string; label: string; tone: KitChipTone } {
   if (f.kind === "untracked") return { letter: "?", label: "new, not tracked yet", tone: "accent" };
   if (f.kind === "conflicted") return { letter: "!", label: "merge conflict", tone: "danger" };
   const letter = f.index !== "." ? f.index : f.worktree;
@@ -139,7 +139,7 @@ function describeChange(f: GitFileChange): { letter: string; label: string; tone
   return { letter, label: `${STATUS_WORD[letter] ?? "changed"} · ${where}`, tone };
 }
 
-function repoLabel(path: string): string {
+export function repoLabel(path: string): string {
   return path === "" ? "Workspace (root)" : path;
 }
 
@@ -148,7 +148,7 @@ function repoLabel(path: string): string {
 // ---------------------------------------------------------------------------
 
 /** Letter colour for a change badge, matching the chip tones. */
-const TONE_TEXT: Record<KitChipTone, string> = {
+export const TONE_TEXT: Record<KitChipTone, string> = {
   neutral: "text-[var(--k-t2)]",
   accent: "text-[var(--k-acc-text)]",
   ok: "text-[var(--k-ok)]",
@@ -156,7 +156,7 @@ const TONE_TEXT: Record<KitChipTone, string> = {
   danger: "text-[var(--k-danger-text)]",
 };
 
-function ErrorBanner({ errorClass }: { errorClass: string }): JSX.Element {
+export function ErrorBanner({ errorClass }: { errorClass: string }): JSX.Element {
   const copy = errorCopy(errorClass);
   return (
     <KitBanner tone="danger" className="mx-2.5 my-2">
@@ -167,7 +167,7 @@ function ErrorBanner({ errorClass }: { errorClass: string }): JSX.Element {
 }
 
 /** A quiet line of text inside a list (e.g. "No commits yet."). */
-function Note({ children }: { children: ReactNode }): JSX.Element {
+export function Note({ children }: { children: ReactNode }): JSX.Element {
   return <div className="px-2.5 py-3 text-[13px] text-[var(--k-t3)]">{children}</div>;
 }
 
@@ -201,10 +201,10 @@ function Toolbar({
   );
 }
 
-type Load<T> = { status: "loading" } | { status: "ready"; data: T } | { status: "error"; errorClass: string };
+export type Load<T> = { status: "loading" } | { status: "ready"; data: T } | { status: "error"; errorClass: string };
 
 /** Fetch on mount and whenever `deps` change; stale responses are dropped. */
-function useLoad<T>(fetcher: () => Promise<T>, deps: unknown[]): Load<T> {
+export function useLoad<T>(fetcher: () => Promise<T>, deps: unknown[]): Load<T> {
   const [state, setState] = useState<Load<T>>({ status: "loading" });
   useEffect(() => {
     let cancelled = false;
@@ -221,7 +221,7 @@ function useLoad<T>(fetcher: () => Promise<T>, deps: unknown[]): Load<T> {
   return state;
 }
 
-function targetDepKey(t: WorkspaceTarget): string {
+export function targetDepKey(t: WorkspaceTarget): string {
   return t.kind === "identity" ? `identity:${t.identityKey}` : `role:${t.roleSlug}`;
 }
 
@@ -229,22 +229,22 @@ function targetDepKey(t: WorkspaceTarget): string {
 // Remote checks
 // ---------------------------------------------------------------------------
 
-type RemoteState =
+export type RemoteState =
   | { status: "checking" }
   | { status: "done"; result: GitRemoteCheck }
   | { status: "error"; errorClass: string };
 
-type RemoteChecks = Record<string, RemoteState>;
+export type RemoteChecks = Record<string, RemoteState>;
 
 /** Remote checks in flight at once when checking a whole list. */
 const REMOTE_CHECK_CONCURRENCY = 3;
 
-function canCheckRemote(s: Pick<GitRepoSummary, "upstream" | "detached">): boolean {
+export function canCheckRemote(s: Pick<GitRepoSummary, "upstream" | "detached">): boolean {
   return !!s.upstream && !s.detached;
 }
 
 /** Ahead/behind pills — from a fresh remote check when there is one. */
-function SyncPills({
+export function SyncPills({
   upstream,
   ahead,
   behind,
@@ -292,7 +292,7 @@ function SyncPills({
   );
 }
 
-function CheckRemoteButton({
+export function CheckRemoteButton({
   label,
   busy,
   disabled,
@@ -321,7 +321,7 @@ function CheckRemoteButton({
 // RepoListView
 // ---------------------------------------------------------------------------
 
-function ChangeSummary({ repo }: { repo: GitRepoSummary }): JSX.Element {
+export function ChangeSummary({ repo }: { repo: GitRepoSummary }): JSX.Element {
   const parts: ReactNode[] = [];
   if (repo.conflicted) parts.push(<Pill key="c" tone="danger">{repo.conflicted} conflicted</Pill>);
   if (repo.staged) parts.push(<Pill key="s" tone="ok">{repo.staged} staged</Pill>);
@@ -676,11 +676,17 @@ type View =
 const DEFAULT_INTRO =
   "Git repos in this agent's workspace and what's changed in each. Read-only — the agent makes the commits.";
 
-export default function GitTab({ target, hostId, introCopy }: GitTabProps): JSX.Element {
-  const [view, setView] = useState<View>({ mode: "list" });
-  const [refreshKey, setRefreshKey] = useState(0);
+/**
+ * Remote checks for one workspace target: per-repo results, a checker that
+ * runs a few at once, and a reset (refresh) that drops answers still in
+ * flight. Shared by the Git tab and the agent window's git views.
+ */
+export function useRemoteChecks(
+  target: WorkspaceTarget,
+  hostId: number,
+): { remote: RemoteChecks; checkRemotes: (paths: string[]) => void; reset: () => void } {
   const [remote, setRemote] = useState<RemoteChecks>({});
-  // Bumped on refresh/target change so late remote-check answers are dropped.
+  // Bumped on reset/target change so late remote-check answers are dropped.
   const generation = useRef(0);
   const tk = targetDepKey(target);
 
@@ -689,12 +695,11 @@ export default function GitTab({ target, hostId, introCopy }: GitTabProps): JSX.
     setRemote({});
   }, [tk, hostId]);
 
-  const refresh = () => {
+  const reset = useCallback(() => {
     // Remote counts are relative to HEAD at check time — drop them with the rest.
     generation.current++;
     setRemote({});
-    setRefreshKey((k) => k + 1);
-  };
+  }, []);
 
   const checkRemotes = useCallback(
     (paths: string[]) => {
@@ -719,6 +724,20 @@ export default function GitTab({ target, hostId, introCopy }: GitTabProps): JSX.
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [tk, hostId],
   );
+
+  return { remote, checkRemotes, reset };
+}
+
+export default function GitTab({ target, hostId, introCopy }: GitTabProps): JSX.Element {
+  const [view, setView] = useState<View>({ mode: "list" });
+  const [refreshKey, setRefreshKey] = useState(0);
+  const { remote, checkRemotes, reset } = useRemoteChecks(target, hostId);
+  const tk = targetDepKey(target);
+
+  const refresh = () => {
+    reset();
+    setRefreshKey((k) => k + 1);
+  };
 
   // Each view fetches only while shown; going back refetches (cheap, and the
   // agent may have changed things in the meantime).

@@ -125,7 +125,6 @@ describe("IdentityModal (Phase 90 D-09): scope switch removed", () => {
         hue={200}
         hostId={7}
         onOpenRoleModal={vi.fn()}
-        container={document.body}
       />,
     );
     await waitFor(() => {
@@ -148,7 +147,6 @@ describe("IdentityModal (Phase 90 D-09): scope switch removed", () => {
         hue={200}
         hostId={7}
         onOpenRoleModal={vi.fn()}
-        container={document.body}
       />,
     );
     await waitFor(() => {

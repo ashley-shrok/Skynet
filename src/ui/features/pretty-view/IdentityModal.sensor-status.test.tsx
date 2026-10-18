@@ -171,7 +171,6 @@ function renderModal(identityOverrides?: Partial<Identity>): void {
       hostId={1}
       // Phase 90 Plan 90-06: onOpenRoleModal is the new required prop.
       onOpenRoleModal={vi.fn()}
-      container={document.body}
     />,
   );
 }
@@ -362,9 +361,11 @@ describe("IdentityModal Wake-ups tab — sensor status (sensors shape 2)", () =>
     vi.useFakeTimers({ toFake: ["setInterval", "clearInterval"] });
     clickNav("identity-wakeups");
     deliver(findSocketForRequestType("identity:list-wakeups")!, wakeupsPayload("healthy"));
-    fireEvent.click(await screen.findByRole("button", { name: /morning/i }));
-    fireEvent.click(screen.getAllByRole("button", { name: "Edit schedule" })[0]);
-    const nameInput = (await screen.findByLabelText("Wakeup name")) as HTMLInputElement;
+    // Open the wake-up one level deeper and start editing it there.
+    fireEvent.click(await screen.findByRole("button", { name: "Open morning" }));
+    expect(await screen.findByTestId("identity-modal-back")).toBeTruthy();
+    const nameInput = (await screen.findByTestId("wakeup-view-name")) as HTMLInputElement;
+    expect(nameInput.value).toBe("morning");
     fireEvent.change(nameInput, { target: { value: "morning — edited" } });
 
     // Advance until the refresh goes out: under load the tab's refresh timer
@@ -380,6 +381,8 @@ describe("IdentityModal Wake-ups tab — sensor status (sensors shape 2)", () =>
     // Same data, freshly parsed (new schedule objects) — the classic trigger.
     deliver(socketsForRequestType("identity:list-wakeups")[1], wakeupsPayload("healthy"));
     await new Promise((r) => setTimeout(r, 0));
-    expect((screen.getByLabelText("Wakeup name") as HTMLInputElement).value).toBe("morning — edited");
+    // Still in the opened wake-up, draft intact.
+    expect(screen.getByTestId("wakeup-view")).toBeTruthy();
+    expect((screen.getByTestId("wakeup-view-name") as HTMLInputElement).value).toBe("morning — edited");
   });
 });

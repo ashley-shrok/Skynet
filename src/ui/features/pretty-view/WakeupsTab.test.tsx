@@ -1,80 +1,21 @@
 /**
- * Quick 260731-2pa — WakeupsTab: form-based wakeup schedule editor
+ * WakeupsTab — the agent window's Wake-ups list.
  *
- * Seven tests covering the form editor rewrite that replaces patch #154's
- * raw JSON textarea:
- *   1. View-mode renders the human line + pencil.
- *   2. Pencil click enters edit-mode; daily schedule hydrates into a time
- *      input at value `09:00`.
- *   3. Type dropdown change → interval → interval fields render; tz hint
- *      is present on interval too.
- *   4. Type dropdown change → one_shot + past datetime → "fires this
- *      immediately" hint appears.
- *   5. Timezone hint on daily/weekly/one_shot renders (matches either the
- *      jsdom-resolved zone or the fallback America/New_York).
- *   6. Save with type=interval or type=daily → onUpdate schedule includes
- *      the timezone field.
- *   7. Cancel reverts drafts and hides the form; re-open re-hydrates from
- *      wakeup.schedule.
- *
- * Mocking strategy: WakeupsTab does NOT open a WS — it receives `onUpdate`
- * as a prop — so we mock nothing at the module level. Just render the
- * component with a spy onUpdate.
+ * The tab is a list only: one row per wake-up (kind tile, name, schedule +
+ * last fire or a sensor summary, an on/off switch that saves at once), a
+ * "New wake-up" button, and the empty / coordinator-empty states. Editing,
+ * creating and deleting happen one level deeper in WakeupView (see
+ * WakeupView.test.tsx); here we only assert the list hands the right slug to
+ * onToggle / onOpen and calls onNew.
  */
 
-import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, vi, afterEach } from "vitest";
 import { render, screen, fireEvent, waitFor, cleanup, within } from "@testing-library/react";
 import type { Wakeup } from "@/api/claude-session-api";
+import { WakeupsTab, WAKEUPS_NOTE } from "./WakeupsTab";
 
-// Phase 112 Plan 03 — AddWakeupDialog's instruction field now routes through
-// MarkdownEditor (D-06 pretty branch via synthetic filename="wakeup.md").
-// Stub MDXEditor as a controlled <textarea data-testid="mdxeditor"> so any
-// integration test that opens AddWakeupDialog can still drive input. Rule 3
-// auto-fix: this test file was broken by Plan 03's swap; the same enhanced
-// mock pattern lives in AddWakeupDialog.test.tsx / EditableFileModal.test.tsx
-// already.
-vi.mock("@mdxeditor/editor", () => ({
-  MDXEditor: (props: {
-    markdown: string;
-    onChange?: (v: string) => void;
-    readOnly?: boolean;
-  }) => (
-    <textarea
-      value={props.markdown}
-      onChange={(e) => props.onChange?.(e.target.value)}
-      disabled={props.readOnly}
-      data-testid="mdxeditor"
-    />
-  ),
-  headingsPlugin: () => ({}),
-  listsPlugin: () => ({}),
-  quotePlugin: () => ({}),
-  thematicBreakPlugin: () => ({}),
-  markdownShortcutPlugin: () => ({}),
-  linkPlugin: () => ({}),
-  linkDialogPlugin: () => ({}),
-  tablePlugin: () => ({}),
-  codeBlockPlugin: () => ({}),
-  codeMirrorPlugin: () => ({}),
-  frontmatterPlugin: () => ({}),
-  toolbarPlugin: () => ({}),
-  UndoRedo: () => null,
-  BoldItalicUnderlineToggles: () => null,
-  BlockTypeSelect: () => null,
-  CreateLink: () => null,
-  InsertTable: () => null,
-  ListsToggle: () => null,
-  InsertFrontmatter: () => null,
-}));
+const NOW = Math.floor(Date.now() / 1000);
 
-import { WakeupsTab } from "./WakeupsTab";
-import { __resetKitDialogsForTests } from "@/components/kit";
-
-afterEach(() => {
-  __resetKitDialogsForTests();
-});
-
-// ── Shared fixtures ────────────────────────────────────────────────────────────
 const BASE_WAKEUP: Wakeup = {
   slug: "daily-box-check",
   name: "daily-box-check",
@@ -84,702 +25,163 @@ const BASE_WAKEUP: Wakeup = {
   instruction: "Check the box.",
 };
 
-// Helper: render the tab with a single BASE_WAKEUP and return the onUpdate spy.
-// Phase 72 Plan 02 Task 2: WakeupsTab now requires scope + onCreate + onDelete;
-// helper passes no-op defaults so existing tests keep working without change.
-function renderTab(wakeupOverrides?: Partial<Wakeup>): {
-  onUpdate: ReturnType<typeof vi.fn>;
-} {
-  const wakeup: Wakeup = { ...BASE_WAKEUP, ...wakeupOverrides };
-  const onUpdate = vi.fn().mockResolvedValue(undefined);
+const SENSOR_WAKEUP: Wakeup = {
+  slug: "watcher",
+  name: "watcher",
+  enabled: true,
+  schedule: { type: "sensor" },
+  scheduleHuman: "Sensor",
+  instruction: "x",
+  lastFiredAt: NOW - 2 * 3600,
+  sensor: {
+    state: "healthy",
+    run: "cadence",
+    cadenceHuman: "Every 5m",
+    lastRanAt: NOW - 60,
+    waitingFires: 2,
+    error: null,
+  },
+};
+
+function renderTab(
+  data: Wakeup[] = [BASE_WAKEUP],
+  opts: { isCoordinator?: boolean; onToggle?: (slug: string, enabled: boolean) => Promise<void> } = {},
+) {
+  const onToggle = vi.fn(opts.onToggle ?? (() => Promise.resolve()));
+  const onOpen = vi.fn();
+  const onNew = vi.fn();
   render(
     <WakeupsTab
-      state={{ status: "ready", data: [wakeup] }}
-      hue={200}
-      scope="identity"
-      onUpdate={onUpdate}
-      onCreate={vi.fn().mockResolvedValue(undefined)}
-      onDelete={vi.fn().mockResolvedValue(undefined)}
+      state={{ status: "ready", data }}
+      isCoordinator={opts.isCoordinator ?? false}
+      onToggle={onToggle}
+      onOpen={onOpen}
+      onNew={onNew}
     />,
   );
-  return { onUpdate };
+  return { onToggle, onOpen, onNew };
 }
 
-// Quick 260808-<slug>: cards are collapsed by default. The pencil + form + instruction
-// prose only render once the disclosure header is toggled open. Every test that
-// exercises the form must first expand the card via this helper.
-function expandCard(): void {
-  // Header row's accessible name is "<name> <scheduleHuman> ..." — matching the
-  // wakeup name is the stable anchor.
-  fireEvent.click(screen.getByRole("button", { name: /daily-box-check/i }));
-}
-
-// Helper: enter edit mode on the single rendered wakeup card.
-// Used by the Phase 65 tests to reduce duplication.
-function enterEditMode(): void {
-  expandCard();
-  fireEvent.click(screen.getByRole("button", { name: /Edit schedule/i }));
-}
-
-
-// apple-ux: the schedule kind is the kit segmented control (a group labelled
-// "Schedule type" whose pressed segment is the current kind).
-function scheduleKindGroup(): HTMLElement {
-  return screen.getByRole("group", { name: /Schedule type/i });
-}
-function scheduleKind(): string | undefined {
-  const pressed = within(scheduleKindGroup())
-    .getAllByRole("button")
-    .find((b) => b.getAttribute("aria-pressed") === "true");
-  return pressed?.getAttribute("data-testid")?.split("-").pop();
-}
-function pickKind(kind: string): void {
-  const btn = scheduleKindGroup().querySelector(`[data-testid$="-${kind}"]`);
-  if (!btn) throw new Error(`no schedule kind segment for ${kind}`);
-  fireEvent.click(btn);
-}
-
-describe("WakeupsTab — form-based wakeup editor (quick 260731-2pa)", () => {
-  beforeEach(() => {
-    vi.clearAllMocks();
-  });
-
-  afterEach(() => {
-    cleanup();
-    vi.restoreAllMocks();
-  });
-
-  it("1: collapsed by default — header shows name + schedule human; instruction + pencil hidden until expanded", () => {
-    renderTab();
-
-    // Header row shows name + schedule human even when collapsed (they're the
-    // scan signal for picking which wakeup to expand).
-    expect(screen.getByText("daily-box-check")).toBeTruthy();
-    expect(screen.getByText("daily @ 09:00 America/New_York")).toBeTruthy();
-
-    // Instruction prose is hidden when collapsed.
-    expect(screen.queryByText("Check the box.")).toBeNull();
-
-    // Pencil is hidden when collapsed.
-    expect(screen.queryByRole("button", { name: /Edit schedule/i })).toBeNull();
-
-    // No form fields either.
-    expect(screen.queryByLabelText(/Schedule type/i)).toBeNull();
-
-    // Expand: instruction + pencil appear.
-    expandCard();
-    expect(screen.getByText("Check the box.")).toBeTruthy();
-    expect(screen.getByRole("button", { name: /Edit schedule/i })).toBeTruthy();
-  });
-
-  it("2: pencil click → form renders; daily wakeup hydrates schedule-type=daily + time=09:00", () => {
-    renderTab();
-
-    // Expand card, then enter edit mode.
-    expandCard();
-    fireEvent.click(screen.getByRole("button", { name: /Edit schedule/i }));
-
-    // Schedule-type select shows "daily".
-    expect(scheduleKind()).toBe("daily");
-
-    // Time input has hydrated value 09:00.
-    const timeInput = screen.getByLabelText(/Time \(local\)/i) as HTMLInputElement;
-    expect(timeInput.value).toBe("09:00");
-
-    // Name input has the wakeup's name.
-    const nameInput = screen.getByLabelText(/Wakeup name/i) as HTMLInputElement;
-    expect(nameInput.value).toBe("daily-box-check");
-  });
-
-  it("3: change type dropdown to interval → interval fields render; tz hint shown", () => {
-    renderTab();
-
-    // Expand card, then enter edit mode.
-    expandCard();
-    fireEvent.click(screen.getByRole("button", { name: /Edit schedule/i }));
-
-    // Change type to interval.
-    pickKind("interval");
-
-    // Interval fields present.
-    expect(screen.getByLabelText(/Every/i)).toBeTruthy();
-    expect(screen.getByLabelText(/Unit/i)).toBeTruthy();
-
-    // Interval honors the timezone (window / days / start), so the hint shows.
-    expect(screen.getByText(/Timezone \(auto-detected from browser\):/i)).toBeTruthy();
-  });
-
-  it("4: type=one_shot with a past datetime → 'fires this immediately' hint appears", () => {
-    renderTab();
-
-    // Expand card, then enter edit mode.
-    expandCard();
-    fireEvent.click(screen.getByRole("button", { name: /Edit schedule/i }));
-
-    // Change type to one_shot.
-    pickKind("one_shot");
-
-    // The one_shot datetime-local input is present.
-    const atInput = screen.getByLabelText(/Fires at \(local\)/i) as HTMLInputElement;
-    expect(atInput).toBeTruthy();
-
-    // Set to a guaranteed-past value.
-    fireEvent.change(atInput, { target: { value: "2020-01-01T00:00" } });
-
-    // Past-datetime hint appears. The hint has an inline <b>immediately</b>
-    // so getByText's default full-node matcher misses it; assert the two
-    // text fragments are each rendered in the document instead.
-    expect(screen.getByText(/that datetime is in the past/i)).toBeTruthy();
-    expect(screen.getByText("immediately")).toBeTruthy();
-  });
-
-  it("5: daily/weekly/one_shot render the browser-detected (or fallback) tz hint", () => {
-    renderTab();
-
-    // Expand card, then enter edit mode — starts as daily.
-    expandCard();
-    fireEvent.click(screen.getByRole("button", { name: /Edit schedule/i }));
-
-    // Timezone hint present on daily (matches the "Timezone (auto-detected from browser):" prefix).
-    // The zone value can be either the jsdom-resolved zone or America/New_York (fallback);
-    // we just assert the label is visible.
-    expect(screen.getByText(/Timezone \(auto-detected from browser\):/i)).toBeTruthy();
-
-    // Switch to weekly — hint should still be present.
-    pickKind("weekly");
-    expect(screen.getByText(/Timezone \(auto-detected from browser\):/i)).toBeTruthy();
-
-    // Switch to one_shot — hint should still be present.
-    pickKind("one_shot");
-    expect(screen.getByText(/Timezone \(auto-detected from browser\):/i)).toBeTruthy();
-  });
-
-  it("6: Save writes {name, enabled, schedule, instruction}; interval and daily schedules INCLUDE timezone", async () => {
-    // --- Case A: interval save — schedule has a timezone ---
-    const { onUpdate: onUpdateInterval } = renderTab();
-
-    expandCard();
-    fireEvent.click(screen.getByRole("button", { name: /Edit schedule/i }));
-
-    // Change type to interval. Defaults are n=30, u='m' per the type-swap handler.
-    pickKind("interval");
-
-    // Click Save.
-    fireEvent.click(screen.getByRole("button", { name: /^Save$/i }));
-
-    await waitFor(() => {
-      expect(onUpdateInterval).toHaveBeenCalledTimes(1);
-    });
-
-    const [slugArgA, updatesArgA] = onUpdateInterval.mock.calls[0];
-    expect(slugArgA).toBe("daily-box-check");
-    expect(updatesArgA).toMatchObject({
-      name: "daily-box-check",
-      enabled: true,
-      instruction: "Check the box.",
-      schedule: { type: "interval", every: "30m" },
-    });
-    expect(typeof (updatesArgA.schedule as Record<string, unknown>).timezone).toBe("string");
-
-    // Tear down first render before setting up the next.
-    cleanup();
-
-    // --- Case B: daily save — schedule INCLUDES timezone ---
-    const { onUpdate: onUpdateDaily } = renderTab();
-
-    expandCard();
-    fireEvent.click(screen.getByRole("button", { name: /Edit schedule/i }));
-    // Still daily by default; just click Save.
-    fireEvent.click(screen.getByRole("button", { name: /^Save$/i }));
-
-    await waitFor(() => {
-      expect(onUpdateDaily).toHaveBeenCalledTimes(1);
-    });
-
-    const [, updatesArgB] = onUpdateDaily.mock.calls[0];
-    const dailyScheduleB = updatesArgB.schedule as Record<string, unknown>;
-    expect(dailyScheduleB.type).toBe("daily");
-    expect(dailyScheduleB.at).toBe("09:00");
-    // Assert timezone IS present on daily schedule (value can vary per jsdom Intl).
-    expect(typeof dailyScheduleB.timezone).toBe("string");
-    expect((dailyScheduleB.timezone as string).length).toBeGreaterThan(0);
-  });
-
-  it("7: Cancel reverts drafts + hides form; re-open re-hydrates from wakeup.schedule", () => {
-    const { onUpdate } = renderTab();
-
-    // Expand card, then enter edit mode.
-    expandCard();
-    fireEvent.click(screen.getByRole("button", { name: /Edit schedule/i }));
-
-    // Dirty the name and instruction drafts.
-    const nameInput = screen.getByLabelText(/Wakeup name/i) as HTMLInputElement;
-    fireEvent.change(nameInput, { target: { value: "renamed-in-flight" } });
-    expect(nameInput.value).toBe("renamed-in-flight");
-
-    // Also change the type dropdown.
-    pickKind("weekly");
-
-    // Click Cancel.
-    fireEvent.click(screen.getByRole("button", { name: /Cancel/i }));
-
-    // Form is hidden — no schedule-type select present.
-    expect(screen.queryByLabelText(/Schedule type/i)).toBeNull();
-    // Human line reappears.
-    expect(screen.getByText("daily @ 09:00 America/New_York")).toBeTruthy();
-
-    // Re-open — form re-hydrates from wakeup.schedule (type=daily, at=09:00,
-    // name reverted).
-    fireEvent.click(screen.getByRole("button", { name: /Edit schedule/i }));
-    expect(scheduleKind()).toBe("daily");
-    const nameInputAfter = screen.getByLabelText(/Wakeup name/i) as HTMLInputElement;
-    expect(nameInputAfter.value).toBe("daily-box-check");
-    const timeInputAfter = screen.getByLabelText(/Time \(local\)/i) as HTMLInputElement;
-    expect(timeInputAfter.value).toBe("09:00");
-
-    // onUpdate was never called by Cancel.
-    expect(onUpdate).not.toHaveBeenCalled();
-  });
-
-  // ── Phase 65 Plan 02: days-gate round-trip + chip UI tests ─────────────────
-  // Chip aria-label contract (must match Task 2 implementation exactly):
-  //   - Container: role="group" aria-label="Restrict to days of week"
-  //   - Each chip button: aria-label="Toggle Mon" / "Toggle Tue" / ... / "Toggle Sun"
-  //   - Each chip button: aria-pressed="true" when selected, aria-pressed="false" when deselected
-
-  it("8: Save preserves days:[mon,tue,wed,thu,fri] on a daily+weekdays spec — no data loss (Phase 65 Success Criteria #2, D-07 round-trip)", async () => {
-    const { onUpdate } = renderTab({
-      schedule: { type: "daily", at: "23:00", timezone: "America/New_York", days: ["mon", "tue", "wed", "thu", "fri"] },
-      scheduleHuman: "Weekdays at 23:00 (box-local)",
-    });
-
-    enterEditMode();
-
-    // Do NOT modify any control — just click Save to prove round-trip fidelity.
-    fireEvent.click(screen.getByRole("button", { name: /^Save$/i }));
-
-    await waitFor(() => expect(onUpdate).toHaveBeenCalledTimes(1));
-
-    const [, updates] = onUpdate.mock.calls[0] as [string, { schedule?: Record<string, unknown> }];
-    const schedule = updates.schedule as Record<string, unknown>;
-
-    expect(schedule.type).toBe("daily");
-    expect(schedule.at).toBe("23:00");
-    expect(Array.isArray(schedule.days)).toBe(true);
-    // D-03: canonical mon→sun order preserved; D-07: round-trip fidelity
-    expect(schedule.days).toEqual(["mon", "tue", "wed", "thu", "fri"]);
-  });
-
-  it("9: Chip toggle → build — starting from a plain daily spec (no days), toggling 5 chips emits days:[mon,tue,wed,thu,fri] on Save (Phase 65 Success Criteria #3)", async () => {
-    const { onUpdate } = renderTab();
-
-    enterEditMode();
-
-    // Locate the chip-row container via aria-label (D-06 container contract).
-    const chipContainer = screen.getByRole("group", { name: /Restrict to days of week/i });
-    expect(chipContainer).toBeTruthy();
-
-    // Click each of Mon, Tue, Wed, Thu, Fri chips (aria-label contract: "Toggle Mon" etc.).
-    for (const day of ["Mon", "Tue", "Wed", "Thu", "Fri"]) {
-      fireEvent.click(screen.getByRole("button", { name: `Toggle ${day}` }));
-    }
-
-    fireEvent.click(screen.getByRole("button", { name: /^Save$/i }));
-
-    await waitFor(() => expect(onUpdate).toHaveBeenCalledTimes(1));
-
-    const [, updates] = onUpdate.mock.calls[0] as [string, { schedule?: Record<string, unknown> }];
-    const schedule = updates.schedule as Record<string, unknown>;
-
-    // D-03: canonical mon→sun order regardless of click order
-    expect(schedule.days).toEqual(["mon", "tue", "wed", "thu", "fri"]);
-  });
-
-  it("10: D-02 full-7 drop — toggling all 7 chips on emits payload WITHOUT `days` key", async () => {
-    const { onUpdate } = renderTab();
-
-    enterEditMode();
-
-    // Click all 7 chip buttons in ARBITRARY order (proves order-insensitivity per D-03).
-    for (const day of ["Sun", "Mon", "Sat", "Tue", "Fri", "Wed", "Thu"]) {
-      fireEvent.click(screen.getByRole("button", { name: `Toggle ${day}` }));
-    }
-
-    fireEvent.click(screen.getByRole("button", { name: /^Save$/i }));
-
-    await waitFor(() => expect(onUpdate).toHaveBeenCalledTimes(1));
-
-    const [, updates] = onUpdate.mock.calls[0] as [string, { schedule?: Record<string, unknown> }];
-    const schedule = updates.schedule as Record<string, unknown>;
-
-    // D-02: full-7 drops the field entirely (key must be ABSENT, not just undefined).
-    expect("days" in schedule).toBe(false);
-  });
-
-  it("11: D-04 empty subset drop — starting from a days-having spec, deselecting all chips emits payload WITHOUT `days` and does NOT block Save", async () => {
-    const { onUpdate } = renderTab({
-      schedule: { type: "daily", at: "23:00", timezone: "America/New_York", days: ["mon", "tue", "wed", "thu", "fri"] },
-      scheduleHuman: "Weekdays at 23:00 (box-local)",
-    });
-
-    enterEditMode();
-
-    // Pre-condition: the 5 weekday chips render as selected on entry (aria-pressed="true").
-    for (const day of ["Mon", "Tue", "Wed", "Thu", "Fri"]) {
-      expect(screen.getByRole("button", { name: `Toggle ${day}` }).getAttribute("aria-pressed")).toBe("true");
-    }
-
-    // Deselect all 5 weekday chips.
-    for (const day of ["Mon", "Tue", "Wed", "Thu", "Fri"]) {
-      fireEvent.click(screen.getByRole("button", { name: `Toggle ${day}` }));
-    }
-
-    // No validation error banner (D-04: empty subset is not a blocking validation error).
-    expect(screen.queryByText(/validation|must be|invalid|error/i)).toBeNull();
-
-    fireEvent.click(screen.getByRole("button", { name: /^Save$/i }));
-
-    await waitFor(() => expect(onUpdate).toHaveBeenCalledTimes(1));
-
-    const [, updates] = onUpdate.mock.calls[0] as [string, { schedule?: Record<string, unknown> }];
-    const schedule = updates.schedule as Record<string, unknown>;
-
-    // D-04: empty subset drops the field entirely.
-    expect("days" in schedule).toBe(false);
-    // Other fields preserved.
-    expect(schedule.type).toBe("daily");
-    expect(schedule.at).toBe("23:00");
-  });
-
-  it("12: D-03 hydrate normalization — unknown / non-string / uppercase entries in s.days are filtered and canonical-ordered", async () => {
-    const { onUpdate } = renderTab({
-      // Mixed case, whitespace, non-string, unknown code — hydrate must normalize defensively.
-      schedule: { type: "daily", at: "23:00", timezone: "America/New_York", days: ["FRI", "mon", 42, null, "xyz", "WED", " tue "] },
-      scheduleHuman: "Days at 23:00 (box-local)",
-    });
-
-    enterEditMode();
-
-    // Click Save WITHOUT touching any chip — proves D-03 + D-07 defensive hydration.
-    fireEvent.click(screen.getByRole("button", { name: /^Save$/i }));
-
-    await waitFor(() => expect(onUpdate).toHaveBeenCalledTimes(1));
-
-    const [, updates] = onUpdate.mock.calls[0] as [string, { schedule?: Record<string, unknown> }];
-    const schedule = updates.schedule as Record<string, unknown>;
-
-    // D-03: canonical mon→sun order; D-07: defensive normalization
-    // FRI→fri, mon→mon, 42→drop, null→drop, xyz→drop, WED→wed, " tue "→tue
-    // Sorted: mon, tue, wed, fri
-    expect(schedule.days).toEqual(["mon", "tue", "wed", "fri"]);
-  });
-
-  // ── Phase 72 Plan 02 Task 2: scope prop + Add-wakeup + Delete + scope pill ──
-  // WakeupsTab now accepts scope: "role" | "identity" + onCreate + onDelete
-  // callbacks. The tab renders an Add-wakeup pill button + AddWakeupDialog
-  // sub-modal at the top, a trash icon per row that opens an AlertDialog
-  // confirm, and a scope pill on every row so scope is visible at a glance.
-
-  it("13: scope='identity' — Add-wakeup button click opens AddWakeupDialog with identity-scope title", () => {
-    const onCreate = vi.fn().mockResolvedValue(undefined);
-    render(
-      <WakeupsTab
-        state={{ status: "ready", data: [BASE_WAKEUP] }}
-        hue={200}
-        scope="identity"
-        onUpdate={vi.fn().mockResolvedValue(undefined)}
-        onCreate={onCreate}
-        onDelete={vi.fn().mockResolvedValue(undefined)}
-      />,
-    );
-
-    // Add-wakeup pill exists.
-    const addBtn = screen.getByTestId("wakeup-add-button");
-    expect(addBtn).toBeTruthy();
-    // Dialog is not open initially.
-    expect(screen.queryByTestId("add-wakeup-dialog")).toBeNull();
-    // Click opens dialog.
-    fireEvent.click(addBtn);
-    expect(screen.getByTestId("add-wakeup-dialog")).toBeTruthy();
-    // Title: "Add wakeup" (identity-scope path collapsed to generic title 2026-10-01).
-    // Scope within the dialog since the "Add wakeup" pill button also matches.
-    const dialog = screen.getByTestId("add-wakeup-dialog");
-    expect(within(dialog).getByRole("heading", { name: /^Add wakeup$/i })).toBeTruthy();
-  });
-
-  it("14: scope='role' — Add-wakeup button click opens AddWakeupDialog with role-scope title", () => {
-    render(
-      <WakeupsTab
-        state={{ status: "ready", data: [BASE_WAKEUP] }}
-        hue={200}
-        scope="role"
-        onUpdate={vi.fn().mockResolvedValue(undefined)}
-        onCreate={vi.fn().mockResolvedValue(undefined)}
-        onDelete={vi.fn().mockResolvedValue(undefined)}
-      />,
-    );
-    fireEvent.click(screen.getByTestId("wakeup-add-button"));
-    expect(screen.getByTestId("add-wakeup-dialog")).toBeTruthy();
-    expect(screen.getByText(/Add role-scope wakeup/i)).toBeTruthy();
-  });
-
-  it("15: onCreate fires with correctly-shaped spec when the sub-dialog Save button is clicked", async () => {
-    const onCreate = vi.fn().mockResolvedValue(undefined);
-    render(
-      <WakeupsTab
-        state={{ status: "ready", data: [BASE_WAKEUP] }}
-        hue={200}
-        scope="identity"
-        onUpdate={vi.fn().mockResolvedValue(undefined)}
-        onCreate={onCreate}
-        onDelete={vi.fn().mockResolvedValue(undefined)}
-      />,
-    );
-
-    fireEvent.click(screen.getByTestId("wakeup-add-button"));
-
-    // Fill required fields. Instruction field is now MarkdownEditor
-    // (Plan 112-03) — drive input via the mocked <textarea data-testid="mdxeditor">.
-    fireEvent.change(screen.getByLabelText(/Name/i), { target: { value: "morning-standup" } });
-    fireEvent.change(await screen.findByTestId("mdxeditor"), { target: { value: "check the box" } });
-
-    // Click Save.
-    fireEvent.click(screen.getByTestId("add-wakeup-save"));
-
-    await waitFor(() => expect(onCreate).toHaveBeenCalledTimes(1));
-
-    const spec = onCreate.mock.calls[0][0] as {
-      name: string;
-      enabled: boolean;
-      schedule: Record<string, unknown>;
-      instruction: string;
-    };
-    expect(spec.name).toBe("morning-standup");
-    expect(spec.enabled).toBe(true);
-    expect(spec.instruction).toBe("check the box");
-    // Default schedule is daily.
-    expect(spec.schedule.type).toBe("daily");
-  });
-
-  it("16: trash icon renders on every wakeup row", () => {
-    const twoWakeups: Wakeup[] = [
-      BASE_WAKEUP,
-      { ...BASE_WAKEUP, slug: "second-wakeup", name: "second-wakeup" },
-    ];
-    render(
-      <WakeupsTab
-        state={{ status: "ready", data: twoWakeups }}
-        hue={200}
-        scope="identity"
-        onUpdate={vi.fn().mockResolvedValue(undefined)}
-        onCreate={vi.fn().mockResolvedValue(undefined)}
-        onDelete={vi.fn().mockResolvedValue(undefined)}
-      />,
-    );
-
-    const trashIcons = screen.getAllByTestId("wakeup-delete-icon");
-    expect(trashIcons.length).toBe(2);
-  });
-
-  it("17: clicking trash icon opens the kit confirm; slug appears in its body", async () => {
-    render(
-      <WakeupsTab
-        state={{ status: "ready", data: [BASE_WAKEUP] }}
-        hue={200}
-        scope="identity"
-        onUpdate={vi.fn().mockResolvedValue(undefined)}
-        onCreate={vi.fn().mockResolvedValue(undefined)}
-        onDelete={vi.fn().mockResolvedValue(undefined)}
-      />,
-    );
-
-    fireEvent.click(screen.getByTestId("wakeup-delete-icon"));
-
-    // Kit confirm present (destructive "Delete"); slug appears in its body.
-    const dialog = await screen.findByTestId("kit-confirm-dialog");
-    expect(within(dialog).getByText(/Delete this wake-up\?/i)).toBeTruthy();
-    expect(dialog.textContent).toContain("daily-box-check");
-    expect(within(dialog).getByTestId("kit-dialog-confirm").textContent).toBe("Delete");
-  });
-
-  it("18: clicking Delete-confirm calls onDelete with the row's slug", async () => {
-    const onDelete = vi.fn().mockResolvedValue(undefined);
-    render(
-      <WakeupsTab
-        state={{ status: "ready", data: [BASE_WAKEUP] }}
-        hue={200}
-        scope="identity"
-        onUpdate={vi.fn().mockResolvedValue(undefined)}
-        onCreate={vi.fn().mockResolvedValue(undefined)}
-        onDelete={onDelete}
-      />,
-    );
-
-    fireEvent.click(screen.getByTestId("wakeup-delete-icon"));
-    fireEvent.click(await screen.findByTestId("kit-dialog-confirm"));
-
-    await waitFor(() => expect(onDelete).toHaveBeenCalledTimes(1));
-    expect(onDelete).toHaveBeenCalledWith("daily-box-check");
-  });
-
-  it("19: clicking Cancel in the kit confirm does NOT call onDelete", async () => {
-    const onDelete = vi.fn().mockResolvedValue(undefined);
-    render(
-      <WakeupsTab
-        state={{ status: "ready", data: [BASE_WAKEUP] }}
-        hue={200}
-        scope="identity"
-        onUpdate={vi.fn().mockResolvedValue(undefined)}
-        onCreate={vi.fn().mockResolvedValue(undefined)}
-        onDelete={onDelete}
-      />,
-    );
-
-    fireEvent.click(screen.getByTestId("wakeup-delete-icon"));
-    fireEvent.click(await screen.findByTestId("kit-dialog-cancel"));
-
-    await waitFor(() => expect(screen.queryByTestId("kit-confirm-dialog")).toBeNull());
-    expect(onDelete).not.toHaveBeenCalled();
-  });
-
-  it("20: onDelete rejection surfaces the error text on the row", async () => {
-    const onDelete = vi.fn().mockRejectedValue(new Error("nope"));
-    render(
-      <WakeupsTab
-        state={{ status: "ready", data: [BASE_WAKEUP] }}
-        hue={200}
-        scope="identity"
-        onUpdate={vi.fn().mockResolvedValue(undefined)}
-        onCreate={vi.fn().mockResolvedValue(undefined)}
-        onDelete={onDelete}
-      />,
-    );
-
-    fireEvent.click(screen.getByTestId("wakeup-delete-icon"));
-    fireEvent.click(await screen.findByTestId("kit-dialog-confirm"));
-
-    await waitFor(() => expect(onDelete).toHaveBeenCalledTimes(1));
-    // Error text surfaces inline on the row (the confirm has closed); the
-    // wake-up is still listed.
-    await waitFor(() => expect(screen.getByText(/Couldn.t delete: nope/)).toBeTruthy());
-    expect(screen.getByText("daily-box-check")).toBeTruthy();
-  });
-
-  it("21: scope='role' — every wakeup row's scope pill reads 'role'", () => {
-    const twoWakeups: Wakeup[] = [
-      BASE_WAKEUP,
-      { ...BASE_WAKEUP, slug: "second-wakeup", name: "second-wakeup" },
-    ];
-    render(
-      <WakeupsTab
-        state={{ status: "ready", data: twoWakeups }}
-        hue={200}
-        scope="role"
-        onUpdate={vi.fn().mockResolvedValue(undefined)}
-        onCreate={vi.fn().mockResolvedValue(undefined)}
-        onDelete={vi.fn().mockResolvedValue(undefined)}
-      />,
-    );
-
-    const pills = screen.getAllByTestId("wakeup-scope-pill");
-    expect(pills.length).toBe(2);
-    for (const pill of pills) {
-      expect(pill.textContent).toBe("role");
-    }
-  });
-
-  it("22: scope='identity' — every wakeup row's scope pill reads 'identity'", () => {
-    render(
-      <WakeupsTab
-        state={{ status: "ready", data: [BASE_WAKEUP] }}
-        hue={200}
-        scope="identity"
-        onUpdate={vi.fn().mockResolvedValue(undefined)}
-        onCreate={vi.fn().mockResolvedValue(undefined)}
-        onDelete={vi.fn().mockResolvedValue(undefined)}
-      />,
-    );
-
-    const pill = screen.getByTestId("wakeup-scope-pill");
-    expect(pill.textContent).toBe("identity");
-  });
-
-  it("23: empty-state branch still renders 'No scheduled wake-ups.' AND renders the Add-wakeup button so first-wakeup flow is reachable", () => {
-    render(
-      <WakeupsTab
-        state={{ status: "ready", data: [] }}
-        hue={200}
-        scope="identity"
-        onUpdate={vi.fn().mockResolvedValue(undefined)}
-        onCreate={vi.fn().mockResolvedValue(undefined)}
-        onDelete={vi.fn().mockResolvedValue(undefined)}
-      />,
-    );
-
-    expect(screen.getByText(/No scheduled wake-ups\./i)).toBeTruthy();
-    // Add-wakeup pill remains reachable so the user can add the FIRST wakeup.
-    expect(screen.getByTestId("wakeup-add-button")).toBeTruthy();
-  });
+afterEach(() => {
+  cleanup();
+  vi.restoreAllMocks();
 });
 
-describe("WakeupsTab — schedule format v2", () => {
-  afterEach(() => {
-    cleanup();
+describe("WakeupsTab — list", () => {
+  it("renders the note and one row per wake-up with name, schedule and last fire", () => {
+    renderTab([
+      { ...BASE_WAKEUP, lastFiredAt: NOW - 3 * 3600 },
+      { ...BASE_WAKEUP, slug: "second", name: "second", scheduleHuman: "every 1h", lastFiredAt: null },
+    ]);
+    expect(screen.getByText(WAKEUPS_NOTE)).toBeTruthy();
+
+    const first = screen.getByTestId("wakeup-row-daily-box-check");
+    expect(within(first).getByText("daily-box-check")).toBeTruthy();
+    expect(first.textContent).toContain("daily @ 09:00 America/New_York");
+    const second = screen.getByTestId("wakeup-row-second");
+    expect(second.textContent).toContain("every 1h");
+
+    expect(screen.getAllByTestId("wakeup-last-fired").map((n) => n.textContent)).toEqual([
+      " · Last fired 3h ago",
+      " · Never fired",
+    ]);
+    // The list never shows the instruction or any form fields.
+    expect(screen.queryByText("Check the box.")).toBeNull();
+    expect(screen.queryByRole("group", { name: /Schedule type/i })).toBeNull();
   });
 
-  it("editing a v2 spec without touching the schedule saves every field back", async () => {
-    const schedule = {
-      type: "weekly",
-      day: "fri",
-      at: ["09:00", "13:00"],
-      every: 2,
-      start: "2026-10-16T00:00:00",
-      days: ["mon", "fri"],
-      count: 6,
-      timezone: "America/New_York",
-    };
-    const { onUpdate } = renderTab({ schedule });
-    enterEditMode();
-    expect((screen.getByTestId("wakeup-daily-box-check-every") as HTMLInputElement).value).toBe("2");
-    expect((screen.getByTestId("wakeup-weekly-at-daily-box-check-2") as HTMLInputElement).value).toBe("13:00");
-    fireEvent.click(screen.getByRole("button", { name: /^Save$/i }));
-    await waitFor(() => expect(onUpdate).toHaveBeenCalledTimes(1));
-    expect(onUpdate.mock.calls[0][1].schedule).toEqual({ ...schedule, timezone: expect.any(String) });
+  it("each row's switch reflects enabled and saves at once via onToggle(slug, next)", async () => {
+    const { onToggle, onOpen } = renderTab([
+      BASE_WAKEUP,
+      { ...BASE_WAKEUP, slug: "paused", name: "paused", enabled: false },
+    ]);
+    const on = screen.getByTestId("wakeup-switch-daily-box-check") as HTMLInputElement;
+    const off = screen.getByTestId("wakeup-switch-paused") as HTMLInputElement;
+    expect(on.checked).toBe(true);
+    expect(off.checked).toBe(false);
+    expect(on.getAttribute("aria-label")).toBe("Turn off daily-box-check");
+    expect(off.getAttribute("aria-label")).toBe("Turn on paused");
+
+    fireEvent.click(on);
+    await waitFor(() => expect(onToggle).toHaveBeenCalledWith("daily-box-check", false));
+    fireEvent.click(off);
+    await waitFor(() => expect(onToggle).toHaveBeenCalledWith("paused", true));
+    // Flipping the switch doesn't open the wake-up.
+    expect(onOpen).not.toHaveBeenCalled();
   });
 
-  it("a sensor wake-up shows a read-only Sensor schedule and saves it unchanged", async () => {
-    const { onUpdate } = renderTab({ schedule: { type: "sensor" }, scheduleHuman: "Sensor" });
-    enterEditMode();
-    expect(screen.getByTestId("wakeup-sensor-schedule").textContent).toMatch(/Sensor/);
-    expect(screen.queryByLabelText(/Schedule type/i)).toBeNull();
-    fireEvent.change(screen.getByLabelText("Wakeup name"), { target: { value: "renamed" } });
-    fireEvent.change(screen.getByLabelText(/^Instruction$/i), { target: { value: "new instruction" } });
-    fireEvent.click(screen.getByRole("button", { name: /^Save$/i }));
-    await waitFor(() => expect(onUpdate).toHaveBeenCalledTimes(1));
-    expect(onUpdate.mock.calls[0][1]).toMatchObject({
-      name: "renamed",
-      instruction: "new instruction",
-    });
-    expect(onUpdate.mock.calls[0][1].schedule).toEqual({ type: "sensor" });
+  it("a failed toggle shows an error banner naming the wake-up", async () => {
+    renderTab([BASE_WAKEUP], { onToggle: () => Promise.reject(new Error("nope")) });
+    fireEvent.click(screen.getByTestId("wakeup-switch-daily-box-check"));
+    await waitFor(() => expect(screen.getByText(/Couldn.t turn “daily-box-check” off: nope/)).toBeTruthy());
+    // The wake-up is still listed.
+    expect(screen.getByTestId("wakeup-row-daily-box-check")).toBeTruthy();
   });
 
-  it("a one-time sensor wake-up reads 'Sensor · once' and keeps the mark on save", async () => {
-    const schedule = { type: "sensor", once: true };
-    const { onUpdate } = renderTab({ schedule, scheduleHuman: "Sensor · once" });
-    enterEditMode();
-    expect(screen.getByTestId("wakeup-sensor-schedule").textContent).toMatch(/Sensor · once/);
-    fireEvent.change(screen.getByLabelText("Wakeup name"), { target: { value: "renamed" } });
-    fireEvent.click(screen.getByRole("button", { name: /^Save$/i }));
-    await waitFor(() => expect(onUpdate).toHaveBeenCalledTimes(1));
-    expect(onUpdate.mock.calls[0][1].schedule).toEqual({ type: "sensor", once: true });
+  it("clicking a row opens it via onOpen(slug)", () => {
+    const { onOpen } = renderTab([BASE_WAKEUP, { ...BASE_WAKEUP, slug: "second", name: "second" }]);
+    fireEvent.click(screen.getByRole("button", { name: "Open second" }));
+    expect(onOpen).toHaveBeenCalledTimes(1);
+    expect(onOpen).toHaveBeenCalledWith("second");
   });
 
-  it("monthly appears in the type dropdown and renders its day fields", () => {
-    renderTab();
-    enterEditMode();
-    pickKind("monthly");
-    expect(screen.getByLabelText("Day of month")).toBeTruthy();
-    expect(screen.getByLabelText("Ends")).toBeTruthy();
-    expect(screen.getByTestId("wakeup-json-preview").textContent).toMatch(/"type": "monthly"/);
+  it("'New wake-up' calls onNew", () => {
+    const { onNew, onOpen } = renderTab();
+    const btn = screen.getByTestId("wakeup-add-button");
+    expect(btn.textContent).toContain("New wake-up");
+    fireEvent.click(btn);
+    expect(onNew).toHaveBeenCalledTimes(1);
+    expect(onOpen).not.toHaveBeenCalled();
+  });
+
+  it("a sensor wake-up's row shows the sensor summary (state, last fired, waiting) instead of a schedule", () => {
+    renderTab([SENSOR_WAKEUP]);
+    const summary = screen.getByTestId("wakeup-sensor-summary");
+    expect(summary.textContent).toContain("Sensor");
+    expect(summary.textContent).toContain("Healthy");
+    expect(summary.textContent).toContain("Last fired 2h ago");
+    expect(screen.getByTestId("wakeup-sensor-summary-state").getAttribute("data-state")).toBe("healthy");
+    expect(screen.getByTestId("wakeup-sensor-summary-waiting").textContent).toContain("2 waiting");
+    expect(screen.queryByTestId("wakeup-last-fired")).toBeNull();
+    // Details stay off the list.
+    expect(screen.queryByTestId("wakeup-sensor-details")).toBeNull();
+  });
+
+  it("a one-time sensor that never fired reads 'Sensor · once' and 'Never fired'", () => {
+    renderTab([
+      {
+        ...SENSOR_WAKEUP,
+        schedule: { type: "sensor", once: true },
+        lastFiredAt: null,
+        sensor: { ...SENSOR_WAKEUP.sensor!, waitingFires: 0 },
+      },
+    ]);
+    const summary = screen.getByTestId("wakeup-sensor-summary");
+    expect(summary.textContent).toContain("Sensor · once");
+    expect(summary.textContent).toContain("Never fired");
+    expect(screen.queryByTestId("wakeup-sensor-summary-waiting")).toBeNull();
+  });
+
+  it("empty list shows the empty state with a New wake-up button", () => {
+    const { onNew } = renderTab([]);
+    expect(screen.getByText("No wake-ups yet")).toBeTruthy();
+    fireEvent.click(screen.getByTestId("wakeup-add-button"));
+    expect(onNew).toHaveBeenCalledTimes(1);
+  });
+
+  it("a coordinator with no wake-ups gets the role caption and no button", () => {
+    renderTab([], { isCoordinator: true });
+    expect(screen.getByTestId("wakeups-coordinator-empty-identity").textContent).toMatch(
+      /Coordinators use role-scope wakeups only/,
+    );
+    expect(screen.queryByTestId("wakeup-add-button")).toBeNull();
+  });
+
+  it("loading and error states", () => {
+    const props = { isCoordinator: false, onToggle: vi.fn(), onOpen: vi.fn(), onNew: vi.fn() };
+    const { rerender } = render(<WakeupsTab state={{ status: "loading" }} {...props} />);
+    expect(screen.queryByTestId("wakeups-list")).toBeNull();
+    rerender(<WakeupsTab state={{ status: "error", error: "host down" }} {...props} />);
+    expect(screen.getByText(/Couldn.t load wake-ups: host down/)).toBeTruthy();
   });
 });

@@ -1,7 +1,7 @@
 /**
  * Phase 90 Plan 90-06 Task 1 — IdentityModal title-line clickable treatment.
  *
- * D-04 exact spec test suite. Covers:
+ * Covers:
  *   A: post-refactor tab count (3 tabs — Identity file / Wakeups /
  *      Files/Workspace).
  *   B: no scope switch — `queryByRole('group', {name: /scope/i})` is null.
@@ -9,15 +9,14 @@
  *   D: no Role skills tab in identity modal.
  *   E: no Bounties tab in identity modal.
  *   F: only ONE Wakeups tab (identity-wakeups); no role-wakeups tab.
- *   G: title-line clickable treatment when identity has both title + role:
- *      title attr, D-04 inline styles, chevron span.
- *   H: click fires onOpenRoleModal(identity) AND onOpenChange(false) at the
- *      same tick (swap coordination lives in the click handler).
- *   I: fallback when identity.title is null — displayName gets the treatment
- *      (D-04 fallback).
- *   J: keyboard Enter/Space activate onOpenRoleModal.
- *   K: identity.role === null — title-line renders as plain span, NOT clickable
- *      (defensive — no target to jump to).
+ *   G: each role under the name is a real <button> (title / aria-label /
+ *      trailing "›" on the last one).
+ *   H: click closes the agent window (onOpenChange(false)) and opens the
+ *      roles window on that role — after the leave guard answers.
+ *   H2: multi-role — comma-separated links, each opening its own role.
+ *   I: link text is the role's display name, else the title-cased slug.
+ *   J: keyboard Enter/Space on the focused link activate it.
+ *   K: no role — no links; the name still renders.
  *   L: `useModalScope` / `setModalScope` / `ModalScope` grep count is 0 in the
  *      IdentityModal source.
  */
@@ -32,6 +31,7 @@ import {
   afterAll,
 } from "vitest";
 import { render, screen, fireEvent, waitFor, cleanup } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import type { Identity } from "@/api/identities-api";
@@ -157,7 +157,6 @@ function renderModal(
       hue={220}
       hostId={7}
       onOpenRoleModal={onOpenRoleModal}
-      container={document.body}
     />,
   );
   return { identity, onOpenRoleModalSpy: onOpenRoleModal, onOpenChangeSpy: onOpenChange };
@@ -273,54 +272,46 @@ describe("IdentityModal Phase 90 refactor — tab structure", () => {
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Test G — title-line clickable treatment (identity has title + role)
+// Tests G–K — the role links under the name (each a real button)
 // ─────────────────────────────────────────────────────────────────────────────
-describe("IdentityModal — title-line clickable treatment (D-04)", () => {
-  it("G: title-line span carries D-04 styling + chevron + title attr", async () => {
-    renderModal({ title: "Skynet", role: "box-maintainer" });
+describe("IdentityModal — role links", () => {
+  it("G: each role is a real button with an accessible name; the last carries the ›", async () => {
+    renderModal({ title: "Skynet", role: "box-maintainer", roleDefaults: null });
     await waitFor(() => {
       expect(document.querySelector('[role="dialog"]')).toBeTruthy();
     });
     const jump = screen.getByTestId("identity-modal-title-line-jump");
-    expect(jump).toBeTruthy();
-    // `title` attr matches "Open role modal:"
-    expect(jump.getAttribute("title")).toMatch(/^Open role modal:/);
-    // aria-label mirrors title attr for screen readers
-    expect(jump.getAttribute("aria-label")).toMatch(/^Open role modal:/);
-    // Inline styles from D-04 in rest state
-    const style = jump.getAttribute("style") ?? "";
-    // apple-ux: colour at rest is the kit's secondary text token.
-    expect(style.replace(/\s+/g, "")).toContain("color:var(--k-t2)");
-    // Underline present + dotted at rest
-    expect(style).toMatch(/text-decoration/);
-    expect(style).toMatch(/dotted/);
-    // Chevron child
+    expect(jump.tagName).toBe("BUTTON");
+    expect(jump.getAttribute("type")).toBe("button");
+    expect(jump.getAttribute("title")).toBe("Open Box Maintainer in Roles");
+    expect(jump.getAttribute("aria-label")).toBe("Open role: Box Maintainer");
+    expect(jump.getAttribute("data-identity-key")).toBe("tabitha");
+    expect(screen.getByRole("button", { name: "Open role: Box Maintainer" })).toBe(jump);
+    // The chevron is decoration — hidden from screen readers.
     const chevron = jump.querySelector("span");
-    expect(chevron).toBeTruthy();
-    expect(chevron!.textContent).toBe("›");
-    const chevStyle = chevron!.getAttribute("style") ?? "";
-    expect(chevStyle).toMatch(/margin-left:\s*3px/);
-    expect(chevStyle).toMatch(/opacity:\s*0\.7/);
+    expect(chevron?.textContent).toBe("›");
+    expect(chevron?.getAttribute("aria-hidden")).toBe("true");
   });
 
-  it("H: click on title-line fires onOpenRoleModal + onOpenChange(false)", async () => {
+  it("H: click closes the agent window, then opens the roles window on the role", async () => {
     const onOpenRoleModal = vi.fn();
     const onOpenChange = vi.fn();
     renderModal({ title: "Skynet", role: "box-maintainer" }, onOpenRoleModal, onOpenChange);
     await waitFor(() => {
       expect(document.querySelector('[role="dialog"]')).toBeTruthy();
     });
-    const jump = screen.getByTestId("identity-modal-title-line-jump");
-    fireEvent.click(jump);
-    expect(onOpenRoleModal).toHaveBeenCalledTimes(1);
-    const [firstArg] = onOpenRoleModal.mock.calls[0];
+    fireEvent.click(screen.getByTestId("identity-modal-title-line-jump"));
+    // The click first asks the leave guard (async), so the calls land a tick later.
+    await waitFor(() => expect(onOpenRoleModal).toHaveBeenCalledTimes(1));
+    const [firstArg, roleName] = onOpenRoleModal.mock.calls[0];
     expect(firstArg.identityKey).toBe("tabitha");
     expect(firstArg.role).toBe("box-maintainer");
-    expect(onOpenRoleModal.mock.calls[0][1]).toBe("box-maintainer");
+    expect(roleName).toBe("box-maintainer");
     expect(onOpenChange).toHaveBeenCalledWith(false);
+    expect(onOpenChange.mock.invocationCallOrder[0]).toBeLessThan(onOpenRoleModal.mock.invocationCallOrder[0]);
   });
 
-  it("H2: multi-role — header shows one comma-separated link per role; each opens its own role", async () => {
+  it("H2: multi-role — one comma-separated link per role; only the last has the ›; each opens its own role", async () => {
     const onOpenRoleModal = vi.fn();
     const onOpenChange = vi.fn();
     renderModal(
@@ -331,13 +322,13 @@ describe("IdentityModal — title-line clickable treatment (D-04)", () => {
     await waitFor(() => {
       expect(document.querySelector('[role="dialog"]')).toBeTruthy();
     });
-    expect(screen.getByTestId("identity-modal-role-links").textContent).toContain(
-      "Box Maintainer, Sky Uat›",
-    );
     const links = screen.getAllByTestId("identity-modal-title-line-jump");
     expect(links).toHaveLength(2);
+    expect(links.map((l) => l.textContent)).toEqual(["Box Maintainer", "Sky Uat›"]);
+    // The comma sits between the links, outside the buttons.
+    expect(screen.getByTestId("identity-modal-role-links").textContent).toBe("Box Maintainer,Sky Uat›");
     fireEvent.click(links[1]);
-    expect(onOpenRoleModal).toHaveBeenCalledTimes(1);
+    await waitFor(() => expect(onOpenRoleModal).toHaveBeenCalledTimes(1));
     expect(onOpenRoleModal.mock.calls[0][1]).toBe("sky-uat");
     expect(onOpenChange).toHaveBeenCalledWith(false);
   });
@@ -345,25 +336,18 @@ describe("IdentityModal — title-line clickable treatment (D-04)", () => {
   it("I: role text — roleDefaults.displayName wins; title-cased slug is the fallback (pretty-names shape 2026-09-30)", async () => {
     const onOpenRoleModal = vi.fn();
     const onOpenChange = vi.fn();
-    // No roleDefaults → jump text falls back to the TITLE-CASED slug via
-    // the shared roleDisplayName helper. Pretty-names shape: no surface
-    // should ever render a raw kebab slug where a pretty name belongs.
+    // No roleDefaults → the title-cased slug via roleDisplayName; never the raw slug.
     renderModal({ role: "box-maintainer", roleDefaults: null }, onOpenRoleModal, onOpenChange);
     await waitFor(() => {
       expect(document.querySelector('[role="dialog"]')).toBeTruthy();
     });
-    const jumps = document.querySelectorAll('[data-testid="identity-modal-title-line-jump"]');
+    const jumps = screen.getAllByTestId("identity-modal-title-line-jump");
     expect(jumps.length).toBe(1);
-    expect(jumps[0].textContent).toContain("Box Maintainer");
-    expect(jumps[0].textContent).not.toContain("box-maintainer");
-    // displayName is a plain span, not the jump element (post-UAT: name is
-    // never clickable; only the role line is).
+    expect(jumps[0].textContent).toBe("Box Maintainer›");
+    // The name is never the link; only the roles are.
     expect(jumps[0].textContent).not.toContain("Tabitha");
     cleanup();
 
-    // With roleDefaults.displayName set (role frontmatter has
-    // `displayName: Skynet`), the friendly display name replaces the
-    // title-cased slug fallback in the jump element.
     renderModal(
       { role: "box-maintainer", roleDefaults: { displayName: "Skynet" } },
       onOpenRoleModal,
@@ -372,17 +356,18 @@ describe("IdentityModal — title-line clickable treatment (D-04)", () => {
     await waitFor(() => {
       expect(document.querySelector('[role="dialog"]')).toBeTruthy();
     });
-    const jumps2 = document.querySelectorAll('[data-testid="identity-modal-title-line-jump"]');
+    const jumps2 = screen.getAllByTestId("identity-modal-title-line-jump");
     expect(jumps2.length).toBe(1);
-    expect(jumps2[0].textContent).toContain("Skynet");
-    expect(jumps2[0].textContent).not.toContain("box-maintainer");
-    expect(jumps2[0].textContent).not.toContain("Box Maintainer");
+    expect(jumps2[0].textContent).toBe("Skynet›");
     fireEvent.click(jumps2[0]);
-    expect(onOpenRoleModal).toHaveBeenCalledTimes(1);
+    await waitFor(() => expect(onOpenRoleModal).toHaveBeenCalledTimes(1));
+    // The link opens the role by slug, whatever it is called.
+    expect(onOpenRoleModal.mock.calls[0][1]).toBe("box-maintainer");
     expect(onOpenChange).toHaveBeenCalledWith(false);
   });
 
-  it("J: keyboard Enter activates onOpenRoleModal (a11y)", async () => {
+  it("J: keyboard Enter on the focused link opens the role (a11y)", async () => {
+    const user = userEvent.setup();
     const onOpenRoleModal = vi.fn();
     const onOpenChange = vi.fn();
     renderModal({ title: "Skynet", role: "box-maintainer" }, onOpenRoleModal, onOpenChange);
@@ -390,12 +375,15 @@ describe("IdentityModal — title-line clickable treatment (D-04)", () => {
       expect(document.querySelector('[role="dialog"]')).toBeTruthy();
     });
     const jump = screen.getByTestId("identity-modal-title-line-jump");
-    fireEvent.keyDown(jump, { key: "Enter" });
-    expect(onOpenRoleModal).toHaveBeenCalledTimes(1);
+    jump.focus();
+    expect(document.activeElement).toBe(jump);
+    await user.keyboard("{Enter}");
+    await waitFor(() => expect(onOpenRoleModal).toHaveBeenCalledTimes(1));
     expect(onOpenChange).toHaveBeenCalledWith(false);
   });
 
-  it("J.2: keyboard Space also activates onOpenRoleModal (a11y)", async () => {
+  it("J.2: keyboard Space on the focused link also opens the role (a11y)", async () => {
+    const user = userEvent.setup();
     const onOpenRoleModal = vi.fn();
     const onOpenChange = vi.fn();
     renderModal({ title: "Skynet", role: "box-maintainer" }, onOpenRoleModal, onOpenChange);
@@ -403,26 +391,23 @@ describe("IdentityModal — title-line clickable treatment (D-04)", () => {
       expect(document.querySelector('[role="dialog"]')).toBeTruthy();
     });
     const jump = screen.getByTestId("identity-modal-title-line-jump");
-    fireEvent.keyDown(jump, { key: " " });
-    expect(onOpenRoleModal).toHaveBeenCalledTimes(1);
+    jump.focus();
+    await user.keyboard(" ");
+    await waitFor(() => expect(onOpenRoleModal).toHaveBeenCalledTimes(1));
     expect(onOpenChange).toHaveBeenCalledWith(false);
   });
 
-  it("K: identity.role === null — title-line renders plain (NOT clickable)", async () => {
+  it("K: no role at all — no role links, the name still shows", async () => {
     const onOpenRoleModal = vi.fn();
-    renderModal({ title: "Skynet", role: null }, onOpenRoleModal);
+    renderModal({ title: "Skynet", role: null, roles: [] }, onOpenRoleModal);
     await waitFor(() => {
       expect(document.querySelector('[role="dialog"]')).toBeTruthy();
     });
-    // No jump element renders — the defensive branch keeps displayName as a
-    // plain span (post-Phase-134 head: identity.title is no longer a
-    // separately-rendered head element; displayName is the head's primary
-    // line and gets the jump treatment when role is present).
-    expect(
-      document.querySelector('[data-testid="identity-modal-title-line-jump"]'),
-    ).toBeNull();
-    // The displayName text still renders inside the header column.
-    expect(screen.getByText("Tabitha")).toBeTruthy();
+    expect(screen.queryByTestId("identity-modal-title-line-jump")).toBeNull();
+    expect(screen.queryByTestId("identity-modal-role-links")).toBeNull();
+    expect(screen.getByTestId("identity-modal-hero").textContent).toContain("Tabitha");
+    // The dialog is still named after the agent (screen-reader title).
+    expect(screen.getByRole("dialog", { name: "Tabitha" })).toBeTruthy();
   });
 });
 

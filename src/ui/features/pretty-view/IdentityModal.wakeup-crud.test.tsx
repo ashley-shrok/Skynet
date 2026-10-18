@@ -5,13 +5,15 @@
  * 2 tests asserting the create/delete affordances in the identity-scope Wakeups
  * tab send the correct wire type + payload shape through the WS layer:
  *
- *   W1: identity scope create — actor mount + tap Add-wakeup pill + fill
- *       form + Save → asserts one fake WS socket sent a message of type
- *       "identity:create-wakeup" with identityKey/hostId + spec.name +
- *       spec.instruction + spec.enabled + non-null spec.schedule.
- *   W2: identity scope delete — actor mount + click trash + confirm →
- *       asserts one fake WS socket sent "identity:delete-wakeup" with
- *       correct identityKey + wakeupSlug.
+ *   W1: identity scope create — actor mount + tap "New wake-up" (pushes the
+ *       new wake-up view) + fill Name + Instruction + Create → asserts one
+ *       fake WS socket sent a message of type "identity:create-wakeup" with
+ *       identityKey/hostId + spec.name + spec.instruction + spec.enabled +
+ *       non-null spec.schedule.
+ *   W2: identity scope delete — actor mount + open the wake-up's row (pushes
+ *       the wake-up view) + "Delete wake-up…" + confirm → asserts one fake WS
+ *       socket sent "identity:delete-wakeup" with correct identityKey +
+ *       wakeupSlug.
  *
  * (Tests W3 + W4 for role-scope wakeup CRUD were RETIRED — role-scope wakeups
  * moved to the role modal in Plan 90-04 and were later retired altogether.)
@@ -108,12 +110,8 @@ vi.mock("@/api/role-skills-api", () => ({
   listRoleSkills: vi.fn().mockResolvedValue([]),
 }));
 
-// Phase 112 Plan 03 — AddWakeupDialog's instruction field now routes through
-// MarkdownEditor (D-06 pretty branch via synthetic filename="wakeup.md").
-// Stub MDXEditor as a controlled <textarea data-testid="mdxeditor"> so
-// Test W1's fireEvent.change on the instruction affordance still works.
-// Rule 3 auto-fix: this test file was broken by Plan 03's swap; the same
-// enhanced mock pattern lives in AddWakeupDialog.test.tsx / WakeupsTab.test.tsx.
+// Stub MDXEditor as a controlled <textarea data-testid="mdxeditor"> so other
+// panes in the modal that use the shared MarkdownEditor render cheaply.
 vi.mock("@mdxeditor/editor", () => ({
   MDXEditor: (props: {
     markdown: string;
@@ -182,7 +180,6 @@ function renderModal(identityOverrides?: Partial<Identity>): void {
       hostId={1}
       // Phase 90 Plan 90-06: onOpenRoleModal is the new required prop.
       onOpenRoleModal={vi.fn()}
-      container={document.body}
     />,
   );
 }
@@ -199,7 +196,7 @@ function findSocketForRequestType(reqType: string): WsStub | undefined {
   });
 }
 
-// Seed the identity-scope wakeups list so a delete-row is present.
+// Seed the identity-scope wakeups list so a row is present.
 function deliverIdentityWakeups(): void {
   const sock = findSocketForRequestType("identity:list-wakeups");
   expect(sock).toBeDefined();
@@ -266,26 +263,23 @@ describe("IdentityModal wakeup CRUD — identity scope (Phase 90 Plan 90-06)", (
     // is defensive: any list-render assertion downstream would need it).
     deliverIdentityWakeups();
 
-    // Tap Add-wakeup pill → AddWakeupDialog opens.
-    fireEvent.click(screen.getByTestId("wakeup-add-button"));
+    // Tap "New wake-up" → the new wake-up view opens one level deeper.
+    fireEvent.click(await screen.findByTestId("wakeup-add-button"));
+    const view = await screen.findByTestId("wakeup-view");
+    expect(screen.getByTestId("identity-modal-back")).toBeTruthy();
 
     // Fill Name + Instruction (default schedule=daily @ 09:00 covers spec.schedule).
-    // Phase 112 Plan 03: Instruction field is MarkdownEditor — drive input via
-    // the mocked <textarea data-testid="mdxeditor">.
-    // Phase 134 close-loop-fix: scope Name query to the AddWakeupDialog — the
-    // canonical IdentityModal head now carries a "display name"-related label
-    // that collides with the dialog's Name form field.
-    const addWakeupDialog = await screen.findByTestId("add-wakeup-dialog");
-    fireEvent.change(within(addWakeupDialog).getByLabelText(/Name/i), {
+    fireEvent.change(within(view).getByTestId("wakeup-view-name"), {
       target: { value: "test-wake" },
     });
-    // The editor is lazy-loaded; its first import can be slow on a busy box.
-    fireEvent.change(await screen.findByTestId("mdxeditor", {}, { timeout: 15000 }), {
+    fireEvent.change(within(view).getByTestId("wakeup-view-instruction"), {
       target: { value: "say hi" },
     });
 
-    // Click Save.
-    fireEvent.click(screen.getByTestId("add-wakeup-save"));
+    // Click Create.
+    const create = screen.getByTestId("wakeup-view-save");
+    expect(create.textContent).toBe("Create");
+    fireEvent.click(create);
 
     // Give sendIdentityMutation's WS onopen a chance to fire so send() runs.
     await waitFor(() => {
@@ -318,18 +312,16 @@ describe("IdentityModal wakeup CRUD — identity scope (Phase 90 Plan 90-06)", (
   // ───────────────────────────────────────────────────────────────────────────
   // Test W2 — identity scope delete → identity:delete-wakeup
   // ───────────────────────────────────────────────────────────────────────────
-  it("test W2: delete-wakeup — clicking trash + confirm fires identity:delete-wakeup with correct payload", async () => {
+  it("test W2: delete-wakeup — opening the wake-up + Delete wake-up… + confirm fires identity:delete-wakeup with correct payload", async () => {
     renderModal({ coordinator: false });
     await new Promise((r) => setTimeout(r, 0));
     clickWakeupsNav();
-    // Pre-seed a wakeup so the trash icon exists.
+    // Pre-seed a wakeup so its row exists.
     deliverIdentityWakeups();
 
-    // Click the trash icon on the first (and only) wakeup row.
-    await waitFor(() => {
-      expect(screen.getByTestId("wakeup-delete-icon")).toBeTruthy();
-    });
-    fireEvent.click(screen.getByTestId("wakeup-delete-icon"));
+    // Open the wake-up (pushes its view), then "Delete wake-up…".
+    fireEvent.click(await screen.findByRole("button", { name: "Open daily-box-check" }));
+    fireEvent.click(await screen.findByTestId("wakeup-view-delete"));
 
     // Click the confirm button in the kit confirm dialog.
     fireEvent.click(await screen.findByTestId("kit-dialog-confirm"));

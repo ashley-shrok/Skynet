@@ -91,8 +91,14 @@ vi.mock("./use-has-git-repos", () => ({
 vi.mock("./DesktopTab", () => ({
   default: () => <div data-testid="desktop-tab-stub" />,
 }));
-vi.mock("./GitTab", () => ({
-  default: () => <div data-testid="git-tab-stub" />,
+// The Git tab renders AgentGitRoot (./AgentGit); stub the whole module so no
+// git API call goes out.
+vi.mock("./AgentGit", () => ({
+  useAgentGit: () => ({ target: null, hostId: 7, remote: {}, checkRemotes: () => {}, refreshKey: 0, refresh: () => {} }),
+  AgentGitRoot: () => <div data-testid="git-tab-stub" />,
+  AgentGitRepo: () => <div data-testid="git-repo-stub" />,
+  AgentGitCommit: () => <div data-testid="git-commit-stub" />,
+  AgentGitDiff: () => <div data-testid="git-diff-stub" />,
 }));
 
 // convo-scoped apps: the Apps tab reads the app store; tests swap the list.

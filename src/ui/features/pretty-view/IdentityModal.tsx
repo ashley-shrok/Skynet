@@ -1,51 +1,35 @@
-// IdentityModal — per-identity editor + record view.
+// IdentityModal — the agent window (opened from the task pill).
 //
-// Modal-unification 2026-09-29 (revised 2026-09-30 UAT):
-//   - Shell: canonical <Modal hue={identity.colorHue ?? 220}> (grey for an
-//     identity with no roles and no colorHue — `pv-neutral`). Portals to
-//     document.body (blocking default = true) with a proper backdrop and
-//     focus trap. The earlier "per-pane, blocking=false" treatment made
-//     the modal show only inside the pane's stacking context — in split
-//     view it rendered under the neighboring pane. Backdrop dims the
-//     whole viewport now; badge sits UNDER the modal.
-//   - Head: avatar + display name (plain text, no jump treatment) + role
-//     line (clickable, jumps to RoleModal — prettified via the shared
-//     roleDisplayName helper on roleDefaults.displayName with title-cased
-//     slug fallback) + task line (with inline pencil) + voice chip + close
-//     X. The ⋯ menu, Boost toggle, identity avatar upload, and displayName
-//     pencil are all retired.
-//   - Section-tabs at top: 3 tabs (Identity file / Wake-ups / Files),
-//     underline-style per tasting. Canonical <ModalFoot> with Close.
-//   - apple-ux (shape-ux-foundation): the head is the shared <ModalHead> —
-//     avatar in `leading`, role links + task line as its children, the
-//     voice button + popover in `actions`, the shell's close X. All
-//     controls are kit parts.
+// apple-ux / shape-identity-modal: a sibling of the roles window. Who the
+// agent is sits at the top — picture, name, its roles as links (each opens
+// the roles window on that role), the task (edited in place), the projects
+// it sits in (top level down), and one cosmetic button for its voice. What
+// it's made of sits underneath in tabs: Agent file, Wake-ups, Files, plus Git
+// when the workspace holds a repo and Desktop while its desktop runs.
 //
-// Save flow:
-//   - Task pencil → text input → Enter/blur → updateIdentity with meta.task.
-//   - Voice chip → click opens picker popover → VoicePicker onChange →
-//     updateIdentity with meta.voice. Chip shows "default" (italic) when
-//     identity.voice is null (inherits identity.roleDefaults?.voice).
+// A wake-up, a new wake-up, a repo, a commit and a diff each open one level
+// deeper in the same window: a stack of views, the back control and Esc go
+// up exactly one level, Esc at the top closes. Leaving the agent file editor
+// or a wake-up with unsaved changes by any route asks first.
 //
-// AddWakeupDialog stacking: unchanged. AddWakeupDialog is a separate
-// canonical Modal that portals to document.body, stacks OVER IdentityModal
-// like today. No swap-not-stack.
+// The Desktop tab grows the window (its height follows the desktop's shape)
+// and shrinks the top to a small picture and the name.
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import type React from "react";
-import { AlarmClock, AppWindow, ChevronDown, Folder, GitBranch, Mic, Monitor, Pencil, User } from "lucide-react";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
+import { AlarmClock, ChevronLeft, Folder, GitBranch, Mic, Monitor, Pencil, User } from "lucide-react";
 import { Modal, ModalFoot, ModalHead, ModalTabs } from "@/components/modal";
-import { KitButton, KitIconButton, KitInput } from "@/components/kit";
+import { KitBanner, KitButton, KitEmpty, KitInput, KitLoading, kitConfirm } from "@/components/kit";
 import { Tabs, TabsContent } from "@/components/tabs";
 import { updateIdentity } from "@/api/identities-api";
 import { applyIdentityChange, refreshIdentities } from "@/state/identities-store";
+import { useProjects } from "@/state/conversation-store";
+import { projectLineage } from "@/state/project-lineage";
 import { roleDisplayName } from "@/lib/role-display-name";
-import {
-  hasNeutralLook,
-  identityRoles,
-  identityTint,
-  isMultiRole,
-} from "@/lib/identity-roles";
+import { stripFrontmatter } from "@/lib/strip-frontmatter";
+import { hasNeutralLook, identityRoles, identityTint, isMultiRole } from "@/lib/identity-roles";
 import { AvatarImage } from "@/components/avatar-image";
 import { toast } from "sonner";
 import { VoicePicker } from "./pickers/VoicePicker";
@@ -68,97 +52,51 @@ import {
   type IdentityWakeupDeletedEvent,
 } from "@/api/claude-session-api";
 import type { Identity } from "@/api/identities-api";
+import type { GitCommit } from "@/api/workspace-git-api";
 import { cn } from "@/lib/utils";
-import { IdentityFileTab, type TabState } from "./IdentityFileTab";
+import type { TabState } from "./IdentityFileTab";
+import { MarkdownEditor } from "./MarkdownEditor";
 import { WakeupsTab } from "./WakeupsTab";
+import { WakeupView, type WakeupUpdates } from "./WakeupView";
 import { sensorStatusUnreachable } from "@/api/sensor-status-types";
 import WorkspaceTab from "./WorkspaceTab";
-import GitTab from "./GitTab";
 import { useGitReposAnswer } from "./use-has-git-repos";
+import {
+  AgentGitCommit,
+  AgentGitDiff,
+  AgentGitRepo,
+  AgentGitRoot,
+  useAgentGit,
+  type GitDiffSource,
+} from "./AgentGit";
 import DesktopTab from "./DesktopTab";
-import { AppsTab, conversationAppsFor } from "./AppsTab";
-import { useAppTiles } from "@/state/app-tiles-store";
-import { requestDesktopPane } from "@/shell/desktop-drag";
 import { useDesktopRunning } from "./use-desktop-running";
+import type { EscapeHandler, LeaveGuard } from "./roles-window/RolesWindow";
 import { bumpModalOpen } from "@/lib/freeze-diag";
-
-// Title-line clickable treatment for jumping to the role modal. Preserved
-// verbatim from the pre-unification IdentityModal (Phase 90 Plan 90-06 D-04).
-function TitleLineJumpToRole({
-  identity,
-  text,
-  className,
-  jumpTargetLabel,
-  onJump,
-  chevron = true,
-}: {
-  identity: Identity;
-  text: string;
-  className?: string;
-  jumpTargetLabel: string;
-  onJump: () => void;
-  /** Trailing "›". Off for all but the last link of a multi-role list. */
-  chevron?: boolean;
-}): React.ReactElement {
-  // Kit text tokens (apple-ux look A): secondary at rest, primary on hover.
-  const REST_COLOR = "var(--k-t2)";
-  const REST_DECO_COLOR = "var(--k-t3)";
-  const HOVER_COLOR = "var(--k-t1)";
-  const HOVER_DECO_COLOR = "var(--k-t2)";
-  const [hovered, setHovered] = useState(false);
-  const handleActivate = useCallback(
-    (e: React.MouseEvent | React.KeyboardEvent) => {
-      e.stopPropagation();
-      onJump();
-    },
-    [onJump],
-  );
-  return (
-    <span
-      role="button"
-      tabIndex={0}
-      aria-label={`Open role modal: ${jumpTargetLabel}`}
-      title={`Open role modal: ${jumpTargetLabel}`}
-      data-testid="identity-modal-title-line-jump"
-      data-identity-key={identity.identityKey}
-      className={className}
-      style={{
-        cursor: "pointer",
-        color: hovered ? HOVER_COLOR : REST_COLOR,
-        textDecoration: "underline",
-        textDecorationStyle: hovered ? "solid" : "dotted",
-        textDecorationColor: hovered ? HOVER_DECO_COLOR : REST_DECO_COLOR,
-        textUnderlineOffset: "2px",
-        transition: "color 120ms, text-decoration 120ms",
-      }}
-      onMouseEnter={() => setHovered(true)}
-      onMouseLeave={() => setHovered(false)}
-      onClick={handleActivate}
-      onKeyDown={(e) => {
-        if (e.key === "Enter" || e.key === " ") {
-          e.preventDefault();
-          handleActivate(e);
-        }
-      }}
-    >
-      {text}
-      {chevron && (
-        <span
-          style={{
-            marginLeft: 3,
-            opacity: hovered ? 1 : 0.7,
-            transition: "opacity 120ms",
-          }}
-        >
-          {"›"}
-        </span>
-      )}
-    </span>
-  );
-}
 
 /** How often an open Wake-ups tab re-reads its list (sensors shape 2). */
 const WAKEUPS_REFRESH_MS = 30_000;
+
+const PROSE = [
+  "prose prose-sm max-w-none dark:prose-invert",
+  "[&>*:first-child]:mt-0 [&>*:last-child]:mb-0",
+  "prose-pre:my-2 prose-pre:p-2 prose-pre:rounded",
+  "prose-pre:font-[JetBrains_Mono_Variable,ui-monospace,monospace]",
+  "prose-pre:bg-[rgba(10,12,20,0.6)] prose-pre:border prose-pre:border-white/[0.06]",
+  "prose-code:before:content-none prose-code:after:content-none",
+  "prose-code:rounded prose-code:px-1 prose-code:py-0.5",
+  "prose-code:font-[JetBrains_Mono_Variable,ui-monospace,monospace]",
+  "prose-code:bg-white/[0.08] prose-code:text-[var(--color-pv-code-fg)]",
+  "prose-code:border prose-code:border-white/[0.06]",
+].join(" ");
+
+/** A view one or more levels below the agent itself. */
+type DeepView =
+  | { view: "wakeup"; slug: string; title: string }
+  | { view: "new-wakeup"; title: string }
+  | { view: "git-repo"; repoPath: string; title: string }
+  | { view: "git-commit"; repoPath: string; commit: GitCommit; title: string }
+  | { view: "git-diff"; source: GitDiffSource; title: string; subtitle: string };
 
 export function IdentityModal({
   open,
@@ -176,7 +114,7 @@ export function IdentityModal({
   identity: Identity;
   hue: number;
   hostId: number;
-  /** Opens the Role modal for one of the identity's roles (by slug). */
+  /** Opens the roles window on one of the identity's roles (by slug). */
   onOpenRoleModal: (identity: Identity, roleName: string) => void;
   /** Tab to land on when the modal opens (the task pill's round buttons).
    *  Absent → the remembered tab, as before. Read at the open transition. */
@@ -190,24 +128,22 @@ export function IdentityModal({
 }): JSX.Element {
   // A modal mounted already-open honors the requested tab too (the open
   // transition below handles every later open).
-  const [activeTab, setActiveTab] = useState<string>(
-    () => (open && initialTab) || "identity",
-  );
+  const [activeTab, setActiveTab] = useState<string>(() => (open && initialTab) || "identity");
+  const [stack, setStack] = useState<DeepView[]>([]);
+  const deep = stack.length > 0 ? stack[stack.length - 1] : null;
 
-  // Per-field inline edit state — task pencil only (displayName pencil
-  // retired 2026-09-29; identities not renamable via UI).
+  // Task (edited in place).
   const [editingTask, setEditingTask] = useState(false);
   const [taskDraft, setTaskDraft] = useState<string>(identity.task ?? "");
-  const [savingField, setSavingField] = useState<null | "task">(null);
+  const [savingTask, setSavingTask] = useState(false);
 
-  // Voice chip + popover (pinned top of head).
-  const [voicePickerOpen, setVoicePickerOpen] = useState(false);
+  // Voice button + pop-over.
+  const [voiceOpen, setVoiceOpen] = useState(false);
   const [voiceDraft, setVoiceDraft] = useState<string>(identity.voice ?? "");
-  // Saved voice shown by name, never a raw provider code.
-  const voiceChipLabel = useVoiceLabel(identity.voice ?? "");
-  const voicePickerRef = useRef<HTMLDivElement | null>(null);
+  const voiceLabel = useVoiceLabel(identity.voice ?? "");
+  const voiceRef = useRef<HTMLDivElement | null>(null);
 
-  // Tab data — same shape + WS-based fetches as the pre-unification impl.
+  // Tab data — WS one-shot fetches.
   const [identityFileState, setIdentityFileState] = useState<TabState<string>>({ status: "loading" });
   const [identityWakeupsState, setIdentityWakeupsState] = useState<TabState<Wakeup[]>>({ status: "loading" });
   // Bumped by every wake-up write so an older background refresh can't
@@ -219,6 +155,7 @@ export function IdentityModal({
   // The hint covers only the wait for the probe; once it answers, it decides.
   const gitReposAnswer = useGitReposAnswer(gitTarget, hostId, open);
   const hasGitRepos = gitReposAnswer ?? (open && gitReposHint);
+  const git = useAgentGit(gitTarget, hostId);
   // Desktop tab only once the identity's virtual desktop is up.
   const desktopRunningPolled = useDesktopRunning(identity.identityKey, hostId, open);
   // The live hint latches for the modal session, like the poll does, so a
@@ -229,25 +166,23 @@ export function IdentityModal({
   const desktopRunning = desktopRunningPolled || (open && (desktopRunningHint || desktopHintLatched));
   // While the user drives the desktop, Esc belongs to it, not to the modal.
   const [desktopControl, setDesktopControl] = useState(false);
-  // Reopening on a remembered Desktop tab would show an empty, large modal
-  // until the desktop status comes back (it resets on close) — reopen on the
-  // agent file instead. Adjusted during render so the first frame is right.
+  // Each open starts on the agent itself. Reopening on a remembered Desktop
+  // tab would show an empty, large modal until the desktop status comes back
+  // (it resets on close) — reopen on the agent file instead. Adjusted during
+  // render so the first frame is right.
   const [prevOpen, setPrevOpen] = useState(open);
   if (open !== prevOpen) {
     setPrevOpen(open);
-    if (open && initialTab) setActiveTab(initialTab);
-    else if (open && activeTab === "desktop") setActiveTab("identity");
+    if (open) {
+      setStack([]);
+      if (initialTab) setActiveTab(initialTab);
+      else if (activeTab === "desktop") setActiveTab("identity");
+    }
   }
-  // convo-scoped apps: the Apps tab shows only while this conversation has
-  // apps of its own (same conditional shape as Git / Desktop).
-  const allApps = useAppTiles();
-  const conversationApps = conversationAppsFor(allApps, hostId, identity.identityKey);
-  const hasApps = conversationApps.length > 0;
   const NAV_SECTIONS = [
     { value: "identity", label: "Agent file", Icon: User },
     { value: "identity-wakeups", label: "Wake-ups", Icon: AlarmClock },
     { value: "workspace", label: "Files", Icon: Folder },
-    ...(hasApps ? [{ value: "apps", label: "Apps", Icon: AppWindow }] : []),
     ...(hasGitRepos ? [{ value: "git", label: "Git", Icon: GitBranch }] : []),
     ...(desktopRunning ? [{ value: "desktop", label: "Desktop", Icon: Monitor }] : []),
   ] as const;
@@ -256,8 +191,141 @@ export function IdentityModal({
   // falls back to the agent file instead of leaving an empty body.
   const shownTab = NAV_SECTIONS.some((t) => t.value === activeTab) ? activeTab : "identity";
 
-  // Initial fetch of identity file + wake-ups on modal open. Preserved
-  // verbatim from pre-unification (two parallel WS one-shot requests).
+  // ── Agent file editing ───────────────────────────────────────────────────
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState("");
+  const [savingFile, setSavingFile] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
+  // The rich editor can re-serialise the file once more after it loads.
+  // Until the user types or clicks in it, a change is the editor settling,
+  // not an edit: it becomes the baseline instead of marking the file dirty.
+  const [baseline, setBaseline] = useState("");
+  const interacted = useRef(false);
+  const onEditorChange = useCallback((md: string) => {
+    if (!interacted.current) setBaseline(md);
+    setDraft(md);
+  }, []);
+  const fileReady = identityFileState.status === "ready";
+  const fileDirty = editing && fileReady && draft !== baseline;
+  const fileDirtyRef = useRef(fileDirty);
+  fileDirtyRef.current = fileDirty;
+
+  const confirmDiscardFile = useCallback(
+    (): Promise<boolean> =>
+      kitConfirm({
+        title: "Discard your changes?",
+        body: "Your edits to the agent file haven't been saved.",
+        confirmLabel: "Discard",
+        cancelLabel: "Keep editing",
+        destructive: true,
+      }),
+    [],
+  );
+
+  /** Stop editing the agent file, asking first when it has unsaved edits. */
+  const leaveFileEdit = useCallback(async (): Promise<boolean> => {
+    if (fileDirtyRef.current && !(await confirmDiscardFile())) return false;
+    fileDirtyRef.current = false;
+    setEditing(false);
+    setSaveError(null);
+    return true;
+  }, [confirmDiscardFile]);
+
+  // ── Navigation ───────────────────────────────────────────────────────────
+  // A deeper view registers its own leave guard (unsaved wake-up edits) and
+  // may use Esc itself first.
+  const guardRef = useRef<LeaveGuard | null>(null);
+  const escapeRef = useRef<EscapeHandler | null>(null);
+  const registerGuard = useCallback((g: LeaveGuard | null) => {
+    guardRef.current = g;
+  }, []);
+  const registerEscape = useCallback((h: EscapeHandler | null) => {
+    escapeRef.current = h;
+  }, []);
+
+  /** Leave the current view: true when nothing unsaved stands in the way. */
+  const leave = useCallback(async (): Promise<boolean> => {
+    if (stack.length === 0) return leaveFileEdit();
+    const g = guardRef.current;
+    if (g && !(await g())) return false;
+    guardRef.current = null;
+    escapeRef.current = null;
+    return true;
+  }, [stack.length, leaveFileEdit]);
+
+  const push = useCallback(
+    async (next: DeepView): Promise<void> => {
+      if (!(await leave())) return;
+      console.debug("[IdentityModal] nav", { identityKey: identity.identityKey, to: next.view, depth: stack.length + 1 });
+      setStack((s) => [...s, next]);
+    },
+    [leave, identity.identityKey, stack.length],
+  );
+
+  const back = useCallback(async (): Promise<void> => {
+    if (stack.length === 0) return;
+    if (!(await leave())) return;
+    setStack((s) => s.slice(0, -1));
+  }, [stack.length, leave]);
+
+  const handleOpenChange = useCallback(
+    async (next: boolean): Promise<void> => {
+      if (next) return onOpenChange(true);
+      if (!(await leave())) return;
+      onOpenChange(false);
+    },
+    [leave, onOpenChange],
+  );
+
+  const changeTab = useCallback(
+    async (next: string): Promise<void> => {
+      if (next === shownTab) return;
+      if (shownTab === "identity" && !(await leaveFileEdit())) return;
+      setActiveTab(next);
+    },
+    [shownTab, leaveFileEdit],
+  );
+
+  // Esc: a deeper view goes up one level; at the top it closes a pop-over,
+  // leaves the agent file editor, or (falling through to the modal) closes.
+  // While the user drives the desktop, Esc is the desktop's.
+  const escState = useRef({ voiceOpen, editing, depth: stack.length, desktopControl });
+  escState.current = { voiceOpen, editing, depth: stack.length, desktopControl };
+  useEffect(() => {
+    if (!open) return;
+    const onKey = (e: KeyboardEvent): void => {
+      if (e.key !== "Escape" || e.defaultPrevented) return;
+      const s = escState.current;
+      if (s.desktopControl) return;
+      const t = e.target instanceof Element ? e.target : null;
+      if (t?.closest("[data-modal-esc-local]")) return;
+      if (document.querySelector(".k-dialog-body, [role='menu']")) return;
+      const stop = (): void => {
+        e.preventDefault();
+        e.stopPropagation();
+      };
+      if (escapeRef.current?.()) return stop();
+      if (s.depth > 0) {
+        stop();
+        void back();
+        return;
+      }
+      if (s.voiceOpen) {
+        stop();
+        setVoiceOpen(false);
+        return;
+      }
+      if (s.editing) {
+        stop();
+        void leaveFileEdit();
+      }
+    };
+    window.addEventListener("keydown", onKey, true);
+    return () => window.removeEventListener("keydown", onKey, true);
+  }, [open, back, leaveFileEdit]);
+
+  // Initial fetch of identity file + wake-ups on modal open (two parallel
+  // WS one-shot requests).
   useEffect(() => {
     if (!open || !identity.identityKey) return;
 
@@ -267,10 +335,7 @@ export function IdentityModal({
     let cancelled = false;
     const artifactSockets: WebSocket[] = [];
 
-    function openOneShot<
-      Req extends { type: string },
-      Res extends { type: string },
-    >(
+    function openOneShot<Req extends { type: string }, Res extends { type: string }>(
       request: Req,
       expectedType: string,
       onSuccess: (data: Res) => void,
@@ -316,34 +381,16 @@ export function IdentityModal({
     }
 
     openOneShot<IdentityGetIdentityFilePayload, IdentityIdentityFileEvent>(
-      {
-        type: "identity:get-identity-file",
-        identityKey: identity.identityKey,
-        hostId,
-      },
+      { type: "identity:get-identity-file", identityKey: identity.identityKey, hostId },
       "identity:identity-file",
-      (ev) =>
-        setIdentityFileState(
-          ev.error
-            ? { status: "error", error: ev.error }
-            : { status: "ready", data: ev.markdown },
-        ),
+      (ev) => setIdentityFileState(ev.error ? { status: "error", error: ev.error } : { status: "ready", data: ev.markdown }),
       (e) => setIdentityFileState({ status: "error", error: e }),
     );
 
     openOneShot<IdentityListWakeupsPayload, IdentityWakeupsEvent>(
-      {
-        type: "identity:list-wakeups",
-        identityKey: identity.identityKey,
-        hostId,
-      },
+      { type: "identity:list-wakeups", identityKey: identity.identityKey, hostId },
       "identity:wakeups",
-      (ev) =>
-        setIdentityWakeupsState(
-          ev.error
-            ? { status: "error", error: ev.error }
-            : { status: "ready", data: ev.wakeups },
-        ),
+      (ev) => setIdentityWakeupsState(ev.error ? { status: "error", error: ev.error } : { status: "ready", data: ev.wakeups }),
       (e) => setIdentityWakeupsState({ status: "error", error: e }),
     );
 
@@ -359,11 +406,11 @@ export function IdentityModal({
     };
   }, [open, identity.identityKey, hostId]);
 
-  // Sensors shape 2: while the Wake-ups tab is showing, quietly re-read the
-  // list every 30s so sensor status and last-fired stay current. Nothing is
-  // re-read while the tab (or the modal) isn't showing. A failed refresh
-  // keeps the last list on screen rather than flipping the tab to an error,
-  // but its sensors turn Unknown — a stale Healthy must never linger.
+  // Sensors shape 2: while the Wake-ups tab (or a wake-up opened from it) is
+  // showing, quietly re-read the list every 30s so sensor status and
+  // last-fired stay current. A failed refresh keeps the last list on screen
+  // rather than flipping the tab to an error, but its sensors turn Unknown —
+  // a stale Healthy must never linger. An open wake-up's drafts never reset.
   useEffect(() => {
     if (!open || activeTab !== "identity-wakeups" || !identity.identityKey) return;
     const identityKey = identity.identityKey;
@@ -375,9 +422,7 @@ export function IdentityModal({
           ? prev
           : {
               status: "ready",
-              data: prev.data.map((w) =>
-                w.sensor ? { ...w, sensor: sensorStatusUnreachable(w.sensor) } : w,
-              ),
+              data: prev.data.map((w) => (w.sensor ? { ...w, sensor: sensorStatusUnreachable(w.sensor) } : w)),
             },
       );
     const handle = setInterval(() => {
@@ -399,9 +444,7 @@ export function IdentityModal({
             markSensorsUnreachable();
             return;
           }
-          setIdentityWakeupsState((prev) =>
-            prev.status === "loading" ? prev : { status: "ready", data: ev.wakeups },
-          );
+          setIdentityWakeupsState((prev) => (prev.status === "loading" ? prev : { status: "ready", data: ev.wakeups }));
         })
         .catch(() => {
           if (!cancelled && wakeupsWriteGen.current === genAtStart) markSensorsUnreachable();
@@ -415,13 +458,15 @@ export function IdentityModal({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, activeTab, identity.identityKey, hostId]);
 
-  // Reset per-field draft state + close menu on open.
+  // Reset per-field drafts on open.
   useEffect(() => {
     if (!open) return;
     setTaskDraft(identity.task ?? "");
     setEditingTask(false);
-    setVoicePickerOpen(false);
+    setVoiceOpen(false);
     setVoiceDraft(identity.voice ?? "");
+    setEditing(false);
+    setSaveError(null);
   }, [open, identity.identityKey, identity.task, identity.voice]);
 
   // freeze-diag: bump the identity-modal open counter on each closed→open
@@ -431,24 +476,24 @@ export function IdentityModal({
     if (open) bumpModalOpen("identity");
   }, [open]);
 
-  // Click-outside close on the voice picker popover.
+  // Click outside the voice pop-over closes it.
   useEffect(() => {
-    if (!voicePickerOpen) return;
+    if (!voiceOpen) return;
     function onDown(e: MouseEvent) {
-      if (!voicePickerRef.current) return;
-      if (voicePickerRef.current.contains(e.target as Node)) return;
-      setVoicePickerOpen(false);
+      if (!voiceRef.current) return;
+      if (voiceRef.current.contains(e.target as Node)) return;
+      setVoiceOpen(false);
     }
     document.addEventListener("mousedown", onDown);
     return () => document.removeEventListener("mousedown", onDown);
-  }, [voicePickerOpen]);
+  }, [voiceOpen]);
 
-  // One-shot WS mutation helper (kept verbatim — used by every wake-up
-  // handler + the identity file editor).
-  function sendIdentityMutation<
-    Req,
-    Res extends { error?: string; type: string },
-  >(request: Req, expectedType: string): Promise<Res> {
+  // One-shot WS mutation helper — used by every wake-up handler + the agent
+  // file editor.
+  function sendIdentityMutation<Req, Res extends { error?: string; type: string }>(
+    request: Req,
+    expectedType: string,
+  ): Promise<Res> {
     return new Promise<Res>((resolve, reject) => {
       const sock = openClaudeSessionSocket();
       let settled = false;
@@ -486,12 +531,7 @@ export function IdentityModal({
 
   async function updateWakeup(
     wakeupSlug: string,
-    updates: {
-      enabled?: boolean;
-      schedule?: unknown;
-      name?: string;
-      instruction?: string;
-    },
+    updates: { enabled?: boolean; schedule?: unknown; name?: string; instruction?: string },
   ): Promise<void> {
     if (!identity.identityKey) throw new Error("no identity key");
     wakeupsWriteGen.current += 1;
@@ -502,10 +542,10 @@ export function IdentityModal({
       wakeupSlug,
       updates,
     };
-    const res = await sendIdentityMutation<
-      IdentityUpdateWakeupPayload,
-      IdentityWakeupUpdatedEvent
-    >(payload, "identity:wakeup-updated");
+    const res = await sendIdentityMutation<IdentityUpdateWakeupPayload, IdentityWakeupUpdatedEvent>(
+      payload,
+      "identity:wakeup-updated",
+    );
     if (res.error) throw new Error(res.error);
     setIdentityWakeupsState({ status: "ready", data: res.wakeups });
   }
@@ -519,10 +559,10 @@ export function IdentityModal({
       hostId,
       spec,
     };
-    const res = await sendIdentityMutation<
-      IdentityCreateWakeupPayload,
-      IdentityWakeupCreatedEvent
-    >(payload, "identity:wakeup-created");
+    const res = await sendIdentityMutation<IdentityCreateWakeupPayload, IdentityWakeupCreatedEvent>(
+      payload,
+      "identity:wakeup-created",
+    );
     if (res.error) throw new Error(res.error);
     setIdentityWakeupsState({ status: "ready", data: res.wakeups });
   }
@@ -536,36 +576,46 @@ export function IdentityModal({
       hostId,
       wakeupSlug,
     };
-    const res = await sendIdentityMutation<
-      IdentityDeleteWakeupPayload,
-      IdentityWakeupDeletedEvent
-    >(payload, "identity:wakeup-deleted");
+    const res = await sendIdentityMutation<IdentityDeleteWakeupPayload, IdentityWakeupDeletedEvent>(
+      payload,
+      "identity:wakeup-deleted",
+    );
     if (res.error) throw new Error(res.error);
     setIdentityWakeupsState({ status: "ready", data: res.wakeups });
   }
 
-  async function updateIdentityFile(contents: string): Promise<void> {
-    if (!identity.identityKey) throw new Error("no identity key");
-    const payload: IdentityUpdateIdentityFilePayload = {
-      type: "identity:update-identity-file",
-      identityKey: identity.identityKey,
-      hostId,
-      contents,
-    };
-    const res = await sendIdentityMutation<
-      IdentityUpdateIdentityFilePayload,
-      IdentityIdentityFileUpdatedEvent
-    >(payload, "identity:identity-file-updated");
-    if (res.error) throw new Error(res.error);
-    setIdentityFileState({ status: "ready", data: res.markdown });
-    // A raw file save can change task/title/role/project. The pulse picks up
-    // most of that next tick, but it deliberately never blanks a field (a
-    // cleared `task:` would linger in the sidebar) — the authoritative
-    // /identities refetch does.
-    refreshIdentities().catch(() => {});
+  async function saveAgentFile(): Promise<void> {
+    if (!identity.identityKey) return;
+    setSavingFile(true);
+    setSaveError(null);
+    try {
+      const payload: IdentityUpdateIdentityFilePayload = {
+        type: "identity:update-identity-file",
+        identityKey: identity.identityKey,
+        hostId,
+        contents: draft,
+      };
+      const res = await sendIdentityMutation<IdentityUpdateIdentityFilePayload, IdentityIdentityFileUpdatedEvent>(
+        payload,
+        "identity:identity-file-updated",
+      );
+      if (res.error) throw new Error(res.error);
+      setIdentityFileState({ status: "ready", data: res.markdown });
+      fileDirtyRef.current = false;
+      setEditing(false);
+      console.info({ operation: "identity_file_saved", identityKey: identity.identityKey, hostId });
+      // A raw file save can change task/title/role/project. The pulse picks up
+      // most of that next tick, but it deliberately never blanks a field (a
+      // cleared `task:` would linger in the sidebar) — the authoritative
+      // /identities refetch does.
+      refreshIdentities().catch(() => {});
+    } catch (e) {
+      setSaveError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setSavingFile(false);
+    }
   }
 
-  // Per-field inline save — task.
   async function saveTask(): Promise<void> {
     const next = taskDraft.trim();
     const current = identity.task ?? "";
@@ -573,240 +623,234 @@ export function IdentityModal({
       setEditingTask(false);
       return;
     }
-    setSavingField("task");
+    setSavingTask(true);
     try {
-      const updated = await updateIdentity(
-        identity.identityKey,
-        { task: next === "" ? null : next },
-        null,
-        hostId,
-      );
+      const updated = await updateIdentity(identity.identityKey, { task: next === "" ? null : next }, null, hostId);
       applyIdentityChange(updated);
       setEditingTask(false);
     } catch (err) {
-      toast.error(
-        err instanceof Error
-          ? `Save failed: ${err.message}`
-          : "Save failed",
-      );
+      toast.error(err instanceof Error ? `Save failed: ${err.message}` : "Save failed");
     } finally {
-      setSavingField(null);
+      setSavingTask(false);
     }
   }
 
-  // Voice save — fires when the picker changes.
   async function saveVoice(nextVoice: string): Promise<void> {
     setVoiceDraft(nextVoice);
     try {
-      const updated = await updateIdentity(
-        identity.identityKey,
-        { voice: nextVoice === "" ? null : nextVoice },
-        null,
-        hostId,
-      );
+      const updated = await updateIdentity(identity.identityKey, { voice: nextVoice === "" ? null : nextVoice }, null, hostId);
       applyIdentityChange(updated);
     } catch (err) {
-      toast.error(
-        err instanceof Error
-          ? `Voice save failed: ${err.message}`
-          : "Voice save failed",
-      );
-      // Roll back the local draft on error
+      toast.error(err instanceof Error ? `Voice save failed: ${err.message}` : "Voice save failed");
       setVoiceDraft(identity.voice ?? "");
     }
   }
 
-  // saveDisplayName / onStaysAwakeToggle / onAvatarPick retired 2026-09-29
-  // (identities not renamable via UI; Boost switch retired; identity avatar
-  // upload retired). The .no-dormancy sentinel mechanism still exists on
-  // disk — agents touch/rm the file per user request.
-
-  // Multi-role: one link per role the identity holds, comma-separated.
-  // Pretty-names shape (2026-09-30): roles carry `displayName` in their
-  // frontmatter instead of `title`. Route through the shared helper so
-  // the fallback title-cases the slug ("box-maintainer" → "Box Maintainer")
-  // consistently with every other surface that renders a role name. Only the
-  // inherited-look role has its displayName on hand (roleDefaults); the
-  // others render title-cased slugs.
+  // ── Render ───────────────────────────────────────────────────────────────
   const roles = identityRoles(identity);
   // No roles and no colorHue: the neutral grey (the caller passes NEUTRAL_HUE).
   const neutralLook = hasNeutralLook(identity);
   const tint = identityTint(hue, neutralLook);
   const roleLinks = roles.map((roleName) => ({
     roleName,
-    label: roleDisplayName(
-      roleName,
-      roleName === identity.role ? identity.roleDefaults?.displayName : undefined,
-    ),
+    label: roleDisplayName(roleName, roleName === identity.role ? identity.roleDefaults?.displayName : undefined),
   }));
+  const projects = useProjects();
+  const lineage = projectLineage(projects, identity.hostId ?? hostId, identity.project);
 
-  return (
-    <Modal
-      open={open}
-      onOpenChange={onOpenChange}
-      hue={hue}
-      // The Desktop tab gets the wide viewer size (height follows the
-      // desktop's shape) so the agent's desktop is big enough to work in;
-      // every other tab keeps the normal size.
-      size={shownTab === "desktop" ? "viewer" : "xl"}
-      className={cn(isMultiRole(identity) && "pv-multi-role", neutralLook && "pv-neutral")}
-      dismissible={!desktopControl}
-      data-testid="identity-modal"
-    >
-      {/* Head — the shared ModalHead: avatar (leading), display name
-          (title), role links + inline-editable task line (children), voice
-          button + popover (actions), close X (the shell's). */}
-      <ModalHead
-        title={identity.displayName}
-        closeTestId="identity-modal-close"
-        leading={
-          <AvatarImage
-            // avatarUrl already carries the sweep's avatar version (`&v=`).
-            src={identity.avatarUrl}
-            name={identity.displayName}
-            className="size-11 rounded-full object-cover shrink-0"
-            initialClassName="size-11 rounded-full shrink-0 inline-flex items-center justify-center font-semibold text-[18px] text-[var(--k-t1)]"
-            initialStyle={{ background: tint(45, 35, 0.9) }}
-          />
-        }
-        actions={
-          <div className="relative" ref={voicePickerRef}>
-            <KitButton
-              size="sm"
-              aria-label="Voice — click to pick"
-              aria-expanded={voicePickerOpen}
-              title={
-                identity.voice
-                  ? `Voice: ${voiceChipLabel} — click to change`
-                  : "Voice — click to pick (currently inherits role default)"
-              }
-              onClick={() => setVoicePickerOpen((v) => !v)}
-              data-testid="identity-modal-voice-chip"
-              className="max-w-[180px]"
-            >
-              <Mic />
-              {identity.voice ? (
-                <span className="truncate">{voiceChipLabel}</span>
-              ) : (
-                <span className="italic text-[var(--k-t2)]">default</span>
-              )}
-              <ChevronDown className="text-[var(--k-t3)]" />
-            </KitButton>
-            {voicePickerOpen && (
-              <div
-                role="dialog"
-                aria-label="Voice picker"
-                data-testid="identity-modal-voice-popover"
-                className={cn(
-                  "absolute right-0 top-[calc(100%+6px)] z-20 w-[300px] max-w-[calc(100vw-40px)] p-3 flex flex-col gap-2",
-                  "rounded-[14px] bg-[var(--k-menu)] border border-[var(--k-hair2)]",
-                  "shadow-[0_12px_40px_rgba(0,0,0,0.55)]",
-                )}
-              >
-                <span className="k-label">Voice</span>
-                <VoicePicker
-                  value={voiceDraft}
-                  onChange={(v) => {
-                    void saveVoice(v);
-                  }}
-                  ariaLabel="Voice"
-                />
-              </div>
-            )}
-          </div>
-        }
-      >
-        {/* Role line — clickable, prettified (uses role frontmatter
-            title if present, else the raw slug). This is what opens
-            RoleModal. */}
+  const avatar = (size: number) => (
+    <AvatarImage
+      // avatarUrl already carries the sweep's avatar version (`&v=`).
+      src={identity.avatarUrl}
+      name={identity.displayName}
+      className="rounded-full object-cover shrink-0"
+      style={{ width: size, height: size }}
+      initialClassName="rounded-full shrink-0 inline-flex items-center justify-center font-semibold text-[var(--k-t1)]"
+      initialStyle={{ width: size, height: size, fontSize: Math.round(size * 0.4), background: tint(45, 35, 0.9) }}
+    />
+  );
+
+  const openRole = async (roleName: string): Promise<void> => {
+    if (!(await leave())) return;
+    onOpenChange(false);
+    onOpenRoleModal(identity, roleName);
+  };
+
+  const hero = (
+    <div className="px-6 max-sm:px-5 pb-4 flex gap-[18px] max-sm:gap-3.5 items-center max-sm:items-start flex-shrink-0" data-testid="identity-modal-hero">
+      <div className="shrink-0 max-sm:hidden">{avatar(76)}</div>
+      <div className="shrink-0 sm:hidden">{avatar(64)}</div>
+      <div className="flex-1 min-w-0 flex flex-col gap-1.5">
+        <div className="text-[24px] max-sm:text-[21px] font-bold tracking-[-0.025em] truncate" aria-hidden="true">
+          {identity.displayName}
+        </div>
         {roleLinks.length > 0 && (
-          <div className="min-w-0 mt-0.5" data-testid="identity-modal-role-links">
+          <div className="min-w-0 flex flex-wrap items-baseline gap-x-1" data-testid="identity-modal-role-links">
             {roleLinks.map(({ roleName, label }, i) => (
-              <span key={roleName}>
-                {i > 0 && (
-                  <span className="text-[12.5px] text-[var(--k-t3)]">, </span>
-                )}
-                <TitleLineJumpToRole
-                  identity={identity}
-                  text={label}
-                  className="text-[12.5px] font-medium"
-                  jumpTargetLabel={label}
-                  chevron={i === roleLinks.length - 1}
-                  onJump={() => {
-                    onOpenChange(false);
-                    onOpenRoleModal(identity, roleName);
-                  }}
-                />
+              <span key={roleName} className="inline-flex items-baseline">
+                <button
+                  type="button"
+                  onClick={() => void openRole(roleName)}
+                  title={`Open ${label} in Roles`}
+                  aria-label={`Open role: ${label}`}
+                  className="bg-transparent border-0 p-0 cursor-pointer text-[13.5px] font-semibold text-[var(--k-acc-text)] hover:underline underline-offset-2"
+                  data-testid="identity-modal-title-line-jump"
+                  data-identity-key={identity.identityKey}
+                >
+                  {label}
+                  {i === roleLinks.length - 1 ? <span className="ml-0.5" aria-hidden="true">›</span> : null}
+                </button>
+                {i < roleLinks.length - 1 ? <span className="text-[13.5px] text-[var(--k-t3)]">,</span> : null}
               </span>
             ))}
           </div>
         )}
-        {/* Task line + inline pencil. Edit mode swaps in a kit field;
-            read mode keeps the pencil adjacent to the task text. */}
-        <div className="flex items-center min-w-0 mt-1">
-          {editingTask ? (
-            <KitInput
-              size="sm"
-              type="text"
-              value={taskDraft}
-              onChange={(e) => setTaskDraft(e.target.value)}
-              onBlur={() => {
+        {editingTask ? (
+          <KitInput
+            size="sm"
+            type="text"
+            value={taskDraft}
+            onChange={(e) => setTaskDraft(e.target.value)}
+            onBlur={() => void saveTask()}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") {
+                e.preventDefault();
                 void saveTask();
-              }}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") {
-                  e.preventDefault();
-                  void saveTask();
-                } else if (e.key === "Escape") {
-                  e.preventDefault();
-                  setEditingTask(false);
-                  setTaskDraft(identity.task ?? "");
-                }
-              }}
-              // Esc cancels the edit, not the modal.
-              data-modal-esc-local=""
-              autoFocus
-              disabled={savingField === "task"}
-              placeholder="What is this agent working on?"
-              aria-label="Task"
-              data-testid="identity-modal-task-input"
-            />
-          ) : (
-            <div className="inline-flex items-center gap-1 min-w-0 max-w-full">
-              <span
-                className="text-[13px] leading-snug text-[var(--k-t2)] truncate min-w-0"
-                data-testid="identity-modal-task-value"
-              >
-                {identity.task || (
-                  <span className="italic text-[var(--k-t3)]">No task set</span>
-                )}
-              </span>
-              <KitIconButton
-                size="sm"
-                label="Edit task"
-                onClick={() => {
-                  setTaskDraft(identity.task ?? "");
-                  setEditingTask(true);
-                }}
-                data-testid="identity-modal-task-pencil"
-              >
-                <Pencil />
-              </KitIconButton>
+              } else if (e.key === "Escape") {
+                e.preventDefault();
+                setEditingTask(false);
+                setTaskDraft(identity.task ?? "");
+              }
+            }}
+            // Esc cancels the edit, not the modal.
+            data-modal-esc-local=""
+            autoFocus
+            disabled={savingTask}
+            placeholder="What is this agent working on?"
+            aria-label="Task"
+            data-testid="identity-modal-task-input"
+          />
+        ) : (
+          <button
+            type="button"
+            onClick={() => {
+              setTaskDraft(identity.task ?? "");
+              setEditingTask(true);
+            }}
+            title="Edit task"
+            aria-label="Edit task"
+            className="group self-start max-w-full inline-flex items-baseline gap-[7px] text-left text-[13.5px] leading-[1.45] cursor-pointer bg-transparent border-0 p-0"
+            data-testid="identity-modal-task-pencil"
+          >
+            <span
+              className={cn(
+                "line-clamp-2",
+                identity.task ? "text-[var(--k-t2)] group-hover:text-[var(--k-t1)]" : "italic text-[var(--k-t3)]",
+              )}
+              data-testid="identity-modal-task-value"
+            >
+              {identity.task || "No task set"}
+            </span>
+            <Pencil className="size-3 shrink-0 text-[var(--k-t3)] group-hover:text-[var(--k-t1)] relative top-px" aria-hidden="true" />
+          </button>
+        )}
+        {lineage.length > 0 && (
+          <div className="text-[12.5px] text-[var(--k-t3)] truncate" data-testid="identity-modal-project-line">
+            In {lineage.join(" › ")}
+          </div>
+        )}
+        <div className="relative mt-0.5 flex flex-wrap items-center gap-2" ref={voiceRef}>
+          <KitButton
+            size="sm"
+            aria-expanded={voiceOpen}
+            onClick={() => setVoiceOpen((v) => !v)}
+            className="max-w-[220px]"
+            title={identity.voice ? `Voice: ${voiceLabel}` : "Voice — uses the role's voice"}
+            data-testid="identity-modal-voice-chip"
+          >
+            <Mic aria-hidden="true" />
+            <span className="truncate">{identity.voice ? voiceLabel : "Role's voice"}</span>
+          </KitButton>
+          {voiceOpen && (
+            <div
+              role="dialog"
+              aria-label="Voice picker"
+              className="k-menu absolute left-0 top-[calc(100%+6px)] z-20 w-[300px] max-w-full !p-3 flex flex-col gap-1.5"
+              data-testid="identity-modal-voice-popover"
+            >
+              <div className="k-label">Voice</div>
+              <VoicePicker value={voiceDraft} onChange={(v) => void saveVoice(v)} ariaLabel="Voice" />
             </div>
           )}
         </div>
-      </ModalHead>
+      </div>
+    </div>
+  );
 
-      {/* Section tabs — MOVED to TOP per tasting. */}
-      <Tabs
-        value={shownTab}
-        onValueChange={setActiveTab}
-        className="flex-1 min-h-0 flex flex-col"
-      >
+  const agentFilePane =
+    identityFileState.status === "loading" ? (
+      <KitLoading lines={5} />
+    ) : identityFileState.status === "error" ? (
+      <KitBanner tone="danger">Couldn&apos;t load agent file: {identityFileState.error}</KitBanner>
+    ) : editing ? (
+      <div className="flex flex-col h-full min-h-0">
+        <div
+          className="flex flex-col flex-1 min-h-0"
+          onKeyDownCapture={() => (interacted.current = true)}
+          onPointerDownCapture={() => (interacted.current = true)}
+          onPasteCapture={() => (interacted.current = true)}
+        >
+          <MarkdownEditor filename="identity.md" content={draft} onChange={onEditorChange} disabled={savingFile} />
+        </div>
+        {saveError && (
+          <KitBanner tone="danger" className="mt-2">
+            Save failed: {saveError}
+          </KitBanner>
+        )}
+      </div>
+    ) : !identityFileState.data ? (
+      <KitEmpty title="No agent file found for this agent." />
+    ) : (
+      <div className={PROSE} data-testid="identity-modal-agent-file">
+        <ReactMarkdown
+          remarkPlugins={[remarkGfm]}
+          components={{ a: ({ node: _node, ...props }) => <a {...props} target="_blank" rel="noopener noreferrer" /> }}
+        >
+          {stripFrontmatter(identityFileState.data)}
+        </ReactMarkdown>
+      </div>
+    );
+
+  const openers = {
+    onOpenRepo: (repoPath: string) => void push({ view: "git-repo", repoPath, title: repoPath === "" ? "Workspace (root)" : repoPath }),
+    onOpenCommit: (repoPath: string, commit: GitCommit) =>
+      void push({ view: "git-commit", repoPath, commit, title: commit.subject }),
+    onOpenDiff: (source: GitDiffSource, title: string, subtitle: string) =>
+      void push({ view: "git-diff", source, title, subtitle }),
+  };
+
+  // ── The agent itself (top level) ─────────────────────────────────────────
+  const onDesktop = shownTab === "desktop";
+  const agentView = (
+    <>
+      {onDesktop ? (
+        <ModalHead
+          title={<span className="text-[16px] font-semibold">{identity.displayName}</span>}
+          leading={avatar(28)}
+          closeTestId="identity-modal-close"
+          className="pb-2"
+        />
+      ) : (
+        <>
+          <ModalHead title={<span className="sr-only">{identity.displayName}</span>} closeTestId="identity-modal-close" className="pb-0" />
+          {hero}
+        </>
+      )}
+      <Tabs value={shownTab} onValueChange={(v) => void changeTab(v)} className="flex-1 min-h-0 flex flex-col">
         <ModalTabs
           tabs={NAV_SECTIONS}
           value={shownTab}
-          onValueChange={setActiveTab}
+          onValueChange={(v) => void changeTab(v)}
           rowTestId="identity-modal-nav"
           testIdPrefix="identity-modal-nav"
           // Five tabs (with Git + Desktop) outrun a phone's width; scroll the
@@ -815,66 +859,42 @@ export function IdentityModal({
           scrollable
         />
 
-        <TabsContent
-          value="identity"
-          className="flex-1 min-h-0 overflow-y-auto px-6 py-4"
-        >
-          <IdentityFileTab state={identityFileState} onSave={updateIdentityFile} />
+        <TabsContent value="identity" className="flex-1 min-h-0 overflow-y-auto px-6 max-sm:px-5 py-4 border-t border-[var(--k-hair)]">
+          {agentFilePane}
         </TabsContent>
 
         <TabsContent
           value="identity-wakeups"
-          className="flex-1 min-h-0 overflow-y-auto px-6 py-4"
+          className="flex-1 min-h-0 overflow-y-auto px-6 max-sm:px-5 py-4 border-t border-[var(--k-hair)]"
         >
           <WakeupsTab
             state={identityWakeupsState}
-            hue={hue}
-            scope="identity"
             isCoordinator={identity.coordinator}
-            onUpdate={updateWakeup}
-            onCreate={createIdentityWakeup}
-            onDelete={deleteIdentityWakeup}
+            onToggle={(slug, enabled) => updateWakeup(slug, { enabled })}
+            onOpen={(slug) => {
+              const w = identityWakeupsState.status === "ready" ? identityWakeupsState.data.find((x) => x.slug === slug) : undefined;
+              void push({ view: "wakeup", slug, title: w?.name ?? slug });
+            }}
+            onNew={() => void push({ view: "new-wakeup", title: "New wake-up" })}
           />
         </TabsContent>
 
-        <TabsContent
-          value="workspace"
-          className="flex-1 min-h-0 overflow-hidden flex flex-col"
-        >
-          <WorkspaceTab
-            target={{ kind: "identity", identityKey: identity.identityKey }}
-            hostId={hostId}
-            hue={hue}
-          />
+        <TabsContent value="workspace" className="flex-1 min-h-0 overflow-hidden flex flex-col border-t border-[var(--k-hair)]">
+          <WorkspaceTab target={{ kind: "identity", identityKey: identity.identityKey }} hostId={hostId} hue={hue} />
         </TabsContent>
-
-        {hasApps && (
-          <TabsContent
-            value="apps"
-            className="flex-1 min-h-0 overflow-hidden flex flex-col"
-          >
-            <AppsTab apps={conversationApps} onClose={() => onOpenChange(false)} />
-          </TabsContent>
-        )}
 
         {hasGitRepos && (
-          <TabsContent
-            value="git"
-            className="flex-1 min-h-0 overflow-hidden flex flex-col"
-          >
-            <GitTab target={gitTarget} hostId={hostId} hue={hue} />
+          <TabsContent value="git" className="flex-1 min-h-0 overflow-y-auto border-t border-[var(--k-hair)]">
+            <AgentGitRoot git={git} {...openers} />
           </TabsContent>
         )}
 
         {desktopRunning && (
-          <TabsContent
-            value="desktop"
-            className="flex-1 min-h-0 overflow-hidden flex flex-col"
-          >
+          <TabsContent value="desktop" className="flex-1 min-h-0 overflow-hidden flex flex-col">
             <DesktopTab
               identityKey={identity.identityKey}
               hostId={hostId}
-              isVisible={open && shownTab === "desktop"}
+              isVisible={open && shownTab === "desktop" && deep === null}
               onControlChange={setDesktopControl}
               onPopOut={() => {
                 requestDesktopPane({
@@ -889,15 +909,147 @@ export function IdentityModal({
         )}
       </Tabs>
 
-      {/* Canonical foot — chrome consistency across editor-lg modals. */}
-      <ModalFoot>
-        <KitButton
-          onClick={() => onOpenChange(false)}
-          data-testid="identity-modal-close-foot"
-        >
-          Close
-        </KitButton>
-      </ModalFoot>
+      {shownTab === "identity" && fileReady && identityFileState.data ? (
+        <ModalFoot>
+          {editing ? (
+            <>
+              <KitButton disabled={savingFile} onClick={() => void leaveFileEdit()} data-testid="identity-modal-cancel-edit">
+                Cancel
+              </KitButton>
+              <KitButton
+                variant="primary"
+                busy={savingFile}
+                disabled={!fileDirty}
+                onClick={() => void saveAgentFile()}
+                data-testid="identity-modal-save"
+              >
+                {savingFile ? "Saving…" : "Save"}
+              </KitButton>
+            </>
+          ) : (
+            <KitButton
+              onClick={() => {
+                const data = identityFileState.status === "ready" ? identityFileState.data : "";
+                setDraft(data);
+                setBaseline(data);
+                interacted.current = false;
+                setSaveError(null);
+                setEditing(true);
+              }}
+              data-testid="identity-modal-edit"
+            >
+              <Pencil /> Edit
+            </KitButton>
+          )}
+        </ModalFoot>
+      ) : null}
+    </>
+  );
+
+  // ── One level (or more) deeper ───────────────────────────────────────────
+  let deepView: JSX.Element | null = null;
+  if (deep) {
+    const backLabel = stack.length === 1 ? identity.displayName : stack[stack.length - 2].title;
+    const head = (title: React.ReactNode, subtitle?: React.ReactNode) => (
+      <ModalHead
+        title={title}
+        subtitle={subtitle}
+        closeTestId="identity-modal-close"
+        leading={
+          <KitButton
+            variant="plain"
+            size="sm"
+            onClick={() => void back()}
+            className="max-w-[180px] max-sm:max-w-[120px]"
+            data-testid="identity-modal-back"
+          >
+            <ChevronLeft /> <span className="truncate">{backLabel}</span>
+          </KitButton>
+        }
+      />
+    );
+    if (deep.view === "wakeup" || deep.view === "new-wakeup") {
+      const wakeup =
+        deep.view === "wakeup" && identityWakeupsState.status === "ready"
+          ? identityWakeupsState.data.find((w) => w.slug === deep.slug)
+          : undefined;
+      deepView =
+        deep.view === "wakeup" && !wakeup ? (
+          <>
+            {head(deep.title, "Wake-up")}
+            <div className="flex-1 min-h-0 px-6 py-4">
+              <KitEmpty title="This wake-up is gone." body="It was deleted or renamed elsewhere." />
+            </div>
+          </>
+        ) : (
+          <>
+            {head(
+              deep.view === "new-wakeup" ? "New wake-up" : wakeup!.name,
+              deep.view === "new-wakeup" ? `Wakes ${identity.displayName} with an instruction` : "Wake-up",
+            )}
+            <WakeupView
+              key={deep.view === "wakeup" ? deep.slug : "new"}
+              wakeup={wakeup}
+              onToggle={wakeup ? (enabled) => updateWakeup(wakeup.slug, { enabled }) : undefined}
+              onSave={wakeup ? (u: WakeupUpdates) => updateWakeup(wakeup.slug, u) : undefined}
+              onCreate={createIdentityWakeup}
+              onDelete={wakeup ? () => deleteIdentityWakeup(wakeup.slug) : undefined}
+              onDone={() => void back()}
+              registerGuard={registerGuard}
+              registerEscape={registerEscape}
+            />
+          </>
+        );
+    } else if (deep.view === "git-repo") {
+      deepView = (
+        <>
+          {head(deep.title, "Repo")}
+          <div className="flex-1 min-h-0 overflow-y-auto">
+            <AgentGitRepo git={git} repoPath={deep.repoPath} {...openers} />
+          </div>
+        </>
+      );
+    } else if (deep.view === "git-commit") {
+      const c = deep.commit;
+      deepView = (
+        <>
+          {head(
+            deep.title,
+            <span>
+              <span className="font-mono text-[12px]">{c.sha.slice(0, 7)}</span> · {c.author}
+            </span>,
+          )}
+          <div className="flex-1 min-h-0 overflow-y-auto">
+            <AgentGitCommit git={git} repoPath={deep.repoPath} commit={c} onOpenDiff={openers.onOpenDiff} />
+          </div>
+        </>
+      );
+    } else {
+      deepView = (
+        <>
+          {head(<span className="font-mono text-[17px] break-all">{deep.title}</span>, deep.subtitle)}
+          <AgentGitDiff git={git} source={deep.source} />
+        </>
+      );
+    }
+  }
+
+  // Deeper views and Git need room; the Desktop tab gets the wide viewer
+  // size (height follows the desktop's shape). Window sizes are otherwise
+  // left for the modal-sizing pass.
+  const size = deep === null && onDesktop ? "viewer" : deep !== null && deep.view.startsWith("git") ? "editor" : "xl";
+
+  return (
+    <Modal
+      open={open}
+      onOpenChange={(o) => void handleOpenChange(o)}
+      hue={hue}
+      size={size}
+      className={cn(isMultiRole(identity) && "pv-multi-role", neutralLook && "pv-neutral")}
+      dismissible={!desktopControl}
+      data-testid="identity-modal"
+    >
+      {deepView ?? agentView}
     </Modal>
   );
 }

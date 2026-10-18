@@ -8,8 +8,8 @@
  *   Test 1: task pencil renders + click → enters edit mode
  *   Test 2: task edit → Enter → updateIdentity called with { task }
  *   Test 3: task edit → Escape → reverts, no save
- *   Test 4: voice chip renders "default" (italic) when identity.voice is null
- *   Test 5: voice chip renders the voice name when identity.voice is set
+ *   Test 4: voice button reads "Role's voice" when identity.voice is null
+ *   Test 5: voice button reads the voice name when identity.voice is set
  *   Test 6: click voice chip → popover opens with VoicePicker
  *   Test 7: VoicePicker apply → updateIdentity called with { voice }
  *
@@ -141,7 +141,6 @@ function renderModal(identityOverrides?: Partial<Identity>) {
       hue={220}
       hostId={7}
       onOpenRoleModal={vi.fn()}
-      container={document.body}
     />,
   );
   return { identity, onOpenChange };
@@ -232,17 +231,14 @@ describe("IdentityModal head — task pencil", () => {
 // Voice chip + popover
 // ─────────────────────────────────────────────────────────────────────────────
 describe("IdentityModal head — voice chip", () => {
-  it('Test 4: renders "default" (italic) when identity.voice is null', async () => {
+  it("Test 4: reads \"Role's voice\" when identity.voice is null", async () => {
     renderModal({ voice: null });
     await waitFor(() => {
       expect(document.querySelector('[role="dialog"]')).toBeTruthy();
     });
     const chip = screen.getByTestId("identity-modal-voice-chip");
-    expect(chip.textContent).toContain("default");
-    // The "default" label wears italic styling — grep the child span for it.
-    const italicSpan = chip.querySelector("span.italic");
-    expect(italicSpan).toBeTruthy();
-    expect(italicSpan?.textContent).toBe("default");
+    expect(chip.textContent).toBe("Role's voice");
+    expect(chip.getAttribute("title")).toMatch(/role's voice/i);
   });
 
   it("Test 5: renders the voice name when identity.voice is set", async () => {
@@ -251,9 +247,9 @@ describe("IdentityModal head — voice chip", () => {
       expect(document.querySelector('[role="dialog"]')).toBeTruthy();
     });
     const chip = screen.getByTestId("identity-modal-voice-chip");
-    expect(chip.textContent).toContain("Matthew");
-    // No italic-default span when voice is set.
-    expect(chip.querySelector("span.italic")).toBeNull();
+    // The name comes from the voice catalog once it loads.
+    await waitFor(() => expect(chip.textContent).toBe("Matthew"));
+    expect(chip.getAttribute("title")).toBe("Voice: Matthew");
   });
 
   it("Test 6: click voice chip → popover renders with VoicePicker inside", async () => {
