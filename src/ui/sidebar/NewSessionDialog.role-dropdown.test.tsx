@@ -622,43 +622,45 @@ describe("NewSessionDialog role dropdown: per-host loading and errors", () => {
     expect(pickedRoleValues()).toEqual(["2/tina"]);
   });
 
-  it("one host failing still lists the other hosts' roles, plus a per-host error line", async () => {
-    vi.spyOn(console, "warn").mockImplementation(() => {});
+  it("one host failing still lists the other hosts' roles, with no error line", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
     mockListRolesForHost.mockImplementation(
       rolesByHost({ 1: new Error("connect ETIMEDOUT"), 2: [role("tina")] }),
     );
     renderDialog();
-    await waitFor(() =>
-      expect(
-        screen.queryByText("Couldn't load roles from alpha: connect ETIMEDOUT"),
-      ).toBeTruthy(),
-    );
-    expect(roleOptionValues()).toEqual(["2/tina"]);
+    await waitFor(() => expect(roleOptionValues()).toEqual(["2/tina"]));
     expect(roleGroupHeaders()).toEqual(["bravo"]);
     closeRoleDropdown();
+    expect(screen.queryByText(/couldn't load roles/i)).toBeNull();
+    expect(screen.queryByText(/ETIMEDOUT/)).toBeNull();
     // An error is not "no roles".
     expect(screen.queryByText(/no roles/i)).toBeNull();
+    // The failure still reaches the logs.
+    expect(warn).toHaveBeenCalledWith(expect.stringMatching(/roles fetch failed hostId=1/));
   });
 
-  it("every host failing → one error line per host", async () => {
+  it("every host failing → no error lines and no zero-roles hint", async () => {
     vi.spyOn(console, "warn").mockImplementation(() => {});
     mockListRolesForHost.mockImplementation(
       rolesByHost({ 1: new Error("boom-a"), 2: new Error("boom-b") }),
     );
     renderDialog();
-    await waitFor(() =>
-      expect(screen.queryByText("Couldn't load roles from bravo: boom-b")).toBeTruthy(),
-    );
-    expect(screen.queryByText("Couldn't load roles from alpha: boom-a")).toBeTruthy();
+    const trigger = () =>
+      document.querySelector<HTMLButtonElement>("button[role=combobox][aria-label=Roles]")!;
+    await waitFor(() => expect(trigger().textContent).not.toMatch(/loading roles/i));
+    expect(screen.queryByText(/boom/)).toBeNull();
+    expect(screen.queryByText(/couldn't load roles/i)).toBeNull();
     expect(screen.queryByText(/no roles/i)).toBeNull();
   });
 
-  it("single host failing → just the error, no host name", async () => {
+  it("single host failing → no error line", async () => {
     vi.spyOn(console, "warn").mockImplementation(() => {});
     mockListRolesForHost.mockImplementation(rolesByHost({ 1: new Error("boom") }));
     renderDialog({ hostTree: oneHostTree });
-    await waitFor(() => expect(screen.queryByText("boom")).toBeTruthy());
-    expect(screen.queryByText(/couldn't load roles/i)).toBeNull();
+    const trigger = () =>
+      document.querySelector<HTMLButtonElement>("button[role=combobox][aria-label=Roles]")!;
+    await waitFor(() => expect(trigger().textContent).not.toMatch(/loading roles/i));
+    expect(screen.queryByText("boom")).toBeNull();
   });
 });
 

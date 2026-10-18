@@ -452,10 +452,7 @@ export function NewSessionDialog({
   const rolesLoading = selectedHost
     ? selectedHostRoles === undefined || selectedHostRoles.loading
     : anyRolesLoading;
-  const rolesErrors = sortedHosts.flatMap((h) => {
-    const err = hostRoles[h.id]?.error;
-    return err ? [{ host: h, error: err }] : [];
-  });
+  const anyRolesError = flatHosts.some((h) => !!hostRoles[h.id]?.error);
 
   // On open: seed from chain pre-fill props if provided, else auto-select the
   // sole host when the tree has exactly one (existing Test 9 behavior).
@@ -1330,20 +1327,13 @@ export function NewSessionDialog({
                       : undefined
                   }
                 />
-                {/* Role fetch errors — one line per host that failed. With a
-                    single host its name would add nothing. */}
-                {rolesErrors.map(({ host, error }) => (
-                  <span
-                    key={host.id}
-                    className="text-xs text-[color:var(--color-pv-code-fg)]"
-                  >
-                    {multiHost ? `Couldn't load roles from ${host.name}: ${error}` : error}
-                  </span>
-                ))}
-                {/* Zero-roles hint. With onNewRole wired the dropdown stays
-                    openable and its "New role…" row is the way forward. */}
+                {/* Role fetch errors are not shown — an unreachable host is
+                    routine, its roles just don't list (console.warn logs it).
+                    Zero-roles hint: with onNewRole wired the dropdown stays
+                    openable and its "New role…" row is the way forward. An
+                    errored host is not "no roles", so the hint stays hidden. */}
                 {!anyRolesLoading &&
-                  rolesErrors.length === 0 &&
+                  !anyRolesError &&
                   roleOptions.length === 0 && (
                     <span className="text-xs italic text-[color:var(--color-pv-fg-muted)]">
                       {onNewRole

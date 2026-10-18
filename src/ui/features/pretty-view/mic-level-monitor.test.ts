@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import {
   createMicLevelMonitor,
   describeMicTrack,
+  HEARD_MIN_MS,
   SILENT_WARN_AFTER_MS,
 } from "./mic-level-monitor";
 
@@ -74,9 +75,28 @@ describe("createMicLevelMonitor", () => {
     const monitor = createMicLevelMonitor(asCtx(ctx), stream, onSilentChange);
     vi.advanceTimersByTime(SILENT_WARN_AFTER_MS + 200);
     ctx.level = 0.1;
+    vi.advanceTimersByTime(HEARD_MIN_MS - 100);
+    expect(onSilentChange.mock.calls).toEqual([[true]]);
     vi.advanceTimersByTime(200);
     expect(onSilentChange.mock.calls).toEqual([[true], [false]]);
     expect(monitor.stop().silent).toBe(false);
+  });
+
+  it("a lone transient at mic-open followed by silence still warns and reports silent=true", () => {
+    // 2026-10-18 lost clip: headset mic gave a ~−48 dBFS pop in the first
+    // ~250 ms, then 20 s of digital silence. A peak-only rule called it heard.
+    const ctx = new FakeAudioContext();
+    ctx.level = 0.004; // ≈ −48 dBFS, just above SILENT_RMS
+    const onSilentChange = vi.fn();
+    const monitor = createMicLevelMonitor(asCtx(ctx), stream, onSilentChange);
+    vi.advanceTimersByTime(200);
+    ctx.level = 0.000005;
+    vi.advanceTimersByTime(SILENT_WARN_AFTER_MS + 200);
+    expect(onSilentChange.mock.calls).toEqual([[true]]);
+    const summary = monitor.stop();
+    expect(summary.silent).toBe(true);
+    expect(summary.heardMs).toBeLessThan(HEARD_MIN_MS);
+    expect(summary.peakDb).toBeGreaterThan(-50);
   });
 
   it("an all-zero feed (analyser not receiving the stream) never warns — verdict unknown", () => {

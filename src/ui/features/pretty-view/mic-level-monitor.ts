@@ -20,8 +20,14 @@
 
 /** Windowed RMS below this (≈ −50 dBFS) counts as silence. Speech sits well above −35. */
 export const SILENT_RMS = 0.003;
-/** How much measured audio with no window above SILENT_RMS before warning. */
+/** How much measured audio without HEARD_MIN_MS of input before warning. */
 export const SILENT_WARN_AFTER_MS = 3000;
+/**
+ * Audio above SILENT_RMS must add up to at least this before the mic counts
+ * as heard. A lone transient (the click/pop as a headset mic opens, then
+ * digital silence) must not mask a dead mic; even one short word clears it.
+ */
+export const HEARD_MIN_MS = 300;
 /** Less measured audio than this and the end-of-recording verdict is "unknown". */
 const MIN_VERDICT_MS = 1000;
 const SAMPLE_INTERVAL_MS = 100;
@@ -31,7 +37,9 @@ export interface MicLevelSummary {
   measuredMs: number;
   /** Loudest 100 ms window, as dBFS (−Infinity when nothing was measured). */
   peakDb: number;
-  /** true = silent the whole time; false = heard input; null = couldn't tell. */
+  /** Milliseconds of measured audio at or above SILENT_RMS. */
+  heardMs: number;
+  /** true = under HEARD_MIN_MS of input; false = heard input; null = couldn't tell. */
   silent: boolean | null;
   /** Every measured sample was exactly 0 — the analyser never saw the stream. */
   allZero: boolean;
@@ -65,8 +73,8 @@ export function closeLevelContext(ctx: AudioContext | null): void {
 
 /**
  * Start sampling `stream` through `ctx`. `onSilentChange(true)` fires once
- * SILENT_WARN_AFTER_MS of measured audio has passed with nothing above
- * SILENT_RMS; `onSilentChange(false)` fires if input shows up after that.
+ * SILENT_WARN_AFTER_MS of measured audio has passed with under HEARD_MIN_MS
+ * above SILENT_RMS; `onSilentChange(false)` fires once input reaches it.
  * `stop()` ends sampling, closes the context, and returns the summary.
  */
 export function createMicLevelMonitor(
@@ -76,6 +84,7 @@ export function createMicLevelMonitor(
 ): MicLevelMonitor {
   let measuredMs = 0;
   let peakRms = 0;
+  let heardMs = 0;
   let warned = false;
   let stopped = false;
   let source: MediaStreamAudioSourceNode | null = null;
@@ -108,10 +117,11 @@ export function createMicLevelMonitor(
       const rms = Math.sqrt(sum / buf.length);
       measuredMs += elapsed;
       if (rms > peakRms) peakRms = rms;
-      if (!warned && measuredMs >= SILENT_WARN_AFTER_MS && peakRms > 0 && peakRms < SILENT_RMS) {
+      if (rms >= SILENT_RMS) heardMs += elapsed;
+      if (!warned && measuredMs >= SILENT_WARN_AFTER_MS && peakRms > 0 && heardMs < HEARD_MIN_MS) {
         warned = true;
         onSilentChange(true);
-      } else if (warned && rms >= SILENT_RMS) {
+      } else if (warned && heardMs >= HEARD_MIN_MS) {
         warned = false;
         onSilentChange(false);
       }
@@ -135,7 +145,8 @@ export function createMicLevelMonitor(
       return {
         measuredMs,
         peakDb: rmsToDb(peakRms),
-        silent: measuredMs >= MIN_VERDICT_MS && !allZero ? peakRms < SILENT_RMS : null,
+        heardMs,
+        silent: measuredMs >= MIN_VERDICT_MS && !allZero ? heardMs < HEARD_MIN_MS : null,
         allZero,
         ctxState,
       };
