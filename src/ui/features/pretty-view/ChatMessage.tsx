@@ -11,6 +11,7 @@ import { cn } from "@/lib/utils";
 import { useFeedbackEnabled } from "@/feedback/feedback-store";
 import { preprocessCommandTriplets, splitMarkers } from "./commandTags";
 import { parseInjectedUserTurn } from "@/api/pretty-view-upload-protocol";
+import { stripVoiceLabel } from "./voice-label";
 import { AttachmentChipStrip } from "./AttachmentChipStrip";
 import { CopyableBlock } from "./CopyableBlock";
 import { useSpeakPlayback } from "./useSpeakPlayback";
@@ -56,7 +57,7 @@ const REMARK_PLUGINS = [remarkGfm, remarkBreaks];
 // PrettyView are stable (memoized values + ref-backed handlers).
 export const ChatMessage = React.memo(function ChatMessage({
   role,
-  content,
+  content: rawContent,
   speakVoices = NO_VOICES,
   ts,
   eventId,
@@ -132,6 +133,8 @@ export const ChatMessage = React.memo(function ChatMessage({
   }>;
 }) {
   const isUser = role === "user";
+  // Voice-mode sends carry a trailing label for the agent; never show it.
+  const content = isUser ? stripVoiceLabel(rawContent) : rawContent;
   // D-01: hook fires for both roles; user messages never carry tailnet URLs
   // so the Set stays empty. Simpler than a conditional hook (Rules of Hooks).
   const eligibleUrls = useEditableFileEligibility(eventId ?? null, content);

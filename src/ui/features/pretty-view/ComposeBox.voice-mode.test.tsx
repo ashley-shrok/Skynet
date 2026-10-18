@@ -13,6 +13,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, screen, fireEvent, act, within } from "@testing-library/react";
 import type { ComposeBoxProps } from "./ComposeBox";
 import { PIECE_GAP_MS, TIMED_END_MS } from "./useVoiceMode";
+import { appendVoiceLabel } from "./voice-label";
 import { __resetVoiceModeRegistryForTests } from "./voice-mode-registry";
 
 vi.mock("@/api/compose-drafts-api", () => ({
@@ -179,7 +180,8 @@ describe("ComposeBox — hands-free voice mode (aux-row button)", () => {
     level = 0;
     await flush(PIECE_GAP_MS + TIMED_END_MS + 200);
     expect(onSend).toHaveBeenCalledTimes(1);
-    expect(onSend.mock.calls[0][0]).toBe("spoken words");
+    // Voice sends carry the voice label; typed sends below do not.
+    expect(onSend.mock.calls[0][0]).toBe(appendVoiceLabel("spoken words"));
     expect(textarea.value).toBe("pasted stack trace");
 
     // Typed send through the regular Send button.

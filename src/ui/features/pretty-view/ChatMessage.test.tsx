@@ -14,6 +14,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, act } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { ChatMessage } from "./ChatMessage";
+import { VOICE_LABEL, appendVoiceLabel } from "./voice-label";
 import { formatInjectedUserTurn } from "@/api/pretty-view-upload-protocol";
 import { postSpeakStream } from "@/api/voice-api";
 import { createWebAudioStreamPlayer } from "./webAudioStreamPlayer";
@@ -725,5 +726,17 @@ describe("ChatMessage — multi-line preservation in markdown render", () => {
     expect(container.querySelectorAll("br").length).toBeGreaterThanOrEqual(1);
     expect(container.textContent).toContain("top");
     expect(container.textContent).toContain("bottom");
+  });
+  it("hides the voice label on a user bubble but shows it on an assistant one", () => {
+    const { container, unmount } = render(
+      <ChatMessage role="user" content={appendVoiceLabel("spoken words")} />,
+    );
+    expect(container.textContent).toContain("spoken words");
+    expect(container.textContent).not.toContain(VOICE_LABEL);
+    unmount();
+    const { container: a } = render(
+      <ChatMessage role="assistant" content={appendVoiceLabel("quoted back")} />,
+    );
+    expect(a.textContent).toContain(VOICE_LABEL);
   });
 });

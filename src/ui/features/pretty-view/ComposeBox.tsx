@@ -35,6 +35,7 @@ import { MicButton } from "./MicButton";
 import { SkillActionsButton } from "./SkillActionsButton";
 import { RecordingControls } from "./RecordingControls";
 import { HoldFeedbackPill, type HoldFeedback } from "./HoldFeedbackPill";
+import { appendVoiceLabel } from "./voice-label";
 
 // Compose-and-send box for the pretty view.
 //
@@ -2168,7 +2169,7 @@ export function ComposeBox({
       if (recycleActive || reconnectingActive) return false;
       const payload = normalizeNewlinesForSend(transcript.trim());
       if (!payload) return true;
-      return funnel.send(payload, { trigger: "voice-mode" });
+      return funnel.send(appendVoiceLabel(payload), { trigger: "voice-mode" });
     },
     onUndelivered: (transcript) => {
       // Only time voice mode writes to the compose box: a transcript that
