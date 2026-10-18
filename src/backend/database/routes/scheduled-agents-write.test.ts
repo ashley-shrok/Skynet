@@ -31,6 +31,9 @@ import { describe, it, expect, beforeEach, afterEach, vi, type Mock } from "vite
 import express from "express";
 import http from "node:http";
 import type { AddressInfo } from "node:net";
+import { execFileSync } from "node:child_process";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 
 // ---------------------------------------------------------------------------
 // Auth manager mock
@@ -250,6 +253,7 @@ function httpRequest(
 
 import router, {
   __resetSlugMutexRegistryForTests,
+  ARCHIVE_IF_NOTHING_TO_REPORT_SECTION,
   buildRunNowSpawnRequest,
   prettifyScheduledAgentName,
   validateScheduledAgentSpec,
@@ -1238,5 +1242,52 @@ describe("validateScheduledAgentSpec — schedule kinds (delegates to the engine
 
   it("still requires `at` on one_shot", () => {
     expect(validateScheduledAgentSpec(withSchedule({ type: "one_shot" }))).toMatch(/at is required/);
+  });
+});
+
+describe("archive_if_nothing_to_report", () => {
+  const at = "2026-10-18T12:00:00Z";
+  const base = { name: "box-check", prompt: "check the box", schedule: { type: "daily", at: "09:00" }, roles: ["helper"] };
+
+  it("validates as a boolean when present", () => {
+    expect(validateScheduledAgentSpec({ ...base, archive_if_nothing_to_report: true })).toBeNull();
+    expect(validateScheduledAgentSpec({ ...base, archive_if_nothing_to_report: false })).toBeNull();
+    expect(validateScheduledAgentSpec(base)).toBeNull();
+    expect(validateScheduledAgentSpec({ ...base, archive_if_nothing_to_report: "true" })).toMatch(
+      /archive_if_nothing_to_report must be a boolean/,
+    );
+  });
+
+  it("Run now attaches the archive section after the prompt only when ticked", () => {
+    const on = buildRunNowSpawnRequest({ ...base, archive_if_nothing_to_report: true }, "box-check", at);
+    const off = buildRunNowSpawnRequest({ ...base, archive_if_nothing_to_report: false }, "box-check", at);
+    const absent = buildRunNowSpawnRequest(base, "box-check", at);
+    expect(on.ok && off.ok && absent.ok).toBe(true);
+    if (on.ok && off.ok && absent.ok) {
+      const p = on.body.prompt as string;
+      expect(p.endsWith("> check the box" + ARCHIVE_IF_NOTHING_TO_REPORT_SECTION)).toBe(true);
+      expect(off.body.prompt as string).not.toContain("## If this run goes smoothly");
+      expect(absent.body.prompt as string).not.toContain("## If this run goes smoothly");
+    }
+  });
+
+  it("section is byte-identical to the scheduler's", () => {
+    const script = path.resolve(
+      path.dirname(fileURLToPath(import.meta.url)),
+      "../../../../substrate/scripts/wakeup-scheduler.py",
+    );
+    const py = execFileSync(
+      "python3",
+      [
+        "-c",
+        "import importlib.util,sys,json\n" +
+          "from importlib.machinery import SourceFileLoader\n" +
+          "l=SourceFileLoader('eng',sys.argv[1]);m=importlib.util.module_from_spec(importlib.util.spec_from_loader(l.name,l));l.exec_module(m)\n" +
+          "print(json.dumps(m.ARCHIVE_IF_NOTHING_TO_REPORT_SECTION))",
+        script,
+      ],
+      { encoding: "utf-8" },
+    );
+    expect(JSON.parse(py)).toBe(ARCHIVE_IF_NOTHING_TO_REPORT_SECTION);
   });
 });

@@ -48,6 +48,8 @@ export type ScheduledAgentListItem = {
   scheduleHuman: string;
   prompt: string;
   roles: string[];
+  /** "Archive if nothing to report" — on only when the stored spec says `true`. */
+  archive_if_nothing_to_report: boolean;
   /**
    * First-role's resolved colorHue from the OWNING host's role file
    * frontmatter. Piggybacks on a memoized per-host role-file read at
@@ -78,6 +80,7 @@ export type ScheduledAgentSpecWire = {
   prompt: string;
   schedule: Record<string, unknown>;
   roles?: string[];
+  archive_if_nothing_to_report?: boolean;
 };
 
 // ---------------------------------------------------------------------------

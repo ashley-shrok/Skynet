@@ -1378,7 +1378,9 @@ as `/id reset`. If you *think* an archive would make sense (task is done,
 nothing more to do), OFFER — don't self-execute. The standard shape is
 the user handing you the trigger explicitly ("archive yourself when the
 deploy is green," "you can archive after that lands"), often bundled with
-the last piece of work.
+the last piece of work. A scheduled task with **Archive if nothing to
+report** ticked is the same thing given ahead of time: the agent it spawns
+is told to archive itself after a smooth run (§ Scheduled tasks).
 
 ### When invoked
 
@@ -1721,7 +1723,8 @@ carries out its prompt did not exist a moment ago.
 The user creates and manages scheduled tasks via the **clock icon** in
 the sidebar footer, beside the gear. The modal lists all
 existing scheduled tasks (edit or delete inline) and has a "new
-scheduled task" button which asks for name, prompt, one or more roles,
+scheduled task" button which asks for name, prompt (with an **Archive if
+nothing to report** tick-box under it, off by default), one or more roles,
 and the schedule (daily / weekly / monthly / yearly / interval / one-shot, plus
 multiple times, every-N weeks/months, interval window/start, and ends after a
 date or N runs). Each row shows
@@ -1752,9 +1755,20 @@ names predate the "scheduled tasks" name in the app — same thing):
   "enabled": true,
   "roles": ["box-maintainer"],    // one or more role names the newborn takes on
   "prompt": "Check the work Kanban and triage any unassigned cards.",
-  "schedule": { "type": "interval", "every": "2h" }  // same schedule kinds as per-identity wake-ups
+  "schedule": { "type": "interval", "every": "2h" },  // same schedule kinds as per-identity wake-ups
+  "archive_if_nothing_to_report": true  // optional, off when absent
 }
 ```
+
+`archive_if_nothing_to_report` is the form's **Archive if nothing to
+report** tick-box. When it's `true`, each agent the task spawns is told, after
+the prompt, to run `/id archive` when it's done if the run went smoothly and
+there's nothing worth bringing to the user, using its own judgement and the
+user's preferences about what matters. Use it for routine checks and chores
+whose uneventful runs needn't stay in the sidebar. When creating or editing a
+scheduled task, set this field; don't write your own archive wording into
+`prompt`. It's off by default because an archive the user didn't want costs
+more than an extra row.
 
 Schedule kinds (interval / daily / weekly / monthly / yearly / one_shot / sensor,
 with the same options) and firing semantics
@@ -1799,7 +1813,8 @@ delivered fire, then retires — it drops out of the list.
 If a sensor task's sensor has been broken for ten minutes, one agent is born
 to look into it instead — its task line reads `📡 <name> — sensor broken`, and
 its instruction is to fix the sensor or tell the user, not to run the task's
-prompt. Nothing more until the sensor has recovered.
+prompt, and it is never told to archive itself, whatever the task's
+`archive_if_nothing_to_report`. Nothing more until the sensor has recovered.
 
 ### Governance — user-reserved
 

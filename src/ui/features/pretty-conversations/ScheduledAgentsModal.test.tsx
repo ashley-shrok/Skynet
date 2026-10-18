@@ -80,6 +80,7 @@ function makeRow(overrides: Partial<ScheduledAgentListItem> = {}): ScheduledAgen
     scheduleHuman: "Daily at 9:00",
     prompt: "check inbox",
     roles: ["assistant"],
+    archive_if_nothing_to_report: false,
         colorHue: null,
     lastFiredAt: null,
     nextFireAt: null,
@@ -1234,5 +1235,50 @@ describe("ScheduledAgentsModal: sensor status", () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+});
+
+describe("ScheduledAgentsModal: Archive if nothing to report", () => {
+  const BOX = "scheduled-agents-modal-form-archive-if-nothing-to-report";
+
+  it("T-AR1: create — unticked by default, with the helper line; ticking it saves true", async () => {
+    listScheduledAgentsMock.mockResolvedValue([]);
+    createScheduledAgentMock.mockResolvedValueOnce({ slug: "box-check", host: 1, spec: {} });
+    listRolesForHostMock.mockResolvedValue([{ name: "assistant", description: "" }]);
+    render(<ScheduledAgentsModal open={true} onOpenChange={vi.fn()} hostTree={ONE_HOST_TREE} />);
+    await screen.findByTestId("scheduled-agents-modal-empty-state");
+    fireEvent.click(screen.getByTestId("scheduled-agents-modal-add-button"));
+
+    const box = (await screen.findByTestId(BOX)) as HTMLInputElement;
+    expect(box.checked).toBe(false);
+    expect(screen.getByLabelText("Archive if nothing to report")).toBe(box);
+    expect(
+      screen.getByText("If the run goes smoothly, the agent archives itself so it doesn't stay in your sidebar."),
+    ).toBeInTheDocument();
+
+    fireEvent.change(screen.getByTestId("scheduled-agents-modal-form-name"), { target: { value: "box-check" } });
+    fireEvent.change(screen.getByTestId("scheduled-agents-modal-form-prompt"), { target: { value: "check" } });
+    fireEvent.click(await screen.findByTestId("scheduled-agents-modal-form-role-addable-assistant"));
+    fireEvent.click(box);
+    fireEvent.click(screen.getByTestId("scheduled-agents-modal-form-save"));
+
+    await waitFor(() => expect(createScheduledAgentMock).toHaveBeenCalledTimes(1));
+    expect(createScheduledAgentMock.mock.calls[0][1].archive_if_nothing_to_report).toBe(true);
+  });
+
+  it("T-AR2: edit — reflects the stored setting; unticking saves false", async () => {
+    listScheduledAgentsMock.mockResolvedValue([makeRow({ archive_if_nothing_to_report: true })]);
+    updateScheduledAgentMock.mockResolvedValueOnce({ slug: "morning-triage", host: 1, spec: {} });
+    listRolesForHostMock.mockResolvedValue([{ name: "assistant", description: "" }]);
+    render(<ScheduledAgentsModal open={true} onOpenChange={vi.fn()} hostTree={ONE_HOST_TREE} />);
+    fireEvent.click(await screen.findByTestId("scheduled-agents-modal-row-morning-triage"));
+
+    const box = (await screen.findByTestId(BOX)) as HTMLInputElement;
+    expect(box.checked).toBe(true);
+    fireEvent.click(box);
+    fireEvent.click(screen.getByTestId("scheduled-agents-modal-form-save"));
+
+    await waitFor(() => expect(updateScheduledAgentMock).toHaveBeenCalledTimes(1));
+    expect(updateScheduledAgentMock.mock.calls[0][2].archive_if_nothing_to_report).toBe(false);
   });
 });

@@ -121,7 +121,9 @@ Schedule specs live at `~/fleet/scheduled-agents/<slug>/scheduled-agent.json`
     {"name": "standup-spawn", "enabled": true,
      "roles": ["box-maintainer"],   # one or more role names the newborn takes on (D-04)
      "prompt": "Check the work Kanban and triage any unassigned cards.",  # newborn's first turn (D-05)
-     "schedule": {"type": "interval", "every": "2h"}}  # same schedule kinds as per-identity
+     "schedule": {"type": "interval", "every": "2h"},  # same schedule kinds as per-identity
+     "archive_if_nothing_to_report": true}  # optional, off when absent — tells the newborn to
+                                            # archive itself after a smooth run
 
 On a due entry the scheduled-agents scheduler drops a create-identity request
 file at `~/fleet/spawn-requests/<uuid>.json` (D-11) for the app's existing
@@ -1219,6 +1221,23 @@ def _wrap_prompt_as_preauthorized(prompt, slug, fired_at):
     )
 
 
+# Attached after the prompt when a spec has `"archive_if_nothing_to_report": true`.
+# Only the flag is stored on the spec; the wording lives here (and, byte-identical,
+# in ARCHIVE_IF_NOTHING_TO_REPORT_SECTION in scheduled-agents-write.ts for Run now)
+# so improving it updates every task.
+ARCHIVE_IF_NOTHING_TO_REPORT_SECTION = (
+    "\n\n## If this run goes smoothly\n\n"
+    "This scheduled task has \"Archive if nothing to report\" turned on. If the run "
+    "went smoothly and there is nothing worth bringing to your user's attention, "
+    "run `/id archive` when you're done. This is a deliberate exception to the rule "
+    "that agents never archive themselves: your user turned this setting on for this "
+    "task, and that is their instruction to do so. What counts as smooth, and what is "
+    "worth mentioning, is your call. Follow any preferences your user has set about "
+    "what matters. If the run did have something for your user, don't archive; stay "
+    "so they can see it."
+)
+
+
 def _sensor_findings_section(fired_utc, findings, delivered_path=None):
     """Appended to a sensor-fired scheduled task's prompt. Findings verbatim,
     fenced by marker lines and labelled as data, not instructions. Findings
@@ -1263,7 +1282,11 @@ def _drop_spawn_request(spec, state_dir, sensor_fire=None, sensor_broken_prompt=
 
     `sensor_broken_prompt` replaces the prompt entirely (the task's sensor broke;
     the newborn looks into that instead of doing the task) and the task line
-    says so.
+    says so. It never carries the archive section, whatever the spec says.
+
+    A spec with `"archive_if_nothing_to_report": true` gets
+    ARCHIVE_IF_NOTHING_TO_REPORT_SECTION after its prompt (before any sensor
+    findings).
 
     Returns (req_id, req_path) for caller logging.
     """
@@ -1272,6 +1295,8 @@ def _drop_spawn_request(spec, state_dir, sensor_fire=None, sensor_broken_prompt=
     os.makedirs(req_dir, exist_ok=True)
     fired_at = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     prompt = _wrap_prompt_as_preauthorized(spec.get("prompt", ""), spec.get("_slug", "?"), fired_at)
+    if spec.get("archive_if_nothing_to_report") is True:
+        prompt += ARCHIVE_IF_NOTHING_TO_REPORT_SECTION
     if sensor_fire is not None:
         prompt += _sensor_findings_section(*sensor_fire)
     if sensor_broken_prompt is not None:

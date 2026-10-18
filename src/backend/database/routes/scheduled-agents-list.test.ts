@@ -607,6 +607,26 @@ describe("GET /scheduled-agents (fleet-wide LIST)", () => {
     expect(item.nextFireAt).toBeNull();
   });
 
+  it("Test 5e: LOCAL branch — archive_if_nothing_to_report is on only for a literal true", async () => {
+    simpleDbSelectMock.mockResolvedValue([hostSkynet]);
+    isLocalHostIdMock.mockImplementation((hostId: number | undefined) => hostId === 1);
+    fsReaddirMock.mockResolvedValue(["ticked", "stringy", "absent"]);
+    const flags: Record<string, unknown> = { ticked: true, stringy: "true", absent: undefined };
+    fsReadFileMock.mockImplementation(async (p: string) => {
+      const slug = Object.keys(flags).find((k) => p.includes(`/${k}/`));
+      if (!slug) throw new Error("unexpected read: " + p);
+      return JSON.stringify({
+        name: slug, enabled: true, prompt: "p", schedule: { type: "interval", every: "2h" }, roles: ["r1"],
+        ...(flags[slug] === undefined ? {} : { archive_if_nothing_to_report: flags[slug] }),
+      });
+    });
+    const res = await httpRequest(server, { method: "GET", path: "/scheduled-agents" });
+    expect(res.status).toBe(200);
+    const items = (res.body as { items: Array<Record<string, unknown>> }).items;
+    const bySlug = Object.fromEntries(items.map((i) => [i.slug, i.archive_if_nothing_to_report]));
+    expect(bySlug).toEqual({ ticked: true, stringy: false, absent: false });
+  });
+
   it("Test 6: REMOTE branch — delimiter one-liner cmd shape", async () => {
     simpleDbSelectMock.mockResolvedValue([hostA]);
     execCommandMock.mockResolvedValue(

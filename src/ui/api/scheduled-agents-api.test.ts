@@ -69,6 +69,7 @@ function makeItem(overrides: Partial<ScheduledAgentListItem> = {}): ScheduledAge
     scheduleHuman: "Daily at 9:00",
     prompt: "check inbox",
     roles: ["assistant"],
+    archive_if_nothing_to_report: false,
         colorHue: null,
     lastFiredAt: null,
     nextFireAt: null,

@@ -202,6 +202,9 @@ export function ScheduledAgentsModalForm({
   // ─── Form state ──────────────────────────────────────────────────────
   const [name, setName] = useState<string>(initialSpec?.name ?? "");
   const [prompt, setPrompt] = useState<string>(initialSpec?.prompt ?? "");
+  const [archiveIfNothingToReport, setArchiveIfNothingToReport] = useState<boolean>(
+    initialSpec?.archive_if_nothing_to_report ?? false,
+  );
   const [selectedRoles, setSelectedRoles] = useState<string[]>(
     initialSpec?.roles ?? [],
   );
@@ -358,6 +361,7 @@ export function ScheduledAgentsModalForm({
         schedule: scheduleObj,
         roles: selectedRoles,
         enabled: enabledPassthrough,
+        archive_if_nothing_to_report: archiveIfNothingToReport,
       };
 
       if (mode === "create") {
@@ -374,6 +378,7 @@ export function ScheduledAgentsModalForm({
           scheduleHuman: "",
           prompt: trimmedPrompt,
           roles: selectedRoles,
+          archive_if_nothing_to_report: archiveIfNothingToReport,
             colorHue: null,
           // Fire timestamps unknown on just-created rows — the authoritative
           // refetch replaces them once the server reads .state/<slug>.last
@@ -399,6 +404,7 @@ export function ScheduledAgentsModalForm({
           scheduleHuman: prev.scheduleHuman,
           prompt: trimmedPrompt,
           roles: selectedRoles,
+          archive_if_nothing_to_report: archiveIfNothingToReport,
             colorHue: prev.colorHue,
           // Preserve the server-known fire timestamps during optimistic
           // edit — the refetch will overlay with a recomputed nextFireAt
@@ -418,6 +424,7 @@ export function ScheduledAgentsModalForm({
     mode,
     name,
     prompt,
+    archiveIfNothingToReport,
     selectedRoles,
     selectedHost,
     formSchedule,
@@ -562,6 +569,19 @@ export function ScheduledAgentsModalForm({
               "transition-colors duration-150",
             )}
           />
+          <label className="flex items-center gap-1.5 cursor-pointer mt-1 text-xs font-medium text-[color:var(--color-pv-fg-muted)]">
+            <input
+              type="checkbox"
+              checked={archiveIfNothingToReport}
+              onChange={(e) => setArchiveIfNothingToReport(e.target.checked)}
+              data-testid="scheduled-agents-modal-form-archive-if-nothing-to-report"
+              className="w-3.5 h-3.5 accent-sky-500 cursor-pointer"
+            />
+            Archive if nothing to report
+          </label>
+          <span className="text-[11px] text-[color:var(--color-pv-fg-dim)]">
+            If the run goes smoothly, the agent archives itself so it doesn&apos;t stay in your sidebar.
+          </span>
         </div>
 
         {/* Field 3: Roles (D-20 order 3) */}

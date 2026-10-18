@@ -156,6 +156,8 @@ export type ScheduledAgentSpec = {
     days?: unknown[];
   };
   roles?: string[];
+  /** Opt-in: the newborn archives itself after a smooth run. Absent = off. */
+  archive_if_nothing_to_report?: boolean;
 };
 
 // ---------------------------------------------------------------------------
@@ -217,6 +219,14 @@ export function validateScheduledAgentSpec(spec: unknown): string | null {
     if (!Array.isArray(s.roles) || s.roles.some((r) => typeof r !== "string")) {
       return "spec.roles must be an array of strings when present";
     }
+  }
+  // The scheduler only honours a literal `true`; reject anything else that
+  // looks on but wouldn't fire as on.
+  if (
+    s.archive_if_nothing_to_report !== undefined &&
+    typeof s.archive_if_nothing_to_report !== "boolean"
+  ) {
+    return "spec.archive_if_nothing_to_report must be a boolean when present";
   }
   return null;
 }
@@ -372,6 +382,21 @@ export function wrapPromptAsManualRun(prompt: string, slug: string, firedAt: str
   );
 }
 
+/** Attached after the prompt when a spec has `archive_if_nothing_to_report:
+ *  true`. Byte-identical to ARCHIVE_IF_NOTHING_TO_REPORT_SECTION in
+ *  wakeup-scheduler.py (conformance-tested), so a manual run reads the same as
+ *  a clock fire. */
+export const ARCHIVE_IF_NOTHING_TO_REPORT_SECTION =
+  "\n\n## If this run goes smoothly\n\n" +
+  "This scheduled task has \"Archive if nothing to report\" turned on. If the run " +
+  "went smoothly and there is nothing worth bringing to your user's attention, " +
+  "run `/id archive` when you're done. This is a deliberate exception to the rule " +
+  "that agents never archive themselves: your user turned this setting on for this " +
+  "task, and that is their instruction to do so. What counts as smooth, and what is " +
+  "worth mentioning, is your call. Follow any preferences your user has set about " +
+  "what matters. If the run did have something for your user, don't archive; stay " +
+  "so they can see it.";
+
 export type RunNowBuildResult =
   | { ok: true; body: Record<string, unknown> }
   | { ok: false; error: string };
@@ -379,7 +404,7 @@ export type RunNowBuildResult =
 /**
  * Build the `~/fleet/spawn-requests/<uuid>.json` body for a manual fire from
  * the on-disk spec. Mirrors `_drop_spawn_request` in wakeup-scheduler.py field
- * for field (roles, wrapped prompt, `⏰ ` task, requested_at, users)
+ * for field (roles, wrapped prompt + archive section, `⏰ ` task, requested_at, users)
  * so the spawn-requests pipeline can't tell a manual fire from a clock fire.
  *
  * The backend builds the body itself rather than shelling out to the
@@ -417,7 +442,9 @@ export function buildRunNowSpawnRequest(
   const name = typeof s.name === "string" && s.name.length > 0 ? s.name : null;
   const body: Record<string, unknown> = {
     roles,
-    prompt: wrapPromptAsManualRun(s.prompt, slug, firedAt),
+    prompt:
+      wrapPromptAsManualRun(s.prompt, slug, firedAt) +
+      (s.archive_if_nothing_to_report === true ? ARCHIVE_IF_NOTHING_TO_REPORT_SECTION : ""),
     task: name ? "⏰ " + prettifyScheduledAgentName(name) : null,
     requested_at: firedAt,
   };

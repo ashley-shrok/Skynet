@@ -108,6 +108,8 @@ export type ScheduledAgentListItem = {
   scheduleHuman: string;
   prompt: string;
   roles: string[];
+  /** Read exactly as the scheduler reads it: only a literal `true` is on. */
+  archive_if_nothing_to_report: boolean;
   /**
    * First-role's colorHue, resolved from the role file's frontmatter on the
    * OWNING host. Cascade: `roleCosmetics.colorHue ?? null`. Populated
@@ -204,6 +206,7 @@ function specToRow(
     scheduleHuman: humanizeWakeupSchedule(spec.schedule),
     prompt: typeof spec.prompt === "string" ? spec.prompt : "",
     roles: Array.isArray(spec.roles) ? (spec.roles as string[]) : [],
+    archive_if_nothing_to_report: spec.archive_if_nothing_to_report === true,
     // colorHue starts null; the caller populates it via readRoleHueMemo
     // after specToRow returns (batched per-unique-role read reuses the
     // already-open SSH connection / local fs handle for that host).
