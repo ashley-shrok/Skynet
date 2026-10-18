@@ -192,6 +192,10 @@ let server: http.Server;
  * Tests override with `mockImplementation` where they want to exercise
  * a specific branch.
  */
+function isRunbookFolderCheck(cmd: string): boolean {
+  return cmd.startsWith("test -e") && cmd.endsWith("echo missing");
+}
+
 function defaultExecImpl(cmd: string): Promise<string> {
   if (cmd === "echo $HOME") return Promise.resolve("/home/testuser\n");
   // Role existence check — default: role exists
@@ -209,6 +213,9 @@ function defaultExecImpl(cmd: string): Promise<string> {
   if (cmd.startsWith("cat ")) return Promise.resolve("hello role skill");
   if (cmd.includes("stat -c '%Y'")) return Promise.resolve("1700000042");
   if (cmd.includes("stat -c '%s'")) return Promise.resolve("13");
+  // POST /create's runbook-folder check (`test -e <runbookRoot> && echo
+  // exists || echo missing`) — default: the runbook exists.
+  if (isRunbookFolderCheck(cmd)) return Promise.resolve("exists");
   if (cmd.startsWith("test -e")) return Promise.resolve("ok");
   if (cmd.startsWith("mkdir -p")) return Promise.resolve("");
   if (cmd.startsWith("touch ")) return Promise.resolve("");
@@ -778,6 +785,74 @@ describe("POST /role-skills-editor/create", () => {
     const calls = (execCommand as Mock).mock.calls as [unknown, string][];
     const touchCall = calls.find(([, cmd]) => cmd.startsWith("touch "));
     expect(touchCall).toBeUndefined();
+  });
+
+  it("404 with { error: 'runbook not found' } when adding a file to a missing runbook (no newRunbook)", async () => {
+    (execCommand as Mock).mockImplementation(async (_conn: unknown, cmd: string) => {
+      if (isRunbookFolderCheck(cmd)) return "missing";
+      return defaultExecImpl(cmd);
+    });
+    const res = await httpRequest(server, {
+      method: "POST",
+      path: "/runbooks-editor/create",
+      body: JSON.stringify({
+        hostId: 1,
+        role: "box-maintainer",
+        runbook: "weekly-report",
+        path: "runbook.md",
+      }),
+    });
+    expect(res.status).toBe(404);
+    expect((res.body as { error: string }).error).toBe("runbook not found");
+    const calls = (execCommand as Mock).mock.calls as [unknown, string][];
+    expect(calls.find(([, c]) => c.startsWith("mkdir -p"))).toBeUndefined();
+    expect(calls.find(([, c]) => c.startsWith("touch "))).toBeUndefined();
+  });
+
+  it("newRunbook: true creates the runbook folder and its first file when the runbook is missing", async () => {
+    (execCommand as Mock).mockImplementation(async (_conn: unknown, cmd: string) => {
+      if (isRunbookFolderCheck(cmd)) return "missing";
+      return defaultExecImpl(cmd);
+    });
+    const res = await httpRequest(server, {
+      method: "POST",
+      path: "/runbooks-editor/create",
+      body: JSON.stringify({
+        hostId: 1,
+        role: "box-maintainer",
+        runbook: "weekly-report",
+        path: "runbook.md",
+        newRunbook: true,
+      }),
+    });
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ path: "runbook.md", mtime: 1700000042 });
+    const calls = (execCommand as Mock).mock.calls as [unknown, string][];
+    const check = calls.find(([, c]) => isRunbookFolderCheck(c));
+    expect(check![1]).toContain("'/home/testuser/fleet/roles/box-maintainer/runbooks/weekly-report'");
+    const mkdirCall = calls.find(([, c]) => c.startsWith("mkdir -p"));
+    expect(mkdirCall![1]).toBe("mkdir -p '/home/testuser/fleet/roles/box-maintainer/runbooks/weekly-report'");
+    const touchCall = calls.find(([, c]) => c.startsWith("touch "));
+    expect(touchCall![1]).toBe("touch '/home/testuser/fleet/roles/box-maintainer/runbooks/weekly-report/runbook.md'");
+  });
+
+  it("newRunbook: true answers 409 { error: 'runbook exists' } when the runbook is already there — nothing is created", async () => {
+    const res = await httpRequest(server, {
+      method: "POST",
+      path: "/runbooks-editor/create",
+      body: JSON.stringify({
+        hostId: 1,
+        role: "box-maintainer",
+        runbook: "avatar-flow",
+        path: "runbook.md",
+        newRunbook: true,
+      }),
+    });
+    expect(res.status).toBe(409);
+    expect((res.body as { error: string }).error).toBe("runbook exists");
+    const calls = (execCommand as Mock).mock.calls as [unknown, string][];
+    expect(calls.find(([, c]) => c.startsWith("mkdir -p"))).toBeUndefined();
+    expect(calls.find(([, c]) => c.startsWith("touch "))).toBeUndefined();
   });
 
   it("400 on invalid path — SSH NOT attempted", async () => {

@@ -32,7 +32,7 @@ import type { Wakeup } from "@/api/claude-session-api";
 // integration test that opens AddWakeupDialog can still drive input. Rule 3
 // auto-fix: this test file was broken by Plan 03's swap; the same enhanced
 // mock pattern lives in AddWakeupDialog.test.tsx / EditableFileModal.test.tsx
-// / RoleFileTab.test.tsx already.
+// already.
 vi.mock("@mdxeditor/editor", () => ({
   MDXEditor: (props: {
     markdown: string;

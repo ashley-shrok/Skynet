@@ -367,16 +367,8 @@ vi.mock("@/features/pretty-view/SkillsEditorModal", () => ({
   default: () => null,
 }));
 
-vi.mock("@/features/pretty-view/RolesListModal", () => ({
-  RolesListModal: () => null,
-}));
-
-vi.mock("@/features/pretty-view/RoleModal", () => ({
-  RoleModal: () => null,
-}));
-
-vi.mock("@/features/pretty-view/RoleSkillEditorModal", () => ({
-  default: () => null,
+vi.mock("@/features/pretty-view/roles-window/RolesWindow", () => ({
+  RolesWindow: () => null,
 }));
 
 // Phase 117 M-F: NewSessionDialog stub — exposes buttons that fire onCreate
@@ -458,10 +450,6 @@ vi.mock("@/sidebar/NewSessionDialog", () => ({
       </div>
     );
   },
-}));
-
-vi.mock("@/sidebar/CreateRoleDialog", () => ({
-  CreateRoleDialog: () => null,
 }));
 
 vi.mock("@/api/global-files-api", () => ({

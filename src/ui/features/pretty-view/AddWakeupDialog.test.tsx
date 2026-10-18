@@ -29,7 +29,7 @@ import { render, screen, fireEvent, waitFor, cleanup, within } from "@testing-li
 // Stub MDXEditor with a controlled textarea so getByTestId("mdxeditor") + fireEvent.change
 // keep working after Plan 03's swap routes the instruction field through the .md branch
 // of the shared MarkdownEditor. Stub covers every named export the impl imports; only
-// MDXEditor renders anything. Same shape used in EditableFileModal.test.tsx / RoleFileTab.test.tsx.
+// MDXEditor renders anything. Same shape used in EditableFileModal.test.tsx.
 vi.mock("@mdxeditor/editor", () => ({
   MDXEditor: (props: {
     markdown: string;

@@ -34,7 +34,7 @@ const EDITOR_IMPORT_ALLOWLIST: Record<string, string> = {
   "features/pretty-view/CodeEditorImpl.tsx": "editor internals",
   "features/pretty-view/MarkdownEditor.frontmatter-fixture.tsx": "editor test fixture",
   "features/pretty-view/IdentityFileTab.tsx": "fixed identity Markdown files",
-  "features/pretty-view/RoleFileTab.tsx": "fixed role Markdown file",
+  "features/pretty-view/roles-window/RoleView.tsx": "fixed role Markdown file",
   "features/pretty-view/PreferencesAboutYouPane.tsx": "operator-whitelisted global Markdown files",
   "features/pretty-view/AddWakeupDialog.tsx": "wake-up prompt Markdown field",
   "features/pretty-conversations/ProjectFileTab.tsx": "fixed project.md",

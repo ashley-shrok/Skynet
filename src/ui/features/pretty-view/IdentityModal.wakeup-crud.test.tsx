@@ -14,7 +14,7 @@
  *       correct identityKey + wakeupSlug.
  *
  * (Tests W3 + W4 for role-scope wakeup CRUD were RETIRED — role-scope wakeups
- * moved to RoleModal in Plan 90-04. Coverage lives in RoleModal.test.tsx.)
+ * moved to the role modal in Plan 90-04 and were later retired altogether.)
  */
 
 import {
@@ -223,8 +223,8 @@ function deliverIdentityWakeups(): void {
 }
 
 // Phase 90 Plan 90-06 (D-09): deliverRoleWakeups + switchScope helpers DELETED
-// — role-scope wakeups moved to RoleModal (Plan 90-04). Coverage lives in
-// RoleModal.test.tsx.
+// — role-scope wakeups moved to the role modal (Plan 90-04) and were later
+// retired altogether.
 
 // Click the Wake-ups nav button (modal-unification 2026-09-29: nav-tabs
 // moved from bottom to top and every nav button has a stable testid).
@@ -354,5 +354,5 @@ describe("IdentityModal wakeup CRUD — identity scope (Phase 90 Plan 90-06)", (
 });
 
 // Phase 90 Plan 90-06 (D-09): Tests W3 + W4 (role-scope wakeup CRUD)
-// DELETED — role-scope wakeups moved to RoleModal (Plan 90-04). Coverage
-// lives in RoleModal.test.tsx.
+// DELETED — role-scope wakeups moved to the role modal (Plan 90-04) and were
+// later retired altogether.

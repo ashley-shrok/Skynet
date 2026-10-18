@@ -1,97 +1,33 @@
 /**
- * Phase 90 Plan 90-06 Task 5 — end-to-end in-process user-flow tests.
+ * The sidebar and the roles window — end-to-end in-process flows.
  *
- * Covering test for the role-management-modal-split shape (D-03 + D-04 +
- * D-05 + D-07 + D-10). Walks the surfaces landed in Plans 90-04 / 90-05 /
- * 90-06 through their intended user gestures.
- *
- * Tests:
- *   A: sidebar footer → Roles button → RolesListModal renders →
- *      pick host → 2 rows visible → click first row → RolesListModal closes →
- *      RoleModal opens with the picked role's cosmetics.
- *      (quick-260914-liu: entry point changed from three-dots menu item to
- *      the dedicated header icon button)
- *   B: cosmetic edit inside RoleModal → title input changes to "New Title" →
- *      Save fires updateRoleFileByName(roleName, hostId, expected combined
- *      markdown containing "title: 'New Title'").
- *   C: RoleModal close (Esc) → role modal unmounts → RolesListModal does NOT
- *      reopen (D-03 swap-not-stack, no back-navigation).
- *   D: '+ New role' in RolesListModal → click → CreateRoleDialog opens on
- *      TOP of RolesListModal (stack per D-10).
- *   E: identity-modal title-line jump path (separate mount) — mount
- *      PrettyView-shaped harness with an identity that has role +
- *      title → open identity modal → click title-line → identity modal
- *      closes → RoleModal opens.
+ *   A: footer Roles button → the roles window on its library → a role opens
+ *      in the SAME window → Esc steps back → Esc closes.
+ *   B: new-conversation dialog → "New role…" → the window's new-role view
+ *      (swap, not stack) → back restores the dialog with its earlier picks.
+ *   C: … → create → back in the dialog with the earlier picks plus the new role.
+ *   D: the X during the hop closes everything and drops the picks.
+ *   E: a new-conversation request (any role's "Start a conversation") opens
+ *      the dialog with that role picked — including from the window's ⋯ menu.
  */
 
-import {
-  describe,
-  it,
-  expect,
-  vi,
-  beforeEach,
-  afterEach,
-  afterAll,
-} from "vitest";
-import { render, screen, fireEvent, waitFor, cleanup, act } from "@testing-library/react";
-import React from "react";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { render, screen, fireEvent, waitFor, cleanup, act, within } from "@testing-library/react";
 import type { Host, HostFolder } from "@/types/ui-types";
-import type { Identity, RoleSummary } from "@/api/identities-api";
-
-// ── WS stub ──────────────────────────────────────────────────────────────────
-type WsStub = {
-  readyState: number;
-  bufferedAmount: number;
-  send: ReturnType<typeof vi.fn>;
-  close: ReturnType<typeof vi.fn>;
-  onmessage: ((e: MessageEvent<string>) => void) | null;
-  onopen: (() => void) | null;
-  onerror: (() => void) | null;
-  onclose: (() => void) | null;
-  addEventListener: ReturnType<typeof vi.fn>;
-  removeEventListener: ReturnType<typeof vi.fn>;
-  __sentPayloads: string[];
-};
-
-const openedSockets: WsStub[] = [];
-
-function makeFakeWs(): WsStub {
-  const ws: WsStub = {
-    readyState: 1,
-    bufferedAmount: 0,
-    send: vi.fn((payload: string) => {
-      ws.__sentPayloads.push(payload);
-    }),
-    close: vi.fn(),
-    onmessage: null,
-    onopen: null,
-    onerror: null,
-    onclose: null,
-    addEventListener: vi.fn(),
-    removeEventListener: vi.fn(),
-    __sentPayloads: [],
-  };
-  openedSockets.push(ws);
-  queueMicrotask(() => ws.onopen?.());
-  return ws;
-}
 
 // ── Global mocks ─────────────────────────────────────────────────────────────
 
 vi.mock("react-i18next", () => ({
   useTranslation: () => ({
-    t: (key: string, opts?: { defaultValue?: string }) =>
-      opts?.defaultValue ?? key,
+    t: (key: string, opts?: { defaultValue?: string }) => opts?.defaultValue ?? key,
     i18n: { language: "en", changeLanguage: () => Promise.resolve() },
   }),
 }));
 
 vi.mock("@/features/terminal/session-hue", () => ({
-  sessionMatchKey: (name: string | null | undefined) =>
-    name ? name.toLowerCase() : null,
+  sessionMatchKey: (name: string | null | undefined) => (name ? name.toLowerCase() : null),
 }));
 
-// Phase 104 Plan 02 — trapped-work-store (inert stub — panel mounts poller)
 vi.mock("@/state/trapped-work-store", () => ({
   useTrappedWork: () => undefined,
   startTrappedWorkPoller: () => () => {},
@@ -109,7 +45,6 @@ vi.mock("@/state/conversation-store", () => ({
     pinned: [],
     middle: [],
     rdpGroup: null,
-    // Phase 117 Plan 117-08 — additive derived-selector fields.
     pinnedUnassigned: [],
     projectSections: [],
     rdp: null,
@@ -118,21 +53,17 @@ vi.mock("@/state/conversation-store", () => ({
   usePinnedIds: () => new Set(),
   useActiveSet: () => new Set(),
   useFleetSessionsLoaded: () => false,
-  // Phase 92 Plan 04: panel hydrate reads fleet snapshot to build identityHosts.
   getFleetSessionsSnapshot: () => [],
   selectConversation: () => {},
   pinConversation: () => {},
   unpinConversation: () => {},
   addToActiveSet: () => {},
   removeFromActiveSet: () => {},
-  fleetRowId: (hostId: number, sessionName: string) =>
-    `fleet::${hostId}::${sessionName}`,
+  fleetRowId: (hostId: number, sessionName: string) => `fleet::${hostId}::${sessionName}`,
   hydratePinnedIdsFromServer: () => {},
-  // Phase 117 Plan 117-08 — useProjects subscription (empty).
   useProjects: () => [],
 }));
 
-// Phase 117 Plan 117-08 — collapse hook + drop API stubs.
 vi.mock("@/state/use-collapsed-project-slugs", () => ({
   useCollapsedProjectSlugs: () => ({
     collapsed: new Set<string>() as ReadonlySet<string>,
@@ -145,8 +76,6 @@ vi.mock("@/api/session-project-api", () => ({
 }));
 
 vi.mock("@/api/user-preferences-api", () => ({
-  // Phase 92 Plan 04: getPinnedIds retired.
-  // (Phase 115 Plan 115-02: putHiddenIds retired per D-21.)
   putPinnedIds: vi.fn().mockResolvedValue([]),
   setIdentityPinned: vi.fn().mockResolvedValue(undefined),
 }));
@@ -164,31 +93,18 @@ vi.mock("@/state/session-working-store", () => ({
 vi.mock("@/state/identities-store", () => ({
   useIdentities: () => ({
     byKey: new Map(),
+    byHostKey: new Map(),
     identities: [],
     loaded: true,
     refresh: async () => {},
   }),
   applyIdentityChange: vi.fn(),
-  // Phase 92 Plan 04: panel hydrate effect imports deriveDiskPinnedIds.
-  // (Phase 115 Plan 115-02: sibling deriveDiskHiddenIds retired per D-21.)
   deriveDiskPinnedIds: () => [],
   buildIdentityHostsFromFleet: () => ({}),
 }));
 
-// Phase 137 D-29: GlobalFilesModal retired — mock removed.
-
 vi.mock("@/features/pretty-view/SkillsEditorModal", () => ({
-  default: (props: { open: boolean }) =>
-    props.open ? <div data-testid="skills-editor-modal-stub" /> : null,
-}));
-
-vi.mock("@/features/pretty-view/RoleSkillEditorModal", () => ({
-  default: (props: { open: boolean; roleName: string; roleSkillName: string }) =>
-    props.open ? (
-      <div data-testid="role-skill-editor-modal-stub">
-        {props.roleName}/{props.roleSkillName}
-      </div>
-    ) : null,
+  default: (props: { open: boolean }) => (props.open ? <div data-testid="skills-editor-modal-stub" /> : null),
 }));
 
 vi.mock("@/api/global-files-api", () => ({
@@ -198,80 +114,45 @@ vi.mock("@/api/global-files-api", () => ({
   GlobalFileMtimeConflictError: class GlobalFileMtimeConflictError extends Error {},
 }));
 
-// The identities API — listRolesForHost returns the fixture roles. Inline the
-// fixture inside the mock factory since Vitest hoists vi.mock above top-level
-// declarations.
-vi.mock("@/api/identities-api", async (importOriginal) => {
-  const orig = (await importOriginal()) as Record<string, unknown>;
-  const FIXTURE_ROLES = [
-    {
-      name: "box-maintainer",
-      description: "The box maintainer role",
-      title: "Box maintainer",
-      displayName: "Box Maintainer",
-      colorHue: 190,
-      voice: "coral",
-    },
-    {
-      name: "hallmonitor",
-      description: "The hall monitor role",
-      title: "Hall monitor",
-      displayName: "Hall Monitor",
-      colorHue: 30,
-      voice: "quill",
-    },
-  ];
-  return {
-    ...orig,
-    listRolesForHost: vi.fn().mockResolvedValue(FIXTURE_ROLES),
-    roleAvatarUrl: (hostId: number, roleName: string) =>
-      `/roles/${roleName}/avatar?hostId=${hostId}`,
-    updateIdentity: vi.fn(),
-    getIdentityNoDormancy: vi.fn().mockResolvedValue(false),
-    setIdentityNoDormancy: vi.fn().mockResolvedValue(false),
-  };
-});
-
-// WebSocket + WS wire mock — RoleModal opens WS sockets on mount for role
-// file + role wakeups. Return empty responses so the tabs render "ready".
-vi.mock("@/api/claude-session-api", async (importOriginal) => {
-  const orig = (await importOriginal()) as Record<string, unknown>;
-  return {
-    ...orig,
-    openClaudeSessionSocket: () => makeFakeWs(),
-    updateRoleFileByName: vi.fn().mockResolvedValue({ markdown: "" }),
-    // Plan 90-10: RoleModal consumes role-name-keyed helpers from Plan 90-09.
-    // Phase 136 retired listBountiesForRoleName alongside the Bounties tab.
-    // Phase 128 Plan 128-02 retired the four role-scope wakeup helpers
-    // (listRoleWakeupsByName / createRoleWakeupByName / updateRoleWakeupByName
-    // / deleteRoleWakeupByName). Only getRoleFileByName still needs a stub.
-    getRoleFileByName: vi.fn().mockResolvedValue({ markdown: "" }),
-  };
-});
-
-vi.mock("@/main-axios", () => ({
+vi.mock("@/main-axios", async (o) => ({
+  ...((await o()) as Record<string, unknown>),
   getUserInfo: vi.fn().mockResolvedValue({ userId: "u-1" }),
 }));
 
-vi.mock("@/api/role-skills-api", () => ({
-  listRoleSkills: vi.fn().mockResolvedValue([]),
-  enumerateRoleSkillFiles: vi.fn().mockResolvedValue([]),
-  readRoleSkillFile: vi.fn().mockResolvedValue({ content: "", mtime: 0, isText: true }),
-  writeRoleSkillFile: vi.fn(),
-  createRoleSkillFile: vi.fn(),
-  deleteRoleSkillFile: vi.fn(),
-  deleteRoleSkill: vi.fn(),
-  RoleSkillFileMtimeConflictError: class extends Error {},
-  RoleSkillFileAlreadyExistsError: class extends Error {},
-}));
+// The roles window's APIs (shared with the roles-window suites).
+vi.mock("@/api/identities-api", async (o) => (await import("@/features/pretty-view/roles-window/roles-window.test-mocks")).identitiesApi(o));
+vi.mock("@/api/instance-wide-api", async (o) => (await import("@/features/pretty-view/roles-window/roles-window.test-mocks")).instanceWideApi(o));
+vi.mock("@/api/roles-archive-list-api", async () => (await import("@/features/pretty-view/roles-window/roles-window.test-mocks")).rolesArchiveListApi());
+vi.mock("@/api/role-unarchive-api", async (o) => (await import("@/features/pretty-view/roles-window/roles-window.test-mocks")).roleUnarchiveApi(o));
+vi.mock("@/api/role-archive-api", async () => (await import("@/features/pretty-view/roles-window/roles-window.test-mocks")).roleArchiveApi());
+vi.mock("@/api/claude-session-api", async (o) => (await import("@/features/pretty-view/roles-window/roles-window.test-mocks")).claudeSessionApi(o));
+vi.mock("@/api/runbooks-api", async (o) => (await import("@/features/pretty-view/roles-window/roles-window.test-mocks")).runbooksApi(o));
+vi.mock("@/api/workspace-git-api", async (o) => (await import("@/features/pretty-view/roles-window/roles-window.test-mocks")).workspaceGitApi(o));
+vi.mock("@/api/voice-api", async (o) => (await import("@/features/pretty-view/roles-window/roles-window.test-mocks")).voiceApi(o));
+vi.mock("@mdxeditor/editor", async () => (await import("@/features/pretty-view/roles-window/roles-window.test-mocks")).mdxEditor());
 
 // ── Late imports ─────────────────────────────────────────────────────────────
 import { PrettyConversationsPanel } from "./PrettyConversationsPanel";
-import { IdentityModal } from "@/features/pretty-view/IdentityModal";
-import { RoleModal } from "@/features/pretty-view/RoleModal";
+import { __resetKitDialogsForTests } from "@/components/kit";
+import { requestNewConversation } from "@/lib/new-conversation-request";
+import { m, resetRolesWindowMocks } from "@/features/pretty-view/roles-window/roles-window.test-mocks";
+import {
+  closeRoleDropdown,
+  pickedRoleValues,
+  queryRolesGroup,
+  toggleRole,
+} from "@/sidebar/NewSessionDialog.roles-test-helpers";
+
+if (typeof window !== "undefined" && !window.ResizeObserver) {
+  window.ResizeObserver = class {
+    observe(): void {}
+    unobserve(): void {}
+    disconnect(): void {}
+  } as unknown as typeof ResizeObserver;
+}
 
 // ── Fixtures ─────────────────────────────────────────────────────────────────
-function makeHost(id: string, name: string, overrides: Partial<Host> = {}): Host {
+function makeHost(id: string, name: string): Host {
   return {
     id,
     name,
@@ -300,351 +181,187 @@ function makeHost(id: string, name: string, overrides: Partial<Host> = {}): Host
     rdpPort: 3389,
     vncPort: 5900,
     telnetPort: 23,
-    ...overrides,
   } as Host;
 }
 
-const ONE_HOST_TREE: HostFolder = {
-  name: "root",
-  children: [makeHost("3", "hostA")],
-};
+const ONE_HOST_TREE: HostFolder = { name: "root", children: [makeHost("3", "hostA")] };
 
-const BASE_IDENTITY: Identity = {
-  identityKey: "tabitha",
-  displayName: "Tabitha",
-  title: "Skynet",
-  colorHue: null,
-  voice: null,
-  role: "box-maintainer",
-  task: null,
-  project: null,
-  avatarMime: "image/png",
-  avatarUrl: "/identities/tabitha/avatar?hostId=7",
-  avatarEtag: "etag-1",
-  coordinator: false,
-  roleDefaults: {
-    title: "Box maintainer",
-    colorHue: 190,
-    voice: "coral",
-  },
-};
+const BOX = { name: "box-maintainer", description: "The box maintainer role", displayName: "Box Maintainer", colorHue: 190 };
+const HALL = { name: "hallmonitor", description: "The hall monitor role", displayName: "Hall Monitor", colorHue: 30 };
+const MEAL = { name: "meal-planner", description: "Plans meals", displayName: "Meal Planner" };
 
-// ── beforeEach / afterEach ───────────────────────────────────────────────────
-beforeEach(() => {
-  vi.clearAllMocks();
-  openedSockets.length = 0;
-});
-afterEach(() => {
-  cleanup();
-  openedSockets.length = 0;
-});
-afterAll(() => {
-  vi.restoreAllMocks();
-});
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Test A — end-to-end panel-header path
-// ─────────────────────────────────────────────────────────────────────────────
-describe("Phase 90 role-management flow — panel-header entry point", () => {
-  it("A: Roles footer button → RolesListModal → row click → RoleModal opens", async () => {
-    render(
-      <PrettyConversationsPanel
-        variant="desktop"
-        hostTree={ONE_HOST_TREE}
-        onCreateSession={vi.fn()}
-        onDeactivateRow={() => {}}
-      />,
-    );
-
-    // Click the Roles footer button.
-    fireEvent.click(screen.getByTestId("pv-footer-roles-button"));
-
-    // RolesListModal renders with "Roles" DialogTitle.
-    await waitFor(() => {
-      const dialog = document.querySelector('[role="dialog"]');
-      expect(dialog).toBeTruthy();
-      expect(dialog!.textContent).toMatch(/^Roles/);
-    });
-
-    // With a single host, RolesListModal auto-selects it and fetches roles.
-    // Wait for the 2 fixture rows to render.
-    await waitFor(() => {
-      expect(screen.queryByText("Box Maintainer")).toBeTruthy();
-      expect(screen.queryByText("Hall Monitor")).toBeTruthy();
-    });
-
-    // Click the "Box Maintainer" row — swaps to RoleModal.
-    act(() => {
-      fireEvent.click(screen.getByText("Box Maintainer"));
-    });
-
-    // RolesListModal is gone (only one dialog visible now — the RoleModal).
-    // RoleModal renders a header with the role's displayName.
-    await waitFor(() => {
-      // The "Roles" title from RolesListModal should no longer be at the top
-      // of the (only) dialog.
-      const dialogs = Array.from(document.querySelectorAll('[role="dialog"]'));
-      const topDialog = dialogs[dialogs.length - 1];
-      expect(topDialog).toBeTruthy();
-      // RoleModal's header shows the role's displayName.
-      expect(topDialog!.textContent).toContain("Box Maintainer");
-    });
-  });
-});
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Test C — RoleModal close dismisses to panel (D-03 no back-navigation)
-// ─────────────────────────────────────────────────────────────────────────────
-describe("Phase 90 role-management flow — RoleModal close", () => {
-  it("C: closing RoleModal via Esc dismisses cleanly; RolesListModal does NOT reopen", async () => {
-    render(
-      <PrettyConversationsPanel
-        variant="desktop"
-        hostTree={ONE_HOST_TREE}
-        onCreateSession={vi.fn()}
-        onDeactivateRow={() => {}}
-      />,
-    );
-
-    // Click the Roles footer button.
-    fireEvent.click(screen.getByTestId("pv-footer-roles-button"));
-    await waitFor(() => {
-      expect(screen.queryByText("Box Maintainer")).toBeTruthy();
-    });
-    act(() => {
-      fireEvent.click(screen.getByText("Box Maintainer"));
-    });
-    // Wait for RoleModal.
-    await waitFor(() => {
-      const dialogs = document.querySelectorAll('[role="dialog"]');
-      const top = dialogs[dialogs.length - 1] as HTMLElement | undefined;
-      expect(top?.textContent).toContain("Box Maintainer");
-    });
-
-    // Send Esc to the top dialog to close it.
-    const topDialog = Array.from(
-      document.querySelectorAll('[role="dialog"]'),
-    ).slice(-1)[0] as HTMLElement;
-    act(() => {
-      fireEvent.keyDown(topDialog, { key: "Escape" });
-    });
-
-    // After close: no reopen of RolesListModal (D-03). Both should be gone.
-    // (Depending on Radix's animation, the dialog may still be in the DOM in
-    // an animating-out state — the key assertion is that the panel is now
-    // interactive again and no new modal is triggered.)
-    await waitFor(() => {
-      // The RolesListModal's "Roles" header is not the primary dialog anymore.
-      // This assertion is soft (Radix may leave the animating-out shell in
-      // place transiently) — the strong signal is that no NEW dialog appeared.
-      const dialogs = Array.from(document.querySelectorAll('[role="dialog"]'));
-      // No dialog re-mounts RolesListModal's "+ New role" button after close.
-      // (We already had that button visible pre-swap; it should not come back.)
-      // (The kit reskin renders an icon + "New role"; the button's accessible
-      // name stays "+ New role".)
-      const hasNewRoleBtn = dialogs.some(
-        (d) => d.querySelector('button[aria-label="+ New role"]') !== null,
-      );
-      // The strong invariant: if RolesListModal reopened, "+ New role" would
-      // be visible. After the D-03 no-reopen path it must NOT be.
-      expect(hasNewRoleBtn).toBe(false);
-    });
-  });
-});
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Test B — cosmetic edit inside RoleModal (title input changes fire draft)
-// ─────────────────────────────────────────────────────────────────────────────
-describe("Phase 90 role-management flow — RoleModal cosmetic edit", () => {
-  it("B: RoleModal renders a title input from RoleCosmeticEditBlock", async () => {
-    render(
-      <PrettyConversationsPanel
-        variant="desktop"
-        hostTree={ONE_HOST_TREE}
-        onCreateSession={vi.fn()}
-        onDeactivateRow={() => {}}
-      />,
-    );
-
-    // Click the Roles footer button.
-    fireEvent.click(screen.getByTestId("pv-footer-roles-button"));
-    await waitFor(() => {
-      expect(screen.queryByText("Box Maintainer")).toBeTruthy();
-    });
-    act(() => {
-      fireEvent.click(screen.getByText("Box Maintainer"));
-    });
-
-    // Wait for RoleModal to render.
-    await waitFor(() => {
-      const dialogs = document.querySelectorAll('[role="dialog"]');
-      const top = dialogs[dialogs.length - 1] as HTMLElement | undefined;
-      expect(top?.textContent).toContain("Box Maintainer");
-    });
-
-    // Coverage lock: the RoleModal renders the RoleCosmeticEditBlock which
-    // exposes a title input. Finding it by role tests the wiring at the
-    // shape level — we don't drive an end-to-end save here because the WS
-    // mock returns an empty payload (roleFileState stays "loading" for the
-    // WS-driven paths). The important seam is that PrettyConversationsPanel
-    // successfully mounts RoleModal with the picked role's cosmetics.
-    // (End-to-end save coverage lives in RoleModal.test.tsx from Plan 90-04.)
-  });
-});
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Test D — '+ New role' in RolesListModal swaps to CreateRoleDialog
-// (D-10 revised 2026-09-11: swap-not-stack, no more juggling)
-// ─────────────────────────────────────────────────────────────────────────────
-describe("Phase 90 role-management flow — CreateRoleDialog swap", () => {
-  it("D: '+ New role' closes RolesListModal and opens CreateRoleDialog (swap-not-stack)", async () => {
-    render(
-      <PrettyConversationsPanel
-        variant="desktop"
-        hostTree={ONE_HOST_TREE}
-        onCreateSession={vi.fn()}
-        onDeactivateRow={() => {}}
-      />,
-    );
-
-    // Click the Roles footer button.
-    fireEvent.click(screen.getByTestId("pv-footer-roles-button"));
-
-    // Wait for RolesListModal — detectable via its "Roles" title.
-    await waitFor(() => {
-      expect(screen.queryByText("Roles")).toBeTruthy();
-    });
-    // Wait for the header button "+ New role" to be rendered.
-    await waitFor(() => {
-      expect(screen.getAllByRole("button", { name: /\+ New role/i }).length).toBeGreaterThan(0);
-    });
-
-    // Click the "+ New role" button (kit reskin: icon + "New role", accessible
-    // name "+ New role").
-    const newRoleBtn = screen.getAllByRole("button", { name: /\+ New role/i })[0];
-    fireEvent.click(newRoleBtn);
-
-    // RolesListModal closes; its "Roles" title disappears.
-    await waitFor(() => {
-      expect(screen.queryByText("Roles")).toBeNull();
-    });
-    // Exactly one dialog remains — the new CreateRoleDialog.
-    const dialogs = document.querySelectorAll('[role="dialog"]');
-    expect(dialogs.length).toBe(1);
-  });
-});
-
-describe("new-agent dialog → New role… hop", () => {
-  it("F: New role… swaps to CreateRoleDialog; cancelling returns with the earlier picks", async () => {
-    const { toggleRole, pickedRoleValues, queryRolesGroup } = await import(
-      "@/sidebar/NewSessionDialog.roles-test-helpers"
-    );
-    render(
-      <PrettyConversationsPanel
-        variant="desktop"
-        hostTree={ONE_HOST_TREE}
-        onCreateSession={vi.fn()}
-        onDeactivateRow={() => {}}
-      />,
-    );
-    fireEvent.click(screen.getByTestId("pv-header-new-agent-button"));
-    // Single host → auto-picked; wait for the roles to load.
-    await waitFor(() => expect(queryRolesGroup()).toBeTruthy());
-    toggleRole("hallmonitor");
-    fireEvent.click(screen.getByTestId("multi-select-leading-action"));
-
-    // Swap, not stack: only the role-creation dialog is up.
-    await waitFor(() => expect(queryRolesGroup()).toBeNull());
-    expect(document.querySelectorAll('[role="dialog"]').length).toBe(1);
-    expect(screen.getAllByText("New role").length).toBeGreaterThan(0);
-
-    // Cancel role creation → new-agent dialog back with the pick intact.
-    fireEvent.keyDown(document.activeElement ?? document.body, { key: "Escape", code: "Escape" });
-    await waitFor(() => expect(queryRolesGroup()).toBeTruthy());
-    await waitFor(() => expect(pickedRoleValues()).toEqual(["hallmonitor"]));
-  });
-});
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Test E — identity-modal title-line jump → RoleModal
-// ─────────────────────────────────────────────────────────────────────────────
-// A small in-file harness mirrors PrettyView's role-modal swap coordination
-// (see PrettyView.role-modal-swap.test.tsx for the shape lock).
-function TitleJumpHarness(): React.ReactElement {
-  const [isIdModalOpen, setIsIdModalOpen] = React.useState(true);
-  // Plan 90-10 (D-08.3): identity-shim removed — RoleModal reads by role name.
-  const [roleModalState, setRoleModalState] = React.useState<
-    | null
-    | {
-        roleName: string;
-        roleCosmetics: RoleSummary;
-        hue: number;
-      }
-  >(null);
-  const handleOpenRoleModal = React.useCallback((id: Identity) => {
-    if (id.role === null || !id.roleDefaults) return;
-    const cosmetics: RoleSummary = {
-      name: id.role,
-      description: "",
-      title: id.roleDefaults.title,
-      colorHue: id.roleDefaults.colorHue,
-      voice: id.roleDefaults.voice,
-      avatar: id.roleDefaults.avatar,
-    };
-    setRoleModalState({
-      roleName: id.role,
-      roleCosmetics: cosmetics,
-      hue: cosmetics.colorHue ?? 190,
-    });
-  }, []);
-  return (
-    <>
-      <IdentityModal
-        open={isIdModalOpen}
-        onOpenChange={setIsIdModalOpen}
-        identity={BASE_IDENTITY}
-        hue={190}
-        hostId={3}
-        onOpenRoleModal={handleOpenRoleModal}
-        container={document.body}
-      />
-      {roleModalState && (
-        <RoleModal
-          open={true}
-          onOpenChange={(o) => {
-            if (!o) setRoleModalState(null);
-          }}
-          roleName={roleModalState.roleName}
-          roleCosmetics={roleModalState.roleCosmetics}
-          hostId={3}
-          onOpenRoleSkill={vi.fn()}
-        />
-      )}
-    </>
+function renderPanel(): void {
+  render(
+    <PrettyConversationsPanel
+      variant="desktop"
+      hostTree={ONE_HOST_TREE}
+      onCreateSession={vi.fn()}
+      onDeactivateRow={() => {}}
+    />,
   );
 }
 
-describe("Phase 90 role-management flow — identity-modal title-line jump", () => {
-  it("E: title-line click closes identity modal and opens RoleModal for the identity's role", async () => {
-    render(<TitleJumpHarness />);
-    await waitFor(() => {
-      expect(document.querySelector('[role="dialog"]')).toBeTruthy();
-    });
-    // Click the title-line jump element (Phase 90 D-04 clickable treatment).
-    act(() => {
-      fireEvent.click(screen.getByTestId("identity-modal-title-line-jump"));
-    });
-    // Identity modal is gone; role modal is open.
-    await waitFor(() => {
-      expect(
-        document.querySelector('[data-testid="identity-modal-title-line-jump"]'),
-      ).toBeNull();
-      const dialogs = document.querySelectorAll('[role="dialog"]');
-      expect(dialogs.length).toBeGreaterThanOrEqual(1);
-      const topDialog = dialogs[dialogs.length - 1];
-      // The role's displayName (title-cased slug fallback → "Box Maintainer")
-      // renders inside the role modal header.
-      expect(topDialog!.textContent).toContain("Box Maintainer");
-    });
+const rolesWindow = (): HTMLElement | null => screen.queryByTestId("roles-window");
+const dialogCount = (): number => document.querySelectorAll('[role="dialog"]').length;
+
+function escape(): void {
+  fireEvent.keyDown(document.activeElement ?? document.body, { key: "Escape", code: "Escape" });
+}
+
+/** Open the new-agent dialog, pick hallmonitor, then "New role…". */
+async function hopToNewRole(): Promise<void> {
+  fireEvent.click(screen.getByTestId("pv-header-new-agent-button"));
+  await waitFor(() => expect(queryRolesGroup()).toBeTruthy());
+  toggleRole("hallmonitor");
+  fireEvent.click(screen.getByTestId("multi-select-leading-action"));
+  await screen.findByTestId("new-role-name");
+}
+
+beforeEach(() => {
+  resetRolesWindowMocks();
+  m.listRolesForHost.mockResolvedValue([BOX, HALL]);
+  URL.createObjectURL = vi.fn(() => "blob:x");
+  URL.revokeObjectURL = vi.fn();
+});
+afterEach(() => {
+  cleanup();
+  __resetKitDialogsForTests();
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe("sidebar → roles window", () => {
+  it("A: the footer Roles button opens the window on its library; a role opens in the same window; Esc steps back, then closes", async () => {
+    renderPanel();
+    expect(rolesWindow()).toBeNull();
+    fireEvent.click(screen.getByTestId("pv-footer-roles-button"));
+
+    const win = await screen.findByTestId("roles-window");
+    expect(within(win).getByText("Roles")).toBeTruthy();
+    // One host → picked for you; its roles listed.
+    await within(win).findByTestId("roles-window-row-box-maintainer");
+    expect(within(win).getByTestId("roles-window-row-hallmonitor")).toBeTruthy();
+    expect(m.listRolesForHost).toHaveBeenCalledWith(3);
+
+    fireEvent.click(within(win).getByTestId("roles-window-row-box-maintainer"));
+    await within(win).findByTestId("role-view-facts");
+    expect(dialogCount()).toBe(1);
+    expect(screen.getByTestId("roles-window")).toBe(win);
+
+    escape();
+    await within(win).findByTestId("roles-window-row-box-maintainer");
+    expect(rolesWindow()).toBeTruthy();
+
+    escape();
+    await waitFor(() => expect(rolesWindow()).toBeNull());
+    expect(dialogCount()).toBe(0);
+  });
+
+  it("New role from the library opens the form in the same window and lands on the created role (not a new conversation)", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(new Blob([new Uint8Array(4)]), { status: 200, headers: { "Content-Type": "image/webp" } }),
+    );
+    m.createRole.mockResolvedValue({ name: "meal-planner", description: "Plans meals", cosmetics: {} });
+    renderPanel();
+    fireEvent.click(screen.getByTestId("pv-footer-roles-button"));
+    fireEvent.click(await screen.findByTestId("roles-window-new-role"));
+    fireEvent.change(await screen.findByTestId("new-role-name"), { target: { value: "Meal Planner" } });
+    fireEvent.change(screen.getByTestId("new-role-description"), { target: { value: "Plans meals" } });
+    m.listRolesForHost.mockResolvedValue([BOX, HALL, MEAL]);
+    fireEvent.click(screen.getByRole("button", { name: /Generate picture/ }));
+    await waitFor(() => expect(document.querySelectorAll("[data-candidate-id]")).toHaveLength(3));
+    fireEvent.click(document.querySelectorAll("[data-candidate-id]")[0]);
+    fireEvent.click(screen.getByTestId("new-role-create"));
+    await waitFor(() => expect(m.createRole).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(m.getRoleFileByName).toHaveBeenCalledWith({ roleName: "meal-planner", hostId: 3 }));
+    expect(await screen.findByTestId("role-view-facts")).toBeTruthy();
+    expect(queryRolesGroup()).toBeNull();
+    expect(dialogCount()).toBe(1);
+  });
+});
+
+describe("new-conversation dialog → New role… hop", () => {
+  it("B: New role… swaps to the window's new-role view; back restores the dialog with the earlier picks", async () => {
+    renderPanel();
+    await hopToNewRole();
+    // Swap, not stack: only the roles window is up.
+    expect(queryRolesGroup()).toBeNull();
+    expect(dialogCount()).toBe(1);
+    expect(rolesWindow()).toBeTruthy();
+    expect(screen.getByTestId("roles-window-back").textContent).toContain("Back");
+
+    fireEvent.click(screen.getByTestId("roles-window-back"));
+    await waitFor(() => expect(queryRolesGroup()).toBeTruthy());
+    await waitFor(() => expect(pickedRoleValues()).toEqual(["hallmonitor"]));
+    expect(rolesWindow()).toBeNull();
+  });
+
+  it("B2: Esc on the new-role view also goes back to the dialog", async () => {
+    renderPanel();
+    await hopToNewRole();
+    escape();
+    await waitFor(() => expect(queryRolesGroup()).toBeTruthy());
+    await waitFor(() => expect(pickedRoleValues()).toEqual(["hallmonitor"]));
+  });
+
+  it("C: creating the role returns to the dialog with the earlier picks plus the new role", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(new Blob([new Uint8Array(4)]), { status: 200, headers: { "Content-Type": "image/webp" } }),
+    );
+    m.createRole.mockResolvedValue({ name: "meal-planner", description: "Plans meals", cosmetics: {} });
+    renderPanel();
+    await hopToNewRole();
+    fireEvent.change(screen.getByTestId("new-role-name"), { target: { value: "Meal Planner" } });
+    fireEvent.change(screen.getByTestId("new-role-description"), { target: { value: "Plans meals" } });
+    fireEvent.click(screen.getByRole("button", { name: /Generate picture/ }));
+    await waitFor(() => expect(document.querySelectorAll("[data-candidate-id]")).toHaveLength(3));
+    fireEvent.click(document.querySelectorAll("[data-candidate-id]")[0]);
+    // The dialog re-lists roles when it comes back — the new one included.
+    m.listRolesForHost.mockResolvedValue([BOX, HALL, MEAL]);
+    fireEvent.click(screen.getByTestId("new-role-create"));
+
+    await waitFor(() => expect(m.createRole).toHaveBeenCalledTimes(1));
+    expect((m.createRole.mock.calls[0][0] as { hostId: number }).hostId).toBe(3);
+    await waitFor(() => expect(queryRolesGroup()).toBeTruthy());
+    await waitFor(() => expect(pickedRoleValues()).toEqual(["hallmonitor", "meal-planner"]));
+    expect(rolesWindow()).toBeNull();
+    expect(dialogCount()).toBe(1);
+  });
+
+  it("D: the X during the hop closes the window and doesn't bring the dialog back", async () => {
+    renderPanel();
+    await hopToNewRole();
+    fireEvent.click(screen.getByTestId("roles-window-close"));
+    await waitFor(() => expect(rolesWindow()).toBeNull());
+    expect(queryRolesGroup()).toBeNull();
+    // A fresh open of the dialog doesn't inherit the hop's picks.
+    fireEvent.click(screen.getByTestId("pv-header-new-agent-button"));
+    await waitFor(() => expect(queryRolesGroup()).toBeTruthy());
+    expect(pickedRoleValues()).not.toContain("hallmonitor");
+  });
+});
+
+describe("new-conversation request", () => {
+  it("E: a request opens the new-conversation dialog with that role picked", async () => {
+    renderPanel();
+    expect(queryRolesGroup()).toBeNull();
+    act(() => requestNewConversation({ hostId: 3, role: "box-maintainer" }));
+    await waitFor(() => expect(queryRolesGroup()).toBeTruthy());
+    await waitFor(() => expect(pickedRoleValues()).toEqual(["box-maintainer"]));
+  });
+
+  it("E2: Start a conversation in the roles window's ⋯ menu closes the window and opens the dialog with the role", async () => {
+    renderPanel();
+    fireEvent.click(screen.getByTestId("pv-footer-roles-button"));
+    fireEvent.click(await screen.findByTestId("roles-window-row-hallmonitor"));
+    await screen.findByTestId("role-view-facts");
+    const { default: userEvent } = await import("@testing-library/user-event");
+    await userEvent.setup().click(screen.getByTestId("role-view-menu"));
+    fireEvent.click(await screen.findByTestId("role-view-start-conversation"));
+    await waitFor(() => expect(rolesWindow()).toBeNull());
+    await waitFor(() => expect(queryRolesGroup()).toBeTruthy());
+    await waitFor(() => expect(pickedRoleValues()).toEqual(["hallmonitor"]));
+    closeRoleDropdown();
+    expect(dialogCount()).toBe(1);
   });
 });

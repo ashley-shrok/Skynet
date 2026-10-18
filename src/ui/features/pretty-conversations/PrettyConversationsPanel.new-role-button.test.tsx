@@ -2,7 +2,7 @@
 // (Phase 90 Plan 90-06 Task 3 — rewrite of the Phase 22/23 "+ New role" suite).
 //
 // Phase 90 (D-07): the three-dots menu's "New role" entry was DELETED and
-// replaced with "Edit roles…", which opens RolesListModal. The rewritten
+// replaced with "Edit roles…" (then the roles list; now the roles window). The rewritten
 // tests keep the file name for git-blame continuity but swap all assertions
 // from the old "New role" surface to the new "Edit roles…" surface.
 //
@@ -15,7 +15,7 @@
 // suite — matches the sibling-file pattern from Plan 22-02 Task 4.
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, fireEvent, screen, within, waitFor } from "@testing-library/react";
+import { render, fireEvent, screen } from "@testing-library/react";
 import type { Host, HostFolder } from "@/types/ui-types";
 
 // ─── Global mocks (BEFORE component import — Vitest hoists vi.mock) ──────────
@@ -118,31 +118,29 @@ vi.mock("@/state/session-working-store", () => ({
 
 // Phase 137 D-29: GlobalFilesModal retired — mock removed.
 
-// Phase 90 Plan 90-06: mock SkillsEditorModal + RoleModal + RoleSkillEditorModal
-// so the panel mounts them as stubs. RolesListModal we let render for real —
-// it's the one whose "Roles" title we assert on.
+// Mock SkillsEditorModal, and the roles window as a stub that shows where it
+// was asked to start (the real window's flows live in
+// PrettyConversationsPanel.role-management-flow.test.tsx).
 vi.mock("@/features/pretty-view/SkillsEditorModal", () => ({
   default: (props: { open: boolean }) =>
     props.open ? <div data-testid="skills-editor-modal-stub" /> : null,
 }));
-vi.mock("@/features/pretty-view/RoleModal", () => ({
-  RoleModal: (props: { open: boolean }) =>
-    props.open ? <div data-testid="role-modal-stub" /> : null,
-}));
-vi.mock("@/features/pretty-view/RoleSkillEditorModal", () => ({
-  default: (props: { open: boolean }) =>
-    props.open ? <div data-testid="role-skill-editor-modal-stub" /> : null,
+vi.mock("@/features/pretty-view/roles-window/RolesWindow", () => ({
+  RolesWindow: (props: { open: boolean; start: unknown; newRoleHop?: unknown }) =>
+    props.open ? (
+      <div
+        data-testid="roles-window-stub"
+        data-start={JSON.stringify(props.start)}
+        data-hop={props.newRoleHop ? "true" : "false"}
+      />
+    ) : null,
 }));
 
-// Mock the identities API listRolesForHost so RolesListModal renders without a
-// backend call.
 vi.mock("@/api/identities-api", async (importOriginal) => {
   const orig = (await importOriginal()) as Record<string, unknown>;
   return {
     ...orig,
     listRolesForHost: vi.fn().mockResolvedValue([]),
-    roleAvatarUrl: (hostId: number, roleName: string) =>
-      `/roles/${roleName}/avatar?hostId=${hostId}`,
   };
 });
 
@@ -240,7 +238,7 @@ describe("PrettyConversationsPanel: Roles footer button", () => {
     expect(screen.queryByRole("menu")).toBeNull();
   });
 
-  it("Test 21c: clicking pv-footer-roles-button opens RolesListModal (detection signal: the modal's 'Roles' title)", async () => {
+  it("Test 21c: clicking pv-footer-roles-button opens the roles window on its library (not a hop)", async () => {
     render(
       <PrettyConversationsPanel
         variant="desktop"
@@ -250,18 +248,11 @@ describe("PrettyConversationsPanel: Roles footer button", () => {
       />,
     );
 
-    // Dialog is not open before click.
-    expect(document.querySelectorAll('[role="dialog"]').length).toBe(0);
-
-    // Click the dedicated Edit roles header button (no kebab open needed).
+    expect(screen.queryByTestId("roles-window-stub")).toBeNull();
     fireEvent.click(screen.getByTestId("pv-footer-roles-button"));
 
-    // RolesListModal is now rendered — assert on its "Roles" DialogTitle.
-    await waitFor(() => {
-      const dialog = document.querySelector('[role="dialog"]') as HTMLElement | null;
-      expect(dialog).toBeTruthy();
-      // Its title contains the word "Roles" (from RolesListModal DialogTitle).
-      expect(dialog!.textContent).toMatch(/^Roles/);
-    });
+    const win = await screen.findByTestId("roles-window-stub");
+    expect(JSON.parse(win.dataset.start ?? "null")).toEqual({ view: "library" });
+    expect(win.dataset.hop).toBe("false");
   });
 });

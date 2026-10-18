@@ -117,27 +117,17 @@ vi.mock("@/state/session-working-store", () => ({
 
 // Phase 137 D-29: GlobalFilesModal retired — mock removed.
 
-// Phase 90 Plan 90-06: mock SkillsEditorModal + RoleModal + RoleSkillEditorModal
-// so the panel mounts them as stubs.
+// Mock SkillsEditorModal + the roles window so the panel mounts them as stubs.
 vi.mock("@/features/pretty-view/SkillsEditorModal", () => ({
   default: (props: { open: boolean }) =>
     props.open ? <div data-testid="skills-editor-modal-stub" /> : null,
 }));
-vi.mock("@/features/pretty-view/RolesListModal", () => ({
-  RolesListModal: (props: { open: boolean }) =>
-    props.open ? <div data-testid="roles-list-modal-stub" /> : null,
-}));
-vi.mock("@/features/pretty-view/RoleModal", () => ({
-  RoleModal: (props: { open: boolean }) =>
-    props.open ? <div data-testid="role-modal-stub" /> : null,
-}));
-vi.mock("@/features/pretty-view/RoleSkillEditorModal", () => ({
-  default: (props: { open: boolean }) =>
-    props.open ? <div data-testid="role-skill-editor-modal-stub" /> : null,
+vi.mock("@/features/pretty-view/roles-window/RolesWindow", () => ({
+  RolesWindow: (props: { open: boolean }) =>
+    props.open ? <div data-testid="roles-window-stub" /> : null,
 }));
 
-// Mock the identities API listRolesForHost so RolesListModal renders without a
-// backend call.
+// Mock the identities API listRolesForHost so nothing hits a backend.
 vi.mock("@/api/identities-api", async (importOriginal) => {
   const orig = (await importOriginal()) as Record<string, unknown>;
   return {

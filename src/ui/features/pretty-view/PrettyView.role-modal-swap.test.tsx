@@ -1,58 +1,19 @@
 /**
- * Phase 90 Plan 90-06 Task 2 — PrettyView role-modal-swap coordination.
+ * PrettyView — an agent's window → the roles window, and back.
  *
- * Locks the swap-not-stack behavior owned by PrettyView (D-04): the identity
- * modal's title-line click closes the identity modal and opens the role modal
- * at the same tick. Uses a small in-file TestHarness that mirrors PrettyView's
- * state-management shape (matches the role skills-swap test scaffold from
- * Phase 89 Plan 06). Rendering the full PrettyView here would require ~30
- * additional mocks — the harness proves the SHAPE of the coordination.
- *
- * Tests:
- *   A: state slot shape — { roleName, roleCosmetics, hue } | null
- *      (Plan 90-10: identity-shim removed — RoleModal reads by role name.)
- *   B: handleOpenRoleModal derives cosmetics from identity.roleDefaults
- *   C: identity-modal title-line click closes identity modal (via onOpenChange
- *      in the IdentityModal click handler — proven by the modal actually
- *      disappearing from the DOM)
- *   D: role modal mounts as sibling when roleModalOpenState !== null
- *   E: role modal close clears state; identity modal STAYS closed (D-03)
- *   F: nested swap — role skill row click inside role modal fires handleOpenRoleSkill
- *      (mocked); role modal closes and role skill state opens
- *   G: IdentityModal's onOpenRoleModal prop is threaded from handleOpenRoleModal
+ * Clicking a role name in the agent's window (IdentityModal) closes it and
+ * opens the roles window straight onto that role, scoped to this agent's
+ * host (a one-host tree). Closing the roles window brings the agent's window
+ * back. Renders the real PrettyView; the agent's window, its task pill and
+ * the roles window are stubs that expose their props.
  */
 
-import {
-  describe,
-  it,
-  expect,
-  vi,
-  beforeEach,
-  afterEach,
-  afterAll,
-} from "vitest";
-import { render, screen, fireEvent, waitFor, cleanup, act } from "@testing-library/react";
-import React from "react";
-import type { Identity, RoleSummary } from "@/api/identities-api";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { render, screen, fireEvent, waitFor } from "@testing-library/react";
+import type { Identity } from "@/api/identities-api";
 
-// ── WS stub ──────────────────────────────────────────────────────────────────
-type WsStub = {
-  readyState: number;
-  bufferedAmount: number;
-  send: ReturnType<typeof vi.fn>;
-  close: ReturnType<typeof vi.fn>;
-  onmessage: ((e: MessageEvent<string>) => void) | null;
-  onopen: (() => void) | null;
-  onerror: (() => void) | null;
-  onclose: (() => void) | null;
-  addEventListener: ReturnType<typeof vi.fn>;
-  removeEventListener: ReturnType<typeof vi.fn>;
-};
-
-const openedSockets: WsStub[] = [];
-
-function makeFakeWs(): WsStub {
-  const ws: WsStub = {
+vi.mock("@/api/claude-session-api", () => ({
+  openClaudeSessionSocket: vi.fn(() => ({
     readyState: 1,
     bufferedAmount: 0,
     send: vi.fn(),
@@ -63,286 +24,197 @@ function makeFakeWs(): WsStub {
     onclose: null,
     addEventListener: vi.fn(),
     removeEventListener: vi.fn(),
-  };
-  openedSockets.push(ws);
-  queueMicrotask(() => ws.onopen?.());
-  return ws;
-}
-
-vi.mock("@/api/claude-session-api", async (importOriginal) => {
-  const orig = (await importOriginal()) as Record<string, unknown>;
-  return {
-    ...orig,
-    openClaudeSessionSocket: () => makeFakeWs(),
-    updateRoleFileByName: vi.fn().mockResolvedValue({ markdown: "" }),
-    // Plan 90-10: RoleModal consumes role-name-keyed helpers from Plan 90-09.
-    // Phase 136 retired listBountiesForRoleName alongside the Bounties tab.
-    // Phase 134 Plan 134-02 retired the four role-scope wakeup helpers
-    // (listRoleWakeupsByName / createRoleWakeupByName / updateRoleWakeupByName
-    // / deleteRoleWakeupByName). Only getRoleFileByName still needs a stub.
-    getRoleFileByName: vi.fn().mockResolvedValue({ markdown: "" }),
-  };
-});
-
-vi.mock("@/api/identities-api", async (importOriginal) => {
-  const orig = (await importOriginal()) as Record<string, unknown>;
-  return {
-    ...orig,
-    updateIdentity: vi.fn(),
-    listIdentities: vi.fn().mockResolvedValue([]),
-    getIdentityNoDormancy: vi.fn().mockResolvedValue(false),
-    setIdentityNoDormancy: vi.fn().mockResolvedValue(false),
-    listRolesForHost: vi.fn().mockResolvedValue([]),
-    roleAvatarUrl: (hostId: number, roleName: string) =>
-      `/roles/${roleName}/avatar?hostId=${hostId}`,
-  };
-});
-
-vi.mock("@/state/identities-store", async (importOriginal) => {
-  const orig = (await importOriginal()) as Record<string, unknown>;
-  return {
-    ...orig,
-    applyIdentityChange: vi.fn(),
-    useIdentities: vi.fn(() => ({
-      identities: [],
-      byKey: new Map(),
-      loaded: true,
-      refresh: vi.fn(),
-    })),
-  };
-});
-
-vi.mock("@/main-axios", () => ({
-  getUserInfo: vi.fn().mockResolvedValue({ userId: "u-1" }),
+  })),
 }));
 
-vi.mock("@/api/role-skills-api", () => ({
-  listRoleSkills: vi.fn().mockResolvedValue([]),
-  enumerateRoleSkillFiles: vi.fn().mockResolvedValue([]),
-  readRoleSkillFile: vi.fn().mockResolvedValue({ content: "", mtime: 0, isText: true }),
-  writeRoleSkillFile: vi.fn(),
-  createRoleSkillFile: vi.fn(),
-  deleteRoleSkillFile: vi.fn(),
-  deleteRoleSkill: vi.fn(),
-  RoleSkillFileMtimeConflictError: class extends Error {},
-  RoleSkillFileAlreadyExistsError: class extends Error {},
+vi.mock("@/api/compose-drafts-api", () => ({
+  getComposeDraft: vi.fn().mockResolvedValue({ body: "" }),
+  putComposeDraft: vi.fn().mockResolvedValue(undefined),
+  flushComposeDraftKeepalive: vi.fn(),
 }));
 
-// ── Late imports ─────────────────────────────────────────────────────────────
-import { IdentityModal } from "./IdentityModal";
-import { RoleModal } from "./RoleModal";
+const listRolesForHost = vi.fn();
+vi.mock("@/api/identities-api", async (importOriginal) => ({
+  ...((await importOriginal()) as Record<string, unknown>),
+  listRolesForHost: (...a: unknown[]) => listRolesForHost(...a),
+}));
 
-// ── Fixtures ─────────────────────────────────────────────────────────────────
-const BASE_IDENTITY: Identity = {
+const useSessionIdentityMock = vi.fn((_name?: unknown) => ({
+  identity: null as unknown,
+  identityHue: null as number | null,
+}));
+vi.mock("@/features/terminal/session-hue", () => ({
+  sessionMatchKey: (name: string | null | undefined) => (name ? name.toLowerCase() : null),
+  useSessionIdentity: (name: string | null | undefined) => useSessionIdentityMock(name),
+}));
+
+vi.mock("@/hooks/use-is-touch-device", () => ({
+  useIsTouchDevice: vi.fn(() => false),
+}));
+
+// The task pill opens the agent's window.
+vi.mock("./TaskPill", () => ({
+  TaskPill: (props: { onOpen: () => void }) => (
+    <button type="button" data-testid="task-pill-stub" onClick={() => props.onOpen()} />
+  ),
+}));
+
+// The agent's window: a role link per role, behaving like the real one
+// (closes itself, then asks for the role).
+vi.mock("./IdentityModal", () => ({
+  IdentityModal: (props: {
+    open: boolean;
+    identity: Identity;
+    onOpenChange: (o: boolean) => void;
+    onOpenRoleModal: (identity: Identity, roleName: string) => void;
+  }) =>
+    props.open ? (
+      <div data-testid="identity-modal-stub">
+        {(props.identity.roles ?? [props.identity.role]).map((r) => (
+          <button
+            key={r}
+            type="button"
+            data-testid={`role-link-${r}`}
+            onClick={() => {
+              props.onOpenChange(false);
+              props.onOpenRoleModal(props.identity, r as string);
+            }}
+          />
+        ))}
+      </div>
+    ) : null,
+}));
+
+// The roles window: shows where it was asked to start and on which hosts.
+vi.mock("./roles-window/RolesWindow", () => ({
+  RolesWindow: (props: {
+    open: boolean;
+    start: unknown;
+    hostTree: unknown;
+    onOpenChange: (o: boolean) => void;
+  }) =>
+    props.open ? (
+      <div
+        data-testid="roles-window-stub"
+        data-start={JSON.stringify(props.start)}
+        data-tree={JSON.stringify(props.hostTree)}
+      >
+        <button type="button" data-testid="roles-window-stub-close" onClick={() => props.onOpenChange(false)} />
+      </div>
+    ) : null,
+}));
+
+import { PrettyView } from "./PrettyView";
+
+const IDENTITY: Identity = {
   identityKey: "tabitha",
   displayName: "Tabitha",
   title: "Skynet",
   colorHue: null,
   voice: null,
   role: "box-maintainer",
+  roles: ["box-maintainer", "sky-uat"],
   task: null,
   project: null,
   avatarMime: "image/png",
   avatarUrl: "/identities/tabitha/avatar?hostId=7",
   avatarEtag: "etag-1",
   coordinator: false,
-  roleDefaults: {
-    title: "Box maintainer",
-    colorHue: 190,
-    voice: "coral",
-  },
-};
+  roleDefaults: { displayName: "Box Maintainer", colorHue: 190, voice: "coral", avatar: "bm.webp" },
+} as unknown as Identity;
 
-function makeIdentity(overrides?: Partial<Identity>): Identity {
-  return { ...BASE_IDENTITY, ...overrides };
-}
-
-// ── TestHarness — mirrors PrettyView's swap coordination shape ───────────────
-
-interface TestHarnessProps {
-  identity: Identity;
-  onRoleSkillOpen?: (roleSkillName: string, roleName?: string) => void;
-}
-
-function TestHarness({ identity, onRoleSkillOpen }: TestHarnessProps): React.ReactElement {
-  const [isIdModalOpen, setIsIdModalOpen] = React.useState(true);
-  const [roleModalOpenState, setRoleModalOpenState] = React.useState<
-    | null
-    | {
-        roleName: string;
-        roleCosmetics: RoleSummary;
-        hue: number;
-      }
-  >(null);
-
-  // Mirror PrettyView.handleOpenRoleModal shape (Plan 90-10 — no shim).
-  const handleOpenRoleModal = React.useCallback((id: Identity) => {
-    if (id.role === null) return;
-    if (id.roleDefaults) {
-      const cosmetics: RoleSummary = {
-        name: id.role,
-        description: "",
-        title: id.roleDefaults.title,
-        colorHue: id.roleDefaults.colorHue,
-        voice: id.roleDefaults.voice,
-        avatar: id.roleDefaults.avatar,
-      };
-      setRoleModalOpenState({
-        roleName: id.role,
-        roleCosmetics: cosmetics,
-        hue: cosmetics.colorHue ?? 190,
-      });
-    }
-  }, []);
-
-  const handleOpenRoleSkill = React.useCallback(
-    (roleSkillName: string, roleNameOverride?: string) => {
-      const roleName = roleNameOverride ?? identity.role ?? null;
-      if (roleName === null) return;
-      setRoleModalOpenState(null);
-      setIsIdModalOpen(false);
-      onRoleSkillOpen?.(roleSkillName, roleName);
-    },
-    [identity.role, onRoleSkillOpen],
-  );
-
-  return (
-    <>
-      <IdentityModal
-        open={isIdModalOpen}
-        onOpenChange={setIsIdModalOpen}
-        identity={identity}
-        hue={220}
-        hostId={7}
-        onOpenRoleModal={handleOpenRoleModal}
-        container={document.body}
-      />
-      {roleModalOpenState && (
-        <RoleModal
-          open={true}
-          onOpenChange={(o) => {
-            if (!o) setRoleModalOpenState(null);
-          }}
-          roleName={roleModalOpenState.roleName}
-          roleCosmetics={roleModalOpenState.roleCosmetics}
-          hostId={7}
-          onOpenRoleSkill={(rn) => handleOpenRoleSkill(rn, roleModalOpenState.roleName)}
-        />
-      )}
-    </>
+function renderView(): void {
+  render(
+    <PrettyView
+      source={{ kind: "harness", hostId: 7, tmuxSession: "tabitha", tabId: "t1" }}
+      hostId={7}
+      hostName="Skynet"
+      tmuxSession="tabitha"
+      tabId="t1"
+      isVisible={true}
+      onSend={() => true}
+    />,
   );
 }
 
-// ── beforeEach / afterEach ───────────────────────────────────────────────────
-beforeEach(() => {
-  vi.clearAllMocks();
-  openedSockets.length = 0;
-});
-afterEach(() => {
-  cleanup();
-  openedSockets.length = 0;
-});
-afterAll(() => {
-  vi.restoreAllMocks();
-});
+async function openAgentWindow(): Promise<void> {
+  fireEvent.click(await screen.findByTestId("task-pill-stub"));
+  await screen.findByTestId("identity-modal-stub");
+}
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Tests
-// ─────────────────────────────────────────────────────────────────────────────
-describe("PrettyView role-modal swap coordination (Phase 90 D-04)", () => {
-  it("A/B/C/D: identity-modal title-line click closes it and opens role modal", async () => {
-    render(<TestHarness identity={makeIdentity()} />);
-    await waitFor(() => {
-      expect(document.querySelector('[role="dialog"]')).toBeTruthy();
-    });
-    // Title-line jump element renders (Phase 90 title-line treatment).
-    const jump = screen.getByTestId("identity-modal-title-line-jump");
-    expect(jump).toBeTruthy();
-    // Click fires the swap.
-    act(() => {
-      fireEvent.click(jump);
-    });
-    // Role modal appears with role's displayName ("Box maintainer" via title).
-    await waitFor(() => {
-      // RoleModal renders the role's displayName header — fallback is title-cased
-      // slug "Box Maintainer" (since RoleSummary lacks displayName, RoleModal
-      // uses titleCase(roleName)).
-      const roleModalHeader = document.querySelectorAll('[role="dialog"]');
-      expect(roleModalHeader.length).toBeGreaterThan(0);
-    });
-    // The identity-modal jump element is gone (identity modal closed).
-    expect(
-      document.querySelector('[data-testid="identity-modal-title-line-jump"]'),
-    ).toBeNull();
-  });
+function windowStart(): Record<string, unknown> {
+  return JSON.parse(screen.getByTestId("roles-window-stub").dataset.start ?? "null");
+}
 
-  it("E: closing the role modal does NOT reopen the identity modal (D-03)", async () => {
-    render(<TestHarness identity={makeIdentity()} />);
-    await waitFor(() => {
-      expect(document.querySelector('[role="dialog"]')).toBeTruthy();
-    });
-    // Trigger the swap.
-    act(() => {
-      fireEvent.click(screen.getByTestId("identity-modal-title-line-jump"));
-    });
-    // Wait for role modal to render.
-    await waitFor(() => {
-      expect(document.querySelectorAll('[role="dialog"]').length).toBeGreaterThanOrEqual(1);
-    });
-    // Close the role modal via Esc keypress (RoleModal wires Esc to onOpenChange(false)).
-    // Simulating Esc on the dialog:
-    const dialogs = Array.from(document.querySelectorAll('[role="dialog"]'));
-    const roleDialog = dialogs[dialogs.length - 1] as HTMLElement;
-    act(() => {
-      fireEvent.keyDown(roleDialog, { key: "Escape" });
-    });
-    // Wait for role modal to unmount.
-    await waitFor(() => {
-      // Neither modal is present.
-      expect(
-        document.querySelector('[data-testid="identity-modal-title-line-jump"]'),
-      ).toBeNull();
-    });
-  });
-
-  it("F: nested swap — RoleModal onOpenRoleSkill fires with the role's name", async () => {
-    const roleSkillOpen = vi.fn();
-    render(
-      <TestHarness identity={makeIdentity()} onRoleSkillOpen={roleSkillOpen} />,
+describe("PrettyView — agent's window ↔ roles window", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    listRolesForHost.mockResolvedValue([]);
+    useSessionIdentityMock.mockReturnValue({ identity: IDENTITY, identityHue: 190 });
+    vi.stubGlobal(
+      "ResizeObserver",
+      vi.fn(function () {
+        return { observe: vi.fn(), unobserve: vi.fn(), disconnect: vi.fn() };
+      }),
     );
-    await waitFor(() => {
-      expect(document.querySelector('[role="dialog"]')).toBeTruthy();
-    });
-    act(() => {
-      fireEvent.click(screen.getByTestId("identity-modal-title-line-jump"));
-    });
-    // Role modal is open. Fire its onOpenRoleSkill handler directly by
-    // simulating what a Role skills row click would do — we can't drive the
-    // full nested UI without more mocks, so the harness exposes the wiring
-    // through the state slot: verifying handleOpenRoleSkill fires correctly
-    // is enough. To avoid brittle UI-drilling, we assert on the state seam
-    // by observing that the RoleModal DID render (D from Test A) and that
-    // the harness state slot is properly threaded.
-    // (The end-to-end nested-swap test lives in Plan 90-06 Task 5's
-    // PrettyConversationsPanel.role-management-flow.test.tsx.)
-    await waitFor(() => {
-      expect(document.querySelectorAll('[role="dialog"]').length).toBeGreaterThan(0);
-    });
+  });
+  afterEach(() => {
+    vi.unstubAllGlobals();
   });
 
-  it("G: handleOpenRoleModal defensively no-ops when identity.role === null", async () => {
-    // Identity with role=null → clicking the title-line simply doesn't render
-    // the jump element (Test K from IdentityModal.title-line-jump.test.tsx
-    // covers the render branch). Here we assert the harness state slot never
-    // becomes non-null when the handler is called with a null-role identity.
-    const nullRoleIdentity = makeIdentity({ role: null, roleDefaults: null });
-    render(<TestHarness identity={nullRoleIdentity} />);
-    await waitFor(() => {
-      expect(document.querySelector('[role="dialog"]')).toBeTruthy();
+  it("the role link closes the agent's window and opens the roles window on that role, scoped to this host", async () => {
+    renderView();
+    await openAgentWindow();
+    expect(screen.queryByTestId("roles-window-stub")).toBeNull();
+
+    fireEvent.click(screen.getByTestId("role-link-box-maintainer"));
+
+    await screen.findByTestId("roles-window-stub");
+    expect(screen.queryByTestId("identity-modal-stub")).toBeNull();
+    // The look role comes straight from the agent's roleDefaults — no fetch.
+    expect(windowStart()).toEqual({
+      view: "role",
+      hostId: 7,
+      role: {
+        name: "box-maintainer",
+        description: "",
+        displayName: "Box Maintainer",
+        colorHue: 190,
+        voice: "coral",
+        avatar: "bm.webp",
+      },
     });
-    // Title-line jump element does NOT render (defensive branch from Task 1).
-    expect(
-      document.querySelector('[data-testid="identity-modal-title-line-jump"]'),
-    ).toBeNull();
+    expect(listRolesForHost).not.toHaveBeenCalled();
+    // One host: the agent's own.
+    const tree = JSON.parse(screen.getByTestId("roles-window-stub").dataset.tree ?? "null");
+    expect(tree.children).toEqual([{ id: "7", name: "Skynet" }]);
+  });
+
+  it("closing the roles window brings the agent's window back", async () => {
+    renderView();
+    await openAgentWindow();
+    fireEvent.click(screen.getByTestId("role-link-box-maintainer"));
+    fireEvent.click(await screen.findByTestId("roles-window-stub-close"));
+    await waitFor(() => expect(screen.queryByTestId("roles-window-stub")).toBeNull());
+    expect(await screen.findByTestId("identity-modal-stub")).toBeTruthy();
+  });
+
+  it("another role the agent holds is looked up on the host, then opened", async () => {
+    const skyUat = { name: "sky-uat", description: "Tests the sky", displayName: "Sky UAT", colorHue: 40 };
+    listRolesForHost.mockResolvedValue([skyUat]);
+    renderView();
+    await openAgentWindow();
+    fireEvent.click(screen.getByTestId("role-link-sky-uat"));
+    await screen.findByTestId("roles-window-stub");
+    expect(listRolesForHost).toHaveBeenCalledWith(7);
+    expect(windowStart()).toEqual({ view: "role", hostId: 7, role: skyUat });
+  });
+
+  it("a role the host doesn't have opens nothing", async () => {
+    renderView();
+    await openAgentWindow();
+    fireEvent.click(screen.getByTestId("role-link-sky-uat"));
+    await waitFor(() => expect(listRolesForHost).toHaveBeenCalledWith(7));
+    expect(screen.queryByTestId("roles-window-stub")).toBeNull();
   });
 });

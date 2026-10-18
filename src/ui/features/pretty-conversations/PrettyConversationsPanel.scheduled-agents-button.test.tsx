@@ -119,14 +119,9 @@ vi.mock("@/features/pretty-view/SkillsEditorModal", () => ({
     props.open ? <div data-testid="skills-editor-modal-stub" /> : null,
 }));
 
-vi.mock("@/features/pretty-view/RoleModal", () => ({
-  RoleModal: (props: { open: boolean }) =>
-    props.open ? <div data-testid="role-modal-stub" /> : null,
-}));
-
-vi.mock("@/features/pretty-view/RoleSkillEditorModal", () => ({
-  default: (props: { open: boolean }) =>
-    props.open ? <div data-testid="role-skill-editor-modal-stub" /> : null,
+vi.mock("@/features/pretty-view/roles-window/RolesWindow", () => ({
+  RolesWindow: (props: { open: boolean }) =>
+    props.open ? <div data-testid="roles-window-stub" /> : null,
 }));
 
 // Additional scheduled-agents-specific mocks.
