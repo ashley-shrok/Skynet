@@ -433,7 +433,19 @@ test_http_protocol_and_auth() {
 }
 
 test_http_actions() {
-  local out
+  local out appdir="$FIXTURE/session-bin" marker="$FIXTURE/zzapp-ran"
+  # launch finds programs on the calling session's PATH (X-Fleet-Path), not just the server's.
+  mkdir -p "$appdir"
+  printf '#!/bin/sh\necho "$FLEET_IDENTITY" > "%s"\n' "$marker" > "$appdir/zzapp"
+  chmod +x "$appdir/zzapp"
+  out="$(http_rpc alice "$("$MCP" secret alice)" \
+    '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"launch","arguments":{"command":"zzapp","wait_seconds":0,"screenshot":false}}}' \
+    -H "X-Fleet-Path: $appdir:/usr/bin:/bin")"
+  assert_eq test_http_launch_ok false "$(jq -r .result.isError <<<"$out")"
+  local _
+  for _ in $(seq 1 20); do [ -s "$marker" ] && break; sleep 0.1; done
+  assert_eq test_http_launch_uses_session_path alice "$(cat "$marker" 2>/dev/null)"
+
   out="$(http_call alice screenshot '{}')"
   assert_eq test_http_screenshot_ok false "$(jq -r .isError <<<"$out")"
   assert_eq test_http_screenshot_png image/png "$(jq -r '.content[1].mimeType' <<<"$out")"

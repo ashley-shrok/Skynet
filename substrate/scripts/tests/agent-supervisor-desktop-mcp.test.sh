@@ -8,7 +8,7 @@
 # launch without a supervisor restart.
 #
 #   D-01  no binary installed        → no flag, no config written
-#   D-02  binary + server answering  → flag, http config with the identity + key headers and a long
+#   D-02  binary + server answering  → flag, http config with the identity, key and PATH headers and a long
 #                                       call timeout (claude's HTTP default is 60s), no start
 #   D-03  server down, start works   → systemctl --user start desktop-mcp.service, then flag
 #   D-04  server stays down          → no flag, bounded wait, ERROR log
@@ -94,7 +94,8 @@ d02() {
          and .mcpServers.desktop.url == "http://127.0.0.1:17794/mcp"
          and .mcpServers.desktop.timeout == 1800000
          and .mcpServers.desktop.headers["X-Fleet-Identity"] == "${FLEET_IDENTITY}"
-         and .mcpServers.desktop.headers["X-Fleet-Desktop-Key"] == "${DESKTOP_MCP_SECRET}"' "$DESKTOP_MCP_CONFIG" >/dev/null \
+         and .mcpServers.desktop.headers["X-Fleet-Desktop-Key"] == "${DESKTOP_MCP_SECRET}"
+         and .mcpServers.desktop.headers["X-Fleet-Path"] == "${PATH}"' "$DESKTOP_MCP_CONFIG" >/dev/null \
     || { fail "config content wrong: $(cat "$DESKTOP_MCP_CONFIG")"; return; }
   [ -z "$(find "$SCRATCH/.claude" -name 'desktop-mcp.json.tmp.*')" ] || { fail "temp file left behind"; return; }
   [ ! -f "$SCRATCH/systemctl.log" ] || { fail "systemctl called while healthy"; return; }

@@ -277,6 +277,9 @@ CLAUDE_LAUNCH_FLAGS="${CLAUDE_MODEL:+--model $CLAUDE_MODEL }--dangerously-skip-p
 # `desktop-mcp secret <name>`), health-checked and started if needed before each launch, because a
 # session that finds the server down at launch never retries.
 #
+# X-Fleet-Path carries the session's own ${PATH}, so apps the agent starts with the launch tool
+# find the same programs its shell does (as when each session ran its own server).
+#
 # The config also sets a per-server `timeout`: claude gives up on an HTTP MCP call after 60s by
 # default (a stdio call has no such limit), and a first browser call — desktop start, browser
 # server start, maybe a Chromium install — can take longer. Every call is bounded server-side.
@@ -344,8 +347,8 @@ ensure_desktop_mcp_config() {
   local want
   # shellcheck disable=SC2016  # the ${...} are for claude to expand, not this shell
   want="$(jq -n --arg url "http://127.0.0.1:$DESKTOP_MCP_PORT/mcp" --arg who '${FLEET_IDENTITY}' \
-    --arg key '${DESKTOP_MCP_SECRET}' --argjson timeout "$DESKTOP_MCP_CALL_TIMEOUT_MS" \
-    '{mcpServers:{desktop:{type:"http",url:$url,timeout:$timeout,headers:{"X-Fleet-Identity":$who,"X-Fleet-Desktop-Key":$key}}}}')" || return 1
+    --arg key '${DESKTOP_MCP_SECRET}' --arg path '${PATH}' --argjson timeout "$DESKTOP_MCP_CALL_TIMEOUT_MS" \
+    '{mcpServers:{desktop:{type:"http",url:$url,timeout:$timeout,headers:{"X-Fleet-Identity":$who,"X-Fleet-Desktop-Key":$key,"X-Fleet-Path":$path}}}}')" || return 1
   write_mcp_config "$DESKTOP_MCP_CONFIG" "$want"
 }
 ensure_desktop_mcp_up() {

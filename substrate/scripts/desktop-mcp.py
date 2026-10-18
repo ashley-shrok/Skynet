@@ -90,6 +90,8 @@ MAX_BODY = 4 * 1024 * 1024
 # reconnects after, and is held again while the fetch is still going.
 LIST_CHANGED_WAIT = 600
 NAME_RE = re.compile(r"^[a-z0-9][a-z0-9._-]{0,127}$")
+# Absolute directories separated by ':', printable characters only.
+PATH_RE = re.compile(r"^/[^\x00-\x1f\x7f]*$")
 
 # Must match PLAYWRIGHT_MCP_PKG in agent-desktop (which runs the browser); used here
 # only to fetch the tool list.
@@ -712,8 +714,9 @@ def _int(args, key, default=None):
         raise ToolError("%s must be an integer" % key)
 
 
-def call_tool(desktop, name, args):
-    """Run one desktop tool; returns a list of MCP content blocks."""
+def call_tool(desktop, name, args, path=None):
+    """Run one desktop tool; returns a list of MCP content blocks. `path`, when given, is
+    the calling session's PATH, for apps started with `launch`."""
     if name not in {t["name"] for t in TOOLS}:
         raise ToolError("unknown tool: %s" % name)
     desktop.ensure_up()
@@ -802,12 +805,18 @@ def call_tool(desktop, name, args):
         command = args.get("command")
         if not isinstance(command, str) or not command.strip():
             raise ToolError("command must be a non-empty string")
+        env = None
+        if path:
+            # The session's own PATH first, as when each session ran its own server; ours
+            # after it so agent-desktop's helpers still resolve.
+            env = dict(os.environ, PATH=path + os.pathsep + os.environ.get("PATH", ""))
         proc = subprocess.run(
             [AGENT_DESKTOP, "run", "--identity", desktop.identity, "--", "sh", "-c", command],
             capture_output=True,
             text=True,
             timeout=60,
             cwd=desktop.workspace if os.path.isdir(desktop.workspace) else None,
+            env=env,
         )
         if proc.returncode != 0:
             raise ToolError("launch failed: " + proc.stderr.strip())
@@ -824,7 +833,7 @@ def call_tool(desktop, name, args):
     return [{"type": "text", "text": note}, _image_block(desktop)]
 
 
-def run_tool(identity, name, args):
+def run_tool(identity, name, args, path=None):
     """One tools/call for one identity; returns the MCP result. Never raises."""
     if not identity:
         return {"content": [{"type": "text", "text": "FLEET_IDENTITY is not set; the desktop is only available to supervised identities."}], "isError": True}
@@ -841,7 +850,7 @@ def run_tool(identity, name, args):
                 else:
                     result = agent.browser.call(name, args)
             else:
-                result = {"content": call_tool(agent.desktop, name, args), "isError": False}
+                result = {"content": call_tool(agent.desktop, name, args, path), "isError": False}
         except ToolError as e:
             result = {"content": [{"type": "text", "text": str(e)}], "isError": True}
         except subprocess.TimeoutExpired as e:
@@ -857,9 +866,10 @@ def run_tool(identity, name, args):
 # ---- JSON-RPC ---------------------------------------------------------------------
 
 
-def handle_rpc(identity, msg, authorize=None):
+def handle_rpc(identity, msg, authorize=None, path=None):
     """One JSON-RPC message in, one response dict out (None for notifications).
-    `authorize`, when given, is checked before a tools/call and returns an error text or None."""
+    `authorize`, when given, is checked before a tools/call and returns an error text or None.
+    `path` is the calling session's PATH (see call_tool)."""
     if not isinstance(msg, dict):
         return {"jsonrpc": "2.0", "id": None, "error": {"code": -32600, "message": "invalid request"}}
     method = msg.get("method")
@@ -890,7 +900,7 @@ def handle_rpc(identity, msg, authorize=None):
         elif not isinstance(args, dict):
             result = {"content": [{"type": "text", "text": "arguments must be an object"}], "isError": True}
         else:
-            result = run_tool(identity, params.get("name"), args)
+            result = run_tool(identity, params.get("name"), args, path)
     else:
         return {"jsonrpc": "2.0", "id": rid, "error": {"code": -32601, "message": "method not found: %s" % method}}
     return {"jsonrpc": "2.0", "id": rid, "result": result}
@@ -983,6 +993,11 @@ class Handler(BaseHTTPRequestHandler):
         if identity and not NAME_RE.match(identity):
             identity = ""
         key = (self.headers.get("X-Fleet-Desktop-Key") or "").strip()
+        # The session's PATH (from its launch env), used only for `launch`, and only once the
+        # key has checked out. Ignored unless it looks like one.
+        path = (self.headers.get("X-Fleet-Path") or "").strip()
+        if len(path) > 8192 or not PATH_RE.match(path):
+            path = ""
 
         def authorize():
             if not identity:
@@ -993,13 +1008,13 @@ class Handler(BaseHTTPRequestHandler):
             return None
 
         if isinstance(msg, list):
-            out = [r for r in (handle_rpc(identity, m, authorize) for m in msg) if r is not None]
+            out = [r for r in (handle_rpc(identity, m, authorize, path) for m in msg) if r is not None]
             self._reply(200, out) if out else self._reply(202)
             return
         if isinstance(msg, dict) and msg.get("method") == "initialize":
             log("[desktop-mcp] session-init identity=%s client=%s" % (
                 identity or "<none>", json.dumps((msg.get("params") or {}).get("clientInfo"))))
-        res = handle_rpc(identity, msg, authorize)
+        res = handle_rpc(identity, msg, authorize, path)
         self._reply(202) if res is None else self._reply(200, res)
 
 
