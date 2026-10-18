@@ -59,6 +59,7 @@ The foundation already moved every modal onto the kit, so each remaining modal s
 - Kit candidates raised during the foundation (pop-over panel for colour/voice pickers, link-styled button, usage meter, sortable column header) — pick up in the per-modal shapes that need them
 - Unused sidebar-era row styles in the conversation-list stylesheet — clean up in shape-sidebar
 - Markdown files show their Formatted / Plain text switch on its own row under the file toolbar (file viewer, everywhere) — look at it in shape-file-modal
+- New-conversation roles dropdown (upstream's grouped multi-select, revived 2026-10-18 when the host step was dropped) is not on the kit yet — restyle in shape-creation-and-search-dialogs
 - Shared-skill hiding for non-admins goes by name and lets skills show if the sync engine is down (logged) — revisit in shape-host-targeting alongside the sync machinery
 
 ## Lingerers (explicitly approved)
@@ -67,7 +68,7 @@ The foundation already moved every modal onto the kit, so each remaining modal s
 
 - ~~What does Skynet's own aesthetic look like on an Apple-referenced design?~~ Answered in shape-ux-foundation: look A (flat near-black, colour only on chosen/primary/focus).
 - Wording for the permanent "every host" option vs a hand-picked set that happens to include all hosts — shape-host-targeting.
-- Does the shared-roles side already sync the same way as shared skills, or does host targeting need roles brought level first?
+- ~~Does the shared-roles side already sync the same way as shared skills?~~ Yes — one engine for both (checked 2026-10-18).
 
 ## Prior context
 
