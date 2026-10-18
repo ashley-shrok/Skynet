@@ -713,7 +713,7 @@ describe("__applyInterruptMessageForTests", () => {
 
     // The first press already spent 1500ms waiting; 500ms more is 2000ms total.
     clock.t += 500;
-    await expect(__applyInterruptMessageForTests(deps)).resolves.toBeNull();
+    await expect(__applyInterruptMessageForTests(deps)).resolves.toEqual({ verdict: "none", reason: "throttled" });
     expect(exec).toHaveBeenCalledTimes(1);
     expect(vi.mocked(sshLogger.warn)).toHaveBeenCalledTimes(1);
     const [, payload] = vi.mocked(sshLogger.warn).mock.calls[0];

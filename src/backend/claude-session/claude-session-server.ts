@@ -1127,6 +1127,10 @@ const interruptThrottleByPane = new Map<string, number>();
 // (getter, because the connection swaps in a fresh tracker on a session-file
 // transition). Lets a cancel verdict reach every view of the same pane.
 const cancelTrackerByWs = new Map<import("ws").WebSocket, () => InterruptCancelTracker>();
+// Prompt uuids cancelled live by this server process, shared by every tracker
+// (see InterruptCancelTracker's constructor). Memory only; bounded by the tracker.
+const cancelledLivePrompts = new Set<string>();
+const newCancelTracker = (): InterruptCancelTracker => new InterruptCancelTracker(cancelledLivePrompts);
 
 // broadcastPromptCancelled — fan out a live cancel verdict to every OPEN view
 // of the pane: each peer's tracker records it (so a later revive is noticed)
@@ -3305,7 +3309,7 @@ export async function __applyInterruptMessageForTests(deps: {
       elapsedMs: nowMs - last,
       windowMs: INTERRUPT_THROTTLE_MS,
     });
-    return null;
+    return { verdict: "none", reason: "throttled" };
   }
 
   // Prune stale entries before recording the fresh one (T-9o3-03).
@@ -4076,7 +4080,7 @@ wss.on("connection", async (ws: WebSocket, req) => {
   // Interrupt button (shape-interrupt-button): transcript-only bookkeeping of
   // the latest prompt, fed every replayed + live line in file order. Fresh
   // per session file (reset alongside lineNum on transition).
-  let cancelTracker = new InterruptCancelTracker();
+  let cancelTracker = newCancelTracker();
   cancelTrackerByWs.set(ws, () => cancelTracker);
   let contextPctTimer: NodeJS.Timeout | null = null;
   let contextPctInFlight = false;
@@ -5267,7 +5271,7 @@ wss.on("connection", async (ws: WebSocket, req) => {
       // Phase 101 D-03: acquire long-lived slot before opening the tail.
       // Released on stop() or onError — both paths are idempotent (D-06-adjacent).
       const tailSlot1 = acquireTailSlot(currentHostId!);
-      cancelTracker = new InterruptCancelTracker(); // the new tail replays from line 1
+      cancelTracker = newCancelTracker(); // the new tail replays from line 1
       tailHandle = tailSessionFile(
         sshConn,
         newSessionFile,
@@ -7232,7 +7236,7 @@ wss.on("connection", async (ws: WebSocket, req) => {
     // Phase 101 D-03: acquire long-lived slot before opening the tail.
     // Released on stop() or onError — both paths are idempotent (D-06-adjacent).
     const tailSlot2 = acquireTailSlot(currentHostId!);
-    cancelTracker = new InterruptCancelTracker(); // the new tail replays from line 1
+    cancelTracker = newCancelTracker(); // the new tail replays from line 1
     tailHandle = tailSessionFile(
       sshConn,
       sessionFile,
@@ -7634,7 +7638,7 @@ wss.on("connection", async (ws: WebSocket, req) => {
                   tmuxSession,
                   discoverIdentitySessionFile,
                   tailSessionFile: (c, file, line, errCb) => {
-                    cancelTracker = new InterruptCancelTracker(); // the new tail replays from line 1
+                    cancelTracker = newCancelTracker(); // the new tail replays from line 1
                     const handle = tailSessionFile(c as import("ssh2").Client, file, line, (err) => {
                       dormantTailSlot.release();
                       errCb(err);

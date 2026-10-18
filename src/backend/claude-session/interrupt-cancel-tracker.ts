@@ -26,7 +26,9 @@
  * connection's memory: after the live moment, the transcript decides.
  */
 
-const INTERRUPT_MARKER_PREFIX = "[Request interrupted by user";
+import { isInterruptMarker } from "./session-file-parser.js";
+
+export { isInterruptMarker };
 
 export type PromptState = "open" | "cancelled_live" | "cancelled_confirmed";
 
@@ -59,8 +61,10 @@ export type InterruptVerdict =
   | { verdict: "cancelled"; prompt: TrackedPrompt }
   | {
       verdict: "none";
-      reason: "no_prompt" | "agent_output" | "already_cancelled";
+      reason: "no_prompt" | "agent_output" | "already_cancelled" | "prompt_changed" | "throttled";
     };
+
+const CANCELLED_LIVE_CAP = 1000;
 
 function messageContent(obj: Record<string, unknown>): unknown {
   const msg = obj.message;
@@ -83,23 +87,24 @@ function textOf(content: unknown): string {
     .join("\n");
 }
 
-/** The harness's interrupt marker line (plain or "for tool use"). */
-export function isInterruptMarker(obj: Record<string, unknown>): boolean {
-  if (obj.type !== "user") return false;
-  return textOf(messageContent(obj)).trimStart().startsWith(INTERRUPT_MARKER_PREFIX);
-}
+// Local slash-command output and the compact summary are written as user
+// entries, but they are not prompts the harness could rewind.
+const LOCAL_COMMAND_OUTPUT_RE = /^\s*<local-command-(stdout|stderr|caveat)>/;
 
 /**
  * A user entry that starts a new prompt: not a tool result, not meta, not the
- * interrupt marker. Includes harness-injected prompts (task-notification
- * wrappers, slash commands) — they take part in the sibling shape too even
- * though the view never shows them.
+ * interrupt marker, not local-command output or a compact summary. Includes
+ * harness-injected prompts (task-notification wrappers, slash commands) —
+ * they take part in the sibling shape too even though the view never shows
+ * them.
  */
 export function isPromptStart(obj: Record<string, unknown>): boolean {
   if (obj.type !== "user") return false;
   if (obj.isMeta === true) return false;
   if (obj.isSidechain === true) return false;
+  if (obj.isCompactSummary === true) return false;
   const content = messageContent(obj);
+  if (LOCAL_COMMAND_OUTPUT_RE.test(textOf(content))) return false;
   if (Array.isArray(content)) {
     if (
       content.some(
@@ -113,6 +118,15 @@ export function isPromptStart(obj: Record<string, unknown>): boolean {
 }
 
 export class InterruptCancelTracker {
+  /**
+   * Prompt uuids this server process has cancelled live, shared by every
+   * tracker of the pane (in memory only — never persisted, never drives what
+   * the view shows). Lets a fresh tracker (reconnect, tail restart, a view
+   * opened after the cancel) know a replayed prompt was already cancelled, so
+   * a later press can't cancel it again and a revive is still noticed.
+   */
+  constructor(private readonly cancelledLive: Set<string> = new Set()) {}
+
   private latest: TrackedPrompt | null = null;
   /** uuids descending from `latest` (its attachments, replies, markers). */
   private subtree = new Set<string>();
@@ -137,7 +151,10 @@ export class InterruptCancelTracker {
         const sibling =
           parentUuid !== null && parentUuid === prev.parentUuid && !prev.agentOutput && !prev.stopped;
         if (sibling) {
-          if (prev.state === "open") changes.hide.push(prev.uuid);
+          // Re-sending a hide the view already applied is harmless (it is a
+          // set); a fresh tracker that only knew it from cancelledLive must
+          // still tell its view.
+          if (prev.state !== "cancelled_confirmed") changes.hide.push(prev.uuid);
           prev.state = "cancelled_confirmed";
         } else if (prev.state === "cancelled_live" && descendsFromLatest) {
           // Restart revived the cancelled prompt: the next prompt hangs off it.
@@ -151,7 +168,7 @@ export class InterruptCancelTracker {
         visibleText,
         agentOutput: false,
         stopped: false,
-        state: "open",
+        state: this.cancelledLive.has(uuid) ? "cancelled_live" : "open",
       };
       this.subtree = new Set([uuid]);
       return changes;
@@ -192,6 +209,9 @@ export class InterruptCancelTracker {
     if (this.markerSince(snap)) return { verdict: "stopped" };
     const p = this.latest;
     if (!p) return { verdict: "none", reason: "no_prompt" };
+    // A new prompt landed during the wait (the user's next send, a relay
+    // wake): the press was not about it, and it must not be cancelled.
+    if (p.uuid !== snap.latestUuid) return { verdict: "none", reason: "prompt_changed" };
     if (p.state !== "open") return { verdict: "none", reason: "already_cancelled" };
     if (p.agentOutput || p.stopped) return { verdict: "none", reason: "agent_output" };
     return { verdict: "cancelled", prompt: p };
@@ -199,6 +219,13 @@ export class InterruptCancelTracker {
 
   /** Record a live cancel verdict (this connection's or a peer's). */
   markCancelledLive(uuid: string): boolean {
+    this.cancelledLive.add(uuid);
+    // Bounded: only recent cancels matter (a revive or re-press follows soon).
+    while (this.cancelledLive.size > CANCELLED_LIVE_CAP) {
+      const oldest = this.cancelledLive.values().next();
+      if (oldest.done) break;
+      this.cancelledLive.delete(oldest.value);
+    }
     if (!this.latest || this.latest.uuid !== uuid || this.latest.state !== "open") return false;
     this.latest.state = "cancelled_live";
     return true;

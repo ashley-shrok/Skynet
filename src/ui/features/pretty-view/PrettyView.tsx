@@ -89,11 +89,7 @@ import { HarnessTasksPanel } from "./HarnessTasksPanel";
 import { BackgroundedAgentsPanel } from "./BackgroundedAgentsPanel";
 import { BackgroundedShellsPanel } from "./BackgroundedShellsPanel";
 import { usePrettyViewUploads } from "./use-pretty-view-uploads";
-import {
-  buildCancelledSendRestore,
-  fetchRestoreFiles,
-  type RestoreFile,
-} from "./cancelled-send-restore";
+import { buildCancelledSendRestore, fetchRestoreFiles } from "./cancelled-send-restore";
 import {
   sessionMatchKey,
   useSessionIdentity,
@@ -809,8 +805,17 @@ export function PrettyView({
   // shape-interrupt-button: a cancelled send's words (and attachments) to hand
   // back to ComposeBox — set only on the view that pressed interrupt.
   const [restoreRequest, setRestoreRequest] = useState<
-    { id: string; text: string; files: RestoreFile[] } | null
+    { id: string; text: string; files: File[] } | null
   >(null);
+  // Cleared with the message list (pane switch, session rotation, wire boot):
+  // the fresh replay decides again what is hidden, and a restore never
+  // carries over into another conversation.
+  const resetInterruptViewState = useCallback(() => {
+    setHiddenEventIds((prev) => (prev.size === 0 ? prev : new Set()));
+    setRestoreRequest(null);
+  }, []);
+  const hostNameRef = useRef(hostName);
+  hostNameRef.current = hostName;
   // relay-mcp send outcomes by toolUseId — not bubbles of their own; each one
   // marks its relay_outbound card as failed, or names the room it went to.
   const [relayResults, setRelayResults] = useState<Map<string, RelaySendResultEvent>>(() => new Map());
@@ -895,6 +900,13 @@ export function PrettyView({
     source.kind === "relay" ? chatSurfaceAdapter.messages : harnessVisibleMessages;
   // shape-interrupt-button: the harness's interrupted line is the latest thing
   // in the conversation → the turn is over, whatever the working signal says.
+  const interruptedTailId = (() => {
+    for (let i = effectiveMessages.length - 1; i >= 0; i--) {
+      const m = effectiveMessages[i] as { type?: string; interrupted?: true; eventId?: string };
+      if (m.type === "message" || m.type === "image") return m.interrupted === true ? (m.eventId ?? null) : null;
+    }
+    return null;
+  })();
   const interruptedTail = (() => {
     for (let i = effectiveMessages.length - 1; i >= 0; i--) {
       const m = effectiveMessages[i] as { type?: string; interrupted?: true };
@@ -2072,6 +2084,17 @@ export function PrettyView({
   // single colon, not the double-colon paneKey used for auto-scroll.
   const sessionWorkingKey = `${hostId}:${tmuxSession ?? ""}`;
   const isWorking = useSessionIsWorking(sessionWorkingKey);
+  // shape-interrupt-button: while "Interrupted" is the latest message the work
+  // indicator stays off — until the working signal turns on again AFTER it
+  // (a new turn started, e.g. from a prompt the view never shows).
+  const [interruptWipReleasedFor, setInterruptWipReleasedFor] = useState<string | null>(null);
+  const prevWorkingForInterruptRef = useRef<boolean>(isWorking);
+  useEffect(() => {
+    const was = prevWorkingForInterruptRef.current;
+    prevWorkingForInterruptRef.current = isWorking;
+    if (!was && isWorking && interruptedTailId !== null) setInterruptWipReleasedFor(interruptedTailId);
+  }, [isWorking, interruptedTailId]);
+  const interruptWipReleased = interruptedTailId !== null && interruptWipReleasedFor === interruptedTailId;
   // Optimistic WIP handoff on the false→true edge only (see the
   // optimisticWip declaration for why a level check is wrong). Armed while
   // already working: the flag simply rides along until the next edge,
@@ -2370,22 +2393,20 @@ export function PrettyView({
   });
 
   // shape-interrupt-button: ComposeBox put a cancelled send's words in
-  // `target`; put its attachments back on the same box by fetching each file
-  // from the agent's machine and staging it like a fresh attachment.
+  // `target`; stage its attachments (already fetched back from the agent's
+  // machine) on the same box, then retire the request so a remounted
+  // ComposeBox can never apply it again.
   const handleRestoreApplied = useCallback(
     (id: string, target: string) => {
       const req = restoreRequest;
-      if (!req || req.id !== id || req.files.length === 0) return;
-      if (!hostName) {
-        console.warn(`[interrupt-restore] files-skipped id=${id} reason=no_host_name count=${req.files.length}`);
-        return;
+      if (!req || req.id !== id) return;
+      if (req.files.length > 0) {
+        uploads.stageAttachments(target, req.files);
+        console.info(`[interrupt-restore] files-staged id=${id} target=${target} count=${req.files.length}`);
       }
-      void fetchRestoreFiles(hostName, req.files).then(({ files, failed }) => {
-        console.info(`[interrupt-restore] files id=${id} target=${target} restored=${files.length} failed=${failed.length}${failed.length ? ` names=${failed.join("|")}` : ""}`);
-        if (files.length > 0) uploads.stageAttachments(target, files);
-      });
+      setRestoreRequest(null);
     },
-    [restoreRequest, hostName, uploads],
+    [restoreRequest, uploads],
   );
 
   // Phase 32: paneKey moved upstream — see Change 5 site above handleComposeSend.
@@ -2781,6 +2802,7 @@ export function PrettyView({
     if (paneKey !== paneKeyRef.current) {
       // Fresh pane mount — full reset.
       setMessages([]);
+      resetInterruptViewState();
       setStatus("connecting");
       setInactiveReason(null);
       setErrorMessage(null);
@@ -3049,6 +3071,7 @@ export function PrettyView({
               `[session-frame] rotation-detected prev=${prevSessionFile} next=${parsed.sessionFile} hostId=${hostId} tmuxSession=${tmuxSession ?? 'null'}`,
             );
             setMessages([]);
+            resetInterruptViewState();
             resetLoadOlderState();
             setHarnessTasks([]);
             // Phase 90 Plan 00 Wave 0 (D-10 delivery mechanism) — contextPct
@@ -3529,7 +3552,21 @@ export function PrettyView({
               `[interrupt] result verdict=cancelled eventId=${parsed.eventId} restore=${restore ? "yes" : "no"} textLen=${restore?.text.length ?? 0} files=${restore?.files.length ?? 0} hostId=${hostId} tmuxSession=${tmuxSession ?? "null"}`,
             );
             if (restore && (restore.text.trim() !== "" || restore.files.length > 0)) {
-              setRestoreRequest({ id: parsed.eventId, text: restore.text, files: restore.files });
+              const eventId = parsed.eventId;
+              const host = hostNameRef.current;
+              if (restore.files.length === 0) {
+                setRestoreRequest({ id: eventId, text: restore.text, files: [] });
+              } else if (!host) {
+                console.warn(`[interrupt-restore] files-skipped id=${eventId} reason=no_host_name count=${restore.files.length}`);
+                setRestoreRequest({ id: eventId, text: restore.text, files: [] });
+              } else {
+                // Words and files go back together, so nothing can be sent
+                // before its attachments are back on the box.
+                void fetchRestoreFiles(host, restore.files).then(({ files, failed }) => {
+                  console.info(`[interrupt-restore] files id=${eventId} fetched=${files.length} failed=${failed.length}${failed.length ? ` names=${failed.join("|")}` : ""}`);
+                  setRestoreRequest({ id: eventId, text: restore.text, files });
+                });
+              }
             }
           } else {
             console.info(
@@ -3611,6 +3648,7 @@ export function PrettyView({
           // (T-30-01 mitigation — no filesystem paths in reason); the
           // session_changed frame remains authoritative for the reset.
           setMessages([]);
+          resetInterruptViewState();
           resetLoadOlderState({ sameSocket: true });
           setHarnessTasks([]);
           // Phase 90 Plan 00 Wave 0 (D-10 delivery mechanism) — contextPct
@@ -3670,6 +3708,7 @@ export function PrettyView({
           // deliberately preserve (dormantRef / draft).
           console.info(`[wire-boot] reset messages sessionId=${tmuxSession ?? 'null'} hostId=${hostId} paneKey=${paneKey}`);
           setMessages([]);
+          resetInterruptViewState();
           resetLoadOlderState();
           setErrorMessage(null);
           break;
@@ -4884,7 +4923,8 @@ export function PrettyView({
               pre-Phase-43 rendering (WipBubble → WaitingBubble → AsideBubble
               → jump-to-bottom pill; former overlay and bubble siblings
               were retired — Phase 56 Plan 03 and Phase 95 Part B). */}
-          {(isWorking || optimisticWip) && (!interruptedTail || pendingSends.length > 0) && <WipBubble />}
+          {(isWorking || optimisticWip) &&
+            (!interruptedTail || interruptWipReleased || pendingSends.some((p) => p.state === "sending")) && <WipBubble />}
           {/* Phase 34 Plan 06: WaitingBubble — harness permission/dialog waiting state.
               Mounts when the fleet-status channel reports status='waiting' for this
               session's (hostId, tmuxSession) key. Sibling of WipBubble in the

@@ -28,7 +28,6 @@
  * scope is narrower than what the library does.
  */
 
-import { isInterruptMarker } from "./interrupt-cancel-tracker.js";
 import { createHash } from "node:crypto";
 import { databaseLogger as sessionParserLogger } from "../utils/logger.js";
 
@@ -97,6 +96,27 @@ export function isWidgetSubmitEnvelope(content: string): boolean {
 // on the RAW turn (before pasted-content unwrapping): real teammate turns are
 // never paste-wrapped, while a user pasting one into compose is.
 const TEAMMATE_MESSAGE_PREFIX = "Another Claude session sent a message:\n<teammate-message";
+/**
+ * The harness's interrupt marker — a USER entry "[Request interrupted by
+ * user]" (or "... for tool use") written right after a turn is stopped.
+ */
+export function isInterruptMarker(obj: Record<string, unknown>): boolean {
+  if (obj.type !== "user") return false;
+  const msg = obj.message;
+  if (!msg || typeof msg !== "object") return false;
+  const content = (msg as Record<string, unknown>).content;
+  const text =
+    typeof content === "string"
+      ? content
+      : Array.isArray(content)
+        ? content
+            .filter((b) => !!b && typeof b === "object" && (b as Record<string, unknown>).type === "text")
+            .map((b) => String((b as Record<string, unknown>).text ?? ""))
+            .join("\n")
+        : "";
+  return text.trimStart().startsWith("[Request interrupted by user");
+}
+
 export function isTeammateMessage(content: string): boolean {
   return content.startsWith(TEAMMATE_MESSAGE_PREFIX);
 }

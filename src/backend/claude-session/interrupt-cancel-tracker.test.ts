@@ -179,12 +179,53 @@ describe("InterruptCancelTracker.decide", () => {
     expect(t.decide(t.snapshot())).toEqual({ verdict: "none", reason: "no_prompt" });
   });
 
-  it("a live cancel is confirmed silently by the next sibling prompt (no duplicate hide)", () => {
+  it("a live cancel confirmed by the next sibling re-sends the (idempotent) hide", () => {
     const t = new InterruptCancelTracker();
     t.observe(prompt("p1", "root"), "hello");
     t.markCancelledLive("p1");
-    const ch = t.observe(prompt("p2", "root"), "again");
-    expect(ch).toEqual({ hide: [], unhide: [] });
+    expect(t.observe(prompt("p2", "root"), "again")).toEqual({ hide: ["p1"], unhide: [] });
+    // …and only once
+    expect(t.observe(prompt("p3", "root"), "third").hide).toEqual(["p2"]);
+  });
+
+  it("none: a prompt that landed during the wait is never the one cancelled", () => {
+    const t = new InterruptCancelTracker();
+    t.observe(prompt("p1", "root"), "first");
+    const snap = t.snapshot();
+    t.observe(prompt("p2", "root"), "sent during the wait");
+    expect(t.decide(snap)).toEqual({ verdict: "none", reason: "prompt_changed" });
+  });
+
+  it("local-command output and the compact summary are not prompts: an idle press after /compact does nothing", () => {
+    // Real order (manual /compact, Claude Code 2.1.286): boundary, summary,
+    // caveat (meta), the command entry, then its stdout under the command.
+    const t = new InterruptCancelTracker();
+    t.observe({ type: "system", subtype: "compact_boundary", uuid: "b1", parentUuid: null }, null);
+    t.observe({ type: "user", uuid: "s1", parentUuid: "b1", isCompactSummary: true, message: { content: "This session is being continued…" } }, null);
+    t.observe({ type: "user", uuid: "cv", parentUuid: "s1", isMeta: true, message: { content: "<local-command-caveat>…</local-command-caveat>" } }, null);
+    t.observe(prompt("c1", "cv", "<command-name>/compact</command-name>"), null);
+    t.observe({ type: "user", uuid: "o1", parentUuid: "c1", message: { content: "<local-command-stdout>Compacted</local-command-stdout>" } }, null);
+    t.observe({ type: "attachment", uuid: "at", parentUuid: "o1" }, null);
+    expect(isPromptStart({ type: "user", message: { content: "<local-command-stdout>x</local-command-stdout>" } })).toBe(false);
+    expect(isPromptStart({ type: "user", isCompactSummary: true, message: { content: "x" } })).toBe(false);
+    const v = t.decide(t.snapshot());
+    expect(v.verdict).toBe("none");
+  });
+
+  it("shared cancel memory: a fresh tracker (reload, other view) never re-cancels and still notices a revive", () => {
+    const shared = new Set<string>();
+    const live = new InterruptCancelTracker(shared);
+    live.observe(prompt("p1", "root"), "hello");
+    live.observe({ type: "attachment", uuid: "at1", parentUuid: "p1" }, null);
+    live.markCancelledLive("p1");
+
+    const fresh = new InterruptCancelTracker(shared);
+    expect(fresh.observe(prompt("p1", "root"), "hello")).toEqual({ hide: [], unhide: [] }); // a reload in the gap shows it
+    fresh.observe({ type: "attachment", uuid: "at1", parentUuid: "p1" }, null);
+    expect(fresh.decide(fresh.snapshot())).toEqual({ verdict: "none", reason: "already_cancelled" });
+    // restart revives it: a synthetic reply hangs off the cancelled prompt
+    expect(fresh.observe({ type: "assistant", uuid: "x1", parentUuid: "at1", message: { content: [{ type: "text", text: "No response requested." }] } }, null))
+      .toEqual({ hide: [], unhide: ["p1"] });
   });
 
   it("a stopped prompt is never treated as cancelled by a later prompt", () => {

@@ -50,7 +50,7 @@ vi.mock("@/api/compose-drafts-api", () => ({
   flushComposeDraftKeepalive: vi.fn(),
 }));
 
-const useSessionIdentityMock = vi.fn(() => ({
+const useSessionIdentityMock = vi.fn((_name?: unknown) => ({
   identity: null as unknown,
   identityHue: null as number | null,
 }));
@@ -254,6 +254,39 @@ describe("PrettyView — interrupt button (shape-interrupt-button)", () => {
       ).toEqual(["older words"]),
     );
     expect((container.querySelector(PRIMARY) as HTMLTextAreaElement).value).toBe("new draft");
+  });
+
+  it("a restore is used once: switching conversations never carries the words over", async () => {
+    const onInterrupt = vi.fn();
+    const { container, rerender } = render(
+      <PrettyView hostId={1} tmuxSession="s1" isVisible={true} onSend={vi.fn(() => true)} onInterrupt={onInterrupt} />,
+    );
+    const ws = getCurrentWs();
+    flipToStreaming(ws);
+    await waitFor(() => expect(container.querySelector(PRIMARY)).not.toBeNull());
+    sendWsFrame(ws, { type: "interrupt_result", verdict: "cancelled", eventId: "u7", content: "only here" });
+    await waitFor(() => expect((container.querySelector(PRIMARY) as HTMLTextAreaElement).value).toBe("only here"));
+
+    rerender(<PrettyView hostId={1} tmuxSession="s2" isVisible={true} onSend={vi.fn(() => true)} onInterrupt={onInterrupt} />);
+    const ws2 = getCurrentWs();
+    flipToStreaming(ws2);
+    await waitFor(() => expect(container.querySelector(PRIMARY)).not.toBeNull());
+    expect((container.querySelector(PRIMARY) as HTMLTextAreaElement).value).not.toBe("only here");
+  });
+
+  it("hidden bubbles reset with the message list: a fresh conversation decides again from its own replay", async () => {
+    const onInterrupt = vi.fn();
+    const { container, rerender } = render(
+      <PrettyView hostId={1} tmuxSession="s1" isVisible={true} onSend={vi.fn(() => true)} onInterrupt={onInterrupt} />,
+    );
+    const ws = getCurrentWs();
+    flipToStreaming(ws);
+    sendWsFrame(ws, { type: "messages_hidden", eventIds: ["shared-id"], reason: "cancelled" });
+    rerender(<PrettyView hostId={1} tmuxSession="s2" isVisible={true} onSend={vi.fn(() => true)} onInterrupt={onInterrupt} />);
+    const ws2 = getCurrentWs();
+    flipToStreaming(ws2);
+    sendWsFrame(ws2, { type: "message", role: "user", content: "shown", eventId: "shared-id", ts: 1 });
+    await waitFor(() => expect(bubble(container, "shared-id")).not.toBeNull());
   });
 
   it("stop and none verdicts give nothing back", async () => {
