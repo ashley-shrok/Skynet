@@ -17,7 +17,7 @@ The interrupt button in pretty view does exactly one honest thing in each situat
 
 ## Shapes
 
-- **[declared] shape-interrupt-button** — all three cases end to end: unavailable while delivering; cancel with text returned; stop with Interrupted bubble and work indicator off; hiding cancelled messages after reload; interrupted line no longer counted as a delivery; decision-point logging; agents' app guide updated — in_progress
+- **[declared] shape-interrupt-button** — all three cases end to end: unavailable while delivering; cancel with text returned; stop with Interrupted bubble and work indicator off; hiding cancelled messages after reload; interrupted line no longer counted as a delivery; decision-point logging; agents' app guide updated — closed
 
 ## Other work
 

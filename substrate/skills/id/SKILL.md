@@ -1222,10 +1222,7 @@ crown, then gear.
   The same conversation open elsewhere drops a cancelled bubble too; only
   the device that pressed gets the words back.
   *Agent-side:* a cancelled message never reaches you. A stop arrives as
-  "[Request interrupted by user]" in your context. If your harness
-  restarts before the user sends anything else, a cancelled message can
-  come back into your context as an earlier unanswered message — if you
-  find one you never replied to after a resume, ask before acting on it.
+  "[Request interrupted by user]" in your context.
 
 - **Sound-wave button — hands-free voice mode** (agent conversations
   only). Sits in the row of small buttons above the compose box, left of

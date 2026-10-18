@@ -114,3 +114,52 @@ A message already treated as cancelled is never treated as cancelled again, so a
   - The interrupted line is written immediately on a stop, including when a long reply is mid-stream.
   - Two Escapes in quick succession on an idle harness open its Rewind menu.
 - Role rules apply: commit and test locally, and stop before push. Pushing and deploying each need their own greenlight.
+
+---
+
+## Close-Out
+
+**Closed:** 2026-10-18
+**Overall verdict:** closed-hit
+
+### Shape features (conformance)
+
+- **What this is** — present · All three situations are built: greyed out while delivering, cancel with the bubble removed and words given back, stop with an "Interrupted" reply; the harness's compose box is cleared on cancel; decisions come only from the transcript.
+- **Shape: one press, one decision, one verdict** — present · Escape, then a wait of up to 1.5s for the interrupted line, then stop / cancel / nothing-to-do; one Ctrl-C only on cancel; the verdict goes back to the pressing view.
+- **Shape: a message already cancelled is never cancelled again** — present · An already-cancelled prompt gives "nothing to do", so no second Ctrl-C.
+- **Shape: still being delivered** — present · Disabled while any send is still being delivered, no label or tooltip change; a dormant wake uses the existing widened delivery window.
+- **Shape: cancel as the user sees it** — present · Bubble unchanged until the verdict, then hidden; words into the empty compose box or a new queued box; attachments fetched back and re-staged on the same box.
+- **Shape: stop as the user sees it** — present · User bubble stays; both marker versions show as an agent-side "Interrupted" bubble read aloud in voice mode; work indicator held off while it is the latest message.
+- **Shape: after the live moment, the transcript decides** — present · Sibling dead ends hidden on replay; revive unhides; nothing stored; reload in the gap shows the bubble; the interrupted line never counts as delivery.
+- **Shape: several open views** — present · Hide sent to every open view; words come back only where pressed.
+- **Shape: diagnosability** — present · Press, verdict with reason and wait, clear, fan-out, transcript hide and revive, restore target and attachment results are logged.
+- **Shape: agents' guide updated** — present · Describes all three situations, the idle case and several views.
+- **Philosophy** — present · Transcript-only decisions; Escape for the stop; the only Ctrl-C is the single clear; no stored belief.
+- **Prior context commitments** — present · Each prior defect addressed; 2.5s press spacing kept.
+- **What would make it wrong: a press shuts the harness down, opens Rewind, or leaves text in its compose box** — present · One Escape per press, presses 2.5s apart, one Ctrl-C only after a cancel.
+- **What would make it wrong: the view hides a message the agent has or shows one it never got once settled** — present · Hidden only on the transcript's dead end or a live cancel; unhidden on revive.
+- **What would make it wrong: cancelled words or attachments disappear without coming back** — present · Words come back; attachments fetched back and staged, failures logged by name.
+- **What would make it wrong: restored words overwrite what the user is typing** — present · Primary box only when empty of text and attachments; otherwise a new queued box.
+- **What would make it wrong: any decision depends on the harness's screen** — present · Only transcript lines are read.
+- **What would make it wrong: "Interrupted" looks like the user's words, or the indicator keeps running after a stop** — present · Agent-side bubble; indicator held off and the finished-working status set.
+- **What would make it wrong: a misfire can't be explained from the logs** — present · Every decision point logged with prompt id, verdict, reason and wait.
+- **Scope edges: In** — present · Every in-scope item present.
+- **Scope edges: Out** — present · Terminal view interrupt untouched; queued follow-ups not cancelled; relay rooms unaffected.
+- **Scope edges: Deferred** — present · Revive gap not closed; the view follows the transcript.
+- **Scope edges: Tempting but no** — present · No stored note, no transcript edits, no screen reading, no dynamic labels, no in-between look.
+- **Handoff: re-run the proving kit against the real implementation** — cannot-verify · Not re-run; the kit drives a harness directly while the logic lives in the server, so a real re-run needs the deployed build.
+
+### Additions (in the result, not in the shape)
+
+- On a cancel as well as a stop, the harness's own "finished working" status is set, so the work indicator goes off everywhere it is shown (including the sidebar row) — endorsed-as-drift
+- The agents' guide told agents to ask before acting on an unanswered message found after a restart — removed (the user: the bubble coming back already shows the agent has it; the agent shouldn't have to make up for the harness bug)
+- Words given back from a cancelled voice message drop the hidden "sent by voice" tag — endorsed-as-drift
+
+### Follow-ups
+
+- Re-run the proving kit's scenarios against the deployed build — deferred (after deploy)
+- Close the revive-on-restart gap once anthropics/claude-code#103213 is fixed — deferred
+
+### Notes
+
+Harness-injected prompts the view never shows (slash commands, task notifications) can also be cancelled by a press in the rewind window; nothing visible is hidden and nothing is given back. The delivering-state greying uses the existing delivery window (about 220s on a dormant wake), after which the send counts as failed and the button comes back.
