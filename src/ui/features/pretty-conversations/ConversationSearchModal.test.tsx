@@ -253,7 +253,7 @@ describe("ConversationSearchModal: sidebar-parity look + passages", () => {
     expect(row.querySelector("[data-part='name']")).toHaveTextContent("Search modal polish");
     expect(row.querySelector("[data-part='identity']")).toHaveTextContent("Soprano");
     expect(row.querySelector("[data-part='role']")).toHaveTextContent("Skynet");
-    expect(row.querySelector("img[data-part='avatar-img']")).toHaveAttribute(
+    expect(row.querySelector("[data-part='avatar'] img")).toHaveAttribute(
       "src",
       "/identities/soprano/avatar?hostId=6",
     );
