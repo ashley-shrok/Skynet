@@ -61,6 +61,8 @@ The foundation already moved every modal onto the kit, so each remaining modal s
 - Unused sidebar-era row styles in the conversation-list stylesheet — clean up in shape-sidebar
 - Markdown files show their Formatted / Plain text switch on its own row under the file toolbar (file viewer, everywhere) — look at it in shape-file-modal
 - New-conversation roles dropdown (upstream's grouped multi-select, revived 2026-10-18 when the host step was dropped) is not on the kit yet — restyle in shape-creation-and-search-dialogs
+- Role description field (frontmatter `description:`, replaces the `## Role`-derived text) plumbed through backend + API by anthem-box-maintainer-6 (spawned 2026-10-18 at Ashley's ask); copper fetches its local commits from anthem's tree and rebases — in progress
+- Draft a one-line description for every existing role from its role file — after the roles-modals deploy (Ashley, 2026-10-18)
 - Shared-skill hiding for non-admins goes by name and lets skills show if the sync engine is down (logged) — revisit in shape-host-targeting alongside the sync machinery
 
 ## Lingerers (explicitly approved)
