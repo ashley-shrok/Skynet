@@ -831,7 +831,7 @@ it("Test 5b: deps.relayJsonHomeserverBase falls back to homeserverBase when host
 // ---------------------------------------------------------------------------
 
 it("Test 18: missing role field → roleless birth (role undefined, no extras)", async () => {
-  mockGetUsernameForUserId.mockResolvedValue("ashley");
+  mockGetUsernameForUserId.mockResolvedValue("alice");
   const body: Partial<typeof VALID_BODY> = { ...VALID_BODY };
   delete body.role;
 
@@ -844,7 +844,7 @@ it("Test 18: missing role field → roleless birth (role undefined, no extras)",
 });
 
 it("Test 18b: role null / blank → roleless birth", async () => {
-  mockGetUsernameForUserId.mockResolvedValue("ashley");
+  mockGetUsernameForUserId.mockResolvedValue("alice");
   for (const role of [null, "  "]) {
     mockBirthIdentity.mockClear();
     const result = await httpPost(port, "/identities/birth", { ...VALID_BODY, role, roles: [] });
@@ -1766,7 +1766,7 @@ describe("roleless birth visibility", () => {
 
   it("single-user host → creatorUsername still recorded, multi-user probe skipped", async () => {
     mockIsHostMultiUser.mockResolvedValue(false);
-    mockGetUsernameForUserId.mockResolvedValue("ashley");
+    mockGetUsernameForUserId.mockResolvedValue("alice");
 
     const result = await httpPost(port, "/identities/birth", rolelessBody());
 
@@ -1775,7 +1775,7 @@ describe("roleless birth visibility", () => {
     expect(mockIsHostMultiUser).not.toHaveBeenCalled();
     const o = mockBirthIdentity.mock.calls[0][0] as Record<string, unknown>;
     expect(o.role).toBeUndefined();
-    expect(o.creatorUsername).toBe("ashley");
+    expect(o.creatorUsername).toBe("alice");
     const infoCall = mockSshLoggerInfo.mock.calls.find(
       (call: unknown[]) =>
         (call[1] as Record<string, unknown> | undefined)?.operation ===

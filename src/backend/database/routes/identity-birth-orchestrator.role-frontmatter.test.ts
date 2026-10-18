@@ -404,10 +404,10 @@ describe("buildIdentityFileBody — roleless", () => {
 
   it("no role + creatorUsername → `users: [creator]`", () => {
     const fm = extractFrontmatter(
-      buildIdentityFileBody(makeOpts({ role: undefined, creatorUsername: "ashley" }), "Duet", ""),
+      buildIdentityFileBody(makeOpts({ role: undefined, creatorUsername: "alice" }), "Duet", ""),
     );
     expect(fm.roles).toEqual([]);
-    expect(fm.users).toEqual(["ashley"]);
+    expect(fm.users).toEqual(["alice"]);
   });
 });
 

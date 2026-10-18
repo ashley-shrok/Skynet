@@ -694,11 +694,13 @@ describe("NewSessionDialog roles: one-machine \"No roles\" default tracks the ma
   });
 
   it("one machine whose roles fail to load still shows its preselected \"No roles\" entry", async () => {
-    vi.spyOn(console, "warn").mockImplementation(() => {});
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
     mockOpenBirthStream.mockReturnValueOnce(emptyStream());
     mockListRolesForHost.mockImplementation(rolesByHost({ 1: new Error("boom") }));
     renderDialog({ hostTree: oneHostTree });
-    await waitFor(() => expect(screen.queryByText("boom")).toBeTruthy());
+    await waitFor(() =>
+      expect(warn).toHaveBeenCalledWith(expect.stringMatching(/roles fetch failed hostId=1/)),
+    );
     expect(roleListRows()).toEqual([NO_ROLES_VALUE]);
     expect(pickedRoleValues()).toEqual([NO_ROLES_VALUE]);
     closeRoleDropdown();

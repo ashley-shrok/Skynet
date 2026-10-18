@@ -635,12 +635,12 @@ describe("spawn-request worker", () => {
       it("Test 17r2: roleless + no users → copies the requester's identity users: list", async () => {
         const { captured, birthIdentity } = captureOpts();
         const readIdentityFile = vi.fn().mockResolvedValue({
-          markdown: "---\nroles: [coordinator]\nusers: [ashley, zoey]\n---\n\n# aster\n",
+          markdown: "---\nroles: [coordinator]\nusers: [alice, zoey]\n---\n\n# aster\n",
         });
         const deps = buildTestDeps({ birthIdentity, readIdentityFile });
         await processBirth(makePendingBirth({ roles: [], requested_by: "aster-coordinator" }), deps);
         expect(readIdentityFile).toHaveBeenCalledWith(expect.anything(), "aster-coordinator");
-        expect(captured.opts?.users).toEqual(["ashley", "zoey"]);
+        expect(captured.opts?.users).toEqual(["alice", "zoey"]);
       });
 
       it("Test 17r3: roleless, neither the requester nor its roles have a users: list → left open", async () => {
@@ -656,19 +656,19 @@ describe("spawn-request worker", () => {
       it("Test 17r3b: roleless, requester gated only by its role → copies the role's users: list", async () => {
         const { captured, birthIdentity } = captureOpts();
         const readIdentityFile = vi.fn().mockResolvedValue({ markdown: "---\nroles: [coordinator]\n---\n" });
-        const readRoleFileByName = vi.fn().mockResolvedValue({ markdown: "---\nusers: [ashley]\n---\n" });
+        const readRoleFileByName = vi.fn().mockResolvedValue({ markdown: "---\nusers: [alice]\n---\n" });
         const deps = buildTestDeps({ birthIdentity, readIdentityFile, readRoleFileByName });
         await processBirth(makePendingBirth({ roles: [], requested_by: "aster-coordinator" }), deps);
-        expect(captured.opts?.users).toEqual(["ashley"]);
+        expect(captured.opts?.users).toEqual(["alice"]);
       });
 
       it("Test 17r3c: roleless, identity + several roles gated → intersection of every list", async () => {
         const { captured, birthIdentity } = captureOpts();
         const readIdentityFile = vi.fn().mockResolvedValue({
-          markdown: "---\nroles: [coordinator, scout]\nusers: [ashley, zoey, sam]\n---\n",
+          markdown: "---\nroles: [coordinator, scout]\nusers: [alice, zoey, sam]\n---\n",
         });
         const readRoleFileByName = vi.fn().mockImplementation(async (_c: unknown, role: string) => ({
-          markdown: role === "coordinator" ? "---\nusers: [ashley, zoey]\n---\n" : "---\nusers: [zoey, sam]\n---\n",
+          markdown: role === "coordinator" ? "---\nusers: [alice, zoey]\n---\n" : "---\nusers: [zoey, sam]\n---\n",
         }));
         const deps = buildTestDeps({ birthIdentity, readIdentityFile, readRoleFileByName });
         await processBirth(makePendingBirth({ roles: [], requested_by: "aster-coordinator" }), deps);
@@ -688,7 +688,7 @@ describe("spawn-request worker", () => {
 
       it("Test 17r3d: roleless, nobody can see the requester → refused, nothing born", async () => {
         const { birthIdentity } = captureOpts();
-        const readIdentityFile = vi.fn().mockResolvedValue({ markdown: "---\nroles: [coordinator]\nusers: [ashley]\n---\n" });
+        const readIdentityFile = vi.fn().mockResolvedValue({ markdown: "---\nroles: [coordinator]\nusers: [alice]\n---\n" });
         const readRoleFileByName = vi.fn().mockResolvedValue({ markdown: "---\nusers: [zoey]\n---\n" });
         const deps = buildTestDeps({ birthIdentity, readIdentityFile, readRoleFileByName });
         await processBirth(makePendingBirth({ roles: [], requested_by: "aster-coordinator" }), deps);

@@ -432,7 +432,7 @@ describe("roleless birth", () => {
     const deps = makeDeps();
 
     const birthPromise = birthIdentity(
-      makeOpts({ name: "duet", role: undefined, poolPicked: true, creatorUsername: "ashley" }),
+      makeOpts({ name: "duet", role: undefined, poolPicked: true, creatorUsername: "alice" }),
       emit,
       deps,
     );
@@ -445,7 +445,7 @@ describe("roleless birth", () => {
     expect(script).toContain("for ROLE in ; do");
     const decoded = decodeIdentityFile(script);
     expect(decoded).toMatch(/^---\nroles: \[\]\n/);
-    expect(decoded).toContain("users:\n  - ashley");
+    expect(decoded).toContain("users:\n  - alice");
     expect(deps.matrixCountUsersMatching).toHaveBeenCalledWith("@duet:synapse.example.com");
   });
 

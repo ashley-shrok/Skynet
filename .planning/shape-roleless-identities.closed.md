@@ -143,7 +143,7 @@ The upstream new-conversation picker change (no machine step) landed
 ## Close-Out
 
 **Closed:** 2026-10-18
-**Overall verdict:** closed-hit (reviewer returned closed-partial; the one partial facet was fixed and both flagged additions were adjudicated by Ashley — see below)
+**Overall verdict:** closed-hit (reviewer returned closed-partial; the one partial facet was fixed and both flagged additions were adjudicated by the user — see below)
 
 ### Shape features (conformance)
 
@@ -171,8 +171,8 @@ The upstream new-conversation picker change (no machine step) landed
 
 ### Additions (in the result, not in the shape)
 
-- The file-change watcher also changed for agents that hold roles: if every listed role is missing from the machine, it now keeps running (watching the agent's own file, project and instructions) instead of refusing to start or keeping stale role watches — endorsed-as-drift (Ashley: "Yes").
-- The agent instructions documented a spawn-request field for setting the newborn's visibility list directly — unsanctioned; removed. Ashley: the id skill should not talk about tagging users in frontmatter fields for any reason. All such mentions (including two older ones about roles and sub-projects) were removed.
+- The file-change watcher also changed for agents that hold roles: if every listed role is missing from the machine, it now keeps running (watching the agent's own file, project and instructions) instead of refusing to start or keeping stale role watches — endorsed-as-drift (user: "Yes").
+- The agent instructions documented a spawn-request field for setting the newborn's visibility list directly — unsanctioned; removed. The user: the id skill should not talk about tagging users in frontmatter fields for any reason. All such mentions (including two older ones about roles and sub-projects) were removed.
 - Creation accepts a request with only extra roles and promotes the first to the main role — endorsed-as-drift.
 - Picker blurb now reads "can adopt roles" — endorsed-as-drift.
 - The picker's "no roles on this host yet" hint was removed — endorsed-as-drift.
