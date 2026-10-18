@@ -48,7 +48,7 @@ export interface SpawnRequestBody {
 export interface RoleRequestBody {
   kind: "role";
   name: string;          // typed pretty name; the backend derives the slug
-  description: string;   // becomes the role file's `## Role` section
+  description: string;   // seeds the role file's `## Role` section and (one line) its frontmatter `description:`
   requested_at: string;  // ISO-Z timestamp for debug tracing
   requested_by?: string; // log-only tag naming who dropped the request
 }

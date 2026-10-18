@@ -305,6 +305,7 @@ export async function getIdentityExistsOnHost(
 // falls back to a title-cased slug in that case.
 export type RoleSummary = {
   name: string;
+  /** One-line `description:` from the role file's frontmatter; "" when unset. */
   description: string;
   displayName?: string;
   colorHue?: number;

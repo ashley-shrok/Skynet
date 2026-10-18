@@ -10,9 +10,9 @@
  *   2. Batched `cat` (===ROLE:<n>=== delimited) — fetch each role's `<name>.md`
  *      markdown in a single SSH round-trip.
  *
- * Each result's `description` is the trimmed content of the `## Role` section
- * (bounded by the next `##` heading or EOF). Missing `## Role` → empty string
- * (dropdown still renders the role by name).
+ * Each result's `description` is the role file's frontmatter `description:`
+ * (collapsed to one line). Missing key → empty string (dropdown still renders
+ * the role by name); the `## Role` section is never used as a fallback.
  *
  * Security:
  *   - authenticateJWT gates the route.
@@ -53,6 +53,7 @@ import { extractCosmeticsFromFrontmatter } from "../../claude-session/identity-a
 // `src/backend/utils/role-name-pattern.ts`. Was previously cloned locally here
 // and in roles.ts. Import from shared location to prevent regex-divergence.
 import { ROLE_NAME_PATTERN } from "../../utils/role-name-pattern.js";
+import { readRoleDescriptionFromMarkdown } from "../../utils/role-description.js";
 // Phase 129 Plan 129-03: per-user visibility gate on GET /roles?hostId=<n>
 // (role-picker gate). This is D-7 deep-gate seam #3 — the "+ New Session"
 // flow's role dropdown MUST filter out roles the caller can't see (shape
@@ -74,24 +75,6 @@ const SSH_CONNECT_TIMEOUT_MS = 5000;
 
 /** SSH exec race timeout — bounded so a hung remote can't stall the route. */
 const SSH_EXEC_TIMEOUT_MS = 5000;
-
-/**
- * Extract the trimmed content of the `## Role` section from a markdown body.
- * Returns "" (empty string) when the section is absent — callers still render
- * the role by name (Test 6 pins this: NEVER null; downstream dropdown renders).
- */
-function extractRoleDescription(markdown: string): string {
-  // Match `## Role` heading (anywhere in doc), capture everything up to the next
-  // `## ` heading or end-of-string. We use `[\s\S]*?` for cross-line capture and
-  // `(?=\n##\s|$(?![\s\S]))` as the terminator — `$` alone under `/m` would
-  // match every line end, cutting descriptions after the first line (Test 5
-  // regression).
-  const match = markdown.match(
-    /(?:^|\n)##\s+Role\s*\n([\s\S]*?)(?=\n##\s|$(?![\s\S]))/,
-  );
-  if (!match) return "";
-  return match[1].trim();
-}
 
 /**
  * Race an exec against a timeout so a hung remote can't stall the route.
@@ -254,7 +237,7 @@ router.get(
       //    First split yields ["", "<name>", "<body>", "<name>", "<body>", ...]
       //    because the delimiter is at the start of every block.
       //
-      // Phase 90 Plan 90-01 (D-08.1): in addition to the ## Role section
+      // Phase 90 Plan 90-01 (D-08.1): in addition to the frontmatter
       // description, also parse cosmetic YAML frontmatter (title, displayName,
       // colorHue, voice, avatar) via the shared extractCosmeticsFromFrontmatter
       // helper. Anything the extractor drops (malformed YAML, missing keys,
@@ -292,13 +275,13 @@ router.get(
         const name = blocks[i];
         const body = blocks[i + 1] ?? "";
         if (ROLE_NAME_PATTERN.test(name)) {
-          descByName.set(name, extractRoleDescription(body));
           // extractCosmeticsFromFrontmatter anchors on `^---` at the very start
           // of the string — strip the leading newline the delimiter split leaves
           // behind so a frontmatter block sitting immediately after the delimiter
           // still matches. `replace` with a start-anchored regex is cheap and
           // preserves body content otherwise.
           const trimmedBody = body.replace(/^\s*\r?\n/, "");
+          descByName.set(name, readRoleDescriptionFromMarkdown(trimmedBody));
           const raw = extractCosmeticsFromFrontmatter(trimmedBody);
           // Phase 129 Plan 129-03: stash the raw extraction so the gate
           // filter below sees the `users?: string[]` field. cosByName gets

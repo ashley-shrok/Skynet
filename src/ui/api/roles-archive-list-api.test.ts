@@ -47,8 +47,8 @@ describe("Phase 143 Plan 143-05 Task 2 — listArchivedRoles", () => {
   //                 query param hostId=42 and returns the typed array.
   it("Test 1 (happy): listArchivedRoles(42) GETs /roles-archive?hostId=42 and returns entry array", async () => {
     const entries: ArchivedRoleListEntry[] = [
-      { name: "ops-oncall" },
-      { name: "infra-admin" },
+      { name: "ops-oncall", description: "Carries the pager." },
+      { name: "infra-admin", description: "" },
     ];
     vi.mocked(authApi.get).mockResolvedValueOnce({ data: entries });
 

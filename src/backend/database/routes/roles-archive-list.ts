@@ -6,12 +6,14 @@
  * DESIGN (D-07):
  *   Host-scoped — mirrors GET /roles?hostId=<n> (roles-list-for-host.ts)
  *   in the auth + resolveHostById + one-shot-SSH + reader-call shape.
- *   Calls listArchivedRolesOnHost (plan 143-02 primitive).
+ *   Calls listArchivedRoleSummariesOnHost (names from the plan 143-02
+ *   primitive, plus each archived role's frontmatter description).
  *
  * REQUEST: GET /?hostId=<n>
  *
  * RESPONSE:
- *   200 { name: string }[]   — array of ArchivedRoleListEntry (plan 143-05)
+ *   200 { name: string; description: string }[]   — ArchivedRoleListEntry;
+ *       description is the archived role file's frontmatter `description:`
  *
  * SECURITY (T-143-03-01 / T-143-03-02 / T-143-03-04):
  *   - authenticateJWT gates the route.
@@ -32,7 +34,7 @@ import { resolveHostById } from "../../ssh/host-resolver.js";
 import { connectOneShot } from "../../ssh/ssh-one-shot.js";
 import { getHostSemaphore } from "../../ssh/host-semaphore-registry.js";
 import { isLocalHostId } from "../../claude-session/identity-artifact-reader.js";
-import { listArchivedRolesOnHost } from "../../claude-session/list-archived-roles.js";
+import { listArchivedRoleSummariesOnHost } from "../../claude-session/list-archived-roles.js";
 
 const router = express.Router();
 const authManager = AuthManager.getInstance();
@@ -43,9 +45,9 @@ const SSH_CONNECT_TIMEOUT_MS = 5_000;
 
 /**
  * GET /roles-archive?hostId=<n>
- * Returns [{ name }] for every archived role on the target host.
+ * Returns [{ name, description }] for every archived role on the target host.
  * Mirrors roles-list-for-host.ts:119-220 byte-for-byte in the auth +
- * resolve + one-shot-SSH shape, substituting listArchivedRolesOnHost.
+ * resolve + one-shot-SSH shape, substituting listArchivedRoleSummariesOnHost.
  */
 router.get(
   "/",
@@ -72,8 +74,7 @@ router.get(
     // 3. LOCAL branch — no SSH needed.
     if (isLocalHostId(hostId)) {
       try {
-        const names = await listArchivedRolesOnHost(null);
-        return res.json(names.map((name) => ({ name })));
+        return res.json(await listArchivedRoleSummariesOnHost(null));
       } catch (err) {
         databaseLogger.error("roles-archive-list: LOCAL list failed", {
           operation: "roles_archive_list_local_failed",
@@ -103,10 +104,11 @@ router.get(
           return res.status(504).json({ error: "SSH connect failed" });
         }
 
-        const names = await listArchivedRolesOnHost(
-          conn as unknown as Parameters<typeof listArchivedRolesOnHost>[0],
+        return res.json(
+          await listArchivedRoleSummariesOnHost(
+            conn as unknown as Parameters<typeof listArchivedRoleSummariesOnHost>[0],
+          ),
         );
-        return res.json(names.map((name) => ({ name })));
       } catch (err) {
         databaseLogger.error("roles-archive-list: unexpected error", {
           operation: "roles_archive_list_error",

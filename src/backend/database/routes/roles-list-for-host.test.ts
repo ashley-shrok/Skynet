@@ -262,7 +262,7 @@ describe("GET /roles?hostId=<n>", () => {
     expect(connectOneShot).not.toHaveBeenCalled();
   });
 
-  it("Test 4: happy path — 3 roles with descriptions", async () => {
+  it("Test 4: happy path — descriptions come from frontmatter, never from ## Role", async () => {
     // First execCommand call = ls; subsequent = batched cat with delimiters
     (execCommand as Mock).mockImplementation(async (_conn: unknown, cmd: string) => {
       if (cmd.includes("ls ")) {
@@ -271,14 +271,21 @@ describe("GET /roles?hostId=<n>", () => {
       // Batched cat: emit ===ROLE:<n>=== delimited blocks
       return [
         "===ROLE:box-maintainer===",
+        "---",
+        "displayName: Box Maintainer",
+        "description: Maintains the box.",
+        "---",
         "# box-maintainer",
         "",
         "## Role",
-        "Maintains the box.",
+        "Long role-section text.",
         "",
         "## Notes",
         "irrelevant",
         "===ROLE:tina===",
+        "---",
+        "description: 'Fleet-wide coordinator: keeps everyone in step.'",
+        "---",
         "# tina",
         "",
         "## Role",
@@ -302,23 +309,28 @@ describe("GET /roles?hostId=<n>", () => {
     // Alphabetical order per action step
     expect(body.map((r) => r.name)).toEqual(["box-maintainer", "nelly", "tina"]);
     expect(body.find((r) => r.name === "box-maintainer")?.description).toBe("Maintains the box.");
-    expect(body.find((r) => r.name === "tina")?.description).toBe("Fleet-wide coordinator.");
-    expect(body.find((r) => r.name === "nelly")?.description).toBe("Skill maintenance.");
+    expect(body.find((r) => r.name === "tina")?.description).toBe(
+      "Fleet-wide coordinator: keeps everyone in step.",
+    );
+    // No frontmatter description → "" (the ## Role text is not a fallback).
+    expect(body.find((r) => r.name === "nelly")?.description).toBe("");
   });
 
-  it("Test 5: description extraction trims whitespace and stops at next ##", async () => {
+  it("Test 5: multi-line frontmatter description is collapsed to one trimmed line", async () => {
     (execCommand as Mock).mockImplementation(async (_conn: unknown, cmd: string) => {
       if (cmd.includes("ls ")) return "box-maintainer";
       return [
         "===ROLE:box-maintainer===",
+        "---",
+        "description: |",
+        "  Line with trailing spaces.   ",
+        "",
+        "  Second line of description.",
+        "colorHue: 10",
+        "---",
         "# box-maintainer",
         "",
         "## Role",
-        "",
-        "   Line with leading spaces.   ",
-        "Second line of description.",
-        "",
-        "## Handoff",
         "should not appear",
       ].join("\n");
     });
@@ -330,13 +342,7 @@ describe("GET /roles?hostId=<n>", () => {
     expect(res.status).toBe(200);
     const body = res.body as { name: string; description: string }[];
     expect(body).toHaveLength(1);
-    // Description trimmed, includes both content lines, excludes ## Handoff
-    expect(body[0].description).toContain("Line with leading spaces.");
-    expect(body[0].description).toContain("Second line of description.");
-    expect(body[0].description).not.toContain("Handoff");
-    expect(body[0].description).not.toContain("should not appear");
-    // No trailing/leading whitespace
-    expect(body[0].description).toBe(body[0].description.trim());
+    expect(body[0].description).toBe("Line with trailing spaces. Second line of description.");
   });
 
   it("Test 6: missing ## Role section → description empty string (not null)", async () => {
@@ -416,6 +422,7 @@ describe("GET /roles?hostId=<n>", () => {
         "===ROLE:box-maintainer===",
         "---",
         "displayName: Box Maintainer",
+        "description: Maintains the box.",
         "colorHue: 320",
         "voice: alloy",
         "avatar: box-maintainer.webp",
@@ -472,7 +479,7 @@ describe("GET /roles?hostId=<n>", () => {
     expect(body).toHaveLength(1);
     expect(body[0]).toEqual({
       name: "plain-role",
-      description: "A role without frontmatter.",
+      description: "",
     });
     // Cosmetic keys must be entirely absent — not null, not undefined-explicit.
     expect("title" in body[0]).toBe(false);
@@ -506,7 +513,7 @@ describe("GET /roles?hostId=<n>", () => {
     expect(body).toHaveLength(1);
     expect(body[0]).toEqual({
       name: "hued-only",
-      description: "Hue-only role.",
+      description: "",
       colorHue: 190,
     });
     expect("title" in body[0]).toBe(false);
@@ -541,7 +548,7 @@ describe("GET /roles?hostId=<n>", () => {
     expect(body).toHaveLength(1);
     expect(body[0]).toEqual({
       name: "broken",
-      description: "Broken frontmatter.",
+      description: "",
     });
     // Malformed → extractor returns {} → no cosmetic keys.
     expect("title" in body[0]).toBe(false);
@@ -576,7 +583,7 @@ describe("GET /roles?hostId=<n>", () => {
     // the role's first-class pretty name.
     expect(body[0]).toEqual({
       name: "out-of-range",
-      description: "Range gate.",
+      description: "",
       displayName: "OK Name",
     });
     expect("colorHue" in body[0]).toBe(false);
@@ -590,6 +597,7 @@ describe("GET /roles?hostId=<n>", () => {
         "===ROLE:cosmetic-role===",
         "---",
         "title: Cosmetic",
+        "description: Has cosmetics.",
         "colorHue: 42",
         "---",
         "## Role",
@@ -614,7 +622,7 @@ describe("GET /roles?hostId=<n>", () => {
     expect(cosmetic.name).toBe("cosmetic-role");
     expect(cosmetic.description).toBe("Has cosmetics.");
     expect(plain.name).toBe("plain-role");
-    expect(plain.description).toBe("No cosmetics.");
+    expect(plain.description).toBe("");
   });
 
   it("Test G (P90-01): SSH cat failure fallback returns entries WITHOUT cosmetic scaffolding", async () => {

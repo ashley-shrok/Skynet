@@ -806,8 +806,8 @@ describe("RolesListModal — Phase 90 Plan 90-05", () => {
   // ─── Phase 143 — archived-roles collapsed section (D-10, D-18, D-19) ───────
   describe("Phase 143 — archived-roles collapsed section (D-10, D-18, D-19)", () => {
     const ARCHIVED_ROLE_FIXTURE: ArchivedRoleListEntry[] = [
-      { name: "old-maintainer" },
-      { name: "retired-researcher" },
+      { name: "old-maintainer", description: "" },
+      { name: "retired-researcher", description: "" },
     ];
 
     beforeEach(() => {

@@ -8,8 +8,8 @@
  *   1. Collision-safe atomic mkdir with pretty-names auto-suffix
  *      (base, base-2, base-3, ...). An archived role holding the name also
  *      counts as a collision.
- *   2. Stub role file: frontmatter (displayName + cosmetics + avatar +
- *      users) and `# <slug> / ## Role / <description> / <seed comment>`.
+ *   2. Stub role file: frontmatter (displayName + description + cosmetics +
+ *      avatar + users) and `# <slug> / ## Role / <description> / <seed comment>`.
  *   3. Optional avatar sibling `<slug>.<ext>`.
  *
  * `conn === null` is the LOCAL branch (Skynet's own host, via the container
@@ -30,6 +30,7 @@ import {
   getLocalRolesRoot,
 } from "../../claude-session/identity-artifact-reader.js";
 import { sshLogger } from "../../utils/logger.js";
+import { normalizeRoleDescription } from "../../utils/role-description.js";
 
 type Conn = Awaited<ReturnType<typeof connectOneShot>>;
 
@@ -301,7 +302,8 @@ export async function createRoleOnHost(
     }
   }
 
-  // 3. Frontmatter: displayName first, then cosmetics, avatar, users.
+  // 3. Frontmatter: displayName first, then description, cosmetics, avatar,
+  //    users. The description also seeds the `## Role` section.
   const cosmetics: Record<string, unknown> = { displayName: input.displayName };
   if (input.colorHue !== undefined) cosmetics.colorHue = input.colorHue;
   if (input.voice !== undefined) cosmetics.voice = input.voice;
@@ -310,7 +312,14 @@ export async function createRoleOnHost(
   if (input.users && input.users.length > 0) cosmetics.users = input.users;
 
   const targetPath = `${roleDir}/${name}.md`;
-  const stubMarkdown = buildRoleStubMarkdown(name, input.description, cosmetics);
+  const frontmatterDescription = normalizeRoleDescription(input.description);
+  const { displayName, ...restCosmetics } = cosmetics;
+  const frontmatter: Record<string, unknown> = {
+    displayName,
+    ...(frontmatterDescription !== "" ? { description: frontmatterDescription } : {}),
+    ...restCosmetics,
+  };
+  const stubMarkdown = buildRoleStubMarkdown(name, input.description, frontmatter);
   try {
     if (conn === null) {
       await fs.writeFile(`${targetPath}.tmp`, stubMarkdown, { mode: 0o644 });

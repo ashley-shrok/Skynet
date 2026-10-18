@@ -6,8 +6,8 @@
  *
  * Test coverage (4 tests):
  *   1: Unauthenticated → 401.
- *   2: Happy host-scoped — listArchivedRolesOnHost returns ["box-maintainer","researcher"] →
- *      200 with [{name:"box-maintainer"},{name:"researcher"}].
+ *   2: Happy host-scoped — listArchivedRoleSummariesOnHost returns two summaries →
+ *      200 with [{name, description}] entries passed through.
  *   3: Missing hostId → 400 with error matching /hostId is required|hostId must be a positive integer/.
  *   4: Cross-user hostId (resolveHostById → null) → 404.
  */
@@ -94,7 +94,7 @@ vi.mock("../../claude-session/identity-artifact-reader.js", () => ({
 // ---------------------------------------------------------------------------
 
 vi.mock("../../claude-session/list-archived-roles.js", () => ({
-  listArchivedRolesOnHost: vi.fn(),
+  listArchivedRoleSummariesOnHost: vi.fn(),
 }));
 
 // ---------------------------------------------------------------------------
@@ -103,7 +103,7 @@ vi.mock("../../claude-session/list-archived-roles.js", () => ({
 
 import { connectOneShot } from "../../ssh/ssh-one-shot.js";
 import { resolveHostById } from "../../ssh/host-resolver.js";
-import { listArchivedRolesOnHost } from "../../claude-session/list-archived-roles.js";
+import { listArchivedRoleSummariesOnHost } from "../../claude-session/list-archived-roles.js";
 
 // ---------------------------------------------------------------------------
 // HTTP request helper
@@ -178,7 +178,7 @@ beforeEach(() => {
   });
 
   (connectOneShot as Mock).mockResolvedValue(stubConn);
-  (listArchivedRolesOnHost as Mock).mockResolvedValue([]);
+  (listArchivedRoleSummariesOnHost as Mock).mockResolvedValue([]);
 
   const app = express();
   app.use("/roles-archive", router);
@@ -205,10 +205,10 @@ describe("GET /roles-archive?hostId=<n>", () => {
     expect(res.status).toBe(401);
   });
 
-  it("Test 2: happy host-scoped — returns [{name}] entries", async () => {
-    (listArchivedRolesOnHost as Mock).mockResolvedValue([
-      "box-maintainer",
-      "researcher",
+  it("Test 2: happy host-scoped — returns [{name, description}] entries", async () => {
+    (listArchivedRoleSummariesOnHost as Mock).mockResolvedValue([
+      { name: "box-maintainer", description: "Keeps the box running." },
+      { name: "researcher", description: "" },
     ]);
 
     const res = await httpRequest(server, {
@@ -217,8 +217,11 @@ describe("GET /roles-archive?hostId=<n>", () => {
     });
 
     expect(res.status).toBe(200);
-    const body = res.body as Array<{ name: string }>;
-    expect(body).toEqual([{ name: "box-maintainer" }, { name: "researcher" }]);
+    const body = res.body as Array<{ name: string; description: string }>;
+    expect(body).toEqual([
+      { name: "box-maintainer", description: "Keeps the box running." },
+      { name: "researcher", description: "" },
+    ]);
   });
 
   it("Test 3: missing hostId → 400 with message matching /hostId/", async () => {

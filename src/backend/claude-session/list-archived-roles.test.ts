@@ -27,7 +27,11 @@ vi.mock("../ssh/tmux-helper.js", () => ({
 }));
 
 // Import AFTER vi.mock so the mock binds to the module graph.
-import { listArchivedRolesOnHost } from "./list-archived-roles.js";
+import {
+  listArchivedRolesOnHost,
+  listArchivedRoleSummariesOnHost,
+} from "./list-archived-roles.js";
+import { execCommand } from "../ssh/tmux-helper.js";
 
 // ──────────────────────────────────────────────────────────────────────
 // Per-test scratch dir for LOCAL tests
@@ -109,5 +113,65 @@ describe("listArchivedRolesOnHost — LOCAL filters non-directory entries", () =
     const result = await listArchivedRolesOnHost(null);
 
     expect(result).toEqual(["admin"]);
+  });
+});
+
+// ──────────────────────────────────────────────────────────────────────
+// listArchivedRoleSummariesOnHost — names + frontmatter descriptions
+// ──────────────────────────────────────────────────────────────────────
+
+describe("listArchivedRoleSummariesOnHost", () => {
+  it("LOCAL: reads each archived role's frontmatter description; missing file or key → ''", async () => {
+    await fs.mkdir(path.join(scratchRoot, "box-maintainer"), { recursive: true });
+    await fs.writeFile(
+      path.join(scratchRoot, "box-maintainer", "box-maintainer.md"),
+      "---\ndescription: Keeps the box.\n---\n## Role\n\nLong text.\n",
+    );
+    await fs.mkdir(path.join(scratchRoot, "researcher"), { recursive: true });
+    await fs.writeFile(
+      path.join(scratchRoot, "researcher", "researcher.md"),
+      "# researcher\n\n## Role\n\nDigs.\n",
+    );
+    await fs.mkdir(path.join(scratchRoot, "empty"), { recursive: true });
+
+    expect(await listArchivedRoleSummariesOnHost(null)).toEqual([
+      { name: "box-maintainer", description: "Keeps the box." },
+      { name: "empty", description: "" },
+      { name: "researcher", description: "" },
+    ]);
+  });
+
+  it("REMOTE: parses one batched read of every archived role file", async () => {
+    const conn = {} as Parameters<typeof listArchivedRoleSummariesOnHost>[0];
+    vi.mocked(execCommand).mockImplementation(async (_c: unknown, cmd: string) => {
+      if (cmd.startsWith("find ")) return "researcher\nbox-maintainer\n";
+      expect(cmd).toContain('cat "$HOME/fleet/roles-archive/box-maintainer/box-maintainer.md"');
+      return [
+        "===ROLE:box-maintainer===",
+        "---",
+        "description: Keeps the box.",
+        "---",
+        "===ROLE:researcher===",
+        "## Role",
+        "Digs.",
+      ].join("\n");
+    });
+
+    expect(await listArchivedRoleSummariesOnHost(conn)).toEqual([
+      { name: "box-maintainer", description: "Keeps the box." },
+      { name: "researcher", description: "" },
+    ]);
+  });
+
+  it("REMOTE: a failed description read still returns every name with ''", async () => {
+    const conn = {} as Parameters<typeof listArchivedRoleSummariesOnHost>[0];
+    vi.mocked(execCommand).mockImplementation(async (_c: unknown, cmd: string) => {
+      if (cmd.startsWith("find ")) return "box-maintainer\n";
+      throw new Error("channel closed");
+    });
+
+    expect(await listArchivedRoleSummariesOnHost(conn)).toEqual([
+      { name: "box-maintainer", description: "" },
+    ]);
   });
 });

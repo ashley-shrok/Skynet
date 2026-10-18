@@ -58,11 +58,14 @@ describe("createRoleOnHost (local)", () => {
     const md = await fs.readFile(path.join(rolesDir, "garden-keeper", "garden-keeper.md"), "utf-8");
     expect(frontmatterOf(md)).toEqual({
       displayName: "Garden Keeper",
+      description: "Tends the garden.",
       colorHue: "0",
       voice: "Danielle",
       avatar: "garden-keeper.webp",
     });
     expect(md).toContain("# garden-keeper\n\n## Role\n\nTends the garden.\n\n");
+    // The create response's cosmetics echo stays cosmetics-only.
+    expect(result.ok && "description" in result.cosmetics).toBe(false);
     expect(md.trimEnd().endsWith(ROLE_STUB_SEED_COMMENT)).toBe(true);
     const avatar = await fs.readFile(path.join(rolesDir, "garden-keeper", "garden-keeper.webp"));
     expect(avatar.toString()).toBe("img");
@@ -70,6 +73,25 @@ describe("createRoleOnHost (local)", () => {
     expect(await fs.readdir(path.join(rolesDir, "garden-keeper"))).toEqual(
       ["garden-keeper.md", "garden-keeper.webp"],
     );
+  });
+
+  it("collapses a multi-line description to one line in frontmatter, keeps it verbatim in ## Role", async () => {
+    const result = await createRoleOnHost(
+      null,
+      {
+        baseSlug: "scribe",
+        displayName: "Scribe",
+        description: "Writes things down.\n\nKeeps the minutes.",
+      },
+      LOG,
+    );
+    expect(result).toMatchObject({ ok: true, name: "scribe" });
+    const md = await fs.readFile(path.join(rolesDir, "scribe", "scribe.md"), "utf-8");
+    expect(frontmatterOf(md)).toEqual({
+      displayName: "Scribe",
+      description: "Writes things down. Keeps the minutes.",
+    });
+    expect(md).toContain("## Role\n\nWrites things down.\n\nKeeps the minutes.\n\n");
   });
 
   it("auto-suffixes past a live role and an archived one", async () => {

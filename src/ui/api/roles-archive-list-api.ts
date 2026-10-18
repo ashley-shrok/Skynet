@@ -7,11 +7,10 @@ import { authApi, handleApiError } from "@/main-axios";
 // archive-list endpoint landed in 143-03.
 //
 // Endpoint:  GET /roles-archive?hostId=<n>
-// Response:  ArchivedRoleListEntry[] — each entry carries the role name.
-//            Minimal metadata (name alone) suffices for placeholder-row
-//            rendering per D-05. The FALLBACK_HUE=190 hue-derivation pattern
-//            (RolesListModal.tsx:62) can derive color from the name at render
-//            time without the server emitting it.
+// Response:  ArchivedRoleListEntry[] — each entry carries the role name and
+//            its frontmatter description ("" when unset). The FALLBACK_HUE=190
+//            hue-derivation pattern (RolesListModal.tsx:62) can derive color
+//            from the name at render time without the server emitting it.
 //
 // Host-scoping: host-scoped (D-07 — matches roles modal's host-scoped design).
 //
@@ -19,6 +18,8 @@ import { authApi, handleApiError } from "@/main-axios";
 
 export interface ArchivedRoleListEntry {
   name: string;
+  /** One-line `description:` from the archived role file's frontmatter; "" when unset. */
+  description: string;
 }
 
 export async function listArchivedRoles(

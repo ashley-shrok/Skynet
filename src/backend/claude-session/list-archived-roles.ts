@@ -38,11 +38,14 @@
  */
 
 import { promises as fs } from "node:fs";
+import path from "node:path";
 import type { Client as SSHClientType } from "ssh2";
 
 import { getLocalArchivedRolesRoot } from "./per-role-archive-file.js";
 import { ROLE_NAME_PATTERN } from "../utils/role-name-pattern.js";
 import { execCommand } from "../ssh/tmux-helper.js";
+import { readRoleDescriptionFromMarkdown } from "../utils/role-description.js";
+import { sshLogger } from "../utils/logger.js";
 
 /**
  * Hard ceiling on the REMOTE find exec — matches the sibling
@@ -122,4 +125,76 @@ export async function listArchivedRolesOnHost(
     .map((line) => line.trim())
     .filter((name) => name.length > 0 && ROLE_NAME_PATTERN.test(name))
     .sort();
+}
+
+export interface ArchivedRoleSummary {
+  name: string;
+  /** Frontmatter `description:` of the archived role file; "" when absent. */
+  description: string;
+}
+
+/**
+ * listArchivedRolesOnHost plus each archived role's frontmatter description.
+ * Descriptions are best-effort: a role file that can't be read (or a failed
+ * batched read on a remote host) yields "" rather than dropping the role.
+ */
+export async function listArchivedRoleSummariesOnHost(
+  conn: SSHClientType | null,
+): Promise<ArchivedRoleSummary[]> {
+  const names = await listArchivedRolesOnHost(conn);
+  if (names.length === 0) return [];
+
+  const descByName = new Map<string, string>();
+  if (conn === null) {
+    const root = getLocalArchivedRolesRoot();
+    await Promise.all(
+      names.map(async (name) => {
+        try {
+          const md = await fs.readFile(path.join(root, name, `${name}.md`), "utf-8");
+          descByName.set(name, readRoleDescriptionFromMarkdown(md));
+        } catch {
+          /* unreadable → "" */
+        }
+      }),
+    );
+  } else {
+    // Names are ROLE_NAME_PATTERN-gated above, so interpolation is shell-safe.
+    // The trailing `echo ""` keeps the next marker at start-of-line when a
+    // file lacks a final newline (same as roles-list-for-host).
+    const cmd = names
+      .map(
+        (n) =>
+          `echo "===ROLE:${n}==="; cat "$HOME/fleet/roles-archive/${n}/${n}.md" 2>/dev/null; echo ""`,
+      )
+      .join(" ; ");
+    try {
+      const stdout = await Promise.race([
+        execCommand(conn, cmd),
+        new Promise<string>((_, reject) =>
+          setTimeout(
+            () =>
+              reject(
+                new Error(
+                  `listArchivedRoleSummariesOnHost: remote exec timeout after ${REMOTE_LIST_TIMEOUT_MS}ms`,
+                ),
+              ),
+            REMOTE_LIST_TIMEOUT_MS,
+          ),
+        ),
+      ]);
+      const blocks = stdout.split(/^===ROLE:([a-z0-9-]+)===\s*$/m);
+      for (let i = 1; i < blocks.length; i += 2) {
+        const name = blocks[i];
+        const body = (blocks[i + 1] ?? "").replace(/^\s*\r?\n/, "");
+        descByName.set(name, readRoleDescriptionFromMarkdown(body));
+      }
+    } catch (err) {
+      sshLogger.warn("listArchivedRoleSummariesOnHost: description read failed — returning names only", {
+        operation: "roles_archive_list_descriptions_failed",
+        roleCount: names.length,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+  }
+  return names.map((name) => ({ name, description: descByName.get(name) ?? "" }));
 }
