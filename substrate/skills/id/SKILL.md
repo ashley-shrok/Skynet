@@ -1373,7 +1373,8 @@ Archiving is a **sentinel drop**, same mechanism shape as `/id reset`. Unlike re
 `~/fleet/identities-archive/<name>/`.
 
 ⚠️ **USER-INITIATED ONLY — an agent NEVER runs `/id archive` on its own
-initiative, under any circumstances.** Same rule and same reasons
+initiative.** The one standing exception is a scheduled task's **Archive if
+nothing to report** (below). Same rule and same reasons
 as `/id reset`. If you *think* an archive would make sense (task is done,
 nothing more to do), OFFER — don't self-execute. The standard shape is
 the user handing you the trigger explicitly ("archive yourself when the
