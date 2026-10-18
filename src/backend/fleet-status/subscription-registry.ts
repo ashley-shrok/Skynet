@@ -167,6 +167,17 @@ export interface SubscriptionRegistry {
   publishSessionState(hostId: string, state: SessionState): void;
 
   /**
+   * Re-publish the cached SessionState for (hostId, tmuxSession) when the
+   * contextpct-store value differs from the contextPct last stamped on it.
+   * Without this, a contextPct change only reaches clients on the next frame
+   * published for some other reason (status flip etc.), so the meter freezes
+   * for the length of a busy turn — e.g. pinned at the pre-recycle value.
+   * No-op when no state is cached or the value is unchanged, so callers can
+   * invoke it on every context-pct tick.
+   */
+  republishContextPct(hostId: string, tmuxSession: string): void;
+
+  /**
    * Phase 117 Plan 117-03 (D-37): publish a project-list-changed frame
    * carrying the projects array FOR ONE HOST (scoped by hostId). Client
    * merges by dropping existing entries with matching hostId and splicing
@@ -941,6 +952,29 @@ export function createSubscriptionRegistry(
         contextPct: getContextPct(hostId, sessionState.tmuxSession ?? "") ?? null,
       };
       state.set(key, stampedState);
+      const frame = makeUpdateFrame(stampedState);
+      if (appFrameFilter !== undefined) {
+        void fanOutApp(subscribers, frame, appFrameFilter);
+      } else {
+        fanOut(subscribers, frame);
+      }
+    },
+
+    republishContextPct(hostId: string, tmuxSession: string): void {
+      const key = makeKey(hostId, tmuxSession);
+      const cached = state.get(key);
+      if (cached === undefined) return;
+      const pct = getContextPct(hostId, tmuxSession) ?? null;
+      if ((cached.contextPct ?? null) === pct) return;
+      const stampedState: SessionState = { ...cached, contextPct: pct };
+      state.set(key, stampedState);
+      systemLogger.info("Fleet-status: contextPct change republished", {
+        operation: "fleet_status_context_pct_republished",
+        fleetHostId: hostId,
+        tmuxSession,
+        previousPct: cached.contextPct ?? null,
+        pct,
+      });
       const frame = makeUpdateFrame(stampedState);
       if (appFrameFilter !== undefined) {
         void fanOutApp(subscribers, frame, appFrameFilter);

@@ -67,6 +67,7 @@ import { parseSweepJsonl } from "./pv-sweep-schema.js";
 // transition — nothing else consumes them after Task 2, but the safety
 // net stays until the transition is fully validated.
 import { setContextPct } from "../fleet-status/contextpct-store.js";
+import { getSubscriptionRegistry } from "../fleet-status/subscription-registry.js";
 import { execCommand } from "../ssh/tmux-helper.js";
 import {
   handleUploadStart,
@@ -3536,6 +3537,7 @@ export async function __applyDormantPollWithRediscoveryForTests(
               // truth. WS emission BELOW preserved for backwards compat.
               if (hostId !== undefined) {
                 setContextPct(hostId, escapedName, pct);
+                getSubscriptionRegistry()?.republishContextPct(String(hostId), escapedName);
               }
               wsSend(JSON.stringify({ type: "context_pct", pct, dormant: true }));
             } else {
@@ -6765,6 +6767,7 @@ wss.on("connection", async (ws: WebSocket, req) => {
           // for backwards compat. Phase 95 Part B: null pct also emits
           // (no guard) — frontend renders loading placeholder.
           setContextPct(activeHostId, activeTmuxSession, pct);
+          getSubscriptionRegistry()?.republishContextPct(String(activeHostId), activeTmuxSession);
           if (!stopped && ws.readyState === WebSocket.OPEN) {
             try {
               ws.send(JSON.stringify({ type: "context_pct", pct }));

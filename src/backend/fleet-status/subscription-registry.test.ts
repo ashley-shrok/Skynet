@@ -647,6 +647,49 @@ describe("subscription-registry", () => {
         }
       },
     );
+
+    it("Test 11: republishContextPct fans out an update carrying the new store value, with the rest of the cached state intact", () => {
+      const registry = createSubscriptionRegistry();
+      const received: FrontendOutboundFrameType[] = [];
+      registry.subscribe((f) => received.push(f));
+      received.length = 0;
+
+      setContextPct("host-42", "copper", 81);
+      const state = makeState("host-42", "copper", "session-a");
+      registry.publishSessionState("host-42", state);
+
+      setContextPct("host-42", "copper", 14);
+      registry.republishContextPct("host-42", "copper");
+
+      const updateFrames = received.filter((f) => f.type === "update");
+      expect(updateFrames).toHaveLength(2);
+      const republished = updateFrames[1];
+      if (republished.type === "update") {
+        expect(republished.state).toEqual({ ...state, contextPct: 14 });
+      }
+      // Cached state picks up the new value too (snapshot path).
+      expect(registry.getSnapshot().find((s) => s.tmuxSession === "copper")?.contextPct).toBe(14);
+    });
+
+    it("Test 12: republishContextPct is a no-op when the value is unchanged or no state is cached", () => {
+      const registry = createSubscriptionRegistry();
+      const received: FrontendOutboundFrameType[] = [];
+      registry.subscribe((f) => received.push(f));
+      received.length = 0;
+
+      // No cached state for this session yet — nothing to republish.
+      setContextPct("host-42", "copper", 50);
+      registry.republishContextPct("host-42", "copper");
+      expect(received).toHaveLength(0);
+
+      registry.publishSessionState("host-42", makeState("host-42", "copper", "session-a"));
+      received.length = 0;
+
+      // Same value as last stamped — repeated ticks send nothing.
+      registry.republishContextPct("host-42", "copper");
+      registry.republishContextPct("host-42", "copper");
+      expect(received).toHaveLength(0);
+    });
   });
 
   // (Phase 115 Plan 115-06 publishIdentityArchived describe retired in the
