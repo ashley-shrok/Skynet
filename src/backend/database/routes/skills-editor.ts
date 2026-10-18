@@ -69,6 +69,7 @@ import type { Request, Response } from "express";
 import { AuthManager } from "../../utils/auth-manager.js";
 import { callerIsAdmin } from "../../instance-wide/admin.js";
 import { getInstanceWide } from "../../instance-wide/production.js";
+import { invocationFlagsOf, type InvocationFlags } from "../../utils/skill-invocation.js";
 import { resolveHostById } from "../../ssh/host-resolver.js";
 import { connectOneShot } from "../../ssh/ssh-one-shot.js";
 import { execCommand } from "../../ssh/tmux-helper.js";
@@ -107,6 +108,39 @@ async function sharedSkillNames(): Promise<string[]> {
     });
     return [];
   }
+}
+
+/**
+ * A shared (instance-wide) skill is agent-only for non-admins, so the per-host
+ * routes treat it as absent for them (404) — the list already leaves it out;
+ * this keeps a direct call from reading or changing the host's copy. Runs
+ * after auth (and the body parser, where the skill name rides in the body).
+ */
+async function hideSharedFromNonAdmins(req: Request, res: Response, next: express.NextFunction): Promise<void> {
+  if (isInstanceScope(req)) return next();
+  const raw = (req.query as Record<string, unknown>).skill ?? ((req.body ?? {}) as Record<string, unknown>).skill;
+  if (typeof raw !== "string" || raw.length === 0) return next();
+  let hidden = false;
+  try {
+    const userId = (req as AuthenticatedRequest).userId;
+    hidden = !(await callerIsAdmin(userId)) && (await sharedSkillNames()).includes(raw);
+  } catch (err) {
+    // Same posture as the list: if the check can't run, don't block the route.
+    sshLogger.warn("skills-editor: shared-skill check failed", {
+      operation: "skills_editor_shared_check",
+      error: err instanceof Error ? err.message : "Unknown",
+    });
+  }
+  if (hidden) {
+    sshLogger.info("skills-editor: shared skill hidden from non-admin", {
+      operation: "skills_editor_shared_hidden",
+      path: req.path,
+      skill: raw,
+    });
+    res.status(404).json({ error: "skill not found" });
+    return;
+  }
+  next();
 }
 
 const router = express.Router();
@@ -382,16 +416,12 @@ export function parseSkillListOutput(output: string): ListedSkill[] {
     if (name.length === 0) continue;
     const frontmatter = nl === -1 ? "" : record.slice(nl + 1);
     let description: string | undefined;
-    let agentOnly = false;
-    let userOnly = false;
+    let flags: InvocationFlags = {};
     const distributed = DISTRIBUTED_LINE_RE.test(frontmatter.replace(/\r/g, ""));
     try {
       const parsed = yaml.load(frontmatter);
       if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
-        const ui = (parsed as Record<string, unknown>)["user-invocable"];
-        agentOnly = ui === false || (typeof ui === "string" && ui.trim().toLowerCase() === "false");
-        const dmi = (parsed as Record<string, unknown>)["disable-model-invocation"];
-        userOnly = dmi === true || (typeof dmi === "string" && dmi.trim().toLowerCase() === "true");
+        flags = invocationFlagsOf(parsed as Record<string, unknown>);
         const raw = (parsed as Record<string, unknown>).description;
         if (typeof raw === "string") {
           const flat = raw.replace(/\s+/g, " ").trim();
@@ -406,9 +436,7 @@ export function parseSkillListOutput(output: string): ListedSkill[] {
     } catch {
       // Malformed frontmatter — list the skill without a description.
     }
-    const skill: ListedSkill = description === undefined ? { name } : { name, description };
-    if (agentOnly) skill.userInvocable = false;
-    if (userOnly) skill.modelInvocable = false;
+    const skill: ListedSkill = { name, ...(description === undefined ? {} : { description }), ...flags };
     if (distributed) skill.distributed = true;
     skills.push(skill);
   }
@@ -562,6 +590,7 @@ router.get(
 router.get(
   "/files",
   authenticateJWT,
+  hideSharedFromNonAdmins,
   async (req: Request, res: Response): Promise<void> => {
     const userId = (req as AuthenticatedRequest).userId;
     if (isInstanceScope(req)) {
@@ -681,6 +710,7 @@ router.post(
   // sending the 401.
   authenticateJWT,
   express.json({ limit: "32kb" }), // hostId + skill + path only
+  hideSharedFromNonAdmins,
   async (req: Request, res: Response): Promise<void> => {
     const userId = (req as AuthenticatedRequest).userId;
     if (isInstanceScope(req)) {
@@ -831,6 +861,7 @@ router.put(
   "/write",
   authenticateJWT, // BEFORE body parser — see /read for rationale (unauth attackers shouldn't get to send 4MB bodies before we reject them)
   express.json({ limit: "4mb" }), // matches nginx client_max_body_size
+  hideSharedFromNonAdmins,
   async (req: Request, res: Response): Promise<void> => {
     const userId = (req as AuthenticatedRequest).userId;
     if (isInstanceScope(req)) {
@@ -1050,6 +1081,7 @@ router.post(
   "/create",
   authenticateJWT, // BEFORE body parser — see /read for rationale
   express.json({ limit: "32kb" }),
+  hideSharedFromNonAdmins,
   async (req: Request, res: Response): Promise<void> => {
     const userId = (req as AuthenticatedRequest).userId;
     if (isInstanceScope(req)) {
@@ -1663,6 +1695,7 @@ router.delete(
   "/file",
   authenticateJWT, // BEFORE body parser — see /read for rationale
   express.json({ limit: "32kb" }),
+  hideSharedFromNonAdmins,
   async (req: Request, res: Response): Promise<void> => {
     const userId = (req as AuthenticatedRequest).userId;
     if (isInstanceScope(req)) {
@@ -1805,6 +1838,7 @@ router.delete(
   "/skill",
   authenticateJWT, // BEFORE body parser — see /read for rationale (extra important on the rm -rf endpoint)
   express.json({ limit: "32kb" }),
+  hideSharedFromNonAdmins,
   async (req: Request, res: Response): Promise<void> => {
     const userId = (req as AuthenticatedRequest).userId;
     if (isInstanceScope(req)) {
@@ -1925,6 +1959,7 @@ router.delete(
 router.get(
   "/download",
   authenticateJWT,
+  hideSharedFromNonAdmins,
   async (req: Request, res: Response): Promise<void> => {
     const userId = (req as AuthenticatedRequest).userId;
     if (isInstanceScope(req)) {
@@ -1986,6 +2021,7 @@ router.put(
   "/write-binary",
   authenticateJWT, // BEFORE the body parser (see /read)
   express.raw({ type: "application/octet-stream", limit: MAX_BINARY_WRITE_BYTES }),
+  hideSharedFromNonAdmins,
   async (req: Request, res: Response): Promise<void> => {
     const userId = (req as AuthenticatedRequest).userId;
     if (isInstanceScope(req)) {

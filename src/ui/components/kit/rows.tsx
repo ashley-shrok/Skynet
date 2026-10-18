@@ -116,7 +116,9 @@ export function KitSettingsRow({
         data-testid={testId}
         onClick={(e) => {
           const target = e.target as Element;
-          if (target.closest("button, input, select, textarea, a, label")) return;
+          // Controls and the cells around them don't open the row — a click
+          // that just misses a switch shouldn't navigate away.
+          if (target.closest("button, input, select, textarea, a, label, .k-cell")) return;
           onClick();
         }}
       >

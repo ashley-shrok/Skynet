@@ -1123,4 +1123,56 @@ describe("SkillsEditorModal — Phase 44 SKILLED-05", () => {
     await waitFor(() => expect(dialogs.calls.length).toBe(1));
     expect(screen.getByTestId("skills-editor-modal-current-file")).toHaveTextContent("SKILL.md");
   });
+
+  it("skill view: after a Save, closing with new unsaved edits still asks first", async () => {
+    const onOpenChange = vi.fn();
+    const dialogs = autoAnswerKitDialogs({ confirm: false });
+    render(
+      <SkillsEditorModal
+        open={true}
+        onOpenChange={onOpenChange}
+        hostTree={HOST_TREE}
+        defaultHostId={1}
+        container={document.body}
+      />,
+    );
+    await selectSkill("build");
+    const textarea = (await screen.findByRole("textbox")) as HTMLTextAreaElement;
+    fireEvent.change(textarea, { target: { value: "first edit" } });
+    await waitFor(() => expect(screen.getByTestId("skills-editor-modal-save")).not.toBeDisabled());
+    fireEvent.click(screen.getByTestId("skills-editor-modal-save"));
+    await waitFor(() => expect(skillsApi.writeSkillFile).toHaveBeenCalled());
+    await waitFor(() => expect(screen.getByTestId("skills-editor-modal-save")).toBeDisabled());
+
+    fireEvent.change(screen.getByRole("textbox"), { target: { value: "second edit" } });
+    await waitFor(() => expect(screen.getByTestId("skills-editor-modal-save")).not.toBeDisabled());
+    fireEvent.click(screen.getByTestId("skills-editor-modal-close-foot"));
+
+    await waitFor(() => expect(dialogs.calls.length).toBe(1));
+    expect(onOpenChange).not.toHaveBeenCalledWith(false);
+  });
+
+  it("skill view: top-level files list before folders, so no file sits under the wrong folder", async () => {
+    (skillsApi.enumerateSkillFiles as ReturnType<typeof vi.fn>).mockResolvedValueOnce([
+      { path: "SKILL.md" },
+      { path: "examples/a.md" },
+      { path: "reference.md" },
+    ]);
+    render(
+      <SkillsEditorModal
+        open={true}
+        onOpenChange={vi.fn()}
+        hostTree={HOST_TREE}
+        defaultHostId={1}
+        container={document.body}
+      />,
+    );
+    await selectSkill("build");
+    await openFileList();
+    const strip = screen.getByTestId("skills-editor-modal-file-strip");
+    const order = Array.from(strip.querySelectorAll(".k-side-head, [data-testid^='skills-editor-modal-tab-']")).map(
+      (el) => el.textContent,
+    );
+    expect(order).toEqual(["SKILL.md", "reference.md", "examples/", "a.md"]);
+  });
 });

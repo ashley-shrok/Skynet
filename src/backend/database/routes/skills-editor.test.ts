@@ -420,6 +420,43 @@ describe("GET /skills-editor/skills", () => {
       expect((res.body as { skills: unknown[] }).skills).toEqual([{ name: "build" }]);
     });
 
+    it("can't be read directly by a non-admin either — 404 before any SSH", async () => {
+      (callerIsAdmin as Mock).mockResolvedValue(false);
+      const res = await httpRequest(server, {
+        method: "POST",
+        path: "/skills-editor/read",
+        body: JSON.stringify({ hostId: 1, skill: "house-style", path: "SKILL.md" }),
+      });
+      expect(res.status).toBe(404);
+      expect(connectOneShot).not.toHaveBeenCalled();
+    });
+
+    it("can't be changed directly by a non-admin — write 404s before any SSH", async () => {
+      (callerIsAdmin as Mock).mockResolvedValue(false);
+      const res = await httpRequest(server, {
+        method: "PUT",
+        path: "/skills-editor/write",
+        body: JSON.stringify({ hostId: 1, skill: "house-style", path: "SKILL.md", content: "x", expectedMtime: 1 }),
+      });
+      expect(res.status).toBe(404);
+      expect(connectOneShot).not.toHaveBeenCalled();
+    });
+
+    it("the host's own skills stay reachable for a non-admin", async () => {
+      (callerIsAdmin as Mock).mockResolvedValue(false);
+      await httpRequest(server, { method: "GET", path: "/skills-editor/files?hostId=1&skill=build" });
+      expect(connectOneShot).toHaveBeenCalled();
+    });
+
+    it("the shared master copy (hostId 0) is empty and unreadable for a non-admin", async () => {
+      (callerIsAdmin as Mock).mockResolvedValue(false);
+      const list = await httpRequest(server, { method: "GET", path: "/skills-editor/skills?hostId=0" });
+      expect(list.status).toBe(200);
+      expect((list.body as { skills: unknown[] }).skills).toEqual([]);
+      const files = await httpRequest(server, { method: "GET", path: "/skills-editor/files?hostId=0&skill=house-style" });
+      expect(files.status).toBe(404);
+    });
+
     it("are listed for an admin", async () => {
       (callerIsAdmin as Mock).mockResolvedValue(true);
       const res = await httpRequest(server, { method: "GET", path: "/skills-editor/skills?hostId=1" });

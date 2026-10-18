@@ -422,8 +422,10 @@ export default function SkillsEditorModal({
 
   // Save handler — SkillFileTab-facing signature. Also called by foot Save.
   const handleSave = useCallback(
-    async (path: string, content: string, expectedMtime: number): Promise<void> => {
-      if (apiHostId == null || selectedSkillName == null) return;
+    async (path: string, content: string, expectedMtime: number): Promise<boolean> => {
+      // Resolves true when the content was written, false when it wasn't (no
+      // skill picked, or a disk conflict the user resolved by reloading).
+      if (apiHostId == null || selectedSkillName == null) return false;
       try {
         const result = await writeSkillFile({
           hostId: apiHostId,
@@ -463,12 +465,13 @@ export default function SkillsEditorModal({
                 },
               });
             });
-            return;
+            return false;
           }
           throw err;
         }
         throw err;
       }
+      return true;
     },
     [apiHostId, selectedSkillName],
   );
@@ -490,8 +493,10 @@ export default function SkillsEditorModal({
         binary.markSaved(bytes);
       } catch (err) {
         void kitAlert({ title: "Save failed", body: err instanceof Error ? err.message : undefined });
-        savingRef.current = false;
       } finally {
+        // Saving keeps the modal open, so the close guard must apply again
+        // to anything typed after this save.
+        savingRef.current = false;
         setSaving(false);
       }
       return;
@@ -504,8 +509,8 @@ export default function SkillsEditorModal({
       await handleSave(activeTab, draft, tab.data.mtime);
     } catch (err) {
       void kitAlert({ title: "Save failed", body: err instanceof Error ? err.message : undefined });
-      savingRef.current = false;
     } finally {
+      savingRef.current = false;
       setSaving(false);
     }
   }, [saving, activeTab, tabData, drafts, handleSave, binaryDrafts, apiHostId, selectedSkillName]);
@@ -541,7 +546,11 @@ export default function SkillsEditorModal({
   // The library's switches: read the skill's SKILL.md, flip the one setting,
   // write it back. Optimistic in the list; reverted (with a note) on failure.
   const [libraryBusy, setLibraryBusy] = useState<Set<string>>(new Set());
-  const [refused, setRefused] = useState<{ name: string; which: InvocationSwitch } | null>(null);
+  // `n` bumps on every refusal so the nudge replays each time.
+  const [refused, setRefusedState] = useState<{ name: string; which: InvocationSwitch; n: number } | null>(null);
+  const setRefused = useCallback((r: { name: string; which: InvocationSwitch } | null) => {
+    setRefusedState((prev) => (r == null ? null : { ...r, n: (prev?.n ?? 0) + 1 }));
+  }, []);
   const handleLibrarySwitch = useCallback(
     async (row: LibraryRow, which: InvocationSwitch, on: boolean): Promise<void> => {
       const hostForRow = row.instance ? INSTANCE_HOST_ID : selectedHostId;
@@ -611,9 +620,13 @@ export default function SkillsEditorModal({
         console.info(
           `[skills-editor] invocation-toggle hostId=${apiHostId} skill=${selectedSkillName} switch=${which} on=${on}`,
         );
-        await handleSave(SKILL_MD, applyInvocationSwitch(skillMd.content, which, on), skillMd.mtime);
-        patchListedFlags(selectedSkillName, selectedIsInstance, flags);
-        if (selectedHostId != null) void refreshSkillActions(selectedHostId, "invocation-toggle");
+        const wrote = await handleSave(SKILL_MD, applyInvocationSwitch(skillMd.content, which, on), skillMd.mtime);
+        // A disk conflict resolved by reloading wrote nothing — the list keeps
+        // what's on disk.
+        if (wrote) {
+          patchListedFlags(selectedSkillName, selectedIsInstance, flags);
+          if (selectedHostId != null) void refreshSkillActions(selectedHostId, "invocation-toggle");
+        }
       } catch (err) {
         void kitAlert({ title: "Save failed", body: err instanceof Error ? err.message : undefined });
       } finally {
@@ -1028,7 +1041,7 @@ export default function SkillsEditorModal({
     const nudge = refused?.name === row.name && refused.which === which;
     return (
       <KitSwitch
-        key={nudge ? "nudge" : "still"}
+        key={nudge ? `nudge-${refused.n}` : "still"}
         checked={on}
         onCheckedChange={(next) => {
           if (inSkill) void handleToggleInvocation(which, next);
@@ -1146,7 +1159,9 @@ export default function SkillsEditorModal({
         <ModalBody className="flex items-center justify-center">
           <KitEmpty title="Pick a host to load its skills." />
         </ModalBody>
-      ) : skills.status === "loading" ? (
+      ) : skills.status === "loading" || instanceWide == null ? (
+        // Wait for the shared list too: until it's in, shared skills would
+        // show up as the host's own (and a flip would write the host copy).
         <ModalBody>
           <KitLoading label="Loading skills…" />
         </ModalBody>
@@ -1219,7 +1234,16 @@ export default function SkillsEditorModal({
   );
 
   const fq = fileQuery.trim().toLowerCase();
-  const listedFiles = files.status === "ready" ? files.data.filter((f) => fq === "" || f.path.toLowerCase().includes(fq)) : [];
+  // Top-level files first (SKILL.md leading), then each folder's files —
+  // folder headings only group correctly when no top-level file follows one.
+  const listedFiles =
+    files.status === "ready"
+      ? files.data
+          .filter((f) => fq === "" || f.path.toLowerCase().includes(fq))
+          .map((f, i) => ({ f, i, rank: f.path === SKILL_MD ? 0 : f.path.includes("/") ? 2 : 1 }))
+          .sort((a, b) => a.rank - b.rank || a.i - b.i)
+          .map(({ f }) => f)
+      : [];
   const fileTabs = listedFiles.map((f) => {
     const slash = f.path.lastIndexOf("/");
     return {
@@ -1244,7 +1268,9 @@ export default function SkillsEditorModal({
       <SkillFileTab
         key={`${selectedIsInstance ? "iw" : "host"}:${selectedSkillName}:${activeTab}`}
         state={tabData.get(activeTab) ?? { status: "loading" }}
-        onSave={(content, expectedMtime) => handleSave(activeTab, content, expectedMtime)}
+        onSave={async (content, expectedMtime) => {
+          await handleSave(activeTab, content, expectedMtime);
+        }}
         onRequestDelete={
           readOnly
             ? undefined
