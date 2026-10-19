@@ -1239,8 +1239,9 @@ crown, then gear.
     showing. **New wake-up** sits under the list.
     Opening a wake-up shows its form: an **On** switch (saves at once),
     Name, When (Daily / Weekly / Monthly / Yearly / Every… / Once and
-    each kind's options, including "Only on" days), Time zone (blank = the user's own; a
-    one-time wake-up always uses the user's own),
+    each kind's options, including "Only on" days), Time zone (blank = the user's own, or the machine's own
+    for a wake-up saved without one; a one-time wake-up always uses the
+    user's own),
     Instruction, and a red **Delete wake-up…** at the bottom; Cancel and
     Save at the foot. **New wake-up** is the same form, blank, with
     Create. A sensor wake-up shows "When its sensor fires" and a read-only
@@ -1961,7 +1962,8 @@ the sidebar footer, beside the gear. It opens the scheduled tasks window:
   recreate), Roles (or an explicit **No roles**), When (Daily / Weekly /
   Monthly / Yearly / Every… / Once, with several times a day, "Only on"
   days, every-N weeks/months, an interval window and start, and an end
-  date or run count), Time zone (blank = the user's own), Instructions,
+  date or run count), Time zone (blank = the user's own, or the machine's
+  own for a task saved without one), Instructions,
   and an **Archive if nothing to report** switch. **Delete scheduled
   task…** at the bottom; Cancel and Save at the foot. A sensor-fired task
   shows "When its sensor fires" and its sensor's details read-only,
