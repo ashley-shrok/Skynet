@@ -83,7 +83,7 @@ import {
   type RoleSummary,
 } from "@/api/identities-api";
 import { useAutoScroll } from "./use-auto-scroll";
-import { ComposeBox, type InterruptFeedback } from "./ComposeBox";
+import { ComposeBox, INTERRUPT_THROTTLE_MS, type InterruptFeedback } from "./ComposeBox";
 import { DropOverlay } from "./DropOverlay";
 import { HarnessTasksPanel } from "./HarnessTasksPanel";
 import { BackgroundedAgentsPanel } from "./BackgroundedAgentsPanel";
@@ -812,13 +812,13 @@ export function PrettyView({
   const [restoreRequest, setRestoreRequest] = useState<
     { id: string; text: string; files: File[] } | null
   >(null);
-  // Cleared with the message list (pane switch, session rotation, wire boot):
-  // the fresh replay decides again what is hidden, and a restore never
-  // carries over into another conversation.
   // What the Stop button shows: "stopping" from the press until the verdict
   // arrives (a cancel takes ~1.5s to decide), then the outcome for a moment.
   const [interruptFeedback, setInterruptFeedback] = useState<InterruptFeedback | null>(null);
   const interruptFeedbackTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // When this view's press went out, until its verdict arrives. A verdict with
+  // no press behind it (the view was reset in between) is ignored.
+  const interruptPressedAtRef = useRef<number | null>(null);
   const showInterruptFeedback = useCallback((next: InterruptFeedback | null, holdMs?: number) => {
     if (interruptFeedbackTimerRef.current) clearTimeout(interruptFeedbackTimerRef.current);
     interruptFeedbackTimerRef.current = null;
@@ -837,7 +837,11 @@ export function PrettyView({
   useEffect(() => () => {
     if (interruptFeedbackTimerRef.current) clearTimeout(interruptFeedbackTimerRef.current);
   }, []);
+  // Cleared with the message list (pane switch, session rotation, wire boot):
+  // the fresh replay decides again what is hidden, and a restore never
+  // carries over into another conversation.
   const resetInterruptViewState = useCallback(() => {
+    interruptPressedAtRef.current = null;
     setHiddenEventIds((prev) => (prev.size === 0 ? prev : new Set()));
     setRestoreRequest(null);
     showInterruptFeedback(null);
@@ -1684,6 +1688,7 @@ export function PrettyView({
       return;
     }
     console.info(`[interrupt] press hostId=${hostId} tmuxSession=${tmuxSession ?? "null"}`);
+    interruptPressedAtRef.current = Date.now();
     showInterruptFeedback("stopping", INTERRUPT_RESULT_TIMEOUT_MS);
     onInterrupt?.();
   }, [hostId, tmuxSession, onInterrupt, showInterruptFeedback]);
@@ -3610,10 +3615,23 @@ export function PrettyView({
           break;
         }
         case "interrupt_result": {
+          const pressedAt = interruptPressedAtRef.current;
+          if (pressedAt === null) {
+            console.info(`[interrupt] result-ignored verdict=${parsed.verdict} reason=no_pending_press hostId=${hostId} tmuxSession=${tmuxSession ?? "null"}`);
+            break;
+          }
+          interruptPressedAtRef.current = null;
+          // Keep the outcome up until the server's per-pane throttle has
+          // passed, so a quick second press can't come back as "throttled"
+          // and read "Nothing to stop" while the agent is still going.
           showInterruptFeedback(
             parsed.verdict === "none" ? "nothing" : parsed.verdict,
-            INTERRUPT_OUTCOME_HOLD_MS,
+            Math.max(INTERRUPT_OUTCOME_HOLD_MS, INTERRUPT_THROTTLE_MS + 100 - (Date.now() - pressedAt)),
           );
+          if (parsed.verdict === "failed") {
+            console.warn(`[interrupt] result verdict=failed hostId=${hostId} tmuxSession=${tmuxSession ?? "null"}`);
+            break;
+          }
           if (parsed.verdict === "cancelled") {
             const restore = parsed.content !== null ? buildCancelledSendRestore(parsed.content) : null;
             console.info(

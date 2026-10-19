@@ -210,6 +210,10 @@ describe("PrettyView — interrupt button (shape-interrupt-button)", () => {
   const bubble = (c: HTMLElement, id: string) => c.querySelector(`[data-event-id="${id}"]`);
   const interruptBtn = (c: HTMLElement) =>
     c.querySelector('button[aria-label="Interrupt"]') as HTMLButtonElement;
+  const press = (c: HTMLElement) =>
+    act(() => {
+      fireEvent.click(interruptBtn(c));
+    });
 
   it("a cancelled prompt's bubble disappears on messages_hidden and comes back on messages_unhidden", async () => {
     const { container, ws } = await mount();
@@ -234,6 +238,7 @@ describe("PrettyView — interrupt button (shape-interrupt-button)", () => {
 
   it("cancel verdict gives the words back into the empty compose box", async () => {
     const { container, ws } = await mount();
+    press(container);
     sendWsFrame(ws, { type: "interrupt_result", verdict: "cancelled", eventId: "u2", content: "the cancelled words" });
     await waitFor(() =>
       expect((container.querySelector(PRIMARY) as HTMLTextAreaElement).value).toBe("the cancelled words"),
@@ -245,6 +250,7 @@ describe("PrettyView — interrupt button (shape-interrupt-button)", () => {
     act(() => {
       fireEvent.change(container.querySelector(PRIMARY)!, { target: { value: "new draft" } });
     });
+    press(container);
     sendWsFrame(ws, { type: "interrupt_result", verdict: "cancelled", eventId: "u3", content: "older words" });
     await waitFor(() =>
       expect(
@@ -264,6 +270,7 @@ describe("PrettyView — interrupt button (shape-interrupt-button)", () => {
     const ws = getCurrentWs();
     flipToStreaming(ws);
     await waitFor(() => expect(container.querySelector(PRIMARY)).not.toBeNull());
+    press(container);
     sendWsFrame(ws, { type: "interrupt_result", verdict: "cancelled", eventId: "u7", content: "only here" });
     await waitFor(() => expect((container.querySelector(PRIMARY) as HTMLTextAreaElement).value).toBe("only here"));
 
@@ -291,6 +298,7 @@ describe("PrettyView — interrupt button (shape-interrupt-button)", () => {
 
   it("stop and none verdicts give nothing back", async () => {
     const { container, ws } = await mount();
+    press(container);
     sendWsFrame(ws, { type: "interrupt_result", verdict: "stopped" });
     sendWsFrame(ws, { type: "interrupt_result", verdict: "none", reason: "agent_output" });
     expect((container.querySelector(PRIMARY) as HTMLTextAreaElement).value).toBe("");
@@ -339,9 +347,7 @@ describe("PrettyView — interrupt button (shape-interrupt-button)", () => {
 
   it("pressing shows 'Stopping' at once, then the verdict, then the Stop button again", async () => {
     const { container, ws, onInterrupt } = await mount();
-    act(() => {
-      fireEvent.click(interruptBtn(container));
-    });
+    press(container);
     expect(onInterrupt).toHaveBeenCalledTimes(1);
     expect(feedback(container)).toBe("stopping");
     expect(container.textContent).toContain("Stopping");
@@ -352,7 +358,7 @@ describe("PrettyView — interrupt button (shape-interrupt-button)", () => {
     expect(feedback(container)).toBe("cancelled");
     expect(container.textContent).toContain("Cancelled");
     act(() => {
-      vi.advanceTimersByTime(2000);
+      vi.advanceTimersByTime(2600);
     });
     expect(feedback(container)).toBeNull();
     expect(interruptBtn(container)).not.toBeNull();
@@ -385,6 +391,66 @@ describe("PrettyView — interrupt button (shape-interrupt-button)", () => {
       vi.advanceTimersByTime(2000);
     });
     expect(interruptBtn(container)).not.toBeNull();
+  });
+
+  it("a server-side failure shows 'Failed' at once", async () => {
+    const { container, ws } = await mount();
+    press(container);
+    sendWsFrame(ws, { type: "interrupt_result", verdict: "failed" });
+    expect(feedback(container)).toBe("failed");
+  });
+
+  it("with no open connection the press shows 'Failed' and sends nothing", async () => {
+    const { container, ws, onInterrupt } = await mount();
+    ws.readyState = 3; // CLOSED
+    press(container);
+    expect(onInterrupt).not.toHaveBeenCalled();
+    expect(feedback(container)).toBe("failed");
+  });
+
+  it("a verdict with no press behind it changes nothing and gives nothing back", async () => {
+    const { container, ws } = await mount();
+    sendWsFrame(ws, { type: "interrupt_result", verdict: "cancelled", eventId: "u10", content: "stray words" });
+    expect(feedback(container)).toBeNull();
+    expect((container.querySelector(PRIMARY) as HTMLTextAreaElement).value).toBe("");
+  });
+
+  it("a verdict arriving after the view was reset is ignored", async () => {
+    const { container, ws } = await mount();
+    press(container);
+    sendWsFrame(ws, { type: "session_changed", sessionFile: "/tmp/y.jsonl" });
+    expect(feedback(container)).toBeNull();
+    sendWsFrame(ws, { type: "interrupt_result", verdict: "cancelled", eventId: "u11", content: "old words" });
+    expect(feedback(container)).toBeNull();
+    expect((container.querySelector(PRIMARY) as HTMLTextAreaElement).value).toBe("");
+  });
+
+  it("a quick outcome stays up until the server's repeat-press window has passed", async () => {
+    const { container, ws } = await mount();
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "Date"] });
+    press(container);
+    sendWsFrame(ws, { type: "interrupt_result", verdict: "stopped" });
+    act(() => {
+      vi.advanceTimersByTime(2000);
+    });
+    expect(feedback(container)).toBe("stopped");
+    act(() => {
+      vi.advanceTimersByTime(600);
+    });
+    expect(feedback(container)).toBeNull();
+    expect(interruptBtn(container)).not.toBeNull();
+  });
+
+  it("a verdict that arrives after 'Failed' still shows what really happened", async () => {
+    const { container, ws } = await mount();
+    vi.useFakeTimers();
+    press(container);
+    act(() => {
+      vi.advanceTimersByTime(8000);
+    });
+    expect(feedback(container)).toBe("failed");
+    sendWsFrame(ws, { type: "interrupt_result", verdict: "stopped" });
+    expect(feedback(container)).toBe("stopped");
   });
 
   it("the interrupted line never counts as delivery of a send still in flight", async () => {

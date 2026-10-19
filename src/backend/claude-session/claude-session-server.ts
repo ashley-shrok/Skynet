@@ -6593,7 +6593,18 @@ wss.on("connection", async (ws: WebSocket, req) => {
         tracker: () => cancelTracker,
         sessionIdFromFile,
       });
-      if (verdict === null) return;
+      if (verdict === null) {
+        // The press never reached the harness — say so at once rather than
+        // leaving the button on "Stopping" until the client gives up.
+        if (ws.readyState === WebSocket.OPEN) {
+          try {
+            ws.send(JSON.stringify({ type: "interrupt_result", verdict: "failed" }));
+          } catch {
+            /* ws may be mid-close; drop */
+          }
+        }
+        return;
+      }
       if (verdict.verdict === "cancelled" && pressHostId != null && pressTmuxSession) {
         // Every view of the pane hides the bubble (this one included)…
         const key = sessionKey(pressHostId, pressTmuxSession);

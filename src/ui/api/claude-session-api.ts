@@ -233,7 +233,8 @@ export type MessagesUnhiddenEvent = {
 export type InterruptResultEvent =
   | { type: "interrupt_result"; verdict: "cancelled"; eventId: string; content: string | null }
   | { type: "interrupt_result"; verdict: "stopped" }
-  | { type: "interrupt_result"; verdict: "none"; reason: string };
+  | { type: "interrupt_result"; verdict: "none"; reason: string }
+  | { type: "interrupt_result"; verdict: "failed" };
 
 // Patch #86: WS-inline base64 image payload. `data` is raw base64 — the
 // consumer prepends `data:${mediaType};base64,` when building `<img src>`.

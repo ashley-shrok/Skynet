@@ -203,7 +203,7 @@ function getBatchFailureUserMessage(reason: BatchFailureReasonForCompose): strin
 // client ref is only a cheap fast-path. The AUTHORITATIVE guard is the
 // server-side per-pane throttle in claude-session-server.ts — see
 // interruptLastFireRef below for why the client ref cannot be the guarantee.
-const INTERRUPT_THROTTLE_MS = 2500;
+export const INTERRUPT_THROTTLE_MS = 2500;
 
 export interface ComposeBoxProps {
   // Called when the user presses Enter (no shift) with non-empty text.
@@ -777,7 +777,7 @@ function InterruptFeedbackChip({ feedback }: { feedback: InterruptFeedback }) {
       )}
     >
       <Glyph aria-hidden="true" className={cn("size-4", feedback === "stopping" && "animate-spin")} />
-      <span role="status" aria-live="polite">{INTERRUPT_FEEDBACK_LABEL[feedback]}</span>
+      <span aria-hidden="true">{INTERRUPT_FEEDBACK_LABEL[feedback]}</span>
     </div>
   );
 }
@@ -2729,6 +2729,14 @@ export function ComposeBox({
             >
               <Square className="size-4" />
             </Button>
+          )}
+          {/* Mounted for as long as the button is, so screen readers hear
+              "Stopping" too — a live region created along with its text is
+              often not announced. */}
+          {onInterrupt && (
+            <span role="status" aria-live="polite" className="sr-only">
+              {interruptFeedback ? INTERRUPT_FEEDBACK_LABEL[interruptFeedback] : ""}
+            </span>
           )}
           {/* Phase 4 Glass: ThumbsUp adopts the mock's `.pv-icon-btn`
               quiet treatment (warm-neutral gradient + hue-tinted hover
