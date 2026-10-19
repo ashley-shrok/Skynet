@@ -108,8 +108,11 @@ export function WakeupView({
 
   // A one-time wake-up's time carries this browser's offset, so its zone is
   // always the browser's; the Time zone field is for the repeating kinds.
+  // An existing schedule saved without a zone runs in its machine's zone; a
+  // blank field keeps it that way instead of writing this browser's zone in.
+  const blankIsMachine = !!wakeup && scheduleTimezone(wakeup.schedule) === "";
   const zoneFor = (kind: FormSchedule["type"], typed: string): string =>
-    kind === "one_shot" || typed.trim() === "" ? detectedTz : typed.trim();
+    kind === "one_shot" ? detectedTz : typed.trim() !== "" ? typed.trim() : blankIsMachine ? "" : detectedTz;
   const effectiveTz = zoneFor(fs.type, tz);
   // Compared as the schedule that would be written, so switching a kind and
   // back (which can fill in defaults) isn't an edit.
@@ -289,6 +292,7 @@ export function WakeupView({
               tz={tz}
               onTzChange={setTz}
               detectedTz={detectedTz}
+              blankIsMachine={blankIsMachine}
               idPrefix="wakeup"
               testIds={{ when: "wakeup-view-when", kind: "wakeup-type", tz: "wakeup-view-tz" }}
             />

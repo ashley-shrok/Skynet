@@ -86,6 +86,8 @@ export interface ScheduledTaskViewProps {
   task?: ScheduledAgentListItem;
   /** Machines a new task can go to (they can run agents). */
   hosts: Host[];
+  /** False while the app's machine list hasn't arrived yet. */
+  hostsLoaded?: boolean;
   /** Saves just the on/off of an existing task. */
   onToggle?: (enabled: boolean) => Promise<void>;
   onRunNow?: () => void;
@@ -102,6 +104,7 @@ export interface ScheduledTaskViewProps {
 export function ScheduledTaskView({
   task,
   hosts,
+  hostsLoaded = true,
   onToggle,
   onRunNow,
   runNowPending = false,
@@ -150,10 +153,9 @@ export function ScheduledTaskView({
 
   const [availableRoles, setAvailableRoles] = useState<RoleSummary[]>([]);
   useEffect(() => {
-    if (hostId === null || !Number.isFinite(hostId)) {
-      setAvailableRoles([]);
-      return;
-    }
+    // Never offer the previous machine's roles while this one's load.
+    setAvailableRoles([]);
+    if (hostId === null || !Number.isFinite(hostId)) return;
     let alive = true;
     listRolesForHost(hostId)
       .then((rows) => alive && setAvailableRoles(rows))
@@ -164,13 +166,17 @@ export function ScheduledTaskView({
   }, [hostId]);
 
   const [saving, setSaving] = useState(false);
+  const [deleting, setDeleting] = useState(false);
   const [toggling, setToggling] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   // A one-time task's time carries this browser's offset, so its zone is
   // always the browser's; the Time zone field is for the repeating kinds.
+  // An existing schedule saved without a zone runs in its machine's zone; a
+  // blank field keeps it that way instead of writing this browser's zone in.
+  const blankIsMachine = !!task && scheduleTimezone(task.schedule) === "";
   const zoneFor = (kind: FormSchedule["type"], typed: string): string =>
-    kind === "one_shot" || typed.trim() === "" ? detectedTz : typed.trim();
+    kind === "one_shot" ? detectedTz : typed.trim() !== "" ? typed.trim() : blankIsMachine ? "" : detectedTz;
   const effectiveTz = zoneFor(fs.type, tz);
   // Compared as the schedule that would be written, so switching a kind and
   // back (which can fill in defaults) isn't an edit.
@@ -189,6 +195,9 @@ export function ScheduledTaskView({
   const validation = isSensor ? null : validateForm(fs);
   const canSubmit =
     !saving &&
+    !deleting &&
+    // The update writes the on/off too — wait for a switch still saving.
+    !toggling &&
     validation === null &&
     name.trim() !== "" &&
     prompt.trim() !== "" &&
@@ -295,6 +304,7 @@ export function ScheduledTaskView({
     if (!ok) return;
     setError(null);
     busyRef.current = true;
+    setDeleting(true);
     try {
       await onDelete?.();
       console.info({ operation: "scheduled_task_deleted", hostId: task.hostId, slug: task.slug });
@@ -305,6 +315,7 @@ export function ScheduledTaskView({
       setError(`Couldn't delete: ${e instanceof Error ? e.message : String(e)}`);
     } finally {
       busyRef.current = false;
+      setDeleting(false);
     }
   };
 
@@ -348,7 +359,7 @@ export function ScheduledTaskView({
       ? "It starts running on its schedule as soon as it's created."
       : "It's created switched off."
     : !enabled
-      ? "Off — it won't run."
+      ? `Off — it won't run · ${isSensor ? "Runs when its sensor sees something" : scheduleSentence(task)}`
       : [
           isSensor ? "Runs when its sensor sees something" : scheduleSentence(task),
           task.lastFiredAt !== null ? `Last ran ${formatRelativePast(task.lastFiredAt, nowSecs)}` : "Hasn't run yet",
@@ -379,8 +390,11 @@ export function ScheduledTaskView({
             />
             {!isNew && !isOneShotTask(task) && (
               <KitSettingsRow
-                label={<span className="sr-only">Run now</span>}
-                description="Start a conversation for it right away. The schedule carries on as usual."
+                label={
+                  <span className="text-[13px] font-normal text-[var(--k-t2)]">
+                    Start a conversation for it right away. The schedule carries on as usual.
+                  </span>
+                }
                 control={
                   <KitButton
                     size="sm"
@@ -436,7 +450,7 @@ export function ScheduledTaskView({
             </KitSettingsGroup>
           )}
 
-          {isNew && hosts.length === 0 && (
+          {isNew && hostsLoaded && hosts.length === 0 && (
             <KitBanner tone="warn" data-testid="scheduled-task-no-machines">
               None of your machines can run agents, so there's nowhere for this task to start its conversations.
             </KitBanner>
@@ -499,6 +513,7 @@ export function ScheduledTaskView({
               tz={tz}
               onTzChange={setTz}
               detectedTz={detectedTz}
+              blankIsMachine={blankIsMachine}
               idPrefix="scheduled-task"
               testIds={{ when: "scheduled-task-when", kind: "scheduled-task-type", tz: "scheduled-task-tz" }}
             />
@@ -538,15 +553,21 @@ export function ScheduledTaskView({
 
           {!isNew && (
             <div>
-              <KitButton variant="danger-quiet" onClick={() => void remove()} data-testid="scheduled-task-delete">
-                Delete scheduled task…
+              <KitButton
+                variant="danger-quiet"
+                onClick={() => void remove()}
+                disabled={deleting || saving}
+                busy={deleting}
+                data-testid="scheduled-task-delete"
+              >
+                {deleting ? "Deleting…" : "Delete scheduled task…"}
               </KitButton>
             </div>
           )}
         </div>
       </div>
       <ModalFoot>
-        <KitButton disabled={saving} onClick={onDone} data-testid="scheduled-task-cancel">
+        <KitButton disabled={saving || deleting} onClick={onDone} data-testid="scheduled-task-cancel">
           Cancel
         </KitButton>
         <KitButton

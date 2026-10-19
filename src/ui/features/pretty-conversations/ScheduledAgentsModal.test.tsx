@@ -242,6 +242,24 @@ describe("ScheduledAgentsModal: opening and reading", () => {
     }
   });
 
+  it("an open task deleted elsewhere says it's gone once its machine answers without it", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      listScheduledAgentsMock.mockResolvedValueOnce([makeRow(), makeRow({ slug: "other", name: "Other" })]);
+      renderModal();
+      await openTask("morning-triage");
+      // Its machine answers, without it.
+      listScheduledAgentsMock.mockResolvedValue([makeRow({ slug: "other", name: "Other" })]);
+      await act(async () => {
+        vi.advanceTimersByTime(30_000);
+      });
+      expect(await screen.findByText("This scheduled task is gone.")).toBeInTheDocument();
+      expect(screen.queryByTestId("scheduled-task-view")).toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("a failed load shows the error banner", async () => {
     listScheduledAgentsMock.mockRejectedValueOnce(new Error("fleet unreachable"));
     renderModal();
@@ -473,13 +491,33 @@ describe("ScheduledAgentsModal: the on/off switch is pessimistic", () => {
     fireEvent.click(on);
     await waitFor(() => expect(toggleScheduledAgentEnabledMock).toHaveBeenCalledWith("morning-triage", 1, false));
     await waitFor(() => expect((screen.getByTestId("scheduled-task-enabled") as HTMLInputElement).checked).toBe(false));
-    expect(screen.getByTestId("scheduled-task-on-note")).toHaveTextContent("Off — it won't run.");
+    expect(screen.getByTestId("scheduled-task-on-note")).toHaveTextContent("Off — it won't run · Daily at 9:00");
     // Not an unsaved edit: back goes straight to the list without asking.
     const dialogs = autoAnswerKitDialogs({ confirm: false });
     fireEvent.click(screen.getByTestId("scheduled-agents-modal-back"));
     await waitFor(() => expect(inTaskView()).toBe(false));
     expect(dialogs.calls).toHaveLength(0);
     expect(updateScheduledAgentMock).not.toHaveBeenCalled();
+  });
+
+  it("Save waits while the On switch is still saving, and then writes the new on/off", async () => {
+    listScheduledAgentsMock.mockResolvedValueOnce([makeRow({ enabled: true })]);
+    let finishToggle: () => void = () => {};
+    toggleScheduledAgentEnabledMock.mockReturnValueOnce(new Promise<void>((r) => (finishToggle = r)));
+    // The re-read after the switch leaves the machine out (it didn't answer).
+    listScheduledAgentsMock.mockResolvedValue([]);
+    updateScheduledAgentMock.mockResolvedValue(undefined);
+    renderModal();
+    await openTask("morning-triage");
+    fireEvent.change(promptField(), { target: { value: "check inbox twice" } });
+    fireEvent.click(screen.getByTestId("scheduled-task-enabled"));
+    await waitFor(() => expect(toggleScheduledAgentEnabledMock).toHaveBeenCalled());
+    expect(saveButton()).toBeDisabled();
+    await act(async () => finishToggle());
+    await waitFor(() => expect(saveButton()).not.toBeDisabled());
+    fireEvent.click(saveButton());
+    await waitFor(() => expect(updateScheduledAgentMock).toHaveBeenCalledTimes(1));
+    expect(updateScheduledAgentMock.mock.calls[0][2].enabled).toBe(false);
   });
 
   it("a failed On switch in the task view shows the error there and stays put", async () => {
@@ -1148,12 +1186,20 @@ describe("ScheduledAgentsModal: schedule round-trips", () => {
     expect(Number.isNaN(new Date(saved.start as string).getTime())).toBe(false);
   });
 
-  it("the Time zone field shows the task's zone; typing one writes it, blank writes yours", async () => {
+  it("a task saved without a zone runs in its machine's zone, and saving keeps it that way", async () => {
     await openEdit({ type: "daily", at: "09:00" });
     const tz = screen.getByTestId("scheduled-task-tz") as HTMLInputElement;
     expect(tz.value).toBe("");
-    expect(tz.placeholder).toBe("Europe/London");
-    expect(screen.getByText(/Leave it blank for yours \(Europe\/London\)/)).toBeInTheDocument();
+    expect(tz.placeholder).toBe("The machine's time zone");
+    expect(screen.getByText("Times above are in this zone. Blank means the machine's own time zone.")).toBeInTheDocument();
+    // An unrelated edit doesn't write this browser's zone in.
+    fireEvent.change(promptField(), { target: { value: "check inbox twice" } });
+    expect(await savedSchedule()).toEqual({ type: "daily", at: "09:00" });
+  });
+
+  it("the Time zone field shows the task's zone; typing one writes it, blank writes yours", async () => {
+    await openEdit({ type: "daily", at: "09:00" });
+    const tz = screen.getByTestId("scheduled-task-tz") as HTMLInputElement;
     fireEvent.change(tz, { target: { value: "  Asia/Tokyo " } });
     expect(await savedSchedule()).toEqual({ type: "daily", at: "09:00", timezone: "Asia/Tokyo" });
     cleanup();

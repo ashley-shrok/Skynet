@@ -173,6 +173,15 @@ describe("WakeupView — editing an existing wake-up", () => {
     expect(screen.getByText(/Leave it blank for yours \(Europe\/London\)/)).toBeTruthy();
   });
 
+  it("5a: a wake-up saved without a zone runs in its machine's zone, and saving keeps it that way", async () => {
+    const s = renderExisting({ schedule: { type: "daily", at: "09:00" } });
+    expect(tzInput().value).toBe("");
+    expect(tzInput().placeholder).toBe("The machine's time zone");
+    rename();
+    fireEvent.click(saveButton());
+    expect((await savedUpdates(s.onSave)).schedule).toEqual({ type: "daily", at: "09:00" });
+  });
+
   it("5b: a one-time wake-up has no Time zone field — its time is the browser's", () => {
     renderExisting();
     pickKind("one_shot");

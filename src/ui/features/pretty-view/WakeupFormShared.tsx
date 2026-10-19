@@ -412,7 +412,8 @@ export function buildSchedule(fs: FormSchedule, tz: string): Record<string, unkn
     base.date = fs.date;
     base.at = emitTimes(fs.at);
   }
-  base.timezone = tz;
+  // No zone = the machine's own (the scheduler's default).
+  if (tz) base.timezone = tz;
   const days = normalizeDays(fs.days);
   if (days !== undefined) base.days = days;
   if (fs.start !== undefined) {
@@ -1228,13 +1229,16 @@ export function ScheduleWhenFields({
   detectedTz,
   idPrefix,
   testIds,
+  blankIsMachine = false,
 }: {
   fs: FormSchedule;
   onChange: (next: FormSchedule) => void;
-  /** The typed time zone; blank = the browser's. */
+  /** The typed time zone; blank = the browser's, or the machine's own when
+   *  `blankIsMachine` (an existing schedule saved without a zone). */
   tz: string;
   onTzChange: (next: string) => void;
   detectedTz: string;
+  blankIsMachine?: boolean;
   idPrefix: string;
   testIds: { when: string; kind: string; tz: string };
 }): JSX.Element {
@@ -1323,8 +1327,22 @@ export function ScheduleWhenFields({
       {fs.type === "one_shot" ? (
         <span className="k-help">The time above is in your time zone ({detectedTz}).</span>
       ) : (
-        <KitField label="Time zone" htmlFor={`${idPrefix}-tz`} help={`Times above are in this zone. Leave it blank for yours (${detectedTz}).`}>
-          <KitInput type="text" value={tz} onChange={(e) => onTzChange(e.target.value)} placeholder={detectedTz} data-testid={testIds.tz} />
+        <KitField
+          label="Time zone"
+          htmlFor={`${idPrefix}-tz`}
+          help={
+            blankIsMachine
+              ? "Times above are in this zone. Blank means the machine's own time zone."
+              : `Times above are in this zone. Leave it blank for yours (${detectedTz}).`
+          }
+        >
+          <KitInput
+            type="text"
+            value={tz}
+            onChange={(e) => onTzChange(e.target.value)}
+            placeholder={blankIsMachine ? "The machine's time zone" : detectedTz}
+            data-testid={testIds.tz}
+          />
         </KitField>
       )}
 

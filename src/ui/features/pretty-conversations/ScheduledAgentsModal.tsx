@@ -160,7 +160,9 @@ export function ScheduledAgentsModal({ open, onOpenChange, hostTree }: Scheduled
           setRoleNames((cur) => new Map(cur).set(hostId, names));
         })
         .catch(() => {
-          // Search falls back to names worked out from the role's slug.
+          // Search falls back to names worked out from the role's slug until
+          // the next list read asks again.
+          roleNamesAsked.current.delete(hostId);
         });
     }
   }, [open, items]);
@@ -214,15 +216,19 @@ export function ScheduledAgentsModal({ open, onOpenChange, hostTree }: Scheduled
   const agentHosts = useMemo(() => flatHosts.filter((h) => h.runsFleetSubstrate === true), [flatHosts]);
 
   // The open task, read live from the list so a background refresh updates
-  // its status. If a refresh drops it (its machine didn't answer), keep the
-  // last copy rather than blanking the view — with any sensor status Unknown.
-  const lastDeepRow = useRef<ScheduledAgentListItem | null>(null);
+  // its status. If a refresh leaves it out because its machine didn't
+  // answer, keep the last copy rather than blanking the view — with any
+  // sensor status Unknown. If its machine answered without it, it's gone.
   const liveDeepRow =
     deep?.view === "task" ? (items?.find((i) => i.hostId === deep.hostId && i.slug === deep.slug) ?? null) : null;
-  if (deep?.view !== "task") lastDeepRow.current = null;
-  else if (liveDeepRow) lastDeepRow.current = liveDeepRow;
+  const [lastDeepRow, setLastDeepRow] = useState<ScheduledAgentListItem | null>(null);
+  useEffect(() => {
+    if (deep?.view !== "task") setLastDeepRow(null);
+    else if (liveDeepRow) setLastDeepRow(liveDeepRow);
+  }, [deep, liveDeepRow]);
+  const machineAnswered = deep?.view === "task" && (items ?? []).some((r) => r.hostId === deep.hostId);
   const staleDeepRow =
-    deep?.view === "task" && lastDeepRow.current && keyOf(lastDeepRow.current) === keyOf(deep) ? lastDeepRow.current : null;
+    deep?.view === "task" && !machineAnswered && lastDeepRow && keyOf(lastDeepRow) === keyOf(deep) ? lastDeepRow : null;
   const deepRow =
     liveDeepRow ??
     (staleDeepRow?.sensor ? { ...staleDeepRow, sensor: sensorStatusUnreachable(staleDeepRow.sensor) } : staleDeepRow);
@@ -309,6 +315,11 @@ export function ScheduledAgentsModal({ open, onOpenChange, hostTree }: Scheduled
       setToggling((s) => new Set(s).add(key));
       try {
         await toggleScheduledAgentEnabled(row.slug, row.hostId, enabled);
+        // The server has it now: show it at once, so a save from the open
+        // task (which writes the on/off too) can't put the old value back
+        // even if the re-read below leaves this machine out.
+        setItems((cur) => (cur === null ? cur : cur.map((r) => (keyOf(r) === key ? { ...r, enabled } : r))));
+        setLastDeepRow((cur) => (cur && keyOf(cur) === key ? { ...cur, enabled } : cur));
         await refetch();
       } finally {
         setToggling((s) => {
@@ -329,6 +340,9 @@ export function ScheduledAgentsModal({ open, onOpenChange, hostTree }: Scheduled
     });
   };
 
+  // Where the user is when a run-now answers decides where its error shows.
+  const deepRef = useRef(deep);
+  deepRef.current = deep;
   const runNow = async (row: ScheduledAgentListItem): Promise<void> => {
     const key = keyOf(row);
     if (runNowPending.has(key)) return;
@@ -340,7 +354,7 @@ export function ScheduledAgentsModal({ open, onOpenChange, hostTree }: Scheduled
       toast.success(`Started "${prettifyScheduledAgentName(row.name)}" — the new conversation appears shortly`);
     } catch (err) {
       const msg = err instanceof Error ? err.message : "Run now failed";
-      if (deep) toast.error(`Couldn't start it: ${msg}`);
+      if (deepRef.current) toast.error(`Couldn't start it: ${msg}`);
       else setWriteError(msg);
     } finally {
       setRunNowPending((cur) => {
@@ -413,20 +427,20 @@ export function ScheduledAgentsModal({ open, onOpenChange, hostTree }: Scheduled
   };
 
   // ── List ───────────────────────────────────────────────────────────────
-  const words = search.trim().toLowerCase().split(/\s+/).filter(Boolean);
   const groups = useMemo(() => {
+    const words = search.trim().toLowerCase().split(/\s+/).filter(Boolean);
     if (items === null) return [];
-    const byHost = new Map<number, { host: string; rows: ScheduledAgentListItem[] }>();
+    const byHost = new Map<number, { hostId: number; host: string; rows: ScheduledAgentListItem[] }>();
     for (const row of items) {
-      if (!byHost.has(row.hostId)) byHost.set(row.hostId, { host: row.host, rows: [] });
+      if (!byHost.has(row.hostId)) byHost.set(row.hostId, { hostId: row.hostId, host: row.host, rows: [] });
       if (matches(row, words, roleNames)) byHost.get(row.hostId)!.rows.push(row);
     }
     return [...byHost.values()].map((g) => ({ ...g, rows: g.rows.sort(byNextRun) }));
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- words is derived from search
   }, [items, search, roleNames]);
   const multiMachine = groups.length > 1;
   const visibleGroups = groups.filter((g) => g.rows.length > 0);
-  const bannerError = loadError ?? writeError;
+  // What the user just did failing matters more than a background refresh.
+  const bannerError = writeError ?? loadError;
 
   const newButton = (
     <KitButton variant="primary" size="sm" onClick={openNew} data-testid="scheduled-agents-modal-add-button">
@@ -467,7 +481,7 @@ export function ScheduledAgentsModal({ open, onOpenChange, hostTree }: Scheduled
         {bannerError !== null && (
           <KitBanner
             tone="danger"
-            data-testid={loadError !== null ? "scheduled-agents-modal-load-error" : "scheduled-agents-modal-write-error"}
+            data-testid={writeError !== null ? "scheduled-agents-modal-write-error" : "scheduled-agents-modal-load-error"}
             onDismiss={() => {
               setWriteError(null);
               setLoadError(null);
@@ -496,7 +510,7 @@ export function ScheduledAgentsModal({ open, onOpenChange, hostTree }: Scheduled
         ) : (
           visibleGroups.map((g) => (
             <KitSettingsGroup
-              key={g.host}
+              key={g.hostId}
               title={
                 multiMachine ? (
                   <span className="flex items-baseline gap-2">
@@ -556,6 +570,7 @@ export function ScheduledAgentsModal({ open, onOpenChange, hostTree }: Scheduled
         <ScheduledTaskView
           key="new"
           hosts={agentHosts}
+          hostsLoaded={hostTree !== null}
           onCreate={create}
           onDone={() => void back()}
           registerGuard={registerGuard}
@@ -585,6 +600,11 @@ export function ScheduledAgentsModal({ open, onOpenChange, hostTree }: Scheduled
           onDelete={async () => {
             await deleteScheduledAgent(deepRow.slug, deepRow.hostId);
             setItems((cur) => (cur ?? []).filter((r) => keyOf(r) !== keyOf(deepRow)));
+            // Straight back to the list — never via the "gone" screen.
+            guardRef.current = null;
+            escapeRef.current = null;
+            setDeep(null);
+            void refetch();
           }}
           onDone={() => void back()}
           registerGuard={registerGuard}
