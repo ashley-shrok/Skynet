@@ -2,9 +2,9 @@
  * Backup TTS provider support for /voice/speak-stream (TTS_FALLBACK_PROVIDER,
  * resolved in tts-provider.ts).
  *
- *   - Bench: once the selected provider fails or stalls, messages go straight
- *     to the backup for BENCH_MS, then the selected provider is tried again.
- *     In memory only; a restart forgets it.
+ *   - Bench: once a provider fails or stalls, messages try the other one
+ *     first for BENCH_MS. A benched provider is still used when the other
+ *     one fails. In memory only; a restart forgets it.
  *   - Resume point: where the backup picks up a message the selected provider
  *     stopped partway through. Errs early — a repeated sentence is fine, a
  *     skipped one is not.
@@ -22,7 +22,7 @@ export const BENCH_MS = 15 * 60_000;
 
 const benchedUntil = new Map<TtsProviderId, number>();
 
-/** Send messages straight to the backup for BENCH_MS after `providerId` failed. */
+/** Try the other provider first for BENCH_MS after `providerId` failed. */
 export function benchProvider(providerId: TtsProviderId, reqId: string, reason: string, now: number = Date.now()): void {
   const already = (benchedUntil.get(providerId) ?? 0) > now;
   benchedUntil.set(providerId, now + BENCH_MS);

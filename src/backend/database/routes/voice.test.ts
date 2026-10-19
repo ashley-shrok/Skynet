@@ -1425,15 +1425,54 @@ describe("TTS_FALLBACK_PROVIDER (backup provider takes over)", () => {
     expect(pcmBytesOut(res)).toBe(6);
   });
 
-  it("backup also stalls → the message ends there; no chain back to the primary", async () => {
-    answer([() => stalling(48_000)], [() => stalling(10)]);
+  it("backup also stalls → the primary speaks the rest", async () => {
+    answer([() => stalling(48_000), () => pcm(6)], [() => stalling(10)]);
 
     const res = await speakStream({ text: "One sentence. Another sentence." });
 
-    expect(openAiCalls()).toHaveLength(1);
-    expect(pcmBytesOut(res)).toBe(48_000 + 10);
+    expect(openAiCalls()).toHaveLength(2);
+    expect(pcmBytesOut(res)).toBe(48_000 + 10 + 6);
     expect(res._streamedEnded).toBe(true);
     expect(res._destroyed).toBe(false);
+  });
+
+  it("primary stalls, backup is out of credits → the primary retries and speaks the message", async () => {
+    answer([() => stalling(0), () => pcm(6)], [() => new Response("quota_exceeded", { status: 401 })]);
+
+    const res = await speakStream({ text: "Hello there." });
+
+    expect(res._status).toBe(200);
+    expect(openAiCalls()).toHaveLength(2);
+    expect(elevenCalls()).toHaveLength(1);
+    expect(pcmBytesOut(res)).toBe(6);
+    expect(res._streamedEnded).toBe(true);
+  });
+
+  it("primary benched, backup out of credits → the primary speaks, and both benched means primary first", async () => {
+    answer([() => stalling(0), () => pcm(6)], [() => new Response("quota_exceeded", { status: 401 })]);
+    await speakStream({ text: "First." }); // stall benches OpenAI; ElevenLabs refuses and is benched too
+
+    const res = await speakStream({ text: "Second." });
+
+    expect(res._status).toBe(200);
+    expect(pcmBytesOut(res)).toBe(6);
+    expect(openAiCalls()).toHaveLength(3);
+    expect(elevenCalls()).toHaveLength(1); // not asked again for the second message
+  });
+
+  it("primary benched, backup refuses → the primary still speaks the message", async () => {
+    answer([() => new Response("bad key", { status: 401 }), () => pcm(6)], [
+      () => pcm(8),
+      () => new Response("quota_exceeded", { status: 401 }),
+    ]);
+    await speakStream({ text: "First." }); // OpenAI benched, ElevenLabs speaks
+    expect(elevenCalls()).toHaveLength(1);
+
+    const res = await speakStream({ text: "Second." });
+
+    expect(res._status).toBe(200);
+    expect(elevenCalls()).toHaveLength(2);
+    expect(pcmBytesOut(res)).toBe(6);
   });
 
   it("backup at another sample rate is resampled to the rate already in the header", async () => {

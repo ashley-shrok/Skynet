@@ -567,8 +567,10 @@ type SpeakPassOutcome =
 // message in the same response — the whole message if no audio went out yet,
 // else from about where the audio stopped (resumeText). The backup's audio is
 // resampled to the rate already in the RIFF header. The selected provider is
-// then benched for a while so later messages go straight to the backup. With
-// no backup configured the behaviour is exactly the single-provider one.
+// then benched for a while so later messages try the backup first. If the
+// backup fails too, the selected provider speaks what's left with its full
+// stall retries — a backup never makes a message worse off. With no backup
+// configured the behaviour is exactly the single-provider one.
 //
 // Diagnostic instrumentation (2026-09-28): every speak-stream request carries
 // a short reqId that ties `speak-stream-plan` → `speak-stream-chunk-out` →
@@ -633,7 +635,13 @@ export async function handleSpeakStream(req: Request, res: Response): Promise<vo
   // stall returns a hand-off (what's left to say) instead of retrying the same
   // provider or failing the request; without it, failures behave as they
   // always have (retry a stall while nothing is out, else end / throw).
-  const speakPass = async (p: TtsProvider, passText: string, canHandOff: boolean): Promise<SpeakPassOutcome> => {
+  // `quickStall` uses the short stall timeout (a healthy provider is waiting).
+  const speakPass = async (
+    p: TtsProvider,
+    passText: string,
+    canHandOff: boolean,
+    quickStall = canHandOff,
+  ): Promise<SpeakPassOutcome> => {
     provider = p;
     choice = undefined;
     const handoff = (restText: string, reason: string, playedSec = 0, bench = true): SpeakPassOutcome => ({
@@ -690,7 +698,7 @@ export async function handleSpeakStream(req: Request, res: Response): Promise<vo
     let truncated = false;
     // Set when this pass is abandoned for the backup: prefetches stop.
     let abandoned = false;
-    const stallMs = ttsStallTimeoutMs(process.env, { canHandOff });
+    const stallMs = ttsStallTimeoutMs(process.env, { canHandOff: quickStall });
     const synth = (i: number) => synthesizeWithRetries(p, chunks[i], voiceId, { reqId, chunkIndex: i }, 3, stallMs);
     // Prefetched chunks are drained whole before any of their audio is sent,
     // so a stalled one can always be retried from scratch (or handed off).
@@ -982,29 +990,51 @@ export async function handleSpeakStream(req: Request, res: Response): Promise<vo
     // A misconfigured TTS_PROVIDER stays an error (as on every other voice
     // route) — the backup covers a provider in trouble, not a broken setting.
     if (!primary) throw primaryErr;
-    let first: TtsProvider;
-    let canHandOff = backup !== null;
-    if (backup && isProviderBenched(primary.id, reqId)) {
-      first = backup;
-      canHandOff = false;
+
+    // The order providers get to speak this message. A bench only changes
+    // who goes first — it never takes a provider out — and the selected
+    // provider always gets the last word with its full stall retries, so a
+    // message is never worse off for having a backup (e.g. a backup that is
+    // out of credits falls through to the selected provider).
+    type SpeakStep = { p: TtsProvider; quickStall: boolean };
+    let steps: SpeakStep[];
+    if (!backup) {
+      steps = [{ p: primary, quickStall: false }];
+    } else if (isProviderBenched(primary.id, reqId) && !isProviderBenched(backup.id, reqId)) {
+      steps = [
+        { p: backup, quickStall: false },
+        { p: primary, quickStall: false },
+      ];
       databaseLogger.info(
         `[voice-server] speak-fallback reqId=${reqId} from=${primary.id} to=${backup.id} reason=benched restTextLen=${text.length} playedSec=0`,
         { operation: "voice_speak_fallback", reqId, from: primary.id, to: backup.id, reason: "benched" },
       );
     } else {
-      first = primary;
+      steps = [
+        { p: primary, quickStall: true },
+        { p: backup, quickStall: false },
+        { p: primary, quickStall: false },
+      ];
     }
-    firstId = first.id;
+    firstId = steps[0].p.id;
 
-    let outcome = await speakPass(first, text, canHandOff);
-    if (outcome.kind === "handoff" && backup && !clientGone) {
-      if (outcome.bench) benchProvider(first.id, reqId, outcome.reason);
+    let restText = text;
+    let outcome: SpeakPassOutcome = { kind: "done", truncated: false };
+    for (let k = 0; k < steps.length; k++) {
+      const { p, quickStall } = steps[k];
+      const next = steps[k + 1];
+      outcome = await speakPass(p, restText, next !== undefined, quickStall);
+      if (outcome.kind !== "handoff" || clientGone || !next) break;
+      if (outcome.bench) benchProvider(p.id, reqId, outcome.reason);
       databaseLogger.warn(
-        `[voice-server] speak-fallback reqId=${reqId} from=${first.id} to=${backup.id} reason=${outcome.reason} bench=${outcome.bench} restTextLen=${outcome.restText.length} playedSec=${outcome.playedSec.toFixed(3)} headersFlushed=${headersFlushed}`,
-        { operation: "voice_speak_fallback", reqId, from: first.id, to: backup.id, reason: outcome.reason },
+        `[voice-server] speak-fallback reqId=${reqId} from=${p.id} to=${next.p.id} reason=${outcome.reason} bench=${outcome.bench} restTextLen=${outcome.restText.length} playedSec=${outcome.playedSec.toFixed(3)} headersFlushed=${headersFlushed}`,
+        { operation: "voice_speak_fallback", reqId, from: p.id, to: next.p.id, reason: outcome.reason },
       );
-      outcome =
-        outcome.restText.length > 0 ? await speakPass(backup, outcome.restText, false) : { kind: "done", truncated: false };
+      restText = outcome.restText;
+      if (restText.length === 0) {
+        outcome = { kind: "done", truncated: false };
+        break;
+      }
     }
 
     if (clientGone) {
