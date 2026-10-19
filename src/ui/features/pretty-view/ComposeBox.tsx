@@ -647,7 +647,7 @@ const VOICE_MODE_COLOR: Record<VoiceModePhase, string> = {
 };
 
 /** What the Stop button shows after a press (see PrettyView). */
-export type InterruptFeedback = "stopping" | "stopped" | "cancelled" | "nothing" | "no_response";
+export type InterruptFeedback = "stopping" | "stopped" | "cancelled" | "nothing" | "failed";
 
 // Single words / short phrases so the chip fits in the aux row on a phone.
 const INTERRUPT_FEEDBACK_LABEL: Record<InterruptFeedback, string> = {
@@ -655,7 +655,7 @@ const INTERRUPT_FEEDBACK_LABEL: Record<InterruptFeedback, string> = {
   stopped: "Stopped",
   cancelled: "Cancelled",
   nothing: "Nothing to stop",
-  no_response: "No response",
+  failed: "Failed",
 };
 
 // Same dark blue-gray Glass treatment as the Stop / ThumbsUp aux buttons.
@@ -765,7 +765,7 @@ function VoiceModeButton({
  * outcome: a spinner while the verdict is pending, then what happened.
  */
 function InterruptFeedbackChip({ feedback }: { feedback: InterruptFeedback }) {
-  const Glyph = feedback === "stopping" ? LoaderCircle : feedback === "nothing" || feedback === "no_response" ? Ban : Check;
+  const Glyph = feedback === "stopping" ? LoaderCircle : feedback === "nothing" || feedback === "failed" ? Ban : Check;
   return (
     <div
       data-testid="interrupt-feedback"
@@ -773,7 +773,7 @@ function InterruptFeedbackChip({ feedback }: { feedback: InterruptFeedback }) {
       className={cn(
         "flex h-7 max-md:h-9 items-center gap-1.5 rounded-[6px] border px-2 text-xs whitespace-nowrap",
         AUX_BUTTON_CLASS,
-        feedback === "nothing" || feedback === "no_response" ? "opacity-80" : undefined,
+        feedback === "nothing" || feedback === "failed" ? "opacity-80" : undefined,
       )}
     >
       <Glyph aria-hidden="true" className={cn("size-4", feedback === "stopping" && "animate-spin")} />

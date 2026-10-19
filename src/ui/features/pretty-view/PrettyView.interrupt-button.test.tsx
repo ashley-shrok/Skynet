@@ -371,7 +371,7 @@ describe("PrettyView — interrupt button (shape-interrupt-button)", () => {
     expect(container.textContent).toContain(label);
   });
 
-  it("no verdict within the timeout says 'No response' rather than spinning forever", async () => {
+  it("no verdict within the timeout says 'Failed' rather than spinning forever", async () => {
     const { container } = await mount();
     vi.useFakeTimers();
     act(() => {
@@ -380,7 +380,7 @@ describe("PrettyView — interrupt button (shape-interrupt-button)", () => {
     act(() => {
       vi.advanceTimersByTime(8000);
     });
-    expect(feedback(container)).toBe("no_response");
+    expect(feedback(container)).toBe("failed");
     act(() => {
       vi.advanceTimersByTime(2000);
     });

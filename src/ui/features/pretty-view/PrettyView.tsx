@@ -828,7 +828,7 @@ export function PrettyView({
       interruptFeedbackTimerRef.current = null;
       if (next === "stopping") {
         console.warn(`[interrupt] no-result-after-press waitedMs=${holdMs}`);
-        showInterruptFeedback("no_response", INTERRUPT_OUTCOME_HOLD_MS);
+        showInterruptFeedback("failed", INTERRUPT_OUTCOME_HOLD_MS);
       } else {
         setInterruptFeedback(null);
       }
@@ -1680,7 +1680,7 @@ export function PrettyView({
     const ws = wsRef.current;
     if (!ws || ws.readyState !== WebSocket.OPEN) {
       console.warn(`[interrupt] press-not-sent reason=ws_not_open hostId=${hostId} tmuxSession=${tmuxSession ?? "null"}`);
-      showInterruptFeedback("no_response", INTERRUPT_OUTCOME_HOLD_MS);
+      showInterruptFeedback("failed", INTERRUPT_OUTCOME_HOLD_MS);
       return;
     }
     console.info(`[interrupt] press hostId=${hostId} tmuxSession=${tmuxSession ?? "null"}`);

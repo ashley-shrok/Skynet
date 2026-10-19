@@ -1215,7 +1215,7 @@ crown, then gear.
   On a press the button at once turns into a small chip with a spinner and
   **Stopping** (deciding on a cancel takes about a second and a half),
   then shows what happened for two seconds — **Stopped**, **Cancelled** or
-  **Nothing to stop** (**No response** if the press never got an answer)
+  **Nothing to stop** (**Failed** if the press didn't go through)
   — before going back to the square.
   The same conversation open elsewhere drops a cancelled bubble too; only
   the device that pressed gets the words back.
