@@ -15,6 +15,8 @@
 #                      via ast — the module spawns children at import time)
 #   file-watch         file-watch.py _parse_roles_from_frontmatter
 #                      (returns (roles, err); err → [])
+#   id-load-context    id-load-context.py parse_roles_frontmatter over its own
+#                      _read (the way the hook reads an identity file)
 #   agent-supervisor   agent-supervisor.sh _extract_frontmatter_roles (sourced
 #                      with AGENT_SUPERVISOR_LIB_ONLY=1; stdout JSON compared)
 #   identity-unarchive src/backend/database/routes/identity-unarchive.ts
@@ -169,6 +171,11 @@ def _rfw():
     return run
 
 
+def _idload():
+    mod = load_module("id_load_context", os.path.join(scripts, "id-load-context.py"))
+    return lambda path: mod.parse_roles_frontmatter(mod._read(path) or "")
+
+
 def _supervisor():
     def run(path):
         out_path = path[:-3] + ".supervisor.out"
@@ -192,11 +199,12 @@ register("reference", _reference)
 register("fleet-status-sweep", _sweep)
 register("ambient-monitor", _ambient)
 register("file-watch", _rfw)
+register("id-load-context", _idload)
 register("agent-supervisor", _supervisor)
 register("identity-unarchive", _unarchive_ts)
 
 names = ["reference", "fleet-status-sweep", "ambient-monitor", "file-watch",
-         "agent-supervisor", "identity-unarchive"]
+         "id-load-context", "agent-supervisor", "identity-unarchive"]
 npass = nfail = 0
 failures = []
 for name in names:

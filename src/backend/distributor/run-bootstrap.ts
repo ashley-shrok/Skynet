@@ -44,6 +44,9 @@
  *        - hooks.UserPromptSubmit contains a "resume-gap-notice" entry (tells
  *          a session how long it has been since its last activity when the
  *          gap is 30+ minutes — see substrate/scripts/resume-gap-notice.sh)
+ *        - hooks.UserPromptSubmit contains an "id-load-context" entry (hands
+ *          an `/id <name>` load its identity, role, runbook, scheduled-task,
+ *          wake-up and project context — see substrate/scripts/id-load-context.py)
  *        - hooks.PreToolUse contains an "allow-all-tools" entry with NO
  *          matcher — universal auto-allow that eliminates residual permission
  *          prompts the harness's --dangerously-skip-permissions flag doesn't
@@ -311,11 +314,13 @@ function logRolesKeyMigration(
  * shell. Local jq invocation must NOT expand it either (pass the expression
  * as an argv arg, not through a shell).
  *
- * Currently sets seventeen keys total: seven simple flags/env vars, plus ten
+ * Currently sets eighteen keys total: seven simple flags/env vars, plus eleven
  * hook entries under .hooks —
  *   - task-field-check on UserPromptSubmit (identity `task:` placeholder nudge).
  *   - resume-gap-notice on UserPromptSubmit (time-since-last-activity note
  *     when a session receives a message after a 30+ minute gap).
+ *   - id-load-context on UserPromptSubmit (identity/role/runbook/
+ *     scheduled-task/wake-up/project context for an `/id <name>` load).
  *   - allow-all-tools on PreToolUse (fleet-wide auto-allow — no matcher,
  *     fires for every tool; completes "no prompts, ever" by overriding the
  *     harness's residual circuit-breaker that survives
@@ -343,6 +348,7 @@ export const SETTINGS_MERGE_JQ =
   `  | .hooks = ((.hooks // {})` +
   `      | .UserPromptSubmit = ((.UserPromptSubmit // []) | if any(.[]?.hooks[]?.command // ""; test("task-field-check")) then . else . + [{"hooks":[{"type":"command","command":"$HOME/.local/bin/task-field-check"}]}] end)` +
   `      | .UserPromptSubmit = ((.UserPromptSubmit // []) | if any(.[]?.hooks[]?.command // ""; test("resume-gap-notice")) then . else . + [{"hooks":[{"type":"command","command":"$HOME/.local/bin/resume-gap-notice"}]}] end)` +
+  `      | .UserPromptSubmit = ((.UserPromptSubmit // []) | if any(.[]?.hooks[]?.command // ""; test("id-load-context")) then . else . + [{"hooks":[{"type":"command","command":"$HOME/.local/bin/id-load-context"}]}] end)` +
   `      | .UserPromptSubmit = ((.UserPromptSubmit // []) | if any(.[]?.hooks[]?.command // ""; test("self-edit-baseline-sync")) then . else . + [{"hooks":[{"type":"command","command":"$HOME/.local/bin/self-edit-baseline-sync"}]}] end)` +
   `      | .PreToolUse = ((.PreToolUse // []) | if any(.[]?.hooks[]?.command // ""; test("allow-all-tools")) then . else . + [{"hooks":[{"type":"command","command":"$HOME/.local/bin/allow-all-tools"}]}] end)` +
   `      | .PreToolUse = ((.PreToolUse // []) | if any(.[]?.hooks[]?.command // ""; test("self-edit-baseline-sync")) then . else . + [{"matcher":"Write|Edit|MultiEdit|NotebookEdit|Bash","hooks":[{"type":"command","command":"$HOME/.local/bin/self-edit-baseline-sync"}]}] end)` +
@@ -365,6 +371,7 @@ export const SETTINGS_CHECK_JQ =
   `  and (.env.DISABLE_AUTO_COMPACT == "1")` +
   `  and ((.hooks.UserPromptSubmit // []) | any(.[]?.hooks[]?.command // ""; test("task-field-check")))` +
   `  and ((.hooks.UserPromptSubmit // []) | any(.[]?.hooks[]?.command // ""; test("resume-gap-notice")))` +
+  `  and ((.hooks.UserPromptSubmit // []) | any(.[]?.hooks[]?.command // ""; test("id-load-context")))` +
   `  and ((.hooks.PreToolUse // []) | any(.[]?.hooks[]?.command // ""; test("allow-all-tools")))` +
   `  and ((.hooks.UserPromptSubmit // []) | any(.[]?.hooks[]?.command // ""; test("self-edit-baseline-sync")))` +
   `  and ((.hooks.PreToolUse // []) | any(.[]?.hooks[]?.command // ""; test("self-edit-baseline-sync")))` +
@@ -923,6 +930,10 @@ export async function runBootstrapForHost(
   //             $HOME/.local/bin/resume-gap-notice (tells the session how long
   //             since its last activity after a 30+ minute gap). Match on the
   //             string "resume-gap-notice" for the same idempotency reason.
+  //           - hooks.UserPromptSubmit contains an entry that runs
+  //             $HOME/.local/bin/id-load-context (hands an `/id <name>` load
+  //             the context the id skill's load steps need). Match on the
+  //             string "id-load-context" for the same idempotency reason.
   //           - hooks.PreToolUse contains an entry that runs
   //             $HOME/.local/bin/allow-all-tools with NO matcher (universal
   //             auto-allow for every tool call). Match on the string

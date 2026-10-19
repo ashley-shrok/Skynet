@@ -304,6 +304,8 @@ describe("runBootstrapForHost", () => {
     expect(settingsCmd).toContain(`$HOME/.local/bin/task-field-check`);
     // resume-gap-notice UserPromptSubmit hook — same shape as task-field-check.
     expect(settingsCmd).toContain(`$HOME/.local/bin/resume-gap-notice`);
+    // id-load-context UserPromptSubmit hook — same shape as task-field-check.
+    expect(settingsCmd).toContain(`$HOME/.local/bin/id-load-context`);
     // allow-all-tools PreToolUse hook — the merge must add an entry
     // whose command references allow-all-tools when absent. NO matcher
     // field on the entry (universal auto-allow); the shape lives inside
@@ -329,6 +331,7 @@ describe("runBootstrapForHost", () => {
     expect(settingsCmd).toContain(`.hooks.UserPromptSubmit // []`);
     expect(settingsCmd).toContain(`test("task-field-check")`);
     expect(settingsCmd).toContain(`test("resume-gap-notice")`);
+    expect(settingsCmd).toContain(`test("id-load-context")`);
     // allow-all-tools idempotency predicate — same rationale.
     expect(settingsCmd).toContain(`.hooks.PreToolUse // []`);
     expect(settingsCmd).toContain(`test("allow-all-tools")`);

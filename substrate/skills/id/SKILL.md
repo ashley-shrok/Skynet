@@ -131,18 +131,22 @@ IDENTITY_FILE=~/fleet/identities/$name/$name.md
 
 ### 2. Loading an existing identity
 
-Read the file `~/fleet/identities/<name>/<name>.md`. **Read its
-frontmatter** — the `roles:` key lists the role(s) this identity holds,
-e.g. `roles: [box-maintainer]` or `roles: [box-maintainer, sky-uat]`.
+Your `/id <name>` message arrives with a **load context** block, gathered
+for you by the id-load hook: your identity file, each role's role file,
+runbook names and the scheduled tasks that run with that role, your own
+wake-ups, and your project chain's `project.md` files and folder listings.
+A file too large to include is named instead — Read it before announcing.
+Everything else in the block is already in context; don't look it up again.
 
-An empty or absent list (`roles: []`, or no `roles:` key) is a normal
-state, not an error: you are a plain agent with no roles. Skip every
-role step below — role files, their reference files, runbooks — and load
-the rest (task, body, project file) as usual.
+The identity file's `roles:` frontmatter lists the role(s) you hold, e.g.
+`roles: [box-maintainer]` or `roles: [box-maintainer, sky-uat]`. An empty
+or absent list is a normal state, not an error: you are a plain agent with
+no roles, and every role part of loading falls away.
 
-You hold **every** listed role equally — there is no primary. Load each
-one's role file and runbooks, follow each one's directives. See § Holding
-several roles for how they combine.
+You hold **every** listed role equally — there is no primary. Follow each
+role file's directives (it's who you ARE). See § Holding several roles for
+how they combine. Deeper reference files a role names in its 10k-view
+section load ON DEMAND, when you actually work on that subsystem.
 
 How the app treats a multi-role identity: it lists every role (the
 identity modal's header shows them as comma-separated links, each opening
@@ -166,61 +170,29 @@ replace it if they later move you onto genuinely different work.
 Always write the value double-quoted — `task: "Pantheon: setup plan"` — since
 an unquoted `: ` inside it breaks the frontmatter as YAML.
 
-For as many roles as you have listed in your `roles:` frontmatter field
-(with none, do only step 3):
+The rest of the load context, and what each piece is for:
 
-1. Resolve the role folder(s): `~/fleet/roles/<role>/`.
+- **Runbooks** — names only; each runbook's content is read when it's
+  actually invoked (§ Runbooks).
 
-2. Read the ROLE FILE(S) at `~/fleet/roles/<role>/<role>.md` — the fat files
-   with directives, preferences, and the 10k-view of the domain. It's who
-   you ARE.
+- **Scheduled tasks with your role** — standing work your role already
+  does on a clock (§ Scheduled tasks). Check them before suggesting a new
+  one, and when you change a runbook or directive a task's prompt leans
+  on, tell the user which task it affects.
 
-3. **Read the project file, if any.** Check the identity file's frontmatter
-   for a `project: <slug>` key. If present:
-   
-   - Read `~/fleet/projects/<slug>/project.md` into context — it names
-     what this project is for, plus any shared conventions or references
-     the project needs. Its `members:` frontmatter lists every live
-     identity in the project (each is that agent's relay name), and it's
-     kept current automatically — don't edit it. When someone joins or
-     leaves, you get the diff at your next turn.
-   
-   - Silently enumerate the top-level contents of
-     `~/fleet/projects/<slug>/`. Hold the names in context. Each file's
-     contents load on demand via a normal Read tool call — same shape as
-     the runbooks enumeration below.
-   
-   - If the frontmatter has no `project:` field, OR the slug points to a
-     directory that doesn't exist on disk, OR points to an archived
-     project at `~/fleet/projects/archive/<slug>/`, this step is a
-     graceful no-op — continue without it.
-   
-   - **If your project is a sub-project, read its whole chain.** A
-     `parent: <parent-slug>` line in a `project.md` frontmatter names the
-     project it sits inside (§ Sidebar content → Sub-projects). Follow
-     those lines upward from your project, then read the chain **top-down**:
-     the top ancestor's `project.md` first, your own last, enumerating each
-     ancestor's folder the same way as your own. A bare `null`, `true`,
-     `false` or number as the value names no parent. Stop climbing at a
-     parent with no real folder under `~/fleet/projects/` (gone, archived,
-     or a symlink), or when the climb comes back to a project already
-     reached (a loop — the chain ends at that project; if your own project
-     is on the loop, it is top level). This is exactly where the sidebar puts your project.
-     You inherit the conventions of every project above you; **when they
-     disagree, the nearer project wins** — your own over its parent, a
-     parent over a grandparent.
+- **Your wake-ups** — what will fire into you (§ Scheduled wake-ups).
 
-4. Read the deeper reference file(s) the role names in its 10k-view
-   section, ON DEMAND (not now — those load when you actually work on that
-   subsystem).
-
-Then, for each of your roles, enumerate the runbook subfolders directly
-under `~/fleet/roles/<role>/runbooks/` — one folder per runbook, named for its
-slug. Hold the names in context silently. No announce line; no read-in.
-This is what makes the identity AWARE that a set of runbooks exists for
-this role; each runbook's content is read on demand only when it's
-actually invoked (see § Runbooks). If the role has no `runbooks/` folder,
-or it's empty, skip silently.
+- **Your project** (the identity file's `project: <slug>`) — its
+  `project.md` names what the project is for plus any shared conventions
+  or references. Its `members:` frontmatter lists every live identity in
+  the project (each is that agent's relay name), and it's kept current
+  automatically — don't edit it. When someone joins or leaves, you get the
+  diff at your next turn. The folder listing is names only; files load on
+  demand. **In a sub-project** (§ Sidebar content → Sub-projects) the
+  block holds the whole chain top-down, exactly where the sidebar puts
+  your project: you inherit the conventions of every project above you,
+  and **when they disagree, the nearer project wins** — your own over its
+  parent, a parent over a grandparent.
 
 Announce:
 
@@ -258,15 +230,16 @@ When your `roles:` list has more than one entry, the roles combine like this:
 - **Your role list can change while you're running.** If the user or
   another agent edits `roles:` in your identity file, your next turn brings
   a `📝 [role-file: <role>]` line naming each role you gained or lost. For
-  a gained role, read its role file and enumerate its runbooks just as
-  you would at load time. For a lost role, stop following its directives.
+  a gained role, read its role file and list its runbooks and the
+  scheduled tasks that run with it — what the load context would have
+  held for it. For a lost role, stop following its directives.
   Gaining a first role or losing your last one works the same way.
 - **Being asked to take on a role means adding it, not switching.** When
   the user asks you to take on, become, or act as a role you don't hold,
   append it to your `roles:` list and keep every role you already have —
   unless they explicitly say to drop or replace one. Then read the new
-  role's role file and enumerate its runbooks yourself, since you get no
-  wake for your own edit.
+  role's role file and list its runbooks and scheduled tasks yourself,
+  since you get no wake for your own edit.
 
 ---
 

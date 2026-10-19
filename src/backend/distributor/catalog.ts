@@ -512,6 +512,21 @@ export const FLEET_SUBSTRATE_CATALOG: readonly CatalogEntry[] = [
     restartHook: null,
   },
 
+  // id-load-context: UserPromptSubmit hook that, on an `/id <name>` load,
+  // hands the agent its identity file, role files, runbook names, the
+  // scheduled tasks that run with its roles, its own wake-ups and its
+  // project chain — so the load needs no lookup tool calls. Whole files go
+  // in while they fit under Claude Code's 10K additionalContext cap; the
+  // rest are named for the agent to Read. Wired via the run-bootstrap.ts
+  // settings.json patch. No restart hook — new bytes picked up on next fire.
+  {
+    slug: "id-load-context",
+    sourceKind: "bundled",
+    bundledPath: "/app/fleet-substrate/scripts/id-load-context.py",
+    installPath: "~/.local/bin/id-load-context",
+    restartHook: null,
+  },
+
   // allow-all-tools: PreToolUse hook that unconditionally emits
   // permissionDecision:"allow" for every tool call. Completes fleet-wide
   // "no prompts, ever": --dangerously-skip-permissions covers most tool

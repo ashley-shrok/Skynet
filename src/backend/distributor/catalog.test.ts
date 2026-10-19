@@ -122,7 +122,9 @@ describe("FLEET_SUBSTRATE_CATALOG", () => {
     // +2 for relay-mcp (host-wide relay MCP server + relay-mcp.service) —
     // 136 → 138.
     // +1 for desktop-mcp.service (box-level desktop MCP server) — 138 → 139.
-    expect(FLEET_SUBSTRATE_CATALOG.length).toBe(139);
+    // +1 for id-load-context (UserPromptSubmit hook — hands an `/id` load
+    // its context) — 139 → 140.
+    expect(FLEET_SUBSTRATE_CATALOG.length).toBe(140);
   });
 
   it("Test 2: every bundled row's bundledPath starts with /app/fleet-substrate/skills/, /app/fleet-substrate/scripts/, or /app/fleet-substrate/user-onboarding/", () => {
@@ -292,7 +294,8 @@ describe("FLEET_SUBSTRATE_CATALOG", () => {
     // +1 pending-context-drain +
     // sensor-fire + sensor-runner (sensors: fire command + box-level runner)
     // + relay-mcp (host-wide relay MCP server)
-    expect(scriptRows.length).toBe(23);
+    // + id-load-context (UserPromptSubmit hook — `/id` load context)
+    expect(scriptRows.length).toBe(24);
     // 4 user-onboarding files: agent-supervisor.service +
     // interactive-messages-gc.service + interactive-messages-gc.timer (Phase 140)
     // + scheduled-agents-scheduler.service (this ship: move
@@ -510,7 +513,8 @@ describe("FLEET_SUBSTRATE_CATALOG", () => {
     // +4 for sensors (skill + sensor-fire + sensor-runner + unit) — 131 → 135.
     // +2 for relay-mcp (server + unit) — 135 → 137.
     // +1 for desktop-mcp.service — 137 → 138.
-    expect(bundled.length).toBe(138);
+    // +1 for id-load-context — 138 → 139.
+    expect(bundled.length).toBe(139);
     expect(runtime.length).toBe(1);
 
     // Every bundled row retains bundledPath under /app/fleet-substrate/

@@ -678,6 +678,7 @@ describe("BR2 — bootstrap patches settings.json + runs gsd-context-monitor cle
     );
     expect(upsCommands).toContain("$HOME/.local/bin/task-field-check");
     expect(upsCommands).toContain("$HOME/.local/bin/resume-gap-notice");
+    expect(upsCommands).toContain("$HOME/.local/bin/id-load-context");
     // allow-all-tools PreToolUse hook — universal auto-allow. The entry
     // has NO matcher field (fires for every tool call). Verify the
     // command is present AND the entry group has no matcher key.
