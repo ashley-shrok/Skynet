@@ -330,11 +330,12 @@ export async function synthesizeWithRetries(
   voiceId: string,
   meta: { reqId: string; chunkIndex: number },
   maxAttempts: number = 3,
+  stallMs: number = ttsStallTimeoutMs(),
 ): Promise<Readable> {
   let lastErr: unknown;
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
     try {
-      return watchForStall(await provider.synthesize(text, voiceId), provider.id);
+      return watchForStall(await provider.synthesize(text, voiceId), provider.id, stallMs);
     } catch (err: unknown) {
       lastErr = err;
       if (attempt < maxAttempts && provider.isRetriable(err)) {
@@ -361,11 +362,15 @@ export const TTS_STALL_TIMEOUT_MS_DEFAULT = 10_000;
 /** Shorter quiet period when a backup provider is ready to take over. */
 export const TTS_STALL_TIMEOUT_MS_WITH_FALLBACK = 4_000;
 
-/** TTS_STALL_TIMEOUT_MS override, read at call time; invalid → default. */
-export function ttsStallTimeoutMs(env: NodeJS.ProcessEnv = process.env): number {
+/**
+ * TTS_STALL_TIMEOUT_MS override, read at call time; invalid → default. The
+ * shorter default applies only where a stall can hand off to a backup — where
+ * nothing can take over, waiting longer gives the provider a chance to recover.
+ */
+export function ttsStallTimeoutMs(env: NodeJS.ProcessEnv = process.env, opts: { canHandOff?: boolean } = {}): number {
   const v = Number(env.TTS_STALL_TIMEOUT_MS);
   if (Number.isFinite(v) && v > 0) return v;
-  return resolveTtsFallback(env).kind === "ok" ? TTS_STALL_TIMEOUT_MS_WITH_FALLBACK : TTS_STALL_TIMEOUT_MS_DEFAULT;
+  return opts.canHandOff ? TTS_STALL_TIMEOUT_MS_WITH_FALLBACK : TTS_STALL_TIMEOUT_MS_DEFAULT;
 }
 
 /**

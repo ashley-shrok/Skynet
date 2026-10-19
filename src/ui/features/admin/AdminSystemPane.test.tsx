@@ -64,5 +64,8 @@ describe("AdminSystemPane — Voice", () => {
     render(<AdminSystemPane />);
 
     await waitFor(() => expect(screen.getByTestId("admin-system-tts-error")).toBeTruthy());
+    // Unknown, not "None": nothing claims the services are unset.
+    expect(screen.getByTestId("admin-system-tts-primary").textContent).toBe("—");
+    expect(screen.getByTestId("admin-system-tts-backup").textContent).toBe("—");
   });
 });

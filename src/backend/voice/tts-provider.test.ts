@@ -241,13 +241,9 @@ describe("resolveTtsFallback", () => {
     expect(resolveTtsFallback({ TTS_FALLBACK_PROVIDER: "polly" })).toMatchObject({ reason: "same-as-primary" });
   });
 
-  it("stall timeout is shorter when a backup is ready; an explicit override still wins", () => {
-    expect(ttsStallTimeoutMs({ TTS_PROVIDER: "openai", TTS_FALLBACK_PROVIDER: "elevenlabs" })).toBe(
-      TTS_STALL_TIMEOUT_MS_WITH_FALLBACK,
-    );
-    expect(ttsStallTimeoutMs({ TTS_PROVIDER: "openai", TTS_FALLBACK_PROVIDER: "openai" })).toBe(TTS_STALL_TIMEOUT_MS_DEFAULT);
-    expect(
-      ttsStallTimeoutMs({ TTS_PROVIDER: "openai", TTS_FALLBACK_PROVIDER: "elevenlabs", TTS_STALL_TIMEOUT_MS: "250" }),
-    ).toBe(250);
+  it("stall timeout is shorter only where a stall can hand off; an explicit override still wins", () => {
+    expect(ttsStallTimeoutMs({}, { canHandOff: true })).toBe(TTS_STALL_TIMEOUT_MS_WITH_FALLBACK);
+    expect(ttsStallTimeoutMs({}, { canHandOff: false })).toBe(TTS_STALL_TIMEOUT_MS_DEFAULT);
+    expect(ttsStallTimeoutMs({ TTS_STALL_TIMEOUT_MS: "250" }, { canHandOff: true })).toBe(250);
   });
 });

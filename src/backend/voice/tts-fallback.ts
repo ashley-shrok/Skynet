@@ -59,34 +59,57 @@ export function clearProviderBench(): void {
  */
 export const RESUME_CHARS_PER_SEC = 12;
 
+/** Sentences longer than this are also split at clause breaks for resuming. */
+const RESUME_UNIT_MAX_CHARS = 200;
+
+/**
+ * Resume units: sentences, with long ones (lists, run-ons) further split at
+ * commas, semicolons, colons and line breaks so a resume doesn't repeat
+ * minutes of audio.
+ */
+function resumeUnits(text: string): string[] {
+  const units: string[] = [];
+  for (const sentence of splitIntoSentences(text)) {
+    if (sentence.length <= RESUME_UNIT_MAX_CHARS) {
+      units.push(sentence);
+      continue;
+    }
+    units.push(...sentence.split(/(?<=[,;:])\s+|\s*\n+\s*/).filter((u) => u.length > 0));
+  }
+  return units;
+}
+
 /**
  * The text still to speak after the selected provider stopped.
  *
  * `chunks` are the message's chunk texts (without tail-guard filler),
  * `failedChunk` the one that stopped, `playedSec` how much of THAT chunk's
  * audio reached the listener. Later chunks are always unplayed. Within the
- * failed chunk, the guess backs up to the start of the sentence it falls in;
- * a guess past the chunk's end still repeats its last sentence, since the
- * audio stopped before the provider finished.
+ * failed chunk the guess backs up to the start of the unit BEFORE the one it
+ * falls in — text read slower than the estimate (numbers, codes, pauses)
+ * can't push the resume past what was heard. A guess past the chunk's end
+ * still repeats its last units, since the audio stopped before the provider
+ * finished.
  */
 export function resumeText(chunks: readonly string[], failedChunk: number, playedSec: number): string {
   const later = chunks.slice(failedChunk + 1);
   const current = chunks[failedChunk] ?? "";
   if (playedSec <= 0) return [current, ...later].filter(Boolean).join(" ");
 
-  const sentences = splitIntoSentences(current);
+  const units = resumeUnits(current);
   const spoken = playedSec * RESUME_CHARS_PER_SEC;
-  let from = sentences.length - 1;
+  let at = units.length - 1;
   let offset = 0;
-  for (let j = 0; j < sentences.length; j++) {
-    const end = offset + sentences[j].length;
+  for (let j = 0; j < units.length; j++) {
+    const end = offset + units[j].length;
     if (end > spoken) {
-      from = j;
+      at = j;
       break;
     }
     offset = end + 1;
   }
-  return [sentences.slice(Math.max(from, 0)).join(" "), ...later].filter(Boolean).join(" ");
+  const from = Math.max(at - 1, 0);
+  return [units.slice(from).join(" "), ...later].filter(Boolean).join(" ");
 }
 
 // --- Resampler -----------------------------------------------------------------

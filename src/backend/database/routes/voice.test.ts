@@ -1186,6 +1186,43 @@ describe("TTS_PROVIDER selection", () => {
     expect(res._streamedEnded).toBe(false);
   });
 
+  it("listener hangs up while a prefetched chunk is downloading → the request finishes", async () => {
+    // Polly's stream, unlike the HTTP providers', emits only "close" on destroy().
+    delete process.env.TTS_PROVIDER;
+    const sentence = `${"word ".repeat(560)}end.`; // ~2804 chars → one Polly chunk each
+    const text = [sentence, sentence, sentence].join(" ");
+    let n = 0;
+    pollySendMock.mockImplementation(async () => {
+      n++;
+      if (n < 3) return { AudioStream: Readable.from([Buffer.alloc(4)]) };
+      const never = new Readable({ read() {} });
+      never.push(Buffer.alloc(4));
+      return { AudioStream: never };
+    });
+
+    const listeners: Record<string, Array<() => void>> = {};
+    const res = makeRes();
+    res.once = (event: string, cb: unknown) => {
+      (listeners[event] ??= []).push(cb as () => void);
+      return res;
+    };
+    let finished = false;
+    const done = handleSpeakStream(
+      makeSpeakReq({ text }) as unknown as import("express").Request,
+      res as unknown as import("express").Response,
+    ).then(() => {
+      finished = true;
+    });
+    await new Promise<void>((resolve) => setTimeout(resolve, 20));
+    expect(pollySendMock).toHaveBeenCalledTimes(3);
+
+    for (const cb of listeners.close ?? []) cb();
+    await Promise.race([done, new Promise((resolve) => setTimeout(resolve, 200))]);
+
+    expect(finished).toBe(true);
+    expect(res._streamedEnded).toBe(false);
+  });
+
   it("GET /voices: Polly's seven voices + Joanna default when TTS_PROVIDER is unset", async () => {
     delete process.env.TTS_PROVIDER;
 
@@ -1328,7 +1365,7 @@ describe("TTS_FALLBACK_PROVIDER (backup provider takes over)", () => {
     expect(res._destroyed).toBe(false);
   });
 
-  it("primary stalls after audio → backup picks up at the start of the sentence the audio stopped in", async () => {
+  it("primary stalls early → backup repeats from the first sentence, nothing skipped", async () => {
     const sentences = Array.from({ length: 10 }, (_, k) => `This is sentence number ${k} here.`); // 32-33 chars
     // 2.5 s of 24 kHz audio out ≈ 30 chars at the conservative resume rate → inside sentence 0.
     answer([() => stalling(120_000)]);
@@ -1344,11 +1381,11 @@ describe("TTS_FALLBACK_PROVIDER (backup provider takes over)", () => {
 
   it("further into the message, the repeat is just the sentence in progress", async () => {
     const sentences = Array.from({ length: 10 }, (_, k) => `This is sentence number ${k} here.`);
-    answer([() => stalling(480_000)]); // 10 s ≈ 120 chars → sentence 3
+    answer([() => stalling(480_000)]); // 10 s ≈ 120 chars → inside sentence 3; one back for margin
 
     await speakStream({ text: sentences.join(" ") });
 
-    expect(elevenText()).toBe(sentences.slice(3).join(" "));
+    expect(elevenText()).toBe(sentences.slice(2).join(" "));
   });
 
   it("a later chunk fails → backup starts exactly at that chunk", async () => {
@@ -1420,6 +1457,70 @@ describe("TTS_FALLBACK_PROVIDER (backup provider takes over)", () => {
     const call = elevenCalls()[0];
     expect(String(call?.[0])).toContain("/text-to-speech/SAz9YHcvj6GT2YYXdXww/");
     expect(JSON.parse(String(call?.[1]?.body)).model_id).toBe("eleven_multilingual_v2");
+  });
+
+  it("main audio cut mid-sample → padded so the backup's samples stay on the frame grid", async () => {
+    answer([() => stalling(4801)]);
+
+    const res = await speakStream({ text: "One sentence. Another sentence." });
+
+    expect(pcmBytesOut(res)).toBe(4801 + 1 + 8);
+    expect(pcmBytesOut(res) % 2).toBe(0);
+  });
+
+  it("a failure specific to the message (400) still hands off but doesn't bench the main provider", async () => {
+    answer([() => new Response("bad input", { status: 400 }), () => pcm(6)]);
+    await speakStream({ text: "First." });
+    expect(elevenText()).toBe("First.");
+
+    await speakStream({ text: "Second." });
+
+    expect(openAiCalls()).toHaveLength(2);
+    expect(elevenCalls()).toHaveLength(1);
+  });
+
+  it("misconfigured TTS_PROVIDER stays a 503 — the backup is not used", async () => {
+    process.env.TTS_PROVIDER = "poly";
+    answer([() => pcm(6)]);
+
+    const res = await speakStream({ text: "Hi." });
+
+    expect(res._status).toBe(503);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("only a pass that can hand off uses the short stall timeout", async () => {
+    delete process.env.TTS_STALL_TIMEOUT_MS;
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    try {
+      // Benched main → backup speaks alone; it pauses 5 s, which is fine without a hand-off.
+      answer([() => new Response("down", { status: 503 })], [
+        () =>
+          new Response(
+            new ReadableStream({
+              start(c) {
+                c.enqueue(new Uint8Array(8));
+                setTimeout(() => {
+                  c.enqueue(new Uint8Array(8));
+                  c.close();
+                }, 5_000);
+              },
+            }),
+            { status: 200 },
+          ),
+      ]);
+      clearProviderBench();
+      const res = makeRes();
+      const done = handleSpeakStream(
+        makeSpeakReq({ text: "Hi." }) as unknown as import("express").Request,
+        res as unknown as import("express").Response,
+      );
+      await vi.advanceTimersByTimeAsync(20_000);
+      await done;
+      expect(pcmBytesOut(res)).toBe(16);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("backup set to the primary itself is ignored → single-provider behaviour (503)", async () => {

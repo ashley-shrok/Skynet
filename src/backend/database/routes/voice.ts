@@ -20,6 +20,7 @@ import {
   resolveTtsFallback,
   resolveTtsProvider,
   synthesizeWithRetries,
+  ttsStallTimeoutMs,
   TTS_PROVIDER_LABELS,
   voiceLabels,
   VOICE_ID_MAX_LEN,
@@ -519,6 +520,9 @@ async function drainStreamToBuffer(
   await new Promise<void>((resolve, reject) => {
     stream.on("data", (b: Buffer) => bufs.push(b));
     stream.on("end", () => resolve());
+    // destroy() without an error (listener hung up, pass abandoned) emits only
+    // "close"; callers check why before using the partial buffer.
+    stream.on("close", () => resolve());
     stream.on("error", reject);
   });
   return Buffer.concat(bufs);
@@ -533,8 +537,12 @@ const warnedFallbackConfig = new Set<string>();
 /** What one provider's pass over (part of) a message ended with. */
 type SpeakPassOutcome =
   | { kind: "done"; truncated: boolean }
-  /** Stopped early; the backup should speak `restText`. Only when hand-off is allowed. */
-  | { kind: "handoff"; restText: string; reason: string; playedSec: number };
+  /**
+   * Stopped early; the backup should speak `restText`. Only when hand-off is
+   * allowed. `bench` is false when the failure looks specific to this message
+   * (e.g. a 400 on its text) rather than the provider being in trouble.
+   */
+  | { kind: "handoff"; restText: string; reason: string; playedSec: number; bench: boolean };
 
 // --- handleSpeakStream — POST /voice/speak-stream (streaming, chunk-and-stitch) ---
 // Splits long text into chunks no longer than the active provider's
@@ -628,19 +636,24 @@ export async function handleSpeakStream(req: Request, res: Response): Promise<vo
   const speakPass = async (p: TtsProvider, passText: string, canHandOff: boolean): Promise<SpeakPassOutcome> => {
     provider = p;
     choice = undefined;
-    const handoff = (restText: string, reason: string, playedSec = 0): SpeakPassOutcome => ({
+    const handoff = (restText: string, reason: string, playedSec = 0, bench = true): SpeakPassOutcome => ({
       kind: "handoff",
       restText,
       reason,
       playedSec,
+      bench,
     });
     const reasonOf = (err: unknown) =>
       err instanceof TtsStallError ? "stall" : `error:${err instanceof Error ? err.name : "unknown"}`;
+    // Provider trouble (stall, outage, throttling, network, key / credit) benches it;
+    // anything else is treated as this message's own problem.
+    const benchFor = (err: unknown) =>
+      err instanceof TtsStallError || p.isRetriable(err) || p.isUnavailable(err);
 
     try {
       choice = await chooseVoice(p, parsed.candidates);
     } catch (err) {
-      if (canHandOff) return handoff(passText, reasonOf(err));
+      if (canHandOff) return handoff(passText, reasonOf(err), 0, benchFor(err));
       throw err;
     }
     const voiceId = choice.voice;
@@ -677,7 +690,8 @@ export async function handleSpeakStream(req: Request, res: Response): Promise<vo
     let truncated = false;
     // Set when this pass is abandoned for the backup: prefetches stop.
     let abandoned = false;
-    const synth = (i: number) => synthesizeWithRetries(p, chunks[i], voiceId, { reqId, chunkIndex: i });
+    const stallMs = ttsStallTimeoutMs(process.env, { canHandOff });
+    const synth = (i: number) => synthesizeWithRetries(p, chunks[i], voiceId, { reqId, chunkIndex: i }, 3, stallMs);
     // Prefetched chunks are drained whole before any of their audio is sent,
     // so a stalled one can always be retried from scratch (or handed off).
     const prefetch = async (i: number): Promise<Buffer> => {
@@ -727,10 +741,10 @@ export async function handleSpeakStream(req: Request, res: Response): Promise<vo
       nextPrefetch = prefetch(1);
       nextPrefetch.catch(() => {});
     }
-    const abandon = (restText: string, reason: string, playedSec = 0): SpeakPassOutcome => {
+    const abandon = (restText: string, reason: string, playedSec = 0, bench = true): SpeakPassOutcome => {
       abandoned = true;
       for (const s of liveStreams) s.destroy();
-      return handoff(restText, reason, playedSec);
+      return handoff(restText, reason, playedSec, bench);
     };
 
     for (let i = 0; i < chunks.length; i++) {
@@ -755,7 +769,7 @@ export async function handleSpeakStream(req: Request, res: Response): Promise<vo
         try {
           currentStream = await chunk0Promise;
         } catch (err) {
-          if (canHandOff && !clientGone) return abandon(passText, reasonOf(err));
+          if (canHandOff && !clientGone) return abandon(passText, reasonOf(err), 0, benchFor(err));
           throw err;
         }
         liveStreams.add(currentStream);
@@ -851,6 +865,11 @@ export async function handleSpeakStream(req: Request, res: Response): Promise<vo
               { operation: "voice_speak_stall", reqId, provider: p.id, attempt, action: "handoff" },
             );
             totalAudioSec += playedSec;
+            // Provider pieces can end mid-sample; complete the last sample so
+            // the backup's audio starts on the frame grid (the player reads
+            // the body as one continuous run of 16-bit samples).
+            if (streamedBytes % 2 === 1) res.write(Buffer.alloc(1));
+            // A stall or a broken stream mid-body is provider trouble either way.
             return abandon(resumeText(plain, 0, playedSec), stalled ? "stall" : reasonOf(failure), playedSec);
           }
           if (!stalled) break;
@@ -905,7 +924,7 @@ export async function handleSpeakStream(req: Request, res: Response): Promise<vo
               `[voice-server] speak-stall reqId=${reqId} chunk=${i} provider=${p.id} streamedBytes=0 action=handoff reason=${reasonOf(err)}`,
               { operation: "voice_speak_stall", reqId, provider: p.id, action: "handoff" },
             );
-            return abandon(resumeText(plain, i, 0), reasonOf(err));
+            return abandon(resumeText(plain, i, 0), reasonOf(err), 0, benchFor(err));
           }
           throw err;
         }
@@ -940,8 +959,8 @@ export async function handleSpeakStream(req: Request, res: Response): Promise<vo
   let firstId: string = "none";
   let backupId: string = "none";
   try {
-    // Which provider speaks first: the selected one, unless it is benched (or
-    // misconfigured) and a backup is configured.
+    // Which provider speaks first: the selected one, unless it is benched
+    // and a backup is configured.
     let primary: TtsProvider | undefined;
     let primaryErr: unknown;
     try {
@@ -960,17 +979,12 @@ export async function handleSpeakStream(req: Request, res: Response): Promise<vo
     const backup = fallback.kind === "ok" ? fallback.provider : null;
     backupId = backup?.id ?? "none";
 
+    // A misconfigured TTS_PROVIDER stays an error (as on every other voice
+    // route) — the backup covers a provider in trouble, not a broken setting.
+    if (!primary) throw primaryErr;
     let first: TtsProvider;
     let canHandOff = backup !== null;
-    if (!primary) {
-      if (!backup) throw primaryErr;
-      first = backup;
-      canHandOff = false;
-      databaseLogger.warn(
-        `[voice-server] speak-fallback reqId=${reqId} from=none to=${backup.id} reason=primary-misconfigured restTextLen=${text.length} playedSec=0`,
-        { operation: "voice_speak_fallback", reqId, to: backup.id, reason: "primary-misconfigured" },
-      );
-    } else if (backup && isProviderBenched(primary.id, reqId)) {
+    if (backup && isProviderBenched(primary.id, reqId)) {
       first = backup;
       canHandOff = false;
       databaseLogger.info(
@@ -984,9 +998,9 @@ export async function handleSpeakStream(req: Request, res: Response): Promise<vo
 
     let outcome = await speakPass(first, text, canHandOff);
     if (outcome.kind === "handoff" && backup && !clientGone) {
-      benchProvider(first.id, reqId, outcome.reason);
+      if (outcome.bench) benchProvider(first.id, reqId, outcome.reason);
       databaseLogger.warn(
-        `[voice-server] speak-fallback reqId=${reqId} from=${first.id} to=${backup.id} reason=${outcome.reason} restTextLen=${outcome.restText.length} playedSec=${outcome.playedSec.toFixed(3)} headersFlushed=${headersFlushed}`,
+        `[voice-server] speak-fallback reqId=${reqId} from=${first.id} to=${backup.id} reason=${outcome.reason} bench=${outcome.bench} restTextLen=${outcome.restText.length} playedSec=${outcome.playedSec.toFixed(3)} headersFlushed=${headersFlushed}`,
         { operation: "voice_speak_fallback", reqId, from: first.id, to: backup.id, reason: outcome.reason },
       );
       outcome =

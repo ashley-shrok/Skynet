@@ -31,14 +31,28 @@ describe("resumeText", () => {
     expect(resumeText(["Done.", chunk], 1, 0)).toBe(chunk);
   });
 
-  it("backs up to the start of the sentence the guess falls in", () => {
+  it("backs up to the start of the sentence before the one the guess falls in", () => {
     expect(resumeText([chunk], 0, 10 / RESUME_CHARS_PER_SEC)).toBe(chunk); // inside sentence 0
-    expect(resumeText([chunk], 0, 20 / RESUME_CHARS_PER_SEC)).toBe(s.slice(1).join(" "));
-    expect(resumeText([chunk, "Later."], 0, 35 / RESUME_CHARS_PER_SEC)).toBe(`${s[2]} Later.`);
+    expect(resumeText([chunk], 0, 20 / RESUME_CHARS_PER_SEC)).toBe(chunk); // inside sentence 1
+    expect(resumeText([chunk, "Later."], 0, 35 / RESUME_CHARS_PER_SEC)).toBe(`${s[1]} ${s[2]} Later.`);
   });
 
-  it("a guess past the chunk's end still repeats its last sentence", () => {
-    expect(resumeText([chunk, "Later."], 0, 999)).toBe(`${s[2]} Later.`);
+  it("a guess past the chunk's end still repeats its last sentences", () => {
+    expect(resumeText([chunk, "Later."], 0, 999)).toBe(`${s[1]} ${s[2]} Later.`);
+  });
+
+  it("text read slower than the estimate (a code) is not skipped while it's being read", () => {
+    const text = "Your code is 4 8 1 9 2 7. Enter it now. Then press go. Thanks.";
+    // 3 s in, read at ~6 chars/sec: still inside the code; the estimate (36) is already past it.
+    expect(resumeText([text], 0, 3)).toBe(text);
+  });
+
+  it("a long unpunctuated run resumes at a clause break, not the whole run", () => {
+    const items = Array.from({ length: 30 }, (_, k) => `item number ${k}`); // 13-14 chars each
+    const run = items.join(", ");
+    const out = resumeText([run], 0, 200 / RESUME_CHARS_PER_SEC);
+    expect(out.length).toBeLessThan(run.length - 150);
+    expect(run.endsWith(out)).toBe(true);
   });
 });
 

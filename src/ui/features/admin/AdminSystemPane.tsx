@@ -267,7 +267,9 @@ function TtsServiceName({
 }) {
   const text = loading
     ? "Loading…"
-    : status?.label ?? (status?.error ? "Not in use" : "None");
+    : !status
+      ? "—"
+      : status.label ?? (status.error ? "Not in use" : "None");
   return (
     <span
       data-testid={testId}
