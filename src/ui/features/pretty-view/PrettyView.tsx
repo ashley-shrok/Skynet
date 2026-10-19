@@ -83,7 +83,7 @@ import {
   type RoleSummary,
 } from "@/api/identities-api";
 import { useAutoScroll } from "./use-auto-scroll";
-import { ComposeBox } from "./ComposeBox";
+import { ComposeBox, type InterruptFeedback } from "./ComposeBox";
 import { DropOverlay } from "./DropOverlay";
 import { HarnessTasksPanel } from "./HarnessTasksPanel";
 import { BackgroundedAgentsPanel } from "./BackgroundedAgentsPanel";
@@ -171,6 +171,10 @@ function isOsFileDrag(dt: DataTransfer): boolean {
 // the attempt counter to 0 and triggers an immediate reconnect when the user
 // foregrounds the PWA tab — so her next tap always gets a live connection.
 const MAX_RECONNECT_ATTEMPTS = 5;
+// Stop button: how long an outcome ("Stopped", "Cancelled", …) stays up, and
+// how long "Stopping" waits for the server's verdict before giving up.
+const INTERRUPT_OUTCOME_HOLD_MS = 2000;
+const INTERRUPT_RESULT_TIMEOUT_MS = 8000;
 
 // user 2026-07-27: automatic aside triggering DISABLED. The Phase 14
 // isIdle-transition auto-fire of {type:"aside_arm"} was burning session
@@ -811,10 +815,33 @@ export function PrettyView({
   // Cleared with the message list (pane switch, session rotation, wire boot):
   // the fresh replay decides again what is hidden, and a restore never
   // carries over into another conversation.
+  // What the Stop button shows: "stopping" from the press until the verdict
+  // arrives (a cancel takes ~1.5s to decide), then the outcome for a moment.
+  const [interruptFeedback, setInterruptFeedback] = useState<InterruptFeedback | null>(null);
+  const interruptFeedbackTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const showInterruptFeedback = useCallback((next: InterruptFeedback | null, holdMs?: number) => {
+    if (interruptFeedbackTimerRef.current) clearTimeout(interruptFeedbackTimerRef.current);
+    interruptFeedbackTimerRef.current = null;
+    setInterruptFeedback(next);
+    if (next === null || holdMs === undefined) return;
+    interruptFeedbackTimerRef.current = setTimeout(() => {
+      interruptFeedbackTimerRef.current = null;
+      if (next === "stopping") {
+        console.warn(`[interrupt] no-result-after-press waitedMs=${holdMs}`);
+        showInterruptFeedback("no_response", INTERRUPT_OUTCOME_HOLD_MS);
+      } else {
+        setInterruptFeedback(null);
+      }
+    }, holdMs);
+  }, []);
+  useEffect(() => () => {
+    if (interruptFeedbackTimerRef.current) clearTimeout(interruptFeedbackTimerRef.current);
+  }, []);
   const resetInterruptViewState = useCallback(() => {
     setHiddenEventIds((prev) => (prev.size === 0 ? prev : new Set()));
     setRestoreRequest(null);
-  }, []);
+    showInterruptFeedback(null);
+  }, [showInterruptFeedback]);
   const hostNameRef = useRef(hostName);
   hostNameRef.current = hostName;
   // relay-mcp send outcomes by toolUseId — not bubbles of their own; each one
@@ -1646,6 +1673,20 @@ export function PrettyView({
       /* swallow — best-effort; ws may be mid-close */
     }
   }, []);
+
+  // The Stop button's press: show "Stopping" at once — the verdict can take
+  // ~1.5s — or say so when there is no connection to send it on.
+  const handleInterrupt = useCallback((): void => {
+    const ws = wsRef.current;
+    if (!ws || ws.readyState !== WebSocket.OPEN) {
+      console.warn(`[interrupt] press-not-sent reason=ws_not_open hostId=${hostId} tmuxSession=${tmuxSession ?? "null"}`);
+      showInterruptFeedback("no_response", INTERRUPT_OUTCOME_HOLD_MS);
+      return;
+    }
+    console.info(`[interrupt] press hostId=${hostId} tmuxSession=${tmuxSession ?? "null"}`);
+    showInterruptFeedback("stopping", INTERRUPT_RESULT_TIMEOUT_MS);
+    onInterrupt?.();
+  }, [hostId, tmuxSession, onInterrupt, showInterruptFeedback]);
 
   // Phase 14 quick-task 260726-vbd: onSend wrapper that detects /btw
   // submissions and arms the asidePending flag + 60s safety timer.
@@ -3569,6 +3610,10 @@ export function PrettyView({
           break;
         }
         case "interrupt_result": {
+          showInterruptFeedback(
+            parsed.verdict === "none" ? "nothing" : parsed.verdict,
+            INTERRUPT_OUTCOME_HOLD_MS,
+          );
           if (parsed.verdict === "cancelled") {
             const restore = parsed.content !== null ? buildCancelledSendRestore(parsed.content) : null;
             console.info(
@@ -5256,7 +5301,8 @@ export function PrettyView({
           // non-empty-gated the same way an identity displayName does.
           identityName={source.kind === "relay" ? "room" : pvIdentity?.displayName}
           onGoodToGo={jumpToBottom}
-          onInterrupt={onInterrupt}
+          onInterrupt={onInterrupt ? handleInterrupt : undefined}
+          interruptFeedback={interruptFeedback}
           interruptDisabled={pendingSends.some((p) => p.state === "sending")}
           restoreRequest={restoreRequest}
           onRestoreApplied={handleRestoreApplied}

@@ -334,6 +334,59 @@ describe("PrettyView — interrupt button (shape-interrupt-button)", () => {
     await waitFor(() => expect(interruptBtn(container).disabled).toBe(false));
   });
 
+  const feedback = (c: HTMLElement) =>
+    c.querySelector('[data-testid="interrupt-feedback"]')?.getAttribute("data-feedback") ?? null;
+
+  it("pressing shows 'Stopping' at once, then the verdict, then the Stop button again", async () => {
+    const { container, ws, onInterrupt } = await mount();
+    act(() => {
+      fireEvent.click(interruptBtn(container));
+    });
+    expect(onInterrupt).toHaveBeenCalledTimes(1);
+    expect(feedback(container)).toBe("stopping");
+    expect(container.textContent).toContain("Stopping");
+    expect(interruptBtn(container)).toBeNull();
+
+    vi.useFakeTimers();
+    sendWsFrame(ws, { type: "interrupt_result", verdict: "cancelled", eventId: "u8", content: null });
+    expect(feedback(container)).toBe("cancelled");
+    expect(container.textContent).toContain("Cancelled");
+    act(() => {
+      vi.advanceTimersByTime(2000);
+    });
+    expect(feedback(container)).toBeNull();
+    expect(interruptBtn(container)).not.toBeNull();
+  });
+
+  it.each([
+    ["stopped", { verdict: "stopped" }, "Stopped"],
+    ["nothing", { verdict: "none", reason: "agent_output" }, "Nothing to stop"],
+  ] as const)("a %s verdict is shown on the button", async (state, frame, label) => {
+    const { container, ws } = await mount();
+    act(() => {
+      fireEvent.click(interruptBtn(container));
+    });
+    sendWsFrame(ws, { type: "interrupt_result", ...frame });
+    expect(feedback(container)).toBe(state);
+    expect(container.textContent).toContain(label);
+  });
+
+  it("no verdict within the timeout says 'No response' rather than spinning forever", async () => {
+    const { container } = await mount();
+    vi.useFakeTimers();
+    act(() => {
+      fireEvent.click(interruptBtn(container));
+    });
+    act(() => {
+      vi.advanceTimersByTime(8000);
+    });
+    expect(feedback(container)).toBe("no_response");
+    act(() => {
+      vi.advanceTimersByTime(2000);
+    });
+    expect(interruptBtn(container)).not.toBeNull();
+  });
+
   it("the interrupted line never counts as delivery of a send still in flight", async () => {
     const { container, ws } = await mount();
     act(() => {

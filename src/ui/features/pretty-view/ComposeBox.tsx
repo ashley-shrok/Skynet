@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createLogDedup } from "@/lib/log-dedup";
-import { AudioLines, LoaderCircle, Mic, Paperclip, Pause, Plus, RefreshCw, RotateCcw, Square, ThumbsUp, Volume2, X } from "lucide-react";
+import { AudioLines, Ban, Check, LoaderCircle, Mic, Paperclip, Pause, Plus, RefreshCw, RotateCcw, Square, ThumbsUp, Volume2, X } from "lucide-react";
 import { Button } from "@/components/button";
 import { Textarea } from "@/components/textarea";
 import { cn } from "@/lib/utils";
@@ -295,6 +295,9 @@ export interface ComposeBoxProps {
   // harness to stop or cancel, so the button is greyed out. Static look only:
   // no label or tooltip changes.
   interruptDisabled?: boolean;
+  // What the last press is doing: "stopping" until the server's verdict comes
+  // back, then the outcome for a moment. Null = the plain Stop button.
+  interruptFeedback?: InterruptFeedback | null;
   // shape-interrupt-button: words handed back by a cancelled send. Applied
   // once per id: into the primary box when it is empty, otherwise into a new
   // queued box at the top (never overwriting what the user is typing).
@@ -643,6 +646,18 @@ const VOICE_MODE_COLOR: Record<VoiceModePhase, string> = {
   paused: "#8a93a6",
 };
 
+/** What the Stop button shows after a press (see PrettyView). */
+export type InterruptFeedback = "stopping" | "stopped" | "cancelled" | "nothing" | "no_response";
+
+// Single words / short phrases so the chip fits in the aux row on a phone.
+const INTERRUPT_FEEDBACK_LABEL: Record<InterruptFeedback, string> = {
+  stopping: "Stopping",
+  stopped: "Stopped",
+  cancelled: "Cancelled",
+  nothing: "Nothing to stop",
+  no_response: "No response",
+};
+
 // Same dark blue-gray Glass treatment as the Stop / ThumbsUp aux buttons.
 const AUX_BUTTON_CLASS = cn(
   "bg-[linear-gradient(160deg,hsla(218,25%,22%,0.85),hsla(218,25%,14%,0.9))]",
@@ -745,6 +760,28 @@ function VoiceModeButton({
   );
 }
 
+/**
+ * Stands in for the Stop button from the press until a moment after the
+ * outcome: a spinner while the verdict is pending, then what happened.
+ */
+function InterruptFeedbackChip({ feedback }: { feedback: InterruptFeedback }) {
+  const Glyph = feedback === "stopping" ? LoaderCircle : feedback === "nothing" || feedback === "no_response" ? Ban : Check;
+  return (
+    <div
+      data-testid="interrupt-feedback"
+      data-feedback={feedback}
+      className={cn(
+        "flex h-7 max-md:h-9 items-center gap-1.5 rounded-[6px] border px-2 text-xs whitespace-nowrap",
+        AUX_BUTTON_CLASS,
+        feedback === "nothing" || feedback === "no_response" ? "opacity-80" : undefined,
+      )}
+    >
+      <Glyph aria-hidden="true" className={cn("size-4", feedback === "stopping" && "animate-spin")} />
+      <span role="status" aria-live="polite">{INTERRUPT_FEEDBACK_LABEL[feedback]}</span>
+    </div>
+  );
+}
+
 export function ComposeBox({
   onSend,
   onOptimisticSend,
@@ -760,6 +797,7 @@ export function ComposeBox({
   onGoodToGo,
   onInterrupt,
   interruptDisabled,
+  interruptFeedback,
   restoreRequest,
   onRestoreApplied,
   stagedAttachments,
@@ -2660,7 +2698,10 @@ export function ComposeBox({
               onSkip={voiceMode.skipSpeech}
             />
           )}
-          {onInterrupt && (
+          {onInterrupt && interruptFeedback && (
+            <InterruptFeedbackChip feedback={interruptFeedback} />
+          )}
+          {onInterrupt && !interruptFeedback && (
             <Button
               size="icon-sm"
               variant="secondary"

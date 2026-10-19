@@ -1212,6 +1212,11 @@ crown, then gear.
     stays, and an agent-side bubble reading **Interrupted** confirms it;
     the work indicator goes off.
   - Pressed when the agent is already idle, it does nothing.
+  On a press the button at once turns into a small chip with a spinner and
+  **Stopping** (deciding on a cancel takes about a second and a half),
+  then shows what happened for two seconds — **Stopped**, **Cancelled** or
+  **Nothing to stop** (**No response** if the press never got an answer)
+  — before going back to the square.
   The same conversation open elsewhere drops a cancelled bubble too; only
   the device that pressed gets the words back.
   *Agent-side:* a cancelled message never reaches you. A stop arrives as
