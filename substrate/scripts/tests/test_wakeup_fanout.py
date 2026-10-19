@@ -149,8 +149,11 @@ class FanoutProcess(unittest.TestCase):
 
     def test_short_interval_not_held_past_next_slot(self):
         # every 10m with 2 agents and a huge span: the period cap keeps the
-        # offset under 5 min, so it never runs past the next slot.
+        # offset under 5 min, so it never runs past the next slot. The offset
+        # is a hash of the slot; pick one that holds well past the 3s run.
         last = time.time() - 600 - 1
+        while eng.fanout_offset("me", "a", eng.next_fire({"type": "interval", "every": "10m"}, last), 2, period=600) < 30:
+            last -= 1
         me = self.f.identity("me")
         self.f.interval_spec(me, "a", last)
         self.f.interval_spec(self.f.identity("peer"), "b", last)
