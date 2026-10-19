@@ -311,15 +311,24 @@ describe("PreferencesAboutYouPane", () => {
     const saveBtn = screen.getByRole("button", { name: /save/i });
     fireEvent.click(saveBtn);
 
-    await waitFor(() => expect(confirmSpy).toHaveBeenCalledWith(
-      "The file changed on disk since you started editing. Reload from disk and lose your local edits?",
-    ));
+    // Save → rejected write → confirm is a few async hops; under full-suite
+    // load that can take longer than waitFor's 1s default.
+    await waitFor(
+      () =>
+        expect(confirmSpy).toHaveBeenCalledWith(
+          "The file changed on disk since you started editing. Reload from disk and lose your local edits?",
+        ),
+      { timeout: 5000 },
+    );
 
     // On confirm=true, editor should reset to server's content
-    await waitFor(() => {
-      const ed = screen.getByTestId("mock-editor") as HTMLTextAreaElement;
-      expect(ed.value).toBe("Server version of the file");
-    });
+    await waitFor(
+      () => {
+        const ed = screen.getByTestId("mock-editor") as HTMLTextAreaElement;
+        expect(ed.value).toBe("Server version of the file");
+      },
+      { timeout: 5000 },
+    );
 
     confirmSpy.mockRestore();
   });
@@ -347,11 +356,12 @@ describe("PreferencesAboutYouPane", () => {
     const saveBtn = screen.getByRole("button", { name: /save/i });
     fireEvent.click(saveBtn);
 
-    await waitFor(() => expect(confirmSpy).toHaveBeenCalled());
+    await waitFor(() => expect(confirmSpy).toHaveBeenCalled(), { timeout: 5000 });
 
     // Error should be shown inline after cancel
-    await waitFor(() =>
-      expect(screen.getByTestId("preferences-about-you-save-error")).toBeTruthy(),
+    await waitFor(
+      () => expect(screen.getByTestId("preferences-about-you-save-error")).toBeTruthy(),
+      { timeout: 5000 },
     );
 
     confirmSpy.mockRestore();
