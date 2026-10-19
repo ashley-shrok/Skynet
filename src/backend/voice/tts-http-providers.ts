@@ -49,8 +49,10 @@ function readApiKey(provider: TtsProviderId, envName: string): string {
   return key;
 }
 
-function modelOr(defaultModel: string): string {
-  return process.env.TTS_MODEL?.trim() || defaultModel;
+/** TTS_MODEL applies to the selected provider only; as a backup, a provider uses its default. */
+function modelOr(provider: TtsProviderId, defaultModel: string): string {
+  const selected = (process.env.TTS_PROVIDER ?? "").trim().toLowerCase() === provider;
+  return (selected && process.env.TTS_MODEL?.trim()) || defaultModel;
 }
 
 /**
@@ -133,7 +135,7 @@ export const openAiTtsProvider: TtsProvider = {
   // Documented input cap is 4096 characters per request.
   maxCharsPerRequest: 4000,
   defaultVoiceId: "marin",
-  model: () => modelOr(OPENAI_DEFAULT_MODEL),
+  model: () => modelOr("openai", OPENAI_DEFAULT_MODEL),
   staticVoices: OPENAI_VOICES,
   listVoices: async () => [...OPENAI_VOICES],
   isOwnVoiceId: (id) => OPENAI_VOICE_IDS.has(id),
@@ -143,7 +145,7 @@ export const openAiTtsProvider: TtsProvider = {
       "openai",
       "https://api.openai.com/v1/audio/speech",
       { Authorization: `Bearer ${readApiKey("openai", "OPENAI_API_KEY")}` },
-      { model: modelOr(OPENAI_DEFAULT_MODEL), input: text, voice: voiceId, response_format: "pcm" },
+      { model: modelOr("openai", OPENAI_DEFAULT_MODEL), input: text, voice: voiceId, response_format: "pcm" },
     ),
   isRetriable: isRetriableHttpError,
   isUnavailable: isUnavailableHttpError,
@@ -199,7 +201,7 @@ export const elevenLabsTtsProvider: TtsProvider = {
   // "River – Relaxed, Neutral, Informative" — a standard voice, so present
   // on every ElevenLabs account.
   defaultVoiceId: "SAz9YHcvj6GT2YYXdXww",
-  model: () => modelOr(ELEVENLABS_DEFAULT_MODEL),
+  model: () => modelOr("elevenlabs", ELEVENLABS_DEFAULT_MODEL),
   listVoices: listElevenLabsVoices,
   isOwnVoiceId: (id) => ELEVENLABS_VOICE_ID_RE.test(id),
   synthesize: async (text, voiceId) =>
@@ -207,7 +209,7 @@ export const elevenLabsTtsProvider: TtsProvider = {
       "elevenlabs",
       `https://api.elevenlabs.io/v1/text-to-speech/${encodeURIComponent(voiceId)}/stream?output_format=pcm_24000`,
       { "xi-api-key": readApiKey("elevenlabs", "ELEVENLABS_API_KEY") },
-      { text, model_id: modelOr(ELEVENLABS_DEFAULT_MODEL) },
+      { text, model_id: modelOr("elevenlabs", ELEVENLABS_DEFAULT_MODEL) },
     ),
   isRetriable: isRetriableHttpError,
   isUnavailable: isUnavailableHttpError,

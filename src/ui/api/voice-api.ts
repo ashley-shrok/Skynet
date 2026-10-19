@@ -90,3 +90,22 @@ export async function fetchVoiceCatalog(): Promise<VoiceCatalog> {
     handleApiError(error, "load voices");
   }
 }
+
+/** One configured TTS provider as GET /voice/providers reports it. */
+export interface TtsProviderStatus {
+  /** Provider id, or null when unset (backup) or not usable (see error). */
+  id: string | null;
+  label: string | null;
+  /** Why the configured value isn't in use. */
+  error?: string;
+}
+
+/** GET /voice/providers (admin) — the configured main and backup TTS providers. */
+export async function getTtsProviders(): Promise<{ primary: TtsProviderStatus; backup: TtsProviderStatus }> {
+  try {
+    const response = await authApi.get("/voice/providers");
+    return response.data;
+  } catch (error) {
+    handleApiError(error, "load voice providers");
+  }
+}

@@ -19,6 +19,11 @@ and `/voice/speak-stream`) — this is intentional and IS the cost gate.
 > plus the matching API key (see `docker/skynet.env.example`) and skip the
 > Polly half of this guide. Voice pickers then list that provider's voices;
 > saved voices are kept and skipped when the active provider lacks them.
+>
+> **Optional backup provider.** `TTS_FALLBACK_PROVIDER` names a second
+> provider that finishes a message when the main one fails or stalls. It
+> sends text to that provider too, so leave it unset where content must stay
+> inside AWS.
 
 ## What this covers
 

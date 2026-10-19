@@ -16,6 +16,8 @@ import {
   watchForStall,
   ttsStallTimeoutMs,
   TTS_STALL_TIMEOUT_MS_DEFAULT,
+  TTS_STALL_TIMEOUT_MS_WITH_FALLBACK,
+  resolveTtsFallback,
   type TtsProvider,
 } from "./tts-provider.js";
 import { TtsHttpError, TtsNotConfiguredError, TtsStallError } from "./tts-errors.js";
@@ -200,11 +202,52 @@ describe("watchForStall", () => {
 describe("defaultVoiceFor", () => {
   it("uses the provider default, or an override that is one of its voice ids", () => {
     const provider = fakeProvider();
-    expect(defaultVoiceFor(provider, {})).toBe("DEFAULT");
-    expect(defaultVoiceFor(provider, { TTS_DEFAULT_VOICE: " b " })).toBe("b");
+    expect(defaultVoiceFor(provider, { TTS_PROVIDER: "elevenlabs" })).toBe("DEFAULT");
+    expect(defaultVoiceFor(provider, { TTS_PROVIDER: "elevenlabs", TTS_DEFAULT_VOICE: " b " })).toBe("b");
   });
 
   it("refuses an override from another provider as a misconfiguration", () => {
-    expect(() => defaultVoiceFor(fakeProvider(), { TTS_DEFAULT_VOICE: "Joanna" })).toThrow(TtsNotConfiguredError);
+    expect(() =>
+      defaultVoiceFor(fakeProvider(), { TTS_PROVIDER: "elevenlabs", TTS_DEFAULT_VOICE: "Joanna" }),
+    ).toThrow(TtsNotConfiguredError);
+  });
+
+  it("ignores the override on a provider that isn't the selected one (a backup uses its own default)", () => {
+    expect(defaultVoiceFor(fakeProvider(), { TTS_PROVIDER: "openai", TTS_DEFAULT_VOICE: "marin" })).toBe("DEFAULT");
+  });
+});
+
+describe("resolveTtsFallback", () => {
+  it("unset, empty or none → no backup", () => {
+    expect(resolveTtsFallback({})).toEqual({ kind: "none" });
+    expect(resolveTtsFallback({ TTS_FALLBACK_PROVIDER: " " })).toEqual({ kind: "none" });
+    expect(resolveTtsFallback({ TTS_FALLBACK_PROVIDER: "None" })).toEqual({ kind: "none" });
+  });
+
+  it("a known provider other than the selected one is the backup", () => {
+    const fb = resolveTtsFallback({ TTS_PROVIDER: "openai", TTS_FALLBACK_PROVIDER: " ElevenLabs " });
+    expect(fb.kind === "ok" && fb.provider.id).toBe("elevenlabs");
+    const polly = resolveTtsFallback({ TTS_FALLBACK_PROVIDER: "openai" }); // primary defaults to polly
+    expect(polly.kind === "ok" && polly.provider.id).toBe("openai");
+  });
+
+  it("an unknown value or the selected provider itself is ignored, never mapped elsewhere", () => {
+    expect(resolveTtsFallback({ TTS_FALLBACK_PROVIDER: "azure" })).toEqual({ kind: "ignored", raw: "azure", reason: "unknown" });
+    expect(resolveTtsFallback({ TTS_PROVIDER: "openai", TTS_FALLBACK_PROVIDER: "openai" })).toEqual({
+      kind: "ignored",
+      raw: "openai",
+      reason: "same-as-primary",
+    });
+    expect(resolveTtsFallback({ TTS_FALLBACK_PROVIDER: "polly" })).toMatchObject({ reason: "same-as-primary" });
+  });
+
+  it("stall timeout is shorter when a backup is ready; an explicit override still wins", () => {
+    expect(ttsStallTimeoutMs({ TTS_PROVIDER: "openai", TTS_FALLBACK_PROVIDER: "elevenlabs" })).toBe(
+      TTS_STALL_TIMEOUT_MS_WITH_FALLBACK,
+    );
+    expect(ttsStallTimeoutMs({ TTS_PROVIDER: "openai", TTS_FALLBACK_PROVIDER: "openai" })).toBe(TTS_STALL_TIMEOUT_MS_DEFAULT);
+    expect(
+      ttsStallTimeoutMs({ TTS_PROVIDER: "openai", TTS_FALLBACK_PROVIDER: "elevenlabs", TTS_STALL_TIMEOUT_MS: "250" }),
+    ).toBe(250);
   });
 });

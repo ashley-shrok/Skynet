@@ -17,14 +17,17 @@ import {
   chooseVoice,
   defaultVoiceFor,
   getVoiceList,
+  resolveTtsFallback,
   resolveTtsProvider,
   synthesizeWithRetries,
+  TTS_PROVIDER_LABELS,
   voiceLabels,
   VOICE_ID_MAX_LEN,
   type TtsProvider,
   type VoiceChoice,
 } from "../../voice/tts-provider.js";
 import { TtsNotConfiguredError, TtsStallError } from "../../voice/tts-errors.js";
+import { PcmResampler, benchProvider, isProviderBenched, resumeText } from "../../voice/tts-fallback.js";
 import { resolveSttProvider, transcribeWithRetries, type SttProvider } from "../../voice/stt-provider.js";
 import { SttHttpError, SttNotConfiguredError } from "../../voice/stt-errors.js";
 import { splitIntoSentences, packChunks } from "../../voice/chunk-and-stitch.js";
@@ -255,13 +258,15 @@ function pcmBytesPerSec(provider: TtsProvider): number {
 // gpt-4o-mini-tts intermittently drops the final sentence. When the guard
 // applies, the last chunk carries a filler sentence that is cut off the PCM
 // afterwards; chunks are packed short enough to leave room for it.
-function planSpeakChunks(provider: TtsProvider, text: string): { chunks: string[]; guard: boolean } {
+function planSpeakChunks(provider: TtsProvider, text: string): { chunks: string[]; plain: string[]; guard: boolean } {
   const guard = tailGuardApplies(provider.id, provider.model());
   // Room for the filler, its leading space and a possibly added period.
   const maxChars = guard
     ? provider.maxCharsPerRequest - TAIL_GUARD_FILLER.length - 2
     : provider.maxCharsPerRequest;
-  const chunks = packChunks(splitIntoSentences(text), maxChars);
+  // `plain` keeps the chunk texts without the filler (rate logs, resume point).
+  const plain = packChunks(splitIntoSentences(text), maxChars);
+  const chunks = [...plain];
   if (guard && chunks.length > 0) {
     // The cut relies on the sentence-break pause before the filler; text
     // ending on a colon or bare phrase would run straight into it.
@@ -269,7 +274,7 @@ function planSpeakChunks(provider: TtsProvider, text: string): { chunks: string[
     const ended = /[.!?]["'”’)\]]*$/.test(last);
     chunks[chunks.length - 1] = `${last}${ended ? "" : "."} ${TAIL_GUARD_FILLER}`;
   }
-  return { chunks, guard };
+  return { chunks, plain, guard };
 }
 
 /**
@@ -522,6 +527,15 @@ async function drainStreamToBuffer(
 /** Tries per chunk when the provider's audio stream stalls (see watchForStall). */
 const STALL_MAX_ATTEMPTS = 3;
 
+/** TTS_FALLBACK_PROVIDER values already warned about (logged once each). */
+const warnedFallbackConfig = new Set<string>();
+
+/** What one provider's pass over (part of) a message ended with. */
+type SpeakPassOutcome =
+  | { kind: "done"; truncated: boolean }
+  /** Stopped early; the backup should speak `restText`. Only when hand-off is allowed. */
+  | { kind: "handoff"; restText: string; reason: string; playedSec: number };
+
 // --- handleSpeakStream — POST /voice/speak-stream (streaming, chunk-and-stitch) ---
 // Splits long text into chunks no longer than the active provider's
 // per-request limit (packChunks), fires one synth per chunk, and pipes PCM to
@@ -539,6 +553,14 @@ const STALL_MAX_ATTEMPTS = 3;
 // with the 0xFFFFFFFF streaming sentinel (total size unknown at header-write
 // time — this IS the case the sentinel exists for; the client-side
 // riffPcmDecode ignores dataSize on streaming input).
+//
+// Backup provider (TTS_FALLBACK_PROVIDER, see voice/tts-fallback.ts): when the
+// selected provider fails or stalls, the backup speaks the rest of the
+// message in the same response — the whole message if no audio went out yet,
+// else from about where the audio stopped (resumeText). The backup's audio is
+// resampled to the rate already in the RIFF header. The selected provider is
+// then benched for a while so later messages go straight to the backup. With
+// no backup configured the behaviour is exactly the single-provider one.
 //
 // Diagnostic instrumentation (2026-09-28): every speak-stream request carries
 // a short reqId that ties `speak-stream-plan` → `speak-stream-chunk-out` →
@@ -575,65 +597,113 @@ export async function handleSpeakStream(req: Request, res: Response): Promise<vo
   // Once true, we cannot send a new status code — mid-stream errors trigger
   // res.destroy() instead of res.status(503).
   let headersFlushed = false;
+  // Sample rate in the RIFF header once written; a later provider at another
+  // rate is resampled to it.
+  let headerRate: number | null = null;
+  // Provider / voice of the pass in progress (for failure log lines).
   let provider: TtsProvider | undefined;
   let choice: VoiceChoice | undefined;
+  let totalAudioSec = 0;
 
-  try {
-    provider = resolveTtsProvider();
-    const p = provider;
-    choice = await chooseVoice(p, parsed.candidates);
+  // Listener stopped / navigated away: stop asking the provider for audio
+  // nobody will hear (paid characters on OpenAI / ElevenLabs). Streams in
+  // flight are abandoned; no further chunks are requested.
+  let clientGone = false;
+  const liveStreams = new Set<import("node:stream").Readable>();
+  res.once("close", () => {
+    if (res.writableEnded) return;
+    clientGone = true;
+    for (const s of liveStreams) s.destroy();
+  });
+  const waitDrain = () =>
+    new Promise<void>((resolve) => {
+      res.once("drain", resolve);
+      res.once("close", resolve);
+    });
+
+  // One provider's pass over `passText`. With `canHandOff`, any failure or
+  // stall returns a hand-off (what's left to say) instead of retrying the same
+  // provider or failing the request; without it, failures behave as they
+  // always have (retry a stall while nothing is out, else end / throw).
+  const speakPass = async (p: TtsProvider, passText: string, canHandOff: boolean): Promise<SpeakPassOutcome> => {
+    provider = p;
+    choice = undefined;
+    const handoff = (restText: string, reason: string, playedSec = 0): SpeakPassOutcome => ({
+      kind: "handoff",
+      restText,
+      reason,
+      playedSec,
+    });
+    const reasonOf = (err: unknown) =>
+      err instanceof TtsStallError ? "stall" : `error:${err instanceof Error ? err.name : "unknown"}`;
+
+    try {
+      choice = await chooseVoice(p, parsed.candidates);
+    } catch (err) {
+      if (canHandOff) return handoff(passText, reasonOf(err));
+      throw err;
+    }
     const voiceId = choice.voice;
 
     databaseLogger.info(
-      `[voice-server] speak-stream-req reqId=${reqId} provider=${p.id} model=${p.model() ?? "none"} textLen=${text.length} ${describeChoice(choice)}`,
+      `[voice-server] speak-stream-req reqId=${reqId} provider=${p.id} model=${p.model() ?? "none"} textLen=${passText.length} ${describeChoice(choice)}`,
       { operation: "voice_speak_stream", reqId, provider: p.id },
     );
 
     // (c) Split + pack into chunks under the provider's per-request limit
-    const { chunks, guard } = planSpeakChunks(p, text);
+    const { chunks, plain, guard } = planSpeakChunks(p, passText);
 
     if (chunks.length === 0) {
       // Defensive: SPEAK_TEXT_MAX + non-empty-text validation should prevent this,
       // but if we ever end up with zero chunks, return a 400.
-      res.status(400).json({ error: "body.text produced zero synthesizable chunks" });
-      return;
+      if (!headersFlushed) res.status(400).json({ error: "body.text produced zero synthesizable chunks" });
+      return { kind: "done", truncated: false };
     }
 
     // Log the chunk plan up front so a suspected loss can be traced back to
     // exactly which char range fed which synth call.
     databaseLogger.info(
-      `[voice-server] speak-stream-plan reqId=${reqId} provider=${p.id} chunkCount=${chunks.length} chunkLens=[${chunks.map((c) => c.length).join(",")}] totalTextLen=${text.length} tailGuard=${guard}`,
+      `[voice-server] speak-stream-plan reqId=${reqId} provider=${p.id} chunkCount=${chunks.length} chunkLens=[${chunks.map((c) => c.length).join(",")}] totalTextLen=${passText.length} tailGuard=${guard}`,
       { operation: "voice_speak_stream_plan", reqId, chunkCount: chunks.length },
     );
 
-    // Listener stopped / navigated away: stop asking the provider for audio
-    // nobody will hear (paid characters on OpenAI / ElevenLabs). The chunk in
-    // flight is abandoned; no further chunks are requested.
-    let clientGone = false;
-    let liveStream: import("node:stream").Readable | null = null;
-    res.once("close", () => {
-      if (res.writableEnded) return;
-      clientGone = true;
-      liveStream?.destroy();
-    });
-    const waitDrain = () =>
-      new Promise<void>((resolve) => {
-        res.once("drain", resolve);
-        res.once("close", resolve);
-      });
+    const bytesPerSec = pcmBytesPerSec(p);
+    // Converts this provider's PCM to the header's rate (set once chunk 0 is in).
+    let resampler: PcmResampler | null = null;
+    const send = (buf: Buffer): boolean => res.write(resampler ? resampler.push(buf) : buf);
 
     // Chunk 0 stalled after some of its audio was out: end the message there
     // rather than skip ahead to the next chunk's text.
     let truncated = false;
+    // Set when this pass is abandoned for the backup: prefetches stop.
+    let abandoned = false;
     const synth = (i: number) => synthesizeWithRetries(p, chunks[i], voiceId, { reqId, chunkIndex: i });
     // Prefetched chunks are drained whole before any of their audio is sent,
-    // so a stalled one can always be retried from scratch.
+    // so a stalled one can always be retried from scratch (or handed off).
     const prefetch = async (i: number): Promise<Buffer> => {
       for (let attempt = 1; ; attempt++) {
         try {
-          return await drainStreamToBuffer(synth(i));
+          const stream = await synth(i);
+          if (clientGone || abandoned) {
+            stream.destroy();
+            return Buffer.alloc(0);
+          }
+          liveStreams.add(stream);
+          try {
+            return await drainStreamToBuffer(Promise.resolve(stream));
+          } finally {
+            liveStreams.delete(stream);
+          }
         } catch (err: unknown) {
-          if (!(err instanceof TtsStallError) || attempt >= STALL_MAX_ATTEMPTS || clientGone || truncated) throw err;
+          if (
+            canHandOff ||
+            !(err instanceof TtsStallError) ||
+            attempt >= STALL_MAX_ATTEMPTS ||
+            clientGone ||
+            truncated ||
+            abandoned
+          )
+            throw err;
           databaseLogger.warn(
             `[voice-server] speak-stall reqId=${reqId} chunk=${i} provider=${p.id} attempt=${attempt}/${STALL_MAX_ATTEMPTS} streamedBytes=0 action=retry`,
             { operation: "voice_speak_stall", reqId, provider: p.id, attempt, action: "retry" },
@@ -641,10 +711,6 @@ export async function handleSpeakStream(req: Request, res: Response): Promise<vo
         }
       }
     };
-    const bytesPerSec = pcmBytesPerSec(p);
-
-    // Per-request PCM accounting — populated inside the loop, summarised at end.
-    let totalPcmBytes = 0;
 
     // (d) Fire chunk 0 (direct-stream Readable, for lowest TTFA) AND the
     // chunk 1 prefetch (eagerly-drained Buffer) simultaneously, so chunk 1
@@ -655,17 +721,22 @@ export async function handleSpeakStream(req: Request, res: Response): Promise<vo
     // would kill the container mid-stream and drop every other connected
     // client. The rejection is still re-thrown when the loop awaits.
     const chunk0Promise: Promise<import("node:stream").Readable> = synth(0);
+    chunk0Promise.catch(() => {});
     let nextPrefetch: Promise<Buffer> | null = null;
     if (chunks.length > 1) {
       nextPrefetch = prefetch(1);
       nextPrefetch.catch(() => {});
     }
+    const abandon = (restText: string, reason: string, playedSec = 0): SpeakPassOutcome => {
+      abandoned = true;
+      for (const s of liveStreams) s.destroy();
+      return handoff(restText, reason, playedSec);
+    };
 
     for (let i = 0; i < chunks.length; i++) {
       if (clientGone) break;
       // Rate logs measure the real text only (the filler is cut off the audio).
-      const chunkTextLen =
-        guard && i === chunks.length - 1 ? chunks[i].length - TAIL_GUARD_FILLER.length - 1 : chunks[i].length;
+      const chunkTextLen = plain[i].length;
       const chunkPcmBuffers: Buffer[] = [];
       let chunkPcmBytes = 0;
 
@@ -680,22 +751,32 @@ export async function handleSpeakStream(req: Request, res: Response): Promise<vo
         // if the provider throws (AccessDenied, rejected key, out of
         // credits), we need to be able to send a 503 status, which requires
         // headers NOT be flushed yet.
-        let currentStream = await chunk0Promise;
-        liveStream = currentStream;
+        let currentStream: import("node:stream").Readable;
+        try {
+          currentStream = await chunk0Promise;
+        } catch (err) {
+          if (canHandOff && !clientGone) return abandon(passText, reasonOf(err));
+          throw err;
+        }
+        liveStreams.add(currentStream);
         if (clientGone) {
           currentStream.destroy();
           break;
         }
 
         // Flush response headers + RIFF header now that chunk 0's response
-        // is confirmed. Streaming sentinel: total PCM byte count is unknown
-        // at header-write time. riffPcmDecode.ts ignores dataSize on
-        // streaming input.
-        res.status(200);
-        res.setHeader("Content-Type", "audio/wav");
-        res.setHeader("X-Accel-Buffering", "no");
-        res.write(buildRiffHeader({ channels: 1, sampleRate: p.sampleRate, bitDepth: 16 }));
-        headersFlushed = true;
+        // is confirmed (unless an earlier pass already did). Streaming
+        // sentinel: total PCM byte count is unknown at header-write time.
+        // riffPcmDecode.ts ignores dataSize on streaming input.
+        if (headerRate === null) {
+          res.status(200);
+          res.setHeader("Content-Type", "audio/wav");
+          res.setHeader("X-Accel-Buffering", "no");
+          res.write(buildRiffHeader({ channels: 1, sampleRate: p.sampleRate, bitDepth: 16 }));
+          headersFlushed = true;
+          headerRate = p.sampleRate;
+        }
+        if (headerRate !== p.sampleRate) resampler = new PcmResampler(p.sampleRate, headerRate);
 
         // Tail guard on a single-chunk request: hold back the last
         // TAIL_GUARD_HOLD_SEC of PCM so the filler can be cut once the
@@ -704,13 +785,14 @@ export async function handleSpeakStream(req: Request, res: Response): Promise<vo
         const holdBytes = TAIL_GUARD_HOLD_SEC * bytesPerSec;
         let held: Buffer[] = [];
         let heldBytes = 0;
+        // Provider bytes that reached the listener (before any resampling).
         let streamedBytes = 0;
         // Only a cleanly ended stream has the filler at its tail; a provider
         // stream that merely closed was cut short and plays as-is.
         let providerEnded = false;
         const writeOut = (buf: Buffer) => {
           streamedBytes += buf.length;
-          if (!res.write(buf)) {
+          if (!send(buf)) {
             const paused = currentStream;
             paused.pause();
             res.once("drain", () => paused.resume());
@@ -720,9 +802,11 @@ export async function handleSpeakStream(req: Request, res: Response): Promise<vo
         // A provider stream that goes quiet (TtsStallError, see watchForStall)
         // is retried from scratch while none of its audio has reached the
         // listener yet — the RIFF header alone commits nothing. Once audio is
-        // out, a stall ends the message where it stopped.
+        // out, a stall ends the message where it stopped. With a backup ready,
+        // either case hands off instead.
         for (let attempt = 1; ; attempt++) {
           let stalled = false;
+          let failure: unknown = null;
           const stream = currentStream;
           await new Promise<void>((resolve, reject) => {
             stream.on("data", (buf: Buffer) => {
@@ -751,11 +835,25 @@ export async function handleSpeakStream(req: Request, res: Response): Promise<vo
                 stalled = true;
                 return resolve();
               }
+              if (canHandOff) {
+                failure = err;
+                return resolve();
+              }
               reject(err);
             });
           });
-          liveStream = null;
-          if (!stalled || clientGone) break;
+          liveStreams.delete(stream);
+          if (clientGone) break;
+          if (canHandOff && (stalled || failure !== null)) {
+            const playedSec = streamedBytes / bytesPerSec;
+            databaseLogger.warn(
+              `[voice-server] speak-stall reqId=${reqId} chunk=0 provider=${p.id} attempt=${attempt}/${STALL_MAX_ATTEMPTS} streamedBytes=${streamedBytes} heldBytes=${heldBytes} action=handoff reason=${stalled ? "stall" : reasonOf(failure)}`,
+              { operation: "voice_speak_stall", reqId, provider: p.id, attempt, action: "handoff" },
+            );
+            totalAudioSec += playedSec;
+            return abandon(resumeText(plain, 0, playedSec), stalled ? "stall" : reasonOf(failure), playedSec);
+          }
+          if (!stalled) break;
 
           const retry = streamedBytes === 0 && attempt < STALL_MAX_ATTEMPTS;
           databaseLogger.warn(
@@ -770,7 +868,7 @@ export async function handleSpeakStream(req: Request, res: Response): Promise<vo
           heldBytes = 0;
           chunkPcmBuffers.length = 0;
           currentStream = await synth(0);
-          liveStream = currentStream;
+          liveStreams.add(currentStream);
           if (clientGone) {
             currentStream.destroy();
             break;
@@ -784,7 +882,7 @@ export async function handleSpeakStream(req: Request, res: Response): Promise<vo
           const kept = providerEnded ? applyTailGuard(tail.subarray(skew), p, reqId) : tail.subarray(skew);
           const out = tail.subarray(0, skew + kept.length);
           streamedBytes += out.length;
-          if (!res.write(out)) await waitDrain();
+          if (!send(out)) await waitDrain();
         }
         chunkPcmBytes = streamedBytes;
       } else {
@@ -797,21 +895,34 @@ export async function handleSpeakStream(req: Request, res: Response): Promise<vo
         nextPrefetch = i + 1 < chunks.length && !clientGone ? prefetch(i + 1) : null;
         if (nextPrefetch) nextPrefetch.catch(() => {});
 
-        const raw = await prevPrefetch;
+        let raw: Buffer;
+        try {
+          raw = await prevPrefetch;
+        } catch (err) {
+          // Nothing of chunk i is out yet, so the backup starts exactly there.
+          if (canHandOff && !clientGone) {
+            databaseLogger.warn(
+              `[voice-server] speak-stall reqId=${reqId} chunk=${i} provider=${p.id} streamedBytes=0 action=handoff reason=${reasonOf(err)}`,
+              { operation: "voice_speak_stall", reqId, provider: p.id, action: "handoff" },
+            );
+            return abandon(resumeText(plain, i, 0), reasonOf(err));
+          }
+          throw err;
+        }
         if (clientGone) break;
         if (TTS_BANK_ENABLED) chunkPcmBuffers.push(raw);
         const buf = guard && i === chunks.length - 1 ? applyTailGuard(raw, p, reqId) : raw;
         chunkPcmBytes = buf.length;
-        if (!res.write(buf)) {
+        if (!send(buf)) {
           await waitDrain();
         }
       }
 
-      totalPcmBytes += chunkPcmBytes;
       const chunkAudioSec = chunkPcmBytes / bytesPerSec;
+      totalAudioSec += chunkAudioSec;
       const chunkCharsPerSec = chunkAudioSec > 0 ? chunkTextLen / chunkAudioSec : 0;
       databaseLogger.info(
-        `[voice-server] speak-stream-chunk-out reqId=${reqId} i=${i} textLen=${chunkTextLen} pcmBytes=${chunkPcmBytes} audioSec=${chunkAudioSec.toFixed(3)} charsPerSec=${chunkCharsPerSec.toFixed(2)}`,
+        `[voice-server] speak-stream-chunk-out reqId=${reqId} provider=${p.id} i=${i} textLen=${chunkTextLen} pcmBytes=${chunkPcmBytes} audioSec=${chunkAudioSec.toFixed(3)} charsPerSec=${chunkCharsPerSec.toFixed(2)}`,
         { operation: "voice_speak_stream_chunk_out", reqId, i, textLen: chunkTextLen, pcmBytes: chunkPcmBytes },
       );
       writeTtsBankChunk(chunkPcmBuffers, {
@@ -823,20 +934,79 @@ export async function handleSpeakStream(req: Request, res: Response): Promise<vo
       });
       if (truncated) break;
     }
+    return { kind: "done", truncated };
+  };
+
+  let firstId: string = "none";
+  let backupId: string = "none";
+  try {
+    // Which provider speaks first: the selected one, unless it is benched (or
+    // misconfigured) and a backup is configured.
+    let primary: TtsProvider | undefined;
+    let primaryErr: unknown;
+    try {
+      primary = resolveTtsProvider();
+    } catch (err) {
+      primaryErr = err;
+    }
+    const fallback = resolveTtsFallback();
+    if (fallback.kind === "ignored" && !warnedFallbackConfig.has(fallback.raw)) {
+      warnedFallbackConfig.add(fallback.raw);
+      databaseLogger.warn(
+        `[voice-server] speak-fallback-config-ignored value="${fallback.raw}" reason=${fallback.reason}`,
+        { operation: "voice_speak_fallback_config", reason: fallback.reason },
+      );
+    }
+    const backup = fallback.kind === "ok" ? fallback.provider : null;
+    backupId = backup?.id ?? "none";
+
+    let first: TtsProvider;
+    let canHandOff = backup !== null;
+    if (!primary) {
+      if (!backup) throw primaryErr;
+      first = backup;
+      canHandOff = false;
+      databaseLogger.warn(
+        `[voice-server] speak-fallback reqId=${reqId} from=none to=${backup.id} reason=primary-misconfigured restTextLen=${text.length} playedSec=0`,
+        { operation: "voice_speak_fallback", reqId, to: backup.id, reason: "primary-misconfigured" },
+      );
+    } else if (backup && isProviderBenched(primary.id, reqId)) {
+      first = backup;
+      canHandOff = false;
+      databaseLogger.info(
+        `[voice-server] speak-fallback reqId=${reqId} from=${primary.id} to=${backup.id} reason=benched restTextLen=${text.length} playedSec=0`,
+        { operation: "voice_speak_fallback", reqId, from: primary.id, to: backup.id, reason: "benched" },
+      );
+    } else {
+      first = primary;
+    }
+    firstId = first.id;
+
+    let outcome = await speakPass(first, text, canHandOff);
+    if (outcome.kind === "handoff" && backup && !clientGone) {
+      benchProvider(first.id, reqId, outcome.reason);
+      databaseLogger.warn(
+        `[voice-server] speak-fallback reqId=${reqId} from=${first.id} to=${backup.id} reason=${outcome.reason} restTextLen=${outcome.restText.length} playedSec=${outcome.playedSec.toFixed(3)} headersFlushed=${headersFlushed}`,
+        { operation: "voice_speak_fallback", reqId, from: first.id, to: backup.id, reason: outcome.reason },
+      );
+      outcome =
+        outcome.restText.length > 0 ? await speakPass(backup, outcome.restText, false) : { kind: "done", truncated: false };
+    }
 
     if (clientGone) {
       databaseLogger.info(
-        `[voice-server] speak-stream-client-gone reqId=${reqId} provider=${p.id} chunks=${chunks.length} totalPcmBytes=${totalPcmBytes}`,
-        { operation: "voice_speak_stream_client_gone", reqId, provider: p.id },
+        `[voice-server] speak-stream-client-gone reqId=${reqId} provider=${firstId} fallback=${backupId} totalAudioSec=${totalAudioSec.toFixed(3)}`,
+        { operation: "voice_speak_stream_client_gone", reqId, provider: firstId },
       );
       return;
     }
+    if (!headersFlushed && res.headersSent) return; // zero-chunk 400 already answered
 
-    const totalAudioSec = totalPcmBytes / bytesPerSec;
+    const truncated = outcome.kind === "done" && outcome.truncated;
     const totalCharsPerSec = totalAudioSec > 0 ? text.length / totalAudioSec : 0;
     databaseLogger.info(
-      `[voice-server] speak-stream-ok reqId=${reqId} provider=${p.id} chunks=${chunks.length} totalTextLen=${text.length} totalPcmBytes=${totalPcmBytes} totalAudioSec=${totalAudioSec.toFixed(3)} charsPerSec=${totalCharsPerSec.toFixed(2)} truncated=${truncated}`,
-      { operation: "voice_speak_stream", reqId, provider: p.id },
+      `[voice-server] speak-stream-ok reqId=${reqId} provider=${firstId} finishedBy=${provider?.id ?? "none"} fallback=${backupId} totalTextLen=${text.length} totalAudioSec=${totalAudioSec.toFixed(3)} charsPerSec=${totalCharsPerSec.toFixed(2)} truncated=${truncated}`,
+      { operation: "voice_speak_stream", reqId, provider: firstId },
     );
 
     res.end();
@@ -844,10 +1014,11 @@ export async function handleSpeakStream(req: Request, res: Response): Promise<vo
     const errName = err instanceof Error ? err.name : "unknown";
     const errMessage = err instanceof Error ? err.message : String(err);
     // Misconfigured / unauthorised provider → 503 (if we can still send
-    // status) OR destroy() (if bytes flushed). Never a fallback provider.
+    // status) OR destroy() (if bytes flushed). A configured backup has
+    // already had its turn by the time an error lands here.
     if (err instanceof TtsNotConfiguredError || provider?.isUnavailable(err)) {
       databaseLogger.info(
-        `[voice-server] speak-stream-unavailable reqId=${reqId} ${failureContext(provider, choice)} errName=${errName} reason="${errMessage}" headersFlushed=${headersFlushed}`,
+        `[voice-server] speak-stream-unavailable reqId=${reqId} ${failureContext(provider, choice)} fallback=${backupId} errName=${errName} reason="${errMessage}" headersFlushed=${headersFlushed}`,
         { operation: "voice_speak_stream_access_denied", reqId, provider: provider?.id, headersFlushed },
       );
       if (!headersFlushed) {
@@ -859,7 +1030,7 @@ export async function handleSpeakStream(req: Request, res: Response): Promise<vo
     }
 
     databaseLogger.error(
-      `[voice-server] speak-stream-error reqId=${reqId} ${failureContext(provider, choice)} errName=${errName} errMessage="${errMessage}" headersFlushed=${headersFlushed}`,
+      `[voice-server] speak-stream-error reqId=${reqId} ${failureContext(provider, choice)} fallback=${backupId} errName=${errName} errMessage="${errMessage}" headersFlushed=${headersFlushed}`,
       err instanceof Error ? err : new Error(String(err)),
       { operation: "voice_speak_stream_error", reqId, provider: provider?.id, errName, headersFlushed },
     );
@@ -869,6 +1040,34 @@ export async function handleSpeakStream(req: Request, res: Response): Promise<vo
       res.destroy();
     }
   }
+}
+
+// --- handleTtsProviders — GET /voice/providers (admin) ---
+// What the server is configured to speak with, for the admin modal's
+// read-only Voice section. Mirrors exactly what handleSpeakStream resolves.
+export function handleTtsProviders(_req: Request, res: Response): void {
+  let primary: { id: string | null; label: string | null; error?: string };
+  try {
+    const p = resolveTtsProvider();
+    primary = { id: p.id, label: TTS_PROVIDER_LABELS[p.id] };
+  } catch {
+    primary = { id: null, label: null, error: `Unknown service "${(process.env.TTS_PROVIDER ?? "").trim()}"` };
+  }
+  const fb = resolveTtsFallback();
+  const backup =
+    fb.kind === "ok"
+      ? { id: fb.provider.id, label: TTS_PROVIDER_LABELS[fb.provider.id] }
+      : fb.kind === "none"
+        ? { id: null, label: null }
+        : {
+            id: null,
+            label: null,
+            error:
+              fb.reason === "unknown"
+                ? `Unknown service "${fb.raw}" — ignored`
+                : "Same as the main service — ignored",
+          };
+  res.status(200).json({ primary, backup });
 }
 
 // --- Route: POST /transcribe ---
@@ -910,6 +1109,16 @@ router.post(
   express.json({ limit: "64kb" }),
   (req: Request, res: Response) => {
     void handleSpeakStream(req, res);
+  },
+);
+
+// --- Route: GET /providers (admin) ---
+// Read-only: the configured main and backup TTS providers.
+router.get(
+  "/providers",
+  authManager.createAdminMiddleware(),
+  (req: Request, res: Response) => {
+    handleTtsProviders(req, res);
   },
 );
 

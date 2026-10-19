@@ -105,8 +105,10 @@ import {
   handleSpeak,
   handleSpeakStream,
   handleListVoices,
+  handleTtsProviders,
   SPEAK_TEXT_MAX,
 } from "./voice.js";
+import { clearProviderBench } from "../../voice/tts-fallback.js";
 import { clearVoiceListCache } from "../../voice/tts-provider.js";
 import { TAIL_GUARD_FILLER } from "../../voice/tail-guard.js";
 import { fetchSkillCatalog } from "../../voice/skill-catalog.js";
@@ -1256,5 +1258,199 @@ describe("TTS_PROVIDER selection", () => {
     const labels = (res._body as { labels: Record<string, string> }).labels;
     expect(labels.Joanna).toBe("Joanna");
     expect(labels.SAz9YHcvj6GT2YYXdXww).toBeUndefined();
+  });
+});
+
+describe("TTS_FALLBACK_PROVIDER (backup provider takes over)", () => {
+  const savedEnv = { ...process.env };
+  const fetchMock = vi.fn<typeof fetch>();
+  const OPENAI = "https://api.openai.com/v1/audio/speech";
+  const isEleven = (url: unknown) => String(url).includes("/text-to-speech/");
+
+  beforeEach(() => {
+    vi.stubGlobal("fetch", fetchMock);
+    fetchMock.mockReset();
+    clearProviderBench();
+    process.env.TTS_PROVIDER = "openai";
+    process.env.OPENAI_API_KEY = "oa-key";
+    process.env.TTS_MODEL = "tts-1"; // no tail guard: OpenAI audio streams straight through
+    process.env.TTS_FALLBACK_PROVIDER = "elevenlabs";
+    process.env.ELEVENLABS_API_KEY = "el-key";
+    process.env.TTS_STALL_TIMEOUT_MS = "40";
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    process.env = { ...savedEnv };
+    clearProviderBench();
+  });
+
+  const pcm = (bytes: number) => new Response(new Uint8Array(bytes), { status: 200 });
+  // Some bytes, then nothing — the connection stays open.
+  const stalling = (bytes: number) =>
+    new Response(new ReadableStream({ start(c) { if (bytes > 0) c.enqueue(new Uint8Array(bytes)); } }), { status: 200 });
+  const pcmBytesOut = (res: MockRes) => res._writes.slice(1).reduce((n, w) => n + w.length, 0);
+  const openAiCalls = () => fetchMock.mock.calls.filter((c) => String(c[0]) === OPENAI);
+  const elevenCalls = () => fetchMock.mock.calls.filter((c) => isEleven(c[0]));
+  const elevenText = (k = 0) => JSON.parse(String(elevenCalls()[k]?.[1]?.body)).text as string;
+
+  /** Route fetch by URL: OpenAI answers come from `openai` in order; ElevenLabs from `eleven`. */
+  function answer(openai: Array<() => Response>, eleven: Array<() => Response> = [() => pcm(8)]) {
+    let o = 0;
+    let e = 0;
+    fetchMock.mockImplementation(async (url) => {
+      if (String(url) === OPENAI) return (openai[o++] ?? openai[openai.length - 1])();
+      if (isEleven(url)) return (eleven[e++] ?? eleven[eleven.length - 1])();
+      throw new Error(`unexpected fetch ${String(url)}`);
+    });
+  }
+
+  async function speakStream(body: Record<string, unknown>): Promise<MockRes> {
+    const res = makeRes();
+    await handleSpeakStream(
+      makeSpeakReq(body) as unknown as import("express").Request,
+      res as unknown as import("express").Response,
+    );
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    return res;
+  }
+
+  it("primary refuses before any audio → backup speaks the whole message", async () => {
+    answer([() => new Response("bad key", { status: 401 })]);
+
+    const res = await speakStream({ text: "Hello there. How are you?" });
+
+    expect(res._status).toBe(200);
+    expect(Buffer.from(res._writes[0]).readUInt32LE(24)).toBe(24000);
+    expect(elevenText()).toBe("Hello there. How are you?");
+    expect(pcmBytesOut(res)).toBe(8);
+    expect(res._streamedEnded).toBe(true);
+    expect(res._destroyed).toBe(false);
+  });
+
+  it("primary stalls after audio → backup picks up at the start of the sentence the audio stopped in", async () => {
+    const sentences = Array.from({ length: 10 }, (_, k) => `This is sentence number ${k} here.`); // 32-33 chars
+    // 2.5 s of 24 kHz audio out ≈ 30 chars at the conservative resume rate → inside sentence 0.
+    answer([() => stalling(120_000)]);
+
+    const res = await speakStream({ text: sentences.join(" ") });
+
+    expect(openAiCalls()).toHaveLength(1); // not retried on the same provider
+    expect(elevenText()).toBe(sentences.join(" ")); // nothing skipped: sentence 0 is repeated
+    expect(pcmBytesOut(res)).toBe(120_000 + 8);
+    expect(res._streamedEnded).toBe(true);
+    expect(res._destroyed).toBe(false);
+  });
+
+  it("further into the message, the repeat is just the sentence in progress", async () => {
+    const sentences = Array.from({ length: 10 }, (_, k) => `This is sentence number ${k} here.`);
+    answer([() => stalling(480_000)]); // 10 s ≈ 120 chars → sentence 3
+
+    await speakStream({ text: sentences.join(" ") });
+
+    expect(elevenText()).toBe(sentences.slice(3).join(" "));
+  });
+
+  it("a later chunk fails → backup starts exactly at that chunk", async () => {
+    const a = `${"alpha ".repeat(600)}end.`;
+    const b = `${"bravo ".repeat(600)}end.`; // ~3600 chars each → one OpenAI chunk each
+    answer([() => pcm(4), () => stalling(2)]);
+
+    const res = await speakStream({ text: `${a} ${b}` });
+
+    expect(openAiCalls()).toHaveLength(2); // chunk 1 not retried on OpenAI
+    expect(elevenText()).toBe(b);
+    expect(pcmBytesOut(res)).toBe(4 + 8);
+    expect(res._streamedEnded).toBe(true);
+  });
+
+  it("after a takeover the primary is benched: the next message goes straight to the backup", async () => {
+    answer([() => new Response("bad key", { status: 401 })]);
+    await speakStream({ text: "First." });
+    expect(openAiCalls()).toHaveLength(1);
+
+    const res = await speakStream({ text: "Second." });
+
+    expect(openAiCalls()).toHaveLength(1);
+    expect(elevenText(1)).toBe("Second.");
+    expect(res._status).toBe(200);
+  });
+
+  it("the bench runs out after 15 minutes and the primary is tried again", async () => {
+    answer([() => new Response("bad key", { status: 401 }), () => pcm(6)]);
+    await speakStream({ text: "First." });
+    vi.spyOn(Date, "now").mockReturnValue(Date.now() + 16 * 60_000);
+
+    const res = await speakStream({ text: "Second." });
+
+    expect(openAiCalls()).toHaveLength(2);
+    expect(elevenCalls()).toHaveLength(1);
+    expect(pcmBytesOut(res)).toBe(6);
+  });
+
+  it("backup also stalls → the message ends there; no chain back to the primary", async () => {
+    answer([() => stalling(48_000)], [() => stalling(10)]);
+
+    const res = await speakStream({ text: "One sentence. Another sentence." });
+
+    expect(openAiCalls()).toHaveLength(1);
+    expect(pcmBytesOut(res)).toBe(48_000 + 10);
+    expect(res._streamedEnded).toBe(true);
+    expect(res._destroyed).toBe(false);
+  });
+
+  it("backup at another sample rate is resampled to the rate already in the header", async () => {
+    process.env.TTS_FALLBACK_PROVIDER = "polly";
+    answer([() => stalling(48_000)]);
+    pollySendMock.mockResolvedValueOnce({ AudioStream: Readable.from([Buffer.alloc(16_000)]) }); // 0.5 s at 16 kHz
+
+    const res = await speakStream({ text: "One sentence. Another sentence." });
+
+    expect(Buffer.from(res._writes[0]).readUInt32LE(24)).toBe(24000);
+    const backupBytes = pcmBytesOut(res) - 48_000;
+    expect(Math.abs(backupBytes - 24_000)).toBeLessThanOrEqual(4); // 0.5 s at 24 kHz
+  });
+
+  it("the backup ignores TTS_MODEL and TTS_DEFAULT_VOICE (they belong to the primary)", async () => {
+    process.env.TTS_DEFAULT_VOICE = "marin";
+    answer([() => new Response("bad key", { status: 401 })]);
+
+    await speakStream({ text: "Hi." });
+
+    const call = elevenCalls()[0];
+    expect(String(call?.[0])).toContain("/text-to-speech/SAz9YHcvj6GT2YYXdXww/");
+    expect(JSON.parse(String(call?.[1]?.body)).model_id).toBe("eleven_multilingual_v2");
+  });
+
+  it("backup set to the primary itself is ignored → single-provider behaviour (503)", async () => {
+    process.env.TTS_FALLBACK_PROVIDER = "openai";
+    answer([() => new Response("bad key", { status: 401 })]);
+
+    const res = await speakStream({ text: "Hi." });
+
+    expect(res._status).toBe(503);
+    expect(elevenCalls()).toHaveLength(0);
+  });
+
+  it("GET /voice/providers reports what the server resolves", () => {
+    const run = () => {
+      const res = makeRes();
+      handleTtsProviders({} as import("express").Request, res as unknown as import("express").Response);
+      return res._body;
+    };
+    expect(run()).toEqual({
+      primary: { id: "openai", label: "OpenAI" },
+      backup: { id: "elevenlabs", label: "ElevenLabs" },
+    });
+    process.env.TTS_FALLBACK_PROVIDER = "none";
+    expect(run()).toMatchObject({ backup: { id: null, label: null } });
+    process.env.TTS_FALLBACK_PROVIDER = "openai";
+    expect(run()).toMatchObject({ backup: { id: null, error: "Same as the main service — ignored" } });
+    process.env.TTS_FALLBACK_PROVIDER = "bogus";
+    process.env.TTS_PROVIDER = "nope";
+    expect(run()).toMatchObject({
+      primary: { id: null, error: 'Unknown service "nope"' },
+      backup: { id: null, error: 'Unknown service "bogus" — ignored' },
+    });
   });
 });

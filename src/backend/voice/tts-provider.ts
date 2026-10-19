@@ -22,6 +22,11 @@
  *   TTS_DEFAULT_VOICE  voice used when no saved voice is available on the
  *                      active provider (defaults per provider below).
  *
+ * Optional backup (`TTS_FALLBACK_PROVIDER`, same values, or `none`): when the
+ * selected provider fails or stalls, the backup speaks the rest of the message
+ * (see voice/tts-fallback.ts). TTS_MODEL / TTS_DEFAULT_VOICE belong to the
+ * selected provider only; the backup always uses its own defaults.
+ *
  * Unset TTS_PROVIDER keeps the pre-existing Polly behaviour exactly, so a BAA
  * instance never sends text off-AWS unless someone opts in explicitly. An
  * unknown value is refused, never mapped to some other provider.
@@ -84,6 +89,12 @@ const PROVIDERS: Record<TtsProviderId, TtsProvider> = {
   elevenlabs: elevenLabsTtsProvider,
 };
 
+export const TTS_PROVIDER_LABELS: Record<TtsProviderId, string> = {
+  polly: "Amazon Polly",
+  openai: "OpenAI",
+  elevenlabs: "ElevenLabs",
+};
+
 /** Longest voice id accepted anywhere (saved frontmatter, prefs, speak body). */
 export const VOICE_ID_MAX_LEN = 64;
 
@@ -103,6 +114,32 @@ export function resolveTtsProvider(env: NodeJS.ProcessEnv = process.env): TtsPro
   throw new TtsNotConfiguredError(
     `unknown TTS_PROVIDER="${raw}" (expected one of: ${TTS_PROVIDER_IDS.join(", ")})`,
   );
+}
+
+/** What TTS_FALLBACK_PROVIDER resolves to: a backup, none, or a setting that's ignored. */
+export type TtsFallbackConfig =
+  | { kind: "none" }
+  | { kind: "ok"; provider: TtsProvider }
+  | { kind: "ignored"; raw: string; reason: "unknown" | "same-as-primary" };
+
+/**
+ * Resolve the backup provider from `TTS_FALLBACK_PROVIDER`. Unset, empty or
+ * `none` → no backup. An unknown value, or the selected provider itself, is
+ * ignored (no backup) — never mapped to some other provider. Pure: callers
+ * log an ignored setting themselves.
+ */
+export function resolveTtsFallback(env: NodeJS.ProcessEnv = process.env): TtsFallbackConfig {
+  const raw = (env.TTS_FALLBACK_PROVIDER ?? "").trim().toLowerCase();
+  if (raw === "" || raw === "none") return { kind: "none" };
+  if (!(TTS_PROVIDER_IDS as readonly string[]).includes(raw)) return { kind: "ignored", raw, reason: "unknown" };
+  const primary = (env.TTS_PROVIDER ?? "").trim().toLowerCase() || "polly";
+  if (raw === primary) return { kind: "ignored", raw, reason: "same-as-primary" };
+  return { kind: "ok", provider: PROVIDERS[raw as TtsProviderId] };
+}
+
+/** True when `providerId` is the provider TTS_PROVIDER selects (its overrides apply). */
+export function isSelectedTtsProvider(providerId: TtsProviderId, env: NodeJS.ProcessEnv = process.env): boolean {
+  return ((env.TTS_PROVIDER ?? "").trim().toLowerCase() || "polly") === providerId;
 }
 
 /**
@@ -127,6 +164,8 @@ export function isRecognizedVoiceId(id: unknown): id is string {
  * @throws TtsNotConfiguredError for an override the provider can't use.
  */
 export function defaultVoiceFor(provider: TtsProvider, env: NodeJS.ProcessEnv = process.env): string {
+  // The override belongs to the selected provider; a backup uses its own default.
+  if (!isSelectedTtsProvider(provider.id, env)) return provider.defaultVoiceId;
   const override = env.TTS_DEFAULT_VOICE?.trim();
   if (!override) return provider.defaultVoiceId;
   if (override.length > VOICE_ID_MAX_LEN || !provider.isOwnVoiceId(override)) {
@@ -319,11 +358,14 @@ export async function synthesizeWithRetries(
 
 /** Default quiet period before a flowing provider stream counts as stalled. */
 export const TTS_STALL_TIMEOUT_MS_DEFAULT = 10_000;
+/** Shorter quiet period when a backup provider is ready to take over. */
+export const TTS_STALL_TIMEOUT_MS_WITH_FALLBACK = 4_000;
 
 /** TTS_STALL_TIMEOUT_MS override, read at call time; invalid → default. */
 export function ttsStallTimeoutMs(env: NodeJS.ProcessEnv = process.env): number {
   const v = Number(env.TTS_STALL_TIMEOUT_MS);
-  return Number.isFinite(v) && v > 0 ? v : TTS_STALL_TIMEOUT_MS_DEFAULT;
+  if (Number.isFinite(v) && v > 0) return v;
+  return resolveTtsFallback(env).kind === "ok" ? TTS_STALL_TIMEOUT_MS_WITH_FALLBACK : TTS_STALL_TIMEOUT_MS_DEFAULT;
 }
 
 /**

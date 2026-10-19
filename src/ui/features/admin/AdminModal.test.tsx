@@ -79,6 +79,13 @@ vi.mock("@/api/system-status-api", () => ({
   getAdminDbHealth: vi.fn(async () => ({ status: "ok" })),
 }));
 
+vi.mock("@/api/voice-api", () => ({
+  getTtsProviders: vi.fn(async () => ({
+    primary: { id: "openai", label: "OpenAI" },
+    backup: { id: null, label: null },
+  })),
+}));
+
 vi.mock("@/api/admin-hosts-api", () => ({
   getAdminHosts: vi.fn(async () => ({ hosts: [], generatedAt: Date.now() })),
 }));

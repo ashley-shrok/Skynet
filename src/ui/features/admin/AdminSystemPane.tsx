@@ -1,12 +1,14 @@
 /**
- * Admin → System: running version and update check, database health, and
- * the backend log level.
+ * Admin → System: running version and update check, database health, the
+ * backend log level, and the read-aloud services the server is configured
+ * with (read-only).
  */
 
 import { useEffect, useState } from "react";
 import { ExternalLink } from "lucide-react";
 import { getAdminDbHealth, getVersionInfo } from "@/api/system-status-api";
 import { getLogLevel, updateLogLevel } from "@/api/settings-api";
+import { getTtsProviders, type TtsProviderStatus } from "@/api/voice-api";
 import {
   AdminButton,
   AdminError,
@@ -45,6 +47,12 @@ export function AdminSystemPane() {
   const [logBusy, setLogBusy] = useState(false);
   const [logError, setLogError] = useState<string | null>(null);
 
+  const [tts, setTts] = useState<{
+    primary: TtsProviderStatus;
+    backup: TtsProviderStatus;
+  } | null>(null);
+  const [ttsError, setTtsError] = useState<string | null>(null);
+
   const loadVersion = async (checkRemote: boolean) => {
     setChecking(true);
     setVersionError(null);
@@ -73,6 +81,11 @@ export function AdminSystemPane() {
     getAdminDbHealth()
       .then((r) => setDbStatus(r.status === "ok" ? "ok" : "error"))
       .catch(() => setDbStatus("error"));
+    getTtsProviders()
+      .then(setTts)
+      .catch((err) =>
+        setTtsError(adminErrorMessage(err, "Failed to load voice services.")),
+      );
     getLogLevel()
       .then((r) => setLogLevel(r.level))
       .catch((err) =>
@@ -205,6 +218,63 @@ export function AdminSystemPane() {
           <AdminError testId="admin-system-log-error">{logError}</AdminError>
         )}
       </AdminSection>
+
+      <AdminSection
+        title="Voice"
+        testId="admin-system-voice"
+        description="The services that read replies aloud. Set in the server configuration; when the main service fails or freezes, the backup reads the rest of the reply."
+      >
+        <div className="flex flex-col">
+          <AdminRow
+            label="Main service"
+            description={tts?.primary.error}
+            control={
+              <TtsServiceName
+                testId="admin-system-tts-primary"
+                status={tts?.primary}
+                loading={tts === null && ttsError === null}
+              />
+            }
+          />
+          <AdminRow
+            label="Backup service"
+            description={tts?.backup.error}
+            control={
+              <TtsServiceName
+                testId="admin-system-tts-backup"
+                status={tts?.backup}
+                loading={tts === null && ttsError === null}
+              />
+            }
+          />
+        </div>
+        {ttsError && (
+          <AdminError testId="admin-system-tts-error">{ttsError}</AdminError>
+        )}
+      </AdminSection>
     </div>
+  );
+}
+
+function TtsServiceName({
+  status,
+  loading,
+  testId,
+}: {
+  status: TtsProviderStatus | undefined;
+  loading: boolean;
+  testId: string;
+}) {
+  const text = loading
+    ? "Loading…"
+    : status?.label ?? (status?.error ? "Not in use" : "None");
+  return (
+    <span
+      data-testid={testId}
+      className="text-[12.5px]"
+      style={{ color: status?.error ? "#d38f8f" : "#e8e4d8" }}
+    >
+      {text}
+    </span>
   );
 }
