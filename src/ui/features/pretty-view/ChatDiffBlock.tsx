@@ -1,4 +1,4 @@
-import { Fragment, useMemo, useState } from "react";
+import { Fragment, useState } from "react";
 import { CopyableBlock } from "./CopyableBlock";
 import { UnifiedHunkRows } from "./file-viewers/diff/DiffView";
 import {
@@ -80,7 +80,7 @@ function Counts({ add, del }: { add: number; del: number }): JSX.Element {
 
 export function ChatDiffBlock({ text, patch }: { text: string; patch: ParsedPatch }): JSX.Element {
   const [expanded, setExpanded] = useState(false);
-  const total = useMemo(() => lineCount(patch.files), [patch]);
+  const total = lineCount(patch.files);
   const foldable = total > FOLD_OVER_LINES;
   const files = foldable && !expanded ? truncate(patch.files, FOLDED_LINES) : patch.files;
   const numbers = patch.files.some((f) => f.hunks.some((h) => h.lines.some((l) => l.oldNo !== null || l.newNo !== null)));
@@ -106,7 +106,7 @@ export function ChatDiffBlock({ text, patch }: { text: string; patch: ParsedPatc
               <Fragment key={fi}>
                 {named ? (
                   <tr className="bg-white/[0.04] text-[#e8e4d8]" data-testid="chat-diff-file">
-                    <td colSpan={4} className="px-2 py-0.5 whitespace-pre">
+                    <td colSpan={numbers ? 4 : 2} className="px-2 py-0.5 whitespace-pre">
                       {displayPath(f)}
                     </td>
                   </tr>
@@ -115,7 +115,7 @@ export function ChatDiffBlock({ text, patch }: { text: string; patch: ParsedPatc
                   <Fragment key={hi}>
                     {h.header ? (
                       <tr className="bg-[hsla(var(--pv-id-hue,220),40%,45%,0.16)] text-[#a89a80]">
-                        <td colSpan={4} className="px-2 py-0.5 whitespace-pre">
+                        <td colSpan={numbers ? 4 : 2} className="px-2 py-0.5 whitespace-pre">
                           {h.header}
                         </td>
                       </tr>

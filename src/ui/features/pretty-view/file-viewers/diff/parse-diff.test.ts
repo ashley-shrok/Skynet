@@ -95,6 +95,34 @@ describe("parseChatDiff — ```diff blocks in chat", () => {
     expect(patch!.files[0].hunks[0].lines.some((l) => l.newNo !== null)).toBe(true);
   });
 
+  it("reads ---/+++ headers without an @@ line as the file, not as rows", () => {
+    const patch = parseChatDiff("--- a/foo.ts\n+++ b/foo.ts\n-old\n+new");
+    expect(patch!.files.map(displayPath)).toEqual(["foo.ts"]);
+    expect(patch!.additions).toBe(1);
+    expect(patch!.deletions).toBe(1);
+  });
+
+  it("keeps lines past an understated @@ count", () => {
+    const patch = parseChatDiff("@@ -1 +1 @@\n-a\n+b\n-c\n+d");
+    expect(patch!.additions).toBe(2);
+    expect(patch!.deletions).toBe(2);
+    const lines = patch!.files[0].hunks[0].lines;
+    expect(lines.map((l) => l.text)).toEqual(["a", "b", "c", "d"]);
+    expect(lines.map((l) => l.oldNo ?? l.newNo)).toEqual([1, 1, 2, 2]);
+  });
+
+  it("treats an @@ line without numbers as a hunk separator", () => {
+    const patch = parseChatDiff("@@ foo @@\n-a\n+b\n@@ bar @@\n+c");
+    expect(patch!.files[0].hunks.map((h) => h.header)).toEqual(["@@ foo @@", "@@ bar @@"]);
+    expect(patch!.additions).toBe(2);
+    expect(patch!.files[0].hunks[0].lines[0].oldNo).toBeNull();
+  });
+
+  it("parses a full git format-patch via the strict path", () => {
+    const patch = parseChatDiff(GIT_PATCH);
+    expect(patch!.files.map(displayPath)).toEqual(parsePatch(GIT_PATCH).files.map(displayPath));
+  });
+
   it("returns null for text that isn't a diff", () => {
     expect(parseChatDiff("const x = 1;\n+y")).toBeNull();
     expect(parseChatDiff(" only context\n same")).toBeNull();

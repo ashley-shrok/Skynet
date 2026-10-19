@@ -40,6 +40,8 @@ export interface ParsedPatch {
   files: DiffFile[];
   additions: number;
   deletions: number;
+  /** +/- lines left over after a hunk's stated counts ran out (not shown). */
+  stray?: number;
 }
 
 const HUNK_RE = /^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@/;
@@ -65,6 +67,7 @@ export function parsePatch(text: string): ParsedPatch {
   let newNo = 0;
   let oldLeft = 0;
   let newLeft = 0;
+  let stray = 0;
 
   const startFile = (): DiffFile => {
     file = newFile();
@@ -150,6 +153,7 @@ export function parsePatch(text: string): ParsedPatch {
       continue;
     }
 
+    if (hunk && (line[0] === "+" || line[0] === "-")) stray++;
     const f = file as DiffFile | null;
     if (!f) continue;
     if (line.startsWith("new file mode")) {
@@ -175,49 +179,100 @@ export function parsePatch(text: string): ParsedPatch {
     additions += f.additions;
     deletions += f.deletions;
   }
-  return { files, additions, deletions };
+  return { files, additions, deletions, stray };
 }
 
 /**
- * Diff for a ```diff code block in a chat bubble. A real patch (file
- * headers / `@@` hunks) parses as usual; otherwise a bare run of +/-/space
- * lines — what agents usually write — becomes one hunk with no file and no
- * line numbers. Null when the text doesn't read as a diff at all, so the
- * caller can fall back to a plain code block.
+ * Diff for a ```diff code block in a chat bubble. Agents hand-write these,
+ * so `@@` counts can't be trusted: the body is read leniently — `---`/`+++`
+ * pairs start a file, any `@@` line starts a hunk (numbered when it carries
+ * numbers), and +/-/space lines are rows. A real git patch whose metadata
+ * lines (index, mode, …) the lenient pass can't place still parses via
+ * parsePatch, as long as that accounts for every changed line. Null when the
+ * text doesn't read as a diff, so the caller falls back to a plain block.
  */
 export function parseChatDiff(text: string): ParsedPatch | null {
   const body = text.replace(/\n$/, "");
-  const patch = parsePatch(body);
-  if (patch.files.some((f) => f.hunks.length > 0)) return patch;
+  const lenient = parseLenient(body);
+  if (lenient) return lenient.additions + lenient.deletions > 0 ? lenient : null;
+  const strict = parsePatch(body);
+  if (!strict.files.some((f) => f.hunks.length > 0)) return null;
+  // Stated hunk counts that hid changed lines: show it as plain text instead.
+  return strict.stray ? null : strict;
+}
 
-  const lines: DiffLine[] = [];
-  let additions = 0;
-  let deletions = 0;
-  for (const raw of body.split("\n")) {
-    const line = raw.endsWith("\r") ? raw.slice(0, -1) : raw;
+/** Hand-written diff body; null on any line that isn't diff-shaped. */
+function parseLenient(body: string): ParsedPatch | null {
+  const lines = body.split("\n").map((l) => (l.endsWith("\r") ? l.slice(0, -1) : l));
+  const files: DiffFile[] = [];
+  let file: DiffFile | null = null;
+  let hunk: DiffHunk | null = null;
+  let oldNo: number | null = null;
+  let newNo: number | null = null;
+
+  const ensureHunk = (header: string): DiffHunk => {
+    if (!file) {
+      file = newFile();
+      files.push(file);
+    }
+    const h: DiffHunk = { header, lines: [] };
+    file.hunks.push(h);
+    hunk = h;
+    return h;
+  };
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    if (line.startsWith("--- ") && lines[i + 1]?.startsWith("+++ ")) {
+      const f: DiffFile = newFile();
+      f.oldPath = cleanPath(line.slice(4));
+      f.newPath = cleanPath(lines[i + 1].slice(4));
+      if (f.oldPath === null) f.status = "added";
+      else if (f.newPath === null) f.status = "deleted";
+      files.push(f);
+      file = f;
+      hunk = null;
+      oldNo = newNo = null;
+      i++;
+      continue;
+    }
+    if (line.startsWith("@@")) {
+      const hm = HUNK_RE.exec(line);
+      oldNo = hm ? Number(hm[1]) : null;
+      newNo = hm ? Number(hm[3]) : null;
+      ensureHunk(line);
+      continue;
+    }
     const mark = line[0];
+    const h: DiffHunk = hunk ?? ensureHunk("");
+    const f = file as DiffFile | null;
     if (mark === "+") {
-      lines.push({ kind: "add", text: line.slice(1), oldNo: null, newNo: null });
-      additions++;
+      h.lines.push({ kind: "add", text: line.slice(1), oldNo: null, newNo: newNo === null ? null : newNo++ });
+      if (f) f.additions++;
     } else if (mark === "-") {
-      lines.push({ kind: "del", text: line.slice(1), oldNo: null, newNo: null });
-      deletions++;
+      h.lines.push({ kind: "del", text: line.slice(1), oldNo: oldNo === null ? null : oldNo++, newNo: null });
+      if (f) f.deletions++;
     } else if (mark === " " || line === "") {
-      lines.push({ kind: "ctx", text: line.slice(1), oldNo: null, newNo: null });
+      h.lines.push({
+        kind: "ctx",
+        text: line.slice(1),
+        oldNo: oldNo === null ? null : oldNo++,
+        newNo: newNo === null ? null : newNo++,
+      });
     } else if (mark === "\\") {
-      lines.push({ kind: "note", text: line.slice(1).trim(), oldNo: null, newNo: null });
+      h.lines.push({ kind: "note", text: line.slice(1).trim(), oldNo: null, newNo: null });
     } else {
       return null;
     }
   }
-  if (additions + deletions === 0) return null;
-  const file: DiffFile = {
-    ...newFile(),
-    additions,
-    deletions,
-    hunks: [{ header: "", lines }],
-  };
-  return { files: [file], additions, deletions };
+
+  let additions = 0;
+  let deletions = 0;
+  for (const f of files) {
+    additions += f.additions;
+    deletions += f.deletions;
+  }
+  return { files, additions, deletions };
 }
 
 /** Path to show for a file: the new path, the old one for deletions, "old → new" for renames. */

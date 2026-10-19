@@ -207,7 +207,7 @@ export function UnifiedHunkRows({
       {hunk.lines.map((l, i) =>
         l.kind === "note" ? (
           <tr key={i}>
-            <td colSpan={4} className="px-3 text-[11px] italic text-[#a89a80]">
+            <td colSpan={numbers ? 4 : 2} className="px-3 text-[11px] italic text-[#a89a80]">
               {l.text}
             </td>
           </tr>
