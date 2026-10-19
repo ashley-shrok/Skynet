@@ -16,6 +16,13 @@
 #          written first) stays silent; `.state` bookkeeping never emits.
 #   T-W6 — restart: a wake-up added while the watcher was down is reported,
 #          one deleted is reported, a fired one_shot swept while down is not.
+#   T-W7 — deleting and re-creating a wake-up in one call (`rm -rf … && cat >`)
+#          is the agent's own edit: silent.
+#   T-W8 — a call working inside `wakeups/<slug>/sensor/` claims nothing, so
+#          a user edit to that wake-up meanwhile is still reported; churn in
+#          the sensor folder never emits.
+#   T-W9 — a `.fired` left by an earlier wake-up of the same name does not
+#          hide a user's delete of the new one.
 #
 # Exits 0 on all-pass; 1 on any failure with a diagnostic naming the failing
 # test.
@@ -297,12 +304,69 @@ test_T_W6_changes_while_down() {
   fi
 }
 
+test_T_W7_delete_recreate_one_call_silent() {
+  seed w7name
+  spec swap '{"type":"daily","at":"09:00"}'
+  launch_watcher
+  wait_for_watcher || { fail "watcher never started"; return; }
+
+  local cmd='{"command":"rm -rf ~/fleet/identities/w7name/wakeups/swap && mkdir -p ~/fleet/identities/w7name/wakeups/swap && cat > ~/fleet/identities/w7name/wakeups/swap/wakeup.json"}'
+  hook PreToolUse toolu_w7 Bash "$cmd"
+  rm -rf "$WAKE_DIR/swap"
+  sleep 0.3
+  spec swap '{"type":"daily","at":"10:00"}'
+  sleep 0.5
+  hook PostToolUse toolu_w7 Bash "$cmd"
+  assert_quiet "own delete + re-create"
+}
+
+test_T_W8_sensor_work_claims_nothing() {
+  seed w8name
+  spec watcher '{"type":"sensor"}'
+  mkdir -p "$WAKE_DIR/watcher/sensor"
+  launch_watcher
+  wait_for_watcher || { fail "watcher never started"; return; }
+
+  local cmd='{"command":"cd ~/fleet/identities/w8name/wakeups/watcher/sensor && python3 check.py && sleep 3"}'
+  hook PreToolUse toolu_w8 Bash "$cmd"
+  if [ -n "$(find "$STATE_DIR/claims" -type f -name '*.toolu_w8' 2>/dev/null)" ]; then
+    fail "sensor work claimed the spec: $(ls "$STATE_DIR/claims")"
+    return
+  fi
+  for i in 1 2 3; do printf '%s' "$i" > "$WAKE_DIR/watcher/sensor/state.json"; done
+  mkdir -p "$WAKE_DIR/watcher/sensor/node_modules/x"
+  printf '{"name":"watcher","enabled":false,"schedule":{"type":"sensor"},"instruction":"do watcher"}' \
+    > "$WAKE_DIR/watcher/wakeup.json"
+  wait_for_match '📝 \[wakeup: watcher\] your watcher wake-up changed' \
+    || fail "user edit during sensor work not reported; out=$(cat "$OUT_LOG")"
+  hook PostToolUse toolu_w8 Bash "$cmd"
+  if [ "$(grep -c '\[wakeup:' "$OUT_LOG")" != 1 ]; then
+    fail "sensor folder churn emitted; out=$(cat "$OUT_LOG")"
+  fi
+}
+
+test_T_W9_stale_fired_does_not_hide_delete() {
+  seed w9name
+  mkdir -p "$WAKE_DIR/again/.state"
+  printf '1700000000' > "$WAKE_DIR/again/.state/again.fired"
+  touch -d '2 hours ago' "$WAKE_DIR/again/.state/again.fired"
+  spec again '{"type":"one_shot","at":"2030-01-01T09:00:00Z"}'
+  launch_watcher
+  wait_for_watcher || { fail "watcher never started"; return; }
+  rm -f "$WAKE_DIR/again/wakeup.json"
+  wait_for_match '📝 \[wakeup: again\] deleted' \
+    || fail "user delete hidden by an old .fired; out=$(cat "$OUT_LOG")"
+}
+
 run_test test_T_W1_cold_start_silent
 run_test test_T_W2_others_add_edit_delete
 run_test test_T_W3_own_write_edit_delete_silent
 run_test test_T_W4_long_bash_create_silent
 run_test test_T_W5_scheduler_retire_and_state_quiet
 run_test test_T_W6_changes_while_down
+run_test test_T_W7_delete_recreate_one_call_silent
+run_test test_T_W8_sensor_work_claims_nothing
+run_test test_T_W9_stale_fired_does_not_hide_delete
 
 printf '\n===============================\n'
 printf 'PASS: %d  FAIL: %d\n' "$PASS" "$FAIL"

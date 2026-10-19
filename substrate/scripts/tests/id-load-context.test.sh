@@ -193,7 +193,36 @@ test_budget_points_at_large_files() {
   pass
 }
 
+test_fences_enabled_and_listing_cap() {
+  local t=test_fences_enabled_and_listing_cap
+  reset_home
+  identity delta 'roles: [keeper]
+project: big'
+  role keeper 'Example:
+```bash
+echo hi
+```
+after the block'
+  mkdir -p "$F/scheduled-agents/off"
+  printf '{"name":"off","enabled":0,"roles":["keeper"],"prompt":"p","schedule":{"type":"daily","at":"02:00"}}' \
+    > "$F/scheduled-agents/off/scheduled-agent.json"
+  mkdir -p "$F/projects/big"
+  printf -- '---\ndisplayName: Big\n---\n' > "$F/projects/big/project.md"
+  local i
+  for i in $(seq -w 1 60); do touch "$F/projects/big/file$i.txt"; done
+  local out
+  out="$(run_hook "/id delta")"
+  assert_contains $t "$out" '````
+---
+displayName: keeper' || return
+  assert_contains $t "$out" '- off — {"type": "daily", "at": "02:00"} · disabled' || return
+  assert_contains $t "$out" "file40.txt, … and 20 more" || return
+  assert_not_contains $t "$out" "file41.txt" || return
+  pass
+}
+
 test_silent_on_other_prompts
+test_fences_enabled_and_listing_cap
 test_full_context
 test_no_roles_no_project
 test_never_fired_and_no_runbooks

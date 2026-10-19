@@ -34,6 +34,7 @@ import re
 import sys
 
 CONTEXT_LIMIT = 9500  # under Claude Code's 10,000-char additionalContext cap
+LISTING_MAX = 40  # names shown per project folder listing
 RESERVED = ("save", "reset", "archive")
 NAME_RE = re.compile(r"^[a-z0-9][a-z0-9_-]{0,63}$")
 _PROJECT_SLUG_RE = re.compile(r"^[a-z0-9-]{1,64}$")
@@ -231,7 +232,8 @@ def _schedule_line(slug, spec, last_path):
     name = spec.get("name") or slug
     head = slug if name == slug else "%s (%s)" % (slug, name)
     sched = json.dumps(spec.get("schedule"), separators=(", ", ": "))
-    on = "enabled" if spec.get("enabled", True) is not False else "disabled"
+    # Python truthiness, as the scheduler reads it.
+    on = "enabled" if spec.get("enabled", True) else "disabled"
     return "- %s — %s · %s · %s" % (head, sched, on, _last_fired(last_path))
 
 
@@ -275,6 +277,18 @@ def _listdir_visible(path, skip=()):
             for n in names if not n.startswith(".") and n not in skip]
 
 
+def _listing_text(names):
+    if len(names) <= LISTING_MAX:
+        return ", ".join(names) or "none"
+    return "%s, … and %d more" % (", ".join(names[:LISTING_MAX]), len(names) - LISTING_MAX)
+
+
+def _length(text):
+    # Claude Code measures the cap in JavaScript string length (UTF-16 units),
+    # where an emoji counts twice.
+    return len(text.encode("utf-16-le")) // 2
+
+
 # --- assembly ---------------------------------------------------------------
 
 def _display(path):
@@ -287,7 +301,11 @@ class _File:
 
     def __init__(self, label, path, text):
         self.path = path
-        self.full = "%s — %s\n```\n%s\n```" % (label, _display(path), text.rstrip("\n"))
+        # A fence longer than any backtick run inside, so a file's own code
+        # blocks can't close it early.
+        runs = re.findall(r"`+", text)
+        fence = "`" * max(3, max((len(r) for r in runs), default=0) + 1)
+        self.full = "%s — %s\n%s\n%s\n%s" % (label, _display(path), fence, text.rstrip("\n"), fence)
         self.pointer = "%s — %s (too large to include here; Read it)" % (label, _display(path))
         self.inline = False
 
@@ -338,7 +356,7 @@ def build(name):
                 files.append(f)
                 parts.append(f)
             listing = _listdir_visible(pdir, skip=("project.md",))
-            parts.append("Other files in %s: %s" % (_display(pdir) + "/", ", ".join(listing) or "none"))
+            parts.append("Other files in %s: %s" % (_display(pdir) + "/", _listing_text(listing)))
 
     def render():
         return "\n\n".join(p.render() if isinstance(p, _File) else p for p in parts)
@@ -346,7 +364,7 @@ def build(name):
     # Files are listed in priority order: identity, roles, projects top-down.
     for f in files:
         f.inline = True
-        if len(render()) > CONTEXT_LIMIT:
+        if _length(render()) > CONTEXT_LIMIT:
             f.inline = False
     return render()
 

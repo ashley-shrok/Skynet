@@ -1590,8 +1590,14 @@ def _wakeup_self_retired(wakeups_dir, slug, base_path, folder_gone_counts):
     live. At startup the folder may already be swept; then
     `folder_gone_counts` lets a vanished folder whose last-known spec was
     self-retiring (one_shot, or a sensor with `once`) count as retired."""
-    if os.path.exists(os.path.join(wakeups_dir, slug, ".state", slug + ".fired")):
-        return True
+    fired = os.path.join(wakeups_dir, slug, ".state", slug + ".fired")
+    try:
+        # A `.fired` older than our baseline belongs to an earlier wake-up of
+        # the same name (the folder is swept only a day later).
+        if os.path.getmtime(fired) >= os.path.getmtime(base_path):
+            return True
+    except OSError:
+        pass
     if not folder_gone_counts or os.path.isdir(os.path.join(wakeups_dir, slug)):
         return False
     try:
@@ -1670,17 +1676,27 @@ def _handle_wakeup_event(slug, events, tracked_slugs, wakeups_dir, baseline_dir,
             return
         # The agent's own delete: its tool call claimed the wake-up before it
         # ran; the hook marks the delete when the call returns.
-        started = time.time()
-        while _live_claims(base_path) and time.time() - started < CLAIM_MAX_SEC:
+        while _live_claims(base_path):
+            if _harness_pid is not None:
+                try:
+                    os.kill(_harness_pid, 0)
+                except OSError:
+                    sys.exit(0)
             time.sleep(CLAIM_POLL_SEC)
-        quiet = _consume_self_delete(base_path) or _wakeup_self_retired(
-            wakeups_dir, slug, base_path, folder_gone_counts=False,
-        )
-        _drop_wakeup_baseline(base_path)
-        tracked_slugs.discard(slug)
-        if not quiet:
-            _emit_wakeup_deleted(slug)
-        return
+        if os.path.isfile(spec_path):
+            # Deleted and re-created within the call (`rm -rf … && cat > …`):
+            # an edit, not a delete.
+            _consume_self_delete(base_path)
+            events = {"CLOSE_WRITE"}
+        else:
+            quiet = _consume_self_delete(base_path) or _wakeup_self_retired(
+                wakeups_dir, slug, base_path, folder_gone_counts=False,
+            )
+            _drop_wakeup_baseline(base_path)
+            tracked_slugs.discard(slug)
+            if not quiet:
+                _emit_wakeup_deleted(slug)
+            return
 
     if not (events & {"CLOSE_WRITE", "MOVED_TO"} or ("CREATE" in events and "ISDIR" in events)):
         return
@@ -1710,16 +1726,25 @@ def _handle_wakeup_event(slug, events, tracked_slugs, wakeups_dir, baseline_dir,
         _atomic_write_baseline(baseline_dir, base_path, current)
 
 
-def _wakeup_startup_pass(wakeups_dir, baseline_dir, spill_dir):
+def _wakeup_startup_pass(wakeups_dir, baseline_dir, spill_dir, tracked=None):
     """Snapshot / resume the identity's wake-ups before the watch arms;
     returns the tracked slug set. See the module docstring for what a
-    restart reports."""
-    tracked = _existing_wakeup_baseline_slugs(baseline_dir)
+    restart reports.
+
+    Passed the live `tracked` set, it is the rescan run each time
+    inotifywait (re-)arms, catching changes made while no watch was live.
+    The rescan leaves alone any wake-up an in-flight tool call has claimed —
+    that is the agent's own change, and its events or the hook settle it."""
+    rescan = tracked is not None
+    if not rescan:
+        tracked = _existing_wakeup_baseline_slugs(baseline_dir)
     armed_path = os.path.join(baseline_dir, _WAKEUPS_ARMED_NAME)
     armed = os.path.exists(armed_path)
     on_disk = set(_enumerate_wakeup_slugs(wakeups_dir))
     for slug in sorted(on_disk):
         spec_path, base_path = _wakeup_paths(wakeups_dir, baseline_dir, slug)
+        if rescan and _live_claims(base_path):
+            continue
         current = _read_bytes(spec_path)
         if current is None:
             continue
@@ -1736,6 +1761,8 @@ def _wakeup_startup_pass(wakeups_dir, baseline_dir, spill_dir):
             _atomic_write_baseline(baseline_dir, base_path, current)
     for slug in sorted(tracked - on_disk):
         _, base_path = _wakeup_paths(wakeups_dir, baseline_dir, slug)
+        if rescan and _live_claims(base_path):
+            continue
         quiet = _consume_self_delete(base_path) or _wakeup_self_retired(
             wakeups_dir, slug, base_path, folder_gone_counts=True,
         )
@@ -2184,6 +2211,13 @@ def main():
         if wakeups_watched:
             watched_args.append(wakeups_dir)
         inotify_events = "close_write,move_self,delete_self,moved_to,delete,create,moved_from"
+        # `-r` must not descend below `wakeups/<slug>/`: sensor code (a
+        # node_modules, a venv) and `.state` bookkeeping would spend the
+        # box-wide inotify watch budget and flood the event stream.
+        exclude_args = (
+            ["--exclude", "^%s/[^/]+/[^/]+/" % re.sub(r"([.\[\](){}*+?|^$\\])", r"\\\1", wakeups_dir)]
+            if wakeups_watched else []
+        )
         # Exponential backoff between failed inotifywait starts (reset on any
         # successful event). Guards against a hot fork/exec loop when e.g.
         # fs.inotify.max_user_instances is saturated — inotifywait dies
@@ -2214,7 +2248,7 @@ def main():
                     ] + (["-r"] if runbooks_watched or wakeups_watched else []) + [
                         "-e", inotify_events,
                         "--format", "%w|%f|%e",
-                    ] + watched_args,
+                    ] + exclude_args + watched_args,
                     stdout=subprocess.PIPE,
                     stderr=subprocess.PIPE,
                     text=True,
@@ -2234,6 +2268,10 @@ def main():
                     if "Watches established" in err_line:
                         if _diff_and_emit_all(targets, baseline_dir, spill_dir):
                             sys.exit(1)
+                        if wakeups_watched:
+                            _wakeup_startup_pass(
+                                wakeups_dir, baseline_dir, spill_dir, tracked_wakeup_slugs,
+                            )
                         _restart_if_scope_changed(
                             identity_file_path, watched_project, watched_roles, baseline_dir,
                         )

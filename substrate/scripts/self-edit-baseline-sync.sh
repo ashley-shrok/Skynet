@@ -60,7 +60,7 @@
 #   Wake-ups are the one surface the agent routinely creates and deletes, so
 #   they are claimed by slug whether or not a baseline exists yet: a Write to
 #   the identity's `wakeups/<slug>/wakeup.json`, or Bash text naming
-#   `wakeups/<slug>` (the folder or anything in it). On release a claimed
+#   `wakeups/<slug>` (the folder itself or its wakeup.json). On release a claimed
 #   wake-up with no baseline gets one plus its hash marker (the watcher stays
 #   silent on the add), and one whose spec is gone gets a
 #   `<baseline>.self-delete` marker (silent on the delete).
@@ -171,13 +171,15 @@ for line in sys.stdin:
 # single-quote break out of the quoting and inject shell — role names come
 # from agent-writable baseline filenames and the tool input is whatever the
 # agent sent. Export-inherit keeps untrusted values as data.
-# Wake-up slugs a Bash command names as `wakeups/<slug>` — the folder or any
-# path inside it. Same slug rule as file-watch.py _WAKEUP_SLUG_RE.
+# Wake-up slugs a Bash command names as `wakeups/<slug>` — the folder itself
+# or its wakeup.json, never a path deeper inside (running a sensor by hand
+# from `wakeups/<slug>/sensor/` must not claim the spec and absorb a user
+# edit made meanwhile). Same slug rule as file-watch.py _WAKEUP_SLUG_RE.
 WAKEUP_SLUGS_PY='
 import os, re
 cmd = os.environ.get("BASH_CMD", "")
 seen = set()
-for m in re.finditer(r"(?<![\w.-])wakeups/([a-z0-9][a-z0-9_-]{0,63})(?![\w.-])", cmd):
+for m in re.finditer(r"(?<![\w.-])wakeups/([a-z0-9][a-z0-9_-]{0,63})(?:/wakeup\.json|/)?(?![\w./-])", cmd):
     if m.group(1) not in seen:
         seen.add(m.group(1))
         print(m.group(1))
