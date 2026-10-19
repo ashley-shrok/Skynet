@@ -31,6 +31,7 @@
 #          last-snapshot.runbook.<role>.<slug>
 #                                         → ~/fleet/roles/<role>/runbooks/<slug>/runbook.md
 #          last-snapshot.project.<slug>   → ~/fleet/projects/<slug>/project.md
+#          last-snapshot.wakeup.<slug>    → ~/fleet/identities/<name>/wakeups/<slug>/wakeup.json
 #      Role + runbook baselines encode <role> in the filename (watcher's
 #      per-role scheme), so no frontmatter parsing is needed to route them.
 #   4. If real file != baseline, atomically overwrite the baseline (tmp +
@@ -55,6 +56,14 @@
 #       `old-dev.md` does not claim role `dev`.
 #   The watcher holds a changed, claimed file until the claim is released,
 #   then runs its normal hash-guard check.
+#
+#   Wake-ups are the one surface the agent routinely creates and deletes, so
+#   they are claimed by slug whether or not a baseline exists yet: a Write to
+#   the identity's `wakeups/<slug>/wakeup.json`, or Bash text naming
+#   `wakeups/<slug>` (the folder or anything in it). On release a claimed
+#   wake-up with no baseline gets one plus its hash marker (the watcher stays
+#   silent on the add), and one whose spec is gone gets a
+#   `<baseline>.self-delete` marker (silent on the delete).
 #
 #   Release (PostToolUse / PostToolUseFailure) syncs ONLY the files this call
 #   claimed, then deletes its claims. While the watcher is held its event
@@ -162,7 +171,20 @@ for line in sys.stdin:
 # single-quote break out of the quoting and inject shell — role names come
 # from agent-writable baseline filenames and the tool input is whatever the
 # agent sent. Export-inherit keeps untrusted values as data.
-export STATE_DIR IDENT IDENTITY_FILE CLAIM_DIR CLAIM_MAX_SEC EVENT TOOL_ID TARGET_PATH BASH_CMD NAMES_FILE_PY
+# Wake-up slugs a Bash command names as `wakeups/<slug>` — the folder or any
+# path inside it. Same slug rule as file-watch.py _WAKEUP_SLUG_RE.
+WAKEUP_SLUGS_PY='
+import os, re
+cmd = os.environ.get("BASH_CMD", "")
+seen = set()
+for m in re.finditer(r"(?<![\w.-])wakeups/([a-z0-9][a-z0-9_-]{0,63})(?![\w.-])", cmd):
+    if m.group(1) not in seen:
+        seen.add(m.group(1))
+        print(m.group(1))
+'
+
+WAKEUP_DIR="$HOME/fleet/identities/$IDENT/wakeups"
+export STATE_DIR IDENT IDENTITY_FILE CLAIM_DIR CLAIM_MAX_SEC EVENT TOOL_ID TARGET_PATH BASH_CMD NAMES_FILE_PY WAKEUP_SLUGS_PY WAKEUP_DIR
 timeout 2 bash -c '
     TAB="$(printf "\t")"
 
@@ -219,7 +241,70 @@ timeout 2 bash -c '
             esac
             printf "%s\t%s\t0\n" "$baseline" "$HOME/fleet/projects/$slug/project.md"
         done
+
+        # Wake-up baselines plus specs on disk without one yet (a wake-up the
+        # current call may have just created). `wakeup.json` is not a
+        # distinctive basename; Bash claims for wake-ups go through
+        # WAKEUP_SLUGS_PY instead.
+        {
+            for baseline in "$STATE_DIR"/last-snapshot.wakeup.*; do
+                printf "%s\n" "${baseline##*/last-snapshot.wakeup.}"
+            done
+            for spec in "$WAKEUP_DIR"/*/wakeup.json; do
+                spec="${spec%/wakeup.json}"
+                printf "%s\n" "${spec##*/}"
+            done
+        } | sort -u | while read -r slug; do
+            valid_wakeup_slug "$slug" || continue
+            printf "%s\t%s\t0\n" "$STATE_DIR/last-snapshot.wakeup.$slug" "$WAKEUP_DIR/$slug/wakeup.json"
+        done
         shopt -u nullglob
+    }
+
+    valid_wakeup_slug() {
+        case "$1" in
+            ""|[!a-z0-9]*|*[!a-z0-9_-]*) return 1 ;;
+        esac
+        [ "${#1}" -le 64 ]
+    }
+
+    # Baselines of the wake-ups this call names, existing or not.
+    claimed_wakeups() {
+        if [ -n "$TARGET_PATH" ]; then
+            want=$(readlink -m -- "$TARGET_PATH" 2>/dev/null || printf "%s" "$TARGET_PATH")
+            root=$(readlink -m -- "$WAKEUP_DIR" 2>/dev/null || printf "%s" "$WAKEUP_DIR")
+            case "$want" in
+                "$root"/*/wakeup.json) slug="${want#"$root"/}"; slug="${slug%/wakeup.json}" ;;
+                *) return 0 ;;
+            esac
+            valid_wakeup_slug "$slug" && printf "%s\n" "$STATE_DIR/last-snapshot.wakeup.$slug"
+        else
+            case "$BASH_CMD" in *wakeups/*) ;; *) return 0 ;; esac
+            python3 -c "$WAKEUP_SLUGS_PY" 2>/dev/null | while read -r slug; do
+                valid_wakeup_slug "$slug" && printf "%s\n" "$STATE_DIR/last-snapshot.wakeup.$slug"
+            done
+        fi
+        return 0
+    }
+
+    # A claimed wake-up the call created (spec, no baseline) or deleted
+    # (baseline, no spec). sync_one covers the edit case.
+    mark_wakeup() {
+        baseline="$1"
+        real="$2"
+        case "${baseline##*/}" in last-snapshot.wakeup.*) ;; *) return 0 ;; esac
+        if [ -f "$baseline" ] && [ ! -e "$real" ]; then
+            : > "$baseline.self-delete" 2>/dev/null || true
+        elif [ ! -f "$baseline" ] && [ -f "$real" ]; then
+            tmp_baseline="$STATE_DIR/.${baseline##*/}.sync.tmp.$$"
+            hash=$(sha256sum "$real" 2>/dev/null | awk "{print \$1}")
+            [ -n "$hash" ] || return 0
+            cp "$real" "$tmp_baseline" 2>/dev/null && mv "$tmp_baseline" "$baseline" 2>/dev/null || {
+                rm -f "$tmp_baseline" 2>/dev/null || true
+                return 0
+            }
+            printf "%s\n" "$hash" > "$baseline.self-edit-hash" 2>/dev/null || true
+        fi
     }
 
     sync_one() {
@@ -271,13 +356,20 @@ timeout 2 bash -c '
                 [ "$(readlink -m -- "$real" 2>/dev/null)" = "$want" ] && printf "%s\n" "$baseline"
             done)
         else
-            case "$BASH_CMD" in *.md*) ;; *) exit 0 ;; esac
-            claimed=$(list_targets | python3 -c "$NAMES_FILE_PY" 2>/dev/null)
+            case "$BASH_CMD" in *.md*)
+                claimed=$(list_targets | python3 -c "$NAMES_FILE_PY" 2>/dev/null) ;;
+            *) claimed="" ;;
+            esac
         fi
-        [ -n "$claimed" ] || exit 0
+        wakeups=$(claimed_wakeups)
+        [ -n "$claimed$wakeups" ] || exit 0
         mkdir -p "$CLAIM_DIR" 2>/dev/null || exit 0
         printf "%s\n" "$claimed" | while read -r baseline; do
             [ -f "$baseline" ] || continue
+            : > "$CLAIM_DIR/$(basename "$baseline").$TOOL_ID" 2>/dev/null || true
+        done
+        printf "%s\n" "$wakeups" | while read -r baseline; do
+            [ -n "$baseline" ] || continue
             : > "$CLAIM_DIR/$(basename "$baseline").$TOOL_ID" 2>/dev/null || true
         done
         exit 0
@@ -294,6 +386,7 @@ timeout 2 bash -c '
     if [ -n "$mine" ]; then
         list_targets | while IFS="$TAB" read -r baseline real distinctive; do
             if printf "%s\n" "$mine" | grep -qxF "$(basename "$baseline").$TOOL_ID"; then
+                mark_wakeup "$baseline" "$real"
                 sync_one "$baseline" "$real"
             fi
         done

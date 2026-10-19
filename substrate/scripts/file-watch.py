@@ -56,6 +56,19 @@ as role/identity — see _emit_event):
   - `📝 [runbook: <role>/<slug>] added — Read <path>` — new runbook appeared
   - `📝 [runbook: <role>/<slug>] deleted`  — runbook.md OR its parent slug folder removed
 
+Wake-up coverage: the identity's own `<identity>/wakeups/<slug>/wakeup.json`
+specs (event tag `wakeup`). Same sentinel-per-subfolder shape as runbooks, but
+the agent also creates and deletes these itself — the self-edit hook claims a
+`wakeups/<slug>` the moment a tool call names it, existing or not, so the
+agent's own add / edit / delete stays silent. A spec the scheduler removed
+after its one fire (one_shot, one-time sensor) is not reported either: the
+agent already got the ⏰/📡 line. Unlike runbooks, specs added or deleted while
+the watcher was down are reported at the next start (only the very first run,
+marked by `wakeups-armed`, snapshots silently).
+  - `📝 [wakeup: <slug>] your <slug> wake-up changed — <diff>`
+  - `📝 [wakeup: <slug>] added — <spec as one line>` (or `— Read <path>` when long)
+  - `📝 [wakeup: <slug>] deleted`
+
 The watch is diff-first and dumb on purpose: it fires the unified diff of what
 changed (inline when small, spilled to a file pointer when large), and lets the AGENT
 decide whether the change is its own echo, a peer's, or user's. See the design
@@ -72,6 +85,7 @@ Env:    FILE_WATCH_POLL_SEC (default 2) — fallback polling loop granularity (o
 
 import datetime
 import hashlib
+import json
 import os
 import re
 import shutil
@@ -1060,6 +1074,8 @@ def _change_phrase(kind, label):
     if kind == "runbook":
         slug = label.split("/", 1)[-1]
         return "your %s runbook" % slug
+    if kind == "wakeup":
+        return "your %s wake-up" % label
     return "the file"  # defensive; kinds are closed-set today
 
 
@@ -1517,6 +1533,221 @@ def _handle_runbook_event(
             _atomic_write_baseline(baseline_dir, base_path, current)
 
 
+# ---------------------------------------------------------------------------
+# Wake-up helpers — the identity's own `wakeups/<slug>/wakeup.json` specs.
+# ---------------------------------------------------------------------------
+
+# The app names wake-ups in kebab-case; agents may use underscores too. Dot
+# folders (`.state`) are never wake-ups. Must match the self-edit hook's
+# wake-up slug check.
+_WAKEUP_SLUG_RE = re.compile(r"^[a-z0-9][a-z0-9_-]{0,63}$")
+_WAKEUP_BASELINE_PREFIX = "last-snapshot.wakeup."
+# Present once this identity's wake-ups have been snapshotted, so a later
+# start reports specs added while the watcher was down instead of treating
+# them as cold start.
+_WAKEUPS_ARMED_NAME = "wakeups-armed"
+
+
+def _enumerate_wakeup_slugs(wakeups_dir):
+    """Sorted slugs whose `<slug>/wakeup.json` exists on disk."""
+    try:
+        entries = sorted(os.listdir(wakeups_dir))
+    except OSError:
+        return []
+    return [
+        e for e in entries
+        if _WAKEUP_SLUG_RE.match(e) and os.path.isfile(os.path.join(wakeups_dir, e, "wakeup.json"))
+    ]
+
+
+def _wakeup_paths(wakeups_dir, baseline_dir, slug):
+    return (
+        os.path.join(wakeups_dir, slug, "wakeup.json"),
+        os.path.join(baseline_dir, _WAKEUP_BASELINE_PREFIX + slug),
+    )
+
+
+def _existing_wakeup_baseline_slugs(baseline_dir):
+    """Slugs with a wake-up baseline (markers like `<slug>.self-edit-hash`
+    carry a dot and are skipped)."""
+    slugs = set()
+    try:
+        for name in os.listdir(baseline_dir):
+            if name.startswith(_WAKEUP_BASELINE_PREFIX):
+                slug = name[len(_WAKEUP_BASELINE_PREFIX):]
+                if _WAKEUP_SLUG_RE.match(slug):
+                    slugs.add(slug)
+    except OSError:
+        pass
+    return slugs
+
+
+def _wakeup_self_retired(wakeups_dir, slug, base_path, folder_gone_counts):
+    """True when the scheduler removed this spec itself after its one fire.
+
+    It writes `.state/<slug>.fired` before unlinking the spec and sweeps the
+    folder only later, so the marker is there whenever the delete is seen
+    live. At startup the folder may already be swept; then
+    `folder_gone_counts` lets a vanished folder whose last-known spec was
+    self-retiring (one_shot, or a sensor with `once`) count as retired."""
+    if os.path.exists(os.path.join(wakeups_dir, slug, ".state", slug + ".fired")):
+        return True
+    if not folder_gone_counts or os.path.isdir(os.path.join(wakeups_dir, slug)):
+        return False
+    try:
+        spec = json.loads(_read_bytes(base_path) or b"")
+    except ValueError:
+        return False
+    sch = spec.get("schedule") if isinstance(spec, dict) else None
+    if not isinstance(sch, dict):
+        return False
+    return sch.get("type") == "one_shot" or (sch.get("type") == "sensor" and sch.get("once") is True)
+
+
+def _consume_self_delete(base_path):
+    """True iff the self-edit hook marked this wake-up as deleted by the
+    agent's own tool call; the marker is consumed either way."""
+    marker = base_path + ".self-delete"
+    try:
+        os.remove(marker)
+        return True
+    except OSError:
+        return False
+
+
+def _drop_wakeup_baseline(base_path):
+    for path in (base_path, base_path + ".self-edit-hash"):
+        try:
+            os.remove(path)
+        except OSError:
+            pass
+
+
+def _emit_wakeup_added(slug, spec_path, current):
+    """New wake-up — the spec is small, so show it rather than point at it."""
+    try:
+        flat = json.dumps(json.loads(current), ensure_ascii=False, separators=(", ", ": "))
+    except ValueError:
+        flat = None
+    if flat is not None:
+        line = "📝 [wakeup: %s] added — %s" % (slug, flat)
+        if len(line.encode("utf-8")) <= INLINE_MAX:
+            _out(line)
+            return
+    _out("📝 [wakeup: %s] added — Read %s" % (slug, spec_path))
+
+
+def _emit_wakeup_deleted(slug):
+    _out("📝 [wakeup: %s] deleted" % slug)
+
+
+def _wakeup_slug_from_event(w_path, f_name, events, wakeups_dir):
+    """Slug for an event on `<wakeups>/<slug>/wakeup.json`, or on the
+    `<wakeups>/<slug>` folder itself; None for anything else (`.state`
+    bookkeeping, sensor code, other companions)."""
+    w_norm = w_path.rstrip("/")
+    root = wakeups_dir.rstrip("/")
+    if f_name == "wakeup.json" and os.path.dirname(w_norm) == root:
+        slug = os.path.basename(w_norm)
+    elif w_norm == root and "ISDIR" in events:
+        slug = f_name
+    else:
+        return None
+    return slug if _WAKEUP_SLUG_RE.match(slug) else None
+
+
+def _handle_wakeup_event(slug, events, tracked_slugs, wakeups_dir, baseline_dir, spill_dir):
+    """Route a wake-up event to add / edit / delete emission. Mutates
+    `tracked_slugs` (the slugs with a baseline) like _handle_runbook_event.
+
+    Writes are taken on CLOSE_WRITE / MOVED_TO only (plus a whole folder moved
+    or created in), never a bare CREATE of the file — a spec written with
+    `cat >` would otherwise be read half-written."""
+    spec_path, base_path = _wakeup_paths(wakeups_dir, baseline_dir, slug)
+
+    if events & {"DELETE", "MOVED_FROM"}:
+        if os.path.isfile(spec_path) or slug not in tracked_slugs:
+            return
+        # The agent's own delete: its tool call claimed the wake-up before it
+        # ran; the hook marks the delete when the call returns.
+        started = time.time()
+        while _live_claims(base_path) and time.time() - started < CLAIM_MAX_SEC:
+            time.sleep(CLAIM_POLL_SEC)
+        quiet = _consume_self_delete(base_path) or _wakeup_self_retired(
+            wakeups_dir, slug, base_path, folder_gone_counts=False,
+        )
+        _drop_wakeup_baseline(base_path)
+        tracked_slugs.discard(slug)
+        if not quiet:
+            _emit_wakeup_deleted(slug)
+        return
+
+    if not (events & {"CLOSE_WRITE", "MOVED_TO"} or ("CREATE" in events and "ISDIR" in events)):
+        return
+    # Claims are honored for new wake-ups too: the hook claims a slug the
+    # call names even before its spec exists. A folder event can beat the
+    # spec into the folder, so let it land before checking for a claim (a
+    # spec written later still brings its own CLOSE_WRITE).
+    if "ISDIR" in events and SELF_EDIT_SETTLE_MS > 0:
+        time.sleep(SELF_EDIT_SETTLE_MS / 1000.0)
+    _wait_for_claim_release(spec_path, base_path)
+    if SELF_EDIT_SETTLE_MS > 0:
+        time.sleep(SELF_EDIT_SETTLE_MS / 1000.0)
+    current = _read_bytes(spec_path)
+    if current is None:
+        return
+    baseline = _read_bytes(base_path) if slug in tracked_slugs else None
+    is_self_edit = _is_self_edit(base_path, current)
+    if baseline is None:
+        _atomic_write_baseline(baseline_dir, base_path, current)
+        tracked_slugs.add(slug)
+        if not is_self_edit:
+            _emit_wakeup_added(slug, spec_path, current)
+        return
+    if current != baseline:
+        if not is_self_edit:
+            _emit_event("wakeup", slug, _run_diff(base_path, spec_path), spill_dir)
+        _atomic_write_baseline(baseline_dir, base_path, current)
+
+
+def _wakeup_startup_pass(wakeups_dir, baseline_dir, spill_dir):
+    """Snapshot / resume the identity's wake-ups before the watch arms;
+    returns the tracked slug set. See the module docstring for what a
+    restart reports."""
+    tracked = _existing_wakeup_baseline_slugs(baseline_dir)
+    armed_path = os.path.join(baseline_dir, _WAKEUPS_ARMED_NAME)
+    armed = os.path.exists(armed_path)
+    on_disk = set(_enumerate_wakeup_slugs(wakeups_dir))
+    for slug in sorted(on_disk):
+        spec_path, base_path = _wakeup_paths(wakeups_dir, baseline_dir, slug)
+        current = _read_bytes(spec_path)
+        if current is None:
+            continue
+        is_self_edit = _is_self_edit(base_path, current)
+        baseline = _read_bytes(base_path) if slug in tracked else None
+        if baseline is None:
+            _atomic_write_baseline(baseline_dir, base_path, current)
+            tracked.add(slug)
+            if armed and not is_self_edit:
+                _emit_wakeup_added(slug, spec_path, current)
+        elif current != baseline:
+            if not is_self_edit:
+                _emit_event("wakeup", slug, _run_diff(base_path, spec_path), spill_dir)
+            _atomic_write_baseline(baseline_dir, base_path, current)
+    for slug in sorted(tracked - on_disk):
+        _, base_path = _wakeup_paths(wakeups_dir, baseline_dir, slug)
+        quiet = _consume_self_delete(base_path) or _wakeup_self_retired(
+            wakeups_dir, slug, base_path, folder_gone_counts=True,
+        )
+        _drop_wakeup_baseline(base_path)
+        tracked.discard(slug)
+        if not quiet:
+            _emit_wakeup_deleted(slug)
+    if not armed:
+        _atomic_write_baseline(baseline_dir, armed_path, b"")
+    return tracked
+
+
 def _make_signal_handler():
     """Return a SIGTERM/SIGINT handler that cleans up the inotifywait subprocess."""
     def _handler(signum, frame):
@@ -1655,6 +1886,15 @@ def main():
         if os.path.isdir(rd):
             runbook_roles.append((role, rd))
     runbooks_watched = len(runbook_roles) > 0
+
+    # --- Wake-ups folder — always watched; created if absent so the first
+    # wake-up (agent- or app-made) lands inside an armed watch.
+    wakeups_dir = os.path.join(ident_dir, "wakeups")
+    try:
+        os.makedirs(wakeups_dir, exist_ok=True)
+    except OSError:
+        pass
+    wakeups_watched = os.path.isdir(wakeups_dir)
 
     # --- State dirs ---
     spill_dir = os.path.join(baseline_dir, "spilled")
@@ -1883,6 +2123,10 @@ def main():
             tracked_runbook_slugs[role].discard(slug)
             _emit_runbook_deleted(role, slug)
 
+    tracked_wakeup_slugs = (
+        _wakeup_startup_pass(wakeups_dir, baseline_dir, spill_dir) if wakeups_watched else set()
+    )
+
     # --- Watch loop ---
     use_inotify = shutil.which("inotifywait") is not None
     if not use_inotify:
@@ -1937,6 +2181,8 @@ def main():
         if runbooks_watched:
             for _role, rb_dir in runbook_roles:
                 watched_args.append(rb_dir)
+        if wakeups_watched:
+            watched_args.append(wakeups_dir)
         inotify_events = "close_write,move_self,delete_self,moved_to,delete,create,moved_from"
         # Exponential backoff between failed inotifywait starts (reset on any
         # successful event). Guards against a hot fork/exec loop when e.g.
@@ -1965,7 +2211,7 @@ def main():
                 _inotify_proc = subprocess.Popen(
                     [
                         "inotifywait", "-m",
-                    ] + (["-r"] if runbooks_watched else []) + [
+                    ] + (["-r"] if runbooks_watched or wakeups_watched else []) + [
                         "-e", inotify_events,
                         "--format", "%w|%f|%e",
                     ] + watched_args,
@@ -2082,6 +2328,16 @@ def main():
                             _handle_runbook_event(
                                 rb_role, slug, events, tracked_runbook_slugs[rb_role],
                                 rb_dir, baseline_dir, spill_dir,
+                            )
+                            continue
+
+                    # (C) Route wake-up events.
+                    if wakeups_watched:
+                        wk_slug = _wakeup_slug_from_event(w_path, f_name, events, wakeups_dir)
+                        if wk_slug is not None:
+                            _handle_wakeup_event(
+                                wk_slug, events, tracked_wakeup_slugs,
+                                wakeups_dir, baseline_dir, spill_dir,
                             )
                             continue
 
