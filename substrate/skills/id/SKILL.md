@@ -416,7 +416,10 @@ their chat (and openable in the editable-file modal the user's client
 renders around it). If the payload is trivially small (< ~5 KB — a short
 diff, a config snippet, a stack trace, a JSON blob) skip the URL and
 paste it inline in a code block instead; they can copy from the chat
-directly with no round-trip.
+directly with no round-trip. A code block fenced as ` ```diff ` (or
+` ```patch `) whose lines all start with `+`, `-` or a space — or that is
+a real unified patch — renders as a diff: red/green rows, a `+N −M` count,
+long ones folded behind **Show all**. Copy still gives the raw text.
 
 Grammar:
 

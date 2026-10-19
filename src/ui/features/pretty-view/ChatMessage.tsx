@@ -14,6 +14,7 @@ import { parseInjectedUserTurn } from "@/api/pretty-view-upload-protocol";
 import { stripVoiceLabel } from "./voice-label";
 import { AttachmentChipStrip } from "./AttachmentChipStrip";
 import { CopyableBlock } from "./CopyableBlock";
+import { ChatDiffBlock, chatDiffFromPre } from "./ChatDiffBlock";
 import { useSpeakPlayback } from "./useSpeakPlayback";
 import { handleCleanCopy } from "./clean-copy";
 import { useEditableFileEligibility } from "./use-editable-file-eligibility";
@@ -209,7 +210,7 @@ export const ChatMessage = React.memo(function ChatMessage({
   // child overrides on every parent re-render. Deps are exactly the values
   // the `a` override closes over: eventId, onOpenEditor, eligibleUrls.
   // The p/pre/blockquote overrides only close over module-scope imports
-  // (splitMarkers, CopyableBlock) — stable, not deps.
+  // (splitMarkers, CopyableBlock, ChatDiffBlock) — stable, not deps.
   const markdownComponents = useMemo<Components>(() => ({
     // URL dispatch inside the assistant's rendered markdown:
     //   file URL       → FileChip on its own line (shape 2026-09-28).
@@ -288,9 +289,11 @@ export const ChatMessage = React.memo(function ChatMessage({
     p: ({ node, children, ...props }) => (
       <p {...props}>{splitMarkers(children)}</p>
     ),
-    pre: ({ node, children, ...props }) => (
-      <CopyableBlock as="pre" {...props}>{children}</CopyableBlock>
-    ),
+    pre: ({ node, children, ...props }) => {
+      const diff = chatDiffFromPre(node);
+      if (diff) return <ChatDiffBlock text={diff.text} patch={diff.patch} />;
+      return <CopyableBlock as="pre" {...props}>{children}</CopyableBlock>;
+    },
     blockquote: ({ node, children, ...props }) => (
       <CopyableBlock as="blockquote" {...props}>{children}</CopyableBlock>
     ),

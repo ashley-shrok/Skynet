@@ -2,12 +2,14 @@ import React, { useRef, useState, useEffect } from "react";
 import { Copy, Check } from "lucide-react";
 import { cn } from "@/lib/utils";
 
-type CopyableBlockTag = "pre" | "blockquote";
+type CopyableBlockTag = "pre" | "blockquote" | "div";
 
 type CopyableBlockProps = {
   as: CopyableBlockTag;
   className?: string;
   children?: React.ReactNode;
+  /** Exact clipboard payload; when absent, the rendered text is copied. */
+  copyText?: string;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   [key: string]: any;
 };
@@ -16,6 +18,7 @@ export function CopyableBlock({
   as: Tag,
   className,
   children,
+  copyText,
   // Strip ReactMarkdown-internal props so they are not forwarded to the DOM element.
   node: _node,
   ...rest
@@ -38,8 +41,8 @@ export function CopyableBlock({
     // exclude the copy button itself so its "Copy" / "Copied" label doesn't
     // bleed into the clipboard payload. We clone the wrapper, remove the
     // button (identified by data-testid), then read textContent.
-    let text = "";
-    if (wrapperRef.current) {
+    let text = copyText ?? "";
+    if (copyText === undefined && wrapperRef.current) {
       const clone = wrapperRef.current.cloneNode(true) as HTMLElement;
       const btn = clone.querySelector("[data-testid='copyable-block-copy']");
       if (btn) btn.remove();
@@ -68,7 +71,7 @@ export function CopyableBlock({
     // The `group` class is required so that `group-hover:opacity-100` on the
     // button activates when the wrapper element is hovered.
     <Tag
-      ref={wrapperRef as React.Ref<HTMLPreElement & HTMLQuoteElement>}
+      ref={wrapperRef as React.Ref<HTMLPreElement & HTMLQuoteElement & HTMLDivElement>}
       className={cn("group relative", className)}
       {...rest}
     >

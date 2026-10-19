@@ -178,6 +178,48 @@ export function parsePatch(text: string): ParsedPatch {
   return { files, additions, deletions };
 }
 
+/**
+ * Diff for a ```diff code block in a chat bubble. A real patch (file
+ * headers / `@@` hunks) parses as usual; otherwise a bare run of +/-/space
+ * lines — what agents usually write — becomes one hunk with no file and no
+ * line numbers. Null when the text doesn't read as a diff at all, so the
+ * caller can fall back to a plain code block.
+ */
+export function parseChatDiff(text: string): ParsedPatch | null {
+  const body = text.replace(/\n$/, "");
+  const patch = parsePatch(body);
+  if (patch.files.some((f) => f.hunks.length > 0)) return patch;
+
+  const lines: DiffLine[] = [];
+  let additions = 0;
+  let deletions = 0;
+  for (const raw of body.split("\n")) {
+    const line = raw.endsWith("\r") ? raw.slice(0, -1) : raw;
+    const mark = line[0];
+    if (mark === "+") {
+      lines.push({ kind: "add", text: line.slice(1), oldNo: null, newNo: null });
+      additions++;
+    } else if (mark === "-") {
+      lines.push({ kind: "del", text: line.slice(1), oldNo: null, newNo: null });
+      deletions++;
+    } else if (mark === " " || line === "") {
+      lines.push({ kind: "ctx", text: line.slice(1), oldNo: null, newNo: null });
+    } else if (mark === "\\") {
+      lines.push({ kind: "note", text: line.slice(1).trim(), oldNo: null, newNo: null });
+    } else {
+      return null;
+    }
+  }
+  if (additions + deletions === 0) return null;
+  const file: DiffFile = {
+    ...newFile(),
+    additions,
+    deletions,
+    hunks: [{ header: "", lines }],
+  };
+  return { files: [file], additions, deletions };
+}
+
 /** Path to show for a file: the new path, the old one for deletions, "old → new" for renames. */
 export function displayPath(file: DiffFile): string {
   if (file.status === "renamed" && file.oldPath && file.newPath && file.oldPath !== file.newPath) {

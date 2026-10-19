@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { displayPath, parsePatch, toSplitRows } from "./parse-diff";
+import { displayPath, parseChatDiff, parsePatch, toSplitRows } from "./parse-diff";
 import { GIT_PATCH, PLAIN_UNIFIED } from "./fixtures";
 
 describe("parsePatch — git format-patch", () => {
@@ -71,5 +71,33 @@ describe("toSplitRows", () => {
     expect(rows[1].right?.text).toBe("const b = 2;");
     expect(rows[2].left).toBeNull();
     expect(rows[2].right?.text).toBe("const c = 3;");
+  });
+});
+
+describe("parseChatDiff — ```diff blocks in chat", () => {
+  it("reads a bare +/-/space block as one unnamed, unnumbered hunk", () => {
+    const patch = parseChatDiff(" keep\n-old line\n+new line\n+another\n");
+    expect(patch).not.toBeNull();
+    expect(patch!.files).toHaveLength(1);
+    expect(patch!.files[0].newPath).toBeNull();
+    expect(patch!.additions).toBe(2);
+    expect(patch!.deletions).toBe(1);
+    const lines = patch!.files[0].hunks[0].lines;
+    expect(lines.map((l) => l.kind)).toEqual(["ctx", "del", "add", "add"]);
+    expect(lines.map((l) => l.text)).toEqual(["keep", "old line", "new line", "another"]);
+    expect(lines.every((l) => l.oldNo === null && l.newNo === null)).toBe(true);
+  });
+
+  it("keeps a real patch's file paths and line numbers", () => {
+    const patch = parseChatDiff(PLAIN_UNIFIED);
+    expect(patch).not.toBeNull();
+    expect(patch!.files.map(displayPath)).toEqual(parsePatch(PLAIN_UNIFIED).files.map(displayPath));
+    expect(patch!.files[0].hunks[0].lines.some((l) => l.newNo !== null)).toBe(true);
+  });
+
+  it("returns null for text that isn't a diff", () => {
+    expect(parseChatDiff("const x = 1;\n+y")).toBeNull();
+    expect(parseChatDiff(" only context\n same")).toBeNull();
+    expect(parseChatDiff("")).toBeNull();
   });
 });

@@ -194,7 +194,14 @@ const ROW_BG: Record<DiffLine["kind"], string> = {
 const MARK: Record<DiffLine["kind"], string> = { add: "+", del: "-", ctx: " ", note: "" };
 const NUM = "w-[1%] px-2 text-right select-none text-[#a89a80]/70 align-top";
 
-function UnifiedHunkRows({ hunk }: { hunk: DiffHunk }): JSX.Element {
+/** Unified rows for a hunk; `numbers={false}` drops the line-number columns (chat diffs with none). */
+export function UnifiedHunkRows({
+  hunk,
+  numbers = true,
+}: {
+  hunk: DiffHunk;
+  numbers?: boolean;
+}): JSX.Element {
   return (
     <>
       {hunk.lines.map((l, i) =>
@@ -206,9 +213,15 @@ function UnifiedHunkRows({ hunk }: { hunk: DiffHunk }): JSX.Element {
           </tr>
         ) : (
           <tr key={i} className={ROW_BG[l.kind]} data-diff-line={l.kind}>
-            <td className={NUM}>{l.oldNo ?? ""}</td>
-            <td className={NUM}>{l.newNo ?? ""}</td>
-            <td className="w-[1%] select-none text-[#a89a80] align-top">{MARK[l.kind]}</td>
+            {numbers ? (
+              <>
+                <td className={NUM}>{l.oldNo ?? ""}</td>
+                <td className={NUM}>{l.newNo ?? ""}</td>
+              </>
+            ) : null}
+            <td className={cn("w-[1%] select-none text-[#a89a80] align-top", !numbers && "pl-2 pr-1")}>
+              {MARK[l.kind]}
+            </td>
             <td className="pr-3 whitespace-pre text-[#e8e4d8]">{l.text}</td>
           </tr>
         ),
