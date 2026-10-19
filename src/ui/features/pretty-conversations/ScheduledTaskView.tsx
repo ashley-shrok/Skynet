@@ -436,6 +436,12 @@ export function ScheduledTaskView({
             </KitSettingsGroup>
           )}
 
+          {isNew && hosts.length === 0 && (
+            <KitBanner tone="warn" data-testid="scheduled-task-no-machines">
+              None of your machines can run agents, so there's nowhere for this task to start its conversations.
+            </KitBanner>
+          )}
+
           {hostId !== null && (
             <KitField
               group

@@ -896,6 +896,17 @@ describe("ScheduledAgentsModal: creating", () => {
     expect(createScheduledAgentMock.mock.calls[0][1].roles).toEqual(["ops"]);
   });
 
+  it("no machine can run agents → the new task says so and can't be created", async () => {
+    const tree: HostFolder = { name: "root", children: [host({ id: "2", name: "winbox", runsFleetSubstrate: false })] };
+    renderModal(tree);
+    await openNew();
+    expect(screen.getByTestId("scheduled-task-no-machines")).toHaveTextContent("None of your machines can run agents");
+    expect(screen.queryByTestId("scheduled-task-machines")).toBeNull();
+    fireEvent.change(nameField(), { target: { value: "x" } });
+    fireEvent.change(promptField(), { target: { value: "x" } });
+    expect(saveButton()).toBeDisabled();
+  });
+
   it("one machine that can run agents (plus one that can't) → it's picked, no machine list", async () => {
     const tree: HostFolder = {
       name: "root",
