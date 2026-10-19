@@ -1021,6 +1021,9 @@ crown, then gear.
   "propose + wait for greenlight" rule as role files, `AGENTS.md`, and
   the user-wide `CLAUDE.md`** — skills become standing behavior for
   every session, so they need user sign-off.
+  **When the user asks you to create a skill, ASK who should be able to
+  invoke it** — agents only, the user only, or both — unless they already
+  said. Set the matching frontmatter flag (above) when you write it.
 
 - **⚙️ Gear icon — Preferences.**
   - **Avatar** — the user's displayed avatar.
