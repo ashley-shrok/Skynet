@@ -77,11 +77,14 @@ function joinProse(lines: string[]): string | null {
   return text.length > 0 ? text : null;
 }
 
-export function parsePermissionPromptScreen(
-  screen: string,
-): PermissionPromptScreen | null {
-  const lines = screen.split("\n").map((l) => l.replace(/\s+$/, ""));
+function toLines(screen: string): string[] {
+  return screen.split("\n").map((l) => l.replace(/\s+$/, ""));
+}
 
+/** The last "Do you want to …?" question with a Yes and a No option under it. */
+function findAnswerableQuestion(
+  lines: string[],
+): { q: number; yesKey: string; noKey: string } | null {
   let q = -1;
   for (let i = lines.length - 1; i >= 0; i -= 1) {
     if (QUESTION_RE.test(lines[i]!.trim())) {
@@ -103,14 +106,36 @@ export function parsePermissionPromptScreen(
     options.find((o) => /^Yes\b/.test(o.label));
   const no = options.find((o) => /^No\b/.test(o.label));
   if (!yes || !no) return null;
+  return { q, yesKey: yes.key, noKey: no.key };
+}
 
-  let border = -1;
+function findBorderAbove(lines: string[], q: number): number {
   for (let i = q - 1; i >= 0; i -= 1) {
-    if (SOLID_BORDER_RE.test(lines[i]!)) {
-      border = i;
-      break;
-    }
+    if (SOLID_BORDER_RE.test(lines[i]!)) return i;
   }
+  return -1;
+}
+
+/**
+ * True when the screen ends in an answerable prompt whose top (border, title,
+ * description) is cut off — the prompt is taller than the pane. Claude Code
+ * redraws the whole screen without scrollback, so the missing part exists
+ * nowhere in tmux; the caller has to make the pane taller to read it.
+ */
+export function isCutOffPermissionPrompt(screen: string): boolean {
+  const lines = toLines(screen);
+  const found = findAnswerableQuestion(lines);
+  return found !== null && findBorderAbove(lines, found.q) === -1;
+}
+
+export function parsePermissionPromptScreen(
+  screen: string,
+): PermissionPromptScreen | null {
+  const lines = toLines(screen);
+  const found = findAnswerableQuestion(lines);
+  if (!found) return null;
+  const { q } = found;
+  const border = findBorderAbove(lines, q);
   if (border === -1) return null;
 
   let region = lines.slice(border + 1, q);
@@ -149,8 +174,10 @@ export function parsePermissionPromptScreen(
   } else {
     bodyLines = rest.filter((l) => !DASHED_SEP_RE.test(l));
   }
+  // Content is indented one column, and newer Claude Code versions add a
+  // "│ " gutter in front of command lines.
   const body = trimBlankEdges(bodyLines)
-    .map((l) => l.replace(/^ /, ""))
+    .map((l) => l.replace(/^ (│ ?)?/, ""))
     .join("\n");
 
   const fingerprint = createHash("sha256")
@@ -170,8 +197,8 @@ export function parsePermissionPromptScreen(
     body,
     reason,
     autoDenySeconds,
-    yesKey: yes.key,
-    noKey: no.key,
+    yesKey: found.yesKey,
+    noKey: found.noKey,
     fingerprint,
   };
 }

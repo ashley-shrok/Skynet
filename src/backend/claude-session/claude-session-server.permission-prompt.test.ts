@@ -147,3 +147,35 @@ describe("applyPermissionAnswer", () => {
     expect(sends).toHaveLength(1);
   });
 });
+
+describe("tall prompt on a short pane", () => {
+  const CUT = readFileSync(join(__dirname, "__fixtures__", "permission-prompt-tall-cutoff.txt"), "utf8");
+  const FULL = readFileSync(join(__dirname, "__fixtures__", "permission-prompt-tall-full.txt"), "utf8");
+
+  it("grows a detached pane, then reads the whole prompt", async () => {
+    const exec = vi
+      .fn()
+      .mockResolvedValueOnce(CUT)
+      .mockResolvedValueOnce("resized\n")
+      .mockResolvedValueOnce(FULL);
+    const frame = await applyPermissionProbe({ ...base, execCommand: exec });
+    expect(frame.prompt?.description).toBe("Print tall heredoc");
+    const grow = exec.mock.calls[1][1] as string;
+    expect(grow).toContain("#{session_attached}");
+    expect(grow).toContain("resize-window -t 'legit-session' -y 200");
+    expect(grow).toContain("set-option -wu -t 'legit-session' window-size");
+  });
+
+  it("leaves an attached pane alone and reports no prompt", async () => {
+    const exec = vi.fn().mockResolvedValueOnce(CUT).mockResolvedValueOnce("skipped\n");
+    const frame = await applyPermissionProbe({ ...base, execCommand: exec });
+    expect(frame.prompt).toBeNull();
+    expect(exec).toHaveBeenCalledTimes(2);
+  });
+
+  it("does not try to grow the pane for an idle screen", async () => {
+    const exec = vi.fn().mockResolvedValueOnce(IDLE);
+    await applyPermissionProbe({ ...base, execCommand: exec });
+    expect(exec).toHaveBeenCalledTimes(1);
+  });
+});

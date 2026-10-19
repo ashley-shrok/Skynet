@@ -1,0 +1,150 @@
+
+ ▐▛███▛█   Claude Code v2.1.286
+▝▜██████▀  Haiku 4.5 · Claude API
+ ▝▝   ▝▝   ~/fleet/identities/leopard-box-maintainer-2/workspace/repro
+
+
+❯ Read long.sh and run its full contents (all 45 lines, verbatim, as one
+  multi-line Bash command, not as a script file) with description "Print 45
+  lines".
+
+  Read 1 file, ran 1 shell command
+  ⎿  Interrupted · What should Claude do instead?
+
+✻ Sautéed for 6s · done 6:08 PM
+
+❯ Read long2.txt. Run its exact contents as the Bash command, keeping every
+  newline (it is a 47-line heredoc), description "Print tall heredoc".
+
+● Reading long2.txt
+  ⎿  $ cat <<'EOF'
+     row 1 of a tall heredoc
+     row 2 of a tall heredoc
+     row 3 of a tall heredoc
+     row 4 of a tall heredoc
+     row 5 of a tall heredoc
+     row 6 of a tall heredoc
+     row 7 of a tall heredoc
+     row 8 of a tall heredoc
+     row 9 of a tall heredoc
+     row 10 of a tall heredoc
+     row 11 of a tall heredoc
+     row 12 of a tall he…
+
+────────────────────────────────────────────────────────────────────────────────
+ Bash command
+ Print tall heredoc
+╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌
+ │ cat <<'EOF'
+ │ row 1 of a tall heredoc
+ │ row 2 of a tall heredoc
+ │ row 3 of a tall heredoc
+ │ row 4 of a tall heredoc
+ │ row 5 of a tall heredoc
+ │ row 6 of a tall heredoc
+ │ row 7 of a tall heredoc
+ │ row 8 of a tall heredoc
+ │ row 9 of a tall heredoc
+ │ row 10 of a tall heredoc
+ │ row 11 of a tall heredoc
+ │ row 12 of a tall heredoc
+ │ row 13 of a tall heredoc
+ │ row 14 of a tall heredoc
+ │ row 15 of a tall heredoc
+ │ row 16 of a tall heredoc
+ │ row 17 of a tall heredoc
+ │ row 18 of a tall heredoc
+ │ row 19 of a tall heredoc
+ │ row 20 of a tall heredoc
+ │ row 21 of a tall heredoc
+ │ row 22 of a tall heredoc
+ │ row 23 of a tall heredoc
+ │ row 24 of a tall heredoc
+ │ row 25 of a tall heredoc
+ │ row 26 of a tall heredoc
+ │ row 27 of a tall heredoc
+ │ row 28 of a tall heredoc
+ │ row 29 of a tall heredoc
+ │ row 30 of a tall heredoc
+ │ row 31 of a tall heredoc
+ │ row 32 of a tall heredoc
+ │ row 33 of a tall heredoc
+ │ row 34 of a tall heredoc
+ │ row 35 of a tall heredoc
+ │ row 36 of a tall heredoc
+ │ row 37 of a tall heredoc
+ │ row 38 of a tall heredoc
+ │ row 39 of a tall heredoc
+ │ row 40 of a tall heredoc
+ │ row 41 of a tall heredoc
+ │ row 42 of a tall heredoc
+ │ row 43 of a tall heredoc
+ │ row 44 of a tall heredoc
+ │ row 45 of a tall heredoc
+ │ EOF
+╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌
+ │ Hook PreToolUse:Bash requires confirmation for this command:
+ │ Test reason
+ settings.json to update hooks
+
+ Do you want to proceed?
+ ❯ 1. Yes
+   2. No
+
+ Esc to cancel · Tab to amend
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

@@ -1,0 +1,24 @@
+ │ row 33 of a tall heredoc
+ │ row 34 of a tall heredoc
+ │ row 35 of a tall heredoc
+ │ row 36 of a tall heredoc
+ │ row 37 of a tall heredoc
+ │ row 38 of a tall heredoc
+ │ row 39 of a tall heredoc
+ │ row 40 of a tall heredoc
+ │ row 41 of a tall heredoc
+ │ row 42 of a tall heredoc
+ │ row 43 of a tall heredoc
+ │ row 44 of a tall heredoc
+ │ row 45 of a tall heredoc
+ │ EOF
+╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌
+ │ Hook PreToolUse:Bash requires confirmation for this command:
+ │ Test reason
+ settings.json to update hooks
+
+ Do you want to proceed?
+ ❯ 1. Yes
+   2. No
+
+ Esc to cancel · Tab to amend

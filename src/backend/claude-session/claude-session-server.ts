@@ -105,6 +105,7 @@ import { ROLE_NAME_PATTERN } from "../database/routes/identity-birth-orchestrato
 import { getHostSemaphore } from "../ssh/host-semaphore-registry.js";
 import { settleWithConcurrency } from "../utils/settle-with-concurrency.js";
 import {
+  isCutOffPermissionPrompt,
   parsePermissionPromptScreen,
   type PermissionPromptScreen,
 } from "./permission-prompt-screen.js";
@@ -3566,17 +3567,42 @@ export type PermissionAnswerResultFrame = {
   status: "sent" | "gone" | "error";
 };
 
+// Rows to grow a detached pane to when a prompt is taller than it.
+export const PERMISSION_PROMPT_TALL_ROWS = 200;
+
 async function capturePermissionPrompt(
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   sshConn: any,
   tmuxSession: string,
   exec: (conn: unknown, cmd: string) => Promise<string>,
 ): Promise<PermissionPromptScreen | null> {
-  const screen = await exec(
+  const target = shellQuote(tmuxSession);
+  const capture = () => exec(sshConn, `tmux capture-pane -p -t ${target}`);
+  const screen = await capture();
+  const parsed = parsePermissionPromptScreen(screen);
+  if (parsed || !isCutOffPermissionPrompt(screen)) return parsed;
+
+  // The prompt is taller than the pane, so its top isn't anywhere in tmux
+  // (Claude Code redraws without scrollback). A session nobody is attached
+  // to sits at tmux's default 80x24, so grow it and let Claude Code redraw.
+  // Only when no client is attached — an attached terminal view owns the
+  // size. Unsetting window-size afterwards hands sizing back to the next
+  // client that attaches.
+  const rows = PERMISSION_PROMPT_TALL_ROWS;
+  const out = await exec(
     sshConn,
-    `tmux capture-pane -p -t ${shellQuote(tmuxSession)}`,
+    `if [ "$(tmux display-message -p -t ${target} '#{session_attached}')" = "0" ] && [ "$(tmux display-message -p -t ${target} '#{window_height}')" -lt ${rows} ]; then tmux resize-window -t ${target} -y ${rows} && tmux set-option -wu -t ${target} window-size && sleep 0.5 && echo resized; else echo skipped; fi`,
   );
-  return parsePermissionPromptScreen(screen);
+  const resized = out.trim() === "resized";
+  sshLogger.info("permission prompt cut off at the top", {
+    operation: "permission_prompt_cut_off",
+    tmuxSession,
+    resized,
+    rows,
+    output: resized ? undefined : out.trim().slice(0, 200),
+  });
+  if (!resized) return null;
+  return parsePermissionPromptScreen(await capture());
 }
 
 export async function applyPermissionProbe(deps: {

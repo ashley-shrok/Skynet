@@ -1,7 +1,10 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { parsePermissionPromptScreen } from "./permission-prompt-screen";
+import {
+  isCutOffPermissionPrompt,
+  parsePermissionPromptScreen,
+} from "./permission-prompt-screen";
 
 const fixture = (name: string) =>
   readFileSync(join(__dirname, "__fixtures__", name), "utf8");
@@ -112,5 +115,30 @@ describe("parsePermissionPromptScreen — review hardening", () => {
     expect(p.body).toContain("S=/tmp/claude-1000");
     expect(p.body).toContain("─".repeat(40));
     expect(p.reason).toMatch(/^Dangerous rm/);
+  });
+});
+
+describe("tall prompts (taller than the pane)", () => {
+  it("a prompt cut off at the top doesn't parse, and is recognized as cut off", () => {
+    const s = fixture("permission-prompt-tall-cutoff.txt");
+    expect(parsePermissionPromptScreen(s)).toBeNull();
+    expect(isCutOffPermissionPrompt(s)).toBe(true);
+  });
+
+  it("the same prompt on a tall pane parses in full, gutter stripped", () => {
+    const s = fixture("permission-prompt-tall-full.txt");
+    const p = parsePermissionPromptScreen(s)!;
+    expect(p.title).toBe("Bash command");
+    expect(p.description).toBe("Print tall heredoc");
+    const body = p.body.split("\n");
+    expect(body[0]).toBe("cat <<'EOF'");
+    expect(body).toContain("row 1 of a tall heredoc");
+    expect(body).toContain("row 45 of a tall heredoc");
+    expect(isCutOffPermissionPrompt(s)).toBe(false);
+  });
+
+  it("an idle screen or a whole prompt is not 'cut off'", () => {
+    expect(isCutOffPermissionPrompt(fixture("permission-prompt-none-idle.txt"))).toBe(false);
+    expect(isCutOffPermissionPrompt(fixture("permission-prompt-hook-ask.txt"))).toBe(false);
   });
 });
