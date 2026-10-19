@@ -1145,6 +1145,27 @@ describe("NewSessionDialog: Test V — Create with identity-mode ON calls openBi
   });
 });
 
+describe("NewSessionDialog: Enter in the custom name field", () => {
+  it("Enter submits like clicking Create", async () => {
+    mockOpenBirthStream.mockReturnValueOnce(createMockStream([]));
+    const utils = renderDialog();
+    await fillIdentityForm(utils);
+    fireEvent.keyDown(utils.getByLabelText(/^name$/i), { key: "Enter" });
+    await waitFor(() => {
+      expect(mockOpenBirthStream).toHaveBeenCalledTimes(1);
+    });
+    expect(mockOpenBirthStream.mock.calls[0][0]).toMatchObject({ displayName: "alicia" });
+  });
+
+  it("Enter does nothing while Create is disabled (no role picked)", () => {
+    const utils = renderDialog();
+    fireEvent.click(utils.getByLabelText(/choose a custom agent name/i));
+    fireEvent.change(utils.getByLabelText(/^name$/i), { target: { value: "alicia" } });
+    fireEvent.keyDown(utils.getByLabelText(/^name$/i), { key: "Enter" });
+    expect(mockOpenBirthStream).not.toHaveBeenCalled();
+  });
+});
+
 describe("NewSessionDialog: born into a project", () => {
   it("project prop → birth request carries project; absent → no project key", async () => {
     mockOpenBirthStream.mockReturnValueOnce(createMockStream([]));

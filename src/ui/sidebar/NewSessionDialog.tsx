@@ -146,6 +146,7 @@ import {
 import { refreshOneIdentity } from "@/state/identities-store";
 import { roleDisplayName } from "@/lib/role-display-name";
 import { previewSlugFromPrettyName } from "@/lib/pretty-name-slug-preview";
+import { submitOnEnter } from "@/lib/submit-on-enter";
 import { useBrandingConfig } from "@/branding/branding-store";
 
 // Client-side session-name pattern — defense-in-depth (T-06-04-01). Word
@@ -1142,6 +1143,50 @@ export function NewSessionDialog({
       (noRoles || selectedRoles.length > 0)
     : selectedHost !== null && nameValid && pathValid);
 
+  // Shared by the Create button and Enter in the name fields.
+  function handleCreate() {
+    if (!canOpen || !selectedHost) return;
+    const normalizedPath = normalizePath(path);
+
+    // Phase 88 invariant (88-CONTEXT.md §Non-admin invariant,
+    // defense-in-depth): non-admin users cannot spawn a raw
+    // shell. The `shellOnly` checkbox is admin-gated (never
+    // renders when !isAdmin — see Edit C) and the local state
+    // defaults to `false`. Enforce again at the submit path:
+    // even if some future caller passes a stale `shellOnly =
+    // true` local state (or the JSX gate is bypassed by a
+    // rendering bug), the shell branch is only taken when BOTH
+    // isAdmin AND shellOnly are true. Only admins who explicitly
+    // checked the Phase-88 shell-only checkbox (see Edit C label
+    // for LOCKED wording) reach the regular-session branch below.
+    // `effectiveShellOnly` is computed at render scope (near
+    // pathValid) so this handler shares the same predicate the
+    // birth-cluster render gate uses — see M2 comment above.
+    if (!effectiveShellOnly) {
+      // Agent mode (default for non-admin, and default for admin
+      // unless the shell-only checkbox is explicitly checked):
+      // start birth stream. The birth stream's onCreate at
+      // handleBirth's success path uses the PUBLIC payload
+      // discriminant `identityMode: true` — UNCHANGED from
+      // Phase 88 (wire contract for AppShell narrowing).
+      void handleBirth();
+    } else {
+      // Admin explicitly opted into raw shell. Preserve the
+      // pre-Phase-88 regular-session contract — the PUBLIC
+      // callback-payload discriminant `identityMode: false`
+      // below is UNCHANGED and remains the AppShell.tsx
+      // narrowing signal for regular-session vs identity-mode.
+      // Path passes through as normalizedPath (admin's Path
+      // input default "~/" from useState above + any override).
+      onCreate({
+        host: selectedHost,
+        sessionName: sessionName.length > 0 ? sessionName : undefined,
+        path: normalizedPath,
+        identityMode: false,
+      });
+    }
+  }
+
   // Phase 106 Plan 106-02 (D-13/D-15): form fields disabled ONLY while birthing.
   // Under the sole-spawner shape there is no failure-persist state — any birth
   // failure fires `window.alert("agent creation failed")` and immediately closes
@@ -1297,6 +1342,7 @@ export function NewSessionDialog({
                 id="new-session-name"
                 value={sessionName}
                 onChange={(e) => setSessionName(e.target.value)}
+                onKeyDown={submitOnEnter(canOpen, handleCreate)}
                 placeholder={namePlaceholder}
                 disabled={formDisabled}
                 aria-invalid={!nameValid}
@@ -1330,6 +1376,7 @@ export function NewSessionDialog({
                 aria-label="Path"
                 value={path}
                 onChange={(e) => setPath(e.target.value)}
+                onKeyDown={submitOnEnter(canOpen, handleCreate)}
                 placeholder="Working directory (blank = ~/)"
                 disabled={formDisabled}
               />
@@ -1488,6 +1535,7 @@ export function NewSessionDialog({
                         setHostCollision(false);
                       }}
                       onBlur={() => runCollisionPrecheck(name)}
+                      onKeyDown={submitOnEnter(canOpen, handleCreate)}
                       placeholder="e.g. alicia"
                       disabled={formDisabled}
                       aria-invalid={name.trim().length > 0 && !nameValid}
@@ -1536,48 +1584,7 @@ export function NewSessionDialog({
             variant="outline"
             disabled={!canOpen}
             className="text-[color:var(--color-pv-code-fg)] hover:opacity-90 disabled:opacity-50"
-            onClick={() => {
-              if (!canOpen || !selectedHost) return;
-              const normalizedPath = normalizePath(path);
-
-              // Phase 88 invariant (88-CONTEXT.md §Non-admin invariant,
-              // defense-in-depth): non-admin users cannot spawn a raw
-              // shell. The `shellOnly` checkbox is admin-gated (never
-              // renders when !isAdmin — see Edit C) and the local state
-              // defaults to `false`. Enforce again at the submit path:
-              // even if some future caller passes a stale `shellOnly =
-              // true` local state (or the JSX gate is bypassed by a
-              // rendering bug), the shell branch is only taken when BOTH
-              // isAdmin AND shellOnly are true. Only admins who explicitly
-              // checked the Phase-88 shell-only checkbox (see Edit C label
-              // for LOCKED wording) reach the regular-session branch below.
-              // `effectiveShellOnly` is computed at render scope (near
-              // pathValid) so this handler shares the same predicate the
-              // birth-cluster render gate uses — see M2 comment above.
-              if (!effectiveShellOnly) {
-                // Agent mode (default for non-admin, and default for admin
-                // unless the shell-only checkbox is explicitly checked):
-                // start birth stream. The birth stream's onCreate at
-                // handleBirth's success path uses the PUBLIC payload
-                // discriminant `identityMode: true` — UNCHANGED from
-                // Phase 88 (wire contract for AppShell narrowing).
-                void handleBirth();
-              } else {
-                // Admin explicitly opted into raw shell. Preserve the
-                // pre-Phase-88 regular-session contract — the PUBLIC
-                // callback-payload discriminant `identityMode: false`
-                // below is UNCHANGED and remains the AppShell.tsx
-                // narrowing signal for regular-session vs identity-mode.
-                // Path passes through as normalizedPath (admin's Path
-                // input default "~/" from useState above + any override).
-                onCreate({
-                  host: selectedHost,
-                  sessionName: sessionName.length > 0 ? sessionName : undefined,
-                  path: normalizedPath,
-                  identityMode: false,
-                });
-              }
-            }}
+            onClick={handleCreate}
           >
             {/* Phase 106 Plan 106-02 (D-14): the Create button's text label is
                 replaced by a spinner icon while the birth stream is in-flight.

@@ -399,4 +399,25 @@ describe("CreateProjectModal", () => {
       screen.queryByTestId("create-project-host-option-5"),
     ).not.toBeInTheDocument();
   });
+
+  it("Test 17 (Enter submits): Enter in the name input creates the project", async () => {
+    createProjectSpy.mockResolvedValueOnce({ ok: true as const, slug: "trip" });
+    const { onCreated } = renderModal({ open: true, hostId: 7 });
+    typeName("Trip");
+    fireEvent.keyDown(screen.getByLabelText(/project name/i), { key: "Enter" });
+    await waitFor(() => {
+      expect(onCreated).toHaveBeenCalledWith({ slug: "trip", displayName: "Trip" });
+    });
+    expect(createProjectSpy).toHaveBeenCalledWith(7, "Trip");
+  });
+
+  it("Test 18 (Enter gated): Enter does nothing while the name is empty or no host is picked", () => {
+    renderModal({ open: true });
+    fireEvent.keyDown(screen.getByLabelText(/project name/i), { key: "Enter" });
+    cleanup();
+    renderModal({ open: true, hosts: [{ id: "3", name: "a" }, { id: "6", name: "b" }] });
+    typeName("Trip");
+    fireEvent.keyDown(screen.getByLabelText(/project name/i), { key: "Enter" });
+    expect(createProjectSpy).not.toHaveBeenCalled();
+  });
 });

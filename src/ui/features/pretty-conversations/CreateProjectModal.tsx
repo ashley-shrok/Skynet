@@ -24,6 +24,7 @@ import { Button } from "@/components/button";
 import { cn } from "@/lib/utils";
 import { Modal, ModalHead, ModalBody, ModalFoot } from "@/components/modal";
 import { createProject } from "@/api/project-list-api";
+import { submitOnEnter } from "@/lib/submit-on-enter";
 import type { Host, HostFolder } from "@/types/ui-types";
 
 export interface CreateProjectModalProps {
@@ -225,6 +226,7 @@ export function CreateProjectModal({
             type="text"
             value={displayName}
             onChange={(e) => setDisplayName(e.target.value)}
+            onKeyDown={submitOnEnter(canSubmit, () => void onSubmit())}
             placeholder="e.g. Trip Planning"
             autoFocus
             disabled={inFlight}

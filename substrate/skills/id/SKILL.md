@@ -793,7 +793,8 @@ not something agents drive.
   far right shows which. The choice is remembered in that browser, and a
   sidebar search always shows matching projects even when it's collapsed.
   - **➕ Plus — new project.** Takes a display name and creates the
-    project. Slug is derived from the name (kebab-case, `/^[a-z0-9-]{1,64}$/`).
+    project (Enter in the name box submits, as in the new-conversation
+    picker's custom-name box). Slug is derived from the name (kebab-case, `/^[a-z0-9-]{1,64}$/`).
     Duplicate slug = error.
     *Agent-side:* a project is just a folder on disk at
     `~/fleet/projects/<slug>/` containing a `project.md` with `displayName:`
