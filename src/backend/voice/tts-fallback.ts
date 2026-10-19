@@ -2,9 +2,9 @@
  * Backup TTS provider support for /voice/speak-stream (TTS_FALLBACK_PROVIDER,
  * resolved in tts-provider.ts).
  *
- *   - Bench: once a provider fails or stalls, messages try the other one
- *     first for BENCH_MS. A benched provider is still used when the other
- *     one fails. In memory only; a restart forgets it.
+ *   - Bench: once a provider errors (outage, key / credit — not a stall),
+ *     messages try the other one first for BENCH_MS. A benched provider is
+ *     still used when the other one fails. In memory only; a restart forgets it.
  *   - Resume point: where the backup picks up a message the selected provider
  *     stopped partway through. Errs early — a repeated sentence is fine, a
  *     skipped one is not.

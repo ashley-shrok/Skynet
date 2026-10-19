@@ -1365,40 +1365,78 @@ describe("TTS_FALLBACK_PROVIDER (backup provider takes over)", () => {
     expect(res._destroyed).toBe(false);
   });
 
-  it("primary stalls early → backup repeats from the first sentence, nothing skipped", async () => {
+  const openAiText = (k: number) => JSON.parse(String(openAiCalls()[k]?.[1]?.body)).input as string;
+
+  it("primary stalls early → retried on the primary from the first sentence; the backup isn't asked", async () => {
     const sentences = Array.from({ length: 10 }, (_, k) => `This is sentence number ${k} here.`); // 32-33 chars
     // 2.5 s of 24 kHz audio out ≈ 30 chars at the conservative resume rate → inside sentence 0.
-    answer([() => stalling(120_000)]);
+    answer([() => stalling(120_000), () => pcm(6)]);
 
     const res = await speakStream({ text: sentences.join(" ") });
 
-    expect(openAiCalls()).toHaveLength(1); // not retried on the same provider
-    expect(elevenText()).toBe(sentences.join(" ")); // nothing skipped: sentence 0 is repeated
-    expect(pcmBytesOut(res)).toBe(120_000 + 8);
+    expect(openAiCalls()).toHaveLength(2);
+    expect(openAiText(1)).toBe(sentences.join(" ")); // nothing skipped: sentence 0 is repeated
+    expect(elevenCalls()).toHaveLength(0);
+    expect(pcmBytesOut(res)).toBe(120_000 + 6);
     expect(res._streamedEnded).toBe(true);
     expect(res._destroyed).toBe(false);
   });
 
-  it("further into the message, the repeat is just the sentence in progress", async () => {
+  it("further into the message, the retry starts at the sentence in progress", async () => {
     const sentences = Array.from({ length: 10 }, (_, k) => `This is sentence number ${k} here.`);
-    answer([() => stalling(480_000)]); // 10 s ≈ 120 chars → inside sentence 3; one back for margin
+    answer([() => stalling(480_000), () => pcm(6)]); // 10 s ≈ 120 chars → inside sentence 3; one back for margin
 
     await speakStream({ text: sentences.join(" ") });
 
-    expect(elevenText()).toBe(sentences.slice(2).join(" "));
+    expect(openAiText(1)).toBe(sentences.slice(2).join(" "));
   });
 
-  it("a later chunk fails → backup starts exactly at that chunk", async () => {
+  it("primary stalls on every retry → the backup takes over, nothing skipped", async () => {
+    const sentences = Array.from({ length: 10 }, (_, k) => `This is sentence number ${k} here.`);
+    answer([() => stalling(0)]);
+
+    const res = await speakStream({ text: sentences.join(" ") });
+
+    expect(openAiCalls()).toHaveLength(3);
+    expect(elevenText()).toBe(sentences.join(" "));
+    expect(pcmBytesOut(res)).toBe(8);
+    expect(res._streamedEnded).toBe(true);
+  });
+
+  it("a later chunk stalls → retried on the primary starting exactly at that chunk", async () => {
     const a = `${"alpha ".repeat(600)}end.`;
     const b = `${"bravo ".repeat(600)}end.`; // ~3600 chars each → one OpenAI chunk each
-    answer([() => pcm(4), () => stalling(2)]);
+    answer([() => pcm(4), () => stalling(2), () => pcm(6)]);
 
     const res = await speakStream({ text: `${a} ${b}` });
 
-    expect(openAiCalls()).toHaveLength(2); // chunk 1 not retried on OpenAI
+    expect(openAiCalls()).toHaveLength(3);
+    expect(openAiText(2)).toBe(b);
+    expect(elevenCalls()).toHaveLength(0);
+    expect(pcmBytesOut(res)).toBe(4 + 6);
+    expect(res._streamedEnded).toBe(true);
+  });
+
+  it("a later chunk errors → the backup starts exactly at that chunk", async () => {
+    const a = `${"alpha ".repeat(600)}end.`;
+    const b = `${"bravo ".repeat(600)}end.`;
+    answer([() => pcm(4), () => new Response("bad input", { status: 400 })]);
+
+    const res = await speakStream({ text: `${a} ${b}` });
+
+    expect(openAiCalls()).toHaveLength(2);
     expect(elevenText()).toBe(b);
     expect(pcmBytesOut(res)).toBe(4 + 8);
-    expect(res._streamedEnded).toBe(true);
+  });
+
+  it("a stall doesn't bench the primary: the next message goes to it first", async () => {
+    answer([() => stalling(0), () => pcm(6)]);
+    await speakStream({ text: "First." });
+
+    await speakStream({ text: "Second." });
+
+    expect(openAiCalls()).toHaveLength(3);
+    expect(elevenCalls()).toHaveLength(0);
   });
 
   it("after a takeover the primary is benched: the next message goes straight to the backup", async () => {
@@ -1426,31 +1464,37 @@ describe("TTS_FALLBACK_PROVIDER (backup provider takes over)", () => {
   });
 
   it("backup also stalls → the primary speaks the rest", async () => {
-    answer([() => stalling(48_000), () => pcm(6)], [() => stalling(10)]);
+    answer([() => stalling(48_000), () => stalling(0), () => stalling(0), () => pcm(6)], [() => stalling(10)]);
 
     const res = await speakStream({ text: "One sentence. Another sentence." });
 
-    expect(openAiCalls()).toHaveLength(2);
+    expect(openAiCalls()).toHaveLength(4);
     expect(pcmBytesOut(res)).toBe(48_000 + 10 + 6);
     expect(res._streamedEnded).toBe(true);
     expect(res._destroyed).toBe(false);
   });
 
-  it("primary stalls, backup is out of credits → the primary retries and speaks the message", async () => {
-    answer([() => stalling(0), () => pcm(6)], [() => new Response("quota_exceeded", { status: 401 })]);
+  it("primary stalls on every retry, backup is out of credits → the primary has the last word", async () => {
+    answer(
+      [() => stalling(0), () => stalling(0), () => stalling(0), () => pcm(6)],
+      [() => new Response("quota_exceeded", { status: 401 })],
+    );
 
     const res = await speakStream({ text: "Hello there." });
 
     expect(res._status).toBe(200);
-    expect(openAiCalls()).toHaveLength(2);
+    expect(openAiCalls()).toHaveLength(4);
     expect(elevenCalls()).toHaveLength(1);
     expect(pcmBytesOut(res)).toBe(6);
     expect(res._streamedEnded).toBe(true);
   });
 
-  it("primary benched, backup out of credits → the primary speaks, and both benched means primary first", async () => {
-    answer([() => stalling(0), () => pcm(6)], [() => new Response("quota_exceeded", { status: 401 })]);
-    await speakStream({ text: "First." }); // stall benches OpenAI; ElevenLabs refuses and is benched too
+  it("both benched → the primary goes first", async () => {
+    answer(
+      [() => new Response("bad key", { status: 401 }), () => new Response("bad key", { status: 401 }), () => pcm(6)],
+      [() => new Response("quota_exceeded", { status: 401 })],
+    );
+    await speakStream({ text: "First." }); // OpenAI refuses and is benched; ElevenLabs refuses and is benched too
 
     const res = await speakStream({ text: "Second." });
 
@@ -1477,7 +1521,7 @@ describe("TTS_FALLBACK_PROVIDER (backup provider takes over)", () => {
 
   it("backup at another sample rate is resampled to the rate already in the header", async () => {
     process.env.TTS_FALLBACK_PROVIDER = "polly";
-    answer([() => stalling(48_000)]);
+    answer([() => stalling(48_000), () => stalling(0)]);
     pollySendMock.mockResolvedValueOnce({ AudioStream: Readable.from([Buffer.alloc(16_000)]) }); // 0.5 s at 16 kHz
 
     const res = await speakStream({ text: "One sentence. Another sentence." });
@@ -1499,7 +1543,7 @@ describe("TTS_FALLBACK_PROVIDER (backup provider takes over)", () => {
   });
 
   it("main audio cut mid-sample → padded so the backup's samples stay on the frame grid", async () => {
-    answer([() => stalling(4801)]);
+    answer([() => stalling(4801), () => stalling(0)]);
 
     const res = await speakStream({ text: "One sentence. Another sentence." });
 

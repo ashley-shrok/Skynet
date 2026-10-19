@@ -566,8 +566,10 @@ type SpeakPassOutcome =
 // selected provider fails or stalls, the backup speaks the rest of the
 // message in the same response — the whole message if no audio went out yet,
 // else from about where the audio stopped (resumeText). The backup's audio is
-// resampled to the rate already in the RIFF header. The selected provider is
-// then benched for a while so later messages try the backup first. If the
+// resampled to the rate already in the RIFF header. A stall is first retried
+// on the selected provider; the backup (paid for separately) speaks only when
+// those retries stall too or the provider errors. An outage or key / credit
+// error benches the provider so later messages try the backup first. If the
 // backup fails too, the selected provider speaks what's left with its full
 // stall retries — a backup never makes a message worse off. With no backup
 // configured the behaviour is exactly the single-provider one.
@@ -653,10 +655,10 @@ export async function handleSpeakStream(req: Request, res: Response): Promise<vo
     });
     const reasonOf = (err: unknown) =>
       err instanceof TtsStallError ? "stall" : `error:${err instanceof Error ? err.name : "unknown"}`;
-    // Provider trouble (stall, outage, throttling, network, key / credit) benches it;
-    // anything else is treated as this message's own problem.
-    const benchFor = (err: unknown) =>
-      err instanceof TtsStallError || p.isRetriable(err) || p.isUnavailable(err);
+    // Provider trouble (outage, throttling, network, key / credit) benches it;
+    // anything else is treated as this message's own problem. A stall doesn't
+    // bench: OpenAI's stalls are per-request and a fresh request usually works.
+    const benchFor = (err: unknown) => p.isRetriable(err) || p.isUnavailable(err);
 
     try {
       choice = await chooseVoice(p, parsed.candidates);
@@ -878,7 +880,12 @@ export async function handleSpeakStream(req: Request, res: Response): Promise<vo
             // the body as one continuous run of 16-bit samples).
             if (streamedBytes % 2 === 1) res.write(Buffer.alloc(1));
             // A stall or a broken stream mid-body is provider trouble either way.
-            return abandon(resumeText(plain, 0, playedSec), stalled ? "stall" : reasonOf(failure), playedSec);
+            return abandon(
+              resumeText(plain, 0, playedSec),
+              stalled ? "stall" : reasonOf(failure),
+              playedSec,
+              !stalled,
+            );
           }
           if (!stalled) break;
 
@@ -991,19 +998,23 @@ export async function handleSpeakStream(req: Request, res: Response): Promise<vo
     // route) — the backup covers a provider in trouble, not a broken setting.
     if (!primary) throw primaryErr;
 
-    // The order providers get to speak this message. A bench only changes
-    // who goes first — it never takes a provider out — and the selected
-    // provider always gets the last word with its full stall retries, so a
-    // message is never worse off for having a backup (e.g. a backup that is
-    // out of credits falls through to the selected provider).
-    type SpeakStep = { p: TtsProvider; quickStall: boolean };
+    // The order providers get to speak this message. The backup is paid for
+    // separately, so it only speaks when the selected provider can't:
+    //   - a stall on the selected provider is retried on it (from about where
+    //     the audio stopped) up to STALL_MAX_ATTEMPTS passes before the backup
+    //     is asked; any other failure goes to the backup straight away;
+    //   - a bench (outage, key / credit trouble — never a stall) only changes
+    //     who goes first, it never takes a provider out;
+    //   - the selected provider always gets the last word with its full stall
+    //     retries, so a message is never worse off for having a backup.
+    type SpeakStep = { p: TtsProvider; quickStall: boolean; stallPasses: number };
     let steps: SpeakStep[];
     if (!backup) {
-      steps = [{ p: primary, quickStall: false }];
+      steps = [{ p: primary, quickStall: false, stallPasses: 1 }];
     } else if (isProviderBenched(primary.id, reqId) && !isProviderBenched(backup.id, reqId)) {
       steps = [
-        { p: backup, quickStall: false },
-        { p: primary, quickStall: false },
+        { p: backup, quickStall: false, stallPasses: 1 },
+        { p: primary, quickStall: false, stallPasses: 1 },
       ];
       databaseLogger.info(
         `[voice-server] speak-fallback reqId=${reqId} from=${primary.id} to=${backup.id} reason=benched restTextLen=${text.length} playedSec=0`,
@@ -1011,9 +1022,9 @@ export async function handleSpeakStream(req: Request, res: Response): Promise<vo
       );
     } else {
       steps = [
-        { p: primary, quickStall: true },
-        { p: backup, quickStall: false },
-        { p: primary, quickStall: false },
+        { p: primary, quickStall: true, stallPasses: STALL_MAX_ATTEMPTS },
+        { p: backup, quickStall: false, stallPasses: 1 },
+        { p: primary, quickStall: false, stallPasses: 1 },
       ];
     }
     firstId = steps[0].p.id;
@@ -1021,16 +1032,23 @@ export async function handleSpeakStream(req: Request, res: Response): Promise<vo
     let restText = text;
     let outcome: SpeakPassOutcome = { kind: "done", truncated: false };
     for (let k = 0; k < steps.length; k++) {
-      const { p, quickStall } = steps[k];
+      const { p, quickStall, stallPasses } = steps[k];
       const next = steps[k + 1];
-      outcome = await speakPass(p, restText, next !== undefined, quickStall);
-      if (outcome.kind !== "handoff" || clientGone || !next) break;
-      if (outcome.bench) benchProvider(p.id, reqId, outcome.reason);
-      databaseLogger.warn(
-        `[voice-server] speak-fallback reqId=${reqId} from=${p.id} to=${next.p.id} reason=${outcome.reason} bench=${outcome.bench} restTextLen=${outcome.restText.length} playedSec=${outcome.playedSec.toFixed(3)} headersFlushed=${headersFlushed}`,
-        { operation: "voice_speak_fallback", reqId, from: p.id, to: next.p.id, reason: outcome.reason },
-      );
-      restText = outcome.restText;
+      for (let pass = 1; ; pass++) {
+        outcome = await speakPass(p, restText, next !== undefined, quickStall);
+        if (outcome.kind !== "handoff" || clientGone) break;
+        restText = outcome.restText;
+        if (restText.length === 0) break;
+        const again = outcome.reason === "stall" && pass < stallPasses;
+        const to = again ? p : next.p;
+        if (outcome.bench) benchProvider(p.id, reqId, outcome.reason);
+        databaseLogger.warn(
+          `[voice-server] speak-fallback reqId=${reqId} from=${p.id} to=${to.id} reason=${outcome.reason} pass=${pass}/${stallPasses} bench=${outcome.bench} restTextLen=${restText.length} playedSec=${outcome.playedSec.toFixed(3)} headersFlushed=${headersFlushed}`,
+          { operation: "voice_speak_fallback", reqId, from: p.id, to: to.id, reason: outcome.reason },
+        );
+        if (!again) break;
+      }
+      if (outcome.kind !== "handoff" || clientGone) break;
       if (restText.length === 0) {
         outcome = { kind: "done", truncated: false };
         break;
