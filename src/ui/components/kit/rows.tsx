@@ -78,6 +78,8 @@ export interface KitSettingsRowProps {
   truncate?: boolean;
   /** Accessible name for the row's open button (when onClick + control). */
   openLabel?: string;
+  /** Right-click on the row (e.g. a row menu at the cursor). */
+  onContextMenu?: React.MouseEventHandler<HTMLElement>;
   className?: string;
   "data-testid"?: string;
   children?: React.ReactNode;
@@ -97,6 +99,7 @@ export function KitSettingsRow({
   stacked,
   truncate,
   openLabel,
+  onContextMenu,
   className,
   "data-testid": testId,
   children,
@@ -120,6 +123,7 @@ export function KitSettingsRow({
         data-truncate={truncate ? "true" : undefined}
         data-disabled={disabled ? "true" : undefined}
         data-testid={testId}
+        onContextMenu={onContextMenu}
         onClick={(e) => {
           const target = e.target as Element;
           // Controls and the cells around them don't open the row — a click
@@ -154,6 +158,7 @@ export function KitSettingsRow({
     "data-stack": stacked ? "true" : undefined,
     "data-truncate": truncate ? "true" : undefined,
     "data-testid": testId,
+    onContextMenu,
   };
   if (onClick) {
     return (

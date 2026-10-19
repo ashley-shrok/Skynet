@@ -1,56 +1,28 @@
 /**
- * ScheduledAgentsModalRow — presentational row for the fleet-wide
- * scheduled-agents list. Modal-unification 2026-09-29 anatomy per
- * .planning/design/modal-tasting.html § scheduled-agents.
+ * ScheduledAgentsModalRow — one task in the scheduled tasks window's list
+ * (apple-ux shape-scheduled-tasks-modal).
  *
- * Layout (apple-ux kit, 2026-10-16): one KitListRow.
- *   avatar — hue-tinted disc, first letter of first-role uppercased
- *   title — row.name (schedule name alone, NO role prefix)
- *   subtitle (wraps)
- *     - row.scheduleHuman, or the sensor line (status as a KitChip)
- *     - Last / Next run times
- *     - row.prompt (2-line clamp)
- *     - role chips (KitChip)
- *   trailing — KitSwitch (row.enabled, pessimistic — parent flips on ack)
- *   menu — RowKebabMenu → Run now + Edit + Delete
- *
- * Row hue: `row.colorHue ?? 190` — from the backend's role-file cascade.
- *
- * Disabled state: `row.enabled === false` renders the row dimmed.
- *
- * D-XX preserved verbatim:
- *   D-09: host-chip removal — dropped per tasting; host context lives in
- *         the filter bar when in multi-host mode.
- *   D-11: toggle + kebab stopPropagation so row.onClick (edit entry) does
- *         NOT fire on their clicks. (Kebab stop-prop now lives inside the
- *         shared RowKebabMenu — see D-14 there.)
- *   D-12: two-state visual only. No spinner glyph; parent uses pessimistic
- *         write + inline error banner on failure.
- *   D-13: kebab popover has Edit + Delete only.
- *   D-28: no streaming affordances.
- *   D-29 (2026-10-01, UAT item 3): kebab replaced with the shared
- *         `RowKebabMenu` so every kebab in the app looks the same — same
- *         trigger, same menu surface, same cursor affordance. Props
- *         `kebabOpen` and `onKebabClick` dropped; the shared component
- *         owns its own open-state via Radix.
- *
- * Pure presentation — all interactive callbacks are prop callbacks.
+ *   leading — the role's picture (two overlapped for a two-role task, a clock
+ *             tile for no roles), dimmed when the task is off
+ *   label   — the task's name
+ *   desc    — "Daily at 11:30 · Next in 14h" (or "Off"; a sensor task shows
+ *             its sensor line), then one quiet line of the instructions
+ *   control — the on/off switch (pessimistic — the parent flips it on ack)
+ *   click   — opens the task; right-click → Run now / Open / Delete…
  */
 
+import { AlarmClock } from "lucide-react";
 import type { ScheduledAgentListItem } from "@/api/scheduled-agents-api";
-import { KitChip, KitListRow, KitSwitch } from "@/components/kit";
-import { RowKebabMenu, useRowKebabContextMenu, type RowKebabMenuItem } from "./RowKebabMenu";
-import {
-  formatAbsolute,
-  formatRelativeFuture,
-  formatRelativePast,
-} from "./scheduled-agents-time-fmt";
+import { roleAvatarUrl } from "@/api/identities-api";
+import { KitAvatar, KitSettingsRow, KitSwitch } from "@/components/kit";
+import { cn } from "@/lib/utils";
+import { useRowKebabContextMenu, type RowKebabMenuItem } from "./RowKebabMenu";
+import { formatAbsolute, formatRelativeFuture, formatRelativePast } from "./scheduled-agents-time-fmt";
 import { SENSOR_MARK, SensorStateChip } from "@/features/pretty-view/SensorStatusView";
 import { isOnceSensorSchedule } from "@/features/pretty-view/WakeupFormShared";
 
 const FALLBACK_HUE = 190;
 
-/** Sensor state → kit chip tone. Off / not live stay calm (neutral). */
 /** Render-only de-slug. Hyphens/underscores → spaces, capitalize first char.
  *  Kept in sync with `_prettify_name` in substrate/scripts/wakeup-scheduler.py
  *  (the ⏰ task-prefix on scheduled-agent-spawned identities). */
@@ -59,32 +31,73 @@ export function prettifyScheduledAgentName(name: string): string {
   return spaced.charAt(0).toUpperCase() + spaced.slice(1);
 }
 
-function avatarLetterFor(row: ScheduledAgentListItem): string {
-  const firstRole = row.roles[0];
-  if (typeof firstRole === "string" && firstRole.length > 0) {
-    return firstRole.charAt(0).toUpperCase();
+/** The server's schedule sentence, minus "(box-local)" — this window says
+ *  where times are in the task itself. */
+export function scheduleSentence(row: Pick<ScheduledAgentListItem, "scheduleHuman">): string {
+  return row.scheduleHuman.replace(/\s*\(box-local\)/g, "");
+}
+
+/** "Next in 3h" / "Due now" / "Next Mar 1, 2027". */
+export function nextRunLabel(nextFireAt: number, nowSecs: number): string {
+  const rel = formatRelativeFuture(nextFireAt, nowSecs);
+  return rel === "due now" ? "Due now" : `Next ${rel}`;
+}
+
+export function isOneShotTask(row: Pick<ScheduledAgentListItem, "schedule">): boolean {
+  return (row.schedule as { type?: unknown } | null)?.type === "one_shot";
+}
+
+/** The role pictures for a task — two overlapped at most; a clock tile when
+ *  the task takes no roles. */
+export function TaskAvatars({ row, size = 36 }: { row: ScheduledAgentListItem; size?: number }): JSX.Element {
+  const off = !row.enabled;
+  if (row.roles.length === 0) {
+    return (
+      <span
+        className={cn("grid place-items-center shrink-0 rounded-full bg-[var(--k-s3)] text-[var(--k-t2)]", off && "opacity-50")}
+        style={{ width: size, height: size }}
+        aria-hidden="true"
+      >
+        <AlarmClock className="size-[18px]" />
+      </span>
+    );
   }
-  // Fallback to the row's schedule name if no roles are declared.
-  return row.name.charAt(0).toUpperCase() || "?";
+  const hue = row.colorHue ?? FALLBACK_HUE;
+  return (
+    <span className="flex shrink-0" aria-hidden="true">
+      {row.roles.slice(0, 2).map((r, i) => (
+        <KitAvatar
+          key={r}
+          src={roleAvatarUrl(row.hostId, r)}
+          fallback={r.charAt(0).toUpperCase()}
+          color={`hsl(${hue}, 45%, 34%)`}
+          size={size}
+          dim={off}
+          className={i > 0 ? "-ml-3 shadow-[0_0_0_2px_var(--k-bg)]" : undefined}
+        />
+      ))}
+    </span>
+  );
 }
 
 export interface ScheduledAgentsModalRowProps {
   row: ScheduledAgentListItem;
-  onRowClick: (row: ScheduledAgentListItem) => void;
-  onToggleClick: (row: ScheduledAgentListItem) => void;
-  onEditFromKebab: (row: ScheduledAgentListItem) => void;
-  onDeleteFromKebab: (row: ScheduledAgentListItem) => void;
-  /** Fire once now, outside the schedule. Hidden for one_shot specs (firing
-   *  one early would consume it) — the server rejects those too. */
-  onRunNowFromKebab: (row: ScheduledAgentListItem) => void;
+  onOpen: (row: ScheduledAgentListItem) => void;
+  onToggle: (row: ScheduledAgentListItem, enabled: boolean) => void;
+  onDelete: (row: ScheduledAgentListItem) => void;
+  /** Fire once now, outside the schedule. Not offered for one-time tasks
+   *  (firing one early would use it up) — the server rejects those too. */
+  onRunNow: (row: ScheduledAgentListItem) => void;
   /** True while a run-now request for this row is in flight. */
   runNowPending?: boolean;
+  /** True while this row's switch write is in flight. */
+  toggling?: boolean;
 }
 
 const Dot = () => <span className="mx-1.5 opacity-55">·</span>;
 
 /** "📡 Sensor · <status chip> · Last fired … · N waiting" — the row line for
- *  a sensor-triggered task (sensors shape 2: no Next). */
+ *  a sensor-triggered task (sensors have no Next). */
 function SensorLine({
   row,
   testId,
@@ -99,12 +112,10 @@ function SensorLine({
       <span aria-hidden="true">{SENSOR_MARK}&nbsp;</span>
       {isOnceSensorSchedule(row.schedule) ? "Sensor · once" : "Sensor"}
       <Dot />
-            <SensorStateChip state={sensor.state} testId={`${testId}-state`} />
+      <SensorStateChip state={sensor.state} testId={`${testId}-state`} />
       <Dot />
       <span title={typeof lastFiredAt === "number" ? formatAbsolute(lastFiredAt, nowSecs) : undefined}>
-        {typeof lastFiredAt === "number"
-          ? `Last fired ${formatRelativePast(lastFiredAt, nowSecs)}`
-          : "Never fired"}
+        {typeof lastFiredAt === "number" ? `Last fired ${formatRelativePast(lastFiredAt, nowSecs)}` : "Never fired"}
       </span>
       {sensor.waitingFires > 0 && (
         <>
@@ -118,116 +129,82 @@ function SensorLine({
 
 export function ScheduledAgentsModalRow({
   row,
-  onRowClick,
-  onToggleClick,
-  onEditFromKebab,
-  onDeleteFromKebab,
-  onRunNowFromKebab,
+  onOpen,
+  onToggle,
+  onDelete,
+  onRunNow,
   runNowPending = false,
+  toggling = false,
 }: ScheduledAgentsModalRowProps): JSX.Element {
-  const isOneShot =
-    (row.schedule as { type?: unknown } | null)?.type === "one_shot";
-  const hue = row.colorHue ?? FALLBACK_HUE;
-  const letter = avatarLetterFor(row);
-  const kebabItems: RowKebabMenuItem[] = [
-    ...(isOneShot
+  const name = prettifyScheduledAgentName(row.name);
+  const testId = `scheduled-agents-modal-row-${row.slug}`;
+  const menuItems: RowKebabMenuItem[] = [
+    ...(isOneShotTask(row)
       ? []
       : [
           {
             label: runNowPending ? "Starting…" : "Run now",
             disabled: runNowPending,
-            onClick: () => onRunNowFromKebab(row),
-            testId: `scheduled-agents-modal-row-${row.slug}-run-now`,
+            onClick: () => onRunNow(row),
+            testId: `${testId}-run-now`,
           },
         ]),
-    {
-      label: "Edit",
-      onClick: () => onEditFromKebab(row),
-      testId: `scheduled-agents-modal-row-${row.slug}-edit`,
-    },
-    {
-      label: "Delete",
-      danger: true,
-      onClick: () => onDeleteFromKebab(row),
-      testId: `scheduled-agents-modal-row-${row.slug}-delete`,
-    },
+    { label: "Open", onClick: () => onOpen(row), testId: `${testId}-open` },
+    { label: "Delete…", danger: true, onClick: () => onDelete(row), testId: `${testId}-delete` },
   ];
-  // Right-click the row → same kebab menu at the cursor.
-  const kebabContextMenu = useRowKebabContextMenu(kebabItems);
+  const contextMenu = useRowKebabContextMenu(menuItems);
 
   const nowSecs = Math.floor(Date.now() / 1000);
-  const hasLast = row.lastFiredAt !== null;
-  const hasNext = row.nextFireAt !== null;
-
-  const subtitle = (
-    <>
-      <span className="block">
-        {row.sensor ? (
-          <SensorLine
-            row={row as ScheduledAgentListItem & { sensor: NonNullable<ScheduledAgentListItem["sensor"]> }}
-            testId={`scheduled-agents-modal-row-${row.slug}-sensor`}
-          />
-        ) : (
-          row.scheduleHuman
-        )}
-      </span>
-      {!row.sensor && (hasLast || hasNext) && (
-        <span className="block">
-          {hasLast && (
-            <span title={formatAbsolute(row.lastFiredAt!, nowSecs)}>
-              Last: {formatRelativePast(row.lastFiredAt!, nowSecs)}
-            </span>
-          )}
-          {hasLast && hasNext && <Dot />}
-          {hasNext && (
-            <span title={formatAbsolute(row.nextFireAt!, nowSecs)}>
-              Next: {formatRelativeFuture(row.nextFireAt!, nowSecs)}
-            </span>
-          )}
-        </span>
-      )}
-      <span className="mt-0.5 text-[var(--k-t2)] line-clamp-2 break-words">{row.prompt}</span>
-      {row.roles.length > 0 && (
-        <span className="flex flex-wrap gap-1.5 mt-1.5">
-          {row.roles.map((r) => (
-            <KitChip key={`role-${r}`}>{r}</KitChip>
-          ))}
-        </span>
-      )}
-    </>
+  const when = row.sensor ? (
+    <SensorLine
+      row={row as ScheduledAgentListItem & { sensor: NonNullable<ScheduledAgentListItem["sensor"]> }}
+      testId={`${testId}-sensor`}
+    />
+  ) : (
+    <span data-testid={`${testId}-when`}>
+      {scheduleSentence(row)}
+      {!row.enabled ? (
+        <>
+          <Dot />
+          Off
+        </>
+      ) : row.nextFireAt !== null ? (
+        <>
+          <Dot />
+          <span title={formatAbsolute(row.nextFireAt, nowSecs)}>{nextRunLabel(row.nextFireAt, nowSecs)}</span>
+        </>
+      ) : null}
+    </span>
   );
 
   return (
-    <KitListRow
-      data-testid={`scheduled-agents-modal-row-${row.slug}`}
-      onActivate={() => onRowClick(row)}
-      onContextMenu={kebabContextMenu.onContextMenu}
-      avatar={letter}
-      avatarColor={`hsl(${hue}, 42%, 40%)`}
-      title={prettifyScheduledAgentName(row.name)}
-      subtitle={subtitle}
-      wrapSubtitle
-      dim={!row.enabled}
-      className="items-start"
-      trailing={
-        <>
-          <KitSwitch
-            checked={row.enabled}
-            onCheckedChange={() => onToggleClick(row)}
-            aria-label={row.enabled ? "Disable scheduled task" : "Enable scheduled task"}
-            title={row.enabled ? "Enabled — click to disable" : "Disabled — click to enable"}
-            data-testid={`scheduled-agents-modal-row-${row.slug}-toggle`}
-          />
-          {kebabContextMenu.menu}
-        </>
+    <KitSettingsRow
+      data-testid={testId}
+      className="[&_.k-row-desc]:min-w-0 max-sm:[&_.k-row-chev]:hidden"
+      leading={<TaskAvatars row={row} />}
+      label={<span className={cn("font-semibold", !row.enabled && "text-[var(--k-t2)]")}>{name}</span>}
+      openLabel={`Open ${name}`}
+      description={
+        <span className="flex flex-col min-w-0">
+          {when}
+          <span className="truncate text-[12.5px] text-[var(--k-t3)] mt-px" data-testid={`${testId}-prompt`}>
+            {row.prompt.replace(/\s+/g, " ")}
+          </span>
+        </span>
       }
-      menu={
-        <RowKebabMenu
-          items={kebabItems}
-          ariaLabel="More actions"
-          testId={`scheduled-agents-modal-row-${row.slug}-kebab`}
+      control={
+        <KitSwitch
+          checked={row.enabled}
+          onCheckedChange={(next) => onToggle(row, next)}
+          disabled={toggling}
+          aria-label={row.enabled ? `Turn off ${name}` : `Turn on ${name}`}
+          data-testid={`${testId}-toggle`}
         />
       }
-    />
+      onClick={() => onOpen(row)}
+      onContextMenu={contextMenu.onContextMenu}
+    >
+      {contextMenu.menu}
+    </KitSettingsRow>
   );
 }

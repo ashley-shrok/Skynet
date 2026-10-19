@@ -1008,16 +1008,11 @@ The footer holds the user's avatar and name on the left. On the right is a
 row of icons, in this order: clock, drama masks, lightning bolt, then (admins only)
 crown, then gear.
 
-- **🕐 Clock — scheduled tasks.** Opens the modal that lists all
-  existing scheduled tasks (edit or delete inline) plus a **"new
-  scheduled task"** button that asks for name, prompt, roles (or an
-  explicit **No roles** pick — Save waits until one is chosen),
-  and the schedule (daily / weekly / monthly / yearly / interval /
-  one-shot — with multiple times per day, every-N weeks/months, an
-  interval time window and start, and an end date or run count).
-  Sensor-fired tasks show their sensor's status instead of a Next time
-  (see § Scheduled tasks — User-side counterpart). The list re-reads
-  itself every ~30s while open.
+- **🕐 Clock — scheduled tasks.** Opens the scheduled tasks window: every
+  task the user has, grouped by machine, one search box, **New** at the
+  top. Clicking a task opens it one level deeper in the same window, with
+  **‹ back** top-left (Esc also goes back); **New** opens the same view,
+  blank. Details in § Scheduled tasks — User-side counterpart.
   *Agent-side:* see § Scheduled tasks. **User-gated.**
 
 - **🎭 Drama masks — roles.** Opens the roles window — one window that
@@ -1243,8 +1238,8 @@ crown, then gear.
     shown, not editable. The tab re-reads itself every ~30s while it's
     showing. **New wake-up** sits under the list.
     Opening a wake-up shows its form: an **On** switch (saves at once),
-    Name, the schedule (Interval / Daily / Weekly / Monthly / Yearly / Once
-    and each kind's options), Time zone (blank = the user's own; a
+    Name, When (Daily / Weekly / Monthly / Yearly / Every… / Once and
+    each kind's options, including "Only on" days), Time zone (blank = the user's own; a
     one-time wake-up always uses the user's own),
     Instruction, and a red **Delete wake-up…** at the bottom; Cancel and
     Save at the foot. **New wake-up** is the same form, blank, with
@@ -1942,25 +1937,40 @@ carries out its prompt did not exist a moment ago.
 ### User-side counterpart
 
 The user creates and manages scheduled tasks via the **clock icon** in
-the sidebar footer, beside the gear. The modal lists all
-existing scheduled tasks (edit or delete inline) and has a "new
-scheduled task" button which asks for name, prompt (with an **Archive if
-nothing to report** tick-box under it, off by default), roles or an
-explicit **No roles** pick (Save waits until one is chosen),
-and the schedule (daily / weekly / monthly / yearly / interval / one-shot, plus
-multiple times, every-N weeks/months, interval window/start, and ends after a
-date or N runs). Each row shows
-the humanized schedule and, beneath it, inline **Last / Next** run times
-(e.g. `Every 2h · Last: 3h ago · Next: in 27m`) so the user can tell at
-a glance when the agent last fired and when it will fire again — hover
-either chip for the absolute datetime. Rows that have never actually
-fired (first-sight anchored only — see § On-disk shape below) show just
-`Next`; one_shots past their slot show just `Last`. A sensor-fired
-task has no Next: its line reads `📡 Sensor · <status> · Last fired 3h
-ago` (or `Never fired`), plus `· N waiting` when fires are being held
-while it's off — same statuses as the identity modal's Wake-ups tab
-(§ Conversation view); a one-time sensor task reads `📡 Sensor · once · …`. Opening one shows the same read-only sensor
-section, including its last error lines when broken. The list re-reads
+the sidebar footer, beside the gear. It opens the scheduled tasks window:
+
+- **The list.** A search box (matches a task's name, its roles and its
+  instructions), then the tasks grouped by machine — each group titled
+  with the machine's name and how many tasks it has (no titles when
+  there's only one machine). In a group, tasks that are on come first,
+  soonest next run at the top; switched-off ones after. Each row: the
+  role's picture (a clock when the task takes no roles), the task's name,
+  the schedule and next run (`Daily at 11:30 · Next in 14h`, or `Off`),
+  one line of its instructions, and an on/off switch. Right-click a row
+  for **Run now**, **Open** and **Delete…**. A sensor-fired task has no
+  Next: its line reads `📡 Sensor · <status> · Last fired 3h ago` (or
+  `Never fired`), plus `· N waiting` when fires are being held while it's
+  off — same statuses as the identity modal's Wake-ups tab
+  (§ Conversation view); a one-time sensor task reads
+  `📡 Sensor · once · …`.
+- **A task** (click a row): one level deeper, **‹ back** top-left, the
+  task's name and machine in the header. An **On** switch (saves at once;
+  its line says the schedule, when it last ran and when it runs next),
+  then a **Run now** button that starts a conversation for it right away
+  (not on one-time tasks). Then Name (fixed — to rename, delete and
+  recreate), Roles (or an explicit **No roles**), When (Daily / Weekly /
+  Monthly / Yearly / Every… / Once, with several times a day, "Only on"
+  days, every-N weeks/months, an interval window and start, and an end
+  date or run count), Time zone (blank = the user's own), Instructions,
+  and an **Archive if nothing to report** switch. **Delete scheduled
+  task…** at the bottom; Cancel and Save at the foot. A sensor-fired task
+  shows "When its sensor fires" and its sensor's details read-only,
+  including the last error lines when broken.
+- **New scheduled task**: the same view, blank, with **Create**. It asks
+  which machine when more than one can run agents; roles come from that
+  machine, and Create waits until roles or **No roles** are picked.
+
+Leaving a task with unsaved changes asks first. The window re-reads
 itself every ~30s while open; tasks on a machine that isn't answering
 drop out of the list, and if a refresh fails outright the sensors still
 on screen turn Unknown. If the user
@@ -1982,8 +1992,8 @@ names predate the "scheduled tasks" name in the app — same thing):
 }
 ```
 
-`archive_if_nothing_to_report` is the form's **Archive if nothing to
-report** tick-box. When it's `true`, each agent the task spawns is told, after
+`archive_if_nothing_to_report` is the task's **Archive if nothing to
+report** switch. When it's `true`, each agent the task spawns is told, after
 the prompt, to run `/id archive` when it's done if the run went smoothly and
 there's nothing worth bringing to the user, using its own judgement and the
 user's preferences about what matters. Use it for routine checks and chores

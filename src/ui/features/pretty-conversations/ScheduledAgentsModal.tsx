@@ -1,85 +1,63 @@
-// ScheduledAgentsModal — fleet-wide list/edit modal for scheduled agents
-// (entries that spawn a new identity on each firing; distinct from
-// per-identity wake-ups, which fire an instruction into an already-running
-// identity).
+// ScheduledAgentsModal — the scheduled tasks window (clock icon in the
+// sidebar footer). Scheduled tasks spawn a new identity on each firing;
+// distinct from per-identity wake-ups, which fire an instruction into an
+// already-running identity.
 //
-// Modal-unification 2026-09-29: composes from the canonical <Modal> shell
-// (see components/modal.tsx). Backdrop click never dismisses (unified
-// Modal-layer rule); only X + Esc close. Esc in form view routes back to
-// list view instead of closing the modal (unsaved-work protection).
+// apple-ux shape-scheduled-tasks-modal — a sibling of the agent window's
+// wake-ups:
+//   list — title + note, New, one search box (name, roles, instructions),
+//          tasks grouped by machine (group titles only when there's more
+//          than one), on tasks soonest-next first, switched-off ones after.
+//   task — one level deeper in the same window: "‹ Scheduled Tasks" back,
+//          the task's name, "On <machine>"; the body is ScheduledTaskView.
+//          A new task is the same view, empty.
+//   Back, Esc, Cancel and the X all ask before dropping unsaved edits. Esc in
+//   a task goes back to the list; in the list it clears the search, then
+//   closes.
 //
-// Structure:
-//   list view — ModalHead "Scheduled Agents" + "+ New" action + close X,
-//                filter-bar (search + role select + host select, host
-//                hidden on single-host boxes), single compact error
-//                banner slot, scrollable rows via ScheduledAgentsModalRow.
-//   form view — ModalHead "New scheduled agent" / "Edit scheduled agent"
-//                + close X (no "+ New" action), body renders
-//                <ScheduledAgentsModalForm> which owns its Cancel/Save
-//                foot.
-//
-// D-XX contract preserved:
-//   D-03: no client cache — refetch every open.
-//   D-08: default state on open is list.
-//   D-10: filter bar = search + role + host (host hidden when single-host).
-//   D-11: row click enters edit mode; toggle + kebab stopPropagation.
-//   D-12: pessimistic toggle — writer confirmed via API ack before flipping.
-//   D-15: loading = the kit's loading state (KitLoading).
-//   D-16: empty state = centered dim helper text (fleet-wide zero vs
-//         filter-narrows-to-zero copy).
-//   D-17: filter state resets on close.
-//   D-26: controlled open state lifted to PrettyConversationsPanel.
-//   D-27: internal state machine — list ↔ form.
-//   D-28: no streaming affordances.
-//
-// Dropped from the pre-unification implementation (user 2026-09-29):
-//   - Footer count row (tasting anatomy has no foot in list view).
-//   - `agent-when` next-fire timestamp on rows (unclear meaning; toggle +
-//     kebab move up to the corner in its place).
-//   - Host chip on rows (tasting drops it; host context lives in the
-//     filter bar in multi-host mode).
-//   - Role prefix on row title (avatar hue + role chip already carry it).
+// Data: no client cache — read on every open, re-read after every write and
+// every 30s while open (sensor status, last / next stay current). Each row
+// is keyed by (hostId, slug): slugs are only unique per machine.
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Plus } from "lucide-react";
+import { ChevronLeft, Plus } from "lucide-react";
 import { toast } from "sonner";
-import { Modal, ModalHead, ModalBody } from "@/components/modal";
+import { Modal, ModalHead, escBelongsElsewhere } from "@/components/modal";
 import {
   KitBanner,
   KitButton,
   KitEmpty,
-  KitList,
   KitLoading,
   KitSearch,
-  KitSelect,
+  KitSettingsGroup,
   kitConfirm,
 } from "@/components/kit";
 import type { Host, HostFolder } from "@/types/ui-types";
 import {
+  createScheduledAgent,
   deleteScheduledAgent,
   listScheduledAgents,
   runScheduledAgentNow,
   toggleScheduledAgentEnabled,
+  updateScheduledAgent,
   type ScheduledAgentListItem,
+  type ScheduledAgentSpecWire,
 } from "@/api/scheduled-agents-api";
 import { sensorStatusUnreachable } from "@/api/sensor-status-types";
+import { roleDisplayName } from "@/lib/role-display-name";
+import { listRolesForHost } from "@/api/identities-api";
+import type { EscapeHandler, LeaveGuard } from "@/features/pretty-view/roles-window/RolesWindow";
 import { ScheduledAgentsModalRow, prettifyScheduledAgentName } from "./ScheduledAgentsModalRow";
-import { ScheduledAgentsModalForm } from "./ScheduledAgentsModalForm";
-import type { ScheduledTasksFilter } from "./open-scheduled-tasks";
+import { ScheduledTaskView } from "./ScheduledTaskView";
 
-// Host-tree flatten helpers — inlined from CreateProjectModal (small
-// enough that a shared util isn't worth the migration cost).
 function isFolder(item: Host | HostFolder): item is HostFolder {
   return "children" in item;
 }
 function collectAllHosts(children: (Host | HostFolder)[]): Host[] {
   const out: Host[] = [];
   for (const child of children) {
-    if (isFolder(child)) {
-      out.push(...collectAllHosts(child.children));
-    } else {
-      out.push(child);
-    }
+    if (isFolder(child)) out.push(...collectAllHosts(child.children));
+    else out.push(child);
   }
   return out;
 }
@@ -88,95 +66,108 @@ export interface ScheduledAgentsModalProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   hostTree: HostFolder | null;
-  /** Filter applied each time the modal opens (e.g. from a role modal's
-   *  shortcut). Null = open unfiltered. */
-  initialFilter?: ScheduledTasksFilter | null;
 }
 
-// "No filter" sentinel — double-underscore-bracketed so it can never
-// collide with a real user-defined role or host name.
-const ALL_SENTINEL = "__ALL__" as const;
-
-/** How often an open scheduled-tasks modal re-reads the list. */
+/** How often an open scheduled-tasks window re-reads the list. */
 const LIST_REFRESH_MS = 30_000;
 
-export function ScheduledAgentsModal({
-  open,
-  onOpenChange,
-  hostTree,
-  initialFilter = null,
-}: ScheduledAgentsModalProps): JSX.Element {
-  // items === null → loading; items === [] → empty (fleet-wide zero OR
-  // load error); items non-empty → rendered by ScheduledAgentsModalRow.
+const LIST_NOTE = "Conversations that start themselves on a schedule, to carry out instructions you write now.";
+
+type Deep = { view: "task"; hostId: number; slug: string; title: string } | { view: "new" };
+
+const keyOf = (r: { hostId: number; slug: string }): string => `${r.hostId}:${r.slug}`;
+
+/** hostId → role name → the role's display name on that machine. */
+type RoleNames = Map<number, Map<string, string>>;
+
+/** Every word must appear in the task's name, its roles (name or display
+ *  name) or its instructions. */
+function matches(row: ScheduledAgentListItem, words: string[], roleNames: RoleNames): boolean {
+  if (words.length === 0) return true;
+  const hay = [
+    row.name,
+    prettifyScheduledAgentName(row.name),
+    row.prompt,
+    ...row.roles,
+    ...row.roles.map((r) => roleNames.get(row.hostId)?.get(r) ?? roleDisplayName(r)),
+  ]
+    .join(" ")
+    .toLowerCase();
+  return words.every((w) => hay.includes(w));
+}
+
+/** On tasks soonest-next first (no next time after those), then the off ones. */
+function byNextRun(a: ScheduledAgentListItem, b: ScheduledAgentListItem): number {
+  if (a.enabled !== b.enabled) return a.enabled ? -1 : 1;
+  const an = a.nextFireAt ?? Number.MAX_SAFE_INTEGER;
+  const bn = b.nextFireAt ?? Number.MAX_SAFE_INTEGER;
+  if (an !== bn) return an - bn;
+  return prettifyScheduledAgentName(a.name).localeCompare(prettifyScheduledAgentName(b.name));
+}
+
+export function ScheduledAgentsModal({ open, onOpenChange, hostTree }: ScheduledAgentsModalProps): JSX.Element {
+  // items === null → loading; [] → none (or the load failed).
   const [items, setItems] = useState<ScheduledAgentListItem[] | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
-
-  // Filter state (D-10). "ALL" sentinels = no filter. Reset on close.
-  const [search, setSearch] = useState<string>("");
-  const [roleFilter, setRoleFilter] = useState<string>(ALL_SENTINEL);
-  const [hostFilter, setHostFilter] = useState<number | typeof ALL_SENTINEL>(
-    ALL_SENTINEL,
-  );
-
-  // Two internal views (D-27).
-  const [view, setView] = useState<"list" | "form">("list");
-  // Keyed by (hostId, slug): slugs are only unique per host, so a slug-only
-  // lookup opened (and saved over) another host's same-named task.
-  const [editing, setEditing] = useState<{ hostId: number; slug: string } | null>(null);
-
-  // Unified error slot — one dismissible banner shows whichever write
-  // most recently failed (toggle / delete / load). Priority: load-error
-  // wins if both a load AND a write failed in the same window.
   const [writeError, setWriteError] = useState<string | null>(null);
+  const [search, setSearch] = useState("");
+  const [deep, setDeep] = useState<Deep | null>(null);
 
-  // Toggle in-flight guard — rage-click on the same row is a no-op.
-  const toggleInFlightRef = useRef<Set<string>>(new Set<string>());
-  // Rows with a run-now request in flight, keyed `${hostId}:${slug}`. State
-  // (not a ref) so the row's menu item re-renders as "Starting…" + disabled,
-  // which is also the double-click guard against spawning two agents.
+  const [toggling, setToggling] = useState<Set<string>>(() => new Set<string>());
+  // Rows with a run-now request in flight — also the guard against starting two.
   const [runNowPending, setRunNowPending] = useState<Set<string>>(() => new Set<string>());
 
-  // Opened with a filter (role modal shortcut) — apply it on each open.
-  useEffect(() => {
-    if (!open || initialFilter === null) return;
-    setRoleFilter(initialFilter.role);
-    setHostFilter(initialFilter.hostId);
-  }, [open, initialFilter]);
-
-  // Fetch-on-open + reset-on-close (D-03, D-17).
+  // Read on open; everything resets on close.
   useEffect(() => {
     if (!open) {
       setItems(null);
       setLoadError(null);
-      setSearch("");
-      setRoleFilter(ALL_SENTINEL);
-      setHostFilter(ALL_SENTINEL);
-      setView("list");
-      setEditing(null);
       setWriteError(null);
+      setSearch("");
+      setDeep(null);
       return;
     }
-
     const controller = new AbortController();
     listScheduledAgents()
       .then((rows) => {
-        if (controller.signal.aborted) return;
-        setItems(rows);
+        if (!controller.signal.aborted) setItems(rows);
       })
       .catch((err: unknown) => {
         if (controller.signal.aborted) return;
         setItems([]);
-        setLoadError(
-          err instanceof Error ? err.message : "Couldn't load scheduled tasks",
-        );
+        setLoadError(err instanceof Error ? err.message : "Couldn't load scheduled tasks");
       });
     return () => controller.abort();
   }, [open]);
 
-  // Refetch after any write (D-03).
-  // Only the most recently started read may land, and only while the modal
-  // is open: a slow background refresh can't undo a write's fresher read,
-  // and a late one can't repopulate a closed modal.
+  // Each machine's role display names, read once per open, so search finds a
+  // role by the name the app shows for it.
+  const [roleNames, setRoleNames] = useState<RoleNames>(() => new Map());
+  const roleNamesAsked = useRef<Set<number>>(new Set());
+  useEffect(() => {
+    if (!open) {
+      roleNamesAsked.current = new Set();
+      setRoleNames(new Map());
+      return;
+    }
+    for (const hostId of new Set((items ?? []).map((r) => r.hostId))) {
+      if (roleNamesAsked.current.has(hostId)) continue;
+      roleNamesAsked.current.add(hostId);
+      listRolesForHost(hostId)
+        .then((roles) => {
+          if (!openRef.current) return;
+          const names = new Map(roles.map((r) => [r.name, roleDisplayName(r.name, r.displayName)]));
+          setRoleNames((cur) => new Map(cur).set(hostId, names));
+        })
+        .catch(() => {
+          // Search falls back to names worked out from the role's slug.
+        });
+    }
+  }, [open, items]);
+
+  // Only the most recently started read may land, and only while open: a slow
+  // background refresh can't undo a write's fresher read, and a late one can't
+  // repopulate a closed window.
   const fetchSeq = useRef(0);
   const openRef = useRef(open);
   openRef.current = open;
@@ -193,28 +184,19 @@ export function ScheduledAgentsModal({
       // Rows stay on screen, but no sensor keeps a verdict the app can no
       // longer back up.
       setItems((prev) =>
-        prev === null
-          ? prev
-          : prev.map((r) => (r.sensor ? { ...r, sensor: sensorStatusUnreachable(r.sensor) } : r)),
+        prev === null ? prev : prev.map((r) => (r.sensor ? { ...r, sensor: sensorStatusUnreachable(r.sensor) } : r)),
       );
-      setLoadError(
-        err instanceof Error ? err.message : "Couldn't refresh scheduled tasks",
-      );
+      setLoadError(err instanceof Error ? err.message : "Couldn't refresh scheduled tasks");
     }
   }, []);
 
-  // Keep the list current while the modal is open (sensors shape 2): every
-  // 30s re-render (the Last / Next chips compute relative time at render)
-  // and re-read the list, so sensor status, last fired and Next never go
-  // more than ~30s stale. Runs in the form view too — an opened sensor
-  // task's status section reads the live row. Nothing runs while closed.
-  // One refresh at a time: a slow host fan-out never stacks requests.
-  const [, setChipTick] = useState(0);
+  // Every 30s: re-render (relative times) and re-read — one read at a time.
+  const [, setTick] = useState(0);
   const refreshInFlight = useRef(false);
   useEffect(() => {
     if (!open) return;
     const handle = setInterval(() => {
-      setChipTick((t) => t + 1);
+      setTick((t) => t + 1);
       if (refreshInFlight.current) return;
       refreshInFlight.current = true;
       void refetch().finally(() => {
@@ -224,129 +206,142 @@ export function ScheduledAgentsModal({
     return () => clearInterval(handle);
   }, [open, refetch]);
 
-  // The row being edited, read live from `items` so a background refresh
-  // updates its sensor status. If a refresh drops it (its host didn't
-  // answer), keep showing the last copy rather than blanking the form — but
-  // with its sensor status Unknown, never a stale verdict.
-  const lastEditingRow = useRef<ScheduledAgentListItem | null>(null);
-  const liveEditingRow =
-    editing !== null
-      ? (items?.find((i) => i.hostId === editing.hostId && i.slug === editing.slug) ?? null)
-      : null;
-  if (editing === null) {
-    lastEditingRow.current = null;
-  } else if (liveEditingRow !== null) {
-    lastEditingRow.current = liveEditingRow;
-  }
-  const staleEditingRow =
-    editing !== null &&
-    lastEditingRow.current?.hostId === editing.hostId &&
-    lastEditingRow.current?.slug === editing.slug
-      ? lastEditingRow.current
-      : null;
-  const editingRow =
-    liveEditingRow ??
-    (staleEditingRow?.sensor
-      ? { ...staleEditingRow, sensor: sensorStatusUnreachable(staleEditingRow.sensor) }
-      : staleEditingRow);
-
   const flatHosts = useMemo(
-    () =>
-      collectAllHosts(hostTree?.children ?? []).filter(
-        (h) => h.enableRdp !== true,
-      ),
+    () => collectAllHosts(hostTree?.children ?? []).filter((h) => h.enableRdp !== true),
     [hostTree],
   );
+  // A new task can only go to a machine that can run agents.
+  const agentHosts = useMemo(() => flatHosts.filter((h) => h.runsFleetSubstrate === true), [flatHosts]);
 
-  // Single-host mode: hide the host select (tasting drops it) AND treat
-  // the filter as implicit.
-  const hideHostFilter = flatHosts.length === 1;
+  // The open task, read live from the list so a background refresh updates
+  // its status. If a refresh drops it (its machine didn't answer), keep the
+  // last copy rather than blanking the view — with any sensor status Unknown.
+  const lastDeepRow = useRef<ScheduledAgentListItem | null>(null);
+  const liveDeepRow =
+    deep?.view === "task" ? (items?.find((i) => i.hostId === deep.hostId && i.slug === deep.slug) ?? null) : null;
+  if (deep?.view !== "task") lastDeepRow.current = null;
+  else if (liveDeepRow) lastDeepRow.current = liveDeepRow;
+  const staleDeepRow =
+    deep?.view === "task" && lastDeepRow.current && keyOf(lastDeepRow.current) === keyOf(deep) ? lastDeepRow.current : null;
+  const deepRow =
+    liveDeepRow ??
+    (staleDeepRow?.sensor ? { ...staleDeepRow, sensor: sensorStatusUnreachable(staleDeepRow.sensor) } : staleDeepRow);
 
-  const availableRoles = useMemo<string[]>(() => {
-    if (items === null) return [];
-    const set = new Set<string>();
-    // A role opened from its role modal stays pickable even with no tasks,
-    // so the list reads "none match" instead of silently showing everything.
-    if (initialFilter !== null) set.add(initialFilter.role);
-    for (const item of items) {
-      for (const r of item.roles) set.add(r);
-    }
-    return Array.from(set).sort((a, b) => a.localeCompare(b));
-  }, [items, initialFilter]);
+  // ── Navigation ─────────────────────────────────────────────────────────
+  // The task view registers its own leave guard (unsaved edits) and may use
+  // Esc itself first.
+  const guardRef = useRef<LeaveGuard | null>(null);
+  const escapeRef = useRef<EscapeHandler | null>(null);
+  const registerGuard = useCallback((g: LeaveGuard | null) => {
+    guardRef.current = g;
+  }, []);
+  const registerEscape = useCallback((h: EscapeHandler | null) => {
+    escapeRef.current = h;
+  }, []);
 
-  // Filter reconciliation — reset filter when option disappears.
-  useEffect(() => {
-    if (
-      roleFilter !== ALL_SENTINEL &&
-      availableRoles.length > 0 &&
-      !availableRoles.includes(roleFilter)
-    ) {
-      setRoleFilter(ALL_SENTINEL);
-    }
-  }, [availableRoles, roleFilter]);
-  useEffect(() => {
-    // Host tree not loaded yet — nothing to reconcile against.
-    if (hostFilter === ALL_SENTINEL || flatHosts.length === 0) return;
-    const hostIds = new Set<number>();
-    for (const h of flatHosts) {
-      const idNum = parseInt(String(h.id), 10);
-      if (Number.isFinite(idNum) && idNum > 0) hostIds.add(idNum);
-    }
-    if (!hostIds.has(hostFilter)) setHostFilter(ALL_SENTINEL);
-  }, [flatHosts, hostFilter]);
+  const leave = useCallback(async (): Promise<boolean> => {
+    const g = guardRef.current;
+    if (g && !(await g())) return false;
+    guardRef.current = null;
+    escapeRef.current = null;
+    return true;
+  }, []);
 
-  const visibleItems = useMemo<ScheduledAgentListItem[]>(() => {
-    if (items === null) return [];
-    const q = search.trim().toLowerCase();
-    return items.filter((row) => {
-      if (q.length > 0) {
-        const nameHit = row.name.toLowerCase().includes(q) ||
-          prettifyScheduledAgentName(row.name).toLowerCase().includes(q);
-        const promptHit = row.prompt.toLowerCase().includes(q);
-        if (!nameHit && !promptHit) return false;
-      }
-      if (roleFilter !== ALL_SENTINEL && !row.roles.includes(roleFilter)) {
-        return false;
-      }
-      if (hostFilter !== ALL_SENTINEL && row.hostId !== hostFilter) {
-        return false;
-      }
-      return true;
-    });
-  }, [items, search, roleFilter, hostFilter]);
-
-  const totalItems = items ?? [];
-
-  function handleRowClick(row: ScheduledAgentListItem): void {
-    setEditing({ hostId: row.hostId, slug: row.slug });
-    setView("form");
-  }
-
-  async function handleToggleClick(row: ScheduledAgentListItem): Promise<void> {
-    const toggleKey = `${row.hostId}:${row.slug}`;
-    if (toggleInFlightRef.current.has(toggleKey)) return;
-    toggleInFlightRef.current.add(toggleKey);
+  const openTask = useCallback((row: ScheduledAgentListItem) => {
+    console.debug("[ScheduledAgentsModal] nav", { to: "task", hostId: row.hostId, slug: row.slug });
     setWriteError(null);
-    try {
-      await toggleScheduledAgentEnabled(row.slug, row.hostId, !row.enabled);
-      await refetch();
-    } catch (err) {
-      setWriteError(err instanceof Error ? err.message : "Toggle failed");
-    } finally {
-      toggleInFlightRef.current.delete(toggleKey);
-    }
-  }
+    setDeep({ view: "task", hostId: row.hostId, slug: row.slug, title: prettifyScheduledAgentName(row.name) });
+  }, []);
+  const openNew = useCallback(() => {
+    console.debug("[ScheduledAgentsModal] nav", { to: "new" });
+    setWriteError(null);
+    setDeep({ view: "new" });
+  }, []);
 
-  async function handleRunNowFromKebab(row: ScheduledAgentListItem): Promise<void> {
-    const key = `${row.hostId}:${row.slug}`;
+  const back = useCallback(async (): Promise<void> => {
+    if (!(await leave())) return;
+    setDeep(null);
+    void refetch();
+  }, [leave, refetch]);
+
+  const handleOpenChange = useCallback(
+    async (next: boolean): Promise<void> => {
+      if (next) return onOpenChange(true);
+      if (!(await leave())) return;
+      onOpenChange(false);
+    },
+    [leave, onOpenChange],
+  );
+
+  // Esc: a task goes back to the list; in the list it clears the search
+  // first; otherwise it falls through to the window, which closes.
+  const escState = useRef({ deep: false, search: "" });
+  escState.current = { deep: deep !== null, search };
+  useEffect(() => {
+    if (!open) return;
+    const onKey = (e: KeyboardEvent): void => {
+      if (e.key !== "Escape" || e.defaultPrevented) return;
+      if (escBelongsElsewhere(e)) return;
+      const stop = (): void => {
+        e.preventDefault();
+        e.stopPropagation();
+      };
+      if (escapeRef.current?.()) return stop();
+      if (escState.current.deep) {
+        stop();
+        void back();
+        return;
+      }
+      if (escState.current.search) {
+        stop();
+        setSearch("");
+      }
+    };
+    window.addEventListener("keydown", onKey, true);
+    return () => window.removeEventListener("keydown", onKey, true);
+  }, [open, back]);
+
+  // ── Writes ─────────────────────────────────────────────────────────────
+  const toggle = useCallback(
+    async (row: ScheduledAgentListItem, enabled: boolean): Promise<void> => {
+      const key = keyOf(row);
+      if (toggling.has(key)) return;
+      setToggling((s) => new Set(s).add(key));
+      try {
+        await toggleScheduledAgentEnabled(row.slug, row.hostId, enabled);
+        await refetch();
+      } finally {
+        setToggling((s) => {
+          const next = new Set(s);
+          next.delete(key);
+          return next;
+        });
+      }
+    },
+    [toggling, refetch],
+  );
+
+  const toggleFromList = (row: ScheduledAgentListItem, enabled: boolean): void => {
+    setWriteError(null);
+    toggle(row, enabled).catch((err: unknown) => {
+      const name = prettifyScheduledAgentName(row.name);
+      setWriteError(`Couldn't turn “${name}” ${enabled ? "on" : "off"}: ${err instanceof Error ? err.message : String(err)}`);
+    });
+  };
+
+  const runNow = async (row: ScheduledAgentListItem): Promise<void> => {
+    const key = keyOf(row);
     if (runNowPending.has(key)) return;
     setRunNowPending((cur) => new Set(cur).add(key));
     setWriteError(null);
     try {
       await runScheduledAgentNow(row.slug, row.hostId);
+      console.info({ operation: "scheduled_task_run_now", hostId: row.hostId, slug: row.slug });
       toast.success(`Started "${prettifyScheduledAgentName(row.name)}" — the new conversation appears shortly`);
     } catch (err) {
-      setWriteError(err instanceof Error ? err.message : "Run now failed");
+      const msg = err instanceof Error ? err.message : "Run now failed";
+      if (deep) toast.error(`Couldn't start it: ${msg}`);
+      else setWriteError(msg);
     } finally {
       setRunNowPending((cur) => {
         const next = new Set(cur);
@@ -354,16 +349,9 @@ export function ScheduledAgentsModal({
         return next;
       });
     }
-  }
+  };
 
-  function handleEditFromKebab(row: ScheduledAgentListItem): void {
-    setEditing({ hostId: row.hostId, slug: row.slug });
-    setView("form");
-  }
-
-  async function handleDeleteFromKebab(
-    row: ScheduledAgentListItem,
-  ): Promise<void> {
+  const deleteFromList = async (row: ScheduledAgentListItem): Promise<void> => {
     const ok = await kitConfirm({
       title: `Delete "${prettifyScheduledAgentName(row.name)}"?`,
       body: "This scheduled task stops running and is removed. This can't be undone.",
@@ -374,236 +362,246 @@ export function ScheduledAgentsModal({
     setWriteError(null);
     try {
       await deleteScheduledAgent(row.slug, row.hostId);
+      console.info({ operation: "scheduled_task_deleted", hostId: row.hostId, slug: row.slug });
       await refetch();
     } catch (err) {
       setWriteError(err instanceof Error ? err.message : "Delete failed");
     }
-  }
+  };
 
-  function enterCreateMode(): void {
-    setEditing(null);
-    setView("form");
-  }
+  // On create / save, splice the fresh row in at once so it shows before the
+  // refetch's fan-out answers; the refetch then overlays the server's copy.
+  const spliceIn = (row: ScheduledAgentListItem): void => {
+    setItems((cur) => {
+      const base = cur ?? [];
+      const i = base.findIndex((r) => keyOf(r) === keyOf(row));
+      if (i < 0) return [row, ...base];
+      const next = base.slice();
+      next[i] = row;
+      return next;
+    });
+  };
 
-  function backToList(optimistic: ScheduledAgentListItem | null = null): void {
-    setView("list");
-    setEditing(null);
-    // On create, splice the fresh row in immediately so it's visible before
-    // the authoritative refetch resolves (UAT 2026-10-01). Dedupe on
-    // (hostId, slug) so a re-save of the same scheduled agent doesn't
-    // duplicate. The refetch below overlays with the server's canonical row.
-    if (optimistic !== null) {
-      setItems((current) => {
-        const base = current ?? [];
-        const existingIdx = base.findIndex(
-          (r) => r.hostId === optimistic.hostId && r.slug === optimistic.slug,
-        );
-        if (existingIdx >= 0) {
-          const next = base.slice();
-          next[existingIdx] = optimistic;
-          return next;
-        }
-        return [optimistic, ...base];
-      });
+  const create = async (hostId: number, spec: ScheduledAgentSpecWire): Promise<void> => {
+    const created = await createScheduledAgent(hostId, spec);
+    spliceIn({
+      slug: created.slug,
+      host: flatHosts.find((h) => parseInt(String(h.id), 10) === hostId)?.name ?? "",
+      hostId,
+      name: spec.name,
+      enabled: spec.enabled ?? true,
+      schedule: spec.schedule,
+      scheduleHuman: "",
+      prompt: spec.prompt,
+      roles: spec.roles ?? [],
+      archive_if_nothing_to_report: spec.archive_if_nothing_to_report ?? false,
+      colorHue: null,
+      lastFiredAt: null,
+      nextFireAt: null,
+    });
+  };
+
+  const save = async (row: ScheduledAgentListItem, spec: ScheduledAgentSpecWire): Promise<void> => {
+    await updateScheduledAgent(row.slug, row.hostId, spec);
+    spliceIn({
+      ...row,
+      schedule: spec.schedule,
+      prompt: spec.prompt,
+      roles: spec.roles ?? [],
+      archive_if_nothing_to_report: spec.archive_if_nothing_to_report ?? false,
+    });
+  };
+
+  // ── List ───────────────────────────────────────────────────────────────
+  const words = search.trim().toLowerCase().split(/\s+/).filter(Boolean);
+  const groups = useMemo(() => {
+    if (items === null) return [];
+    const byHost = new Map<number, { host: string; rows: ScheduledAgentListItem[] }>();
+    for (const row of items) {
+      if (!byHost.has(row.hostId)) byHost.set(row.hostId, { host: row.host, rows: [] });
+      if (matches(row, words, roleNames)) byHost.get(row.hostId)!.rows.push(row);
     }
-    void refetch();
-  }
-
-  const headerTitle =
-    view === "list"
-      ? "Scheduled Tasks"
-      : editing !== null
-        ? "Edit scheduled task"
-        : "New scheduled task";
-
-  // Unified error banner content — load error wins if both present.
+    return [...byHost.values()].map((g) => ({ ...g, rows: g.rows.sort(byNextRun) }));
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- words is derived from search
+  }, [items, search, roleNames]);
+  const multiMachine = groups.length > 1;
+  const visibleGroups = groups.filter((g) => g.rows.length > 0);
   const bannerError = loadError ?? writeError;
 
-  // Escape-in-form handler: prevent the Modal's default close, route back
-  // to list instead.
-  const handleEscape = useCallback(
-    (e: KeyboardEvent) => {
-      if (!open) return;
-      if (e.key !== "Escape") return;
-      if (view === "form") {
-        e.stopPropagation();
-        e.preventDefault();
-        setView("list");
-        setEditing(null);
-        void refetch();
-      }
-    },
-    [open, view, refetch],
+  const newButton = (
+    <KitButton variant="primary" size="sm" onClick={openNew} data-testid="scheduled-agents-modal-add-button">
+      <Plus /> New scheduled task
+    </KitButton>
   );
-  useEffect(() => {
-    if (!open) return;
-    document.addEventListener("keydown", handleEscape, true);
-    return () => document.removeEventListener("keydown", handleEscape, true);
-  }, [open, handleEscape]);
+
+  const listView = (
+    <>
+      <ModalHead
+        title="Scheduled Tasks"
+        subtitle={LIST_NOTE}
+        actions={
+          <KitButton
+            variant="primary"
+            size="sm"
+            aria-label="New scheduled task"
+            title="New scheduled task"
+            onClick={openNew}
+            data-testid="scheduled-agents-modal-new"
+          >
+            <Plus /> <span className="max-sm:hidden">New</span>
+          </KitButton>
+        }
+      />
+      {items !== null && items.length > 0 && (
+        <div className="px-6 max-sm:px-4 pb-3 flex-shrink-0">
+          <KitSearch
+            value={search}
+            onValueChange={setSearch}
+            placeholder="Search tasks, roles or instructions"
+            aria-label="Search scheduled tasks"
+            data-testid="scheduled-agents-modal-filter-search"
+          />
+        </div>
+      )}
+      <div className="flex-1 min-h-0 overflow-y-auto px-6 max-sm:px-4 pb-6 flex flex-col gap-4" data-testid="scheduled-agents-modal-list">
+        {bannerError !== null && (
+          <KitBanner
+            tone="danger"
+            data-testid={loadError !== null ? "scheduled-agents-modal-load-error" : "scheduled-agents-modal-write-error"}
+            onDismiss={() => {
+              setWriteError(null);
+              setLoadError(null);
+            }}
+          >
+            {bannerError}
+          </KitBanner>
+        )}
+        {items === null ? (
+          <KitLoading lines={3} className="px-2" />
+        ) : items.length === 0 ? (
+          <KitEmpty
+            className="flex-1"
+            data-testid="scheduled-agents-modal-empty-state"
+            title="No scheduled tasks"
+            body="A scheduled task starts a new conversation on a schedule to carry out instructions you write now."
+            action={newButton}
+          />
+        ) : visibleGroups.length === 0 ? (
+          <KitEmpty
+            className="flex-1"
+            data-testid="scheduled-agents-modal-no-matches"
+            title="No matches"
+            body={`Nothing called “${search.trim()}”, and no instructions or roles mention it.`}
+          />
+        ) : (
+          visibleGroups.map((g) => (
+            <KitSettingsGroup
+              key={g.host}
+              title={
+                multiMachine ? (
+                  <span className="flex items-baseline gap-2">
+                    {g.host}
+                    <small className="font-medium normal-case tracking-normal text-[var(--k-t3)]">
+                      {g.rows.length} {g.rows.length === 1 ? "task" : "tasks"}
+                    </small>
+                  </span>
+                ) : undefined
+              }
+              data-testid={`scheduled-agents-modal-group-${g.host}`}
+            >
+              {g.rows.map((row) => (
+                <ScheduledAgentsModalRow
+                  key={keyOf(row)}
+                  row={row}
+                  onOpen={openTask}
+                  onToggle={toggleFromList}
+                  onDelete={(r) => void deleteFromList(r)}
+                  onRunNow={(r) => void runNow(r)}
+                  runNowPending={runNowPending.has(keyOf(row))}
+                  toggling={toggling.has(keyOf(row))}
+                />
+              ))}
+            </KitSettingsGroup>
+          ))
+        )}
+      </div>
+    </>
+  );
+
+  // ── One level deeper ───────────────────────────────────────────────────
+  const deepHead = (title: string, subtitle: string) => (
+    <ModalHead
+      title={title}
+      subtitle={subtitle}
+      leading={
+        <KitButton
+          variant="plain"
+          size="sm"
+          onClick={() => void back()}
+          className="max-w-[180px] max-sm:max-w-[44px]"
+          aria-label="Back to Scheduled Tasks"
+          data-testid="scheduled-agents-modal-back"
+        >
+          <ChevronLeft /> <span className="truncate max-sm:hidden">Scheduled Tasks</span>
+        </KitButton>
+      }
+    />
+  );
+
+  let deepView: JSX.Element | null = null;
+  if (deep?.view === "new") {
+    deepView = (
+      <>
+        {deepHead("New scheduled task", "Starts a conversation on a schedule")}
+        <ScheduledTaskView
+          key="new"
+          hosts={agentHosts}
+          onCreate={create}
+          onDone={() => void back()}
+          registerGuard={registerGuard}
+          registerEscape={registerEscape}
+        />
+      </>
+    );
+  } else if (deep?.view === "task") {
+    deepView = !deepRow ? (
+      <>
+        {deepHead(deep.title, "Scheduled task")}
+        <div className="flex-1 min-h-0 px-6 py-4">
+          <KitEmpty title="This scheduled task is gone." body="It was deleted elsewhere." />
+        </div>
+      </>
+    ) : (
+      <>
+        {deepHead(prettifyScheduledAgentName(deepRow.name), `On ${deepRow.host}`)}
+        <ScheduledTaskView
+          key={keyOf(deepRow)}
+          task={deepRow}
+          hosts={agentHosts}
+          onToggle={(enabled) => toggle(deepRow, enabled)}
+          onRunNow={() => void runNow(deepRow)}
+          runNowPending={runNowPending.has(keyOf(deepRow))}
+          onSave={(spec) => save(deepRow, spec)}
+          onDelete={async () => {
+            await deleteScheduledAgent(deepRow.slug, deepRow.hostId);
+            setItems((cur) => (cur ?? []).filter((r) => keyOf(r) !== keyOf(deepRow)));
+          }}
+          onDone={() => void back()}
+          registerGuard={registerGuard}
+          registerEscape={registerEscape}
+        />
+      </>
+    );
+  }
 
   return (
     <Modal
       open={open}
-      onOpenChange={onOpenChange}
+      onOpenChange={(next) => void handleOpenChange(next)}
       size="list"
       data-testid="scheduled-agents-modal"
     >
-      <ModalHead
-        title={headerTitle}
-        subtitle={
-          view === "list"
-            ? "Scheduled tasks are conversations that start themselves at a future date or time to carry out instructions you set in advance. They can be recurring or one-time."
-            : undefined
-        }
-        actions={
-          view === "list" ? (
-            <KitButton
-              variant="primary"
-              size="sm"
-              aria-label="New scheduled task"
-              title="New scheduled task"
-              data-testid="scheduled-agents-modal-add-button"
-              onClick={enterCreateMode}
-            >
-              <Plus /> New
-            </KitButton>
-          ) : undefined
-        }
-      />
-
-      {view === "list" && (
-        <div
-          // Below md the selects (sized to their longest option) would squeeze
-          // the search to nothing — wrap so search gets its own full row.
-          className="px-6 max-sm:px-5 pb-2 flex flex-row flex-wrap md:flex-nowrap items-center gap-2 flex-shrink-0"
-        >
-          <KitSearch
-            value={search}
-            onValueChange={setSearch}
-            placeholder="Search name or prompt…"
-            aria-label="Search scheduled tasks"
-            data-testid="scheduled-agents-modal-filter-search"
-            wrapperClassName="basis-full md:basis-auto md:flex-[2] min-w-0 md:min-w-[160px]"
-          />
-          <KitSelect
-            value={roleFilter}
-            onChange={(e) => setRoleFilter(e.target.value)}
-            aria-label="Filter by role"
-            data-testid="scheduled-agents-modal-filter-role"
-            className="flex-1 min-w-0 md:w-auto"
-          >
-            <option value={ALL_SENTINEL}>All roles</option>
-            {availableRoles.map((r) => (
-              <option key={r} value={r}>
-                {r}
-              </option>
-            ))}
-          </KitSelect>
-          {!hideHostFilter && (
-            <KitSelect
-              value={
-                hostFilter === ALL_SENTINEL ? ALL_SENTINEL : String(hostFilter)
-              }
-              onChange={(e) => {
-                const raw = e.target.value;
-                if (raw === ALL_SENTINEL) {
-                  setHostFilter(ALL_SENTINEL);
-                } else {
-                  const parsed = parseInt(raw, 10);
-                  if (Number.isFinite(parsed) && parsed > 0) {
-                    setHostFilter(parsed);
-                  }
-                }
-              }}
-              aria-label="Filter by host"
-              data-testid="scheduled-agents-modal-filter-host"
-              className="flex-1 min-w-0 md:w-auto"
-            >
-              <option value={ALL_SENTINEL}>All hosts</option>
-              {flatHosts.map((h) => {
-                const idNum = parseInt(String(h.id), 10);
-                if (!Number.isFinite(idNum)) return null;
-                return (
-                  <option key={h.id} value={String(idNum)}>
-                    {h.name}
-                  </option>
-                );
-              })}
-            </KitSelect>
-          )}
-        </div>
-      )}
-
-      {view === "list" ? (
-        <ModalBody
-          className="flex flex-col gap-2 px-4 max-sm:px-3"
-          data-testid="scheduled-agents-modal-list"
-        >
-          {bannerError !== null && (
-            <KitBanner
-              tone="danger"
-              data-testid={
-                loadError !== null
-                  ? "scheduled-agents-modal-load-error"
-                  : "scheduled-agents-modal-write-error"
-              }
-              onDismiss={() => {
-                setWriteError(null);
-                setLoadError(null);
-              }}
-            >
-              {bannerError}
-            </KitBanner>
-          )}
-
-          {items === null ? (
-            <KitLoading lines={3} className="px-2" />
-          ) : visibleItems.length === 0 ? (
-            <KitEmpty
-              className="flex-1"
-              data-testid="scheduled-agents-modal-empty-state"
-              title={
-                totalItems.length === 0
-                  ? "No scheduled tasks"
-                  : "No scheduled tasks match this filter"
-              }
-              body={totalItems.length === 0 ? "Choose New to create one." : undefined}
-            />
-          ) : (
-            <KitList>
-              {visibleItems.map((row) => (
-                <ScheduledAgentsModalRow
-                  key={`${row.hostId}::${row.slug}`}
-                  row={row}
-                  onRowClick={handleRowClick}
-                  onToggleClick={(r) => {
-                    void handleToggleClick(r);
-                  }}
-                  onEditFromKebab={handleEditFromKebab}
-                  onDeleteFromKebab={(r) => {
-                    void handleDeleteFromKebab(r);
-                  }}
-                  onRunNowFromKebab={(r) => {
-                    void handleRunNowFromKebab(r);
-                  }}
-                  runNowPending={runNowPending.has(`${row.hostId}:${row.slug}`)}
-                />
-              ))}
-            </KitList>
-          )}
-        </ModalBody>
-      ) : (
-        <ModalBody className="p-0 flex flex-col min-h-0 overflow-hidden">
-          <ScheduledAgentsModalForm
-            mode={editing !== null ? "edit" : "create"}
-            initialSpec={editingRow}
-            flatHosts={flatHosts}
-            onCancel={() => backToList()}
-            onSaved={(optimistic) => backToList(optimistic)}
-          />
-        </ModalBody>
-      )}
+      {deepView ?? listView}
     </Modal>
   );
 }
-

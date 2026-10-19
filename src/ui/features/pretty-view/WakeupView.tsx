@@ -19,7 +19,6 @@ import {
   KitButton,
   KitField,
   KitInput,
-  KitSelect,
   KitSettingsGroup,
   KitSettingsRow,
   KitSwitch,
@@ -30,23 +29,13 @@ import type { Wakeup, WakeupSpecWire } from "@/api/claude-session-api";
 import { SensorDetails, lastFiredLabel } from "./SensorStatusView";
 import {
   type FormSchedule,
-  type IntervalUnit,
-  type Weekday,
-  WEEKDAY_NAMES,
-  WEEKDAY_VALUES,
   buildSchedule,
   detectBrowserTimezone,
   hydrateFormSchedule,
   isOnceSensorSchedule,
   isSensorSchedule,
-  MonthlyDayFields,
-  RestrictToDaysChips,
-  ScheduleKindField,
-  ScheduleRepeatFields,
-  switchScheduleKind,
-  TimesField,
+  ScheduleWhenFields,
   validateForm,
-  YearlyDateFields,
 } from "./WakeupFormShared";
 import type { EscapeHandler, LeaveGuard } from "./roles-window/RolesWindow";
 
@@ -244,11 +233,6 @@ export function WakeupView({
       ? `Fires when its sensor sees something · ${lastFiredLabel(wakeup.lastFiredAt)}`
       : `${wakeup.scheduleHuman} · ${lastFiredLabel(wakeup.lastFiredAt)}`;
 
-  const oneShotPast =
-    fs.type === "one_shot" && fs.at !== "" && !Number.isNaN(new Date(fs.at).getTime()) && new Date(fs.at).getTime() < Date.now();
-  const days = fs.type !== "one_shot" && fs.type !== "monthly" && fs.type !== "yearly" && (
-    <RestrictToDaysChips days={fs.days} onChange={(next) => setFs({ ...fs, days: next as Weekday[] | undefined })} slug="wakeup" />
-  );
 
   return (
     <>
@@ -299,104 +283,15 @@ export function WakeupView({
               )}
             </div>
           ) : (
-            <div className="flex flex-col gap-4" data-testid="wakeup-view-when">
-              <ScheduleKindField value={fs.type} onChange={(kind) => setFs(switchScheduleKind(fs, kind))} testIdPrefix="wakeup-type" />
-
-              {fs.type === "interval" && (
-                <div className="flex items-end gap-3 flex-wrap">
-                  <KitField label="Every" htmlFor="wakeup-every-n" className="flex-1 min-w-[110px]">
-                    <KitInput
-                      type="number"
-                      min={1}
-                      value={fs.n}
-                      onChange={(e) => {
-                        const v = Number(e.target.value);
-                        setFs({ ...fs, n: Number.isFinite(v) ? v : 1 });
-                      }}
-                    />
-                  </KitField>
-                  <KitField label="Unit" htmlFor="wakeup-every-u" className="flex-1 min-w-[110px]">
-                    <KitSelect value={fs.u} onChange={(e) => setFs({ ...fs, u: e.target.value as IntervalUnit })}>
-                      <option value="s">seconds</option>
-                      <option value="m">minutes</option>
-                      <option value="h">hours</option>
-                      <option value="d">days</option>
-                      <option value="mo">months</option>
-                    </KitSelect>
-                  </KitField>
-                </div>
-              )}
-
-              {fs.type === "daily" && (
-                <TimesField at={fs.at} onChange={(at) => setFs({ ...fs, at })} label="Time" idPrefix="wakeup-daily-at" />
-              )}
-
-              {fs.type === "weekly" && (
-                <div className="flex items-start gap-3 flex-wrap">
-                  <KitField label="Day" htmlFor="wakeup-weekly-day" className="w-[160px] max-w-full">
-                    <KitSelect value={fs.day} onChange={(e) => setFs({ ...fs, day: e.target.value as Weekday })}>
-                      {WEEKDAY_VALUES.map((d) => (
-                        <option key={d} value={d}>
-                          {WEEKDAY_NAMES[d]}
-                        </option>
-                      ))}
-                    </KitSelect>
-                  </KitField>
-                  <TimesField at={fs.at} onChange={(at) => setFs({ ...fs, at })} label="Time" idPrefix="wakeup-weekly-at" />
-                </div>
-              )}
-
-              {fs.type === "yearly" && (
-                <div className="flex items-start gap-3 flex-wrap">
-                  <YearlyDateFields date={fs.date} onChange={(date) => setFs({ ...fs, date })} idPrefix="wakeup-yearly" />
-                  <TimesField at={fs.at} onChange={(at) => setFs({ ...fs, at })} label="Time" idPrefix="wakeup-yearly-at" />
-                </div>
-              )}
-
-              {fs.type === "monthly" && (
-                <>
-                  <MonthlyDayFields value={fs} onChange={setFs} idPrefix="wakeup-monthly" />
-                  <TimesField at={fs.at} onChange={(at) => setFs({ ...fs, at })} label="Time" idPrefix="wakeup-monthly-at" />
-                </>
-              )}
-
-              {days}
-
-              {fs.type !== "one_shot" && <ScheduleRepeatFields fs={fs} onChange={setFs} idPrefix="wakeup" />}
-
-              {fs.type === "one_shot" && (
-                <>
-                  <KitField label="Fires at" htmlFor="wakeup-oneshot-at" className="w-[240px] max-w-full">
-                    <KitInput type="datetime-local" value={fs.at} onChange={(e) => setFs({ ...fs, at: e.target.value })} />
-                  </KitField>
-                  {oneShotPast && (
-                    <KitBanner tone="warn">
-                      That time is in the past — the scheduler will fire this <b>immediately</b>.
-                    </KitBanner>
-                  )}
-                </>
-              )}
-
-              {fs.type === "one_shot" ? (
-                <span className="k-help">The time above is in your time zone ({detectedTz}).</span>
-              ) : (
-              <KitField
-                label="Time zone"
-                htmlFor="wakeup-tz"
-                help={`Times above are in this zone. Leave it blank for yours (${detectedTz}).`}
-              >
-                <KitInput
-                  type="text"
-                  value={tz}
-                  onChange={(e) => setTz(e.target.value)}
-                  placeholder={detectedTz}
-                  data-testid="wakeup-view-tz"
-                />
-              </KitField>
-              )}
-
-              {validation && <span className="k-err">{validation}</span>}
-            </div>
+            <ScheduleWhenFields
+              fs={fs}
+              onChange={setFs}
+              tz={tz}
+              onTzChange={setTz}
+              detectedTz={detectedTz}
+              idPrefix="wakeup"
+              testIds={{ when: "wakeup-view-when", kind: "wakeup-type", tz: "wakeup-view-tz" }}
+            />
           )}
 
           <KitField label="Instruction" htmlFor="wakeup-instruction" help="Shown to the agent, word for word, each time it fires.">

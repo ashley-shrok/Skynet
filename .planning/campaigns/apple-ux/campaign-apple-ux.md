@@ -34,7 +34,7 @@ Starting order: foundation, skills, then the remaining modals, then host targeti
 - **[declared] shape-roles-modals** — roles list, role modal, new-role dialog, runbook editor become one window; roles gain a one-line description (see shape-roles-modals.closed.md) — closed 2026-10-18
 - **[declared] shape-identity-modal** — agent window: who the agent is on top, wake-ups / new wake-up / git one level deeper in the same window (see shape-identity-modal.closed.md) — closed 2026-10-18
 - **[declared] shape-project-modals** — project window like the agent window (folder tile, lineage, count; read → Edit), new-project dialogs with Cancel (see shape-project-modals.closed.md) — closed 2026-10-18
-- **[declared] shape-scheduled-tasks-modal** — scheduled tasks list + editor — not started
+- **[declared] shape-scheduled-tasks-modal** — scheduled tasks list by machine, each task one level deeper, Run now a button (see shape-scheduled-tasks-modal.md) — in progress
 - **[declared] shape-preferences-modal** — preferences (and the feedback dialog) — not started
 - **[declared] shape-admin-modals** — admin panel + admin user modal — not started
 - **[declared] shape-creation-and-search-dialogs** — new conversation, new session, conversation search, archived apps — not started
@@ -64,10 +64,11 @@ The foundation already moved every modal onto the kit, so each remaining modal s
 - Role description field (frontmatter `description:`, replaces the `## Role`-derived text) plumbed through backend + API by anthem-box-maintainer-6 (spawned 2026-10-18 at Ashley's ask) — done, b1b842fb on origin
 - Draft a one-line description for every existing role from its role file — after the roles-modals deploy (Ashley, 2026-10-18)
 - Wake-up "Next: …" fire time — the agent window's wake-up view shows schedule + last fired only; showing the next fire needs the server to work it out the scheduler's way (Ashley, 2026-10-18) — not started
-- Schedule-kind wording and order ("Every…" last, as tasted) — the control is shared with scheduled tasks; change both in shape-scheduled-tasks-modal — not started
+- Schedule-kind wording and order (Daily / Weekly / Monthly / Yearly / Every… / Once) — the control is shared with scheduled tasks; change both in shape-scheduled-tasks-modal — done in shape-scheduled-tasks-modal (and the "When" section is now one shared piece for both)
 - The agent window's repo / commit / diff views open at the editor size (the rest stays at its old size) — settle in shape-modal-sizing — not started
 - A wake-up's schedule line says "(box-local)" even when it carries a time zone (server-side description) — not started
 - Long project lineages ("In A › B › C") cut off from the end, losing the nearest parent — consider trimming from the start (agent window, project window, new sub-project dialog) — not started
+- The app's host list dropped the "can run agents" flag, so new scheduled tasks (and anything else filtering on it) saw no machines — found and fixed during shape-scheduled-tasks-modal
 - Shared-skill hiding for non-admins goes by name and lets skills show if the sync engine is down (logged) — revisit in shape-host-targeting alongside the sync machinery
 
 ## Lingerers (explicitly approved)

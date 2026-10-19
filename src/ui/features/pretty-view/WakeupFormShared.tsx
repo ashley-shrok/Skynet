@@ -19,8 +19,10 @@
 import { Plus, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import {
+  KitBanner,
   KitButton,
   KitCheckbox,
+  KitField,
   KitIconButton,
   KitInput,
   KitOption,
@@ -507,11 +509,11 @@ export function validateForm(fs: FormSchedule): string | null {
 // ---------------------------------------------------------------------------
 
 export const SCHEDULE_KIND_OPTIONS: ReadonlyArray<KitSegmentOption<FormSchedule["type"]>> = [
-  { value: "interval", label: "Interval" },
   { value: "daily", label: "Daily" },
   { value: "weekly", label: "Weekly" },
   { value: "monthly", label: "Monthly" },
   { value: "yearly", label: "Yearly" },
+  { value: "interval", label: "Every…" },
   { value: "one_shot", label: "Once" },
 ];
 
@@ -540,13 +542,15 @@ export function ScheduleKindField({
   return (
     <div className="k-field">
       <span className="k-label" aria-hidden="true">
-        Schedule type
+        When
       </span>
       <KitSegmented
         aria-label="Schedule type"
         options={SCHEDULE_KIND_OPTIONS}
         value={value}
         onValueChange={onChange}
+        // Six kinds don't fit across a phone: two rows of three there.
+        className="max-sm:grid max-sm:grid-cols-3 max-sm:w-full max-sm:[&>button]:justify-center"
         testIdPrefix={testIdPrefix}
         data-testid={testIdPrefix}
       />
@@ -573,7 +577,7 @@ export function RestrictToDaysChips({
   return (
     <div className="k-field basis-full">
       <span id={`wakeup-days-label-${slug}`} className="k-label">
-        Restrict to days
+        Only on
       </span>
       <KitPickRow aria-label="Restrict to days of week" className="gap-1.5">
         {WEEKDAY_VALUES.map((d) => {
@@ -1209,6 +1213,122 @@ export function ScheduleRepeatFields({
         count={fs.count}
         onChange={(ends) => onChange({ ...fs, until: ends.until, count: ends.count })}
       />
+    </div>
+  );
+}
+
+/** The whole "When" section of a schedule editor: the kind, every field for
+ *  that kind, "only on" days, the repeat fields and the time zone. Shared by
+ *  the agent window's wake-up view and the scheduled-task view. */
+export function ScheduleWhenFields({
+  fs,
+  onChange,
+  tz,
+  onTzChange,
+  detectedTz,
+  idPrefix,
+  testIds,
+}: {
+  fs: FormSchedule;
+  onChange: (next: FormSchedule) => void;
+  /** The typed time zone; blank = the browser's. */
+  tz: string;
+  onTzChange: (next: string) => void;
+  detectedTz: string;
+  idPrefix: string;
+  testIds: { when: string; kind: string; tz: string };
+}): JSX.Element {
+  const oneShotPast =
+    fs.type === "one_shot" && fs.at !== "" && !Number.isNaN(new Date(fs.at).getTime()) && new Date(fs.at).getTime() < Date.now();
+  const validation = validateForm(fs);
+  return (
+    <div className="flex flex-col gap-4" data-testid={testIds.when}>
+      <ScheduleKindField value={fs.type} onChange={(kind) => onChange(switchScheduleKind(fs, kind))} testIdPrefix={testIds.kind} />
+
+      {fs.type === "interval" && (
+        <div className="flex items-end gap-3 flex-wrap">
+          <KitField label="Every" htmlFor={`${idPrefix}-every-n`} className="flex-1 min-w-[110px]">
+            <KitInput
+              type="number"
+              min={1}
+              value={fs.n}
+              onChange={(e) => {
+                const v = Number(e.target.value);
+                onChange({ ...fs, n: Number.isFinite(v) ? v : 1 });
+              }}
+            />
+          </KitField>
+          <KitField label="Unit" htmlFor={`${idPrefix}-every-u`} className="flex-1 min-w-[110px]">
+            <KitSelect value={fs.u} onChange={(e) => onChange({ ...fs, u: e.target.value as IntervalUnit })}>
+              <option value="s">seconds</option>
+              <option value="m">minutes</option>
+              <option value="h">hours</option>
+              <option value="d">days</option>
+              <option value="mo">months</option>
+            </KitSelect>
+          </KitField>
+        </div>
+      )}
+
+      {fs.type === "daily" && <TimesField at={fs.at} onChange={(at) => onChange({ ...fs, at })} label="Time" idPrefix={`${idPrefix}-daily-at`} />}
+
+      {fs.type === "weekly" && (
+        <div className="flex items-start gap-3 flex-wrap">
+          <KitField label="Day" htmlFor={`${idPrefix}-weekly-day`} className="w-[160px] max-w-full">
+            <KitSelect value={fs.day} onChange={(e) => onChange({ ...fs, day: e.target.value as Weekday })}>
+              {WEEKDAY_VALUES.map((d) => (
+                <option key={d} value={d}>
+                  {WEEKDAY_NAMES[d]}
+                </option>
+              ))}
+            </KitSelect>
+          </KitField>
+          <TimesField at={fs.at} onChange={(at) => onChange({ ...fs, at })} label="Time" idPrefix={`${idPrefix}-weekly-at`} />
+        </div>
+      )}
+
+      {fs.type === "yearly" && (
+        <div className="flex items-start gap-3 flex-wrap">
+          <YearlyDateFields date={fs.date} onChange={(date) => onChange({ ...fs, date })} idPrefix={`${idPrefix}-yearly`} />
+          <TimesField at={fs.at} onChange={(at) => onChange({ ...fs, at })} label="Time" idPrefix={`${idPrefix}-yearly-at`} />
+        </div>
+      )}
+
+      {fs.type === "monthly" && (
+        <>
+          <MonthlyDayFields value={fs} onChange={onChange} idPrefix={`${idPrefix}-monthly`} />
+          <TimesField at={fs.at} onChange={(at) => onChange({ ...fs, at })} label="Time" idPrefix={`${idPrefix}-monthly-at`} />
+        </>
+      )}
+
+      {(fs.type === "interval" || fs.type === "daily" || fs.type === "weekly") && (
+        <RestrictToDaysChips days={fs.days} onChange={(next) => onChange({ ...fs, days: next })} slug={idPrefix} />
+      )}
+
+      {fs.type !== "one_shot" && <ScheduleRepeatFields fs={fs} onChange={onChange} idPrefix={idPrefix} />}
+
+      {fs.type === "one_shot" && (
+        <>
+          <KitField label="Fires at" htmlFor={`${idPrefix}-oneshot-at`} className="w-[240px] max-w-full">
+            <KitInput type="datetime-local" value={fs.at} onChange={(e) => onChange({ ...fs, at: e.target.value })} />
+          </KitField>
+          {oneShotPast && (
+            <KitBanner tone="warn">
+              That time is in the past — the scheduler will fire this <b>immediately</b>.
+            </KitBanner>
+          )}
+        </>
+      )}
+
+      {fs.type === "one_shot" ? (
+        <span className="k-help">The time above is in your time zone ({detectedTz}).</span>
+      ) : (
+        <KitField label="Time zone" htmlFor={`${idPrefix}-tz`} help={`Times above are in this zone. Leave it blank for yours (${detectedTz}).`}>
+          <KitInput type="text" value={tz} onChange={(e) => onTzChange(e.target.value)} placeholder={detectedTz} data-testid={testIds.tz} />
+        </KitField>
+      )}
+
+      {validation && <span className="k-err">{validation}</span>}
     </div>
   );
 }
