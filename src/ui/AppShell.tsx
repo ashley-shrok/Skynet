@@ -70,6 +70,7 @@ import {
 } from "@/main-axios";
 import { dbHealthMonitor } from "@/lib/db-health-monitor";
 import type { SSHHostWithStatus } from "@/main-axios";
+import { sshHostToHost } from "@/lib/ssh-host-to-host";
 // Phase 11 Plan 03 (PURGE-03): ConnectionsPanel import RETIRED alongside AppRail.
 import { PrettyConversationsPanel } from "@/features/pretty-conversations/PrettyConversationsPanel";
 import { setTtsPlaybackRate } from "@/features/pretty-view/webAudioStreamPlayer";
@@ -246,59 +247,6 @@ function describeTreeShape(node: SplitNode | null): string {
   if (node.kind === "session") return `L(${short(node.tabId)})`;
   const marker = node.direction === "vertical" ? "S-v" : "S-h";
   return `${marker}[${describeTreeShape(node.children[0])},${describeTreeShape(node.children[1])}]`;
-}
-
-function sshHostToHost(h: SSHHostWithStatus): Host {
-  return {
-    id: String(h.id),
-    name: h.name,
-    username: h.username,
-    ip: h.ip,
-    port: h.port,
-    folder: h.folder ?? "",
-    online: h.status === "online",
-    cpu: 0,
-    ram: 0,
-    lastAccess: "",
-    tags: h.tags ?? [],
-    authType: h.authType,
-    password: h.password,
-    key: typeof h.key === "string" ? h.key : undefined,
-    keyPassword: h.keyPassword,
-    keyType: h.keyType,
-    credentialId: h.credentialId != null ? String(h.credentialId) : undefined,
-    notes: h.notes,
-    pin: h.pin ?? false,
-    macAddress: h.macAddress,
-    enableSsh: h.enableSsh ?? (h.connectionType === "ssh" || !h.connectionType),
-    enableTerminal: h.enableTerminal ?? true,
-    enableTunnel: h.enableTunnel ?? false,
-    enableFileManager: h.enableFileManager ?? false,
-    enableDocker: h.enableDocker ?? false,
-    enableRdp: h.enableRdp ?? h.connectionType === "rdp",
-    enableVnc: h.enableVnc ?? h.connectionType === "vnc",
-    enableTelnet: h.enableTelnet ?? h.connectionType === "telnet",
-    sshPort: h.port,
-    rdpPort: 3389,
-    vncPort: 5900,
-    telnetPort: 23,
-    quickActions: (h.quickActions ?? []).map((a) => ({
-      name: a.name,
-      snippetId: String(a.snippetId),
-    })),
-    jumpHosts: (h.jumpHosts ?? []).map((j) => ({
-      hostId: String(j.hostId),
-    })),
-    serverTunnels: [],
-    defaultPath: h.defaultPath,
-    terminalConfig: h.terminalConfig as Host["terminalConfig"],
-    useSocks5: h.useSocks5,
-    socks5Host: h.socks5Host,
-    socks5Port: h.socks5Port,
-    socks5Username: h.socks5Username,
-    socks5Password: h.socks5Password,
-    socks5ProxyChain: h.socks5ProxyChain ?? [],
-  };
 }
 
 function buildHostTree(hosts: SSHHostWithStatus[]): HostFolder {

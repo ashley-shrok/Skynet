@@ -94,6 +94,7 @@ export interface Host {
   enableRdp?: boolean;
   enableVnc?: boolean;
   enableTelnet?: boolean;
+  runsFleetSubstrate?: boolean;
   sshPort?: number;
   rdpPort?: number;
   vncPort?: number;
