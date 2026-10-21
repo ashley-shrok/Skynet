@@ -10,6 +10,8 @@ import { DatabaseMigration } from "../../utils/database-migration.js";
 import { DatabaseSaveTrigger } from "../../utils/database-save-trigger.js";
 import { applyMachineIdSchema } from "./machine-id-migration.js";
 import { ATTENTION_TABLES_SQL } from "../../attention/attention-schema.js";
+import { countUncountedAccounts } from "../../whats-new/count-existing-accounts.js";
+import { WHATS_NEW_NOTES } from "../../whats-new/notes.js";
 
 const dataDir = process.env.DATA_DIR || "./db/data";
 const dbDir = path.resolve(dataDir);
@@ -1132,6 +1134,21 @@ const migrateSchema = async () => {
   addColumnIfNotExists("user_preferences", "voice_mode_end_of_turn", "TEXT");
   addColumnIfNotExists("user_preferences", "voice_mode_send_phrase", "TEXT");
   addColumnIfNotExists("user_preferences", "whats_new_seen", "TEXT");
+  try {
+    const counted = countUncountedAccounts(sqlite, WHATS_NEW_NOTES);
+    if (counted > 0) {
+      databaseLogger.info("What's new: counted accounts with no seen record", {
+        operation: "whats_new_count_accounts",
+        counted,
+        noteCount: WHATS_NEW_NOTES.length,
+      });
+    }
+  } catch (countErr) {
+    databaseLogger.warn("What's new: counting accounts at boot failed (non-fatal; load-time counting still applies)", {
+      operation: "whats_new_count_accounts_failed",
+      error: countErr instanceof Error ? countErr.message : String(countErr),
+    });
+  }
 
   // Phase 137 D-31/D-14 — persist the batch of schema mutations from this
   // block to the encrypted SQLite file in one atomic write: (a) the Phase 92

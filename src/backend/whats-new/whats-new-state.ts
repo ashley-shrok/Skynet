@@ -4,7 +4,9 @@
 // A person's record is the list of note ids they have seen, stored as JSON.
 // No record yet (null) means they have never been counted: they are quietly
 // marked as having seen every note that exists right now and shown nothing.
-// That covers the feature's first rollout and every account created later.
+// Existing accounts are counted at server start (count-existing-accounts.ts)
+// so a note shipped before their next visit isn't swallowed; counting on
+// first load covers accounts created since the last boot.
 // An empty list is a real record ("seen nothing") — distinct from null, so a
 // person counted while there were zero notes still sees the first note.
 //
