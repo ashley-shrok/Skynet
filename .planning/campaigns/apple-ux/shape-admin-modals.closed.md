@@ -97,3 +97,45 @@ The Admin window (crown icon in the sidebar footer, admins only) becomes a sibli
 - Tests: the admin window, users, user view, hosts, instance file and sign-in suites need rewriting for the new flows (one level deeper, no Close, save on leave, read → Edit with the leave guard).
 - Admin-only: no id-skill edit, no what's-new note.
 - Local only — campaign shipping rule: committed, not pushed, not deployed.
+
+---
+
+## Close-Out
+
+**Closed:** 2026-10-21
+**Overall verdict:** closed-hit (three small additions endorsed by Ashley as a change of mind)
+
+### Shape features (conformance)
+
+- **What this is** — present · Admin in the Preferences family; users and hosts one level deeper; the separate user window gone; the instance file read first, edited on purpose.
+- **Shape: Window** — present · "Admin" over Users, Hosts, Sign-in, Instance file, System pinned last; opens on Users; section headers (none on deeper views); no Close button; picking the open section again returns to its top level; phone grouped list with "‹ Admin" and the deeper "‹ Users" / "‹ Hosts".
+- **Shape: Users** — present · Admins · N / Members · N, alphabetical; picture, name, Matrix ID, You, OIDC only where used; search past eight users with "No matches"; opens in the same window.
+- **Shape: A user** — present · top, Access, Phone (Save only once changed), service keys, Signed in · N with Log out each and the red everywhere / other-devices row, Hosts · N, Details, Delete user… with its guards; "‹ Users" and Esc go back.
+- **Shape: Hosts** — present · summary line; Needs attention rows say why in the agreed words; Running fine rows' quiet line; refresh every 15 seconds only while the tab is visible.
+- **Shape: A host** — present · tile, name, status, Runs agents / Remote host; amber reasons; Resources with readings and bars; Agents; About; "‹ Hosts" and Esc go back.
+- **Shape: Sign-in** — present · Accounts switches (OIDC ones only where used); "Sign-ins last [N] hours" saves on leaving the box or Enter, no Save button; range note, saved note, out-of-range message.
+- **Shape: Instance file** — present · read view with Edit; Cancel / Save (greyed until changed) with the explanatory line; Nothing written yet → Write it; saved note; window grows only while editing; Discard prompt on every route out.
+- **Shape: System** — present · as today under the section header.
+- **Philosophy** — present · same family as Preferences, one window with deeper levels, problems in words, "Hosts", kit parts only, backend guards mirrored.
+- **Prior context** — present · old Close button, second window, session-length Save, always-open editor all gone; section is Hosts; admin-only, no id-skill or what's-new edits.
+- **What would make it wrong: a second window over Admin** — present (not violated).
+- **What would make it wrong: "Machines" anywhere in Admin** — present (not violated).
+- **What would make it wrong: a Close button, or a Save anywhere but the instance file** — present (not violated; phone Save and service-key saves are agreed).
+- **What would make it wrong: a host needing attention without saying why** — present (not violated).
+- **What would make it wrong: instance file straight into the editor, or edits lost** — present (not violated).
+- **What would make it wrong: anything an admin can do today missing** — present (not violated; side-by-side read against the old user window found nothing dropped).
+- **Scope edges** — present · confined to the Admin window; no new readings or actions.
+
+### Additions (in the result, not in the shape)
+
+- When every host is healthy, the list has no "Running fine" heading — endorsed-as-drift
+- A host's substrate row carries a line explaining what substrate is — endorsed-as-drift
+- The red log-out-everywhere / other-devices row only shows when there's something for it to log out — endorsed-as-drift
+
+### Follow-ups
+
+None.
+
+### Notes
+
+Settled by reading only. The phone number can't be cleared from the admin side (as before); the shape's "they can remove it themselves" agrees. Tasting screenshots predate the Hosts rename.

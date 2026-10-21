@@ -36,7 +36,7 @@ Starting order: foundation, skills, then the remaining modals, then host targeti
 - **[declared] shape-project-modals** — project window like the agent window (folder tile, lineage, count; read → Edit), new-project dialogs with Cancel (see shape-project-modals.closed.md) — closed 2026-10-18
 - **[declared] shape-scheduled-tasks-modal** — scheduled tasks list by machine, each task one level deeper, Run now a button; shared "When" section (see shape-scheduled-tasks-modal.closed.md) — closed 2026-10-21
 - **[declared] shape-preferences-modal** — account-first Preferences (account card, section headers, save-as-you-go, About you read → Edit, branded About), self-confirming feedback dialogs (see shape-preferences-modal.closed.md) — closed 2026-10-21
-- **[declared] shape-admin-modals** — admin panel + admin user modal — not started
+- **[declared] shape-admin-modals** — Admin in the Preferences family; users and hosts one level deeper in the same window; hosts grouped by attention with reasons; instance file read → Edit (see shape-admin-modals.closed.md) — closed 2026-10-21
 - **[declared] shape-creation-and-search-dialogs** — new conversation, new session, conversation search, archived apps — not started
 - **[declared] shape-file-modal** — the editable file modal — not started
 - **[discovered] shape-modal-sizing** — once every modal is redesigned, Ashley walks through them all and says where each should size or expand (per tab where it helps, on screens with room), instead of tracking sizes shape by shape (Ashley, 2026-10-18) — not started
