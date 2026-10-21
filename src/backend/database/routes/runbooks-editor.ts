@@ -77,6 +77,12 @@ import { execCommand } from "../../ssh/tmux-helper.js";
 import { writeMarkdownFileAtomic } from "../../claude-session/identity-artifact-reader.js";
 import { sshLogger } from "../../utils/logger.js";
 import { sendRemoteFileUnderRoot, writeRemoteFileUnderRoot } from "../../utils/sftp-root-files.js";
+import {
+  frontmatterName,
+  nameMismatchBody,
+  nameMismatchesFolder,
+  withFrontmatterName,
+} from "../../utils/folder-item-name.js";
 
 const router = express.Router();
 const authManager = AuthManager.getInstance();
@@ -197,6 +203,14 @@ function isValidRunbookName(v: unknown): v is string {
  * assertion unreachable in normal flow — but the assertion runs anyway.
  * Duplicated from skills-editor.ts L170-179 (fifth instance in the chain).
  */
+/**
+ * True for a runbook's main markdown: `runbook.md` (the id skill's
+ * convention) or `<runbook>.md` (older runbooks named after their folder).
+ */
+function isMainRunbookFile(relPath: string, runbook: string): boolean {
+  return relPath === "runbook.md" || relPath === `${runbook}.md`;
+}
+
 function isSafeRelativePath(p: unknown): p is string {
   if (typeof p !== "string") return false;
   if (p.length === 0 || p.length > MAX_PATH_LENGTH) return false;
@@ -799,6 +813,13 @@ router.put(
       });
       return;
     }
+    // A runbook's main file (`runbook.md`, or `<runbook>.md` on older ones)
+    // can't name a different runbook in its frontmatter — renaming goes
+    // through POST /rename.
+    if (isMainRunbookFile(rawPath, rawRunbook) && nameMismatchesFolder(rawContent, rawRunbook)) {
+      res.status(400).json(nameMismatchBody("runbook", rawRunbook, frontmatterName(rawContent)));
+      return;
+    }
     if (rawExpectedMtime !== undefined) {
       if (
         typeof rawExpectedMtime !== "number" ||
@@ -1161,6 +1182,220 @@ router.post(
         hostId,
         role,
         runbook,
+        error: err instanceof Error ? err.message : "Unknown",
+      });
+      if (!res.headersSent) {
+        res.status(500).json({ error: "internal" });
+      }
+    } finally {
+      if (conn) {
+        try {
+          conn.end();
+        } catch {
+          /* best-effort cleanup */
+        }
+      }
+    }
+  },
+);
+
+// ---------------------------------------------------------------------------
+// POST /runbooks-editor/rename
+// ---------------------------------------------------------------------------
+
+/**
+ * Rename a runbook: `{ hostId, role, runbook, newName }` → 200 `{ name }`.
+ * Moves the runbook folder; an older runbook whose main file is named after
+ * its folder (`<runbook>.md`) gets that file renamed too; a `name:` in the
+ * main file's frontmatter is rewritten to match.
+ *
+ * 404 when the role or runbook is missing, 409 `{error:"runbook exists"}`
+ * when the new name is taken.
+ */
+router.post(
+  "/rename",
+  authenticateJWT, // BEFORE body parser
+  express.json({ limit: "32kb" }),
+  async (req: Request, res: Response): Promise<void> => {
+    const userId = (req as AuthenticatedRequest).userId;
+
+    const body = (req.body ?? {}) as Record<string, unknown>;
+    const rawHostId = body.hostId;
+    const rawRole = body.role;
+    const rawRunbook = body.runbook;
+    const rawNewName = body.newName;
+
+    if (
+      typeof rawHostId !== "number" ||
+      !Number.isInteger(rawHostId) ||
+      rawHostId <= 0
+    ) {
+      res.status(400).json({ error: "hostId must be a positive integer" });
+      return;
+    }
+    if (!isValidRoleName(rawRole)) {
+      res.status(400).json({ error: "invalid role name" });
+      return;
+    }
+    if (!isValidRunbookName(rawRunbook)) {
+      res.status(400).json({ error: "invalid runbook name" });
+      return;
+    }
+    if (!isValidRunbookName(rawNewName)) {
+      res.status(400).json({ error: "invalid new runbook name" });
+      return;
+    }
+    const hostId = rawHostId;
+    const role = rawRole;
+    const runbook = rawRunbook;
+    const newName = rawNewName;
+    if (newName === runbook) {
+      res.status(400).json({ error: "new name is the same as the current name" });
+      return;
+    }
+    if (!(await guardInstanceWideRoleWrite(res, userId, hostId, role))) return;
+
+    const host = await resolveHostById(hostId, userId);
+    if (!host) {
+      res.status(404).json({ error: "Host not found" });
+      return;
+    }
+
+    let conn: Awaited<ReturnType<typeof connectOneShot>> | null = null;
+    try {
+      try {
+        conn = await connectOneShot(
+          host as unknown as Parameters<typeof connectOneShot>[0],
+          SSH_CONNECT_TIMEOUT_MS,
+        );
+      } catch (err) {
+        sshLogger.warn("runbooks-editor rename: SSH connect failed", {
+          operation: "runbooks_editor_rename_connect",
+          hostId,
+          role,
+          runbook,
+          error: err instanceof Error ? err.message : "Unknown",
+        });
+        res.status(502).json({ error: "SSH connect failed" });
+        return;
+      }
+
+      const remoteHome = (await execWithTimeout(conn, "echo $HOME")).trim();
+      if (!remoteHome || remoteHome.startsWith("~")) {
+        sshLogger.warn("runbooks-editor rename: could not resolve remote HOME", {
+          operation: "runbooks_editor_rename_home",
+          hostId,
+          role,
+          runbook,
+          remoteHome,
+        });
+        res.status(502).json({ error: "could not resolve remote HOME" });
+        return;
+      }
+
+      const roleRoot = `${remoteHome}/${ROLE_ROOT_REL}/${role}`;
+      const roleCheck = (
+        await execWithTimeout(conn, `test -d ${shellEscape(roleRoot)} && echo ok || echo missing`)
+      ).trim();
+      if (roleCheck !== "ok") {
+        res.status(404).json({ error: "role not found" });
+        return;
+      }
+
+      const runbooksPrefix = `${roleRoot}/runbooks/`;
+      const fromRoot = `${runbooksPrefix}${runbook}`;
+      const toRoot = `${runbooksPrefix}${newName}`;
+      if (fromRoot.includes("..") || toRoot.includes("..")) {
+        res.status(400).json({ error: "path escape detected" });
+        return;
+      }
+
+      // One remote step: refuse a missing source or a taken target, else move.
+      // `mv -T` keeps a same-named target directory from swallowing the source.
+      const moved = (
+        await execWithTimeout(
+          conn,
+          `if [ ! -d ${shellEscape(fromRoot)} ]; then echo missing; ` +
+            `elif [ -e ${shellEscape(toRoot)} ]; then echo exists; ` +
+            `else mv -T ${shellEscape(fromRoot)} ${shellEscape(toRoot)} && echo ok; fi`,
+        )
+      ).trim();
+      if (moved === "missing") {
+        res.status(404).json({ error: "runbook not found" });
+        return;
+      }
+      if (moved === "exists") {
+        res.status(409).json({ error: "runbook exists" });
+        return;
+      }
+      if (moved !== "ok") {
+        sshLogger.error("runbooks-editor rename: mv failed", {
+          operation: "runbooks_editor_rename_mv",
+          hostId,
+          role,
+          runbook,
+          newName,
+          output: moved.slice(0, 200),
+        });
+        res.status(502).json({ error: "SSH exec failed" });
+        return;
+      }
+
+      // Older runbooks name their main file after the folder — carry it along.
+      const oldMain = `${toRoot}/${runbook}.md`;
+      const newMain = `${toRoot}/${newName}.md`;
+      const mainMoved = (
+        await execWithTimeout(
+          conn,
+          `if [ -f ${shellEscape(oldMain)} ] && [ ! -e ${shellEscape(newMain)} ]; then ` +
+            `mv -T ${shellEscape(oldMain)} ${shellEscape(newMain)} && echo moved; else echo kept; fi`,
+        )
+      ).trim();
+
+      // Keep a `name:` in the main file's frontmatter in step with the folder.
+      const mainFile = mainMoved === "moved" ? newMain : `${toRoot}/runbook.md`;
+      let nameRewritten = false;
+      try {
+        // base64 round-trip: execCommand trims stdout, which would eat the
+        // file's trailing newline on the rewrite.
+        const current = Buffer.from(
+          await execWithTimeout(conn, `base64 -w0 ${shellEscape(mainFile)} 2>/dev/null || true`),
+          "base64",
+        ).toString("utf-8");
+        const rewritten = withFrontmatterName(current, newName);
+        if (rewritten !== current) {
+          await writeMarkdownFileAtomic(conn, mainFile, rewritten);
+          nameRewritten = true;
+        }
+      } catch (err) {
+        // The folder already moved; a stale `name:` is recoverable by hand.
+        sshLogger.error("runbooks-editor rename: main-file name rewrite failed", {
+          operation: "runbooks_editor_rename_name_write",
+          hostId,
+          role,
+          runbook,
+          newName,
+          error: err instanceof Error ? err.message : "Unknown",
+        });
+      }
+
+      sshLogger.info("runbooks-editor rename: renamed", {
+        operation: "runbooks_editor_renamed",
+        hostId,
+        role,
+        runbook,
+        newName,
+        mainFileRenamed: mainMoved === "moved",
+        nameRewritten,
+      });
+      res.json({ name: newName });
+    } catch (err) {
+      sshLogger.error("runbooks-editor rename: unexpected error", {
+        operation: "runbooks_editor_rename_error",
+        hostId,
+        role,
+        runbook,
+        newName,
         error: err instanceof Error ? err.message : "Unknown",
       });
       if (!res.headersSent) {

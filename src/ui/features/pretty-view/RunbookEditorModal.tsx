@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { FileText, Plus, Trash2 } from "lucide-react";
+import { FileText, Pencil, Plus, Trash2 } from "lucide-react";
 import { Modal, ModalHead, ModalBody, ModalFoot, ModalSidebar } from "@/components/modal";
 import { cn } from "@/lib/utils";
 import {
@@ -10,6 +10,8 @@ import {
   createRunbookFile,
   deleteRunbookFile,
   deleteRunbook,
+  renameRunbook,
+  RunbookAlreadyExistsError,
   RunbookFileMtimeConflictError,
   RunbookFileAlreadyExistsError,
   type RunbookFileEntry,
@@ -18,6 +20,8 @@ import {
 import SkillFileTab, { type SkillFileTabData } from "./SkillFileTab";
 import { fileViewNeverNeedsContent, type BinaryDraft } from "./file-viewers/registry";
 import type { TabState } from "./IdentityFileTab";
+import { frontmatterName } from "./skill-frontmatter";
+import { slugifyRoleName } from "@/sidebar/CreateRoleDialog";
 
 // RunbookEditorModal — role-scoped multi-file editor for a single runbook.
 //
@@ -48,8 +52,11 @@ import type { TabState } from "./IdentityFileTab";
 // (same pattern as EditableFileModal / ProjectModal).
 //
 // Delete-file affordance stays inside SkillFileTab (Trash2 next to Save
-// slot). Delete-runbook lives in the head actions slot (Trash2 next to
-// close X). Both use native window.confirm — no in-app confirm dialogs
+// slot). Rename-runbook (Pencil) and delete-runbook (Trash2) live in the
+// head actions slot, next to close X. Rename moves the folder on disk; the
+// parent owns `runbookName`, so it learns the new name via onRenamed. A
+// main-file save whose frontmatter `name:` no longer matches the folder
+// offers the rename instead (the backend refuses the mismatch). Both use native window.confirm — no in-app confirm dialogs
 // (fleet convention: natives for nested destructive confirms).
 //
 // Structured console.debug logging retained with [RunbookEditorModal]
@@ -64,6 +71,9 @@ export interface RunbookEditorModalProps {
   roleName: string;
   /** Runbook slug — the single runbook this modal edits. */
   runbookName: string;
+  /** Called with the new slug after a rename lands — the parent swaps its
+   *  `runbookName` so the modal keeps editing the renamed runbook. */
+  onRenamed: (newName: string) => void;
   /** Optional portal container — parent controls portal target. */
   container?: HTMLElement | null;
 }
@@ -74,6 +84,7 @@ export default function RunbookEditorModal({
   hostId,
   roleName,
   runbookName,
+  onRenamed,
   container,
 }: RunbookEditorModalProps): JSX.Element {
   const [files, setFiles] = useState<TabState<RunbookFileEntry[]>>({ status: "loading" });
@@ -278,43 +289,6 @@ export default function RunbookEditorModal({
     [hostId, roleName, runbookName],
   );
 
-  // Foot Save — dispatches to active tab's save with the tracked draft.
-  const handleFootSave = useCallback(async () => {
-    if (saving) return;
-    if (!activeTab) return;
-    const tab = tabData.get(activeTab);
-    if (tab?.status !== "ready") return;
-    const binary = binaryDrafts.get(activeTab);
-    if (binary) {
-      setSaving(true);
-      savingRef.current = true;
-      try {
-        const bytes = await binary.getBytes();
-        await writeRunbookFileBinary(hostId, roleName, runbookName, activeTab, bytes);
-        binary.markSaved(bytes);
-      } catch (err) {
-        window.alert(err instanceof Error ? `Save failed: ${err.message}` : "Save failed");
-        savingRef.current = false;
-      } finally {
-        setSaving(false);
-      }
-      return;
-    }
-    const draft = drafts.get(activeTab) ?? tab.data.content;
-    if (draft === tab.data.content) return;
-    setSaving(true);
-    savingRef.current = true;
-    try {
-      await handleSave(activeTab, draft, tab.data.mtime);
-    } catch (err) {
-      window.alert(err instanceof Error ? `Save failed: ${err.message}` : "Save failed");
-      savingRef.current = false;
-    } finally {
-      setSaving(false);
-      // Leave savingRef true briefly so a subsequent close-on-save doesn't
-      // re-prompt. It resets naturally on close via the reset-on-close effect.
-    }
-  }, [saving, activeTab, tabData, drafts, handleSave, binaryDrafts]);
 
   // Add-file handler — window.prompt per D-04.
   const handleAddFile = useCallback(async (): Promise<void> => {
@@ -376,6 +350,124 @@ export default function RunbookEditorModal({
     [hostId, roleName, runbookName, activeTab],
   );
 
+  // Rename = move the runbook folder (backend also renames a `<runbook>.md`
+  // main file and rewrites a frontmatter `name:`). With `draft`, that draft
+  // is then saved into the renamed runbook at `draftPath`.
+  const performRename = useCallback(
+    async (newName: string, draft: { path: string; content: string } | null): Promise<void> => {
+      console.debug("[RunbookEditorModal] rename", { from: runbookName, to: newName, withDraft: draft != null });
+      savingRef.current = true;
+      let renamed = false;
+      try {
+        await renameRunbook(hostId, roleName, runbookName, newName);
+        renamed = true;
+        if (draft) {
+          // An old-style main file moved with the folder: `<old>.md` → `<new>.md`.
+          const path = draft.path === `${runbookName}.md` ? `${newName}.md` : draft.path;
+          await writeRunbookFile({ hostId, role: roleName, runbook: newName, path, content: draft.content });
+        }
+      } catch (err) {
+        console.debug("[RunbookEditorModal] rename-error", { from: runbookName, to: newName, renamed });
+        window.alert(
+          err instanceof RunbookAlreadyExistsError
+            ? `A runbook named "${newName}" already exists in this role.`
+            : renamed
+            ? `Renamed to "${newName}", but your edits couldn't be saved: ${err instanceof Error ? err.message : "unknown error"}`
+            : `Couldn't rename "${runbookName}": ${err instanceof Error ? err.message : "unknown error"}`,
+        );
+      } finally {
+        savingRef.current = false;
+      }
+      if (renamed) onRenamed(newName);
+    },
+    [hostId, roleName, runbookName, onRenamed],
+  );
+
+  const handleRenameRunbook = useCallback(async (): Promise<void> => {
+    if (dirtySet.size > 0 || binaryDrafts.size > 0) {
+      window.alert("Save or discard your edits before renaming the runbook.");
+      return;
+    }
+    const raw = window.prompt(`Rename "${runbookName}" to:`, runbookName);
+    if (raw == null) return;
+    const slug = slugifyRoleName(raw.trim());
+    if (slug.length === 0) {
+      window.alert("Please pick a name with at least one letter or number.");
+      return;
+    }
+    if (slug === runbookName) return;
+    await performRename(slug, null);
+  }, [runbookName, dirtySet, binaryDrafts, performRename]);
+
+  // Main-file save whose `name:` no longer matches the folder. Returns true
+  // when it handled the save (renamed, or refused with an explanation).
+  const handleMainFileNameChange = useCallback(
+    async (path: string, content: string): Promise<boolean> => {
+      if (path !== "runbook.md" && path !== `${runbookName}.md`) return false;
+      const name = frontmatterName(content);
+      if (name === null || name === runbookName) return false;
+      const slug = slugifyRoleName(name);
+      if (slug !== name) {
+        window.alert(
+          `"${name}" can't be a runbook name — use lowercase letters, numbers and hyphens${slug ? ` (e.g. "${slug}")` : ""}.`,
+        );
+        return true;
+      }
+      if ([...dirtySet].some((p) => p !== path) || binaryDrafts.size > 0) {
+        window.alert("Save or discard your other files' edits first — renaming the runbook reloads them.");
+        return true;
+      }
+      if (
+        !window.confirm(
+          `${path} now names this runbook "${name}", but its folder is "${runbookName}". Rename the runbook to "${name}"?\n\nCancel keeps your edits unsaved.`,
+        )
+      )
+        return true;
+      await performRename(name, { path, content });
+      return true;
+    },
+    [runbookName, dirtySet, binaryDrafts, performRename],
+  );
+
+  // Foot Save — dispatches to active tab's save with the tracked draft.
+  const handleFootSave = useCallback(async () => {
+    if (saving) return;
+    if (!activeTab) return;
+    const tab = tabData.get(activeTab);
+    if (tab?.status !== "ready") return;
+    const binary = binaryDrafts.get(activeTab);
+    if (binary) {
+      setSaving(true);
+      savingRef.current = true;
+      try {
+        const bytes = await binary.getBytes();
+        await writeRunbookFileBinary(hostId, roleName, runbookName, activeTab, bytes);
+        binary.markSaved(bytes);
+      } catch (err) {
+        window.alert(err instanceof Error ? `Save failed: ${err.message}` : "Save failed");
+        savingRef.current = false;
+      } finally {
+        setSaving(false);
+      }
+      return;
+    }
+    const draft = drafts.get(activeTab) ?? tab.data.content;
+    if (draft === tab.data.content) return;
+    setSaving(true);
+    savingRef.current = true;
+    try {
+      if (await handleMainFileNameChange(activeTab, draft)) return;
+      await handleSave(activeTab, draft, tab.data.mtime);
+    } catch (err) {
+      window.alert(err instanceof Error ? `Save failed: ${err.message}` : "Save failed");
+      savingRef.current = false;
+    } finally {
+      setSaving(false);
+      // Leave savingRef true briefly so a subsequent close-on-save doesn't
+      // re-prompt. It resets naturally on close via the reset-on-close effect.
+    }
+  }, [saving, activeTab, tabData, drafts, handleSave, binaryDrafts, handleMainFileNameChange]);
+
   // Delete-runbook handler — window.confirm + delete + close.
   const handleDeleteRunbook = useCallback(async (): Promise<void> => {
     if (
@@ -431,18 +523,32 @@ export default function RunbookEditorModal({
         title={runbookName}
         closeTestId="runbook-editor-modal-close"
         actions={
-          <button
-            type="button"
-            title="Delete this runbook"
-            aria-label="Delete this runbook"
-            onClick={() => {
-              void handleDeleteRunbook();
-            }}
-            data-testid="runbook-editor-modal-delete-runbook"
-            className="size-8 rounded-md hover:bg-white/[0.06] flex items-center justify-center text-[#a89a80] hover:text-[#f87171] cursor-pointer"
-          >
-            <Trash2 size={16} />
-          </button>
+          <>
+            <button
+              type="button"
+              title="Rename this runbook"
+              aria-label="Rename this runbook"
+              onClick={() => {
+                void handleRenameRunbook();
+              }}
+              data-testid="runbook-editor-modal-rename-runbook"
+              className="size-8 rounded-md hover:bg-white/[0.06] flex items-center justify-center text-[#a89a80] hover:text-[#fbf5e8] cursor-pointer"
+            >
+              <Pencil size={15} />
+            </button>
+            <button
+              type="button"
+              title="Delete this runbook"
+              aria-label="Delete this runbook"
+              onClick={() => {
+                void handleDeleteRunbook();
+              }}
+              data-testid="runbook-editor-modal-delete-runbook"
+              className="size-8 rounded-md hover:bg-white/[0.06] flex items-center justify-center text-[#a89a80] hover:text-[#f87171] cursor-pointer"
+            >
+              <Trash2 size={16} />
+            </button>
+          </>
         }
       />
 
@@ -507,9 +613,10 @@ export default function RunbookEditorModal({
             {activeTab != null && (
               <SkillFileTab
                 state={tabData.get(activeTab) ?? { status: "loading" }}
-                onSave={(content, expectedMtime) =>
-                  handleSave(activeTab, content, expectedMtime)
-                }
+                onSave={async (content, expectedMtime) => {
+                  if (await handleMainFileNameChange(activeTab, content)) return;
+                  await handleSave(activeTab, content, expectedMtime);
+                }}
                 onRequestDelete={() => {
                   void handleDeleteFile(activeTab);
                 }}

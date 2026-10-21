@@ -1556,3 +1556,107 @@ describe("PUT /skills-editor/write-binary", () => {
     }
   });
 });
+
+// ===========================================================================
+// Folder ↔ name: POST /skills-editor/rename + PUT /write name gate
+// ===========================================================================
+
+describe("POST /skills-editor/rename", () => {
+  function rename(body: Record<string, unknown>) {
+    return httpRequest(server, {
+      method: "POST",
+      path: "/skills-editor/rename",
+      body: JSON.stringify(body),
+    });
+  }
+  const skillMd = "---\nname: build\ndescription: x\n---\n\n# Build\n";
+
+  function renameExec(moveResult: string) {
+    (execCommand as Mock).mockImplementation(async (_c: unknown, cmd: string) => {
+      if (cmd.startsWith("if [ ! -d ")) return moveResult;
+      if (cmd.startsWith("base64 -w0")) return Buffer.from(skillMd).toString("base64");
+      return defaultExecImpl(cmd);
+    });
+  }
+
+  it("moves the folder and rewrites SKILL.md's name:, keeping the trailing newline", async () => {
+    renameExec("ok");
+    const res = await rename({ hostId: 1, skill: "build", newName: "ship" });
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ name: "ship", mtime: 1700000042 });
+    const cmds = (execCommand as Mock).mock.calls.map((c) => c[1] as string);
+    const mv = cmds.find((c) => c.startsWith("if [ ! -d "))!;
+    expect(mv).toContain("mv -T '/home/testuser/.claude/skills/build' '/home/testuser/.claude/skills/ship'");
+    expect(writeMarkdownFileAtomic).toHaveBeenCalledWith(
+      stubConn,
+      "/home/testuser/.claude/skills/ship/SKILL.md",
+      "---\nname: ship\ndescription: x\n---\n\n# Build\n",
+    );
+  });
+
+  it("leaves a SKILL.md without name: untouched", async () => {
+    (execCommand as Mock).mockImplementation(async (_c: unknown, cmd: string) => {
+      if (cmd.startsWith("if [ ! -d ")) return "ok";
+      if (cmd.startsWith("base64 -w0")) return Buffer.from("# no frontmatter\n").toString("base64");
+      return defaultExecImpl(cmd);
+    });
+    const res = await rename({ hostId: 1, skill: "build", newName: "ship" });
+    expect(res.status).toBe(200);
+    expect(writeMarkdownFileAtomic).not.toHaveBeenCalled();
+  });
+
+  it("409 when the new name is taken, 404 when the skill is missing", async () => {
+    renameExec("exists");
+    expect((await rename({ hostId: 1, skill: "build", newName: "explain" })).status).toBe(409);
+    renameExec("missing");
+    expect((await rename({ hostId: 1, skill: "nope", newName: "ship" })).status).toBe(404);
+    expect(writeMarkdownFileAtomic).not.toHaveBeenCalled();
+  });
+
+  it("refuses a distributed skill", async () => {
+    (execCommand as Mock).mockImplementation(async (_c: unknown, cmd: string) => {
+      if (cmd.startsWith("awk ")) return "distributed";
+      return defaultExecImpl(cmd);
+    });
+    const res = await rename({ hostId: 1, skill: "id", newName: "ident" });
+    expect(res.status).toBe(403);
+    const cmds = (execCommand as Mock).mock.calls.map((c) => c[1] as string);
+    expect(cmds.some((c) => c.includes("mv -T"))).toBe(false);
+  });
+
+  it("400s unsafe or no-op names before any SSH connect", async () => {
+    for (const body of [
+      { hostId: 1, skill: "build", newName: "../evil" },
+      { hostId: 1, skill: "build", newName: "a/b" },
+      { hostId: 1, skill: "..", newName: "ship" },
+      { hostId: 1, skill: "build", newName: "build" },
+      { hostId: 0, skill: "build", newName: "ship" },
+    ]) {
+      expect((await rename(body)).status).toBe(400);
+    }
+    expect(connectOneShot).not.toHaveBeenCalled();
+  });
+});
+
+describe("PUT /skills-editor/write — SKILL.md name must match the folder", () => {
+  function write(path: string, content: string) {
+    return httpRequest(server, {
+      method: "PUT",
+      path: "/skills-editor/write",
+      body: JSON.stringify({ hostId: 1, skill: "build", path, content }),
+    });
+  }
+
+  it("400 name_mismatch before any SSH connect", async () => {
+    const res = await write("SKILL.md", "---\nname: other\n---\nbody\n");
+    expect(res.status).toBe(400);
+    expect((res.body as { code: string }).code).toBe("name_mismatch");
+    expect(connectOneShot).not.toHaveBeenCalled();
+  });
+
+  it("allows a matching name, a missing name, and other files", async () => {
+    expect((await write("SKILL.md", "---\nname: \"build\"\n---\n")).status).toBe(200);
+    expect((await write("SKILL.md", "---\ndescription: x\n---\n")).status).toBe(200);
+    expect((await write("notes.md", "---\nname: other\n---\n")).status).toBe(200);
+  });
+});

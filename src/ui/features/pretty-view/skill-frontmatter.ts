@@ -77,3 +77,27 @@ export function setUserInvocationDisabled(content: string, disabled: boolean): s
   const next = setKey(content, USER_KEY, disabled ? false : null);
   return disabled && isModelInvocationDisabled(next) ? setKey(next, MODEL_KEY, null) : next;
 }
+
+// `name:` — the folder name IS a skill's (or runbook's) name; a `name:` in its
+// main file must agree with it. Mirrors src/backend/utils/folder-item-name.ts.
+const NAME_LINE = /^name\s*:\s*(.*?)\s*$/;
+
+function unquote(raw: string): string {
+  const v = raw.trim();
+  if (v.length >= 2 && (v[0] === '"' || v[0] === "'") && v[v.length - 1] === v[0]) {
+    return v.slice(1, -1);
+  }
+  const hash = v.search(/\s#/);
+  return (hash === -1 ? v : v.slice(0, hash)).trim();
+}
+
+/** The frontmatter `name:` value, or null when there is none. */
+export function frontmatterName(content: string): string | null {
+  const { fm } = split(content);
+  if (!fm) return null;
+  for (const line of fm) {
+    const m = NAME_LINE.exec(line);
+    if (m) return unquote(m[1]);
+  }
+  return null;
+}

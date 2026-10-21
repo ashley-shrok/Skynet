@@ -75,6 +75,13 @@ import { writeMarkdownFileAtomic } from "../../claude-session/identity-artifact-
 import { sshLogger } from "../../utils/logger.js";
 import { sendRemoteFileUnderRoot, writeRemoteFileUnderRoot } from "../../utils/sftp-root-files.js";
 import {
+  frontmatterName,
+  nameMismatchBody,
+  nameMismatchesFolder,
+  withFrontmatterName,
+} from "../../utils/folder-item-name.js";
+import { getInstanceWide } from "../../instance-wide/production.js";
+import {
   isInstanceScope,
   listInstanceSkills,
   listInstanceSkillFiles,
@@ -883,6 +890,12 @@ router.put(
       res.status(400).json({ error: "distributed: true is reserved for the fleet distributor" });
       return;
     }
+    // The folder name IS the skill's name — a SKILL.md naming something else
+    // would leave the two out of step. Renaming goes through POST /rename.
+    if (rawPath === "SKILL.md" && nameMismatchesFolder(rawContent, rawSkill)) {
+      res.status(400).json(nameMismatchBody("skill", rawSkill, frontmatterName(rawContent)));
+      return;
+    }
 
     const hostId = rawHostId;
     const skill = rawSkill;
@@ -1365,6 +1378,210 @@ router.post(
       sshLogger.error("skills-editor create-skill: unexpected error", {
         operation: "skills_editor_create_skill_error",
         hostId,
+        error: err instanceof Error ? err.message : "Unknown",
+      });
+      if (!res.headersSent) {
+        res.status(500).json({ error: "internal" });
+      }
+    } finally {
+      if (conn) {
+        try {
+          conn.end();
+        } catch {
+          /* best-effort cleanup */
+        }
+      }
+    }
+  },
+);
+
+// ---------------------------------------------------------------------------
+// POST /skills-editor/rename
+// ---------------------------------------------------------------------------
+
+/**
+ * Rename a skill: move its folder to the new name, then rewrite SKILL.md's
+ * frontmatter `name:` (when it has one) to match. `{ hostId, skill, newName }`
+ * → 200 `{ name, mtime }` (mtime = SKILL.md's, 0 when there is none).
+ *
+ * 404 when the skill is missing, 409 `{error:"skill exists"}` when the new
+ * name is taken. Distributor-owned and instance-wide skills are refused —
+ * the distributor / sync would put the old folder straight back.
+ */
+router.post(
+  "/rename",
+  authenticateJWT, // BEFORE body parser — see /read for rationale
+  express.json({ limit: "32kb" }),
+  async (req: Request, res: Response): Promise<void> => {
+    const userId = (req as AuthenticatedRequest).userId;
+    if (isInstanceScope(req)) {
+      res.status(400).json({ error: "instance-wide skills can't be renamed" });
+      return;
+    }
+
+    const body = (req.body ?? {}) as Record<string, unknown>;
+    const rawHostId = body.hostId;
+    const rawSkill = body.skill;
+    const rawNewName = body.newName;
+
+    if (
+      typeof rawHostId !== "number" ||
+      !Number.isInteger(rawHostId) ||
+      rawHostId <= 0
+    ) {
+      res.status(400).json({ error: "hostId must be a positive integer" });
+      return;
+    }
+    if (!isValidSkillName(rawSkill)) {
+      res.status(400).json({ error: "invalid skill name" });
+      return;
+    }
+    if (!isValidSkillName(rawNewName)) {
+      res.status(400).json({ error: "invalid new skill name" });
+      return;
+    }
+    const hostId = rawHostId;
+    const skill = rawSkill;
+    const newName = rawNewName;
+    if (newName === skill) {
+      res.status(400).json({ error: "new name is the same as the current name" });
+      return;
+    }
+
+    const engine = getInstanceWide();
+    if (engine && (await engine.isInstanceWide("skill", skill))) {
+      res.status(403).json({ error: "instance-wide skills can't be renamed" });
+      return;
+    }
+    if (engine && (await engine.isInstanceWide("skill", newName))) {
+      res.status(409).json({ error: "skill exists" });
+      return;
+    }
+
+    const host = await resolveHostById(hostId, userId);
+    if (!host) {
+      res.status(404).json({ error: "Host not found" });
+      return;
+    }
+
+    let conn: Awaited<ReturnType<typeof connectOneShot>> | null = null;
+    try {
+      try {
+        conn = await connectOneShot(
+          host as unknown as Parameters<typeof connectOneShot>[0],
+          SSH_CONNECT_TIMEOUT_MS,
+        );
+      } catch (err) {
+        sshLogger.warn("skills-editor rename: SSH connect failed", {
+          operation: "skills_editor_rename_connect",
+          hostId,
+          skill,
+          error: err instanceof Error ? err.message : "Unknown",
+        });
+        res.status(502).json({ error: "SSH connect failed" });
+        return;
+      }
+
+      const remoteHome = (await execWithTimeout(conn, "echo $HOME")).trim();
+      if (!remoteHome || remoteHome.startsWith("~")) {
+        sshLogger.warn("skills-editor rename: could not resolve remote HOME", {
+          operation: "skills_editor_rename_home",
+          hostId,
+          remoteHome,
+        });
+        res.status(502).json({ error: "could not resolve remote HOME" });
+        return;
+      }
+
+      if (await refuseIfDistributed(conn, remoteHome, skill, res, "skills_editor_rename_distributed", hostId)) {
+        return;
+      }
+
+      const skillsPrefix = `${remoteHome}/${SKILL_ROOT_REL}/`;
+      const fromRoot = `${skillsPrefix}${skill}`;
+      const toRoot = `${skillsPrefix}${newName}`;
+      if (!fromRoot.startsWith(skillsPrefix) || !toRoot.startsWith(skillsPrefix)) {
+        res.status(400).json({ error: "path escape detected" });
+        return;
+      }
+
+      // One remote step: refuse a missing source or a taken target, else move.
+      // `mv -T` keeps a same-named target directory from swallowing the source.
+      const moved = (
+        await execWithTimeout(
+          conn,
+          `if [ ! -d ${shellEscape(fromRoot)} ]; then echo missing; ` +
+            `elif [ -e ${shellEscape(toRoot)} ]; then echo exists; ` +
+            `else mv -T ${shellEscape(fromRoot)} ${shellEscape(toRoot)} && echo ok; fi`,
+        )
+      ).trim();
+      if (moved === "missing") {
+        res.status(404).json({ error: "skill not found" });
+        return;
+      }
+      if (moved === "exists") {
+        res.status(409).json({ error: "skill exists" });
+        return;
+      }
+      if (moved !== "ok") {
+        sshLogger.error("skills-editor rename: mv failed", {
+          operation: "skills_editor_rename_mv",
+          hostId,
+          skill,
+          newName,
+          output: moved.slice(0, 200),
+        });
+        res.status(502).json({ error: "SSH exec failed" });
+        return;
+      }
+
+      // Keep SKILL.md's `name:` in step with the new folder.
+      const skillMdPath = `${toRoot}/SKILL.md`;
+      const escapedSkillMd = shellEscape(skillMdPath);
+      // base64 round-trip: execCommand trims stdout, which would eat the
+      // file's trailing newline on the rewrite.
+      const current = Buffer.from(
+        await execWithTimeout(conn, `base64 -w0 ${escapedSkillMd} 2>/dev/null || true`),
+        "base64",
+      ).toString("utf-8");
+      const rewritten = withFrontmatterName(current, newName);
+      let nameRewritten = false;
+      if (rewritten !== current) {
+        try {
+          await writeMarkdownFileAtomic(conn, skillMdPath, rewritten);
+          nameRewritten = true;
+        } catch (err) {
+          // The folder already moved; a stale `name:` is recoverable by hand,
+          // a rolled-back rename racing other editors is worse.
+          sshLogger.error("skills-editor rename: SKILL.md name rewrite failed", {
+            operation: "skills_editor_rename_name_write",
+            hostId,
+            skill,
+            newName,
+            error: err instanceof Error ? err.message : "Unknown",
+          });
+        }
+      }
+      const mtime =
+        parseInt(
+          (await execWithTimeout(conn, `stat -c '%Y' ${escapedSkillMd} 2>/dev/null || echo 0`)).trim(),
+          10,
+        ) || 0;
+
+      sshLogger.info("skills-editor rename: renamed", {
+        operation: "skills_editor_renamed",
+        hostId,
+        skill,
+        newName,
+        nameRewritten,
+      });
+      res.json({ name: newName, mtime });
+    } catch (err) {
+      sshLogger.error("skills-editor rename: unexpected error", {
+        operation: "skills_editor_rename_error",
+        hostId,
+        skill,
+        newName,
         error: err instanceof Error ? err.message : "Unknown",
       });
       if (!res.headersSent) {

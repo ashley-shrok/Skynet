@@ -1286,3 +1286,81 @@ describe("PUT /runbooks-editor/write-binary", () => {
     expect((connectOneShot as Mock).mock.calls).toHaveLength(0);
   });
 });
+
+// ===========================================================================
+// Folder ↔ name: POST /runbooks-editor/rename + PUT /write name gate
+// ===========================================================================
+
+describe("POST /runbooks-editor/rename", () => {
+  function rename(body: Record<string, unknown>) {
+    return httpRequest(server, {
+      method: "POST",
+      path: "/runbooks-editor/rename",
+      body: JSON.stringify(body),
+    });
+  }
+
+  it("moves the folder and an old-style <runbook>.md main file", async () => {
+    (execCommand as Mock).mockImplementation(async (_c: unknown, cmd: string) => {
+      if (cmd.startsWith("if [ ! -d ")) return "ok";
+      if (cmd.startsWith("if [ -f ")) return "moved";
+      if (cmd.startsWith("base64 -w0")) return Buffer.from("---\nname: ship\n---\n# Ship\n").toString("base64");
+      return defaultExecImpl(cmd);
+    });
+    const res = await rename({ hostId: 1, role: "box-maintainer", runbook: "ship", newName: "deploy" });
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ name: "deploy" });
+    const cmds = (execCommand as Mock).mock.calls.map((c) => c[1] as string);
+    const root = "/home/testuser/fleet/roles/box-maintainer/runbooks";
+    expect(cmds.find((c) => c.startsWith("if [ ! -d "))).toContain(`mv -T '${root}/ship' '${root}/deploy'`);
+    expect(cmds.find((c) => c.startsWith("if [ -f "))).toContain(`mv -T '${root}/deploy/ship.md' '${root}/deploy/deploy.md'`);
+    expect(writeMarkdownFileAtomic).toHaveBeenCalledWith(
+      stubConn,
+      `${root}/deploy/deploy.md`,
+      "---\nname: deploy\n---\n# Ship\n",
+    );
+  });
+
+  it("409 when the new name is taken", async () => {
+    (execCommand as Mock).mockImplementation(async (_c: unknown, cmd: string) => {
+      if (cmd.startsWith("if [ ! -d ")) return "exists";
+      return defaultExecImpl(cmd);
+    });
+    const res = await rename({ hostId: 1, role: "box-maintainer", runbook: "ship", newName: "admin" });
+    expect(res.status).toBe(409);
+    expect(res.body).toEqual({ error: "runbook exists" });
+  });
+
+  it("400s unsafe or no-op names before any SSH connect", async () => {
+    for (const body of [
+      { hostId: 1, role: "box-maintainer", runbook: "ship", newName: "../x" },
+      { hostId: 1, role: "../x", runbook: "ship", newName: "deploy" },
+      { hostId: 1, role: "box-maintainer", runbook: "ship", newName: "ship" },
+    ]) {
+      expect((await rename(body)).status).toBe(400);
+    }
+    expect(connectOneShot).not.toHaveBeenCalled();
+  });
+});
+
+describe("PUT /runbooks-editor/write — main-file name must match the folder", () => {
+  function write(path: string, content: string) {
+    return httpRequest(server, {
+      method: "PUT",
+      path: "/runbooks-editor/write",
+      body: JSON.stringify({ hostId: 1, role: "box-maintainer", runbook: "ship", path, content }),
+    });
+  }
+
+  it("400 name_mismatch on runbook.md and <runbook>.md", async () => {
+    for (const path of ["runbook.md", "ship.md"]) {
+      const res = await write(path, "---\nname: other\n---\n");
+      expect(res.status).toBe(400);
+      expect((res.body as { code: string }).code).toBe("name_mismatch");
+    }
+  });
+
+  it("ignores name: in companion files", async () => {
+    expect((await write("notes.md", "---\nname: other\n---\n")).status).toBe(200);
+  });
+});

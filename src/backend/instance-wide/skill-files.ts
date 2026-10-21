@@ -15,6 +15,7 @@ import { getInstanceWide } from "./production.js";
 import { isSafeRelPath, isValidItemName } from "./model.js";
 import { COMMON_RESPONSE_HEADERS, dispatchByExtensionOnly } from "../utils/sftp-file-response.js";
 import { callerIsAdmin } from "./admin.js";
+import { frontmatterName, nameMismatchBody, nameMismatchesFolder } from "../utils/folder-item-name.js";
 
 export const INSTANCE_HOST_ID = 0;
 
@@ -132,6 +133,10 @@ export async function writeInstanceSkillFile(req: Request, res: Response): Promi
   }
   if (typeof a.content !== "string" || Buffer.byteLength(a.content, "utf-8") > MAX_CONTENT_BYTES) {
     res.status(400).json({ error: "content must be a string ≤2MB" });
+    return;
+  }
+  if (a.path === "SKILL.md" && nameMismatchesFolder(a.content, skill)) {
+    res.status(400).json(nameMismatchBody("skill", skill, frontmatterName(a.content)));
     return;
   }
   const rel = a.path;

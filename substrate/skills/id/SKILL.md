@@ -1013,7 +1013,12 @@ crown, then gear.
   invoke the skill on their own, only `/<name>` will), **Agent-invoked
   only** (`user-invocable: false` — only agents invoke it; typing
   `/<name>` is refused and it's left out of the compose box's Skills
-  menu) — the two are mutually exclusive — and **Delete skill…**. The skill's files list down
+  menu) — the two are mutually exclusive — **Rename…** and **Delete skill…**.
+  Rename renames the skill's folder (so `/<name>` changes) and the `name:`
+  in its SKILL.md together. Editing `name:` in SKILL.md by hand doesn't
+  save as is: Save offers to rename the skill to that name, since the name
+  and the folder must always match. Instance-wide and fleet-distributed
+  skills can't be renamed. The skill's files list down
   the left; click one to edit it.
   *Agent-side:* skills live at `~/.claude/skills/<skill-name>/SKILL.md`
   (folder + sentinel file, mirroring this id skill's own layout).
@@ -1146,7 +1151,11 @@ crown, then gear.
   drama-masks icon in the footer → click a role).** Three tabs:
   - **Role file** — view and edit the role's own `<role>.md`.
   - **Runbooks** — list the role's runbooks; click one to open the
-    runbook editor.
+    runbook editor. Its header has a **pencil** (rename) and a **trash
+    can** (delete) beside the close X. Rename renames the runbook's folder,
+    plus a main file named after it (`<old>.md` → `<new>.md`) and a
+    `name:` in that file's frontmatter. A main-file save whose `name:` no
+    longer matches the folder offers the rename instead.
   - **Files** — full explorer over the role folder
     (`~/fleet/roles/<slug>/`): reference material, runbooks, per-role
     standing knowledge, whatever else lives there. Same browse /

@@ -338,3 +338,36 @@ export async function createSkill(
     throw error; // unreachable — handleApiError throws; satisfies TS return type
   }
 }
+
+/**
+ * POST /skills-editor/rename
+ * Renames a skill's folder and rewrites SKILL.md's frontmatter `name:` to
+ * match. Throws SkillAlreadyExistsError (409) when the new name is taken.
+ * Returns SKILL.md's new mtime (0 when the skill has none).
+ */
+export async function renameSkill(
+  hostId: number,
+  skill: string,
+  newName: string,
+): Promise<{ name: string; mtime: number }> {
+  try {
+    const response = await authApi.post("/skills-editor/rename", {
+      hostId,
+      skill,
+      newName,
+    });
+    return response.data as { name: string; mtime: number };
+  } catch (error) {
+    const err = error as {
+      response?: { status?: number; data?: { error?: string } };
+    };
+    if (
+      err?.response?.status === 409 &&
+      err.response.data?.error === "skill exists"
+    ) {
+      throw new SkillAlreadyExistsError();
+    }
+    handleApiError(error, "rename skill");
+    throw error; // unreachable
+  }
+}

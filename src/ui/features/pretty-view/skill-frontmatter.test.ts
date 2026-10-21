@@ -80,3 +80,14 @@ describe("skill-frontmatter", () => {
     );
   });
 });
+
+describe("frontmatterName", () => {
+  it("reads plain, quoted and commented names; null when absent", async () => {
+    const { frontmatterName } = await import("./skill-frontmatter");
+    expect(frontmatterName("---\nname: build\n---\n")).toBe("build");
+    expect(frontmatterName("---\nname: \"build\" \n---\n")).toBe("build");
+    expect(frontmatterName("---\nname: build # x\n---\n")).toBe("build");
+    expect(frontmatterName("---\ndescription: x\n---\nname: body\n")).toBeNull();
+    expect(frontmatterName("# no frontmatter\n")).toBeNull();
+  });
+});

@@ -56,6 +56,7 @@ vi.mock("@/api/skills-api", async (importOriginal) => {
     createSkill: vi.fn().mockResolvedValue({ slug: "new-skill", mtime: 1_700_000_200 }),
     deleteSkillFile: vi.fn().mockResolvedValue(undefined),
     deleteSkill: vi.fn().mockResolvedValue(undefined),
+    renameSkill: vi.fn().mockResolvedValue({ name: "ship", mtime: 1_700_000_300 }),
   };
 });
 
@@ -817,6 +818,103 @@ describe("SkillsEditorModal — Phase 44 SKILLED-05", () => {
     });
     expect(confirmSpy).toHaveBeenCalled();
     confirmSpy.mockRestore();
+  });
+
+  it("Rename… moves the skill and reselects it under the new name", async () => {
+    const promptSpy = vi.spyOn(window, "prompt").mockReturnValue("Ship It");
+    render(
+      <SkillsEditorModal
+        open={true}
+        onOpenChange={vi.fn()}
+        hostTree={HOST_TREE}
+        defaultHostId={1}
+        container={document.body}
+      />,
+    );
+    await selectSkill("build");
+    (skillsApi.listSkills as ReturnType<typeof vi.fn>).mockResolvedValueOnce([
+      { name: "ship-it" },
+      { name: "explain" },
+    ]);
+    await openSkillMenu();
+    await userEvent.setup().click(screen.getByTestId("skills-editor-modal-rename-skill"));
+
+    await waitFor(() => {
+      expect(skillsApi.renameSkill).toHaveBeenCalledWith(1, "build", "ship-it");
+    });
+    await waitFor(() => {
+      expect(
+        (screen.getByRole("combobox", { name: /skill/i }) as HTMLSelectElement).value,
+      ).toBe("ship-it");
+    });
+    expect(promptSpy).toHaveBeenCalled();
+  });
+
+  it("saving SKILL.md with a changed name: offers the rename instead of a mismatched save", async () => {
+    (skillsApi.readSkillFile as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+      content: "---\nname: build\n---\n\n# Build\n",
+      mtime: 1_700_000_042,
+      size: 30,
+      isText: true,
+    });
+    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(true);
+    render(
+      <SkillsEditorModal
+        open={true}
+        onOpenChange={vi.fn()}
+        hostTree={HOST_TREE}
+        defaultHostId={1}
+        container={document.body}
+      />,
+    );
+    await selectSkill("build");
+    const editor = (await screen.findByRole("textbox")) as HTMLTextAreaElement;
+    fireEvent.change(editor, { target: { value: editor.value.replace("name: build", "name: ship") } });
+    await waitFor(() => {
+      expect(screen.getByTestId("skills-editor-modal-save")).not.toBeDisabled();
+    });
+    fireEvent.click(screen.getByTestId("skills-editor-modal-save"));
+
+    await waitFor(() => {
+      expect(skillsApi.renameSkill).toHaveBeenCalledWith(1, "build", "ship");
+    });
+    expect(confirmSpy).toHaveBeenCalled();
+    // The draft lands in the renamed skill, not the old folder.
+    await waitFor(() => {
+      expect(skillsApi.writeSkillFile).toHaveBeenCalledWith(
+        expect.objectContaining({ hostId: 1, skill: "ship", path: "SKILL.md", expectedMtime: 1_700_000_300 }),
+      );
+    });
+    expect(skillsApi.writeSkillFile).not.toHaveBeenCalledWith(expect.objectContaining({ skill: "build" }));
+  });
+
+  it("SKILL.md name change: Cancel saves nothing", async () => {
+    (skillsApi.readSkillFile as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+      content: "---\nname: build\n---\n\n# Build\n",
+      mtime: 1_700_000_042,
+      size: 30,
+      isText: true,
+    });
+    vi.spyOn(window, "confirm").mockReturnValue(false);
+    render(
+      <SkillsEditorModal
+        open={true}
+        onOpenChange={vi.fn()}
+        hostTree={HOST_TREE}
+        defaultHostId={1}
+        container={document.body}
+      />,
+    );
+    await selectSkill("build");
+    const editor = (await screen.findByRole("textbox")) as HTMLTextAreaElement;
+    fireEvent.change(editor, { target: { value: editor.value.replace("name: build", "name: ship") } });
+    await waitFor(() => {
+      expect(screen.getByTestId("skills-editor-modal-save")).not.toBeDisabled();
+    });
+    fireEvent.click(screen.getByTestId("skills-editor-modal-save"));
+    await waitFor(() => expect(window.confirm).toHaveBeenCalled());
+    expect(skillsApi.renameSkill).not.toHaveBeenCalled();
+    expect(skillsApi.writeSkillFile).not.toHaveBeenCalled();
   });
 
   it("skill menu keeps 'Delete skill…' in place while SKILL.md is still loading", async () => {

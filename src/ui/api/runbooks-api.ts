@@ -292,3 +292,46 @@ export async function deleteRunbook(
     throw error; // unreachable
   }
 }
+
+/** Typed 409 thrown by renameRunbook when the new name is already a runbook. */
+export class RunbookAlreadyExistsError extends Error {
+  constructor() {
+    super("runbook exists");
+    this.name = "RunbookAlreadyExistsError";
+  }
+}
+
+/**
+ * POST /runbooks-editor/rename
+ * Renames a runbook's folder (and a main file named after it), keeping a
+ * frontmatter `name:` in step. Throws RunbookAlreadyExistsError (409) when
+ * the new name is taken.
+ */
+export async function renameRunbook(
+  hostId: number,
+  role: string,
+  runbook: string,
+  newName: string,
+): Promise<{ name: string }> {
+  try {
+    const response = await authApi.post("/runbooks-editor/rename", {
+      hostId,
+      role,
+      runbook,
+      newName,
+    });
+    return response.data as { name: string };
+  } catch (error) {
+    const err = error as {
+      response?: { status?: number; data?: { error?: string } };
+    };
+    if (
+      err?.response?.status === 409 &&
+      err.response.data?.error === "runbook exists"
+    ) {
+      throw new RunbookAlreadyExistsError();
+    }
+    handleApiError(error, "rename runbook");
+    throw error; // unreachable
+  }
+}

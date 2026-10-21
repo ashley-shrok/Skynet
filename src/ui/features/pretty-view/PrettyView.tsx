@@ -4682,6 +4682,9 @@ export function PrettyView({
           hostId={hostId}
           roleName={runbookEditorOpenState.roleName}
           runbookName={runbookEditorOpenState.runbookName}
+          onRenamed={(newName) =>
+            setRunbookEditorOpenState((prev) => (prev ? { ...prev, runbookName: newName } : prev))
+          }
         />
       )}
       {editorOpenState && (

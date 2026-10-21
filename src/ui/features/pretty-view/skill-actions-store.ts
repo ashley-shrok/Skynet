@@ -93,7 +93,7 @@ function getByKey(key: string): SkillActionEntry[] | null {
  */
 export function refreshSkillActions(
   hostId: number,
-  reason: "prefetch" | "menu-open" | "invocation-toggle",
+  reason: "prefetch" | "menu-open" | "invocation-toggle" | "rename",
 ): Promise<boolean> {
   const key = lsKey(hostId);
   const existing = inFlight.get(key);

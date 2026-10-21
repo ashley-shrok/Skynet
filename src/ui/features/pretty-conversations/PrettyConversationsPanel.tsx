@@ -4338,6 +4338,9 @@ export function PrettyConversationsPanel({
           hostId={panelRunbookEditorOpenState.hostId}
           roleName={panelRunbookEditorOpenState.roleName}
           runbookName={panelRunbookEditorOpenState.runbookName}
+          onRenamed={(newName) =>
+            setPanelRunbookEditorOpenState((prev) => (prev ? { ...prev, runbookName: newName } : prev))
+          }
         />
       )}
       {/* Phase 117 Plan 117-09 Task 1 — CreateProjectModal, wired to the
