@@ -81,11 +81,11 @@ export { sidebarToggleClearance } from "./PaneBar";
 // The frame's white bg (above) would show as a white flash while the app's
 // first page is still on its way — blinding against Skynet's dark chrome,
 // even for dark apps. So the frame stays transparent (opacity 0, pane's dark
-// base showing) until its first real document has parsed, then fades in.
-// "Parsed" = a non-blank document whose readyState left "loading" (polled —
-// a load event waits on every image), with the load event as backstop and a
-// hard cap so a stuck page never leaves the pane blank. Only the first page
-// is held back; later navigations keep the browser's own paint-holding.
+// base showing, clicks off) until its first document's load event, then fades
+// in. Load, not readyState: "interactive" comes before stylesheets apply and
+// before deferred/module scripts render, so revealing there still flashes.
+// A hard cap reveals anyway so a stuck page never leaves the pane blank. Only
+// the first page is held back; later navigations keep the browser's own paint-holding.
 //
 // ─── Iframe drag-passthrough (2026-09-21) ──────────────────────────────────
 // Drag events (dragover/dragenter/drop) fire in the iframe's own document,
@@ -192,20 +192,6 @@ function frameUrl(el: HTMLIFrameElement | null): string | null {
 
 // Upper bound on how long a pane stays dark waiting for the app's first page.
 export const APP_REVEAL_CAP_MS = 4000;
-
-// True once the frame holds a real (non-blank) document past "loading".
-// Exported for unit tests.
-export function isFrameDocumentParsed(el: HTMLIFrameElement | null): boolean {
-  try {
-    const doc = el?.contentDocument ?? null;
-    if (doc === null) return false;
-    if (doc.URL === "about:blank" || doc.URL === "") return false;
-    return doc.readyState !== "loading";
-  } catch {
-    // Cross-origin (off-site redirect): can't look — let load/cap reveal.
-    return false;
-  }
-}
 
 function toNavKind(t: unknown): FrameNavKind {
   return t === "push" || t === "replace" || t === "reload" || t === "traverse"
@@ -363,18 +349,12 @@ export function AppPane({
         ms: Date.now() - startedAt,
       });
     };
-    const timer = window.setInterval(() => {
-      if (Date.now() - startedAt >= APP_REVEAL_CAP_MS) {
-        reveal("cap");
-        return;
-      }
-      if (isFrameDocumentParsed(iframeRef.current)) reveal("parsed");
-    }, 50);
+    const timer = window.setTimeout(() => reveal("cap"), APP_REVEAL_CAP_MS);
     const el = iframeRef.current;
     const onLoad = () => reveal("load");
     el?.addEventListener("load", onLoad);
     return () => {
-      window.clearInterval(timer);
+      window.clearTimeout(timer);
       el?.removeEventListener("load", onLoad);
     };
   }, [revealed, tabId, hostId, slug]);
@@ -568,7 +548,7 @@ export function AppPane({
         title={`App ${slug}`}
         referrerPolicy="no-referrer"
         loading="eager"
-        className={`flex-1 min-h-0 w-full border-0 bg-white scheme-light transition-opacity duration-150 ${revealed ? "opacity-100" : "opacity-0"}`}
+        className={`flex-1 min-h-0 w-full border-0 bg-white scheme-light transition-opacity duration-150 ${revealed ? "opacity-100" : "opacity-0 pointer-events-none"}`}
         data-revealed={revealed ? "true" : "false"}
         data-app-hostid={hostId}
         data-app-slug={slug}

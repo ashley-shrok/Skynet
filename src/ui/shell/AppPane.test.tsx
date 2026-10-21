@@ -31,7 +31,6 @@ import {
   AppPane,
   APP_REVEAL_CAP_MS,
   injectDarkViewerStylesheetIfApplicable,
-  isFrameDocumentParsed,
 } from "./AppPane";
 import { DRAG_PREVIEW_WATCHDOG_MS } from "./drag-preview-session";
 
@@ -168,6 +167,7 @@ describe("AppPane first-paint reveal", () => {
     const iframe = container.querySelector("iframe")!;
     expect(iframe.dataset.revealed).toBe("false");
     expect(iframe.className).toContain("opacity-0");
+    expect(iframe.className).toContain("pointer-events-none");
     expect(getByTestId("app-pane").className).toContain("bg-[var(--color-pv-base)]");
   });
 
@@ -195,22 +195,6 @@ describe("AppPane first-paint reveal", () => {
       vi.advanceTimersByTime(200);
     });
     expect(iframe.dataset.revealed).toBe("true");
-  });
-
-  it("isFrameDocumentParsed: blank, loading and inaccessible docs are not parsed", () => {
-    const frame = (doc: unknown) =>
-      ({ get contentDocument() { return doc; } }) as unknown as HTMLIFrameElement;
-    expect(isFrameDocumentParsed(null)).toBe(false);
-    expect(isFrameDocumentParsed(frame(null))).toBe(false);
-    expect(isFrameDocumentParsed(frame({ URL: "about:blank", readyState: "complete" }))).toBe(false);
-    expect(isFrameDocumentParsed(frame({ URL: "https://x/apps/1/a/pane/", readyState: "loading" }))).toBe(false);
-    expect(isFrameDocumentParsed(frame({ URL: "https://x/apps/1/a/pane/", readyState: "interactive" }))).toBe(true);
-    const throwing = {
-      get contentDocument(): Document {
-        throw new DOMException("cross-origin", "SecurityError");
-      },
-    } as unknown as HTMLIFrameElement;
-    expect(isFrameDocumentParsed(throwing)).toBe(false);
   });
 });
 
