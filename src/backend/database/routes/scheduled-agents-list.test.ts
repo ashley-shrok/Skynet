@@ -1188,7 +1188,7 @@ describe("GET /scheduled-agents — sensor status (real bash)", () => {
 
 describe("scheduled-agents LIST: project", () => {
   const PROJECTS = [
-    { slug: "skynet", displayName: "SKYNET", users: ["ashley"], parent: null },
+    { slug: "skynet", displayName: "SKYNET", users: ["alice"], parent: null },
     { slug: "later", displayName: "later", users: null, parent: "skynet" },
   ];
   const spec = (extra: Record<string, unknown>) =>

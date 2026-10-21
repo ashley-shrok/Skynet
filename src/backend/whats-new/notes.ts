@@ -7,7 +7,7 @@
 //     agent-only or admin-only changes.
 //   - One or two short, plain sentences — just what is different. Not a
 //     commit message.
-//   - Ashley approves the exact text before it is committed.
+//   - The instance owner approves the exact text before it is committed.
 //   - Append to the END of the list (the pop-up shows newest first).
 //   - `id` is a short lowercase slug (e.g. "unread-marks"), unique and
 //     permanent: never reuse, rename or delete an id, and never rewrite a
