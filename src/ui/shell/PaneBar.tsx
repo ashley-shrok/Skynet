@@ -117,6 +117,9 @@ export function PaneBar({
     if (bar === null) return;
     const measure = () => {
       const toggle = document.querySelector<HTMLElement>("[data-sidebar-toggle]");
+      // While the sidebar peeks, the toggle rides the peek's edge over the
+      // panes; the bar keeps the clearance of the toggle's resting spot.
+      if (toggle?.dataset.peeking === "true") return;
       setClearance(
         sidebarToggleClearance(
           bar.getBoundingClientRect(),

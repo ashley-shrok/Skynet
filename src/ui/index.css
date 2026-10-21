@@ -551,6 +551,26 @@ html.fs-xl {
   animation: pv-side-button-arrive 1.2s ease-in-out 3;
 }
 
+/* Sidebar hover-peek (use-sidebar-peek.ts): the collapsed sidebar slides in
+ * over the panes from the left edge, and back out. */
+@keyframes pv-sidebar-peek-in {
+  from {
+    transform: translateX(-102%);
+  }
+  to {
+    transform: none;
+  }
+}
+
+@keyframes pv-sidebar-peek-out {
+  from {
+    transform: none;
+  }
+  to {
+    transform: translateX(-102%);
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .pv-identity-breathe::after,
   .pv-side-button {

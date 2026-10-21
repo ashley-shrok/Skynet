@@ -156,6 +156,7 @@ import type { TabSpec } from "@/lib/tab-url";
 // is scoped to the Phase 120 additions per the review's LOW-15 finding.
 import { systemLogger } from "@/lib/frontend-logger";
 import { moveNodeInto } from "@/shell/move-node";
+import { useSidebarPeek, PEEK_SLIDE_MS } from "@/shell/use-sidebar-peek";
 import { isSplittableActiveTab, resolveOuterDrop } from "@/shell/outer-drop-resolve";
 // Phase 56 Plan 02 — split-tree state (retires the prior mode-enum + slot-
 // array state and their localStorage effects). URL is the single source of
@@ -473,6 +474,28 @@ export function AppShell({
   const isMobile = useIsMobile();
   const isTouchDevice = useIsTouchDevice();
   useKeyboardViewportLock(isTouchDevice);
+  // Hover-peek: with the desktop sidebar collapsed, the left window edge
+  // slides it out over the panes (see use-sidebar-peek.ts).
+  const sidebarPanelRef = useRef<HTMLDivElement>(null);
+  const sidebarToggleRef = useRef<HTMLButtonElement>(null);
+  const sidebarPanelWidth = sidebarEditing ? 560 : sidebarWidth;
+  const sidebarPeek = useSidebarPeek({
+    enabled: !isMobile && !isTouchDevice && !sidebarOpen,
+    width: sidebarPanelWidth,
+    panelRef: sidebarPanelRef,
+    toggleRef: sidebarToggleRef,
+  });
+  const sidebarPeekOpen = sidebarPeek.state === "open";
+  // Pinning from the peek (toggle click while peeking) shows the in-flow
+  // sidebar at full width at once instead of re-growing it from 0.
+  const [sidebarPinnedFromPeek, setSidebarPinnedFromPeek] = useState(false);
+  useEffect(() => {
+    if (!sidebarPinnedFromPeek) return;
+    const id = requestAnimationFrame(() =>
+      requestAnimationFrame(() => setSidebarPinnedFromPeek(false)),
+    );
+    return () => cancelAnimationFrame(id);
+  }, [sidebarPinnedFromPeek]);
   const {
     byKey: identitiesByKey,
     byHostKey: identitiesByHostKey,
@@ -3147,8 +3170,9 @@ export function AppShell({
       });
       if (isTouchDevice) navigateToView();
       if (isMobile) setSidebarOpen(false);
+      sidebarPeek.close("app-opened");
     },
-    [openTab, splitTree, openSessionInTree, isTouchDevice, isMobile],
+    [openTab, splitTree, openSessionInTree, isTouchDevice, isMobile, sidebarPeek.close],
   );
 
   // AppShell-side archive callback threaded through PrettyConversationsPanel
@@ -3548,9 +3572,10 @@ export function AppShell({
           onOpenFeedback={() =>
             setFeedbackOpen((prev) => (prev === false ? "general" : prev))
           }
-          onConversationSelected={
-            isTouchDevice ? () => navigateToView() : undefined
-          }
+          onConversationSelected={() => {
+            if (isTouchDevice) navigateToView();
+            sidebarPeek.close("conversation-selected");
+          }}
           hostTree={realHostTree}
           // Phase 137 D-30: avatar live-sync — meAvatarPath drives the footer
           // conditional <img>; setMeAvatarPath is threaded as onAvatarChanged so
@@ -3599,6 +3624,7 @@ export function AppShell({
             }
             if (isTouchDevice) navigateToView();
             if (isMobile) setSidebarOpen(false);
+            sidebarPeek.close("item-opened");
           }}
           onDetachedRowClick={(row) => {
             const host = row.host;
@@ -3613,6 +3639,7 @@ export function AppShell({
             selectConversationDeferred(newTabId);
             if (isTouchDevice) navigateToView();
             if (isMobile) setSidebarOpen(false);
+            sidebarPeek.close("item-opened");
           }}
           onSearchResultOpenActive={(result: ConversationSearchResult) => {
             // Phase 122 Plan 03 Task 3 — verbatim mirror of the sibling
@@ -3640,6 +3667,7 @@ export function AppShell({
             selectConversationDeferred(newTabId);
             if (isTouchDevice) navigateToView();
             if (isMobile) setSidebarOpen(false);
+            sidebarPeek.close("item-opened");
           }}
           onRdpRowClick={(row) => {
             const host = row.host;
@@ -3648,6 +3676,7 @@ export function AppShell({
             selectConversationDeferred(newTabId);
             if (isTouchDevice) navigateToView();
             if (isMobile) setSidebarOpen(false);
+            sidebarPeek.close("item-opened");
           }}
           onRelayRoomRowClick={(row) => {
             // Phase 90 Plan 07 Task 3 (BLOCKER #3 fix). Mirrors the shape
@@ -3677,6 +3706,7 @@ export function AppShell({
             selectConversationDeferred(newTabId);
             if (isTouchDevice) navigateToView();
             if (isMobile) setSidebarOpen(false);
+            sidebarPeek.close("item-opened");
           }}
           onDeactivateRow={(row) => {
             // quick-260727-gm3: deactivate is a tab-close variant.
@@ -3830,9 +3860,13 @@ export function AppShell({
             // Stable hook for the app bar's clearance measurement (the
             // aria-label is translated, so it can't be the selector).
             data-sidebar-toggle=""
-            onClick={() =>
-              isTouchDevice ? navigateToList() : setSidebarOpen(!sidebarOpen)
-            }
+            data-peeking={sidebarPeekOpen ? "true" : undefined}
+            ref={sidebarToggleRef}
+            onClick={() => {
+              if (isTouchDevice) return navigateToList();
+              if (sidebarPeekOpen) setSidebarPinnedFromPeek(true);
+              setSidebarOpen(!sidebarOpen);
+            }}
             aria-label={t(
               isTouchDevice
                 ? "nav.conversations.backToList"
@@ -3857,7 +3891,7 @@ export function AppShell({
               isTouchDevice
                 ? "fixed flex items-center justify-center rounded-full text-[#f0ebe0] hover:text-white transition-transform hover:scale-[1.03] active:scale-[0.97] cursor-pointer"
                 : "fixed flex items-center justify-center w-8 h-8 text-[color:var(--color-pv-fg-muted)] hover:text-[color:var(--color-pv-fg)] transition-colors cursor-pointer " +
-                  (sidebarOpen
+                  (sidebarOpen || sidebarPeekOpen
                     ? "rounded-r-lg border-y border-r border-[color:var(--color-pv-border-quiet)] bg-[color:var(--color-pv-base)] hover:bg-[rgba(220,225,245,0.06)] hover:border-[color:var(--color-pv-border-quiet-strong)]"
                     : "rounded-lg border border-[color:var(--color-pv-border-quiet)] bg-[rgba(220,225,245,0.06)] hover:bg-[rgba(220,225,245,0.12)] hover:border-[color:var(--color-pv-border-quiet-strong)]")
             }
@@ -3872,13 +3906,13 @@ export function AppShell({
               top: isTouchDevice
                 ? "calc(max(env(safe-area-inset-top), 8px) + 12px + 1rem)"
                 : "max(env(safe-area-inset-top), 8px)",
-              left: !isTouchDevice && sidebarOpen
-                ? `${sidebarEditing ? 560 : sidebarWidth}px`
+              left: !isTouchDevice && (sidebarOpen || sidebarPeekOpen)
+                ? `${sidebarPanelWidth}px`
                 : isTouchDevice
                   ? "calc(max(env(safe-area-inset-left), 0px) + 1.25rem)"
                   : "max(env(safe-area-inset-left), 8px)",
-              zIndex: 30,
-              transition: sidebarDragging ? "none" : "left 0.2s",
+              zIndex: sidebarPeekOpen ? 46 : 30,
+              transition: sidebarDragging || sidebarPinnedFromPeek ? "none" : "left 0.2s",
               // Touch-only hue-glass treatment: identity-avatar-badge visual
               // language (round, hue-tinted gradient, inset highlight + outer
               // glow). Patch #272 (user 2026-08-02) — recoloured from the
@@ -3930,11 +3964,27 @@ export function AppShell({
             column even when the viewport is wide (an iPad in landscape). */}
         {!isMobile && !isTouchDevice && (
           <div
-            className={`relative flex flex-col bg-[color:var(--color-pv-base)] shrink-0 overflow-hidden ${sidebarOpen ? `border-r transition-colors ${sidebarDragging ? "border-[hsla(var(--pv-hue,35),55%,50%,0.6)]" : "border-[color:var(--color-pv-border-quiet)]"}` : ""}`}
-            style={{
-              width: sidebarOpen ? (sidebarEditing ? 560 : sidebarWidth) : 0,
-              transition: sidebarDragging ? "none" : "width 0.2s",
-            }}
+            ref={sidebarPanelRef}
+            data-sidebar-peek={sidebarPeek.state}
+            className={`relative flex flex-col bg-[color:var(--color-pv-base)] shrink-0 overflow-hidden ${sidebarOpen || sidebarPeek.state !== "closed" ? `border-r transition-colors ${sidebarDragging ? "border-[hsla(var(--pv-hue,35),55%,50%,0.6)]" : "border-[color:var(--color-pv-border-quiet)]"}` : ""}`}
+            style={
+              sidebarPeek.state !== "closed"
+                ? {
+                    position: "fixed",
+                    left: 0,
+                    top: 0,
+                    bottom: 0,
+                    width: sidebarPanelWidth,
+                    zIndex: 45,
+                    boxShadow: sidebarPeekOpen ? "8px 0 32px rgba(0,0,0,0.55)" : "none",
+                    pointerEvents: sidebarPeekOpen ? "auto" : "none",
+                    animation: `${sidebarPeekOpen ? "pv-sidebar-peek-in" : "pv-sidebar-peek-out"} ${PEEK_SLIDE_MS}ms cubic-bezier(0.2, 0.8, 0.2, 1) forwards`,
+                  }
+                : {
+                    width: sidebarOpen ? sidebarPanelWidth : 0,
+                    transition: sidebarDragging || sidebarPinnedFromPeek ? "none" : "width 0.2s",
+                  }
+            }
           >
             {sidebarPanelContent}
 
