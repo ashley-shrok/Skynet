@@ -1,18 +1,26 @@
 /**
- * Admin → Hosts: one card per machine Skynet knows about — reachability,
- * CPU / memory / disk, and (agent hosts) agent counts, substrate sync and
- * the agent supervisor. Machines that need attention sort to the top.
+ * Admin → Hosts: every host Skynet knows about, in two groups — the
+ * ones that need attention (each row says why) and the ones running fine.
+ * A host opens one level deeper: its CPU / memory / disk, what it is,
+ * and (agent hosts) its agents, substrate sync and agent supervisor.
  * Polls while the pane is open; the backend probes on demand.
  */
 
 import { useCallback, useEffect, useState } from "react";
+import { Server } from "lucide-react";
 import {
   getAdminHosts,
   type AdminHostOverview,
   type AdminHostsResponse,
 } from "@/api/admin-hosts-api";
-import { KitBanner, KitChip, KitEmpty, KitLoading } from "@/components/kit";
-import { adminErrorMessage } from "./admin-ui";
+import {
+  KitBanner,
+  KitEmpty,
+  KitLoading,
+  KitSettingsGroup,
+  KitSettingsRow,
+} from "@/components/kit";
+import { AdminBack, adminErrorMessage, useEscBack } from "./admin-ui";
 
 const POLL_MS = 15_000;
 const WARN = 0.75;
@@ -25,7 +33,7 @@ const CPU_CRIT = 1.5;
 // Kit tokens only. Text classes for status words, fill classes for meters.
 const TEXT = {
   text: "text-[var(--k-t1)]",
-  muted: "text-[var(--k-t3)]",
+  muted: "text-[var(--k-t2)]",
   ok: "text-[var(--k-ok)]",
   warn: "text-[var(--k-warn)]",
   bad: "text-[var(--k-danger-text)]",
@@ -100,18 +108,48 @@ export function needsAttention(h: AdminHostOverview): boolean {
   return !!h.fleet && !h.fleet.supervisorRunning;
 }
 
+/** Why a host needs attention, most serious first; [] when it's fine. */
+export function attentionReasons(h: AdminHostOverview, now: number): string[] {
+  if (!h.online) {
+    return [
+      h.lastSeenAt !== null ? `Unreachable · last seen ${ago(h.lastSeenAt, now)}` : "Unreachable · not seen since Skynet started",
+    ];
+  }
+  const out: string[] = [];
+  const f = fractions(h);
+  const r = h.resources;
+  if (h.fleet && !h.fleet.supervisorRunning) out.push("Agent supervisor down");
+  if (substrateFailing(h)) out.push(`Substrate sync failing since ${ago(h.substrate!.lastFailureAt!, now)}`);
+  if (f.disk !== null && f.disk >= WARN && r) out.push(`Disk ${Math.round(f.disk * 100)}% full`);
+  if (f.mem !== null && f.mem >= WARN) out.push(`Memory ${Math.round(f.mem * 100)}% used`);
+  if (f.cpu !== null && f.cpu >= CPU_WARN && r) out.push(`CPU busy · load ${r.load1!.toFixed(1)} on ${r.cores} cores`);
+  return out;
+}
+
+/** One line for a host that's fine. */
+function summaryLine(h: AdminHostOverview): string {
+  const r = h.resources;
+  const f = fractions(h);
+  const bits: string[] = [];
+  if (h.fleet) bits.push(`${h.fleet.running} of ${h.fleet.agents} agents running`);
+  if (f.mem !== null) bits.push(`memory ${Math.round(f.mem * 100)}%`);
+  if (r?.diskAvailKb != null) bits.push(`${size(r.diskAvailKb)} free`);
+  if (bits.length === 0) {
+    // Remote hosts: how Skynet reaches them, and how quickly.
+    const via = h.protocols.length > 0 ? h.protocols.map((p) => p.toUpperCase()).join(" · ") : "No connections";
+    return h.latencyMs !== null ? `${via} · ${h.latencyMs} ms` : via;
+  }
+  return bits.join(" · ");
+}
+
 /** A labelled usage bar. Kit candidate: KitMeter. */
 function Meter({
-  label,
   frac,
-  detail,
   testId,
   warn = WARN,
   crit = CRIT,
 }: {
-  label: string;
   frac: number;
-  detail: string;
   testId: string;
   warn?: number;
   crit?: number;
@@ -120,28 +158,22 @@ function Meter({
   // CPU can exceed 1.0; the bar fills at the critical mark.
   const fill = frac / Math.max(1, crit);
   return (
-    <div className="flex items-center gap-2.5 text-[12.5px]" data-testid={testId}>
-      <span className={`w-[52px] shrink-0 ${TEXT.muted}`}>{label}</span>
-      <div className="flex-1 h-1.5 rounded-full bg-[var(--k-s3)] overflow-hidden">
-        <div
-          className={`h-full rounded-full ${FILL[lv]}`}
-          // Width is data, not styling.
-          style={{ width: `${Math.min(100, Math.round(fill * 100))}%` }}
-        />
-      </div>
-      <span
-        className={`w-[130px] shrink-0 text-right tabular-nums ${frac >= warn ? TEXT[lv] : TEXT.text}`}
-      >
-        {detail}
-      </span>
+    <div className="w-full h-1.5 rounded-full bg-[var(--k-s3)] overflow-hidden" data-testid={testId}>
+      <div
+        className={`h-full rounded-full ${FILL[lv]}`}
+        // Width is data, not styling.
+        style={{ width: `${Math.min(100, Math.round(fill * 100))}%` }}
+      />
     </div>
   );
 }
 
-function Check({ ok, children }: { ok: boolean; children: React.ReactNode }) {
+/** A resource row's top line: the name on the left, the reading on the right. */
+function MeterLabel({ label, value }: { label: string; value: React.ReactNode }) {
   return (
-    <span className={ok ? TEXT.ok : TEXT.bad}>
-      {ok ? "✓" : "✕"} {children}
+    <span className="flex items-baseline justify-between gap-3 w-full">
+      <span>{label}</span>
+      <span className="text-[13.5px] font-normal tabular-nums text-[var(--k-t2)]">{value}</span>
     </span>
   );
 }
@@ -152,131 +184,139 @@ function noteText(h: AdminHostOverview): string | null {
   switch (h.resourcesNote) {
     case "no_ssh":
       return h.protocols.length > 0
-        ? `No resource readings — reachable over ${h.protocols.map((p) => p.toUpperCase()).join(" / ")} only${latency}`
-        : `No resource readings — no connections enabled${latency}`;
+        ? `No readings — reachable over ${h.protocols.map((p) => p.toUpperCase()).join(" / ")} only${latency}`
+        : `No readings — no connections enabled${latency}`;
     case "no_access":
-      return `No resource readings — you don't hold this host's SSH credentials${latency}`;
+      return `No readings — you don't hold this host's SSH credentials${latency}`;
     default:
       return `Couldn't read resources over SSH${latency}`;
   }
 }
 
-function SubstrateStatus({ h, now }: { h: AdminHostOverview; now: number }) {
+function substrateText(h: AdminHostOverview, now: number): { text: string; tone?: "ok" | "bad" } {
   const s = h.substrate;
-  if (!s) return <span className={TEXT.muted}>substrate not synced yet</span>;
-  if (s.inFlight) return <span className={TEXT.muted}>substrate syncing…</span>;
-  if (substrateFailing(h)) {
-    return <Check ok={false}>substrate sync failed {ago(s.lastFailureAt!, now)}</Check>;
-  }
-  if (s.lastSuccessAt !== null) {
-    return <Check ok>substrate synced {ago(s.lastSuccessAt, now)}</Check>;
-  }
-  return <span className={TEXT.muted}>substrate not synced yet</span>;
+  if (!s) return { text: "Not synced yet" };
+  if (s.inFlight) return { text: "Syncing…" };
+  if (substrateFailing(h)) return { text: `Failing since ${ago(s.lastFailureAt!, now)}`, tone: "bad" };
+  if (s.lastSuccessAt !== null) return { text: `Synced ${ago(s.lastSuccessAt, now)}`, tone: "ok" };
+  return { text: "Not synced yet" };
 }
 
-function HostCard({ h, now }: { h: AdminHostOverview; now: number }) {
-  const attn = needsAttention(h);
+function StatusDot({ h, attn }: { h: AdminHostOverview; attn: boolean }) {
+  return (
+    <span
+      className="k-status shrink-0"
+      data-status={!h.online ? "bad" : attn ? "warn" : "ok"}
+      role="img"
+      aria-label={!h.online ? "unreachable" : attn ? "needs attention" : "online"}
+    />
+  );
+}
+
+// ─── One host ───────────────────────────────────────────────────────────
+
+function HostView({ h, now, onBack }: { h: AdminHostOverview; now: number; onBack: () => void }) {
+  useEscBack(true, onBack);
   const f = fractions(h);
   const r = h.resources;
+  const reasons = attentionReasons(h, now);
   const note = noteText(h);
-  const meta = [
-    r?.os,
-    r?.arch,
-    r?.uptimeSec != null ? `up ${duration(r.uptimeSec)}` : null,
-  ].filter(Boolean);
+  const sub = substrateText(h, now);
+  const toneText = (t?: "ok" | "bad") => (t === "ok" ? TEXT.ok : t === "bad" ? TEXT.bad : undefined);
 
   return (
-    <div
-      className={
-        "k-group px-3.5 py-3 " +
-        (attn ? "ring-1 ring-inset ring-[rgba(229,85,76,0.45)] " : "") +
-        (h.online ? "" : "opacity-60")
-      }
-      data-testid={`admin-host-${h.key}`}
-      data-attention={attn ? "true" : "false"}
-    >
-      <div className="flex items-center gap-2 min-w-0">
-        <span className="k-status" data-status={h.online ? "ok" : "bad"} aria-hidden="true" />
-        <span className={`text-[14px] font-semibold truncate ${TEXT.text}`}>{h.name}</span>
-        <KitChip className="shrink-0">{h.agentHost ? "agent host" : "remote target"}</KitChip>
-        <span
-          className={`ml-auto text-[12px] shrink-0 text-right ${h.online ? TEXT.muted : TEXT.bad}`}
-          data-testid={`admin-host-${h.key}-status`}
-        >
-          {h.online
-            ? "online"
-            : h.lastSeenAt !== null
-              ? `unreachable · last seen ${ago(h.lastSeenAt, now)}`
-              : "unreachable · not seen since Skynet started"}
+    <div data-testid={`admin-host-view-${h.key}`}>
+      <AdminBack label="Hosts" onBack={onBack} testId="admin-host-back" />
+      <div className="flex flex-col items-center text-center gap-1 pt-1 pb-6">
+        <span className="size-[64px] rounded-[18px] grid place-items-center bg-[var(--k-s2)] border border-[var(--k-hair)] text-[var(--k-t2)]">
+          <Server size={30} aria-hidden="true" />
         </span>
+        <h2 className="m-0 mt-2 text-[22px] font-bold tracking-[-0.02em] text-[var(--k-t1)]">{h.name}</h2>
+        <p className="m-0 text-[13.5px] text-[var(--k-t2)] inline-flex items-center gap-1.5" data-testid={`admin-host-${h.key}-status`}>
+          <StatusDot h={h} attn={reasons.length > 0} />
+          {h.online ? "Online" : reasons[0]} · {h.agentHost ? "Runs agents" : "Remote host"}
+        </p>
       </div>
-
-      {meta.length > 0 && (
-        <div className={`mt-0.5 ml-4 text-[12px] ${TEXT.muted}`}>{meta.join(" · ")}</div>
-      )}
-
-      {r && (
-        <div className="flex flex-col gap-1.5 mt-2.5">
-          {f.cpu !== null && (
-            <Meter
-              label="CPU"
-              frac={f.cpu}
-              detail={`load ${r.load1!.toFixed(1)} / ${r.cores} cores`}
-              testId={`admin-host-${h.key}-cpu`}
-              warn={CPU_WARN}
-              crit={CPU_CRIT}
-            />
-          )}
-          {f.mem !== null && (
-            <Meter
-              label="Memory"
-              frac={f.mem}
-              detail={`${size(r.memTotalKb! - r.memAvailKb!)} / ${size(r.memTotalKb!)}`}
-              testId={`admin-host-${h.key}-mem`}
-            />
-          )}
-          {f.disk !== null && (
-            <Meter
-              label="Disk"
-              frac={f.disk}
-              detail={`${size(r.diskAvailKb!)} free`}
-              testId={`admin-host-${h.key}-disk`}
-            />
-          )}
-        </div>
-      )}
-
-      {note && <div className={`mt-2 text-[12.5px] ${TEXT.muted}`}>{note}</div>}
-
-      {h.agentHost && h.online && (
-        <>
-          <div
-            className={`flex flex-wrap gap-x-4 gap-y-1.5 mt-2.5 pt-2 border-t border-[var(--k-hair)] text-[12.5px] ${TEXT.text}`}
+      <div className="flex flex-col">
+        {h.online && reasons.length > 0 && (
+          <KitBanner tone="warn" className="mb-5" data-testid={`admin-host-${h.key}-reasons`}>
+            {reasons.join(" · ")}
+          </KitBanner>
+        )}
+        {r && (
+          <KitSettingsGroup title="Resources">
+            {f.cpu !== null && (
+              <KitSettingsRow
+                stacked
+                label={<MeterLabel label="CPU" value={<span className={f.cpu >= CPU_WARN ? TEXT[level(f.cpu, CPU_WARN, CPU_CRIT)] : undefined}>load {r.load1!.toFixed(1)} on {r.cores} cores</span>} />}
+              >
+                <Meter frac={f.cpu} warn={CPU_WARN} crit={CPU_CRIT} testId={`admin-host-${h.key}-cpu`} />
+              </KitSettingsRow>
+            )}
+            {f.mem !== null && (
+              <KitSettingsRow
+                stacked
+                label={<MeterLabel label="Memory" value={<span className={f.mem >= WARN ? TEXT[level(f.mem)] : undefined}>{size(r.memTotalKb! - r.memAvailKb!)} of {size(r.memTotalKb!)}</span>} />}
+              >
+                <Meter frac={f.mem} testId={`admin-host-${h.key}-mem`} />
+              </KitSettingsRow>
+            )}
+            {f.disk !== null && (
+              <KitSettingsRow
+                stacked
+                label={<MeterLabel label="Disk" value={<span className={f.disk >= WARN ? TEXT[level(f.disk)] : undefined}>{size(r.diskAvailKb!)} free</span>} />}
+              >
+                <Meter frac={f.disk} testId={`admin-host-${h.key}-disk`} />
+              </KitSettingsRow>
+            )}
+          </KitSettingsGroup>
+        )}
+        {h.agentHost && h.online && (
+          <KitSettingsGroup
+            title="Agents"
+            footer={substrateFailing(h) && h.substrate?.lastError ? <span className={`font-mono ${TEXT.bad}`}>{h.substrate.lastError}</span> : undefined}
           >
             {h.fleet && (
-              <span>
-                {h.fleet.agents} agents ·{" "}
-                <span className={TEXT.ok}>{h.fleet.running} running</span> ·{" "}
-                {h.fleet.apps} app{h.fleet.apps === 1 ? "" : "s"}
-              </span>
+              <KitSettingsRow label="Agents" value={`${h.fleet.running} running of ${h.fleet.agents}`} />
             )}
-            <SubstrateStatus h={h} now={now} />
+            {h.fleet && <KitSettingsRow label="Apps" value={String(h.fleet.apps)} />}
             {h.fleet && (
-              <Check ok={h.fleet.supervisorRunning}>
-                {h.fleet.supervisorRunning ? "supervisor running" : "supervisor down"}
-              </Check>
+              <KitSettingsRow
+                label="Agent supervisor"
+                value={<span className={h.fleet.supervisorRunning ? TEXT.ok : TEXT.bad}>{h.fleet.supervisorRunning ? "Running" : "Down"}</span>}
+              />
             )}
-          </div>
-          {substrateFailing(h) && h.substrate?.lastError && (
-            <div className={`mt-1 text-[12px] font-mono ${TEXT.bad}`}>{h.substrate.lastError}</div>
-          )}
-        </>
-      )}
+            <KitSettingsRow
+              label="Substrate"
+              description="Scripts and skills Skynet keeps in step on every agent host."
+              value={<span className={toneText(sub.tone)}>{sub.text}</span>}
+            />
+          </KitSettingsGroup>
+        )}
+        <KitSettingsGroup title="About" footer={note ?? undefined}>
+          <KitSettingsRow label="Address" value={<span className="font-mono text-[12.5px]">{h.address}</span>} />
+          <KitSettingsRow
+            label="Connections"
+            value={h.protocols.length > 0 ? h.protocols.map((p) => p.toUpperCase()).join(" · ") : "None"}
+          />
+          {r?.os && <KitSettingsRow label="System" value={[r.os, r.arch].filter(Boolean).join(" · ")} />}
+          {r?.uptimeSec != null && <KitSettingsRow label="Up for" value={duration(r.uptimeSec)} />}
+          {h.latencyMs !== null && <KitSettingsRow label="Response time" value={`${h.latencyMs} ms`} />}
+        </KitSettingsGroup>
+      </div>
     </div>
   );
 }
 
-export function AdminHostsPane() {
+// ─── The list ────────────────────────────────────────────────────────────
+
+export function AdminHostsPane({
+  selectedKey,
+  onSelect,
+}: {
+  selectedKey: string | null;
+  onSelect: (key: string | null) => void;
+}) {
   const [data, setData] = useState<AdminHostsResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [now, setNow] = useState(() => Date.now());
@@ -307,38 +347,43 @@ export function AdminHostsPane() {
     };
   }, [load]);
 
-  const hosts = data
-    ? [...data.hosts].sort(
-        (a, b) =>
-          Number(needsAttention(b)) - Number(needsAttention(a)) ||
-          a.name.localeCompare(b.name),
-      )
-    : [];
+  const hosts = data ? [...data.hosts].sort((a, b) => a.name.localeCompare(b.name)) : [];
+  const selected = selectedKey ? hosts.find((h) => h.key === selectedKey) : undefined;
+  if (selected) return <HostView h={selected} now={now} onBack={() => onSelect(null)} />;
+
+  const attention = hosts.filter((h) => needsAttention(h));
+  const fine = hosts.filter((h) => !needsAttention(h));
   const online = hosts.filter((h) => h.online).length;
-  const attention = hosts.filter(needsAttention).length;
+
+  const row = (h: AdminHostOverview, attn: boolean) => {
+    const reasons = attn ? attentionReasons(h, now) : [];
+    return (
+      <KitSettingsRow
+        key={h.key}
+        data-testid={`admin-host-${h.key}`}
+        leading={<StatusDot h={h} attn={attn} />}
+        label={h.name}
+        description={
+          <span className={attn ? (h.online ? TEXT.warn : TEXT.bad) : undefined}>
+            {attn ? reasons.join(" · ") || "Needs attention" : summaryLine(h)}
+          </span>
+        }
+        truncate
+        value={h.agentHost ? "Agents" : "Remote"}
+        onClick={() => onSelect(h.key)}
+      />
+    );
+  };
 
   return (
-    <div className="flex flex-col gap-3 px-6 py-5 max-sm:px-5" data-testid="admin-hosts-pane">
-      <div className="flex items-baseline gap-3 flex-wrap">
-        <h3 className="k-group-title m-0">Hosts</h3>
-        {data && (
-          <span className={`text-[13px] ${TEXT.text}`} data-testid="admin-hosts-summary">
-            {hosts.length} host{hosts.length === 1 ? "" : "s"} ·{" "}
-            <span className={TEXT.ok}>{online} online</span>
-            {attention > 0 && (
-              <>
-                {" "}· <span className={TEXT.bad}>{attention} need attention</span>
-              </>
-            )}
-          </span>
-        )}
-        {data && (
-          <span className={`ml-auto text-[12px] ${TEXT.muted}`}>
-            updated {ago(data.generatedAt, now)}
-          </span>
-        )}
-      </div>
-
+    <div className="flex flex-col" data-testid="admin-hosts-pane">
+      {data && (
+        <p className={`m-0 -mt-2 mb-5 text-[13px] ${TEXT.muted}`} data-testid="admin-hosts-summary">
+          {hosts.length} host{hosts.length === 1 ? "" : "s"} · {online} online
+          {attention.length > 0 ? ` · ${attention.length} need${attention.length === 1 ? "s" : ""} attention` : ""} · updated{" "}
+          {ago(data.generatedAt, now)}
+        </p>
+      )}
       {error && (
         <KitBanner tone="danger" data-testid="admin-hosts-error">
           {error}
@@ -346,10 +391,16 @@ export function AdminHostsPane() {
       )}
       {!data && !error && <KitLoading label="Checking hosts…" />}
       {data && hosts.length === 0 && <KitEmpty title="No hosts yet." />}
-
-      {hosts.map((h) => (
-        <HostCard key={h.key} h={h} now={now} />
-      ))}
+      {attention.length > 0 && (
+        <KitSettingsGroup title="Needs attention" data-testid="admin-hosts-attention">
+          {attention.map((h) => row(h, true))}
+        </KitSettingsGroup>
+      )}
+      {fine.length > 0 && (
+        <KitSettingsGroup title={attention.length > 0 ? "Running fine" : undefined} data-testid="admin-hosts-fine">
+          {fine.map((h) => row(h, false))}
+        </KitSettingsGroup>
+      )}
     </div>
   );
 }

@@ -1,7 +1,16 @@
+/**
+ * Admin → Hosts as an admin drives it (apple-ux shape-admin-modals):
+ * the summary line, "Needs attention" (each row says why) above "Running
+ * fine", a host one level deeper (readings, agents, about; ‹ Hosts and Esc
+ * go back), polling only while the tab is visible.
+ */
+
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { useState } from "react";
 import { render, screen, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import type { AdminHostOverview } from "@/api/admin-hosts-api";
-import { AdminHostsPane, needsAttention } from "./AdminHostsPane";
+import { AdminHostsPane, attentionReasons, needsAttention } from "./AdminHostsPane";
 
 const m = vi.hoisted(() => ({ getAdminHosts: vi.fn() }));
 vi.mock("@/api/admin-hosts-api", () => ({ getAdminHosts: m.getAdminHosts }));
@@ -81,62 +90,59 @@ beforeEach(() => {
 });
 afterEach(() => vi.clearAllMocks());
 
-describe("AdminHostsPane", () => {
-  it("summarises and sorts machines needing attention first", async () => {
-    render(<AdminHostsPane />);
+/** The window keeps which host is open; this stands in for it. */
+function Harness() {
+  const [key, setKey] = useState<string | null>(null);
+  return <AdminHostsPane selectedKey={key} onSelect={setKey} />;
+}
+
+const rowsIn = (testId: string) =>
+  within(screen.getByTestId(testId))
+    .getAllByTestId(/^admin-host-[a-z0-9]+$/)
+    .map((el) => el.getAttribute("data-testid"));
+
+describe("AdminHostsPane — the list", () => {
+  it("summarises, then lists hosts needing attention above the ones running fine", async () => {
+    render(<Harness />);
     const summary = await screen.findByTestId("admin-hosts-summary");
-    expect(summary.textContent).toContain("5 hosts");
-    expect(summary.textContent).toContain("4 online");
-    expect(summary.textContent).toContain("3 need attention");
-
-    const order = screen
-      .getAllByTestId(/^admin-host-[a-z0-9]+$/)
-      .map((el) => el.getAttribute("data-testid"));
-    expect(order).toEqual([
-      "admin-host-beelink",
-      "admin-host-laptop",
-      "admin-host-zoey",
-      "admin-host-aither",
-      "admin-host-t1000",
-    ]);
+    expect(summary.textContent).toContain("5 hosts · 4 online · 3 need attention · updated just now");
+    expect(rowsIn("admin-hosts-attention")).toEqual(["admin-host-beelink", "admin-host-laptop", "admin-host-zoey"]);
+    expect(rowsIn("admin-hosts-fine")).toEqual(["admin-host-aither", "admin-host-t1000"]);
+    expect(screen.getByText("Needs attention")).toBeTruthy();
+    expect(screen.getByText("Running fine")).toBeTruthy();
   });
 
-  it("renders resource meters and agent-host health", async () => {
-    render(<AdminHostsPane />);
-    const card = await screen.findByTestId("admin-host-t1000");
-    const c = within(card);
-    expect(c.getByTestId("admin-host-t1000-cpu").textContent).toContain("load 1.0 / 4 cores");
-    expect(c.getByTestId("admin-host-t1000-mem").textContent).toContain("4.0 GB / 16 GB");
-    expect(c.getByTestId("admin-host-t1000-disk").textContent).toContain("60 GB free");
-    expect(card.textContent).toContain("14 agents");
-    expect(card.textContent).toContain("4 running");
-    expect(card.textContent).toContain("substrate synced 3m ago");
-    expect(card.textContent).toContain("supervisor running");
-    expect(card.textContent).toContain("Ubuntu 24.04 · x86_64 · up 1d 1h");
-  });
-
-  it("shows substrate failure reason and supervisor down", async () => {
-    render(<AdminHostsPane />);
-    const card = await screen.findByTestId("admin-host-beelink");
-    expect(card.textContent).toContain("substrate sync failed");
-    expect(card.textContent).toContain("couldn't connect over SSH");
-    expect(card.textContent).toContain("supervisor down");
-  });
-
-  it("explains missing readings and offline hosts", async () => {
-    render(<AdminHostsPane />);
-    expect((await screen.findByTestId("admin-host-aither")).textContent).toContain(
-      "No resource readings — reachable over RDP only · 2 ms",
+  it("each host that needs attention says why", async () => {
+    render(<Harness />);
+    expect((await screen.findByTestId("admin-host-beelink")).textContent).toContain(
+      "Agent supervisor down · Substrate sync failing since 1m ago",
     );
-    expect(screen.getByTestId("admin-host-laptop-status").textContent).toBe(
-      "unreachable · last seen 3d ago",
+    expect(screen.getByTestId("admin-host-laptop").textContent).toContain("Unreachable · last seen 3d ago");
+    expect(screen.getByTestId("admin-host-zoey").textContent).toContain("Disk 95% full");
+  });
+
+  it("hosts running fine get one quiet line", async () => {
+    render(<Harness />);
+    expect((await screen.findByTestId("admin-host-t1000")).textContent).toContain(
+      "4 of 14 agents running · memory 25% · 60 GB free",
     );
+    expect(screen.getByTestId("admin-host-aither").textContent).toContain("RDP · 2 ms");
+    expect(screen.getByTestId("admin-host-t1000").textContent).toContain("Agents");
+    expect(screen.getByTestId("admin-host-aither").textContent).toContain("Remote");
+  });
+
+  it("with nothing wrong there are no group titles", async () => {
+    m.getAdminHosts.mockResolvedValue({ hosts: [HEALTHY_AGENT], generatedAt: NOW });
+    render(<Harness />);
+    await screen.findByTestId("admin-host-t1000");
+    expect(screen.queryByText("Needs attention")).toBeNull();
+    expect(screen.queryByText("Running fine")).toBeNull();
   });
 
   it("skips polls while the browser tab is hidden", async () => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
     const hidden = vi.spyOn(document, "hidden", "get").mockReturnValue(true);
-    render(<AdminHostsPane />);
+    render(<Harness />);
     await screen.findByTestId("admin-hosts-summary");
     expect(m.getAdminHosts).toHaveBeenCalledTimes(1);
     await vi.advanceTimersByTimeAsync(31_000);
@@ -150,17 +156,72 @@ describe("AdminHostsPane", () => {
 
   it("shows an error when the overview fails to load", async () => {
     m.getAdminHosts.mockRejectedValue(new Error("boom"));
-    render(<AdminHostsPane />);
+    render(<Harness />);
     expect(await screen.findByTestId("admin-hosts-error")).toBeTruthy();
   });
 });
 
-describe("needsAttention", () => {
+describe("AdminHostsPane — one host", () => {
+  it("an agent host: readings, agents and about; ‹ Hosts goes back", async () => {
+    render(<Harness />);
+    await userEvent.click(await screen.findByTestId("admin-host-t1000"));
+    const view = screen.getByTestId("admin-host-view-t1000");
+    expect(screen.getByTestId("admin-host-t1000-status").textContent).toContain("Online · Runs agents");
+    expect(view.textContent).toContain("load 1.0 on 4 cores");
+    expect(view.textContent).toContain("4.0 GB of 16 GB");
+    expect(view.textContent).toContain("60 GB free");
+    expect(screen.getByTestId("admin-host-t1000-cpu")).toBeTruthy();
+    expect(view.textContent).toContain("4 running of 14");
+    expect(view.textContent).toContain("Synced 3m ago");
+    expect(view.textContent).toContain("Running");
+    expect(view.textContent).toContain("Ubuntu 24.04 · x86_64");
+    expect(view.textContent).toContain("1d 1h");
+    expect(screen.queryByTestId("admin-host-t1000-reasons")).toBeNull();
+    await userEvent.click(screen.getByTestId("admin-host-back"));
+    expect(await screen.findByTestId("admin-hosts-pane")).toBeTruthy();
+  });
+
+  it("a broken agent host says why on top and shows the sync error", async () => {
+    render(<Harness />);
+    await userEvent.click(await screen.findByTestId("admin-host-beelink"));
+    expect(screen.getByTestId("admin-host-beelink-reasons").textContent).toContain("Agent supervisor down");
+    const view = screen.getByTestId("admin-host-view-beelink");
+    expect(view.textContent).toContain("Down");
+    expect(view.textContent).toContain("Failing since 1m ago");
+    expect(view.textContent).toContain("couldn't connect over SSH");
+  });
+
+  it("a host with no readings says why; Esc goes back", async () => {
+    render(<Harness />);
+    await userEvent.click(await screen.findByTestId("admin-host-aither"));
+    const view = screen.getByTestId("admin-host-view-aither");
+    expect(view.textContent).toContain("No readings — reachable over RDP only · 2 ms");
+    expect(view.textContent).toContain("Remote host");
+    expect(view.textContent).not.toContain("Resources");
+    await userEvent.keyboard("{Escape}");
+    expect(await screen.findByTestId("admin-hosts-pane")).toBeTruthy();
+  });
+
+  it("an unreachable host shows when it was last seen", async () => {
+    render(<Harness />);
+    await userEvent.click(await screen.findByTestId("admin-host-laptop"));
+    expect(screen.getByTestId("admin-host-laptop-status").textContent).toContain("Unreachable · last seen 3d ago");
+  });
+});
+
+describe("needsAttention / attentionReasons", () => {
+  const withLoad = (load1: number) =>
+    host({ key: "n", name: "n", resources: { ...host({ key: "", name: "" }).resources!, load1, cores: 4 } });
+
   it("flags CPU only once load reaches the core count", () => {
-    const withLoad = (load1: number) =>
-      host({ key: "n", name: "n", resources: { ...host({ key: "", name: "" }).resources!, load1, cores: 4 } });
     expect(needsAttention(withLoad(3.2))).toBe(false);
     expect(needsAttention(withLoad(4.1))).toBe(true);
     expect(needsAttention(host({ key: "ok", name: "ok" }))).toBe(false);
+  });
+
+  it("puts the reasons in words, most serious first", () => {
+    expect(attentionReasons(withLoad(4.1), NOW)).toEqual(["CPU busy · load 4.1 on 4 cores"]);
+    expect(attentionReasons(BROKEN_AGENT, NOW)[0]).toBe("Agent supervisor down");
+    expect(attentionReasons(host({ key: "ok", name: "ok" }), NOW)).toEqual([]);
   });
 });

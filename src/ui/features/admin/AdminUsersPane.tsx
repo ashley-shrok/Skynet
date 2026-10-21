@@ -1,22 +1,27 @@
 /**
- * Admin → Users: every user on the instance. Clicking a row opens that
- * user's own modal (AdminUserModal) with account controls, login sessions
- * and owned hosts.
+ * Admin → Users: everyone on the instance, admins in their own group above
+ * everyone else, alphabetical within each. A row opens that user one level
+ * deeper in the same window. A search box appears once the list is long.
  *
- * OIDC badges only render when `oidcInUse` — on instances that never set up
+ * OIDC marks only render when `oidcInUse` — on instances that never set up
  * OIDC there is nothing OIDC-shaped in the panel at all.
  */
 
-import { ChevronRight } from "lucide-react";
+import { useMemo, useState } from "react";
 import type { AdminUser } from "@/api/user-management-api";
 import {
+  KitAvatar,
   KitBanner,
-  KitChip,
-  KitList,
-  KitListRow,
+  KitEmpty,
   KitLoading,
+  KitSearch,
+  KitSettingsGroup,
+  KitSettingsRow,
 } from "@/components/kit";
 import { userAvatarUrl, userInitial } from "./admin-ui";
+
+/** More users than this and the list gets a search box. */
+const SEARCH_FROM = 8;
 
 export interface AdminUsersPaneProps {
   users: AdminUser[] | null;
@@ -26,71 +31,65 @@ export interface AdminUsersPaneProps {
   onOpenUser: (userId: string) => void;
 }
 
-export function AdminUsersPane({
-  users,
-  error,
-  currentUserId,
-  oidcInUse,
-  onOpenUser,
-}: AdminUsersPaneProps) {
+export function AdminUsersPane({ users, error, currentUserId, oidcInUse, onOpenUser }: AdminUsersPaneProps) {
+  const [query, setQuery] = useState("");
+
+  const groups = useMemo(() => {
+    const words = query.trim().toLowerCase().split(/\s+/).filter(Boolean);
+    const sorted = [...(users ?? [])]
+      .filter((u) => {
+        const hay = `${u.username} ${u.mxid ?? ""}`.toLowerCase();
+        return words.every((w) => hay.includes(w));
+      })
+      .sort((a, b) => a.username.localeCompare(b.username, undefined, { sensitivity: "base" }));
+    return [
+      { title: "Admins", rows: sorted.filter((u) => u.isAdmin) },
+      { title: "Members", rows: sorted.filter((u) => !u.isAdmin) },
+    ].filter((g) => g.rows.length > 0);
+  }, [users, query]);
+
   if (error) {
     return (
-      <div className="px-6 py-5 max-sm:px-5">
-        <KitBanner tone="danger" data-testid="admin-users-error">
-          {error}
-        </KitBanner>
-      </div>
+      <KitBanner tone="danger" data-testid="admin-users-error">
+        {error}
+      </KitBanner>
     );
   }
-  if (!users) {
-    return (
-      <div className="px-6 py-5 max-sm:px-5">
-        <KitLoading label="Loading users…" />
-      </div>
-    );
-  }
-
-  const sorted = [...users].sort((a, b) =>
-    a.username.localeCompare(b.username, undefined, { sensitivity: "base" }),
-  );
-  const adminCount = users.filter((u) => u.isAdmin).length;
+  if (!users) return <KitLoading label="Loading users…" />;
 
   return (
-    <div
-      className="flex flex-col gap-3 px-6 py-5 max-sm:px-5"
-      data-testid="admin-users-pane"
-    >
-      <p className="m-0 text-[13px] text-[var(--k-t2)]">
-        {users.length} {users.length === 1 ? "user" : "users"} · {adminCount}{" "}
-        {adminCount === 1 ? "admin" : "admins"}
-      </p>
-      <KitList>
-        {sorted.map((u) => (
-          <KitListRow
-            key={u.id}
-            data-testid={`admin-user-row-${u.id}`}
-            onActivate={() => onOpenUser(u.id)}
-            avatarSrc={userAvatarUrl(u.id, u.avatarPath)}
-            avatar={userInitial(u.username)}
-            title={u.username}
-            subtitle={
-              u.mxid ? <span className="font-mono">{u.mxid}</span> : undefined
-            }
-            trailing={
-              <>
-                {u.id === currentUserId && <KitChip>You</KitChip>}
-                {u.isAdmin && <KitChip tone="accent">Admin</KitChip>}
-                {oidcInUse && u.isOidc && <KitChip>OIDC</KitChip>}
-                <ChevronRight
-                  size={16}
-                  aria-hidden="true"
-                  className="shrink-0 text-[var(--k-t3)]"
-                />
-              </>
-            }
-          />
-        ))}
-      </KitList>
+    <div className="flex flex-col" data-testid="admin-users-pane">
+      {users.length > SEARCH_FROM && (
+        <KitSearch
+          value={query}
+          onValueChange={setQuery}
+          placeholder="Search users"
+          aria-label="Search users"
+          wrapperClassName="mb-5"
+          data-testid="admin-users-search"
+        />
+      )}
+      {groups.length === 0 && <KitEmpty title="No matches" data-testid="admin-users-no-matches" />}
+      {groups.map((g) => (
+        <KitSettingsGroup key={g.title} title={`${g.title} · ${g.rows.length}`} data-testid={`admin-users-${g.title.toLowerCase()}`}>
+          {g.rows.map((u) => (
+            <KitSettingsRow
+              key={u.id}
+              data-testid={`admin-user-row-${u.id}`}
+              leading={<KitAvatar src={userAvatarUrl(u.id, u.avatarPath)} fallback={userInitial(u.username)} size={34} />}
+              label={u.username}
+              description={u.mxid ? <span className="font-mono text-[12px]">{u.mxid}</span> : undefined}
+              truncate
+              value={
+                [u.id === currentUserId ? "You" : null, oidcInUse && u.isOidc ? "OIDC" : null]
+                  .filter(Boolean)
+                  .join(" · ") || undefined
+              }
+              onClick={() => onOpenUser(u.id)}
+            />
+          ))}
+        </KitSettingsGroup>
+      ))}
     </div>
   );
 }

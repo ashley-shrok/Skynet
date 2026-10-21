@@ -1,23 +1,31 @@
 /**
- * AdminModal + AdminUserModal tests
+ * AdminModal — the Admin window as an admin drives it (apple-ux
+ * shape-admin-modals).
  *
- *   Users tab
- *     - lists every user, sorted, with Admin / You badges
- *     - no OIDC badge when OIDC isn't in use; badge appears when it is
- *     - clicking a row opens that user's modal
- *   User modal
- *     - own row: admin switch + delete disabled
- *     - last admin can't be deleted
- *     - promote calls makeUserAdmin after confirm, then re-fetches the list
+ *   Window
+ *     - "Admin" over Users, Hosts, Sign-in, Instance file, System pinned
+ *       last; each section opens with its header; no Close button
+ *   Users
+ *     - Admins and Members groups, alphabetical, "You" on your own row
+ *     - OIDC mark only where OIDC is in use
+ *     - search appears past eight users
+ *   A user (one level deeper)
+ *     - opens in the same window; "‹ Users" and Esc go back
+ *     - own page: admin switch + delete disabled; last admin can't be deleted
+ *     - promote after confirm, push access, both reload the list
+ *     - phone: Save appears only once the number changes
  *     - delete needs the typed username; a mismatch deletes nothing
- *     - Sessions tab only shows that user's live sessions
- *     - Hosts tab only shows hosts that user owns
- *   Sign-in tab
- *     - OIDC-only toggles hidden without OIDC, shown with it
+ *     - only that user's live sign-ins; log out one / everywhere
+ *     - only hosts that user owns
+ *   Sign-in
+ *     - OIDC-only switches hidden without OIDC, shown with it
+ *     - session length saves on leaving the box; out of range isn't saved
+ *   Instance file
+ *     - another section or the X with unsaved edits asks first
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { cleanup, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { AdminUser } from "@/api/user-management-api";
 import {
@@ -98,6 +106,23 @@ vi.mock("@/api/ssh-host-management-api", () => ({
   getSSHHosts: m.getSSHHosts,
 }));
 
+vi.mock("@/api/service-secrets-api", () => ({
+  getUserServiceSecrets: vi.fn(async () => []),
+  setUserServiceSecret: vi.fn(),
+  clearUserServiceSecret: vi.fn(),
+}));
+
+vi.mock("@/api/instance-file-api", () => ({
+  getInstanceFile: vi.fn(async () => ({ content: "# Rules" })),
+  saveInstanceFile: vi.fn(),
+}));
+
+vi.mock("@/features/pretty-view/MarkdownEditor", () => ({
+  MarkdownEditor: (props: { content: string; onChange: (v: string) => void }) => (
+    <textarea value={props.content} onChange={(e) => props.onChange(e.target.value)} />
+  ),
+}));
+
 function user(
   overrides: Partial<AdminUser> & { id: string; username: string },
 ): AdminUser {
@@ -131,8 +156,11 @@ function renderModal() {
 async function openUser(name: string) {
   const row = await screen.findByText(name);
   await userEvent.click(row);
-  return screen.findByTestId("admin-user-modal");
+  return screen.findByTestId("admin-user-view");
 }
+
+const sw = (id: string) => screen.getByTestId(id) as HTMLInputElement;
+const btn = (id: string) => screen.getByTestId(id) as HTMLButtonElement;
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -153,75 +181,129 @@ afterEach(() => {
   __resetKitDialogsForTests();
 });
 
-describe("AdminModal — Users tab", () => {
-  it("lists users sorted by name with Admin and You badges", async () => {
-    renderModal();
-    const pane = await screen.findByTestId("admin-users-pane");
-    const rows = within(pane).getAllByRole("button");
-    expect(rows.map((r) => r.textContent)).toEqual([
-      expect.stringContaining("alice"),
-      expect.stringContaining("bob"),
-      expect.stringContaining("zoey"),
-    ]);
-    const me = screen.getByTestId("admin-user-row-me");
-    expect(me.textContent).toContain("You");
-    expect(me.textContent).toContain("Admin");
-  });
-
-  it("hides OIDC badges when OIDC isn't configured and nobody is flagged OIDC", async () => {
-    m.getUserList.mockResolvedValue({
-      users: USERS.map((u) => ({ ...u, isOidc: false })),
-    });
+describe("AdminModal — window", () => {
+  it("lists the sections with System last, opens on Users with its header, and has no Close button", async () => {
     renderModal();
     await screen.findByTestId("admin-users-pane");
-    expect(screen.queryByText("OIDC")).toBeNull();
+    const nav = screen.getAllByTestId(/^admin-tab-/).map((b) => b.textContent);
+    expect(nav).toEqual(["Users", "Hosts", "Sign-in", "Instance file", "System"]);
+    expect(screen.getByTestId("admin-section-hero").textContent).toContain("Users");
+    expect(screen.queryByText("Close")).toBeNull();
+    expect(screen.queryByText(/Machines/)).toBeNull();
   });
 
-  it("shows the OIDC badge when a provider is configured", async () => {
-    m.getOIDCConfig.mockResolvedValue({ client_id: "abc" });
-    m.getUserList.mockResolvedValue({
-      users: USERS.map((u) => ({ ...u, isOidc: u.id === "u3" })),
-    });
+  it("each section opens with its own header", async () => {
     renderModal();
-    await waitFor(() =>
-      expect(screen.getByTestId("admin-user-row-u3").textContent).toContain(
-        "OIDC",
-      ),
-    );
-  });
-
-  it("opens the user's modal when a row is clicked", async () => {
-    renderModal();
-    const modal = await openUser("zoey");
-    expect(within(modal).getByTestId("admin-user-account")).toBeTruthy();
+    await screen.findByTestId("admin-users-pane");
+    await userEvent.click(screen.getByTestId("admin-tab-hosts"));
+    expect(await screen.findByTestId("admin-hosts-pane")).toBeTruthy();
+    expect(screen.getByTestId("admin-section-hero").textContent).toContain("Hosts");
+    expect(await screen.findByText("No hosts yet.")).toBeTruthy();
+    await userEvent.click(screen.getByTestId("admin-tab-system"));
+    expect(await screen.findByTestId("admin-system-pane")).toBeTruthy();
+    expect(screen.getByTestId("admin-section-hero").textContent).toContain("System");
   });
 });
 
-describe("AdminUserModal", () => {
-  it("disables the admin switch and delete on your own account", async () => {
+describe("AdminModal — Users", () => {
+  it("puts admins and members in their own groups, alphabetical, with You on your own row", async () => {
+    renderModal();
+    await screen.findByTestId("admin-users-pane");
+    const admins = screen.getByTestId("admin-users-admins");
+    const members = screen.getByTestId("admin-users-members");
+    expect(admins.textContent).toContain("Admins · 1");
+    expect(within(admins).getAllByRole("button").map((r) => r.textContent)).toEqual([expect.stringContaining("alice")]);
+    expect(members.textContent).toContain("Members · 2");
+    expect(within(members).getAllByRole("button").map((r) => r.textContent)).toEqual([
+      expect.stringContaining("bob"),
+      expect.stringContaining("zoey"),
+    ]);
+    expect(screen.getByTestId("admin-user-row-me").textContent).toContain("You");
+    expect(screen.getByTestId("admin-user-row-u2").textContent).not.toContain("You");
+  });
+
+  it("hides OIDC marks when OIDC isn't configured and nobody is flagged OIDC", async () => {
+    m.getUserList.mockResolvedValue({ users: USERS.map((u) => ({ ...u, isOidc: false })) });
+    renderModal();
+    await screen.findByTestId("admin-users-pane");
+    expect(screen.queryByText(/OIDC/)).toBeNull();
+  });
+
+  it("shows the OIDC mark when a provider is configured", async () => {
+    m.getOIDCConfig.mockResolvedValue({ client_id: "abc" });
+    m.getUserList.mockResolvedValue({ users: USERS.map((u) => ({ ...u, isOidc: u.id === "u3" })) });
+    renderModal();
+    await waitFor(() => expect(screen.getByTestId("admin-user-row-u3").textContent).toContain("OIDC"));
+  });
+
+  it("no search box for a short list; past eight users one appears and narrows the list", async () => {
+    renderModal();
+    await screen.findByTestId("admin-users-pane");
+    expect(screen.queryByTestId("admin-users-search")).toBeNull();
+    cleanupAndRender([
+      ...USERS,
+      ...Array.from({ length: 7 }, (_, i) => user({ id: `x${i}`, username: `extra${i}` })),
+    ]);
+    const search = await screen.findByTestId("admin-users-search");
+    await userEvent.type(search, "zo");
+    expect(screen.getByTestId("admin-user-row-u2")).toBeTruthy();
+    expect(screen.queryByTestId("admin-user-row-me")).toBeNull();
+    await userEvent.clear(search);
+    await userEvent.type(search, "nobody");
+    expect(screen.getByTestId("admin-users-no-matches")).toBeTruthy();
+  });
+});
+
+function cleanupAndRender(users: AdminUser[]) {
+  cleanup();
+  m.getUserList.mockResolvedValue({ users });
+  renderModal();
+}
+
+describe("AdminModal — a user", () => {
+  it("opens one level deeper in the same window; ‹ Users goes back", async () => {
+    renderModal();
+    await openUser("zoey");
+    expect(screen.getAllByRole("dialog")).toHaveLength(1);
+    expect(screen.getByTestId("admin-user-name").textContent).toBe("zoey");
+    expect(screen.getByTestId("admin-user-standing").textContent).toBe("Member");
+    expect(screen.queryByTestId("admin-section-hero")).toBeNull();
+    await userEvent.click(screen.getByTestId("admin-user-back"));
+    expect(await screen.findByTestId("admin-users-pane")).toBeTruthy();
+  });
+
+  it("Esc goes back to the list instead of closing the window", async () => {
+    const onOpenChange = vi.fn();
+    render(<AdminModal open onOpenChange={onOpenChange} currentUserId="me" />);
+    await openUser("zoey");
+    await userEvent.keyboard("{Escape}");
+    expect(await screen.findByTestId("admin-users-pane")).toBeTruthy();
+    expect(onOpenChange).not.toHaveBeenCalled();
+  });
+
+  it("picking Users in the side list again goes back to the list", async () => {
+    renderModal();
+    await openUser("zoey");
+    await userEvent.click(screen.getByTestId("admin-tab-users"));
+    expect(await screen.findByTestId("admin-users-pane")).toBeTruthy();
+  });
+
+  it("your own page: Administrator · You, admin switch and delete disabled, with why", async () => {
     renderModal();
     await openUser("alice");
-    expect(
-      (screen.getByTestId("admin-user-admin-switch") as HTMLButtonElement)
-        .disabled,
-    ).toBe(true);
-    expect(
-      (screen.getByTestId("admin-user-delete") as HTMLButtonElement).disabled,
-    ).toBe(true);
+    expect(screen.getByTestId("admin-user-standing").textContent).toBe("Administrator · You");
+    expect(sw("admin-user-admin-switch").disabled).toBe(true);
+    expect(btn("admin-user-delete").disabled).toBe(true);
+    expect(screen.getByText("You can't delete your own account from here.")).toBeTruthy();
   });
 
   it("won't delete the last admin", async () => {
     m.getUserList.mockResolvedValue({
-      users: [
-        user({ id: "me", username: "alice" }),
-        user({ id: "a2", username: "root", isAdmin: true }),
-      ],
+      users: [user({ id: "me", username: "alice" }), user({ id: "a2", username: "root", isAdmin: true })],
     });
     renderModal();
     await openUser("root");
-    expect(
-      (screen.getByTestId("admin-user-delete") as HTMLButtonElement).disabled,
-    ).toBe(true);
+    expect(btn("admin-user-delete").disabled).toBe(true);
     expect(screen.getByText(/only admin/)).toBeTruthy();
   });
 
@@ -229,141 +311,127 @@ describe("AdminUserModal", () => {
     const dialogs = autoAnswerKitDialogs({ confirm: true });
     renderModal();
     await openUser("zoey");
-    await userEvent.click(screen.getByTestId("admin-user-admin-switch"));
+    await userEvent.click(sw("admin-user-admin-switch"));
     await waitFor(() => expect(m.makeUserAdmin).toHaveBeenCalledWith("u2"));
     expect(dialogs.calls[0].opts.title).toMatch(/Make zoey an admin/);
     await waitFor(() => expect(m.getUserList).toHaveBeenCalledTimes(2));
+  });
+
+  it("declining the admin confirm changes nothing", async () => {
+    autoAnswerKitDialogs({ confirm: false });
+    renderModal();
+    await openUser("zoey");
+    await userEvent.click(sw("admin-user-admin-switch"));
+    expect(m.makeUserAdmin).not.toHaveBeenCalled();
   });
 
   it("grants push notifications to a non-admin and reloads the list", async () => {
     m.setUserNotificationsEnabled.mockResolvedValue({});
     renderModal();
     await openUser("zoey");
-    const sw = screen.getByTestId(
-      "admin-user-notifications-switch",
-    ) as HTMLButtonElement;
-    expect(sw.disabled).toBe(false);
-    expect(sw.getAttribute("aria-checked")).toBe("false");
-    await userEvent.click(sw);
-    await waitFor(() =>
-      expect(m.setUserNotificationsEnabled).toHaveBeenCalledWith("u2", true),
-    );
+    expect(sw("admin-user-notifications-switch").disabled).toBe(false);
+    expect(sw("admin-user-notifications-switch").checked).toBe(false);
+    await userEvent.click(sw("admin-user-notifications-switch"));
+    await waitFor(() => expect(m.setUserNotificationsEnabled).toHaveBeenCalledWith("u2", true));
     await waitFor(() => expect(m.getUserList).toHaveBeenCalledTimes(2));
   });
 
   it("shows notifications as always on, and locked, for admins", async () => {
     renderModal();
     await openUser("alice");
-    const sw = screen.getByTestId(
-      "admin-user-notifications-switch",
-    ) as HTMLButtonElement;
-    expect(sw.disabled).toBe(true);
-    expect(sw.getAttribute("aria-checked")).toBe("true");
+    expect(sw("admin-user-notifications-switch").disabled).toBe(true);
+    expect(sw("admin-user-notifications-switch").checked).toBe(true);
   });
 
-  it("requires the typed username before deleting", async () => {
+  it("phone: Save appears only once the number changes, and saves it", async () => {
+    m.setUserPhone.mockResolvedValue({});
+    renderModal();
+    await openUser("zoey");
+    expect(screen.queryByTestId("admin-user-phone-save")).toBeNull();
+    await userEvent.type(screen.getByTestId("admin-user-phone-input"), "+17165550100");
+    await userEvent.click(screen.getByTestId("admin-user-phone-save"));
+    await waitFor(() => expect(m.setUserPhone).toHaveBeenCalledWith("u2", "+17165550100"));
+    await waitFor(() => expect(m.getUserList).toHaveBeenCalledTimes(2));
+  });
+
+  it("requires the typed username before deleting, then goes back to the list", async () => {
     let typed = "zoe";
     const dialogs = autoAnswerKitDialogs({ prompt: () => typed });
     renderModal();
     await openUser("zoey");
     await userEvent.click(screen.getByTestId("admin-user-delete"));
     expect(m.deleteUser).not.toHaveBeenCalled();
-    expect(screen.getByTestId("admin-user-delete-error").textContent).toContain(
-      "didn't match",
-    );
+    expect(screen.getByTestId("admin-user-delete-error").textContent).toContain("didn't match");
 
     // The dialog itself refuses a mismatched name before it resolves.
-    const opts = dialogs.calls[0].opts as {
-      validate?: (v: string) => string | null | undefined;
-    };
+    const opts = dialogs.calls[0].opts as { validate?: (v: string) => string | null | undefined };
     expect(opts.validate?.("zoe")).toBeTruthy();
     expect(opts.validate?.("zoey")).toBeFalsy();
 
     typed = "zoey";
     await userEvent.click(screen.getByTestId("admin-user-delete"));
     await waitFor(() => expect(m.deleteUser).toHaveBeenCalledWith("zoey"));
-    await waitFor(() =>
-      expect(screen.queryByTestId("admin-user-modal")).toBeNull(),
-    );
+    expect(await screen.findByTestId("admin-users-pane")).toBeTruthy();
   });
 
-  it("shows only that user's live sessions", async () => {
+  it("shows only that user's live sign-ins; log out one, then everywhere", async () => {
     const future = new Date(Date.now() + 86_400_000).toISOString();
     const past = new Date(Date.now() - 86_400_000).toISOString();
     const base = { deviceType: "web", createdAt: past, lastActiveAt: past };
     m.getSessions.mockResolvedValue({
       sessions: [
-        {
-          ...base,
-          id: "s1",
-          userId: "u2",
-          deviceInfo: "Firefox",
-          expiresAt: future,
-        },
+        { ...base, id: "s1", userId: "u2", deviceInfo: "Firefox", expiresAt: future },
+        { ...base, id: "s5", userId: "u2", deviceInfo: "Safari", expiresAt: future },
         { ...base, id: "s2", userId: "u2", deviceInfo: "Old", expiresAt: past },
-        {
-          ...base,
-          id: "s3",
-          userId: "u2",
-          deviceInfo: "Revoked",
-          expiresAt: future,
-          isRevoked: true,
-        },
-        {
-          ...base,
-          id: "s4",
-          userId: "me",
-          deviceInfo: "Mine",
-          expiresAt: future,
-        },
+        { ...base, id: "s3", userId: "u2", deviceInfo: "Revoked", expiresAt: future, isRevoked: true },
+        { ...base, id: "s4", userId: "me", deviceInfo: "Mine", expiresAt: future },
       ],
     });
+    m.revokeSession.mockResolvedValue({});
+    m.revokeAllUserSessions.mockResolvedValue({});
+    const dialogs = autoAnswerKitDialogs({ confirm: true });
     renderModal();
     await openUser("zoey");
-    await userEvent.click(screen.getByTestId("admin-user-tab-sessions"));
     expect(await screen.findByTestId("admin-session-s1")).toBeTruthy();
+    expect(screen.getByTestId("admin-session-s5")).toBeTruthy();
     expect(screen.queryByTestId("admin-session-s2")).toBeNull();
     expect(screen.queryByTestId("admin-session-s3")).toBeNull();
     expect(screen.queryByTestId("admin-session-s4")).toBeNull();
+    expect(screen.getByText("Signed in · 2")).toBeTruthy();
+
+    await userEvent.click(screen.getByTestId("admin-session-revoke-s1"));
+    await waitFor(() => expect(m.revokeSession).toHaveBeenCalledWith("s1"));
+    expect(dialogs.calls[0].opts.title).toBe("Log out this device?");
+
+    await userEvent.click(screen.getByTestId("admin-user-sessions-revoke-all"));
+    await waitFor(() => expect(m.revokeAllUserSessions).toHaveBeenCalledWith("u2", false));
+    expect(dialogs.calls[1].opts.title).toBe("Log zoey out everywhere?");
+  });
+
+  it("says when someone isn't signed in anywhere, with no log-out-everywhere row", async () => {
+    renderModal();
+    await openUser("zoey");
+    expect(await screen.findByTestId("admin-user-sessions-empty")).toBeTruthy();
+    expect(screen.queryByTestId("admin-user-sessions-revoke-all")).toBeNull();
   });
 
   it("shows only hosts the user owns", async () => {
     m.getSSHHosts.mockResolvedValue([
-      {
-        id: 1,
-        name: "t1000",
-        ip: "10.0.0.1",
-        port: 22,
-        username: "zoey",
-        userId: "u2",
-        status: "online",
-      },
-      {
-        id: 2,
-        name: "other",
-        ip: "10.0.0.2",
-        port: 22,
-        username: "alice",
-        userId: "me",
-        status: "online",
-      },
+      { id: 1, name: "t1000", ip: "10.0.0.1", port: 22, username: "zoey", userId: "u2", status: "online" },
+      { id: 2, name: "other", ip: "10.0.0.2", port: 22, username: "alice", userId: "me", status: "online" },
     ]);
     renderModal();
     await openUser("zoey");
-    await userEvent.click(screen.getByTestId("admin-user-tab-hosts"));
-    expect((await screen.findByTestId("admin-host-1")).textContent).toContain(
-      "t1000",
-    );
-    expect(screen.queryByTestId("admin-host-2")).toBeNull();
+    expect((await screen.findByTestId("admin-user-host-1")).textContent).toContain("t1000");
+    expect(screen.queryByTestId("admin-user-host-2")).toBeNull();
+    expect(screen.getByText("Hosts · 1")).toBeTruthy();
     expect(m.getSSHHosts).toHaveBeenCalledWith(false);
   });
 });
 
-describe("AdminModal — Sign-in tab", () => {
-  it("hides OIDC-only toggles when OIDC isn't in use", async () => {
-    m.getUserList.mockResolvedValue({
-      users: USERS.map((u) => ({ ...u, isOidc: false })),
-    });
+describe("AdminModal — Sign-in", () => {
+  it("hides OIDC-only switches when OIDC isn't in use", async () => {
+    m.getUserList.mockResolvedValue({ users: USERS.map((u) => ({ ...u, isOidc: false })) });
     renderModal();
     await screen.findByTestId("admin-users-pane");
     await userEvent.click(screen.getByTestId("admin-tab-signin"));
@@ -373,24 +441,66 @@ describe("AdminModal — Sign-in tab", () => {
     expect(m.getPasswordLoginAllowed).not.toHaveBeenCalled();
   });
 
-  it("shows OIDC-only toggles when a provider is configured", async () => {
+  it("shows OIDC-only switches when a provider is configured", async () => {
     m.getOIDCConfig.mockResolvedValue({ client_id: "abc" });
     renderModal();
     await screen.findByTestId("admin-users-pane");
     await userEvent.click(screen.getByTestId("admin-tab-signin"));
-    expect(
-      await screen.findByTestId("admin-signin-passwordLogin"),
-    ).toBeTruthy();
+    expect(await screen.findByTestId("admin-signin-passwordLogin")).toBeTruthy();
     expect(screen.getByTestId("admin-signin-oidcAutoProvision")).toBeTruthy();
+  });
+
+  it("session length saves when the box is left, with no Save button", async () => {
+    const settings = await import("@/api/settings-api");
+    (settings.updateSessionTimeout as ReturnType<typeof vi.fn>).mockResolvedValue({});
+    renderModal();
+    await screen.findByTestId("admin-users-pane");
+    await userEvent.click(screen.getByTestId("admin-tab-signin"));
+    const box = (await screen.findByTestId("admin-signin-timeout-input")) as HTMLInputElement;
+    await waitFor(() => expect(box.value).toBe("24"));
+    expect(screen.queryByTestId("admin-signin-timeout-save")).toBeNull();
+    await userEvent.clear(box);
+    await userEvent.type(box, "48");
+    box.blur();
+    await waitFor(() => expect(settings.updateSessionTimeout).toHaveBeenCalledWith(48));
+    expect(await screen.findByText(/^Saved\./)).toBeTruthy();
+  });
+
+  it("an out-of-range session length isn't saved and says what's allowed", async () => {
+    const settings = await import("@/api/settings-api");
+    renderModal();
+    await screen.findByTestId("admin-users-pane");
+    await userEvent.click(screen.getByTestId("admin-tab-signin"));
+    const box = (await screen.findByTestId("admin-signin-timeout-input")) as HTMLInputElement;
+    await waitFor(() => expect(box.value).toBe("24"));
+    await userEvent.clear(box);
+    await userEvent.type(box, "999");
+    box.blur();
+    expect(screen.getByText(/between 1 and 720/)).toBeTruthy();
+    expect(settings.updateSessionTimeout).not.toHaveBeenCalled();
   });
 });
 
-describe("AdminModal — Hosts tab", () => {
-  it("opens the Hosts pane from the side list", async () => {
-    renderModal();
+describe("AdminModal — Instance file", () => {
+  it("another section or the X with unsaved edits asks first; 'keep editing' stays", async () => {
+    const onOpenChange = vi.fn();
+    const answers = [false, false, true];
+    const dialogs = autoAnswerKitDialogs({ confirm: () => answers.shift() ?? true });
+    render(<AdminModal open onOpenChange={onOpenChange} currentUserId="me" />);
     await screen.findByTestId("admin-users-pane");
-    await userEvent.click(screen.getByTestId("admin-tab-hosts"));
-    expect(await screen.findByTestId("admin-hosts-pane")).toBeTruthy();
-    expect(await screen.findByText("No hosts yet.")).toBeTruthy();
+    await userEvent.click(screen.getByTestId("admin-tab-instance-file"));
+    await userEvent.click(await screen.findByTestId("admin-instance-file-edit"));
+    await userEvent.type(await screen.findByRole("textbox"), "!");
+
+    await userEvent.click(screen.getByTestId("admin-tab-users"));
+    await waitFor(() => expect(dialogs.calls).toHaveLength(1));
+    expect(screen.getByRole("textbox")).toBeTruthy();
+
+    await userEvent.click(screen.getByTestId("admin-close"));
+    await waitFor(() => expect(dialogs.calls).toHaveLength(2));
+    expect(onOpenChange).not.toHaveBeenCalled();
+
+    await userEvent.click(screen.getByTestId("admin-tab-users"));
+    expect(await screen.findByTestId("admin-users-pane")).toBeTruthy();
   });
 });

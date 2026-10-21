@@ -1,11 +1,13 @@
 /**
  * Admin helpers shared by the admin panel panes. The panes themselves are
  * built from the kit (`@/components/kit`); this file only keeps what the
- * kit doesn't cover — error-message recovery, the user avatar, and date
- * formatting.
+ * kit doesn't cover — error-message recovery, avatar URLs, dates, and the
+ * back control / Esc for the views one level deeper.
  */
 
-import { cn } from "@/lib/utils";
+import { useEffect, useRef } from "react";
+import { ChevronLeft } from "lucide-react";
+import { escBelongsElsewhere } from "@/components/modal";
 
 /**
  * Best human-readable message for a failed admin call. handleApiError
@@ -38,39 +40,6 @@ export function userInitial(username: string): string {
   return [...username.trim()][0]?.toUpperCase() ?? "?";
 }
 
-/** Initial-circle / uploaded-avatar, for places that aren't a KitListRow. */
-export function UserAvatar({
-  userId,
-  username,
-  avatarPath,
-  size = 28,
-}: {
-  userId: string;
-  username: string;
-  avatarPath: string | null;
-  size?: number;
-}) {
-  const src = userAvatarUrl(userId, avatarPath);
-  // The size is the caller's choice, so it's the one inline style here.
-  const dims = { width: size, height: size, fontSize: size * 0.45 };
-  return (
-    <span
-      aria-hidden="true"
-      className={cn(
-        "rounded-full shrink-0 overflow-hidden flex items-center justify-center font-semibold",
-        "bg-[var(--k-s3)] text-[var(--k-t1)]",
-      )}
-      style={dims}
-    >
-      {src ? (
-        <img src={src} alt="" className="w-full h-full object-cover" />
-      ) : (
-        userInitial(username)
-      )}
-    </span>
-  );
-}
-
 /** "3 Oct 2026, 14:05" — or the raw string when it doesn't parse. */
 export function formatAdminDate(value: string | null | undefined): string {
   if (!value) return "—";
@@ -87,4 +56,62 @@ export function formatAdminDate(value: string | null | undefined): string {
     hour: "2-digit",
     minute: "2-digit",
   });
+}
+
+// ─── One level deeper ────────────────────────────────────────────────────
+
+/** While `active`, Esc goes back one level instead of closing the window. */
+export function useEscBack(active: boolean, onBack: () => void): void {
+  const ref = useRef({ active, onBack });
+  ref.current = { active, onBack };
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent): void => {
+      if (e.key !== "Escape" || e.defaultPrevented || !ref.current.active) return;
+      if (escBelongsElsewhere(e)) return;
+      e.preventDefault();
+      e.stopPropagation();
+      ref.current.onBack();
+    };
+    window.addEventListener("keydown", onKey, true);
+    return () => window.removeEventListener("keydown", onKey, true);
+  }, []);
+}
+
+/** "‹ Users" — back to the list a deeper view came from. */
+export function AdminBack({
+  label,
+  onBack,
+  testId,
+}: {
+  label: string;
+  onBack: () => void;
+  testId: string;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onBack}
+      className="inline-flex items-center gap-0.5 -ml-1 py-1.5 pr-1.5 text-[14px] font-[550] text-[var(--k-acc-text)] cursor-pointer"
+      data-testid={testId}
+    >
+      <ChevronLeft size={18} aria-hidden="true" />
+      {label}
+    </button>
+  );
+}
+
+/** "just now" / "12m ago" / "3h ago" / "4d ago" — or the date when older. */
+export function relativeAdminTime(value: string | null | undefined, now: number): string {
+  if (!value) return "—";
+  const iso = /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/.test(value) ? `${value.replace(" ", "T")}Z` : value;
+  const t = Date.parse(iso);
+  if (Number.isNaN(t)) return value;
+  const s = Math.max(0, Math.round((now - t) / 1000));
+  if (s < 45) return "just now";
+  const m = Math.round(s / 60);
+  if (m < 60) return `${m}m ago`;
+  const h = Math.round(m / 60);
+  if (h < 48) return `${h}h ago`;
+  const d = Math.round(h / 24);
+  return d < 30 ? `${d}d ago` : formatAdminDate(value);
 }

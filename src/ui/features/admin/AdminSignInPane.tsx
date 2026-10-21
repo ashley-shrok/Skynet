@@ -3,7 +3,8 @@
  *
  *   - Allow registration (new accounts from the login page)
  *   - Allow password reset
- *   - Session timeout (hours a login stays valid)
+ *   - Sign-ins last (hours a login stays valid) — saves when the box is
+ *     left or Enter is pressed, like every other setting here
  *
  * OIDC-only controls — "allow password login" and "auto-provision OIDC
  * users" — render only when the instance actually uses OIDC. Turning off
@@ -14,7 +15,6 @@
 import { useEffect, useState } from "react";
 import {
   KitBanner,
-  KitButton,
   KitInput,
   KitSettingsGroup,
   KitSettingsRow,
@@ -149,6 +149,7 @@ export function AdminSignInPane({ oidcInUse }: { oidcInUse: boolean }) {
   const timeoutDirty = timeout !== null && parsedTimeout !== timeout;
 
   const saveTimeout = async () => {
+    if (!timeoutValid || !timeoutDirty || timeoutBusy) return;
     setTimeoutBusy(true);
     setTimeoutError(null);
     setTimeoutSaved(false);
@@ -167,7 +168,7 @@ export function AdminSignInPane({ oidcInUse }: { oidcInUse: boolean }) {
 
   return (
     <div
-      className="flex flex-col gap-[22px] px-6 py-5 max-sm:px-5"
+      className="flex flex-col gap-5"
       data-testid="admin-signin-pane"
     >
       <div className="flex flex-col gap-2">
@@ -206,20 +207,24 @@ export function AdminSignInPane({ oidcInUse }: { oidcInUse: boolean }) {
 
       <div className="flex flex-col gap-2">
         <KitSettingsGroup
-          title="Session timeout"
-          footer="How long a login stays valid before the user has to sign in again. Applies to new logins."
+          title="Staying signed in"
+          footer={
+            timeoutSaved && !timeoutDirty
+              ? "Saved. New sign-ins last this long; ones already made keep their old length."
+              : "How long a sign-in lasts before the user has to sign in again — 1 to 720 hours. Applies to new sign-ins."
+          }
         >
-          {timeout === null && !timeoutError ? (
-            <KitSettingsRow label="Session timeout" value="Loading…" />
-          ) : (
-            <KitSettingsRow
-              label="Hours"
-              control={
+          <KitSettingsRow
+            label="Sign-ins last"
+            control={
+              timeout === null && !timeoutError ? (
+                <span className="k-row-value">Loading…</span>
+              ) : (
                 <form
                   className="flex items-center gap-2"
                   onSubmit={(e) => {
                     e.preventDefault();
-                    if (timeoutValid && timeoutDirty) void saveTimeout();
+                    void saveTimeout();
                   }}
                 >
                   <KitInput
@@ -229,7 +234,7 @@ export function AdminSignInPane({ oidcInUse }: { oidcInUse: boolean }) {
                     max={MAX_TIMEOUT_HOURS}
                     step={1}
                     data-testid="admin-signin-timeout-input"
-                    aria-label="Session timeout in hours"
+                    aria-label="Sign-ins last, in hours"
                     value={timeoutDraft}
                     disabled={timeoutBusy || timeout === null}
                     invalid={!timeoutValid && timeoutDraft !== ""}
@@ -238,22 +243,14 @@ export function AdminSignInPane({ oidcInUse }: { oidcInUse: boolean }) {
                       setTimeoutSaved(false);
                       setTimeoutError(null);
                     }}
-                    className="w-24"
+                    onBlur={() => void saveTimeout()}
+                    className="w-20 text-right"
                   />
-                  <KitButton
-                    type="submit"
-                    size="sm"
-                    variant="primary"
-                    data-testid="admin-signin-timeout-save"
-                    busy={timeoutBusy}
-                    disabled={!timeoutValid || !timeoutDirty}
-                  >
-                    {timeoutBusy ? "Saving…" : "Save"}
-                  </KitButton>
+                  <span className="text-[14px] text-[var(--k-t2)]">{timeoutBusy ? "saving…" : "hours"}</span>
                 </form>
-              }
-            />
-          )}
+              )
+            }
+          />
         </KitSettingsGroup>
         {!timeoutValid && timeoutDraft !== "" && (
           <KitBanner tone="danger">
@@ -265,9 +262,6 @@ export function AdminSignInPane({ oidcInUse }: { oidcInUse: boolean }) {
           <KitBanner tone="danger" data-testid="admin-signin-timeout-error">
             {timeoutError}
           </KitBanner>
-        )}
-        {timeoutSaved && !timeoutError && (
-          <KitBanner tone="ok">Saved</KitBanner>
         )}
       </div>
     </div>

@@ -115,7 +115,7 @@ export function AdminSystemPane() {
 
   return (
     <div
-      className="flex flex-col gap-[22px] px-6 py-5 max-sm:px-5"
+      className="flex flex-col gap-5"
       data-testid="admin-system-pane"
     >
       <div className="flex flex-col gap-2">
