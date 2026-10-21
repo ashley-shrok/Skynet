@@ -12,6 +12,11 @@
 // drag source inside dragstart cancels the drag. A drop can re-render the
 // source row so its dragend never reaches the document; since no mousemove
 // fires during an HTML5 drag, the first mousemove afterwards also ends it.
+//
+// Mouse motion over an embedded frame (app panes, viewers) never reaches this
+// document; entering one shows up as a mouseover on the <iframe> element,
+// which is taken as the pointer's last position. Resting on the window edge
+// directly over a frame therefore doesn't open the peek.
 
 import { useCallback, useEffect, useRef, useState, type RefObject } from "react";
 import { systemLogger } from "@/lib/frontend-logger";
@@ -67,6 +72,8 @@ export function useSidebarPeek({ enabled, width, panelRef, toggleRef }: UseSideb
   const slideTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const widthRef = useRef(width);
   widthRef.current = width;
+  // Re-check the pointer's last position (e.g. when a slide-out finishes).
+  const evaluateRef = useRef<() => void>(() => {});
 
   const clearTimers = useCallback(() => {
     for (const t of [openTimer, closeTimer, slideTimer]) {
@@ -83,11 +90,20 @@ export function useSidebarPeek({ enabled, width, panelRef, toggleRef }: UseSideb
       stateRef.current = next;
       setState(next);
       systemLogger.info(`sidebar-peek ${prev}→${next}`, { operation: "sidebar_peek", prev, next, reason });
+      if (next === "closing" || (next === "closed" && reason !== "disabled")) {
+        // Focus left on a row in the hidden panel would let Enter/Space act
+        // on something invisible. ("disabled" = pinned open: focus stays.)
+        const active = document.activeElement;
+        if (active instanceof HTMLElement && panelRef.current?.contains(active)) active.blur();
+      }
       if (next === "closing") {
-        slideTimer.current = setTimeout(() => go("closed", "slide-done"), PEEK_SLIDE_MS);
+        slideTimer.current = setTimeout(() => {
+          go("closed", "slide-done");
+          evaluateRef.current();
+        }, PEEK_SLIDE_MS);
       }
     },
-    [clearTimers],
+    [clearTimers, panelRef],
   );
 
   const close = useCallback(
@@ -114,7 +130,7 @@ export function useSidebarPeek({ enabled, width, panelRef, toggleRef }: UseSideb
 
     const evaluate = () => {
       const s = stateRef.current;
-      if (s === "closed" || s === "closing") {
+      if (s === "closed") {
         if (x <= PEEK_EDGE_PX) {
           if (openTimer.current === null) {
             openTimer.current = setTimeout(() => go("open", "edge-hover"), PEEK_OPEN_DELAY_MS);
@@ -138,6 +154,8 @@ export function useSidebarPeek({ enabled, width, panelRef, toggleRef }: UseSideb
       }
     };
 
+    evaluateRef.current = evaluate;
+
     const onMove = (e: MouseEvent) => {
       x = e.clientX;
       y = e.clientY;
@@ -147,6 +165,20 @@ export function useSidebarPeek({ enabled, width, panelRef, toggleRef }: UseSideb
     const onLeaveWindow = () => {
       x = Number.POSITIVE_INFINITY;
       evaluate();
+    };
+    const onOver = (e: MouseEvent) => {
+      if (!(e.target instanceof HTMLIFrameElement)) return;
+      x = e.clientX;
+      y = e.clientY;
+      evaluate();
+    };
+    // Focus leaving a typed-in search box (possibly into a frame) can release
+    // the hold without any mousemove following.
+    const onFocusOut = () => setTimeout(evaluate, 0);
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape" && stateRef.current === "open" && !holdOpen(panelRef.current)) {
+        go("closing", "escape");
+      }
     };
     // Bubble phase: the row's own dragstart has already set its MIME types.
     const onDragStart = (e: DragEvent) => {
@@ -171,15 +203,22 @@ export function useSidebarPeek({ enabled, width, panelRef, toggleRef }: UseSideb
     const root = document.documentElement;
     document.addEventListener("mousemove", onMove, { passive: true });
     root.addEventListener("mouseleave", onLeaveWindow);
+    document.addEventListener("mouseover", onOver, { passive: true });
+    document.addEventListener("focusout", onFocusOut, true);
+    document.addEventListener("keydown", onKeyDown);
     document.addEventListener("dragstart", onDragStart);
     document.addEventListener("dragend", onDropOrEnd, true);
     document.addEventListener("drop", onDropOrEnd, true);
     return () => {
       document.removeEventListener("mousemove", onMove);
       root.removeEventListener("mouseleave", onLeaveWindow);
+      document.removeEventListener("mouseover", onOver);
+      document.removeEventListener("focusout", onFocusOut, true);
+      document.removeEventListener("keydown", onKeyDown);
       document.removeEventListener("dragstart", onDragStart);
       document.removeEventListener("dragend", onDropOrEnd, true);
       document.removeEventListener("drop", onDropOrEnd, true);
+      evaluateRef.current = () => {};
       clearTimers();
     };
   }, [enabled, go, clearTimers, panelRef, toggleRef]);

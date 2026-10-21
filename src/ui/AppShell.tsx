@@ -4,7 +4,7 @@ import { toast } from "sonner";
 import { useTranslation } from "react-i18next";
 import { Sheet, SheetContent } from "@/components/sheet";
 import { ChevronLeft } from "lucide-react";
-import { useState, useRef, useCallback, useEffect, useMemo, createRef, startTransition } from "react";
+import { useState, useRef, useCallback, useEffect, useLayoutEffect, useMemo, createRef, startTransition } from "react";
 import { createPortal } from "react-dom";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { useIsTouchDevice } from "@/hooks/use-is-touch-device";
@@ -486,16 +486,29 @@ export function AppShell({
     toggleRef: sidebarToggleRef,
   });
   const sidebarPeekOpen = sidebarPeek.state === "open";
-  // Pinning from the peek (toggle click while peeking) shows the in-flow
-  // sidebar at full width at once instead of re-growing it from 0.
-  const [sidebarPinnedFromPeek, setSidebarPinnedFromPeek] = useState(false);
+  // When a peek ends, the column drops back in flow (width 0 when it slid
+  // away, full width when pinned from the toggle) without the width
+  // transition — otherwise it would visibly re-enter the layout and resize.
+  const sidebarPeekActive = sidebarPeek.state !== "closed";
+  const prevSidebarPeekActiveRef = useRef(false);
+  const sidebarPeekJustEnded = !sidebarPeekActive && prevSidebarPeekActiveRef.current;
+  const [sidebarPeekSettling, setSidebarPeekSettling] = useState(false);
+  useLayoutEffect(() => {
+    prevSidebarPeekActiveRef.current = sidebarPeekActive;
+    if (sidebarPeekJustEnded) setSidebarPeekSettling(true);
+  });
   useEffect(() => {
-    if (!sidebarPinnedFromPeek) return;
-    const id = requestAnimationFrame(() =>
-      requestAnimationFrame(() => setSidebarPinnedFromPeek(false)),
-    );
-    return () => cancelAnimationFrame(id);
-  }, [sidebarPinnedFromPeek]);
+    if (!sidebarPeekSettling) return;
+    let inner = 0;
+    const outer = requestAnimationFrame(() => {
+      inner = requestAnimationFrame(() => setSidebarPeekSettling(false));
+    });
+    return () => {
+      cancelAnimationFrame(outer);
+      cancelAnimationFrame(inner);
+    };
+  }, [sidebarPeekSettling]);
+  const sidebarNoWidthTransition = sidebarPeekJustEnded || sidebarPeekSettling;
   const {
     byKey: identitiesByKey,
     byHostKey: identitiesByHostKey,
@@ -3864,7 +3877,6 @@ export function AppShell({
             ref={sidebarToggleRef}
             onClick={() => {
               if (isTouchDevice) return navigateToList();
-              if (sidebarPeekOpen) setSidebarPinnedFromPeek(true);
               setSidebarOpen(!sidebarOpen);
             }}
             aria-label={t(
@@ -3912,7 +3924,7 @@ export function AppShell({
                   ? "calc(max(env(safe-area-inset-left), 0px) + 1.25rem)"
                   : "max(env(safe-area-inset-left), 8px)",
               zIndex: sidebarPeekOpen ? 46 : 30,
-              transition: sidebarDragging || sidebarPinnedFromPeek ? "none" : "left 0.2s",
+              transition: sidebarDragging ? "none" : "left 0.2s",
               // Touch-only hue-glass treatment: identity-avatar-badge visual
               // language (round, hue-tinted gradient, inset highlight + outer
               // glow). Patch #272 (user 2026-08-02) — recoloured from the
@@ -3966,9 +3978,9 @@ export function AppShell({
           <div
             ref={sidebarPanelRef}
             data-sidebar-peek={sidebarPeek.state}
-            className={`relative flex flex-col bg-[color:var(--color-pv-base)] shrink-0 overflow-hidden ${sidebarOpen || sidebarPeek.state !== "closed" ? `border-r transition-colors ${sidebarDragging ? "border-[hsla(var(--pv-hue,35),55%,50%,0.6)]" : "border-[color:var(--color-pv-border-quiet)]"}` : ""}`}
+            className={`relative flex flex-col bg-[color:var(--color-pv-base)] shrink-0 overflow-hidden ${sidebarOpen || sidebarPeekActive ? `border-r transition-colors ${sidebarDragging ? "border-[hsla(var(--pv-hue,35),55%,50%,0.6)]" : "border-[color:var(--color-pv-border-quiet)]"}` : ""}`}
             style={
-              sidebarPeek.state !== "closed"
+              sidebarPeekActive
                 ? {
                     position: "fixed",
                     left: 0,
@@ -3982,7 +3994,7 @@ export function AppShell({
                   }
                 : {
                     width: sidebarOpen ? sidebarPanelWidth : 0,
-                    transition: sidebarDragging || sidebarPinnedFromPeek ? "none" : "width 0.2s",
+                    transition: sidebarDragging || sidebarNoWidthTransition ? "none" : "width 0.2s",
                   }
             }
           >

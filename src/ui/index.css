@@ -572,6 +572,9 @@ html.fs-xl {
 }
 
 @media (prefers-reduced-motion: reduce) {
+  [data-sidebar-peek] {
+    animation-duration: 1ms !important;
+  }
   .pv-identity-breathe::after,
   .pv-side-button {
     animation: none !important;

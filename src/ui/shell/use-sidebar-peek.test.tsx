@@ -168,6 +168,51 @@ describe("useSidebarPeek", () => {
     expect(peek.state).toBe("open");
   });
 
+  it("moving onto an embedded frame counts as leaving (its mousemoves never reach us)", () => {
+    render(<Harness />);
+    openPeek();
+    move(WIDTH - 20);
+    const frame = document.createElement("iframe");
+    document.body.appendChild(frame);
+    act(() => {
+      frame.dispatchEvent(new MouseEvent("mouseover", { clientX: WIDTH + 5, clientY: 100, bubbles: true }));
+    });
+    advance(PEEK_CLOSE_DELAY_MS);
+    expect(peek.state).toBe("closing");
+    frame.remove();
+  });
+
+  it("Escape slides it away", () => {
+    render(<Harness />);
+    openPeek();
+    act(() => {
+      document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+    });
+    expect(peek.state).toBe("closing");
+  });
+
+  it("doesn't restart mid-slide; re-opens after the slide if the mouse is still at the edge", () => {
+    render(<Harness />);
+    openPeek();
+    act(() => peek.close("test"));
+    move(2);
+    advance(PEEK_OPEN_DELAY_MS - 1);
+    expect(peek.state).not.toBe("open");
+    advance(PEEK_SLIDE_MS + PEEK_OPEN_DELAY_MS);
+    expect(peek.state).toBe("open");
+  });
+
+  it("closing moves focus out of the hidden panel", () => {
+    const { getByTestId } = render(<Harness />);
+    openPeek();
+    const row = getByTestId("row");
+    row.tabIndex = 0;
+    act(() => row.focus());
+    expect(document.activeElement).toBe(row);
+    act(() => peek.close("test"));
+    expect(document.activeElement).not.toBe(row);
+  });
+
   it("does nothing while disabled, and resets when disabled mid-peek", () => {
     const { rerender } = render(<Harness enabled={false} />);
     move(2);
