@@ -110,9 +110,16 @@ cmd_draft() {
     rm -f "$raw" "$mask" "$draft" "$preview"
 
     log "generating symbol: $symbol"
-    image-gen "a single bold, simple, pure white symbol of ${symbol}, logo-like, centered, on a pure black background. Thick, clean shapes that stay readable when tiny; a flat white silhouette with any interior detail cut out in black. No text, no letters, no other colors, no gradient, no shading, no glow, no border, no frame, only one object." \
+    image-gen "a single bold, simple, pure white symbol of ${symbol}, drawn as a flat icon-font glyph, logo-like, centered, on a pure black background. Thick, clean shapes that stay readable when tiny; a flat white silhouette with any interior detail cut out in black. No text, no letters, no other colors, no gradient, no shading, no glow, no border, no frame, only one object." \
         --size 1024x1024 --quality high --out "$raw" >/dev/null \
         || die "image-gen failed (see its error above)"
+
+    # A clean symbol is near-pure white on near-pure black; grey only on its
+    # anti-aliased edges. Lots of grey means a glow, haze or shading the
+    # generator added anyway, which can't be cleanly cut out.
+    if [ "$(convert "$raw" -alpha off -colorspace gray -fx '(u>0.15&&u<0.85)?1:0' -format '%[fx:mean>0.03]' info:)" = 1 ]; then
+        die "the generated symbol has a glow or shading — draft again (this counts as one of the tries)"
+    fi
 
     # Luminance → mask. If the generator inverted the request (dark symbol on
     # a light background), flip it so the symbol is always the opaque part.
