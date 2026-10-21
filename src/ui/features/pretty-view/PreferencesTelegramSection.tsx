@@ -26,7 +26,6 @@ import {
 import {
   KitBanner,
   KitButton,
-  KitField,
   KitInput,
   KitLoading,
   KitSettingsGroup,
@@ -47,8 +46,6 @@ type TestStatus =
   | { kind: "ok" }
   | { kind: "fail"; message: string };
 
-const mutedText = "m-0 text-[13px] leading-[19px] text-[var(--k-t2)]";
-const linkClass = "text-[var(--k-acc-text)] underline";
 
 function SetupSteps({ onSaved }: { onSaved: (s: TelegramStatus) => void }): ReactElement {
   const [token, setToken] = useState("");
@@ -72,58 +69,96 @@ function SetupSteps({ onSaved }: { onSaved: (s: TelegramStatus) => void }): Reac
   );
 
   return (
-    <div className="flex flex-col gap-4" data-testid="preferences-telegram-setup">
-      <p className={mutedText}>
-        Notifications arrive as messages from your own Telegram bot. Setting
-        one up takes a minute:
-      </p>
-      <ol className={`${mutedText} pl-5 list-decimal flex flex-col gap-1`}>
-        <li>
-          In Telegram, open{" "}
-          <a href="https://t.me/BotFather" target="_blank" rel="noopener noreferrer" className={linkClass}>
-            @BotFather
-          </a>{" "}
-          and send <strong className="text-[var(--k-t1)]">/newbot</strong>.
-        </li>
-        <li>
-          Give it any name, then a username ending in{" "}
-          <strong className="text-[var(--k-t1)]">bot</strong>.
-        </li>
-        <li>BotFather replies with a token. Copy it and paste it here.</li>
-      </ol>
-      <form onSubmit={(e) => void handleSubmit(e)}>
-        <KitField
-          label="Bot token"
-          error={
-            error ? <span data-testid="preferences-telegram-token-error">{error}</span> : undefined
+    <form onSubmit={(e) => void handleSubmit(e)} data-testid="preferences-telegram-setup">
+      <KitSettingsGroup
+        title="Set up your bot — about a minute"
+        footer={
+          error ? (
+            <span className="k-err" role="alert" data-testid="preferences-telegram-token-error">
+              {error}
+            </span>
+          ) : (
+            "The token is checked with Telegram before it's saved."
+          )
+        }
+      >
+        <KitSettingsRow
+          leading={<StepNumber n={1} />}
+          label={
+            <>
+              Open <strong>@BotFather</strong> in Telegram and send <strong>/newbot</strong>
+            </>
           }
-        >
-          <div className="flex gap-2 flex-wrap">
-            <KitInput
-              type="text"
-              mono
-              value={token}
-              onChange={(e) => setToken(e.target.value)}
-              placeholder="123456789:AA…"
-              autoComplete="off"
-              spellCheck={false}
-              aria-label="Bot token"
-              data-testid="preferences-telegram-token-input"
-              className="flex-[1_1_200px] w-auto"
-            />
-            <KitButton
-              type="submit"
-              variant="primary"
-              disabled={token.trim() === ""}
-              busy={saving}
-              data-testid="preferences-telegram-token-save"
+          control={
+            <a
+              href="https://t.me/BotFather"
+              target="_blank"
+              rel="noopener noreferrer"
+              data-slot="kit-button"
+              data-size="sm"
+              className="k-btn no-underline shrink-0"
+              data-testid="preferences-telegram-open-botfather"
             >
-              {saving ? "Checking…" : "Save"}
-            </KitButton>
-          </div>
-        </KitField>
-      </form>
-    </div>
+              Open BotFather
+            </a>
+          }
+        />
+        <KitSettingsRow
+          leading={<StepNumber n={2} />}
+          label={
+            <>
+              Give it any name, then a username ending in <strong>bot</strong>
+            </>
+          }
+        />
+        <KitSettingsRow
+          stacked
+          label={
+            <span className="flex items-center gap-3">
+              <StepNumber n={3} />
+              <label htmlFor="preferences-telegram-token">Paste the token BotFather sends you</label>
+            </span>
+          }
+          control={
+            <span className="flex gap-2 pl-9 max-sm:pl-0">
+              <KitInput
+                id="preferences-telegram-token"
+                type="text"
+                mono
+                value={token}
+                onChange={(e) => setToken(e.target.value)}
+                placeholder="123456789:AA…"
+                autoComplete="off"
+                spellCheck={false}
+                aria-label="Bot token"
+                data-testid="preferences-telegram-token-input"
+                className="flex-1 min-w-0 w-auto"
+              />
+              <KitButton
+                type="submit"
+                variant="primary"
+                disabled={token.trim() === ""}
+                busy={saving}
+                data-testid="preferences-telegram-token-save"
+              >
+                {saving ? "Checking…" : "Connect"}
+              </KitButton>
+            </span>
+          }
+        />
+      </KitSettingsGroup>
+    </form>
+  );
+}
+
+function StepNumber({ n }: { n: number }): ReactElement {
+  return (
+    <span
+      aria-hidden="true"
+      className="grid place-items-center size-6 shrink-0 rounded-full bg-[var(--k-s3)] text-[12px] font-bold text-[var(--k-t1)]"
+    >
+      {n}
+    </span>
   );
 }
 
@@ -253,35 +288,60 @@ export function PreferencesTelegramSection(): ReactElement {
     content = <SetupSteps onSaved={setStatus} />;
   } else if (!status.linked) {
     content = (
-      <div className="flex flex-col gap-3" data-testid="preferences-telegram-awaiting-start">
-        <p className={mutedText}>
-          Your bot <strong className="text-[var(--k-t1)]">@{status.botUsername}</strong> is ready. Tap{" "}
-          <strong className="text-[var(--k-t1)]">Open my bot</strong>, then tap{" "}
-          <strong className="text-[var(--k-t1)]">Start</strong> in Telegram.
-        </p>
-        <div className="flex gap-2.5 flex-wrap">
-          {linkUrl ? (
-            // A real link styled as the kit's main button — see the header
-            // note on why this can't be a window.open after an await.
-            <a
-              href={linkUrl}
-              target="_blank"
-              rel="noopener noreferrer"
-              onClick={handleOpenBotClick}
-              data-testid="preferences-telegram-open-bot"
-              data-slot="kit-button"
-              data-variant="primary"
-              data-size="md"
-              className="k-btn no-underline"
-            >
-              Open my bot
-            </a>
-          ) : (
-            <KitButton variant="primary" disabled data-testid="preferences-telegram-open-bot-pending">
-              Open my bot
-            </KitButton>
-          )}
-          <KitButton
+      <div data-testid="preferences-telegram-awaiting-start">
+        <KitSettingsGroup
+          footer={
+            waiting ? (
+              <span data-testid="preferences-telegram-waiting">
+                Waiting for you to tap Start in Telegram…
+              </span>
+            ) : (
+              <>
+                Tap <strong>Open my bot</strong>, then tap <strong>Start</strong> in Telegram.
+              </>
+            )
+          }
+        >
+          <KitSettingsRow
+            label={
+              <>
+                Your bot <strong>@{status.botUsername}</strong> is ready
+              </>
+            }
+            description="One last step links it to you."
+            control={
+              linkUrl ? (
+                // A real link styled as the kit's main button — see the header
+                // note on why this can't be a window.open after an await.
+                <a
+                  href={linkUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  onClick={handleOpenBotClick}
+                  data-testid="preferences-telegram-open-bot"
+                  data-slot="kit-button"
+                  data-variant="primary"
+                  data-size="sm"
+                  className="k-btn no-underline shrink-0"
+                >
+                  Open my bot
+                </a>
+              ) : (
+                <KitButton
+                  variant="primary"
+                  size="sm"
+                  disabled
+                  data-testid="preferences-telegram-open-bot-pending"
+                >
+                  Open my bot
+                </KitButton>
+              )
+            }
+          />
+        </KitSettingsGroup>
+        <KitSettingsGroup>
+          <KitSettingsRow
+            label="Use a different bot"
             onClick={() =>
               void handleRemove({
                 title: "Use a different bot?",
@@ -291,19 +351,10 @@ export function PreferencesTelegramSection(): ReactElement {
               })
             }
             disabled={busy}
+            chevron={false}
             data-testid="preferences-telegram-use-different-bot"
-          >
-            Use a different bot
-          </KitButton>
-        </div>
-        {waiting && (
-          <span
-            className="text-[12.5px] text-[var(--k-t3)]"
-            data-testid="preferences-telegram-waiting"
-          >
-            Waiting for you to tap Start in Telegram…
-          </span>
-        )}
+          />
+        </KitSettingsGroup>
       </div>
     );
   } else {
@@ -322,10 +373,11 @@ export function PreferencesTelegramSection(): ReactElement {
                 ) : null}
               </>
             }
-            description={`Notifications arrive from your bot @${status.botUsername}.`}
+            description={`From your bot @${status.botUsername}`}
           />
           <KitSettingsRow
-            label="Only show who messaged, not the message text"
+            label="Only show who messaged"
+            description="Leave the message text out of notifications."
             control={
               <KitSwitch
                 checked={!!status.titleOnly}
@@ -337,14 +389,31 @@ export function PreferencesTelegramSection(): ReactElement {
             }
           />
         </KitSettingsGroup>
-        <KitSettingsGroup>
+        <KitSettingsGroup
+          footer={
+            testStatus.kind === "ok" || testStatus.kind === "fail" ? (
+              <span
+                className={testStatus.kind === "ok" ? "text-[var(--k-ok)]" : "k-err"}
+                data-testid="preferences-telegram-test-result"
+                role={testStatus.kind === "fail" ? "alert" : "status"}
+              >
+                {testStatus.kind === "ok"
+                  ? "✓ Test sent — check Telegram"
+                  : `Test failed: ${testStatus.message}`}
+              </span>
+            ) : undefined
+          }
+        >
           <KitSettingsRow
-            label={testStatus.kind === "pending" ? "Sending…" : "Send test notification"}
+            tone="accent"
+            label={testStatus.kind === "pending" ? "Sending…" : "Send a test notification"}
             onClick={() => void handleTest()}
             disabled={testStatus.kind === "pending"}
             chevron={false}
             data-testid="preferences-telegram-test"
           />
+        </KitSettingsGroup>
+        <KitSettingsGroup footer="Removes the bot from your settings. You can set it up again any time.">
           <KitSettingsRow
             tone="danger"
             label="Disconnect"
@@ -361,25 +430,12 @@ export function PreferencesTelegramSection(): ReactElement {
             data-testid="preferences-telegram-disconnect"
           />
         </KitSettingsGroup>
-        {(testStatus.kind === "ok" || testStatus.kind === "fail") && (
-          <span
-            className={
-              "mt-2 mx-1 text-[12.5px] " +
-              (testStatus.kind === "ok" ? "text-[var(--k-ok)]" : "text-[var(--k-danger-text)]")
-            }
-            data-testid="preferences-telegram-test-result"
-            role={testStatus.kind === "fail" ? "alert" : "status"}
-          >
-            {testStatus.kind === "ok" ? "✓ Test sent — check Telegram" : `Test failed: ${testStatus.message}`}
-          </span>
-        )}
       </div>
     );
   }
 
   return (
     <section className="flex flex-col" data-testid="preferences-telegram-section">
-      <h3 className="k-group-title">Telegram</h3>
       {content}
     </section>
   );

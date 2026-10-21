@@ -17,6 +17,7 @@ import { useState, useCallback, useEffect, useRef } from "react";
 import type { UserPreferences } from "@/api/open-tabs-api";
 import { saveUserPreferences } from "@/api/open-tabs-api";
 import { VoicePicker } from "./pickers/VoicePicker";
+import { useVoiceCatalog, voiceLabel } from "./pickers/useVoiceCatalog";
 import {
   KitButton,
   KitInput,
@@ -218,33 +219,50 @@ export function PreferencesVoicePane({
     [fallbackVoice, onUserPrefsChanged],
   );
 
+  // A saved voice the current voice service doesn't offer: say what plays
+  // instead, in the row itself.
+  const catalog = useVoiceCatalog();
+  const voiceUnavailable =
+    catalog.status === "ready" &&
+    fallbackVoice !== "" &&
+    !catalog.catalog.voices.some((v) => v.id === fallbackVoice);
+  const voiceDescription = voiceUnavailable
+    ? `${voiceLabel(catalog, fallbackVoice)} isn't one of the current voice service's voices, so replies use ${voiceLabel(catalog, catalog.catalog.defaultVoice)}.`
+    : undefined;
+
   return (
-    <div className="text-[13px]" data-testid="preferences-voice-pane">
-      {/* D-06: one-line blurb — verbatim wording from CONTEXT.md § Specifics */}
+    <div data-testid="preferences-voice-pane">
       <KitSettingsGroup
-        title="Voice"
         footer={
           error !== null ? (
-            // D-13: inline error display (per-CONTEXT.md error pattern)
             <span className="k-err" role="alert" data-testid="preferences-voice-error">
               {error}
             </span>
-          ) : undefined
+          ) : (
+            "Each agent can have its own voice; this is the one they use when they don't."
+          )
         }
       >
         <KitSettingsRow
-          stacked
-          label="The voice your agents use to speak."
+          label={<label htmlFor="preferences-voice-select">Voice</label>}
+          description={
+            voiceDescription ? (
+              <span data-testid="preferences-voice-unavailable">{voiceDescription}</span>
+            ) : undefined
+          }
           control={
-            <VoicePicker
-              id="preferences-voice-select"
-              value={fallbackVoice}
-              onChange={(next) => {
-                void handleVoiceChange(next);
-              }}
-              disabled={saving}
-              ariaLabel="The voice your agents use to speak"
-            />
+            <div className="w-[200px] max-sm:w-[160px] shrink-0">
+              <VoicePicker
+                id="preferences-voice-select"
+                value={fallbackVoice}
+                onChange={(next) => {
+                  void handleVoiceChange(next);
+                }}
+                disabled={saving}
+                ariaLabel="Voice"
+                hideUnavailableNote
+              />
+            </div>
           }
         />
       </KitSettingsGroup>
@@ -263,26 +281,30 @@ export function PreferencesVoicePane({
         }
       >
         <KitSettingsRow
-          label={<label htmlFor="preferences-voice-speed">How fast your agents speak.</label>}
-          value={
-            <span className="tabular-nums" data-testid="preferences-voice-speed-value">
-              {formatRate(speed)}
+          stacked
+          label={
+            <span className="flex items-center gap-2">
+              <label htmlFor="preferences-voice-speed" className="flex-1">
+                How fast replies are read
+              </label>
+              <span
+                className="tabular-nums font-semibold"
+                data-testid="preferences-voice-speed-value"
+              >
+                {formatRate(speed)}
+              </span>
+              <KitButton
+                size="sm"
+                variant="plain"
+                onClick={() => handleSpeedChange(TTS_PLAYBACK_RATE_DEFAULT)}
+                disabled={speed === TTS_PLAYBACK_RATE_DEFAULT}
+                data-testid="preferences-voice-speed-reset"
+              >
+                Reset
+              </KitButton>
             </span>
           }
           control={
-            <KitButton
-              size="sm"
-              variant="plain"
-              onClick={() => handleSpeedChange(TTS_PLAYBACK_RATE_DEFAULT)}
-              disabled={speed === TTS_PLAYBACK_RATE_DEFAULT}
-              data-testid="preferences-voice-speed-reset"
-            >
-              Reset
-            </KitButton>
-          }
-        />
-        <KitSettingsRow
-          label={
             <span className="flex items-center gap-3 text-[12px] text-[var(--k-t3)] tabular-nums">
               <span>{formatRate(TTS_PLAYBACK_RATE_MIN)}</span>
               <KitSlider
@@ -302,11 +324,15 @@ export function PreferencesVoicePane({
         />
       </KitSettingsGroup>
 
-      <fieldset
-        className="k-group-wrap m-0 p-0 border-0 min-w-0"
+      <section
+        className="k-group-wrap"
+        role="radiogroup"
+        aria-labelledby="preferences-voice-mode-turn-title"
         data-testid="preferences-voice-mode-turn"
       >
-        <legend className="k-group-title p-0">When voice mode sends what you said.</legend>
+        <h3 id="preferences-voice-mode-turn-title" className="k-group-title">
+          Voice mode sends what you said
+        </h3>
         <div className="k-group">
           <KitSettingsRow
             label={
@@ -360,21 +386,23 @@ export function PreferencesVoicePane({
                       (e.target as HTMLInputElement).blur();
                     }
                   }}
-                  className="max-w-[60%]"
+                  className="max-w-[60%] text-right"
                   data-testid="preferences-voice-mode-phrase"
                 />
               }
             />
           )}
         </div>
-        {turnError !== null && (
+        {turnError !== null ? (
           <p className="k-group-foot">
             <span className="k-err" role="alert" data-testid="preferences-voice-mode-turn-error">
               {turnError}
             </span>
           </p>
-        )}
-      </fieldset>
+        ) : endOfTurn === "phrase" ? (
+          <p className="k-group-foot">The phrase is left out of what&apos;s sent.</p>
+        ) : null}
+      </section>
     </div>
   );
 }

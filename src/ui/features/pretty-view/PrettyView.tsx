@@ -5457,14 +5457,12 @@ export function PrettyView({
           Fire paths (D-25 — thumbs-down submit AND thumbs-down dismiss
           BOTH fire exactly one email):
             - onSubmit(userNote): the user typed a note and clicked Send.
-              Fires the feedback POST with the typed userNote + toast +
-              clears context.
-            - onDismissWithoutSubmit(): the user closed the modal without
-              Send (close-X, backdrop click, Escape). FeedbackModal
-              invokes this callback internally BEFORE onOpenChange(false)
-              (see FeedbackModal.tsx L124-134). Fires the feedback POST
-              with an EMPTY userNote + toast; the onOpenChange(false)
-              that follows drops feedbackModalContext to null.
+              Fires the feedback POST with the typed userNote; the dialog
+              shows "Thanks — sent." and then closes itself.
+            - onDismissWithoutSubmit(): Send without a note, close-X or
+              Escape. Fires the feedback POST with an EMPTY userNote; the
+              onOpenChange(false) that follows drops feedbackModalContext
+              to null.
             - onOpenChange(next): only closes the modal (drops context to
               null) — do NOT invoke the POST here; the dismiss fire is
               handled by onDismissWithoutSubmit exclusively so the two
@@ -5477,24 +5475,15 @@ export function PrettyView({
         }}
         onSubmit={(userNote) => {
           if (feedbackModalContext == null) return;
-          // Fix L1 (2026-09-20): clear the context SYNCHRONOUSLY before firing
-          // the POST. If a Radix ESC / backdrop click races the Send click
-          // (both scheduled in the same tick), onDismissWithoutSubmit would
-          // otherwise see feedbackModalContext still non-null and fire a
-          // second postFeedback with empty userNote — double-firing the
-          // thumbs-down email. Reordering to clear-first means the dismiss
-          // handler's `if (feedbackModalContext == null) return;` guard
-          // short-circuits any racing dismiss. Snapshot the fields locally
-          // first so the POST still uses the pre-clear context.
+          // The dialog confirms, then closes itself (dropping the context via
+          // onOpenChange); it won't also fire onDismissWithoutSubmit once sent.
           const { eventId, exchangeText } = feedbackModalContext;
-          setFeedbackModalContext(null);
           void postFeedback({
             kind: "thumbs_down",
             userNote,
             messageRef: eventId,
             exchangeText,
           });
-          toast.success("Thanks — feedback sent.", { duration: 2000 });
         }}
         onDismissWithoutSubmit={() => {
           if (feedbackModalContext == null) return;
@@ -5504,10 +5493,8 @@ export function PrettyView({
             messageRef: feedbackModalContext.eventId,
             exchangeText: feedbackModalContext.exchangeText,
           });
-          toast.success("Thanks — feedback sent.", { duration: 2000 });
-          // Note: do NOT setFeedbackModalContext(null) here — Radix will
-          // invoke onOpenChange(false) immediately after this callback
-          // returns (FeedbackModal.tsx L124-134), which drops the context.
+          // Send without a note shows the dialog's own "Thanks — sent.";
+          // X / Esc close straight away (onOpenChange drops the context).
         }}
       />
 

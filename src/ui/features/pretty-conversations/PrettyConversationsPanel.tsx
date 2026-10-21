@@ -732,7 +732,7 @@ export function PrettyConversationsPanel({
   /**
    * Phase 137 D-30: current user's server userId from /users/me.userId.
    * Threaded through AppShell → PrettyConversationsPanel → PreferencesModal
-   * → PreferencesGeneralPane for the avatar PUT/DELETE endpoints.
+   * → PreferencesAccountPane for the avatar PUT/DELETE endpoints.
    */
   userId?: string;
   /**
@@ -4265,6 +4265,7 @@ export function PrettyConversationsPanel({
         userPrefs={userPrefs ?? {}}
         onUserPrefsChanged={onUserPrefsChanged}
         username={username}
+        isAdmin={isAdmin}
         hostTree={hostTree ?? null}
         defaultHostId={null}
       />

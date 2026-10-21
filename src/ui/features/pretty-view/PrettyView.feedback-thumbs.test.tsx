@@ -20,9 +20,12 @@
  *     userNote:"", messageRef, exchangeText } + toast.success.
  *   - Thumbs-down click opens the FeedbackModal in thumbs_down variant.
  *   - Modal Send fires postFeedback with { kind:"thumbs_down",
- *     userNote:<typed>, messageRef, exchangeText } + toast + closes.
+ *     userNote:<typed>, messageRef, exchangeText }; the dialog shows
+ *     "Thanks — sent." and closes itself (no toast).
  *   - Modal close-X fires postFeedback with { kind:"thumbs_down",
- *     userNote:"", messageRef, exchangeText } + toast (dismiss path).
+ *     userNote:"", messageRef, exchangeText } and closes (dismiss path).
+ *   - "Send without a note" fires the same empty-note vote once, shows the
+ *     sent state, then closes.
  *
  * Test structure borrows from the former PrettyView.autoplay.test.tsx (WS-stub-per-
  * render pattern) plus the feedback + voice mock recipe from
@@ -153,6 +156,7 @@ vi.mock("@/state/session-waiting-store", () => ({
 // ─── Imports (after mocks so vi.mock hoisting rebinds these correctly) ─────
 
 import { PrettyView } from "./PrettyView";
+import { FEEDBACK_SENT_MS } from "@/feedback/FeedbackModal";
 import { postFeedback } from "@/feedback/feedback-api";
 import { toast } from "sonner";
 import { useFeedbackEnabled } from "@/feedback/feedback-store";
@@ -325,7 +329,7 @@ describe("PrettyView feedback-thumbs plumbing (shape 3)", () => {
 
   // ─── Test 4: Modal submit fires thumbs_down payload with typed userNote ─
 
-  it("Test 4: modal Send fires postFeedback with kind=thumbs_down + typed userNote + closes modal", async () => {
+  it("Test 4: modal Send fires postFeedback with kind=thumbs_down + typed userNote, confirms, then closes itself", async () => {
     render(<PrettyView hostId={1} tmuxSession="s1" isVisible={true} />);
     const ws = getCurrentWs();
     flipToStreaming(ws);
@@ -376,13 +380,17 @@ describe("PrettyView feedback-thumbs plumbing (shape 3)", () => {
         exchangeText: expect.stringContaining("It is 4."),
       }),
     );
-    expect(toast.success).toHaveBeenCalledWith("Thanks — feedback sent.", {
-      duration: 2000,
-    });
-    // Modal closed after submit.
-    await waitFor(() => {
-      expect(screen.queryByTestId("feedback-dialog")).toBeNull();
-    });
+    // The dialog confirms in place — no toast — then closes itself.
+    expect(screen.getByTestId("feedback-sent").textContent).toContain("Thanks — sent.");
+    expect(toast.success).not.toHaveBeenCalled();
+    await waitFor(
+      () => {
+        expect(screen.queryByTestId("feedback-dialog")).toBeNull();
+      },
+      { timeout: FEEDBACK_SENT_MS + 2000 },
+    );
+    // Closing after the send doesn't fire a second (empty-note) vote.
+    expect(postFeedback).toHaveBeenCalledTimes(1);
   });
 
   // ─── Test 5: Modal dismiss (close-X) fires thumbs_down with EMPTY note ──
@@ -430,13 +438,57 @@ describe("PrettyView feedback-thumbs plumbing (shape 3)", () => {
         exchangeText: expect.stringContaining("What is 2+2?"),
       }),
     );
-    expect(toast.success).toHaveBeenCalledWith("Thanks — feedback sent.", {
-      duration: 2000,
-    });
+    expect(toast.success).not.toHaveBeenCalled();
     // Modal closed after dismiss.
     await waitFor(() => {
       expect(screen.queryByTestId("feedback-dialog")).toBeNull();
     });
+    expect(postFeedback).toHaveBeenCalledTimes(1);
+  });
+
+  // ─── Test 5b: Send without a note ───────────────────────────────────────
+
+  it("Test 5b: Send without a note fires one empty-note thumbs_down, confirms, then closes", async () => {
+    render(<PrettyView hostId={1} tmuxSession="s1" isVisible={true} />);
+    const ws = getCurrentWs();
+    flipToStreaming(ws);
+
+    fireMessageFrame(ws, {
+      type: "message",
+      role: "user",
+      content: "What is 2+2?",
+      eventId: "u1",
+      ts: 1,
+    });
+    fireMessageFrame(ws, {
+      type: "message",
+      role: "assistant",
+      content: "It is 4.",
+      eventId: "a1",
+      ts: 2,
+    });
+
+    await waitFor(() => {
+      expect(screen.getByTestId("pv-chat-message-thumbs-down")).toBeTruthy();
+    });
+    fireEvent.click(screen.getByTestId("pv-chat-message-thumbs-down"));
+    await waitFor(() => expect(screen.getByTestId("feedback-dialog")).toBeTruthy());
+
+    fireEvent.click(screen.getByTestId("feedback-send-without-note"));
+    expect(postFeedback).toHaveBeenCalledTimes(1);
+    expect(postFeedback).toHaveBeenCalledWith(
+      expect.objectContaining({ kind: "thumbs_down", userNote: "", messageRef: "a1" }),
+    );
+    expect(screen.getByTestId("feedback-sent")).toBeTruthy();
+    expect(toast.success).not.toHaveBeenCalled();
+
+    await waitFor(
+      () => {
+        expect(screen.queryByTestId("feedback-dialog")).toBeNull();
+      },
+      { timeout: FEEDBACK_SENT_MS + 2000 },
+    );
+    expect(postFeedback).toHaveBeenCalledTimes(1);
   });
 
   // ─── Test 6: RelayInboundBubble unaffected when feedback ON (D-53 #8) ───

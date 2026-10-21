@@ -1096,42 +1096,68 @@ crown, then gear.
   invoke it** — agents only, the user only, or both — unless they already
   said. Set the matching frontmatter flag (above) when you write it.
 
-- **⚙️ Gear icon — Preferences.**
-  - **Avatar** — the user's displayed avatar.
+- **⚙️ Gear icon — Preferences.** A side list that opens on the user's own
+  **account card** (picture and name); each section starts with its name
+  and a line saying what it's for, and settings save as they change (no
+  Close button — the ✕ closes).
+  - **Account** (the card) — the picture (click it, or **Choose…** /
+    **Remove**) and **Log out**, which asks first.
   - **About you** — content every one of the user's agents automatically
     sees. Good for shared preferences, info about the user, or anything
-    she'd otherwise have to re-tell each agent. The modal grows wider when
-    this section is active so there's room for the markdown editor; it
-    shrinks back when any other section is picked.
+    she'd otherwise have to re-tell each agent. A **Machine** row picks
+    which machine's copy (only machines that can run agents; it's always
+    set to one). The file reads formatted; **Edit** opens the editor with
+    **Cancel** / **Save**, and leaving with unsaved writing asks first. The
+    window grows wider while this section is open.
     *Agent-side:* this section is a UI on `~/.claude/CLAUDE.md`. Edits
     the user makes in **About you** land as edits to that file, and the
     § User-wide file (`~/.claude/CLAUDE.md`) rules apply to agent-side
     changes (propose + wait for greenlight).
-  - **Agent voices** — voice used by the per-bubble speak button on
-    agent messages, plus a **speed slider** (0.25×–4×, default 1×, with
-    a Reset) for how fast agents speak, and **when voice mode sends**:
-    *After a pause* (default — three seconds of silence) or *When I say a
-    phrase* (silence never sends; ending with the phrase does — "send it"
-    by default, editable). Follows the user's account across devices.
+  - **Voice** — the voice used by the per-bubble speak button on agent
+    messages (with a play button to hear it; a saved voice the current
+    voice service doesn't have says what plays instead), a **speed
+    slider** (0.25×–4×, default 1×, with a Reset) for how fast agents
+    speak, **when voice mode sends**: *After a pause* (default — three
+    seconds of silence) or *When I say a phrase* (silence never sends;
+    ending with the phrase does — "send it" by default, editable, shown
+    only when that's chosen), and **when voice mode listens**: *All the
+    time* (default) or *When I press my headphones* (press to talk — see
+    the sound-wave button). Follows the user's account across devices.
   - **Notifications** — phone notifications through the user's OWN
     Telegram bot; each user sets theirs up here, nothing server-side. The
-    pane walks them through it: open @BotFather in Telegram, send
-    `/newbot`, pick a name and a username ending in `bot`, then paste the
-    token BotFather sends and tap **Save** (Skynet checks it with Telegram
-    first). Then **Open my bot** → tap **Start** in Telegram links the chat
-    (the pane notices within a few seconds); **Use a different bot** starts
-    over. Once linked it shows the Telegram account, an **Only show who
-    messaged, not the message text** switch, **Send test notification**,
-    and **Disconnect** (removes the whole setup); sending `/stop` to the
-    bot unlinks the chat but keeps the bot. Each notification is a message
-    from their bot with an **Open in Skynet** button. No desktop push.
-  - **Log out** — signs the user out of the app. Pinned to the bottom of
-    the modal's section list.
+    section walks them through three numbered steps: open @BotFather in
+    Telegram (**Open BotFather**), send `/newbot`, pick a name and a
+    username ending in `bot`, then paste the token BotFather sends and tap
+    **Connect** (Skynet checks it with Telegram first). Then **Open my
+    bot** → tap **Start** in Telegram links the chat (the section notices
+    within a few seconds); **Use a different bot** starts over. Once linked
+    it shows the Telegram account, an **Only show who messaged** switch,
+    **Send a test notification**, and **Disconnect** (removes the whole
+    setup); sending `/stop` to the bot unlinks the chat but keeps the bot.
+    Each notification is a message from their bot with an **Open in
+    Skynet** button. No desktop push.
+  - **Phone** (only when the user has a number on file) — the number,
+    editable in place (**Save** appears once it's changed), and **Remove
+    phone number**.
+  - **Services** (only when the user has keys of their own to manage) —
+    keys their agents use for outside services: set, replace or remove,
+    never shown back.
+  - **About** — pinned at the bottom: the instance's own name and logo,
+    its version, a **Source code** link, and **Licence** / **Included
+    components**, each one level deeper.
+
+- **Feedback dialogs.** Where feedback is switched on, **Send feedback**
+  (sidebar footer) and a thumbs-down on an agent's message open a small
+  dialog with a text box. **Send** waits for some text; after sending, the
+  dialog says "Thanks — sent." and closes itself. The thumbs-down one says
+  the vote is sent either way and offers **Send without a note**; closing
+  it also sends the vote.
 
 - **Side-list modals on a phone.** Preferences and Admin list their
   sections down the left on desktop. On a phone they drill in instead: the
-  list fills the screen, tapping an item opens it full screen with a back
-  arrow (‹ Preferences) to return.
+  list fills the screen (Preferences shows it as rounded groups — the
+  account card, the sections, About), tapping an item opens it full screen
+  with a back arrow (‹ Preferences) to return.
 
 - **Small modals on a phone are sheets.** Short dialogs — new
   conversation, new project, new role, add wake-up, the feedback form,

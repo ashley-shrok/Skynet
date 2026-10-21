@@ -50,10 +50,15 @@ describe("PreferencesTelegramSection", () => {
     render(<PreferencesTelegramSection />);
 
     const setup = await screen.findByTestId("preferences-telegram-setup");
+    expect(setup.textContent).toContain("Set up your bot — about a minute");
     expect(setup.textContent).toContain("/newbot");
-    expect(screen.getByText("@BotFather").getAttribute("href")).toBe("https://t.me/BotFather");
+    expect(setup.textContent).toContain("checked with Telegram before it's saved");
+    const botFather = screen.getByTestId("preferences-telegram-open-botfather");
+    expect(botFather.getAttribute("href")).toBe("https://t.me/BotFather");
+    expect(botFather.getAttribute("target")).toBe("_blank");
 
     const save = screen.getByTestId("preferences-telegram-token-save") as HTMLButtonElement;
+    expect(save.textContent).toBe("Connect");
     expect(save.disabled).toBe(true);
     fireEvent.change(screen.getByTestId("preferences-telegram-token-input"), {
       target: { value: "  123:ABC  " },
@@ -61,7 +66,10 @@ describe("PreferencesTelegramSection", () => {
     fireEvent.click(save);
 
     await waitFor(() => expect(putTelegramBot).toHaveBeenCalledWith("123:ABC"));
-    expect(await screen.findByTestId("preferences-telegram-awaiting-start")).toBeTruthy();
+    const awaiting = await screen.findByTestId("preferences-telegram-awaiting-start");
+    expect(awaiting.textContent).toContain("@ash_bot");
+    expect(awaiting.textContent).toContain("is ready");
+    expect(awaiting.textContent).toMatch(/then tap Start in Telegram/);
   });
 
   it("shows why a token was rejected", async () => {
@@ -110,8 +118,8 @@ describe("PreferencesTelegramSection", () => {
     render(<PreferencesTelegramSection />);
 
     const linked = await screen.findByTestId("preferences-telegram-linked");
-    expect(linked.textContent).toContain("@ash");
-    expect(linked.textContent).toContain("@ash_bot");
+    expect(linked.textContent).toContain("Connected to @ash");
+    expect(linked.textContent).toContain("From your bot @ash_bot");
 
     const toggle = screen.getByTestId("preferences-telegram-title-only") as HTMLInputElement;
     fireEvent.click(toggle);

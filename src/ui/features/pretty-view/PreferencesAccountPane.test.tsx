@@ -1,7 +1,7 @@
 /**
- * PreferencesGeneralPane tests
+ * PreferencesAccountPane tests
  *
- * Seven behavior cases:
+ * Picture cases:
  *   1. Renders initials fallback when avatarPath=null
  *   2. Renders <img> when avatarPath="abc.png"
  *   3. Choosing a file shows local preview immediately
@@ -9,12 +9,19 @@
  *   5. Failed upload reverts preview and shows an inline error (no toast)
  *   6. Clicking Remove calls removeUserAvatar and onAvatarChanged(null) on success
  *   7. Failed Remove shows inline error but does NOT call onAvatarChanged
+ * Account cases: name + role line, account card, Log out asks first.
  */
 
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { PreferencesGeneralPane } from "./PreferencesGeneralPane";
+import { PreferencesAccountPane, PreferencesAccountCard } from "./PreferencesAccountPane";
+import { __resetKitDialogsForTests, autoAnswerKitDialogs } from "@/components/kit";
+
+vi.mock("@/main-axios", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/main-axios")>();
+  return { ...actual, logoutUser: vi.fn().mockResolvedValue(undefined) };
+});
 
 // ─── Mock the avatar API helpers ─────────────────────────────────────────────
 
@@ -34,9 +41,12 @@ import {
 const mockUpload = uploadUserAvatar as ReturnType<typeof vi.fn>;
 const mockRemove = removeUserAvatar as ReturnType<typeof vi.fn>;
 
+const avatarImg = (): HTMLImageElement | null =>
+  screen.getByTestId("preferences-account-avatar").querySelector("img");
+
 // ─── Tests ───────────────────────────────────────────────────────────────────
 
-describe("PreferencesGeneralPane", () => {
+describe("PreferencesAccountPane", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     // Default: upload succeeds
@@ -44,28 +54,38 @@ describe("PreferencesGeneralPane", () => {
     // Default: remove succeeds
     mockRemove.mockResolvedValue(undefined);
   });
+  afterEach(() => {
+    __resetKitDialogsForTests();
+  });
 
   it("1. renders initials fallback when avatarPath=null", () => {
     render(
-      <PreferencesGeneralPane
+      <PreferencesAccountPane
         userId="user-123"
+        username="ashley"
+        isAdmin={false}
         avatarPath={null}
         onAvatarChanged={vi.fn()}
       />,
     );
-    expect(screen.getByTestId("preferences-general-initials")).toBeTruthy();
-    expect(screen.queryByTestId("preferences-general-avatar-img")).toBeNull();
+    const avatar = screen.getByTestId("preferences-account-avatar");
+    expect(avatar.querySelector("img")).toBeNull();
+    expect(avatar.textContent).toContain("A");
+    // No picture → no Remove.
+    expect(screen.queryByTestId("preferences-account-remove-btn")).toBeNull();
   });
 
   it("2. renders <img> when avatarPath='abc.png'", () => {
     render(
-      <PreferencesGeneralPane
+      <PreferencesAccountPane
         userId="user-123"
+        username="ashley"
+        isAdmin={false}
         avatarPath="abc.png"
         onAvatarChanged={vi.fn()}
       />,
     );
-    const img = screen.getByTestId("preferences-general-avatar-img");
+    const img = avatarImg()!;
     expect(img).toBeTruthy();
     expect((img as HTMLImageElement).src).toContain("/users/");
     expect((img as HTMLImageElement).src).toContain("abc.png");
@@ -91,20 +111,22 @@ describe("PreferencesGeneralPane", () => {
     );
 
     render(
-      <PreferencesGeneralPane
+      <PreferencesAccountPane
         userId="user-123"
+        username="ashley"
+        isAdmin={false}
         avatarPath={null}
         onAvatarChanged={vi.fn()}
       />,
     );
 
-    const fileInput = screen.getByTestId("preferences-general-file-input") as HTMLInputElement;
+    const fileInput = screen.getByTestId("preferences-account-file-input") as HTMLInputElement;
     const fakeFile = new File(["data"], "photo.png", { type: "image/png" });
 
     await user.upload(fileInput, fakeFile);
 
     // Local preview should be shown immediately
-    const img = screen.getByTestId("preferences-general-avatar-img");
+    const img = avatarImg()!;
     expect((img as HTMLImageElement).src).toBe(fakeUrl);
 
     // Clean up the hanging promise
@@ -125,14 +147,16 @@ describe("PreferencesGeneralPane", () => {
     mockUpload.mockResolvedValue({ avatarPath: "server-minted.png" });
 
     render(
-      <PreferencesGeneralPane
+      <PreferencesAccountPane
         userId="user-123"
+        username="ashley"
+        isAdmin={false}
         avatarPath={null}
         onAvatarChanged={onAvatarChanged}
       />,
     );
 
-    const fileInput = screen.getByTestId("preferences-general-file-input") as HTMLInputElement;
+    const fileInput = screen.getByTestId("preferences-account-file-input") as HTMLInputElement;
     const fakeFile = new File(["data"], "photo.png", { type: "image/png" });
     await user.upload(fileInput, fakeFile);
 
@@ -155,25 +179,27 @@ describe("PreferencesGeneralPane", () => {
     mockUpload.mockRejectedValue(new Error("Network error"));
 
     render(
-      <PreferencesGeneralPane
+      <PreferencesAccountPane
         userId="user-123"
+        username="ashley"
+        isAdmin={false}
         avatarPath={null}
         onAvatarChanged={onAvatarChanged}
       />,
     );
 
-    const fileInput = screen.getByTestId("preferences-general-file-input") as HTMLInputElement;
+    const fileInput = screen.getByTestId("preferences-account-file-input") as HTMLInputElement;
     const fakeFile = new File(["data"], "photo.png", { type: "image/png" });
     await user.upload(fileInput, fakeFile);
 
     await waitFor(() => {
-      const errorEl = screen.getByTestId("preferences-general-error");
+      const errorEl = screen.getByTestId("preferences-account-error");
       expect(errorEl).toBeTruthy();
       expect(errorEl.textContent).toContain("Upload failed");
     });
 
     // Preview should be reverted — no img tag with blob src
-    expect(screen.queryByTestId("preferences-general-avatar-img")).toBeNull();
+    expect(avatarImg()).toBeNull();
     // onAvatarChanged should NOT have been called
     expect(onAvatarChanged).not.toHaveBeenCalled();
 
@@ -186,14 +212,16 @@ describe("PreferencesGeneralPane", () => {
     mockRemove.mockResolvedValue(undefined);
 
     render(
-      <PreferencesGeneralPane
+      <PreferencesAccountPane
         userId="user-123"
+        username="ashley"
+        isAdmin={false}
         avatarPath="existing.png"
         onAvatarChanged={onAvatarChanged}
       />,
     );
 
-    const removeBtn = screen.getByTestId("preferences-general-remove-btn");
+    const removeBtn = screen.getByTestId("preferences-account-remove-btn");
     await user.click(removeBtn);
 
     await waitFor(() => {
@@ -208,22 +236,100 @@ describe("PreferencesGeneralPane", () => {
     mockRemove.mockRejectedValue(new Error("Server error"));
 
     render(
-      <PreferencesGeneralPane
+      <PreferencesAccountPane
         userId="user-123"
+        username="ashley"
+        isAdmin={false}
         avatarPath="existing.png"
         onAvatarChanged={onAvatarChanged}
       />,
     );
 
-    const removeBtn = screen.getByTestId("preferences-general-remove-btn");
+    const removeBtn = screen.getByTestId("preferences-account-remove-btn");
     await user.click(removeBtn);
 
     await waitFor(() => {
-      const errorEl = screen.getByTestId("preferences-general-error");
+      const errorEl = screen.getByTestId("preferences-account-error");
       expect(errorEl).toBeTruthy();
       expect(errorEl.textContent).toContain("Couldn't remove");
     });
 
     expect(onAvatarChanged).not.toHaveBeenCalled();
+  });
+
+  it("8. shows the name and the role line", () => {
+    const { rerender } = render(
+      <PreferencesAccountPane
+        userId="user-123"
+        username="ashley"
+        isAdmin={true}
+        avatarPath={null}
+        onAvatarChanged={vi.fn()}
+      />,
+    );
+    expect(screen.getByRole("heading", { name: "ashley" })).toBeTruthy();
+    expect(screen.getByTestId("preferences-account-meta").textContent).toContain("Administrator");
+    rerender(
+      <PreferencesAccountPane
+        userId="user-123"
+        username="ashley"
+        isAdmin={false}
+        avatarPath={null}
+        onAvatarChanged={vi.fn()}
+      />,
+    );
+    expect(screen.getByTestId("preferences-account-meta").textContent).toContain("Member");
+  });
+
+  it("9. Log out asks first; cancel stays logged in, confirm logs out", async () => {
+    const onLogout = vi.fn();
+    window.addEventListener("skynet:logout", onLogout);
+    try {
+      const answers = [false, true];
+      const dialogs = autoAnswerKitDialogs({ confirm: () => answers.shift() ?? false });
+      const user = userEvent.setup();
+      render(
+        <PreferencesAccountPane
+          userId="user-123"
+          username="ashley"
+          isAdmin={false}
+          avatarPath={null}
+          onAvatarChanged={vi.fn()}
+        />,
+      );
+      await user.click(screen.getByTestId("preferences-account-logout"));
+      await waitFor(() => expect(dialogs.calls).toHaveLength(1));
+      expect(dialogs.calls[0].opts.title).toBe("Log out?");
+      expect(onLogout).not.toHaveBeenCalled();
+
+      await user.click(screen.getByTestId("preferences-account-logout"));
+      await waitFor(() => expect(onLogout).toHaveBeenCalledTimes(1));
+    } finally {
+      window.removeEventListener("skynet:logout", onLogout);
+    }
+  });
+});
+
+describe("PreferencesAccountCard", () => {
+  it("shows the name, the picture and 'Picture, log out'; click selects", async () => {
+    const onSelect = vi.fn();
+    const user = userEvent.setup();
+    render(
+      <PreferencesAccountCard
+        userId="user-123"
+        username="ashley"
+        avatarPath="abc.png"
+        selected={true}
+        drill={false}
+        onSelect={onSelect}
+      />,
+    );
+    const card = screen.getByTestId("preferences-nav-account");
+    expect(card.textContent).toContain("ashley");
+    expect(card.textContent).toContain("Picture, log out");
+    expect(card.getAttribute("aria-current")).toBe("true");
+    expect(card.querySelector("img")?.getAttribute("src")).toContain("abc.png");
+    await user.click(card);
+    expect(onSelect).toHaveBeenCalledTimes(1);
   });
 });

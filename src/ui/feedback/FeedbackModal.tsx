@@ -1,41 +1,23 @@
-// ─── FeedbackModal (translated to canonical Modal container 2026-09-29) ─────
-// Shared composition modal for the feedback pipeline. Two variants:
+// ─── FeedbackModal ───────────────────────────────────────────────────────────
+// Shared composition dialog for the feedback pipeline. Two variants:
 //
-//   general — title "Send feedback", subtitle "What's working, what's not, or
-//             what you'd change — every note shapes the beta.", placeholder
-//             "What's on your mind?". Foot: Cancel + Send. Cancel or backdrop
-//             click closes WITHOUT submitting.
+//   general — "Send feedback", one line of direction, a text box, Cancel +
+//             Send (Send waits for text). Cancel / X / Esc send nothing.
 //
-//   thumbs_down — title "What went wrong?", placeholder "Anything you want
-//             to add?", no subtitle. Foot: Send only. The close-X in the
-//             header, backdrop click, and ESC all fire ONE email via the
-//             onDismissWithoutSubmit callback (the parent sends the thumbs-
-//             down vote WITHOUT a note); the Send button sends the vote
-//             WITH the note.
+//   thumbs_down — "What went wrong?", "Your thumbs-down is sent either way.
+//             Add a note if it helps.", Send without a note + Send (Send
+//             waits for text). X / Esc fire onDismissWithoutSubmit — the
+//             parent still sends the vote, without a note.
 //
-// Composes from the canonical Modal container (src/ui/components/modal.tsx).
-// Hue default 220 (neutral cool) — feedback is app-level, not agent-scoped.
+// After Send (or Send without a note) the dialog shows "Thanks — sent." for a
+// moment, then closes itself through onOpenChange(false). Once sent, closing
+// never fires onDismissWithoutSubmit, so a vote is sent exactly once.
 //
-// D-11 lock retained: the message being reacted to is NOT rendered back to
-// the user in the modal. No quote element, no "Reply:" mini-preview.
-//
-// D-12 revision: the "NO subtitle" lock is REPLACED for the general variant
-// per user 2026-09-29 — beta feedback benefits from one line of user-facing
-// direction, so the subtitle carries "What's working, what's not, or what
-// you'd change — every note shapes the beta." Thumbs_down keeps no subtitle
-// (title + placeholder are self-carrying).
-//
-// D-30 lock retained: draft state is local useState — the modal does NOT
-// preserve typed text across close/reopen. The `open` transition to true
-// resets the draft via the useEffect below.
-//
-// Threat model (from 121-04-PLAN.md), unchanged by this translation:
-//   T-121-19 (Info Disclosure) — draft state is local + cleared on every
-//     open-transition; second-open renders empty textarea after prior submit.
-//   T-121-20 (Repudiation, accepted) — thumbs-down backdrop / close-X / ESC
-//     fires onDismissWithoutSubmit which the parent turns into a real POST.
+// The message being reacted to is NOT shown back in the dialog. The draft is
+// local — reopening starts empty.
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { Check } from "lucide-react";
 import { Modal, ModalHead, ModalBody, ModalFoot } from "@/components/modal";
 import { KitButton, KitTextarea } from "@/components/kit";
 
@@ -44,23 +26,25 @@ import { KitButton, KitTextarea } from "@/components/kit";
 export type FeedbackModalProps = {
   /** Controlled open state — parent owns lifecycle. */
   open: boolean;
-  /** Called when the modal should close. For thumbs_down, this fires AFTER
-   * onDismissWithoutSubmit when the close was via backdrop/close-X/ESC. */
+  /** Called when the dialog should close — including by itself, after the
+   * "Thanks — sent." moment. For thumbs_down, a close via X / Esc fires
+   * onDismissWithoutSubmit first. */
   onOpenChange: (next: boolean) => void;
   /** Which entry variant to render. D-09 lock: one component, two variants. */
   variant: "general" | "thumbs_down";
-  /** Fires when the user clicks Send with the current draft text. Empty
-   * string is valid — thumbs-down Send without text still fires ONE email
-   * per D-11. Parent decides whether to await or fire-and-forget. */
+  /** Fires when the user clicks Send (always with some text). The parent
+   * sends it and leaves the dialog open — it confirms, then closes itself. */
   onSubmit: (userNote: string) => Promise<void> | void;
-  /** Fires when the user dismisses the thumbs_down variant WITHOUT clicking
-   * Send (close-X, backdrop, ESC). Parent sends the thumbs-down vote with
-   * an empty userNote — D-11 lock: one email fires either way. Ignored for
-   * the general variant, where dismissing sends nothing. */
+  /** Fires when the thumbs_down variant ends without a note — Send without
+   * a note, X or Esc. The parent sends the vote with an empty userNote: one
+   * email either way. Ignored for the general variant. */
   onDismissWithoutSubmit?: () => void;
 };
 
 // ─── Component ───────────────────────────────────────────────────────────────
+
+/** How long "Thanks — sent." shows before the dialog closes. */
+export const FEEDBACK_SENT_MS = 1400;
 
 export function FeedbackModal({
   open,
@@ -70,64 +54,72 @@ export function FeedbackModal({
   onDismissWithoutSubmit,
 }: FeedbackModalProps): JSX.Element | null {
   const [draft, setDraft] = useState("");
-  // LOW-1: double-submit guard. Disabled while a submit is in flight to
-  // prevent duplicate emails from rapid double-click.
+  // Double-submit guard while a send is in flight.
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [sent, setSent] = useState(false);
+  // Set synchronously on Send so a racing Esc / X can't also send the vote.
+  const sentRef = useRef(false);
+  const closeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // D-30: clear the draft on every open transition. Second-open after a prior
-  // submit starts empty. The `if (!open) return null` guard below unmounts the
-  // tree so useState resets anyway; this effect covers the rerender-with-
-  // open=true-after-close-via-prop-flip case.
+  // Every open starts empty.
   useEffect(() => {
     if (open) {
       setDraft("");
       setIsSubmitting(false);
+      setSent(false);
+      sentRef.current = false;
     }
+    return () => {
+      if (closeTimer.current) clearTimeout(closeTimer.current);
+      closeTimer.current = null;
+    };
   }, [open]);
 
-  // Hard-guard the DOM: only render the tree when open. Keeps test queries
-  // simple (queries for absence work naturally).
   if (!open) return null;
 
-  const title = variant === "general" ? "Send feedback" : "What went wrong?";
-  const subtitle =
-    variant === "general"
-      ? "What's working, what's not, or what you'd change — every note shapes the beta."
-      : undefined;
-  const placeholder =
-    variant === "general"
-      ? "What's on your mind?"
-      : "Anything you want to add?";
+  const general = variant === "general";
+  const hasText = draft.trim() !== "";
+
+  const finish = () => {
+    setSent(true);
+    closeTimer.current = setTimeout(() => {
+      closeTimer.current = null;
+      onOpenChange(false);
+    }, FEEDBACK_SENT_MS);
+  };
 
   const handleSend = async () => {
-    // Send path: fires onSubmit(draft). Parent's onSubmit is responsible for
-    // calling onOpenChange(false) to close the modal. Because Send does NOT
-    // route through Modal's onOpenChange wrapper, the dismiss-with-vote branch
-    // (which fires onDismissWithoutSubmit for thumbs_down) is never invoked
-    // on Send — exactly the disambiguation D-11 requires.
-    //
-    // NOTE: onSubmit intentionally does not receive draft.trim() — preserve
-    // the user's whitespace exactly. Server-side owns any normalization.
-    // Empty string is a valid send for thumbs_down (D-11).
-    if (isSubmitting) return;
+    if (sentRef.current || isSubmitting) return;
+    sentRef.current = true;
     setIsSubmitting(true);
     try {
+      // The user's whitespace is kept exactly; the server normalises.
       await onSubmit(draft);
+    } catch (err) {
+      // Not sent: Send works again, and closing a thumbs-down still sends the vote.
+      sentRef.current = false;
+      console.warn({ operation: "feedback_send_failed", variant, reason: err instanceof Error ? err.message : String(err) });
+      return;
     } finally {
-      // Modal typically unmounts before this fires (parent closes on submit).
-      // useState updates after unmount are no-ops in React 18.
       setIsSubmitting(false);
     }
+    finish();
+  };
+
+  const handleSendWithoutNote = () => {
+    if (sentRef.current) return;
+    sentRef.current = true;
+    onDismissWithoutSubmit?.();
+    finish();
   };
 
   return (
     <Modal
       open={open}
       onOpenChange={(next) => {
-        // D-11: thumbs_down variant fires onDismissWithoutSubmit BEFORE
-        // onOpenChange so the parent's POST fires while the modal is still
-        // visually present. General variant just closes; no side effect.
-        if (!next && variant === "thumbs_down") {
+        // Closing an unsent thumbs-down still sends the vote (without a note).
+        if (!next && variant === "thumbs_down" && !sentRef.current) {
+          sentRef.current = true;
           onDismissWithoutSubmit?.();
         }
         onOpenChange(next);
@@ -135,47 +127,73 @@ export function FeedbackModal({
       size="lg"
       data-testid="feedback-dialog"
     >
-      <ModalHead
-        title={title}
-        subtitle={subtitle}
-        titleId="feedback-modal-title"
-        closeTestId={variant === "thumbs_down" ? "feedback-close" : undefined}
-        closeAriaLabel={
-          variant === "thumbs_down" ? "Close without note" : "Close"
-        }
-      />
-      <ModalBody>
-        <KitTextarea
-          value={draft}
-          onChange={(e) => setDraft(e.target.value)}
-          placeholder={placeholder}
-          aria-labelledby="feedback-modal-title"
-          aria-label={
-            variant === "general" ? "Feedback message" : "What went wrong"
-          }
-          className="min-h-[120px] resize-y"
-        />
-      </ModalBody>
-      <ModalFoot>
-        {variant === "general" && (
-          <KitButton
-            data-testid="feedback-cancel"
-            onClick={() => onOpenChange(false)}
+      {sent ? (
+        <>
+          <ModalHead
+            title={<span className="sr-only">{general ? "Send feedback" : "What went wrong?"}</span>}
+            hideClose
+          />
+          <div
+            className="flex flex-col items-center gap-2 px-6 pt-4 pb-9 text-center"
+            role="status"
+            data-testid="feedback-sent"
           >
-            Cancel
-          </KitButton>
-        )}
-        <KitButton
-          variant="primary"
-          data-testid="feedback-send"
-          busy={isSubmitting}
-          onClick={() => {
-            void handleSend();
-          }}
-        >
-          Send
-        </KitButton>
-      </ModalFoot>
+            <span className="grid place-items-center size-[52px] rounded-full bg-[var(--k-acc-soft)] text-[var(--k-acc-text)]">
+              <Check size={26} strokeWidth={2.6} aria-hidden="true" />
+            </span>
+            <b className="text-[16px] text-[var(--k-t1)]">Thanks — sent.</b>
+            <span className="text-[13px] text-[var(--k-t3)]">
+              {general ? "Every note shapes the beta." : "This helps make replies better."}
+            </span>
+          </div>
+        </>
+      ) : (
+        <>
+          <ModalHead
+            title={general ? "Send feedback" : "What went wrong?"}
+            subtitle={
+              general
+                ? "What's working, what's not, or what you'd change — every note shapes the beta."
+                : "Your thumbs-down is sent either way. Add a note if it helps."
+            }
+            titleId="feedback-modal-title"
+            closeTestId={general ? undefined : "feedback-close"}
+            closeAriaLabel={general ? "Close" : "Close without note"}
+          />
+          <ModalBody>
+            <KitTextarea
+              value={draft}
+              onChange={(e) => setDraft(e.target.value)}
+              placeholder={general ? "What's on your mind?" : "Anything you want to add?"}
+              aria-label={general ? "Feedback message" : "What went wrong"}
+              autoFocus
+              className="min-h-[130px] resize-y"
+            />
+          </ModalBody>
+          <ModalFoot>
+            {general ? (
+              <KitButton data-testid="feedback-cancel" onClick={() => onOpenChange(false)}>
+                Cancel
+              </KitButton>
+            ) : (
+              <KitButton data-testid="feedback-send-without-note" onClick={handleSendWithoutNote}>
+                Send without a note
+              </KitButton>
+            )}
+            <KitButton
+              variant="primary"
+              data-testid="feedback-send"
+              disabled={!hasText}
+              busy={isSubmitting}
+              onClick={() => {
+                void handleSend();
+              }}
+            >
+              Send
+            </KitButton>
+          </ModalFoot>
+        </>
+      )}
     </Modal>
   );
 }

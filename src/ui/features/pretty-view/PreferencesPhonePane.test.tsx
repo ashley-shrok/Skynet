@@ -41,13 +41,39 @@ describe("PreferencesPhonePane", () => {
     __resetKitDialogsForTests();
   });
 
-  it("Save is disabled until the number changes", async () => {
+  it("Save appears only once the number has changed", async () => {
     const user = userEvent.setup();
     const { input } = renderPane();
-    const save = screen.getByTestId("preferences-phone-save") as HTMLButtonElement;
-    expect(save.disabled).toBe(true);
+    expect(screen.queryByTestId("preferences-phone-save")).toBeNull();
     await user.type(input, "1");
-    expect(save.disabled).toBe(false);
+    expect(screen.getByTestId("preferences-phone-save")).toBeTruthy();
+    // Back to the saved number → Save goes away again.
+    await user.type(input, "{Backspace}");
+    expect(screen.queryByTestId("preferences-phone-save")).toBeNull();
+  });
+
+  it("formatting-only edits of the same number don't count as a change", async () => {
+    const user = userEvent.setup();
+    const { input } = renderPane();
+    await user.clear(input);
+    await user.type(input, "+1 (716) 555-0100");
+    expect(screen.queryByTestId("preferences-phone-save")).toBeNull();
+  });
+
+  it("Save goes away once the saved number comes back from the window", async () => {
+    const user = userEvent.setup();
+    const onPhoneChanged = vi.fn();
+    const { rerender } = render(
+      <PreferencesPhonePane phoneE164="+17165550100" onPhoneChanged={onPhoneChanged} />,
+    );
+    const input = screen.getByTestId("preferences-phone-input");
+    await user.clear(input);
+    await user.type(input, "+17165550199");
+    await user.click(screen.getByTestId("preferences-phone-save"));
+    await waitFor(() => expect(onPhoneChanged).toHaveBeenCalledWith("+17165550199"));
+    rerender(<PreferencesPhonePane phoneE164="+17165550199" onPhoneChanged={onPhoneChanged} />);
+    expect(screen.queryByTestId("preferences-phone-save")).toBeNull();
+    expect(screen.getByTestId("preferences-phone-saved")).toBeTruthy();
   });
 
   it("strips formatting and saves as E.164", async () => {

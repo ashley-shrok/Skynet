@@ -219,6 +219,7 @@
   button.k-row:hover { background: rgba(255, 255, 255, 0.03); }
   button.k-row:focus-visible { outline: 2px solid var(--k-acc); outline-offset: -2px; }
   .k-row[data-tone="danger"] .k-row-label { color: var(--k-danger-text); }
+  .k-row[data-tone="accent"] .k-row-label { color: var(--k-acc-text); }
   .k-row[data-disabled="true"] { opacity: 0.45; pointer-events: none; }
   .k-row-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
   .k-row-label { font-size: 14px; }
@@ -539,7 +540,32 @@
   .k-side-item[data-drill="true"][aria-pressed="true"] { background: transparent; color: var(--k-t1); }
   .k-side-item[data-drill="true"]:hover { background: var(--k-s1); }
   .k-side-item[data-drill="true"] svg { width: 17px; height: 17px; }
+  /* Grouped drill-in list (a settings window on a phone): each run of items
+     sits in a rounded group, each icon on a small tile. */
+  .k-side-group { background: var(--k-s1); border: 1px solid var(--k-hair); border-radius: 14px; overflow: hidden; display: flex; flex-direction: column; }
+  .k-side-group + .k-side-group { margin-top: 18px; }
+  .k-side-group .k-side-item[data-drill="true"] { border-radius: 0; padding: 10px 14px; gap: 12px; }
+  .k-side-group .k-side-item[data-drill="true"] + .k-side-item[data-drill="true"] { box-shadow: inset 0 1px 0 var(--k-hair); }
+  .k-side-group .k-side-item[data-drill="true"]:hover { background: rgba(255, 255, 255, 0.04); }
+  .k-side-tile { width: 30px; height: 30px; border-radius: 8px; background: var(--k-s2); border: 1px solid var(--k-hair); display: grid; place-items: center; flex-shrink: 0; }
+  /* Account card leading a settings list (Preferences). */
+  .k-account-card { gap: 11px; padding: 9px 10px; border-radius: 12px; }
+  .k-account-name { font-size: 15px; font-weight: 650; letter-spacing: -0.01em; color: var(--k-t1); }
+  .k-account-sub { font-size: 12px; color: var(--k-t3); margin-top: 1px; }
+  .k-account-card[aria-current="true"] .k-account-name { color: #fff; }
+  .k-account-card[aria-current="true"] .k-account-sub { color: rgba(255, 255, 255, 0.8); }
+  .k-account-card[data-drill="true"] { background: var(--k-s1); border: 1px solid var(--k-hair); border-radius: 14px; padding: 12px 14px; gap: 14px; }
+  .k-account-card[data-drill="true"] .k-account-name { font-size: 17px; }
   .k-side-head { font-size: 11.5px; font-weight: 600; color: var(--k-t3); padding: 14px 10px 4px; }
+
+  /* ── Section hero ─────────────────────────────────────────────────────── */
+
+  .k-hero { display: flex; gap: 14px; align-items: center; }
+  .k-hero-tile { width: 46px; height: 46px; border-radius: 12px; background: var(--k-s2); border: 1px solid var(--k-hair); display: grid; place-items: center; color: var(--k-t1); flex-shrink: 0; }
+  .k-hero-tile svg { width: 22px; height: 22px; }
+  .k-hero-text { display: flex; flex-direction: column; min-width: 0; }
+  .k-hero-title { margin: 0; font-size: 22px; font-weight: 700; letter-spacing: -0.025em; line-height: 1.2; color: var(--k-t1); }
+  .k-hero-desc { margin: 3px 0 0; font-size: 13.5px; line-height: 1.45; color: var(--k-t2); }
 
   /* ── Menus ───────────────────────────────────────────────────────────── */
 

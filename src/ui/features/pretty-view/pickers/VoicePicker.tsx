@@ -20,12 +20,15 @@ export function VoicePicker({
   disabled,
   id,
   ariaLabel,
+  hideUnavailableNote,
 }: {
   value: string;
   onChange: (next: string) => void;
   disabled?: boolean;
   id?: string;
   ariaLabel?: string;
+  /** The caller says it in its own words (e.g. a settings row's description). */
+  hideUnavailableNote?: boolean;
 }) {
   const catalogState = useVoiceCatalog();
   const sampleAudioRef = useRef<HTMLAudioElement | null>(null);
@@ -145,7 +148,7 @@ export function VoicePicker({
           </KitButton>
         )}
       </div>
-      {draftUnavailable && (
+      {draftUnavailable && !hideUnavailableNote && (
         <span data-testid="voice-picker-unavailable-note" className="k-help">
           {UNAVAILABLE_NOTE}
         </span>

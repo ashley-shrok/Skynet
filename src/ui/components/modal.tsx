@@ -669,6 +669,9 @@ interface ModalSidebarProps<V extends string> {
   listHidden?: boolean;
   /** No back bar above the drilled-in pane (the caller has its own way back). */
   hideDrillBack?: boolean;
+  /** Phone drill-in list as rounded groups with icon tiles (a settings
+   *  window): the main items in one group, the pinned ones in another. */
+  grouped?: boolean;
 }
 
 function ModalSidebar<V extends string>({
@@ -686,6 +689,7 @@ function ModalSidebar<V extends string>({
   drill,
   listHidden = false,
   hideDrillBack = false,
+  grouped = false,
 }: ModalSidebarProps<V>): JSX.Element {
   // Mobile: drill-in (list OR pane, never both). A one-item list starts on
   // its pane. See useModalDrillIn.
@@ -697,6 +701,7 @@ function ModalSidebar<V extends string>({
   const currentLabel = tabs.find((t) => t.value === value)?.label;
   const main = tabs.filter((t) => !t.pinned);
   const pinned = tabs.filter((t) => t.pinned);
+  const groupedList = grouped && drillMode;
 
   const renderItem = ({ value: v, label, Icon }: ModalSidebarTabDef<V>) => {
     const selected = value === v;
@@ -716,7 +721,15 @@ function ModalSidebar<V extends string>({
         data-drill={drillMode ? "true" : undefined}
         className="k-side-item shrink-0"
       >
-        {Icon ? <Icon size={drillMode ? 17 : 15} /> : null}
+        {Icon ? (
+          groupedList ? (
+            <span className="k-side-tile" aria-hidden="true">
+              <Icon size={17} />
+            </span>
+          ) : (
+            <Icon size={drillMode ? 17 : 15} />
+          )
+        ) : null}
         <span className="truncate">{label}</span>
         {drillMode ? (
           <ChevronRight
@@ -775,8 +788,14 @@ function ModalSidebar<V extends string>({
             drillMode ? "px-3 py-1" : "px-2 pt-0.5 pb-2",
           )}
         >
-          {renderGroups(main)}
-          {pinned.length > 0 ? (
+          {groupedList ? (
+            <>
+              {main.length > 0 ? <div className="k-side-group">{main.map(renderItem)}</div> : null}
+              {pinned.length > 0 ? <div className="k-side-group">{pinned.map(renderItem)}</div> : null}
+            </>
+          ) : null}
+          {!groupedList ? renderGroups(main) : null}
+          {!groupedList && pinned.length > 0 ? (
             <>
               <div className="flex-1 min-h-3" />
               <div className="h-px bg-[var(--k-hair)] mx-2 my-1" />

@@ -18,7 +18,6 @@ import {
 } from "@/api/user-phone-api";
 import {
   KitButton,
-  KitField,
   KitInput,
   KitSettingsGroup,
   KitSettingsRow,
@@ -87,62 +86,71 @@ export function PreferencesPhonePane({
   };
 
   return (
-    <div className="flex flex-col gap-5" data-testid="preferences-phone-pane">
-      <p className="m-0 text-[13px] leading-[18px] text-[var(--k-t2)]">
-        Agents can phone you at this number when they need you.
-      </p>
-
+    <div data-testid="preferences-phone-pane">
       <form
         onSubmit={(e) => {
           e.preventDefault();
           void handleSave();
         }}
       >
-        <KitField
-          label="Phone number"
-          htmlFor="preferences-phone-input"
-          help={
-            saved && !error ? (
+        <KitSettingsGroup
+          footer={
+            error ? (
+              <span className="k-err" role="alert" data-testid="preferences-phone-error">
+                {error}
+              </span>
+            ) : saved ? (
               <span data-testid="preferences-phone-saved" className="text-[var(--k-ok)]">
                 ✓ Number saved
               </span>
             ) : (
-              "Include the country code (+1 for US/Canada)."
+              "Include the country code (+1 for the US and Canada)."
             )
           }
-          error={error ? <span data-testid="preferences-phone-error">{error}</span> : undefined}
         >
-          <div className="flex gap-2 flex-wrap">
-            <KitInput
-              data-testid="preferences-phone-input"
-              type="tel"
-              inputMode="tel"
-              autoComplete="tel"
-              mono
-              value={draft}
-              disabled={busy}
-              onChange={(e) => {
-                setDraft(e.target.value);
-                setError(null);
-                setSaved(false);
-              }}
-              placeholder="+17165550100"
-              className="flex-[1_1_180px] w-auto"
-            />
-            <KitButton
-              type="submit"
-              variant="primary"
-              data-testid="preferences-phone-save"
-              disabled={busy || !isDirty}
-              busy={status === "saving"}
-            >
-              {status === "saving" ? "Saving…" : "Save"}
-            </KitButton>
-          </div>
-        </KitField>
+          <KitSettingsRow
+            label={<label htmlFor="preferences-phone-input">Number</label>}
+            control={
+              <span className="flex items-center gap-2">
+                <KitInput
+                  id="preferences-phone-input"
+                  data-testid="preferences-phone-input"
+                  type="tel"
+                  inputMode="tel"
+                  autoComplete="tel"
+                  mono
+                  value={draft}
+                  disabled={busy}
+                  onChange={(e) => {
+                    setDraft(e.target.value);
+                    setError(null);
+                    setSaved(false);
+                  }}
+                  placeholder="+17165550100"
+                  className="w-[190px] max-sm:w-[150px] text-right"
+                />
+                {(isDirty || status === "saving") && (
+                  <KitButton
+                    type="submit"
+                    variant="primary"
+                    size="sm"
+                    data-testid="preferences-phone-save"
+                    disabled={busy}
+                    busy={status === "saving"}
+                  >
+                    {status === "saving" ? "Saving…" : "Save"}
+                  </KitButton>
+                )}
+              </span>
+            }
+          />
+        </KitSettingsGroup>
       </form>
 
-      <KitSettingsGroup>
+      <KitSettingsGroup
+        className="mt-[22px]"
+        footer="Agents won't be able to call you. Adding a number again needs an admin."
+      >
         <KitSettingsRow
           tone="danger"
           label={status === "removing" ? "Removing…" : "Remove phone number"}

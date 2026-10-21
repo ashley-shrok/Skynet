@@ -50,10 +50,9 @@ test.describe("Preferences modal (Phase 137 smoke)", () => {
       page.locator('[data-testid="preferences-modal"]'),
     ).toBeVisible();
 
-    // General pane — default active; avatar circle should be visible
-    await page.locator('[data-testid="preferences-nav-general"]').click();
+    // Account — open by default; the picture and Log out live here
     await expect(
-      page.locator('[data-testid="preferences-general-pane"]'),
+      page.locator('[data-testid="preferences-account-pane"]'),
     ).toBeVisible();
 
     // Voice pane — voice picker container should be visible

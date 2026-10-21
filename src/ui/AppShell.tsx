@@ -445,7 +445,7 @@ export function AppShell({
   // renamed rather than merged to avoid touching the outer prop shape.
   const [meUsername, setMeUsername] = useState<string | null>(null);
   // Phase 137 D-30: userId from /users/me, threaded to PrettyConversationsPanel →
-  // PreferencesModal → PreferencesGeneralPane for avatar PUT/DELETE endpoints.
+  // PreferencesModal → PreferencesAccountPane for avatar PUT/DELETE endpoints.
   const [meUserId, setMeUserId] = useState<string | null>(null);
   // Phase 137 D-30: avatar filename from /users/me, threaded to PrettyConversationsPanel
   // for the sidebar footer conditional <img> and into PreferencesModal for live-sync.
@@ -5072,13 +5072,8 @@ export function AppShell({
                     "User asked: Q\n\nAssistant replied: A",
                 }
               : { kind: "general" as const, userNote };
+          // The dialog confirms and closes itself.
           void postFeedback(payload);
-          // D-14 toast fires BEFORE the close-triggering setState to avoid any
-          // race where sonner's imperative scheduler is deferred past the
-          // visible-fade window during unmount.
-          // LOW-2: duration 2000ms per shape spec ("~2 second fade").
-          toast.success("Thanks — feedback sent.", { duration: 2000 });
-          setFeedbackOpen(false);
         }}
         onDismissWithoutSubmit={() => {
           // D-11 thumbs_down dismiss-without-note: still fires ONE email
@@ -5090,8 +5085,6 @@ export function AppShell({
             messageRef: "dev-fake-msg",
             exchangeText: "User asked: Q\n\nAssistant replied: A",
           });
-          // LOW-2: duration 2000ms per shape spec ("~2 second fade").
-          toast.success("Thanks — feedback sent.", { duration: 2000 });
         }}
       />
       <WhatsNewModal username={username} />

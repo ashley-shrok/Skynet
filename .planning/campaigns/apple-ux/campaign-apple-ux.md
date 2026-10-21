@@ -35,7 +35,7 @@ Starting order: foundation, skills, then the remaining modals, then host targeti
 - **[declared] shape-identity-modal** — agent window: who the agent is on top, wake-ups / new wake-up / git one level deeper in the same window (see shape-identity-modal.closed.md) — closed 2026-10-18
 - **[declared] shape-project-modals** — project window like the agent window (folder tile, lineage, count; read → Edit), new-project dialogs with Cancel (see shape-project-modals.closed.md) — closed 2026-10-18
 - **[declared] shape-scheduled-tasks-modal** — scheduled tasks list by machine, each task one level deeper, Run now a button; shared "When" section (see shape-scheduled-tasks-modal.closed.md) — closed 2026-10-21
-- **[declared] shape-preferences-modal** — preferences (and the feedback dialog) — not started
+- **[declared] shape-preferences-modal** — preferences (and the feedback dialog) — in_progress
 - **[declared] shape-admin-modals** — admin panel + admin user modal — not started
 - **[declared] shape-creation-and-search-dialogs** — new conversation, new session, conversation search, archived apps — not started
 - **[declared] shape-file-modal** — the editable file modal — not started

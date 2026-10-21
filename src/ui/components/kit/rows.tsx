@@ -70,7 +70,8 @@ export interface KitSettingsRowProps {
   /** Makes the whole row a button (adds a chevron unless `chevron={false}`). */
   onClick?: () => void;
   chevron?: boolean;
-  tone?: "default" | "danger";
+  /** "accent" colours the label like a link — an action row ("Send a test"). */
+  tone?: "default" | "danger" | "accent";
   disabled?: boolean;
   /** Label on top, control full-width below (for wide controls). */
   stacked?: boolean;
@@ -153,7 +154,7 @@ export function KitSettingsRow({
   );
   const common = {
     className: cn("k-row", className),
-    "data-tone": tone === "danger" ? "danger" : undefined,
+    "data-tone": tone === "default" ? undefined : tone,
     "data-disabled": disabled ? "true" : undefined,
     "data-stack": stacked ? "true" : undefined,
     "data-truncate": truncate ? "true" : undefined,
@@ -431,5 +432,35 @@ export function KitCrumbs({
         );
       })}
     </nav>
+  );
+}
+
+/**
+ * The top of a settings section: an icon tile, the section's name, and one
+ * line saying what the section is for.
+ */
+export function KitSectionHero({
+  icon,
+  title,
+  description,
+  className,
+  "data-testid": testId,
+}: {
+  icon: React.ReactNode;
+  title: React.ReactNode;
+  description?: React.ReactNode;
+  className?: string;
+  "data-testid"?: string;
+}): JSX.Element {
+  return (
+    <header className={cn("k-hero", className)} data-testid={testId}>
+      <span className="k-hero-tile" aria-hidden="true">
+        {icon}
+      </span>
+      <span className="k-hero-text">
+        <h2 className="k-hero-title">{title}</h2>
+        {description ? <p className="k-hero-desc">{description}</p> : null}
+      </span>
+    </header>
   );
 }

@@ -10,7 +10,7 @@
  *   6. No debounce — PUT fires within the same click's task-tick
  */
 
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, screen, waitFor, fireEvent, act } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { PreferencesVoicePane, SPEED_SAVE_DEBOUNCE_MS } from "./PreferencesVoicePane";
@@ -33,6 +33,8 @@ vi.mock("@/api/voice-api", () => ({
 }));
 
 import { saveUserPreferences } from "@/api/open-tabs-api";
+import { fetchVoiceCatalog } from "@/api/voice-api";
+import { resetVoiceCatalogCache } from "./pickers/useVoiceCatalog";
 
 const mockSave = saveUserPreferences as ReturnType<typeof vi.fn>;
 
@@ -235,7 +237,44 @@ describe("PreferencesVoicePane — speed slider", () => {
   });
 });
 
+describe("PreferencesVoicePane — a saved voice the service doesn't have", () => {
+  beforeEach(() => resetVoiceCatalogCache());
+  afterEach(() => resetVoiceCatalogCache());
+
+  it("says so in the Voice row, naming the voice that plays instead", async () => {
+    vi.mocked(fetchVoiceCatalog).mockResolvedValueOnce({
+      voices: [
+        { id: "marin", name: "Marin" },
+        { id: "cedar", name: "Cedar" },
+      ],
+      defaultVoice: "marin",
+      listError: false,
+      labels: { Matthew: "Matthew" },
+    });
+    render(<PreferencesVoicePane userId="user1" userPrefs={makePrefs({ fallbackVoice: "Matthew" })} />);
+    const note = await screen.findByTestId("preferences-voice-unavailable");
+    expect(note.textContent).toMatch(/^Matthew isn't one of .* voices, so replies use Marin\.$/);
+    // The picker shows the saved voice as unavailable, not as if in use.
+    const option = screen.getByTestId("voice-picker-unavailable-option") as HTMLOptionElement;
+    expect(option.disabled).toBe(true);
+    expect(option.textContent).toBe("Matthew");
+  });
+
+  it("says nothing when the saved voice is available", async () => {
+    render(<PreferencesVoicePane userId="user1" userPrefs={makePrefs({ fallbackVoice: "Ruth" })} />);
+    await waitFor(() => expect((screen.getByRole("combobox") as HTMLSelectElement).disabled).toBe(false));
+    expect(screen.queryByTestId("preferences-voice-unavailable")).toBeNull();
+  });
+});
+
 describe("PreferencesVoicePane — voice mode: when to send", () => {
+  it("is a radio group of the two choices", () => {
+    render(<PreferencesVoicePane userId="user1" userPrefs={makePrefs()} />);
+    const group = screen.getByRole("radiogroup");
+    expect(group.getAttribute("data-testid")).toBe("preferences-voice-mode-turn");
+    expect(group.querySelectorAll("input[type=radio]")).toHaveLength(2);
+  });
+
   it("defaults to 'after a pause' with no phrase box", () => {
     render(<PreferencesVoicePane userId="user1" userPrefs={makePrefs()} />);
     expect((screen.getByTestId("preferences-voice-mode-turn-timed") as HTMLInputElement).checked).toBe(true);

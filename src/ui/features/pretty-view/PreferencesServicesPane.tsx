@@ -30,10 +30,6 @@ export function PreferencesServicesPane({
 }: PreferencesServicesPaneProps): JSX.Element {
   return (
     <div data-testid="preferences-services-pane">
-      <p className="m-0 mb-5 text-[13px] leading-[18px] text-[var(--k-t2)]">
-        Keys your agents use when they call these services for you. Once saved,
-        a key can be replaced or removed but not viewed.
-      </p>
       {groupByService(secrets).map((group) => (
         <KitSettingsGroup
           key={group.service}
