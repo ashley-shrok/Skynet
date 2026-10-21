@@ -33,6 +33,8 @@ import {
   SkillFileMtimeConflictError,
   SkillFileAlreadyExistsError,
   SkillAlreadyExistsError,
+  renameSkill,
+  RenamedButEditsNotSavedError,
   type SkillEntry,
   type SkillFileEntry,
   skillFileUrl,
@@ -43,6 +45,7 @@ import { fileViewNeverNeedsContent, type BinaryDraft } from "./file-viewers/regi
 import type { TabState } from "./IdentityFileTab";
 import { bumpModalOpen } from "@/lib/freeze-diag";
 import {
+  frontmatterName,
   isModelInvocationDisabled,
   isUserInvocationDisabled,
   setModelInvocationDisabled,
@@ -484,6 +487,123 @@ export default function SkillsEditorModal({
     [apiHostId, selectedSkillName],
   );
 
+  // Rename = move the skill's folder (the backend also rewrites SKILL.md's
+  // `name:`). With `draft`, that SKILL.md draft rides along in the same
+  // request — checked against the mtime it was loaded at before anything
+  // moves — the path for a SKILL.md whose `name:` was edited.
+  const performRename = useCallback(
+    async (newName: string, draft: { content: string; expectedMtime: number } | null): Promise<void> => {
+      if (selectedHostId == null || selectedSkillName == null || selectedIsInstance) return;
+      const hostId = selectedHostId;
+      const oldName = selectedSkillName;
+      console.info(
+        `[skills-editor] rename hostId=${hostId} from=${oldName} to=${newName} withDraft=${draft != null}`,
+      );
+      let renamed = false;
+      try {
+        await renameSkill(hostId, oldName, newName, draft ?? undefined);
+        renamed = true;
+      } catch (err) {
+        renamed = err instanceof RenamedButEditsNotSavedError;
+        console.info(`[skills-editor] rename-error hostId=${hostId} from=${oldName} to=${newName} renamed=${renamed}`);
+        void kitAlert({
+          title: renamed ? `Renamed to "${newName}"` : "Couldn't rename the skill",
+          body:
+            err instanceof SkillAlreadyExistsError
+              ? `A skill named "${newName}" already exists on this host.`
+              : err instanceof SkillFileMtimeConflictError
+                ? "SKILL.md changed on disk since you opened it, so nothing was renamed. Copy your edits somewhere, reload the skill, and try again."
+                : renamed
+                  ? "But your SKILL.md edits couldn't be saved."
+                  : err instanceof Error
+                    ? err.message
+                    : undefined,
+        });
+      }
+      if (!renamed) return;
+      try {
+        setSkills({ status: "ready", data: await listSkills(hostId, { includeDistributed: true }) });
+      } catch {
+        // The list keeps its old rows; the selection below still opens the renamed skill.
+      }
+      // Re-opens the skill under its new name; the old folder's drafts are
+      // either saved into it or were refused above.
+      setSelectedSkillName(newName);
+      void refreshSkillActions(hostId, "rename");
+    },
+    [selectedHostId, selectedSkillName, selectedIsInstance],
+  );
+
+  const handleRenameSkill = useCallback(async (): Promise<void> => {
+    if (selectedSkillName == null) return;
+    if (dirtySet.size > 0 || binaryDrafts.size > 0) {
+      void kitAlert({ title: "Save or discard your edits first", body: "Renaming the skill reloads its files." });
+      return;
+    }
+    const current = selectedSkillName;
+    const raw = await kitPrompt({
+      title: `Rename "${current}"`,
+      body: "Its folder and the name in its SKILL.md change together, so /<name> changes too.",
+      label: "New name",
+      defaultValue: current,
+      confirmLabel: "Rename",
+      mono: true,
+      validate: (v) =>
+        slugifyRoleName(v.trim()).length === 0 ? "Pick a name with at least one letter or number." : null,
+    });
+    if (raw == null) return;
+    const slug = slugifyRoleName(raw.trim());
+    if (slug === current) return;
+    await performRename(slug, null);
+  }, [selectedSkillName, dirtySet, binaryDrafts, performRename]);
+
+  // A SKILL.md whose `name:` was changed away from the folder is never saved
+  // as is — the backend refuses it. Offer the real rename instead. A name
+  // that already disagreed on disk (older skills) and wasn't touched saves
+  // normally. Returns true when it handled the save (renamed, or refused
+  // with an explanation).
+  const handleSkillMdNameChange = useCallback(
+    async (content: string, loaded: SkillFileTabData): Promise<boolean> => {
+      if (selectedSkillName == null) return false;
+      const name = frontmatterName(content);
+      if (name === null || name === selectedSkillName) return false;
+      if (name === frontmatterName(loaded.content)) return false;
+      const slug = slugifyRoleName(name);
+      if (slug !== name) {
+        void kitAlert({
+          title: `"${name}" can't be a skill name`,
+          body: `Use lowercase letters, numbers and hyphens${slug ? ` (e.g. "${slug}")` : ""}.`,
+        });
+        return true;
+      }
+      if (selectedIsInstance) {
+        void kitAlert({
+          title: `The name has to stay "${selectedSkillName}"`,
+          body: "Skills shared to every host can't be renamed.",
+        });
+        return true;
+      }
+      if ([...dirtySet].some((p) => p !== SKILL_MD) || binaryDrafts.size > 0) {
+        void kitAlert({
+          title: "Save or discard your other files' edits first",
+          body: "Renaming the skill reloads them.",
+        });
+        return true;
+      }
+      if (
+        !(await kitConfirm({
+          title: `Rename the skill to "${name}"?`,
+          body: `SKILL.md now names it "${name}", but its folder is "${selectedSkillName}" — the two always match. Cancel keeps your edits unsaved.`,
+          confirmLabel: "Rename",
+        }))
+      )
+        return true;
+      await performRename(name, { content, expectedMtime: loaded.mtime });
+      return true;
+    },
+    [selectedSkillName, selectedIsInstance, dirtySet, binaryDrafts, performRename],
+  );
+
   // Foot Save — dispatches to active tab's save with tracked draft.
   const handleFootSave = useCallback(async () => {
     if (saving) return;
@@ -514,6 +634,7 @@ export default function SkillsEditorModal({
     setSaving(true);
     savingRef.current = true;
     try {
+      if (activeTab === SKILL_MD && (await handleSkillMdNameChange(draft, tab.data))) return;
       await handleSave(activeTab, draft, tab.data.mtime);
     } catch (err) {
       void kitAlert({ title: "Save failed", body: err instanceof Error ? err.message : undefined });
@@ -521,7 +642,7 @@ export default function SkillsEditorModal({
       savingRef.current = false;
       setSaving(false);
     }
-  }, [saving, activeTab, tabData, drafts, handleSave, binaryDrafts, apiHostId, selectedSkillName]);
+  }, [saving, activeTab, tabData, drafts, handleSave, binaryDrafts, apiHostId, selectedSkillName, handleSkillMdNameChange]);
 
   const skillMdState = tabData.get(SKILL_MD);
   const skillMd = skillMdState?.status === "ready" ? skillMdState.data : null;
@@ -1277,6 +1398,13 @@ export default function SkillsEditorModal({
         key={`${selectedIsInstance ? "iw" : "host"}:${selectedSkillName}:${activeTab}`}
         state={tabData.get(activeTab) ?? { status: "loading" }}
         onSave={async (content, expectedMtime) => {
+          const loaded = tabData.get(activeTab);
+          if (
+            activeTab === SKILL_MD &&
+            loaded?.status === "ready" &&
+            (await handleSkillMdNameChange(content, loaded.data))
+          )
+            return;
           await handleSave(activeTab, content, expectedMtime);
         }}
         onRequestDelete={
@@ -1444,9 +1572,18 @@ export default function SkillsEditorModal({
               ]
             : [
                 {
+                  label: "Rename…",
+                  hint: dirtySet.size > 0 ? "Save or discard your edits first" : undefined,
+                  disabled: dirtySet.size > 0,
+                  separatorBefore: isAdmin || instanceWide == null,
+                  testId: "skills-editor-modal-rename-skill",
+                  onClick: () => {
+                    void handleRenameSkill();
+                  },
+                },
+                {
                   label: "Delete skill…",
                   danger: true,
-                  separatorBefore: isAdmin || instanceWide == null,
                   testId: "skills-editor-modal-delete-skill",
                   onClick: () => {
                     void handleDeleteSkill();

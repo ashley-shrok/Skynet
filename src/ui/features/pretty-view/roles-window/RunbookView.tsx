@@ -21,6 +21,9 @@ import {
   createRunbookFile,
   deleteRunbookFile,
   deleteRunbook,
+  renameRunbook,
+  RunbookAlreadyExistsError,
+  RenamedButEditsNotSavedError,
   RunbookFileMtimeConflictError,
   RunbookFileAlreadyExistsError,
   type RunbookFileEntry,
@@ -30,6 +33,8 @@ import { roleDisplayName } from "@/lib/role-display-name";
 import SkillFileTab, { type SkillFileTabData } from "../SkillFileTab";
 import { fileViewNeverNeedsContent, type BinaryDraft } from "../file-viewers/registry";
 import type { TabState } from "../IdentityFileTab";
+import { frontmatterName } from "../skill-frontmatter";
+import { slugifyRoleName } from "@/lib/slugify-role-name";
 import type { EscapeHandler, LeaveGuard } from "./RolesWindow";
 
 export function RunbookView({
@@ -40,6 +45,7 @@ export function RunbookView({
   onBack,
   onClose,
   onDeleted,
+  onRenamed,
   registerGuard,
   registerEscape,
 }: {
@@ -50,6 +56,8 @@ export function RunbookView({
   onBack: () => void;
   onClose: () => void;
   onDeleted: () => void;
+  /** After a rename lands — the window re-opens the runbook under its new name. */
+  onRenamed: (newName: string) => void;
   registerGuard: (g: LeaveGuard | null) => void;
   registerEscape: (h: EscapeHandler | null) => void;
 }): JSX.Element {
@@ -182,6 +190,96 @@ export function RunbookView({
     [hostId, roleName, runbook],
   );
 
+  // Rename = move the runbook folder (the backend also renames a
+  // `<runbook>.md` main file and rewrites a frontmatter `name:`). With
+  // `draft`, that main-file draft rides along in the same request — checked
+  // against the mtime it was loaded at before anything moves.
+  const performRename = useCallback(
+    async (newName: string, draft: { path: string; content: string; expectedMtime: number } | null): Promise<void> => {
+      console.debug("[RunbookView] rename", { hostId, roleName, from: runbook, to: newName, withDraft: draft != null });
+      let renamed = false;
+      try {
+        await renameRunbook(hostId, roleName, runbook, newName, draft ?? undefined);
+        renamed = true;
+      } catch (err) {
+        renamed = err instanceof RenamedButEditsNotSavedError;
+        console.debug("[RunbookView] rename-error", { hostId, roleName, from: runbook, to: newName, renamed });
+        void kitAlert({
+          title: renamed ? `Renamed to "${newName}"` : "Couldn't rename the runbook",
+          body:
+            err instanceof RunbookAlreadyExistsError
+              ? `A runbook named "${newName}" already exists in this role.`
+              : err instanceof RunbookFileMtimeConflictError
+                ? `${draft?.path ?? "The file"} changed on disk since you opened it, so nothing was renamed. Copy your edits somewhere, reopen the runbook, and try again.`
+                : renamed
+                  ? "But your edits couldn't be saved."
+                  : err instanceof Error
+                    ? err.message
+                    : undefined,
+        });
+      }
+      if (renamed) onRenamed(newName);
+    },
+    [hostId, roleName, runbook, onRenamed],
+  );
+
+  const handleRenameRunbook = async (): Promise<void> => {
+    if (dirtySet.size > 0 || binaryDrafts.size > 0) {
+      void kitAlert({ title: "Save or discard your edits first", body: "Renaming the runbook reloads its files." });
+      return;
+    }
+    const raw = await kitPrompt({
+      title: `Rename "${runbook}"`,
+      body: "Its folder, a main file named after it and the name in that file change together.",
+      label: "New name",
+      defaultValue: runbook,
+      confirmLabel: "Rename",
+      mono: true,
+      validate: (v) =>
+        slugifyRoleName(v.trim()).length === 0 ? "Pick a name with at least one letter or number." : null,
+    });
+    if (raw == null) return;
+    const slug = slugifyRoleName(raw.trim());
+    if (slug === runbook) return;
+    await performRename(slug, null);
+  };
+
+  // A main-file save whose `name:` was changed away from the folder is never
+  // saved as is — the backend refuses it; offer the rename instead. A name
+  // that already disagreed on disk and wasn't touched saves normally.
+  // Returns true when it handled the save (renamed, or refused with a note).
+  const handleMainFileNameChange = useCallback(
+    async (path: string, content: string, loaded: SkillFileTabData): Promise<boolean> => {
+      if (path !== "runbook.md" && path !== `${runbook}.md`) return false;
+      const name = frontmatterName(content);
+      if (name === null || name === runbook) return false;
+      if (name === frontmatterName(loaded.content)) return false;
+      const slug = slugifyRoleName(name);
+      if (slug !== name) {
+        void kitAlert({
+          title: `"${name}" can't be a runbook name`,
+          body: `Use lowercase letters, numbers and hyphens${slug ? ` (e.g. "${slug}")` : ""}.`,
+        });
+        return true;
+      }
+      if ([...dirtySet].some((p) => p !== path) || binaryDrafts.size > 0) {
+        void kitAlert({ title: "Save or discard your other files' edits first", body: "Renaming the runbook reloads them." });
+        return true;
+      }
+      if (
+        !(await kitConfirm({
+          title: `Rename the runbook to "${name}"?`,
+          body: `${path} now names it "${name}", but its folder is "${runbook}" — the two always match. Cancel keeps your edits unsaved.`,
+          confirmLabel: "Rename",
+        }))
+      )
+        return true;
+      await performRename(name, { path, content, expectedMtime: loaded.mtime });
+      return true;
+    },
+    [runbook, dirtySet, binaryDrafts, performRename],
+  );
+
   const handleFootSave = useCallback(async (): Promise<void> => {
     if (saving || !activeTab) return;
     const tab = tabData.get(activeTab);
@@ -196,13 +294,15 @@ export function RunbookView({
         return;
       }
       const draft = drafts.get(activeTab) ?? tab.data.content;
-      if (draft !== tab.data.content) await handleSave(activeTab, draft, tab.data.mtime);
+      if (draft === tab.data.content) return;
+      if (await handleMainFileNameChange(activeTab, draft, tab.data)) return;
+      await handleSave(activeTab, draft, tab.data.mtime);
     } catch (err) {
       void kitAlert({ title: "Save failed", body: err instanceof Error ? err.message : undefined });
     } finally {
       setSaving(false);
     }
-  }, [saving, activeTab, tabData, drafts, binaryDrafts, handleSave, hostId, roleName, runbook]);
+  }, [saving, activeTab, tabData, drafts, binaryDrafts, handleSave, handleMainFileNameChange, hostId, roleName, runbook]);
 
   const refreshFiles = async (): Promise<RunbookFileEntry[]> => {
     const entries = await enumerateRunbookFiles(hostId, roleName, runbook);
@@ -367,6 +467,13 @@ export function RunbookView({
     : [
         { label: "Add file…", onClick: () => void handleAddFile(), testId: "runbook-view-add-file-menu" },
         {
+          label: "Rename…",
+          hint: dirtySet.size > 0 ? "Save or discard your edits first" : undefined,
+          disabled: dirtySet.size > 0,
+          onClick: () => void handleRenameRunbook(),
+          testId: "runbook-view-rename",
+        },
+        {
           label: "Delete runbook…",
           danger: true,
           separatorBefore: true,
@@ -431,7 +538,12 @@ export function RunbookView({
                 <SkillFileTab
                   key={activeTab}
                   state={tabData.get(activeTab) ?? { status: "loading" }}
-                  onSave={(content, expectedMtime) => handleSave(activeTab, content, expectedMtime)}
+                  onSave={async (content, expectedMtime) => {
+                    const loaded = tabData.get(activeTab);
+                    if (loaded?.status === "ready" && (await handleMainFileNameChange(activeTab, content, loaded.data)))
+                      return;
+                    await handleSave(activeTab, content, expectedMtime);
+                  }}
                   onRequestDelete={readOnly ? undefined : () => void handleDeleteFile(activeTab)}
                   filename={activeTab}
                   readOnly={readOnly}

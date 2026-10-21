@@ -1,6 +1,7 @@
 // The roles window's runbook view — one level below the role: opens on
 // runbook.md, an "N files" toggle for the file list, Add file (also on the
-// empty state), delete file / runbook, Save writes the open file, and
+// empty state), rename (from the menu, or by saving a changed `name:`),
+// delete file / runbook, Save writes the open file, and
 // view-only for a non-admin looking at a shared role.
 
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
@@ -135,6 +136,64 @@ describe("runbook view", () => {
     fireEvent.click(within(await openMenu("runbook-view-menu")).getByTestId("runbook-view-delete"));
     await waitFor(() => expect(screen.getByTestId("runbook-view-current-file")).toBeTruthy());
     expect(m.deleteRunbook).not.toHaveBeenCalled();
+  });
+
+  it("Rename… slugs the new name, renames the runbook and re-opens it under that name", async () => {
+    const dialogs = autoAnswerKitDialogs({ prompt: "Monthly Report" });
+    await openRunbook();
+    m.listRunbooks.mockResolvedValue([{ name: "monthly-report" }]);
+    fireEvent.click(within(await openMenu("runbook-view-menu")).getByTestId("runbook-view-rename"));
+    await waitFor(() =>
+      expect(m.renameRunbook).toHaveBeenCalledWith(HOST_ID, "box-maintainer", RB, "monthly-report", undefined),
+    );
+    expect(dialogs.calls[0].kind).toBe("prompt");
+    expect(await screen.findByText("Monthly Report")).toBeTruthy();
+    await waitFor(() => expect(m.enumerateRunbookFiles).toHaveBeenLastCalledWith(HOST_ID, "box-maintainer", "monthly-report"));
+  });
+
+  it("Rename… to a taken name says so and stays", async () => {
+    const { RunbookAlreadyExistsError } = await import("@/api/runbooks-api");
+    m.renameRunbook.mockRejectedValue(new RunbookAlreadyExistsError());
+    const dialogs = autoAnswerKitDialogs({ prompt: "taken" });
+    await openRunbook();
+    fireEvent.click(within(await openMenu("runbook-view-menu")).getByTestId("runbook-view-rename"));
+    await waitFor(() => expect(dialogs.calls.some((c) => c.kind === "alert")).toBe(true));
+    expect(dialogs.calls[1].opts.body).toBe('A runbook named "taken" already exists in this role.');
+    expect(screen.getByText("Weekly Report")).toBeTruthy();
+  });
+
+  it("saving runbook.md with a changed name offers the rename, and the draft rides along", async () => {
+    m.readRunbookFile.mockResolvedValue({ content: `---\nname: ${RB}\n---\n# Steps\n`, mtime: 11, size: 10, isText: true });
+    const dialogs = autoAnswerKitDialogs({ confirm: true });
+    await openRunbook();
+    await waitFor(() => expect(editor().value).toContain(`name: ${RB}`));
+    fireEvent.change(editor(), { target: { value: "---\nname: deploy\n---\n# Steps\n" } });
+    await waitFor(() => expect((screen.getByTestId("runbook-view-save") as HTMLButtonElement).disabled).toBe(false));
+    fireEvent.click(screen.getByTestId("runbook-view-save"));
+    await waitFor(() =>
+      expect(m.renameRunbook).toHaveBeenCalledWith(HOST_ID, "box-maintainer", RB, "deploy", {
+        path: "runbook.md",
+        content: "---\nname: deploy\n---\n# Steps\n",
+        expectedMtime: 11,
+      }),
+    );
+    expect(dialogs.calls[0].kind).toBe("confirm");
+    expect(m.writeRunbookFile).not.toHaveBeenCalled();
+    expect(await screen.findByText("Deploy")).toBeTruthy();
+  });
+
+  it("a changed name: Cancel saves nothing and keeps the edits", async () => {
+    m.readRunbookFile.mockResolvedValue({ content: `---\nname: ${RB}\n---\n`, mtime: 11, size: 10, isText: true });
+    autoAnswerKitDialogs({ confirm: false });
+    await openRunbook();
+    await waitFor(() => expect(editor().value).toContain(`name: ${RB}`));
+    fireEvent.change(editor(), { target: { value: "---\nname: deploy\n---\n" } });
+    await waitFor(() => expect((screen.getByTestId("runbook-view-save") as HTMLButtonElement).disabled).toBe(false));
+    fireEvent.click(screen.getByTestId("runbook-view-save"));
+    await waitFor(() => expect((screen.getByTestId("runbook-view-save") as HTMLButtonElement).disabled).toBe(false));
+    expect(m.renameRunbook).not.toHaveBeenCalled();
+    expect(m.writeRunbookFile).not.toHaveBeenCalled();
+    expect(editor().value).toBe("---\nname: deploy\n---\n");
   });
 
   it("deleting the open file confirms, removes it and opens the next", async () => {

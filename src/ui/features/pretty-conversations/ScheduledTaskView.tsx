@@ -7,7 +7,8 @@
 //     switch); on a new one it's part of what Create writes. Under it, Run
 //     now — a button — for every task but a one-time one.
 //   - Name (fixed once created), Machine (new tasks, only when there's more
-//     than one to choose from), Roles, When (the shared schedule section,
+//     than one to choose from), Roles, Project (where its conversations are
+//     filed; picking another machine clears it), When (the shared schedule section,
 //     time zone included), Instructions, Archive if nothing to report.
 //   - A sensor-fired task has no clock schedule: When says so and its
 //     sensor's details show read-only; its schedule is written back
@@ -29,13 +30,19 @@ import {
   KitInput,
   KitPickChip,
   KitPickRow,
+  KitSelect,
   KitSettingsGroup,
   KitSettingsRow,
   KitSwitch,
   KitTextarea,
   kitConfirm,
 } from "@/components/kit";
-import type { ScheduledAgentListItem, ScheduledAgentSpecWire } from "@/api/scheduled-agents-api";
+import {
+  listScheduledAgentProjects,
+  type ScheduledAgentListItem,
+  type ScheduledAgentProjectOption,
+  type ScheduledAgentSpecWire,
+} from "@/api/scheduled-agents-api";
 import { listRolesForHost, type RoleSummary } from "@/api/identities-api";
 import { roleDisplayName } from "@/lib/role-display-name";
 import type { Host } from "@/types/ui-types";
@@ -53,6 +60,7 @@ import {
 import type { EscapeHandler, LeaveGuard } from "@/features/pretty-view/roles-window/RolesWindow";
 import { isOneShotTask, nextRunLabel, prettifyScheduledAgentName, scheduleSentence } from "./ScheduledAgentsModalRow";
 import { formatRelativePast } from "./scheduled-agents-time-fmt";
+import { orderProjectsAsTree, projectPathFromOptions } from "./scheduled-agents-projects";
 
 const PICK_ROLES_HINT = "Pick roles, or No roles.";
 
@@ -81,6 +89,9 @@ function scheduleTimezone(schedule: unknown): string {
 
 export const hostIdOf = (h: Host): number => parseInt(String(h.id), 10);
 
+/** How a just-saved task's project shows on its row until the list re-reads. */
+export type ProjectRowFields = Pick<ScheduledAgentListItem, "project" | "projectPath" | "projectMissing">;
+
 export interface ScheduledTaskViewProps {
   /** Absent = a new task. */
   task?: ScheduledAgentListItem;
@@ -92,8 +103,8 @@ export interface ScheduledTaskViewProps {
   onToggle?: (enabled: boolean) => Promise<void>;
   onRunNow?: () => void;
   runNowPending?: boolean;
-  onSave?: (spec: ScheduledAgentSpecWire) => Promise<void>;
-  onCreate?: (hostId: number, spec: ScheduledAgentSpecWire) => Promise<void>;
+  onSave?: (spec: ScheduledAgentSpecWire, project: ProjectRowFields) => Promise<void>;
+  onCreate?: (hostId: number, spec: ScheduledAgentSpecWire, project: ProjectRowFields) => Promise<void>;
   onDelete?: () => Promise<void>;
   /** Back to the list (after Cancel, a save, a create or a delete). */
   onDone: () => void;
@@ -129,6 +140,7 @@ export function ScheduledTaskView({
       roles: task?.roles ?? [],
       noRoles: !!task && task.roles.length === 0,
       archive: task?.archive_if_nothing_to_report ?? false,
+      project: task?.project ?? null,
       tz: task ? scheduleTimezone(task.schedule) : "",
       schedule: task && !isSensor ? hydrateFormSchedule(task.schedule) : ({ type: "daily", at: "09:00" } as FormSchedule),
     }),
@@ -140,6 +152,7 @@ export function ScheduledTaskView({
   const [roles, setRoles] = useState<string[]>(initial.roles);
   const [noRoles, setNoRoles] = useState(initial.noRoles);
   const [archive, setArchive] = useState(initial.archive);
+  const [project, setProject] = useState<string | null>(initial.project);
   const [tz, setTz] = useState(initial.tz);
   const [fs, setFs] = useState<FormSchedule>(initial.schedule);
   const [newEnabled, setNewEnabled] = useState(true);
@@ -165,6 +178,32 @@ export function ScheduledTaskView({
     };
   }, [hostId]);
 
+  // The machine's projects — null until loaded (or if the read failed), so a
+  // saved project isn't called missing before we know.
+  const [availableProjects, setAvailableProjects] = useState<ScheduledAgentProjectOption[] | null>(null);
+  useEffect(() => {
+    setAvailableProjects(null);
+    if (hostId === null || !Number.isFinite(hostId)) return;
+    let alive = true;
+    listScheduledAgentProjects(hostId)
+      .then((rows) => alive && setAvailableProjects(rows))
+      .catch(() => {
+        /* stays null — the picker still offers No project + the saved pick */
+      });
+    return () => {
+      alive = false;
+    };
+  }, [hostId]);
+  const projectOptions = useMemo(
+    () => (availableProjects === null ? [] : orderProjectsAsTree(availableProjects)),
+    [availableProjects],
+  );
+  // A saved pick the machine doesn't list is either still loading / unreadable
+  // (shown plain) or gone (shown missing). Either way it stays picked so an
+  // unrelated save keeps it.
+  const projectUnlisted = project !== null && !projectOptions.some((o) => o.slug === project);
+  const projectMissing = projectUnlisted && availableProjects !== null;
+
   const [saving, setSaving] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [toggling, setToggling] = useState(false);
@@ -189,6 +228,7 @@ export function ScheduledTaskView({
     !sameList(roles, initial.roles) ||
     noRoles !== initial.noRoles ||
     archive !== initial.archive ||
+    project !== initial.project ||
     built(fs, effectiveTz) !== built(initial.schedule, zoneFor(initial.schedule.type, initial.tz)) ||
     (isNew && (!newEnabled || hostId !== (hosts.length === 1 ? hostIdOf(hosts[0]) : null)));
 
@@ -258,12 +298,20 @@ export function ScheduledTaskView({
         roles: noRoles ? [] : roles,
         enabled: isNew ? newEnabled : task!.enabled,
         archive_if_nothing_to_report: archive,
+        ...(project !== null ? { project } : {}),
       };
+      // Until the projects load, an unchanged pick keeps the row's own reading.
+      const projectPath =
+        project !== null && availableProjects !== null ? projectPathFromOptions(project, availableProjects) : null;
+      const projectRow: ProjectRowFields =
+        task && availableProjects === null && project === task.project
+          ? { project: task.project, projectPath: task.projectPath, projectMissing: task.projectMissing }
+          : { project, projectPath, projectMissing: project !== null && availableProjects !== null && projectPath === null };
       if (isNew) {
-        await onCreate?.(hostId, spec);
+        await onCreate?.(hostId, spec, projectRow);
         console.info({ operation: "scheduled_task_created", hostId, name: trimmedName });
       } else {
-        await onSave?.(spec);
+        await onSave?.(spec, projectRow);
         console.info({ operation: "scheduled_task_saved", hostId, slug: task!.slug });
       }
       dirtyRef.current = false;
@@ -332,9 +380,10 @@ export function ScheduledTaskView({
   const pickHost = (id: number): void => {
     if (id === hostId) return;
     setHostId(id);
-    // Roles belong to a machine.
+    // Roles and projects belong to a machine.
     setRoles([]);
     setNoRoles(false);
+    setProject(null);
   };
 
   const roleDisplayByName = useMemo(() => {
@@ -485,6 +534,42 @@ export function ScheduledTaskView({
                   </KitPickChip>
                 ))}
               </KitPickRow>
+            </KitField>
+          )}
+
+          {hostId !== null && (
+            <KitField
+              label="Project"
+              htmlFor="scheduled-task-project"
+              data-testid="scheduled-task-project"
+              help={
+                projectMissing ? (
+                  <span className="text-[var(--k-warn)]" data-testid="scheduled-task-project-missing">
+                    This project no longer exists. Its conversations go to Conversations until it&apos;s back or
+                    you pick another.
+                  </span>
+                ) : (
+                  "Where each conversation it starts is filed."
+                )
+              }
+            >
+              <KitSelect
+                id="scheduled-task-project"
+                value={project ?? ""}
+                onChange={(e) => setProject(e.target.value === "" ? null : e.target.value)}
+                invalid={projectMissing}
+                data-testid="scheduled-task-project-select"
+              >
+                <option value="">No project</option>
+                {projectOptions.map((o) => (
+                  <option key={o.slug} value={o.slug}>
+                    {"\u00a0\u00a0\u00a0\u00a0".repeat(o.depth) + o.displayName}
+                  </option>
+                ))}
+                {projectUnlisted && project !== null && (
+                  <option value={project}>{projectMissing ? `${project} (missing)` : project}</option>
+                )}
+              </KitSelect>
             </KitField>
           )}
 

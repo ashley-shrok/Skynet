@@ -395,6 +395,12 @@ export function RolesWindow({
           setRoleTab("runbooks");
           setNav({ view: "role", role: nav.role });
         }}
+        onRenamed={(newName) => {
+          // Nothing unsaved is left behind: a rename only starts from a clean
+          // view, or saves the edited main file along with it.
+          guardRef.current = null;
+          setNav({ view: "runbook", role: nav.role, runbook: newName });
+        }}
         registerGuard={registerGuard}
         registerEscape={registerEscape}
       />

@@ -85,7 +85,10 @@ vi.mock("../../instance-wide/admin.js", () => ({
 // Shared (instance-wide) skill names; tests set `mockSharedNames`.
 let mockSharedNames: string[] = [];
 vi.mock("../../instance-wide/production.js", () => ({
-  getInstanceWide: () => ({ listNames: async () => mockSharedNames }),
+  getInstanceWide: () => ({
+    listNames: async () => mockSharedNames,
+    isInstanceWide: async (_kind: string, name: string) => mockSharedNames.includes(name),
+  }),
 }));
 
 vi.mock("../../claude-session/identity-artifact-reader.js", () => ({

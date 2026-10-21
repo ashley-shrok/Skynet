@@ -6,12 +6,14 @@
  *             tile for no roles), dimmed when the task is off
  *   label   — the task's name
  *   desc    — "Daily at 11:30 · Next in 14h" (or "Off"; a sensor task shows
- *             its sensor line), then one quiet line of the instructions
+ *             its sensor line), then the project its conversations are filed
+ *             in ("SKYNET › later", amber when it's gone), then one quiet line
+ *             of the instructions
  *   control — the on/off switch (pessimistic — the parent flips it on ack)
  *   click   — opens the task; right-click → Run now / Open / Delete…
  */
 
-import { AlarmClock } from "lucide-react";
+import { AlarmClock, Folder } from "lucide-react";
 import type { ScheduledAgentListItem } from "@/api/scheduled-agents-api";
 import { roleAvatarUrl } from "@/api/identities-api";
 import { KitAvatar, KitSettingsRow, KitSwitch } from "@/components/kit";
@@ -20,6 +22,7 @@ import { useRowKebabContextMenu, type RowKebabMenuItem } from "./RowKebabMenu";
 import { formatAbsolute, formatRelativeFuture, formatRelativePast } from "./scheduled-agents-time-fmt";
 import { SENSOR_MARK, SensorStateChip } from "@/features/pretty-view/SensorStatusView";
 import { isOnceSensorSchedule } from "@/features/pretty-view/WakeupFormShared";
+import { formatProjectPath } from "./scheduled-agents-projects";
 
 const FALLBACK_HUE = 190;
 
@@ -187,6 +190,31 @@ export function ScheduledAgentsModalRow({
       description={
         <span className="flex flex-col min-w-0">
           {when}
+          {row.project && (
+            <span
+              className={cn(
+                "flex items-center gap-1 min-w-0 text-[12.5px] mt-px",
+                row.projectMissing ? "text-[var(--k-warn)]" : "text-[var(--k-t2)]",
+              )}
+              title={
+                row.projectMissing
+                  ? "This project no longer exists — its conversations go to Conversations"
+                  : row.projectPath
+                    ? "Its conversations are filed in this project"
+                    : "Couldn't read this machine's projects right now"
+              }
+              data-testid={`${testId}-project`}
+            >
+              <Folder className="size-3 shrink-0" aria-hidden="true" />
+              <span className="truncate">
+                {row.projectMissing
+                  ? `Project missing: ${row.project}`
+                  : row.projectPath
+                    ? formatProjectPath(row.projectPath)
+                    : row.project}
+              </span>
+            </span>
+          )}
           <span className="truncate text-[12.5px] text-[var(--k-t3)] mt-px" data-testid={`${testId}-prompt`}>
             {row.prompt.replace(/\s+/g, " ")}
           </span>

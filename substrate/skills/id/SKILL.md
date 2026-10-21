@@ -1041,7 +1041,10 @@ crown, then gear.
     the role's name. The open file fills the window; an **N files** button
     shows the file list (**Add file** at its bottom; on a phone the list
     swaps in for the editor). Close / Save at the bottom; **⋯** has
-    **Add file…** and **Delete runbook…**.
+    **Add file…**, **Rename…** and **Delete runbook…**. Rename changes the
+    runbook's folder, a main file named after it (`<old>.md` → `<new>.md`)
+    and a `name:` in that file's frontmatter together; saving a main file
+    whose `name:` no longer matches the folder offers the rename instead.
   - **New role**: picture first (**Generate picture** offers three to pick
     from, or **Upload…**), then name, description (shown under the role's
     name; it also starts the role file), colour and machine. Cancel or
@@ -1079,7 +1082,12 @@ crown, then gear.
   - **One skill** (click a row's name): **‹ Skills** goes back; the name and
     description head it, the same two switches sit under that ("In my
     Skills button", "Agents can use it" — they wait while SKILL.md has
-    unsaved edits), and a **three-dots (⋮) menu** holds **Delete skill…**.
+    unsaved edits), and a **three-dots (⋮) menu** holds **Rename…** and
+    **Delete skill…**. Rename changes the skill's folder (so `/<name>`
+    changes) and the `name:` in its SKILL.md together. Editing `name:` in
+    SKILL.md by hand doesn't save as is: Save offers to rename the skill to
+    that name, since the name and the folder always match. Skills shared to
+    every host and fleet-distributed ones can't be renamed.
     The editor opens on SKILL.md; the skill's other files stay behind an
     **"N files"** button in the file's toolbar, which opens the file list
     (grouped by folder, a find box past ten files, **Add file** at the
@@ -1180,6 +1188,16 @@ crown, then gear.
   focused, so Enter alone never deletes). A "type a name" dialog shows
   what's wrong under the field instead of re-asking. Esc or Cancel backs
   out.
+
+- **What's new (pops up after an update).** When Skynet has been updated
+  and the user hasn't yet seen the notes for what changed, a **What's new**
+  panel opens on its own when the app loads: a short flat list of plain
+  notes, newest first, covering every update they missed. **Got it** (or
+  the X / Esc) closes it and marks those notes seen on their account — it
+  won't show again on any device until something new ships. Updates with
+  nothing user-facing show nothing, and there is no place to reread old
+  notes. If the user asks what changed recently, this is what they saw.
+  *Agent-side: none.*
 
 ### Conversation view
 
@@ -1973,7 +1991,9 @@ the sidebar footer, beside the gear. It opens the scheduled tasks window:
   soonest next run at the top; switched-off ones after. Each row: the
   role's picture (a clock when the task takes no roles), the task's name,
   the schedule and next run (`Daily at 11:30 · Next in 14h`, or `Off`),
-  one line of its instructions, and an on/off switch. Right-click a row
+  its project when it has one (`SKYNET › later`, or an amber **Project
+  missing: <slug>** when that project is gone), one line of its
+  instructions, and an on/off switch. Right-click a row
   for **Run now**, **Open** and **Delete…**. A sensor-fired task has no
   Next: its line reads `📡 Sensor · <status> · Last fired 3h ago` (or
   `Never fired`), plus `· N waiting` when fires are being held while it's
@@ -1989,14 +2009,19 @@ the sidebar footer, beside the gear. It opens the scheduled tasks window:
   Monthly / Yearly / Every… / Once, with several times a day, "Only on"
   days, every-N weeks/months, an interval window and start, and an end
   date or run count), Time zone (blank = the user's own, or the machine's
-  own for a task saved without one), Instructions,
+  own for a task saved without one), **Project** (a dropdown: **No
+  project**, the default, then every project on the task's machine,
+  sub-projects indented as in the sidebar — where each conversation it
+  starts is filed; a project that no longer exists stays picked, marked
+  missing, until another is picked), Instructions,
   and an **Archive if nothing to report** switch. **Delete scheduled
   task…** at the bottom; Cancel and Save at the foot. A sensor-fired task
   shows "When its sensor fires" and its sensor's details read-only,
   including the last error lines when broken.
 - **New scheduled task**: the same view, blank, with **Create**. It asks
   which machine when more than one can run agents; roles come from that
-  machine, and Create waits until roles or **No roles** are picked.
+  machine, and Create waits until roles or **No roles** are picked;
+  picking a different machine clears the roles and the project.
 
 Leaving a task with unsaved changes asks first. The window re-reads
 itself every ~30s while open; tasks on a machine that isn't answering
@@ -2016,9 +2041,17 @@ names predate the "scheduled tasks" name in the app — same thing):
   "roles": ["box-maintainer"],    // zero or more role names the newborn takes on; [] = plain agent
   "prompt": "Check the work Kanban and triage any unassigned cards.",
   "schedule": { "type": "interval", "every": "2h" },  // same schedule kinds as per-identity wake-ups
-  "archive_if_nothing_to_report": true  // optional, off when absent
+  "archive_if_nothing_to_report": true,  // optional, off when absent
+  "project": "skynet"             // optional project slug; absent = no project
 }
 ```
+
+`project` is the task's **Project** pick: every conversation the task starts
+(clock fires, sensor fires, the sensor-broken one, and **Run now**) is born
+filed in that project. It is checked at each fire: while the project doesn't
+exist (archived, deleted) the newborn lands in Conversations instead and the
+task keeps firing; the spec keeps the slug, so filing resumes on its own if
+the project comes back. Changing it affects future runs only.
 
 `archive_if_nothing_to_report` is the task's **Archive if nothing to
 report** switch. When it's `true`, each agent the task spawns is told, after

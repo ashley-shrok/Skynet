@@ -58,6 +58,7 @@ vi.mock("@/api/skills-api", async (importOriginal) => {
     createSkill: vi.fn().mockResolvedValue({ slug: "new-skill", mtime: 1_700_000_200 }),
     deleteSkillFile: vi.fn().mockResolvedValue(undefined),
     deleteSkill: vi.fn().mockResolvedValue(undefined),
+    renameSkill: vi.fn().mockResolvedValue({ name: "ship", mtime: 1_700_000_300 }),
   };
 });
 
@@ -196,7 +197,7 @@ if (typeof window !== "undefined" && !window.ResizeObserver) {
   };
 }
 
-/** Open the picker row's ⋮ skill menu ("User-invoked only", "Agent-invoked only", "Delete skill…"). */
+/** Open the skill view's ⋮ skill menu (sharing, "Rename…", "Delete skill…"). */
 async function openSkillMenu(): Promise<void> {
   const trigger = await screen.findByTestId("skills-editor-modal-skill-menu");
   await userEvent.setup().click(trigger);
@@ -817,7 +818,7 @@ describe("SkillsEditorModal — Phase 44 SKILLED-05", () => {
     expect(dialogs.calls[0].kind).toBe("confirm");
   });
 
-  it("skill menu holds sharing and delete only — the two settings moved out of it", async () => {
+  it("skill menu holds sharing, rename and delete only — the two settings moved out of it", async () => {
     render(
       <SkillsEditorModal
         open={true}
@@ -832,8 +833,100 @@ describe("SkillsEditorModal — Phase 44 SKILLED-05", () => {
     await openSkillMenu();
 
     expect(screen.getByTestId("skills-editor-modal-delete-skill")).toBeInTheDocument();
+    expect(screen.getByTestId("skills-editor-modal-rename-skill")).toBeInTheDocument();
     expect(screen.queryByTestId("skills-editor-modal-disable-model-invocation")).toBeNull();
     expect(screen.queryByTestId("skills-editor-modal-agent-invoked-only")).toBeNull();
+  });
+
+  const NAMED_SKILL_MD = {
+    content: "---\nname: build\n---\n\n# Build\n",
+    mtime: 1_700_000_042,
+    size: 30,
+    isText: true,
+  };
+  function renderOpen(onOpenChange = vi.fn()) {
+    render(
+      <SkillsEditorModal
+        open={true}
+        onOpenChange={onOpenChange}
+        hostTree={HOST_TREE}
+        defaultHostId={1}
+        container={document.body}
+      />,
+    );
+    return onOpenChange;
+  }
+  async function editNameTo(newName: string): Promise<void> {
+    const editor = (await screen.findByRole("textbox", {}, { timeout: 5000 })) as HTMLTextAreaElement;
+    fireEvent.change(editor, { target: { value: editor.value.replace("name: build", `name: ${newName}`) } });
+    await waitFor(() => expect(screen.getByTestId("skills-editor-modal-save")).not.toBeDisabled(), { timeout: 5000 });
+    fireEvent.click(screen.getByTestId("skills-editor-modal-save"));
+  }
+
+  it("Rename… slugs the new name, moves the skill and reopens it under that name", async () => {
+    const dialogs = autoAnswerKitDialogs({ prompt: "Ship It" });
+    renderOpen();
+    await selectSkill("build");
+    (skillsApi.listSkills as ReturnType<typeof vi.fn>).mockResolvedValueOnce([{ name: "ship-it" }, { name: "explain" }]);
+    await openSkillMenu();
+    await userEvent.setup().click(screen.getByTestId("skills-editor-modal-rename-skill"));
+
+    await waitFor(() => expect(skillsApi.renameSkill).toHaveBeenCalledWith(1, "build", "ship-it", undefined));
+    expect(dialogs.calls[0].kind).toBe("prompt");
+    await waitFor(() => expect(screen.getAllByRole("heading")[0]).toHaveTextContent("ship-it"));
+    await waitFor(() => expect(skillsApi.enumerateSkillFiles).toHaveBeenLastCalledWith(1, "ship-it"));
+  });
+
+  it("Rename… to a name that's taken says so and stays on the skill", async () => {
+    (skillsApi.renameSkill as ReturnType<typeof vi.fn>).mockRejectedValueOnce(new skillsApi.SkillAlreadyExistsError());
+    const dialogs = autoAnswerKitDialogs({ prompt: "explain" });
+    renderOpen();
+    await selectSkill("build");
+    await openSkillMenu();
+    await userEvent.setup().click(screen.getByTestId("skills-editor-modal-rename-skill"));
+    await waitFor(() => expect(dialogs.calls.some((c) => c.kind === "alert")).toBe(true));
+    expect(screen.getAllByRole("heading")[0]).toHaveTextContent("build");
+  });
+
+  it("saving SKILL.md with a changed name offers the rename, and the draft rides along", async () => {
+    (skillsApi.readSkillFile as ReturnType<typeof vi.fn>).mockResolvedValueOnce(NAMED_SKILL_MD);
+    const dialogs = autoAnswerKitDialogs({ confirm: true });
+    renderOpen();
+    await selectSkill("build");
+    await editNameTo("ship");
+    await waitFor(() =>
+      expect(skillsApi.renameSkill).toHaveBeenCalledWith(1, "build", "ship", {
+        content: "---\nname: ship\n---\n\n# Build\n",
+        expectedMtime: 1_700_000_042,
+      }),
+    );
+    expect(dialogs.calls[0].kind).toBe("confirm");
+    expect(skillsApi.writeSkillFile).not.toHaveBeenCalled();
+  });
+
+  it("SKILL.md name change: Cancel saves nothing and closing still asks about the edits", async () => {
+    (skillsApi.readSkillFile as ReturnType<typeof vi.fn>).mockResolvedValueOnce(NAMED_SKILL_MD);
+    const dialogs = autoAnswerKitDialogs({ confirm: false });
+    const onOpenChange = renderOpen();
+    await selectSkill("build");
+    await editNameTo("ship");
+    await waitFor(() => expect(dialogs.calls.length).toBe(1));
+    expect(skillsApi.renameSkill).not.toHaveBeenCalled();
+    expect(skillsApi.writeSkillFile).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByTestId("skills-editor-modal-close-foot"));
+    await waitFor(() => expect(dialogs.calls.length).toBe(2));
+    expect(onOpenChange).not.toHaveBeenCalledWith(false);
+  });
+
+  it("SKILL.md name that can't be a skill name is refused with a note", async () => {
+    (skillsApi.readSkillFile as ReturnType<typeof vi.fn>).mockResolvedValueOnce(NAMED_SKILL_MD);
+    const dialogs = autoAnswerKitDialogs({});
+    renderOpen();
+    await selectSkill("build");
+    await editNameTo("Ship It");
+    await waitFor(() => expect(dialogs.calls[0]?.kind).toBe("alert"));
+    expect(skillsApi.renameSkill).not.toHaveBeenCalled();
+    expect(skillsApi.writeSkillFile).not.toHaveBeenCalled();
   });
 
   it("RDP-only hosts are filtered from the host <select>", async () => {

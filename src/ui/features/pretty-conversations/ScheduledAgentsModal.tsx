@@ -48,7 +48,7 @@ import { roleDisplayName } from "@/lib/role-display-name";
 import { listRolesForHost } from "@/api/identities-api";
 import type { EscapeHandler, LeaveGuard } from "@/features/pretty-view/roles-window/RolesWindow";
 import { ScheduledAgentsModalRow, prettifyScheduledAgentName } from "./ScheduledAgentsModalRow";
-import { ScheduledTaskView } from "./ScheduledTaskView";
+import { ScheduledTaskView, type ProjectRowFields } from "./ScheduledTaskView";
 
 function isFolder(item: Host | HostFolder): item is HostFolder {
   return "children" in item;
@@ -90,6 +90,8 @@ function matches(row: ScheduledAgentListItem, words: string[], roleNames: RoleNa
     row.prompt,
     ...row.roles,
     ...row.roles.map((r) => roleNames.get(row.hostId)?.get(r) ?? roleDisplayName(r)),
+    row.project ?? "",
+    ...(row.projectPath ?? []),
   ]
     .join(" ")
     .toLowerCase();
@@ -396,7 +398,7 @@ export function ScheduledAgentsModal({ open, onOpenChange, hostTree }: Scheduled
     });
   };
 
-  const create = async (hostId: number, spec: ScheduledAgentSpecWire): Promise<void> => {
+  const create = async (hostId: number, spec: ScheduledAgentSpecWire, project: ProjectRowFields): Promise<void> => {
     const created = await createScheduledAgent(hostId, spec);
     spliceIn({
       slug: created.slug,
@@ -409,13 +411,18 @@ export function ScheduledAgentsModal({ open, onOpenChange, hostTree }: Scheduled
       prompt: spec.prompt,
       roles: spec.roles ?? [],
       archive_if_nothing_to_report: spec.archive_if_nothing_to_report ?? false,
+      ...project,
       colorHue: null,
       lastFiredAt: null,
       nextFireAt: null,
     });
   };
 
-  const save = async (row: ScheduledAgentListItem, spec: ScheduledAgentSpecWire): Promise<void> => {
+  const save = async (
+    row: ScheduledAgentListItem,
+    spec: ScheduledAgentSpecWire,
+    project: ProjectRowFields,
+  ): Promise<void> => {
     await updateScheduledAgent(row.slug, row.hostId, spec);
     spliceIn({
       ...row,
@@ -423,6 +430,7 @@ export function ScheduledAgentsModal({ open, onOpenChange, hostTree }: Scheduled
       prompt: spec.prompt,
       roles: spec.roles ?? [],
       archive_if_nothing_to_report: spec.archive_if_nothing_to_report ?? false,
+      ...project,
     });
   };
 
@@ -596,7 +604,7 @@ export function ScheduledAgentsModal({ open, onOpenChange, hostTree }: Scheduled
           onToggle={(enabled) => toggle(deepRow, enabled)}
           onRunNow={() => void runNow(deepRow)}
           runNowPending={runNowPending.has(keyOf(deepRow))}
-          onSave={(spec) => save(deepRow, spec)}
+          onSave={(spec, project) => save(deepRow, spec, project)}
           onDelete={async () => {
             await deleteScheduledAgent(deepRow.slug, deepRow.hostId);
             setItems((cur) => (cur ?? []).filter((r) => keyOf(r) !== keyOf(deepRow)));

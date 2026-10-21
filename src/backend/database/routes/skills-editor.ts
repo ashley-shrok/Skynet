@@ -82,7 +82,6 @@ import {
   withFrontmatterName,
   composeSkillMdSeed,
 } from "../../utils/folder-item-name.js";
-import { getInstanceWide } from "../../instance-wide/production.js";
 import {
   isInstanceScope,
   listInstanceSkills,

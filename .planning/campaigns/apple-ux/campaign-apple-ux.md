@@ -71,7 +71,8 @@ The foundation already moved every modal onto the kit, so each remaining modal s
 - The app's host list dropped the "can run agents" flag, so new scheduled tasks (and anything else filtering on it) saw no machines — found and fixed during shape-scheduled-tasks-modal
 - What's-new note for the whole redesign — the role now asks for one per user-visible change; this campaign writes ONE note at campaign close (Ashley approves the exact text before it's committed) — not started
 - Upstream's new "What's new" pop-up (a9261d84, 2026-10-21) is another window to bring onto the kit/family — fold into shape-creation-and-search-dialogs — not started
-- Upstream gave the scheduled-task form a Project picker (146599d2) — carry it into the redesigned scheduled-tasks window at the next rebase — not started
+- Upstream gave the scheduled-task form a Project picker (146599d2) — carry it into the redesigned scheduled-tasks window at the next rebase — done at the 2026-10-21 rebase (Project dropdown in the task view, project line on the row, search matches it)
+- Upstream's skill + runbook rename (2150579c, b971345c) — carried into the skills window's ⋮ menu and the runbook view's ⋯ menu at the 2026-10-21 rebase, in-app dialogs instead of browser pop-ups — done
 - Shared-skill hiding for non-admins goes by name and lets skills show if the sync engine is down (logged) — revisit in shape-host-targeting alongside the sync machinery
 
 ## Lingerers (explicitly approved)

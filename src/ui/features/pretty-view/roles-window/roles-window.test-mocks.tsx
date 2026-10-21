@@ -41,6 +41,7 @@ export const m = {
   deleteRunbookFile: vi.fn(),
   deleteRunbook: vi.fn(),
   createRunbook: vi.fn(),
+  renameRunbook: vi.fn(),
   // files / git / voice
   listWorkspace: vi.fn(),
   hasGitRepos: vi.fn(),
@@ -91,6 +92,7 @@ export function resetRolesWindowMocks(): void {
   m.deleteRunbookFile.mockResolvedValue(undefined);
   m.deleteRunbook.mockResolvedValue(undefined);
   m.createRunbook.mockResolvedValue({ path: "runbook.md", mtime: 5 });
+  m.renameRunbook.mockImplementation(async (_h: number, _r: string, _rb: string, newName: string) => ({ name: newName }));
   m.listWorkspace.mockResolvedValue({ entries: [], path: "" });
   m.hasGitRepos.mockResolvedValue(false);
   m.fetchVoiceCatalog.mockResolvedValue({
@@ -157,6 +159,7 @@ export async function runbooksApi(orig: Orig): Promise<Record<string, unknown>> 
     deleteRunbookFile: (...a: unknown[]) => m.deleteRunbookFile(...a),
     deleteRunbook: (...a: unknown[]) => m.deleteRunbook(...a),
     createRunbook: (...a: unknown[]) => m.createRunbook(...a),
+    renameRunbook: (...a: unknown[]) => m.renameRunbook(...a),
   };
 }
 
