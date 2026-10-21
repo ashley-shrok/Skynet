@@ -157,6 +157,7 @@ import type { TabSpec } from "@/lib/tab-url";
 import { systemLogger } from "@/lib/frontend-logger";
 import { moveNodeInto } from "@/shell/move-node";
 import { useSidebarPeek, PEEK_SLIDE_MS } from "@/shell/use-sidebar-peek";
+import { useSwipeToList } from "@/shell/use-swipe-to-list";
 import { isSplittableActiveTab, resolveOuterDrop } from "@/shell/outer-drop-resolve";
 // Phase 56 Plan 02 — split-tree state (retires the prior mode-enum + slot-
 // array state and their localStorage effects). URL is the single source of
@@ -3788,6 +3789,13 @@ export function AppShell({
   // orthogonal (and desktop keeps patch #108 composer-uncovered behavior).
   const anyIdentityModalOpen = useAnyIdentityModalOpen();
   const hideBackButtonForModal = isTouchDevice && anyIdentityModalOpen;
+  // Swipe right on the conversation screen drags the list back in.
+  const swipeListLayerRef = useRef<HTMLDivElement>(null);
+  useSwipeToList({
+    enabled: isTouchDevice && !isMobileListScreen && !anyIdentityModalOpen,
+    layerRef: swipeListLayerRef,
+    onCommit: navigateToList,
+  });
   // On touch, an open app or remote session (RDP/VNC/telnet) carries its own
   // back-to-conversations button in its (taller) pane bar — see PaneBar — so
   // the floating one would only cover the bar. The pane under the button is the split's top-left
@@ -4038,8 +4046,15 @@ export function AppShell({
             regression mitigation depends on that identity being preserved
             across list-vs-view switches too. Phase 14B Slice 1 retired the
             outer sidebarHeader that used to sit above the panel (Bug A). */}
-        {isMobileListScreen && (
+        {isTouchDevice && (
           <div
+            // Stays mounted on the conversation screen too, parked off-screen
+            // by CSS ([data-swipe-layer="parked"]), so a swipe right can drag
+            // the list in over the conversation (use-swipe-to-list.ts) and
+            // the list keeps its scroll position across screen switches.
+            ref={swipeListLayerRef}
+            data-swipe-layer={isMobileListScreen ? undefined : "parked"}
+            aria-hidden={isMobileListScreen ? undefined : true}
             // No explicit height — cross-axis stretch fills the parent flex-row's
             // content area (100dvh minus root paddingTop=env(safe-area-inset-top)).
             // Previously `height: 100dvh` overrode the stretch and pushed the

@@ -1079,6 +1079,17 @@ crown, then gear.
 
 ### Conversation view
 
+- **Swipe right — back to the list (phones and tablets).** On a touchscreen,
+  swiping right anywhere on an open conversation drags the conversation list
+  in over it, following the finger; letting go past about a third of the
+  screen (or flicking) goes to the list, letting go short slides it back.
+  Same result as the round ← button at the top left. It doesn't start on the
+  compose box or other text fields, on selected text, while a dialog is open,
+  or on wide content (a code block, a table) that's scrolled sideways —
+  there it scrolls the content back first. Over an open app's page the app
+  gets the touch; swipe on its bar instead.
+  *Agent-side: none.*
+
 - **Task pill (top-center of the open conversation).** The conversation's
   handle, and the only thing at the top of an agent conversation — the same
   in chat view and terminal view. It looks and behaves like that
