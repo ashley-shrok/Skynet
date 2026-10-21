@@ -67,3 +67,50 @@ The scheduled tasks window (clock icon in the sidebar footer) becomes a calm lis
 - The schedule kinds still start with "Interval", or wake-ups and scheduled tasks show them differently.
 - Unsaved edits vanish without asking.
 - A new task asks for a machine when there's only one.
+
+---
+
+## Close-Out
+
+**Closed:** 2026-10-21
+**Overall verdict:** closed-hit
+
+### Shape features (conformance)
+
+- **What this is** — present · one window: the list grouped by machine, each task one level deeper, New is the same view empty, the shared schedule section gets its wording and order.
+- **List: header** — present · "Scheduled Tasks", the agreed note, New, close X.
+- **List: one search box** — present · matches names, instructions, role names and each machine's role display names; both dropdowns gone.
+- **List: grouped by machine** — present · machine name and task count, titles only with more than one machine.
+- **List: order** — present · on tasks soonest-next first, off ones after.
+- **List rows** — present · role pictures (two overlapped, clock tile for no roles, dimmed when off), name, schedule + next or Off, one line of instructions, switch, arrow; on a phone the name wraps and there's no arrow.
+- **List: right-click menu** — present · Run now (not on one-time tasks), Open, Delete…; no three-dots button.
+- **List: empty and no-match states** — present.
+- **List: sensor line** — present.
+- **Task: header** — present · back, name, "On <machine>", close X.
+- **Task: On + Run now** — present · switch saves at once; Run now is a real button, "Starting…", hidden on one-time tasks; a started run says so briefly.
+- **Task: Name, Roles, When, Time zone, Instructions, Archive switch, Delete, Cancel / Save** — present.
+- **Task: sensor-fired** — present · read-only sensor details, schedule written back unchanged.
+- **New scheduled task** — present · machine list only with more than one machine; Create.
+- **Leaving** — present · discard prompt on back, Cancel, Esc, X; Esc order as agreed.
+- **Schedule control** — present · Daily / Weekly / Monthly / Yearly / Every… / Once, shared with wake-ups.
+- **Wording: "(box-local)" dropped** — present.
+- **Phone** — present.
+- **Philosophy** (sibling of wake-ups, ordered by next run, one search, Run now a real button, kit parts only, nothing lost) — present.
+- **Prior context** (time zone and "only on" days shown and kept; id skill updated) — present.
+- **What would make it wrong** (each of the eight) — present · none of them happens.
+- **Time zone "blank = yours"** — drifted (endorsed) · after code review, blank means the machine's own zone for a task or wake-up that was saved without a zone, so a save never moves its run time; new ones still default to yours, and the help text says which.
+
+### Additions (in the result, not in the shape)
+
+- The app's machine list now carries the "can run agents" mark it had been dropping, which reaches anything else that filters on it (e.g. new conversations) — endorsed-as-drift
+- The wake-up view's schedule section heading reads "When", its days row reads "Only on", and on a phone the six kinds sit in two rows of three — endorsed-as-drift
+
+### Follow-ups
+
+- A new task when no machine can run agents showed nothing and gave no reason — fixed in-session (a message says so).
+- A just-created task's schedule line is blank until the next re-read — accepted-as-drift (minor).
+- A search that narrows to one machine keeps that group's title — accepted-as-drift.
+
+### Notes
+
+Reviewer read the whole commit and found every shape item; the only divergences were the two additions above (Ashley: thumbs up). Unbiased code review found nine real issues — the worst a zone-less task's run time moving on save — all fixed with tests (e8a83fa6). Ashley endorsed the time-zone drift and both additions 2026-10-21.
