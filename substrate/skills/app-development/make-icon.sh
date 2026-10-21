@@ -72,8 +72,9 @@ icon_palette_color() {
 }
 
 cmd_colors() {
-    local slug="$1" name dir other c
+    local slug="$1" name dir other c own=""
     declare -A used=()
+    [ -f "$APPS_DIR/$slug/icon.webp" ] && own=$(icon_palette_color "$APPS_DIR/$slug/icon.webp")
     for dir in "$APPS_DIR"/*/; do
         other=$(basename "$dir")
         [ "$other" = "$slug" ] && continue
@@ -82,7 +83,9 @@ cmd_colors() {
         [ -n "$c" ] && used[$c]="${used[$c]:+${used[$c]}, }$other"
     done
     for name in "${PALETTE_NAMES[@]}"; do
-        if [ -n "${used[$name]:-}" ]; then
+        if [ "$name" = "$own" ]; then
+            printf '%-8s %s  current color of this app%s\n' "$name" "${PALETTE[$name]}" "${used[$name]:+ (also: ${used[$name]})}"
+        elif [ -n "${used[$name]:-}" ]; then
             printf '%-8s %s  used by: %s\n' "$name" "${PALETTE[$name]}" "${used[$name]}"
         else
             printf '%-8s %s  free\n' "$name" "${PALETTE[$name]}"
@@ -123,9 +126,10 @@ cmd_draft() {
 
     # Luminance → mask. If the generator inverted the request (dark symbol on
     # a light background), flip it so the symbol is always the opaque part.
-    corner=$(convert "$raw" -colorspace gray -format '%[fx:p{4,4}.r>0.5]' info:)
+    corner=$(convert "$raw" -alpha off -colorspace gray -format '%[fx:p{4,4}.r>0.5]' info:) \
+        || die "the generated image could not be read — draft again"
     convert "$raw" -alpha off -colorspace gray $([ "$corner" = 1 ] && echo -negate) \
-        -level 10%,90% -trim +repage \
+        -level 15%,90% -trim +repage \
         -resize "${SYMBOL_BOX}x${SYMBOL_BOX}" "$mask"
     if [ "$(convert "$mask" -format '%[fx:mean>0.02]' info:)" != 1 ]; then
         die "the generated image has no visible symbol — draft again with a reworded symbol"
@@ -140,11 +144,13 @@ cmd_draft() {
     # rounded corners on its dark background.
     convert -size 96x96 xc:none -fill white -draw "roundrectangle 0,0,95,95,22,22" "$dir/corners.png"
     convert "$draft" -resize 96x96 "$dir/corners.png" -alpha off -compose CopyOpacity -composite "$dir/small.png"
+    convert "$dir/small.png" -resize 48x48 "$dir/tiny.png"
     convert -size 400x300 'xc:#1a1d24' \
         \( "$draft" -resize 256x256 \) -geometry +16+22 -compose over -composite \
-        "$dir/small.png" -geometry +288+102 -compose over -composite \
+        "$dir/small.png" -geometry +288+60 -compose over -composite \
+        "$dir/tiny.png" -geometry +312+190 -compose over -composite \
         "$preview"
-    rm -f "$dir/corners.png" "$dir/small.png"
+    rm -f "$dir/corners.png" "$dir/small.png" "$dir/tiny.png"
 
     printf 'draft:   %s\n' "$draft"
     printf 'preview: %s\n' "$preview"
@@ -154,7 +160,9 @@ cmd_accept() {
     local slug="$1" app="$APPS_DIR/$1" draft="$DRAFTS_ROOT/$1/draft.webp"
     [ -d "$app" ] || die "no app at $app"
     [ -f "$draft" ] || die "no draft for '$slug' — run: make-icon.sh draft $slug <color> \"<symbol>\""
+    rm -f "$app/icon.webp"
     cp "$draft" "$app/icon.webp"
+    rm -f "$draft"
     mkdir -p "$app/static"
     ln -sfn ../icon.webp "$app/static/icon.webp"
     log "installed $app/icon.webp"
@@ -162,10 +170,11 @@ cmd_accept() {
         (cd "$app" && bun run build >/dev/null) || die "build failed — run 'bun run build' in $app to see why"
         log "rebuilt"
     fi
-    if systemctl --user restart "app-$slug" 2>/dev/null; then
+    if systemctl --user is-active --quiet "app-$slug"; then
+        systemctl --user restart "app-$slug" || die "app-$slug failed to restart"
         log "restarted app-$slug"
     else
-        log "app-$slug not restarted (no running service) — the tab icon updates on its next start"
+        log "app-$slug isn't running — left stopped; the tab icon updates on its next start"
     fi
 }
 

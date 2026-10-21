@@ -100,8 +100,8 @@ file that already has to exist:
   `icon.webp`. New apps get one from `make-icon.sh` in step 8 of § Making a
   new app; if the file doesn't exist, the client falls back to a generic app
   glyph. Icons in another format must be converted to `.webp` before dropping
-  in — one filename, no drift. `static/icon.webp` is a symlink to
-  `../icon.webp` so the same file doubles as the browser tab favicon when the
+  in — one filename, no drift. Installing an icon links `static/icon.webp`
+  to `../icon.webp` so the same file doubles as the browser tab favicon when the
   user opens the app in a new tab. The built output under `build/client/`
   holds a copy of the bytes, so a replaced icon needs a rebuild
   (`bun run build`) and restart (`systemctl --user restart app-<slug>`) —
@@ -252,6 +252,9 @@ everything else.
 
       Choose a free color that suits the app (green for shopping, teal for
       money, …). Only when every color is taken, reuse whichever fits best.
+      When replacing an existing app's icon, keep its current color (the
+      list marks it) unless the user wants a change — people find the app
+      by its color.
    2. **Draft it.** Name the symbol in a few plain words — one object that
       says what the app is ("a shopping basket", "a stopwatch", "a bell"):
 
@@ -280,7 +283,7 @@ everything else.
      with `convert <src> ~/fleet/apps/<slug>/icon.webp`, then
      `ln -sf ../icon.webp ~/fleet/apps/<slug>/static/icon.webp`, rebuild
      and restart.
-   - **Replacing an existing app's icon** is the same three steps; `accept`
+   - **Replacing an existing app's icon** is the same steps; `accept`
      overwrites the old one.
 9. **Publish.** This is the moment the tile appears on the user's sidebar.
    Only do this once step 7 has actually passed:
