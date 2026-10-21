@@ -16,6 +16,8 @@ import { parseUserAgent } from "../../utils/user-agent-parser.js";
 import { loginRateLimiter } from "../../utils/login-rate-limiter.js";
 import { getRequestOriginWithForceHTTPS } from "../../utils/request-origin.js";
 import { deleteUserAndRelatedData } from "./delete-user-data.js";
+import { countNewAccount } from "../../whats-new/count-existing-accounts.js";
+import { WHATS_NEW_NOTES } from "../../whats-new/notes.js";
 import {
   getOIDCConfigFromEnv,
   isOIDCUserAllowed,
@@ -296,6 +298,14 @@ router.post("/create", multipartOriginGuard, userAvatarUpload.single("avatar"), 
             avatarFilename,
             mintedMxid,
           );
+        const whatsNewErr = countNewAccount(db.$client, id, WHATS_NEW_NOTES);
+        if (whatsNewErr) {
+          authLogger.warn("What's new: counting new account failed (counted on first load instead)", {
+            operation: "whats_new_count_new_account_failed",
+            userId: id,
+            error: whatsNewErr instanceof Error ? whatsNewErr.message : String(whatsNewErr),
+          });
+        }
         return first;
       })();
     } catch (sqlErr) {
@@ -1545,6 +1555,14 @@ router.get("/oidc/callback", async (req, res) => {
             String(config.name_path),
             String(config.scopes),
           );
+        const whatsNewErr = countNewAccount(db.$client, id, WHATS_NEW_NOTES);
+        if (whatsNewErr) {
+          authLogger.warn("What's new: counting new account failed (counted on first load instead)", {
+            operation: "whats_new_count_new_account_failed",
+            userId: id,
+            error: whatsNewErr instanceof Error ? whatsNewErr.message : String(whatsNewErr),
+          });
+        }
         return first;
       })();
 

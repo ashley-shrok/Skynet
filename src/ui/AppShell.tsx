@@ -4783,7 +4783,7 @@ export function AppShell({
           toast.success("Thanks — feedback sent.", { duration: 2000 });
         }}
       />
-      <WhatsNewModal />
+      <WhatsNewModal username={username} />
     </>
   );
 }

@@ -1,11 +1,13 @@
-// What's new — count every account that has no seen record yet, at server
-// start. Without this, an existing account would only be counted on its
-// next visit, silently swallowing any note that shipped in between (e.g. the
-// feature rolls out, Zoey doesn't log in, the first note ships, she logs in
-// and the note is counted as already seen). Runs every boot; after the first
-// boot on this feature only accounts created since the last boot that have
-// never opened the app are still uncounted, and treating them as "no
-// history" is the agreed behaviour for new accounts.
+// What's new — counting accounts ("seen every note that exists right now").
+//
+// A new account is counted the moment it is created (countNewAccount, called
+// from the user-insert transactions), so a note that ships before its first
+// visit still shows. Accounts that predate the feature are counted at server
+// start (countUncountedAccounts) — otherwise they'd only be counted on their
+// next visit, silently swallowing any note shipped in between (the feature
+// rolls out, Zoey doesn't log in, the first note ships, she logs in and the
+// note is counted as already seen). The boot pass is idempotent: once every
+// account has a record it touches nothing.
 
 import type Database from "better-sqlite3";
 import type { WhatsNewNote } from "./notes.js";
@@ -31,4 +33,28 @@ export function countUncountedAccounts(
     return inserted + updated;
   });
   return tx();
+}
+
+/**
+ * Counts one just-created account. Safe inside the caller's transaction and
+ * never throws — a failure must not block account creation (the account is
+ * then counted on first load instead). Returns the error, or null.
+ */
+export function countNewAccount(
+  sqlite: Database.Database,
+  userId: string,
+  notes: readonly WhatsNewNote[],
+): unknown {
+  try {
+    sqlite
+      .prepare(
+        `INSERT INTO user_preferences (user_id, whats_new_seen) VALUES (?, ?)
+         ON CONFLICT(user_id) DO UPDATE SET whats_new_seen = excluded.whats_new_seen
+         WHERE user_preferences.whats_new_seen IS NULL`,
+      )
+      .run(userId, JSON.stringify(notes.map((n) => n.id)));
+    return null;
+  } catch (err) {
+    return err;
+  }
 }

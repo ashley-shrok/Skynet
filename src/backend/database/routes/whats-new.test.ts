@@ -182,6 +182,7 @@ describe("POST /whats-new/seen validation", () => {
     expect(await seen("u", "a", [n("a")])).toBe(400);
     expect(await seen("u", [1], [n("a")])).toBe(400);
     expect(await seen("u", undefined, [n("a")])).toBe(400);
+    expect(await seen("u", ["x".repeat(101)], [n("a")])).toBe(400);
   });
   it("ignores ids that aren't notes and doesn't write", async () => {
     rows.set("u", { userId: "u", whatsNewSeen: "[]", updatedAt: "x" });

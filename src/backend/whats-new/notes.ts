@@ -9,9 +9,10 @@
 //     commit message.
 //   - Ashley approves the exact text before it is committed.
 //   - Append to the END of the list (the pop-up shows newest first).
-//   - `id` is unique and permanent: never reuse, rename or delete an id, and
-//     never rewrite a shipped note into something different — people's
-//     "seen" records refer to it.
+//   - `id` is a short lowercase slug (e.g. "unread-marks"), unique and
+//     permanent: never reuse, rename or delete an id, and never rewrite a
+//     shipped note into something different — people's "seen" records refer
+//     to it. notes.test.ts checks ids are unique and the text is short.
 
 export interface WhatsNewNote {
   id: string;

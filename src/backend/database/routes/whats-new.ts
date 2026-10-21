@@ -26,6 +26,7 @@ const authManager = AuthManager.getInstance();
 const authenticateJWT = authManager.createAuthMiddleware();
 
 const SEEN_IDS_MAX_PER_REQUEST = 500;
+const NOTE_ID_MAX_LENGTH = 100;
 
 function readSeen(userId: string): { exists: boolean; seen: string | null } {
   const row = db
@@ -106,7 +107,7 @@ export async function handleMarkWhatsNewSeen(
   if (
     !Array.isArray(ids) ||
     ids.length > SEEN_IDS_MAX_PER_REQUEST ||
-    !ids.every((id) => typeof id === "string")
+    !ids.every((id) => typeof id === "string" && id.length <= NOTE_ID_MAX_LENGTH)
   ) {
     return res.status(400).json({ error: "ids must be an array of strings" });
   }
@@ -119,7 +120,7 @@ export async function handleMarkWhatsNewSeen(
     databaseLogger.info("What's new: notes marked seen", {
       operation: "whats_new_marked_seen",
       userId,
-      ids,
+      requested: ids.length,
       changed: next !== null,
     });
     return res.status(204).end();

@@ -640,6 +640,11 @@ function bootstrapDb(): void {
       role_id TEXT NOT NULL,
       granted_by TEXT,
       PRIMARY KEY (user_id, role_id)
+    );
+    CREATE TABLE IF NOT EXISTS user_preferences (
+      user_id TEXT PRIMARY KEY,
+      whats_new_seen TEXT,
+      updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
     )
   `);
 
@@ -808,6 +813,13 @@ describe("POST /users/create (Phase 85 — multipart with mandatory avatar)", ()
     expect(row!.username).toBe("user");
     expect(row!.avatar_path).toBeTruthy();
     expect(row!.avatar_path).toMatch(/\.(png|jpg|webp)$/);
+
+    // What's new: the new account is counted at creation (no history shown).
+    const prefs = sqliteDb
+      .prepare("SELECT p.whats_new_seen AS s FROM user_preferences p JOIN users u ON u.id = p.user_id WHERE u.username = ?")
+      .get("user") as { s: string | null } | undefined;
+    expect(prefs?.s).not.toBeNull();
+    expect(Array.isArray(JSON.parse(prefs!.s!))).toBe(true);
 
     // File must exist on disk (mockWriteUserAvatar actually writes to tmpDir)
     const avatarDir = path.join(tmpDir, "user-avatars");

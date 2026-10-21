@@ -1,6 +1,11 @@
 // What's new — pops up once after an update when this person has notes they
 // haven't seen. One flat list, newest first. Closing it (button, X or Esc)
 // marks every listed note seen; nothing shows when there is nothing new.
+//
+// The "seen" save can fail — most often because a deploy landed while the
+// panel was open and the old tab's request is refused. The ids are kept in
+// localStorage (per username) until the server confirms, and retried on the
+// next load before asking what's new, so the same notes don't come back.
 
 import { useEffect, useState } from "react";
 import { Button } from "@/components/button";
@@ -11,19 +16,48 @@ import {
   type WhatsNewNote,
 } from "./whats-new-api";
 
-export function WhatsNewModal() {
+const pendingKey = (username: string) => `skynet-whats-new-pending-seen:${username}`;
+
+function readPending(username: string): string[] {
+  try {
+    const parsed: unknown = JSON.parse(localStorage.getItem(pendingKey(username)) ?? "[]");
+    return Array.isArray(parsed) ? parsed.filter((v): v is string => typeof v === "string") : [];
+  } catch {
+    return [];
+  }
+}
+
+async function flushSeen(username: string, ids: string[]): Promise<void> {
+  if (ids.length === 0) return;
+  localStorage.setItem(pendingKey(username), JSON.stringify(ids));
+  await markWhatsNewSeen(ids);
+  localStorage.removeItem(pendingKey(username));
+}
+
+export function WhatsNewModal({ username }: { username: string }) {
   const [notes, setNotes] = useState<WhatsNewNote[]>([]);
   const [open, setOpen] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
-    getWhatsNew()
-      .then((unseen) => {
-        if (cancelled || unseen.length === 0) return;
-        console.info("[whats-new] showing unseen notes", {
-          ids: unseen.map((n) => n.id),
+    const pending = readPending(username);
+    flushSeen(username, pending)
+      .catch((err: unknown) => {
+        console.warn("[whats-new] retrying pending mark-seen failed", {
+          ids: pending,
+          error: err instanceof Error ? err.message : String(err),
         });
-        setNotes(unseen);
+      })
+      .then(() => getWhatsNew())
+      .then((unseen) => {
+        // Anything still pending (retry failed) was already read — don't re-show it.
+        const stillPending = new Set(readPending(username));
+        const fresh = unseen.filter((n) => !stillPending.has(n.id));
+        if (cancelled || fresh.length === 0) return;
+        console.info("[whats-new] showing unseen notes", {
+          ids: fresh.map((n) => n.id),
+        });
+        setNotes(fresh);
         setOpen(true);
       })
       .catch((err: unknown) => {
@@ -34,14 +68,14 @@ export function WhatsNewModal() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [username]);
 
   const close = () => {
     if (!open) return;
     setOpen(false);
-    const ids = notes.map((n) => n.id);
-    markWhatsNewSeen(ids).catch((err: unknown) => {
-      console.warn("[whats-new] mark-seen failed", {
+    const ids = [...new Set([...readPending(username), ...notes.map((n) => n.id)])];
+    flushSeen(username, ids).catch((err: unknown) => {
+      console.warn("[whats-new] mark-seen failed; will retry on next load", {
         ids,
         error: err instanceof Error ? err.message : String(err),
       });

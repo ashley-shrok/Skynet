@@ -11,6 +11,7 @@ vi.mock("./whats-new-api", () => ({
 import { WhatsNewModal } from "./WhatsNewModal";
 
 beforeEach(() => {
+  localStorage.clear();
   getWhatsNew.mockReset();
   markWhatsNewSeen.mockReset().mockResolvedValue(undefined);
 });
@@ -24,7 +25,7 @@ const notes = [
 describe("WhatsNewModal", () => {
   it("pops up with unseen notes in the order given (newest first)", async () => {
     getWhatsNew.mockResolvedValue(notes);
-    render(<WhatsNewModal />);
+    render(<WhatsNewModal username="ash" />);
     await screen.findByTestId("whats-new-modal");
     expect(screen.getByText("What's new")).toBeTruthy();
     expect(screen.getAllByTestId("whats-new-note").map((li) => li.textContent)).toEqual([
@@ -35,7 +36,7 @@ describe("WhatsNewModal", () => {
 
   it("'Got it' closes and marks every listed note seen, once", async () => {
     getWhatsNew.mockResolvedValue(notes);
-    render(<WhatsNewModal />);
+    render(<WhatsNewModal username="ash" />);
     fireEvent.click(await screen.findByTestId("whats-new-dismiss"));
     await waitFor(() => expect(screen.queryByTestId("whats-new-modal")).toBeNull());
     expect(markWhatsNewSeen).toHaveBeenCalledTimes(1);
@@ -44,7 +45,7 @@ describe("WhatsNewModal", () => {
 
   it("Escape also counts as closing", async () => {
     getWhatsNew.mockResolvedValue(notes);
-    render(<WhatsNewModal />);
+    render(<WhatsNewModal username="ash" />);
     const modal = await screen.findByTestId("whats-new-modal");
     fireEvent.keyDown(modal, { key: "Escape" });
     await waitFor(() => expect(markWhatsNewSeen).toHaveBeenCalledWith(["c", "b"]));
@@ -52,7 +53,7 @@ describe("WhatsNewModal", () => {
 
   it("shows nothing when there is nothing new", async () => {
     getWhatsNew.mockResolvedValue([]);
-    render(<WhatsNewModal />);
+    render(<WhatsNewModal username="ash" />);
     await act(async () => {});
     expect(screen.queryByTestId("whats-new-modal")).toBeNull();
     expect(markWhatsNewSeen).not.toHaveBeenCalled();
@@ -60,8 +61,41 @@ describe("WhatsNewModal", () => {
 
   it("shows nothing when the fetch fails", async () => {
     getWhatsNew.mockRejectedValue(new Error("409"));
-    render(<WhatsNewModal />);
+    render(<WhatsNewModal username="ash" />);
     await act(async () => {});
     expect(screen.queryByTestId("whats-new-modal")).toBeNull();
+  });
+
+  it("a failed mark-seen is retried on the next load and the notes don't re-show", async () => {
+    getWhatsNew.mockResolvedValue(notes);
+    markWhatsNewSeen.mockRejectedValueOnce(new Error("409 stale_client"));
+    const first = render(<WhatsNewModal username="ash" />);
+    fireEvent.click(await screen.findByTestId("whats-new-dismiss"));
+    await waitFor(() => expect(markWhatsNewSeen).toHaveBeenCalledTimes(1));
+    first.unmount();
+
+    // Reload: server still says unseen (save never landed).
+    render(<WhatsNewModal username="ash" />);
+    await waitFor(() => expect(markWhatsNewSeen).toHaveBeenCalledTimes(2));
+    expect(markWhatsNewSeen).toHaveBeenLastCalledWith(["c", "b"]);
+    await act(async () => {});
+    expect(localStorage.getItem("skynet-whats-new-pending-seen:ash")).toBeNull();
+  });
+
+  it("if the retry also fails, already-read notes are still not re-shown", async () => {
+    localStorage.setItem("skynet-whats-new-pending-seen:ash", JSON.stringify(["c", "b"]));
+    markWhatsNewSeen.mockRejectedValue(new Error("offline"));
+    getWhatsNew.mockResolvedValue([{ id: "d", text: "Brand new." }, ...notes]);
+    render(<WhatsNewModal username="ash" />);
+    await screen.findByTestId("whats-new-modal");
+    expect(screen.getAllByTestId("whats-new-note").map((li) => li.textContent)).toEqual(["Brand new."]);
+  });
+
+  it("pending ids are per username", async () => {
+    localStorage.setItem("skynet-whats-new-pending-seen:someone-else", JSON.stringify(["c"]));
+    getWhatsNew.mockResolvedValue([]);
+    render(<WhatsNewModal username="ash" />);
+    await act(async () => {});
+    expect(markWhatsNewSeen).not.toHaveBeenCalled();
   });
 });
