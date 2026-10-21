@@ -26,8 +26,13 @@
  */
 
 import { describe, it, expect, afterEach, vi } from "vitest";
-import { render, cleanup } from "@testing-library/react";
-import { AppPane, injectDarkViewerStylesheetIfApplicable } from "./AppPane";
+import { render, cleanup, act, fireEvent } from "@testing-library/react";
+import {
+  AppPane,
+  APP_REVEAL_CAP_MS,
+  injectDarkViewerStylesheetIfApplicable,
+  isFrameDocumentParsed,
+} from "./AppPane";
 import { DRAG_PREVIEW_WATCHDOG_MS } from "./drag-preview-session";
 
 // Map-backed DataTransfer stub. Mirrors the shape used in
@@ -143,9 +148,69 @@ describe("AppPane iframe wrapper (Phase 120 D-05)", () => {
       <AppPane hostId={1} slug="todo" tabId="t1" isVisible={true} />,
     );
     const iframe = container.querySelector("iframe");
-    expect(iframe?.getAttribute("class")).toBe(
-      "flex-1 min-h-0 w-full border-0 bg-white scheme-light",
+    const cls = iframe?.getAttribute("class") ?? "";
+    for (const c of ["flex-1", "min-h-0", "w-full", "border-0", "bg-white", "scheme-light"]) {
+      expect(cls.split(" ")).toContain(c);
+    }
+  });
+});
+
+// ─── No white flash on open (2026-10-21) ───────────────────────────────────
+describe("AppPane first-paint reveal", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("frame starts hidden over the pane's dark base", () => {
+    const { container, getByTestId } = render(
+      <AppPane hostId={1} slug="todo" tabId="t1" isVisible={true} />,
     );
+    const iframe = container.querySelector("iframe")!;
+    expect(iframe.dataset.revealed).toBe("false");
+    expect(iframe.className).toContain("opacity-0");
+    expect(getByTestId("app-pane").className).toContain("bg-[var(--color-pv-base)]");
+  });
+
+  it("frame load reveals it", () => {
+    const { container } = render(
+      <AppPane hostId={1} slug="todo" tabId="t1" isVisible={true} />,
+    );
+    const iframe = container.querySelector("iframe")!;
+    fireEvent.load(iframe);
+    expect(iframe.dataset.revealed).toBe("true");
+    expect(iframe.className).toContain("opacity-100");
+  });
+
+  it("reveals at the cap even if the app never finishes loading", () => {
+    vi.useFakeTimers();
+    const { container } = render(
+      <AppPane hostId={1} slug="todo" tabId="t1" isVisible={true} />,
+    );
+    const iframe = container.querySelector("iframe")!;
+    act(() => {
+      vi.advanceTimersByTime(APP_REVEAL_CAP_MS - 100);
+    });
+    expect(iframe.dataset.revealed).toBe("false");
+    act(() => {
+      vi.advanceTimersByTime(200);
+    });
+    expect(iframe.dataset.revealed).toBe("true");
+  });
+
+  it("isFrameDocumentParsed: blank, loading and inaccessible docs are not parsed", () => {
+    const frame = (doc: unknown) =>
+      ({ get contentDocument() { return doc; } }) as unknown as HTMLIFrameElement;
+    expect(isFrameDocumentParsed(null)).toBe(false);
+    expect(isFrameDocumentParsed(frame(null))).toBe(false);
+    expect(isFrameDocumentParsed(frame({ URL: "about:blank", readyState: "complete" }))).toBe(false);
+    expect(isFrameDocumentParsed(frame({ URL: "https://x/apps/1/a/pane/", readyState: "loading" }))).toBe(false);
+    expect(isFrameDocumentParsed(frame({ URL: "https://x/apps/1/a/pane/", readyState: "interactive" }))).toBe(true);
+    const throwing = {
+      get contentDocument(): Document {
+        throw new DOMException("cross-origin", "SecurityError");
+      },
+    } as unknown as HTMLIFrameElement;
+    expect(isFrameDocumentParsed(throwing)).toBe(false);
   });
 });
 

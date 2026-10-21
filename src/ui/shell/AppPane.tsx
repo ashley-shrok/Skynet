@@ -73,9 +73,19 @@ export { sidebarToggleClearance } from "./PaneBar";
 //     title). Reflects the slug (NOT the app's live document.title per D-19
 //     — the pane never peeks at the app's internal state).
 //
-// Failure surface (D-17): iframe naturally shows the browser's blank frame
-// until first paint; tunnel failures render Phase 103's interstitial inside
-// the frame via the proxy. No Skynet-authored placeholder here (fleet rule).
+// Failure surface (D-17): tunnel failures render Phase 103's interstitial
+// inside the frame via the proxy. No Skynet-authored placeholder here (fleet
+// rule).
+//
+// ─── No white flash on open (2026-10-21) ───────────────────────────────────
+// The frame's white bg (above) would show as a white flash while the app's
+// first page is still on its way — blinding against Skynet's dark chrome,
+// even for dark apps. So the frame stays transparent (opacity 0, pane's dark
+// base showing) until its first real document has parsed, then fades in.
+// "Parsed" = a non-blank document whose readyState left "loading" (polled —
+// a load event waits on every image), with the load event as backstop and a
+// hard cap so a stuck page never leaves the pane blank. Only the first page
+// is held back; later navigations keep the browser's own paint-holding.
 //
 // ─── Iframe drag-passthrough (2026-09-21) ──────────────────────────────────
 // Drag events (dragover/dragenter/drop) fire in the iframe's own document,
@@ -177,6 +187,23 @@ function frameUrl(el: HTMLIFrameElement | null): string | null {
     return href;
   } catch {
     return null;
+  }
+}
+
+// Upper bound on how long a pane stays dark waiting for the app's first page.
+export const APP_REVEAL_CAP_MS = 4000;
+
+// True once the frame holds a real (non-blank) document past "loading".
+// Exported for unit tests.
+export function isFrameDocumentParsed(el: HTMLIFrameElement | null): boolean {
+  try {
+    const doc = el?.contentDocument ?? null;
+    if (doc === null) return false;
+    if (doc.URL === "about:blank" || doc.URL === "") return false;
+    return doc.readyState !== "loading";
+  } catch {
+    // Cross-origin (off-site redirect): can't look — let load/cap reveal.
+    return false;
   }
 }
 
@@ -317,6 +344,41 @@ export function AppPane({
     };
   }, []);
 
+  // First-paint reveal (see § No white flash on open above).
+  const [revealed, setRevealed] = useState(false);
+  useEffect(() => {
+    if (revealed) return;
+    const startedAt = Date.now();
+    let done = false;
+    const reveal = (reason: string) => {
+      if (done) return;
+      done = true;
+      setRevealed(true);
+      systemLogger.info(`[app-pane] revealed (${reason})`, {
+        operation: "app_pane_reveal",
+        tabId,
+        hostId,
+        slug,
+        reason,
+        ms: Date.now() - startedAt,
+      });
+    };
+    const timer = window.setInterval(() => {
+      if (Date.now() - startedAt >= APP_REVEAL_CAP_MS) {
+        reveal("cap");
+        return;
+      }
+      if (isFrameDocumentParsed(iframeRef.current)) reveal("parsed");
+    }, 50);
+    const el = iframeRef.current;
+    const onLoad = () => reveal("load");
+    el?.addEventListener("load", onLoad);
+    return () => {
+      window.clearInterval(timer);
+      el?.removeEventListener("load", onLoad);
+    };
+  }, [revealed, tabId, hostId, slug]);
+
   const isTouchDeviceRef = useRef(isTouchDevice);
   isTouchDeviceRef.current = isTouchDevice;
   const logCtxRef = useRef({ tabId, hostId, slug });
@@ -430,7 +492,10 @@ export function AppPane({
 
   const src = `/apps/${encodeURIComponent(hostId)}/${encodeURIComponent(slug)}/pane/`;
   return (
-    <div className="flex flex-col h-full w-full" data-testid="app-pane">
+    <div
+      className="flex flex-col h-full w-full bg-[var(--color-pv-base)]"
+      data-testid="app-pane"
+    >
       <PaneBar
         tabId={tabId}
         testIdPrefix="app-pane"
@@ -503,7 +568,8 @@ export function AppPane({
         title={`App ${slug}`}
         referrerPolicy="no-referrer"
         loading="eager"
-        className="flex-1 min-h-0 w-full border-0 bg-white scheme-light"
+        className={`flex-1 min-h-0 w-full border-0 bg-white scheme-light transition-opacity duration-150 ${revealed ? "opacity-100" : "opacity-0"}`}
+        data-revealed={revealed ? "true" : "false"}
         data-app-hostid={hostId}
         data-app-slug={slug}
         data-tab-id={tabId}
