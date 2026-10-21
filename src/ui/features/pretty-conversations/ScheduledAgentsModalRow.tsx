@@ -9,7 +9,8 @@
  *     - Line 1: row.name (schedule name alone, NO role prefix)
  *     - Line 2: row.scheduleHuman (muted)
  *     - Line 3: row.prompt (2-line clamp)
- *     - Line 4: role chip (magenta) + skill chips (blue, only when non-empty)
+ *     - Line 4: role chips (magenta) + project chip (green — the full
+ *       "Parent › Child" path; amber "missing" when the project is gone)
  *   top-right actions bar (aligned with the name baseline):
  *     - toggle pill (row.enabled, pessimistic — parent flips on server ack)
  *     - RowKebabMenu → Edit + Delete popover
@@ -44,7 +45,9 @@ import {
   formatRelativeFuture,
   formatRelativePast,
 } from "./scheduled-agents-time-fmt";
+import { Folder } from "lucide-react";
 import { SensorSummaryLine } from "@/features/pretty-view/SensorStatusView";
+import { formatProjectPath } from "./scheduled-agents-projects";
 import { isOnceSensorSchedule } from "@/features/pretty-view/WakeupFormShared";
 
 const FALLBACK_HUE = 190;
@@ -176,13 +179,31 @@ export function ScheduledAgentsModalRow({
           );
         })()}
         <div className="pv-agent-row-prompt">{row.prompt}</div>
-        {row.roles.length > 0 && (
+        {(row.roles.length > 0 || row.project) && (
           <div className="pv-agent-row-chips">
             {row.roles.map((r) => (
               <span key={`role-${r}`} className="pv-agent-row-chip role">
                 {r}
               </span>
             ))}
+            {row.project && (
+              <span
+                className={row.projectMissing ? "pv-agent-row-chip project missing" : "pv-agent-row-chip project"}
+                data-testid={`scheduled-agents-modal-row-${row.slug}-project`}
+                title={
+                  row.projectMissing
+                    ? "This project no longer exists — new conversations go to Conversations"
+                    : "New conversations are filed in this project"
+                }
+              >
+                <Folder size={10} aria-hidden="true" />
+                {row.projectMissing
+                  ? `Project missing: ${row.project}`
+                  : row.projectPath
+                    ? formatProjectPath(row.projectPath)
+                    : row.project}
+              </span>
+            )}
           </div>
         )}
       </div>

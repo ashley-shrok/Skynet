@@ -100,6 +100,8 @@ vi.mock("../../claude-session/identity-artifact-reader.js", () => ({
   isLocalHostId: vi.fn().mockReturnValue(false),
   getLocalScheduledAgentsRoot: vi.fn().mockReturnValue("/tmp/test-fleet/scheduled-agents"),
   getLocalIdentitiesRoot: vi.fn().mockReturnValue("/tmp/test-fleet/identities"),
+  getLocalProjectsRoot: vi.fn().mockReturnValue("/tmp/test-fleet/projects"),
+  PROJECT_SLUG_RE: /^[a-z0-9-]{1,64}$/,
 }));
 
 // ---------------------------------------------------------------------------
@@ -1173,20 +1175,20 @@ describe("buildRunNowSpawnRequest (helper)", () => {
   const at = "2026-10-07T12:00:00Z";
 
   it("empty or absent roles → roleless request (`roles: []`), users still carried", () => {
-    const r = buildRunNowSpawnRequest({ ...validSpec, roles: [], users: ["zoey"] }, "x", at);
+    const r = buildRunNowSpawnRequest({ ...validSpec, roles: [], users: ["zoey"] }, "x", at, false);
     expect(r.ok).toBe(true);
     if (r.ok) {
       expect(r.body.roles).toEqual([]);
       expect(r.body.users).toEqual(["zoey"]);
     }
     const { roles: _roles, ...noRoles } = validSpec;
-    const r2 = buildRunNowSpawnRequest(noRoles, "x", at);
+    const r2 = buildRunNowSpawnRequest(noRoles, "x", at, false);
     expect(r2.ok).toBe(true);
     if (r2.ok) expect(r2.body.roles).toEqual([]);
   });
 
   it("roleless Run-now body passes the spawn-request parser", () => {
-    const r = buildRunNowSpawnRequest({ ...validSpec, roles: [] }, "x", at);
+    const r = buildRunNowSpawnRequest({ ...validSpec, roles: [] }, "x", at, false);
     expect(r.ok).toBe(true);
     if (r.ok) {
       expect(parseRequestBody("x", JSON.stringify(r.body)).ok).toBe(true);
@@ -1194,13 +1196,13 @@ describe("buildRunNowSpawnRequest (helper)", () => {
   });
 
   it("rejects missing prompt", () => {
-    const r = buildRunNowSpawnRequest({ ...validSpec, prompt: "" }, "x", at);
+    const r = buildRunNowSpawnRequest({ ...validSpec, prompt: "" }, "x", at, false);
     expect(r.ok).toBe(false);
   });
 
   it("omits users when absent; task null when name absent", () => {
     const { name: _name, ...noName } = validSpec;
-    const r = buildRunNowSpawnRequest(noName, "x", at);
+    const r = buildRunNowSpawnRequest(noName, "x", at, false);
     expect(r.ok).toBe(true);
     if (r.ok === true) {
       expect("users" in r.body).toBe(false);
@@ -1209,7 +1211,7 @@ describe("buildRunNowSpawnRequest (helper)", () => {
   });
 
   it("blockquotes every prompt line, trailing newline dropped like Python splitlines()", () => {
-    const r = buildRunNowSpawnRequest({ ...validSpec, prompt: "one\ntwo\n" }, "x", at);
+    const r = buildRunNowSpawnRequest({ ...validSpec, prompt: "one\ntwo\n" }, "x", at, false);
     expect(r.ok).toBe(true);
     if (r.ok === true) {
       expect((r.body.prompt as string).endsWith("> one\n> two")).toBe(true);
@@ -1276,9 +1278,9 @@ describe("archive_if_nothing_to_report", () => {
   });
 
   it("Run now attaches the archive section after the prompt only when ticked", () => {
-    const on = buildRunNowSpawnRequest({ ...base, archive_if_nothing_to_report: true }, "box-check", at);
-    const off = buildRunNowSpawnRequest({ ...base, archive_if_nothing_to_report: false }, "box-check", at);
-    const absent = buildRunNowSpawnRequest(base, "box-check", at);
+    const on = buildRunNowSpawnRequest({ ...base, archive_if_nothing_to_report: true }, "box-check", at, false);
+    const off = buildRunNowSpawnRequest({ ...base, archive_if_nothing_to_report: false }, "box-check", at, false);
+    const absent = buildRunNowSpawnRequest(base, "box-check", at, false);
     expect(on.ok && off.ok && absent.ok).toBe(true);
     if (on.ok && off.ok && absent.ok) {
       const p = on.body.prompt as string;
@@ -1306,5 +1308,76 @@ describe("archive_if_nothing_to_report", () => {
       { encoding: "utf-8" },
     );
     expect(JSON.parse(py)).toBe(ARCHIVE_IF_NOTHING_TO_REPORT_SECTION);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Project support — validation, run-now filing (only while the project exists)
+// ---------------------------------------------------------------------------
+
+describe("scheduled-agents: project", () => {
+  it("validateScheduledAgentSpec accepts a project slug and rejects anything else", () => {
+    expect(validateScheduledAgentSpec({ ...validSpec, project: "skynet-waiting" })).toBeNull();
+    for (const bad of ["Bad Slug", "", "archive", "../x", 7, null]) {
+      expect(validateScheduledAgentSpec({ ...validSpec, project: bad }), String(bad)).toMatch(/spec\.project/);
+    }
+  });
+
+  it("buildRunNowSpawnRequest carries the project only when it exists, and parse-request-body accepts it", () => {
+    const at = "2026-10-21T12:00:00Z";
+    const live = buildRunNowSpawnRequest({ ...validSpec, project: "skynet" }, "x", at, true);
+    const gone = buildRunNowSpawnRequest({ ...validSpec, project: "skynet" }, "x", at, false);
+    const none = buildRunNowSpawnRequest(validSpec, "x", at, true);
+    expect(live.ok && live.body.project).toBe("skynet");
+    expect(gone.ok && "project" in gone.body).toBe(false);
+    expect(none.ok && "project" in none.body).toBe(false);
+    if (live.ok) expect(parseRequestBody("x", JSON.stringify(live.body))).toMatchObject({ ok: true, body: { project: "skynet" } });
+  });
+
+  function mockRemote(spec: unknown, projectPresent: boolean): void {
+    (execCommand as Mock).mockImplementation(async (_c: unknown, cmd: string) => {
+      if (cmd.includes("scheduled-agent.json")) return JSON.stringify(spec);
+      if (cmd.includes("/fleet/projects/")) return projectPresent ? "__PROJECT_PRESENT__\n" : "__PROJECT_ABSENT__\n";
+      return "";
+    });
+  }
+  const runNow = (host: number) =>
+    httpRequest(server, { method: "POST", path: "/scheduled-agents/morning-digest/run-now", body: { host } });
+  const droppedBody = () =>
+    JSON.parse((writeMarkdownFileAtomic as Mock).mock.calls[0][2] as string) as Record<string, unknown>;
+
+  it("run-now REMOTE files the newborn in a live project", async () => {
+    mockRemote({ ...validSpec, project: "skynet" }, true);
+    expect((await runNow(7)).status).toBe(202);
+    expect(droppedBody().project).toBe("skynet");
+    const probe = (execCommand as Mock).mock.calls.map((c) => c[1] as string).find((c) => c.includes("/fleet/projects/"));
+    expect(probe).toContain('test -f "$HOME/fleet/projects/skynet/project.md"');
+  });
+
+  it("run-now REMOTE with a missing project still fires, unfiled", async () => {
+    mockRemote({ ...validSpec, project: "gone" }, false);
+    expect((await runNow(7)).status).toBe(202);
+    expect("project" in droppedBody()).toBe(false);
+  });
+
+  it("run-now REMOTE without a project never probes for one", async () => {
+    mockRemote(validSpec, true);
+    expect((await runNow(7)).status).toBe(202);
+    expect((execCommand as Mock).mock.calls.some((c) => (c[1] as string).includes("/fleet/projects/"))).toBe(false);
+  });
+
+  it("run-now LOCAL checks the project folder on disk", async () => {
+    (isLocalHostId as Mock).mockReturnValue(true);
+    fsReadFileMock.mockResolvedValue(JSON.stringify({ ...validSpec, project: "skynet" }));
+    fsMkdirMock.mockResolvedValue(undefined);
+    fsAccessMock.mockResolvedValue(undefined);
+    expect((await runNow(1)).status).toBe(202);
+    expect(fsAccessMock).toHaveBeenCalledWith("/tmp/test-fleet/projects/skynet/project.md");
+    expect(droppedBody().project).toBe("skynet");
+
+    (writeMarkdownFileAtomic as Mock).mockClear();
+    fsAccessMock.mockRejectedValue(Object.assign(new Error("nope"), { code: "ENOENT" }));
+    expect((await runNow(1)).status).toBe(202);
+    expect("project" in droppedBody()).toBe(false);
   });
 });

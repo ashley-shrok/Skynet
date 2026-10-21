@@ -53,7 +53,9 @@ import {
   IDENTITY_SLUG_RE,
   readRoleFileByName,
   extractCosmeticsFromFrontmatter,
+  listProjects,
 } from "../../claude-session/identity-artifact-reader.js";
+import { isProjectSlug } from "../../claude-session/scheduled-agent-project.js";
 import { computeNextFireAt, SENSOR_TYPE } from "../../claude-session/schedule-next-fire.js";
 import {
   deriveSensorStatus,
@@ -110,6 +112,16 @@ export type ScheduledAgentListItem = {
   roles: string[];
   /** Read exactly as the scheduler reads it: only a literal `true` is on. */
   archive_if_nothing_to_report: boolean;
+  /** Project slug the task's conversations are filed in; null = none. */
+  project: string | null;
+  /**
+   * Display names from the top-level project down to `project` (e.g.
+   * ["SKYNET", "later"]). Null when there is no project or it is missing.
+   * Read unfiltered — the same for every caller who can see the task.
+   */
+  projectPath: string[] | null;
+  /** True when `project` names a project that no longer exists on the host. */
+  projectMissing: boolean;
   /**
    * First-role's colorHue, resolved from the role file's frontmatter on the
    * OWNING host. Cascade: `roleCosmetics.colorHue ?? null`. Populated
@@ -207,6 +219,11 @@ function specToRow(
     prompt: typeof spec.prompt === "string" ? spec.prompt : "",
     roles: Array.isArray(spec.roles) ? (spec.roles as string[]) : [],
     archive_if_nothing_to_report: spec.archive_if_nothing_to_report === true,
+    project: isProjectSlug(spec.project) ? spec.project : null,
+    // projectPath + projectMissing are attached by attachProjectPaths once
+    // the host's projects are read.
+    projectPath: null,
+    projectMissing: false,
     // colorHue starts null; the caller populates it via readRoleHueMemo
     // after specToRow returns (batched per-unique-role read reuses the
     // already-open SSH connection / local fs handle for that host).
@@ -268,6 +285,84 @@ function attachFireTimestamps(
     // `.runs` counts real fires; a schedule whose `count` is used up has no Next.
     row.nextFireAt = computeNextFireAt(row.schedule, reference, nowSecs, runsBySlug.get(row.slug) ?? 0);
   }
+}
+
+/** One project on a host, as the scheduled-tasks form picks from it. */
+export type ScheduledAgentProjectOption = {
+  slug: string;
+  displayName: string;
+  parent: string | null;
+};
+
+/** Read a host's live projects, unfiltered by caller (a task's project shows
+ *  the same to everyone who can see the task). Null when the read fails. */
+async function readHostProjects(
+  conn: SSHClientType | null,
+  hostId: number,
+  hostName: string,
+): Promise<ScheduledAgentProjectOption[] | null> {
+  try {
+    const rows = await listProjects(conn);
+    return rows.map(({ slug, displayName, parent }) => ({ slug, displayName, parent }));
+  } catch (err) {
+    sshLogger.warn("scheduled-agents-list: project read failed", {
+      operation: "scheduled_agents_list_project_read",
+      hostId,
+      hostName,
+      error: err instanceof Error ? err.message : "unknown",
+    });
+    return null;
+  }
+}
+
+/**
+ * Display-name path from the top-level project down to `slug`. A parent that
+ * is gone ends the walk (the sidebar shows such a project at top level); a
+ * parent loop is cut at the first repeat.
+ */
+export function projectPathFor(
+  slug: string,
+  bySlug: Map<string, ScheduledAgentProjectOption>,
+): string[] | null {
+  const path: string[] = [];
+  const seen = new Set<string>();
+  let cur = bySlug.get(slug);
+  if (!cur) return null;
+  while (cur && !seen.has(cur.slug)) {
+    seen.add(cur.slug);
+    path.unshift(cur.displayName);
+    cur = cur.parent ? bySlug.get(cur.parent) : undefined;
+  }
+  return path;
+}
+
+/**
+ * Attach `projectPath` + `projectMissing` to each row that names a project.
+ * Skipped (rows keep null / false) when `projects` is null — the host's
+ * project read failed, so "missing" can't be told apart from "unreadable".
+ */
+function attachProjectPaths(
+  rows: ScheduledAgentListItem[],
+  projects: ScheduledAgentProjectOption[] | null,
+): void {
+  if (projects === null) return;
+  const bySlug = new Map(projects.map((p) => [p.slug, p]));
+  for (const row of rows) {
+    if (row.project === null) continue;
+    row.projectPath = projectPathFor(row.project, bySlug);
+    row.projectMissing = row.projectPath === null;
+  }
+}
+
+/** Host-level project read for the LIST — only when some row names one. */
+async function readHostProjectsForList(
+  conn: SSHClientType | null,
+  rows: ScheduledAgentListItem[],
+  hostId: number,
+  hostName: string,
+): Promise<void> {
+  if (!rows.some((r) => r.project !== null)) return;
+  attachProjectPaths(rows, await readHostProjects(conn, hostId, hostName));
 }
 
 /**
@@ -406,6 +501,7 @@ async function readScheduledAgentsLocal(
     }
   }
   await attachColorHuesForHost(null, out, hostId, hostName);
+  await readHostProjectsForList(null, out, hostId, hostName);
   // Read `.state/*.last` + `.state/*.anchored` sentinels so lastFiredAt +
   // nextFireAt can be attached. ENOENT on the state dir (scheduler never ran
   // here) collapses to empty maps — every row keeps lastFiredAt: null and
@@ -591,6 +687,7 @@ async function readScheduledAgentsRemote(
     }
   }
   await attachColorHuesForHost(conn, out, hostId, hostName);
+  await readHostProjectsForList(conn, out, hostId, hostName);
   attachFireTimestamps(out, lastBySlug, anchoredBySlug, runsBySlug, Math.floor(Date.now() / 1000));
   return out;
 }
@@ -730,6 +827,60 @@ router.get(
       });
 
     return res.json({ items });
+  },
+);
+
+/**
+ * GET /scheduled-agents/projects?host=<id> — the projects a task on this host
+ * can be filed in (the form's Project picker). Unfiltered by caller.
+ * Responds 200 {projects: ScheduledAgentProjectOption[]}; 400 bad host,
+ * 404 unknown/cross-user host, 502 when the host can't be read.
+ */
+router.get(
+  "/projects",
+  authenticateJWT,
+  async (req: Request, res: Response) => {
+    const userId = (req as AuthenticatedRequest).userId;
+    const hostId = Number(req.query.host);
+    if (!Number.isInteger(hostId) || hostId <= 0) {
+      return res.status(400).json({ error: "host must be a positive integer" });
+    }
+    const resolved = await resolveHostById(hostId, userId);
+    if (!resolved) return res.status(404).json({ error: "Host not found" });
+    const hostName = ((resolved as { name?: string }).name ?? "") as string;
+
+    let projects: ScheduledAgentProjectOption[] | null = null;
+    if (isLocalHostId(hostId)) {
+      projects = await readHostProjects(null, hostId, hostName);
+    } else {
+      try {
+        projects = await getHostSemaphore(hostId).run(async () => {
+          const conn = await connectOneShot(
+            resolved as unknown as Parameters<typeof connectOneShot>[0],
+            CONNECT_TIMEOUT_MS,
+          );
+          try {
+            return await readHostProjects(conn, hostId, hostName);
+          } finally {
+            try {
+              (conn as { end?: () => void }).end?.();
+            } catch {
+              /* ignore */
+            }
+          }
+        }, { acquireTimeoutMs: PER_HOST_TIMEOUT_MS });
+      } catch (e) {
+        sshLogger.warn("scheduled-agents-list: project list connect failed", {
+          operation: "scheduled_agents_projects_connect",
+          hostId,
+          hostName,
+          error: e instanceof Error ? e.message : "unknown",
+        });
+        projects = null;
+      }
+    }
+    if (projects === null) return res.status(502).json({ error: "projects_unreadable" });
+    return res.json({ projects });
   },
 );
 

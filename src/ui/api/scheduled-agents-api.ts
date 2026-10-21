@@ -50,6 +50,13 @@ export type ScheduledAgentListItem = {
   roles: string[];
   /** "Archive if nothing to report" — on only when the stored spec says `true`. */
   archive_if_nothing_to_report: boolean;
+  /** Project slug the task's conversations are filed in; null = none. */
+  project: string | null;
+  /** Display names from the top-level project down (["SKYNET", "later"]);
+   *  null when there is no project or it is missing. */
+  projectPath: string[] | null;
+  /** True when `project` names a project that no longer exists on the host. */
+  projectMissing: boolean;
   /**
    * First-role's resolved colorHue from the OWNING host's role file
    * frontmatter. Piggybacks on a memoized per-host role-file read at
@@ -81,7 +88,31 @@ export type ScheduledAgentSpecWire = {
   schedule: Record<string, unknown>;
   roles?: string[];
   archive_if_nothing_to_report?: boolean;
+  /** Project slug; omit for no project (PATCH is a full overwrite). */
+  project?: string;
 };
+
+/** One project a task on a host can be filed in (form picker source). */
+export type ScheduledAgentProjectOption = {
+  slug: string;
+  displayName: string;
+  parent: string | null;
+};
+
+/**
+ * GET `/scheduled-agents/projects?host=<id>` — every live project on the host,
+ * the same list for every caller. Unwraps `.projects`.
+ */
+export async function listScheduledAgentProjects(
+  host: number,
+): Promise<ScheduledAgentProjectOption[]> {
+  try {
+    const response = await authApi.get("/scheduled-agents/projects", { params: { host } });
+    return (response.data as { projects: ScheduledAgentProjectOption[] }).projects;
+  } catch (error) {
+    handleApiError(error, "list scheduled task projects");
+  }
+}
 
 // ---------------------------------------------------------------------------
 // Helpers

@@ -971,7 +971,7 @@ crown, then gear.
   existing scheduled tasks (edit or delete inline) plus a **"new
   scheduled task"** button that asks for name, prompt, roles (or an
   explicit **No roles** pick — Save waits until one is chosen),
-  and the schedule (daily / weekly / monthly / yearly / interval /
+  a project its conversations are filed in (optional), and the schedule (daily / weekly / monthly / yearly / interval /
   one-shot — with multiple times per day, every-N weeks/months, an
   interval time window and start, and an end date or run count).
   Sensor-fired tasks show their sensor's status instead of a Next time
@@ -1786,10 +1786,15 @@ the sidebar footer, beside the gear. The modal lists all
 existing scheduled tasks (edit or delete inline) and has a "new
 scheduled task" button which asks for name, prompt (with an **Archive if
 nothing to report** tick-box under it, off by default), roles or an
-explicit **No roles** pick (Save waits until one is chosen),
-and the schedule (daily / weekly / monthly / yearly / interval / one-shot, plus
+explicit **No roles** pick (Save waits until one is chosen), a
+**Project** (a dropdown: **No project**, the default, then every project on
+the task's machine, sub-projects indented as in the sidebar; picking a
+different machine clears it), and the schedule (daily / weekly / monthly / yearly / interval / one-shot, plus
 multiple times, every-N weeks/months, interval window/start, and ends after a
-date or N runs). Each row shows
+date or N runs). A task with a project shows it on its row as a green chip
+with the full path (`SKYNET › later`), or an amber **Project missing:
+<slug>** chip when that project no longer exists; its form then keeps the
+missing project picked, marked missing, until the user picks another. Each row shows
 the humanized schedule and, beneath it, inline **Last / Next** run times
 (e.g. `Every 2h · Last: 3h ago · Next: in 27m`) so the user can tell at
 a glance when the agent last fired and when it will fire again — hover
@@ -1818,9 +1823,17 @@ names predate the "scheduled tasks" name in the app — same thing):
   "roles": ["box-maintainer"],    // zero or more role names the newborn takes on; [] = plain agent
   "prompt": "Check the work Kanban and triage any unassigned cards.",
   "schedule": { "type": "interval", "every": "2h" },  // same schedule kinds as per-identity wake-ups
-  "archive_if_nothing_to_report": true  // optional, off when absent
+  "archive_if_nothing_to_report": true,  // optional, off when absent
+  "project": "skynet"             // optional project slug; absent = no project
 }
 ```
+
+`project` is the form's **Project** pick: every conversation the task starts
+(clock fires, sensor fires, the sensor-broken one, and **Run now**) is born
+filed in that project. It is checked at each fire: while the project doesn't
+exist (archived, deleted) the newborn lands in Conversations instead and the
+task keeps firing; the spec keeps the slug, so filing resumes on its own if
+the project comes back. Changing it affects future runs only.
 
 `archive_if_nothing_to_report` is the form's **Archive if nothing to
 report** tick-box. When it's `true`, each agent the task spawns is told, after

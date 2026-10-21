@@ -154,6 +154,8 @@ vi.mock("../../claude-session/identity-artifact-reader.js", () => ({
   // Fix #6: LIST parser re-checks IDENTITY_SLUG_RE on every returned slug
   // (defense-in-depth against hand-edited garbage on disk).
   IDENTITY_SLUG_RE: /^[a-z0-9_-]{1,80}$/i,
+  PROJECT_SLUG_RE: /^[a-z0-9-]{1,64}$/,
+  listProjects: (conn: unknown) => listProjectsMock(conn),
 }));
 
 // ---------------------------------------------------------------------------
@@ -174,6 +176,7 @@ vi.mock("../../utils/host-user-counter.js", () => ({
 
 const fsReaddirMock = vi.fn();
 const fsReadFileMock = vi.fn();
+const listProjectsMock = vi.fn();
 
 vi.mock("fs/promises", () => ({
   default: {
@@ -188,7 +191,7 @@ vi.mock("fs/promises", () => ({
 // Import router AFTER all mocks
 // ---------------------------------------------------------------------------
 
-import router from "./scheduled-agents-list.js";
+import router, { projectPathFor } from "./scheduled-agents-list.js";
 import { getUsernameForUserId } from "../../utils/host-user-counter.js";
 import { sshLogger } from "../../utils/logger.js";
 
@@ -286,6 +289,7 @@ beforeEach(() => {
   getLocalScheduledAgentsRootMock.mockReturnValue("/tmp/test-fleet/scheduled-agents");
   fsReaddirMock.mockResolvedValue([]);
   fsReadFileMock.mockResolvedValue("");
+  listProjectsMock.mockResolvedValue([]);
 
   const app = express();
   app.use("/scheduled-agents", router);
@@ -1175,5 +1179,102 @@ describe("GET /scheduled-agents — sensor status (real bash)", () => {
     const res = await httpRequest(server, { method: "GET", path: "/scheduled-agents" });
     const item = (res.body as { items: Array<Record<string, unknown>> }).items[0];
     expect(item.sensor).toMatchObject({ state: "not_live", waitingFires: 0 });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Project support — row path / missing flag + the form's project list
+// ---------------------------------------------------------------------------
+
+describe("scheduled-agents LIST: project", () => {
+  const PROJECTS = [
+    { slug: "skynet", displayName: "SKYNET", users: ["ashley"], parent: null },
+    { slug: "later", displayName: "later", users: null, parent: "skynet" },
+  ];
+  const spec = (extra: Record<string, unknown>) =>
+    JSON.stringify({ name: "t", enabled: true, schedule: { type: "daily", at: "09:00" }, prompt: "p", roles: [], ...extra });
+
+  it("a row's project resolves to its top-down path; a gone one is missing; none stays null", async () => {
+    simpleDbSelectMock.mockResolvedValue([hostA]);
+    listProjectsMock.mockResolvedValue(PROJECTS);
+    execCommandMock.mockResolvedValue(
+      makeRemoteStdout([
+        { slug: "nested", body: spec({ project: "later" }) },
+        { slug: "gone", body: spec({ project: "gone" }) },
+        { slug: "none", body: spec({}) },
+        { slug: "bad", body: spec({ project: "Not A Slug" }) },
+      ]),
+    );
+    const res = await httpRequest(server, { method: "GET", path: "/scheduled-agents" });
+    expect(res.status).toBe(200);
+    const items = (res.body as { items: Array<Record<string, unknown>> }).items;
+    const by = (slug: string) => items.find((i) => i.slug === slug)!;
+    expect(by("nested")).toMatchObject({ project: "later", projectPath: ["SKYNET", "later"], projectMissing: false });
+    expect(by("gone")).toMatchObject({ project: "gone", projectPath: null, projectMissing: true });
+    expect(by("none")).toMatchObject({ project: null, projectPath: null, projectMissing: false });
+    expect(by("bad")).toMatchObject({ project: null, projectMissing: false });
+    expect(listProjectsMock).toHaveBeenCalledWith(stubConn);
+  });
+
+  it("an unreadable project list never marks a project missing", async () => {
+    simpleDbSelectMock.mockResolvedValue([hostA]);
+    listProjectsMock.mockRejectedValue(new Error("boom"));
+    execCommandMock.mockResolvedValue(makeRemoteStdout([{ slug: "nested", body: spec({ project: "later" }) }]));
+    const res = await httpRequest(server, { method: "GET", path: "/scheduled-agents" });
+    const [row] = (res.body as { items: Array<Record<string, unknown>> }).items;
+    expect(row).toMatchObject({ project: "later", projectPath: null, projectMissing: false });
+  });
+
+  it("skips the project read when no row names a project", async () => {
+    simpleDbSelectMock.mockResolvedValue([hostA]);
+    execCommandMock.mockResolvedValue(makeRemoteStdout([{ slug: "none", body: spec({}) }]));
+    await httpRequest(server, { method: "GET", path: "/scheduled-agents" });
+    expect(listProjectsMock).not.toHaveBeenCalled();
+  });
+
+  it("GET /projects?host= lists the host's projects, unfiltered and without users", async () => {
+    listProjectsMock.mockResolvedValue(PROJECTS);
+    const res = await httpRequest(server, { method: "GET", path: "/scheduled-agents/projects?host=7" });
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({
+      projects: [
+        { slug: "skynet", displayName: "SKYNET", parent: null },
+        { slug: "later", displayName: "later", parent: "skynet" },
+      ],
+    });
+    expect(stubConn.end).toHaveBeenCalled();
+  });
+
+  it("GET /projects reads the local host without SSH", async () => {
+    isLocalHostIdMock.mockReturnValue(true);
+    listProjectsMock.mockResolvedValue(PROJECTS);
+    const res = await httpRequest(server, { method: "GET", path: "/scheduled-agents/projects?host=1" });
+    expect(res.status).toBe(200);
+    expect(listProjectsMock).toHaveBeenCalledWith(null);
+    expect(connectOneShotMock).not.toHaveBeenCalled();
+  });
+
+  it("GET /projects: 400 bad host, 404 unknown host, 502 unreadable, 401 without JWT", async () => {
+    expect((await httpRequest(server, { method: "GET", path: "/scheduled-agents/projects?host=x" })).status).toBe(400);
+    expect((await httpRequest(server, { method: "GET", path: "/scheduled-agents/projects?host=99" })).status).toBe(404);
+    listProjectsMock.mockRejectedValue(new Error("boom"));
+    expect((await httpRequest(server, { method: "GET", path: "/scheduled-agents/projects?host=7" })).status).toBe(502);
+    connectOneShotMock.mockRejectedValue(new Error("down"));
+    expect((await httpRequest(server, { method: "GET", path: "/scheduled-agents/projects?host=7" })).status).toBe(502);
+    mockUserId = null;
+    expect((await httpRequest(server, { method: "GET", path: "/scheduled-agents/projects?host=7" })).status).toBe(401);
+  });
+
+  it("projectPathFor: a gone parent ends the path; a parent loop is cut", () => {
+    const m = (rows: Array<{ slug: string; displayName: string; parent: string | null }>) =>
+      new Map(rows.map((r) => [r.slug, r]));
+    expect(projectPathFor("a", m([{ slug: "a", displayName: "A", parent: "gone" }]))).toEqual(["A"]);
+    expect(
+      projectPathFor("a", m([
+        { slug: "a", displayName: "A", parent: "b" },
+        { slug: "b", displayName: "B", parent: "a" },
+      ])),
+    ).toEqual(["B", "A"]);
+    expect(projectPathFor("x", m([]))).toBeNull();
   });
 });

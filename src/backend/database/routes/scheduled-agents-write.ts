@@ -75,7 +75,9 @@ import {
   isLocalHostId,
   getLocalScheduledAgentsRoot,
   getLocalIdentitiesRoot,
+  getLocalProjectsRoot,
 } from "../../claude-session/identity-artifact-reader.js";
+import { isProjectSlug } from "../../claude-session/scheduled-agent-project.js";
 
 const router = express.Router();
 const authManager = AuthManager.getInstance();
@@ -158,6 +160,9 @@ export type ScheduledAgentSpec = {
   roles?: string[];
   /** Opt-in: the newborn archives itself after a smooth run. Absent = off. */
   archive_if_nothing_to_report?: boolean;
+  /** Project slug every conversation this task starts is born in. Absent =
+   *  none. Kept even while the project is missing; fires check it exists. */
+  project?: string;
 };
 
 // ---------------------------------------------------------------------------
@@ -227,6 +232,11 @@ export function validateScheduledAgentSpec(spec: unknown): string | null {
     typeof s.archive_if_nothing_to_report !== "boolean"
   ) {
     return "spec.archive_if_nothing_to_report must be a boolean when present";
+  }
+  // project names where the task's conversations are filed. Whether it exists
+  // is checked at fire time, not here — a missing project is a valid state.
+  if (s.project !== undefined && !isProjectSlug(s.project)) {
+    return "spec.project must be a project slug when present";
   }
   return null;
 }
@@ -405,8 +415,13 @@ export type RunNowBuildResult =
 /**
  * Build the `~/fleet/spawn-requests/<uuid>.json` body for a manual fire from
  * the on-disk spec. Mirrors `_drop_spawn_request` in wakeup-scheduler.py field
- * for field (roles, wrapped prompt + archive section, `⏰ ` task, requested_at, users)
- * so the spawn-requests pipeline can't tell a manual fire from a clock fire.
+ * for field (roles, wrapped prompt + archive section, `⏰ ` task, requested_at,
+ * users, project) so the spawn-requests pipeline can't tell a manual fire from
+ * a clock fire.
+ *
+ * `projectExists` says whether the spec's project folder is live on the host.
+ * A missing project is left off the request, so the newborn lands in
+ * Conversations instead of pointing at a project that isn't there.
  *
  * The backend builds the body itself rather than shelling out to the
  * scheduler: the production image has no python3, so the LOCAL branch could
@@ -426,6 +441,7 @@ export function buildRunNowSpawnRequest(
   diskSpec: unknown,
   slug: string,
   firedAt: string,
+  projectExists: boolean,
 ): RunNowBuildResult {
   if (diskSpec === null || typeof diskSpec !== "object" || Array.isArray(diskSpec)) {
     return { ok: false, error: "scheduled agent spec is not a JSON object" };
@@ -452,7 +468,37 @@ export function buildRunNowSpawnRequest(
   if (Array.isArray(s.users) && s.users.length > 0) {
     body.users = s.users;
   }
+  if (isProjectSlug(s.project) && projectExists) {
+    body.project = s.project;
+  }
   return { ok: true, body };
+}
+
+/** The spec's project slug, if it names one (run-now existence probe). */
+function specProjectSlug(spec: unknown): string | null {
+  if (spec === null || typeof spec !== "object" || Array.isArray(spec)) return null;
+  const p = (spec as Record<string, unknown>).project;
+  return isProjectSlug(p) ? p : null;
+}
+
+/** LOCAL: does `~/fleet/projects/<slug>/project.md` exist? */
+async function localProjectExists(slug: string): Promise<boolean> {
+  try {
+    await fs.access(path.join(getLocalProjectsRoot(), slug, "project.md"));
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** Log a fire whose project is gone — the newborn goes to Conversations. */
+function logRunNowProjectMissing(hostId: number, slug: string, project: string): void {
+  sshLogger.warn("scheduled-agents-run-now: project missing, newborn not filed", {
+    operation: "scheduled_agents_run_now_project_missing",
+    hostId,
+    slug,
+    project,
+  });
 }
 
 /** Absolute local path for the spawn-requests drop folder. LOCAL branch.
@@ -1276,7 +1322,10 @@ router.post(
             responded = true;
             return;
           }
-          const built = buildRunNowSpawnRequest(parsed, slug, firedAt);
+          const project = specProjectSlug(parsed);
+          const projectExists = project !== null && (await localProjectExists(project));
+          if (project !== null && !projectExists) logRunNowProjectMissing(hostId, slug, project);
+          const built = buildRunNowSpawnRequest(parsed, slug, firedAt, projectExists);
           if (built.ok === false) {
             res.status(400).json({ error: built.error });
             responded = true;
@@ -1353,7 +1402,29 @@ router.post(
           responded = true;
           return;
         }
-        const built = buildRunNowSpawnRequest(parsed, slug, firedAt);
+        // Project existence probe — a second exec only when the spec names
+        // one. Slug is isProjectSlug-validated → shell-safe interpolation.
+        const project = specProjectSlug(parsed);
+        let projectExists = false;
+        if (project !== null) {
+          try {
+            const probe = await execWithTimeout(
+              conn,
+              `test -f "$HOME/fleet/projects/${project}/project.md" && echo __PROJECT_PRESENT__ || echo __PROJECT_ABSENT__`,
+            );
+            projectExists = probe.includes("__PROJECT_PRESENT__");
+          } catch (err) {
+            sshLogger.warn("scheduled-agents-run-now: project probe failed", {
+              operation: "scheduled_agents_run_now_project_probe",
+              hostId,
+              slug,
+              project,
+              error: err instanceof Error ? err.message : "Unknown",
+            });
+          }
+          if (!projectExists) logRunNowProjectMissing(hostId, slug, project);
+        }
+        const built = buildRunNowSpawnRequest(parsed, slug, firedAt, projectExists);
         if (built.ok === false) {
           res.status(400).json({ error: built.error });
           responded = true;

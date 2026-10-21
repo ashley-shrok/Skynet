@@ -1099,6 +1099,38 @@ PY
   assert_eq "OK" "$res" "SA-G20: archive_if_nothing_to_report"
 }
 
+# ============================================================
+# SA-G21: "project" files the newborn in the spec's project, but only while
+# ~/fleet/projects/<slug>/project.md exists — a missing project, the archive
+# folder, or a malformed slug leaves it off (newborn lands in Conversations).
+# Applies to clock, sensor and broken-sensor births alike.
+# ============================================================
+test_SA_G21_project_filing() {
+  local home_dir res
+  home_dir=$(make_tmpdir)
+  mkdir -p "$home_dir/fleet/projects/skynet" "$home_dir/fleet/projects/archive/old" "$home_dir/fleet/projects/empty"
+  printf -- '---\ndisplayName: SKYNET\n---\n' > "$home_dir/fleet/projects/skynet/project.md"
+  res=$(HOME="$home_dir" python3 - "$PY_SCRIPT" "$home_dir" <<'PY'
+import importlib.util, json, sys
+from importlib.machinery import SourceFileLoader
+l = SourceFileLoader("eng", sys.argv[1]); m = importlib.util.module_from_spec(importlib.util.spec_from_loader(l.name, l)); l.exec_module(m)
+def fire(project, **kw):
+    spec = {"name": "box check", "roles": [], "prompt": "check the box", "_slug": "box-check"}
+    if project is not None: spec["project"] = project
+    _, path = m._drop_spawn_request(spec, sys.argv[2], **kw)
+    return json.load(open(path))
+errs = []
+if fire("skynet").get("project") != "skynet": errs.append("live project not carried")
+if fire("skynet", sensor_fire=("2026-10-18T00:00:00Z", "x", None)).get("project") != "skynet": errs.append("sensor fire not filed")
+if fire("skynet", sensor_broken_prompt="fix it").get("project") != "skynet": errs.append("broken-sensor birth not filed")
+for bad in (None, "gone", "archive", "empty", "Bad Slug", 7, "../skynet"):
+    if "project" in fire(bad): errs.append("project=%r carried" % (bad,))
+print("; ".join(errs) or "OK")
+PY
+)
+  assert_eq "OK" "$res" "SA-G21: project filing"
+}
+
 run_test test_SA_G1_scheduled_agents_spec_discovery
 run_test test_SA_G2_scheduled_agents_ignores_flat_specs
 run_test test_SA_G3_per_identity_mode_unchanged
@@ -1119,6 +1151,7 @@ run_test test_SA_G17_sensor_delivery_hardening
 run_test test_SA_G18_one_time_sensor
 run_test test_SA_G19_sensor_broken_alert
 run_test test_SA_G20_archive_if_nothing_to_report
+run_test test_SA_G21_project_filing
 
 printf '\n===============================\n'
 printf 'PASS: %s  FAIL: %s\n' "$PASS" "$FAIL"

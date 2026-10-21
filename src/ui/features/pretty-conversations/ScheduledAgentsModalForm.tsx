@@ -16,6 +16,10 @@
 //      (cross-host management is delete-and-recreate). Auto-selects the
 //      single available host per Phase 84 CreateProjectModal pattern. Only
 //      machines that can host agents (runsFleetSubstrate) are offered.
+//   4b) Project (single select) — "No project" or any project on the
+//      selected host, sub-projects indented in sidebar order. Picking a
+//      different host clears it. A task whose project is gone opens with
+//      that project still picked, marked missing, and keeps it on save.
 //   5) Schedule (segmented control) — Daily / Weekly / Monthly / Yearly /
 //      Interval / One-shot, backed by WakeupFormShared.FormSchedule
 //      discriminated union + hydrateFormSchedule / buildSchedule /
@@ -77,10 +81,13 @@ import {
 import { SensorDetails } from "@/features/pretty-view/SensorStatusView";
 import {
   createScheduledAgent,
+  listScheduledAgentProjects,
   updateScheduledAgent,
+  type ScheduledAgentProjectOption,
   type ScheduledAgentSpecWire,
   type ScheduledAgentListItem,
 } from "@/api/scheduled-agents-api";
+import { orderProjectsAsTree, projectPathFromOptions } from "./scheduled-agents-projects";
 import { listRolesForHost, type RoleSummary } from "@/api/identities-api";
 import { roleDisplayName } from "@/lib/role-display-name";
 import type { Host } from "@/types/ui-types";
@@ -265,6 +272,14 @@ export function ScheduledAgentsModalForm({
   // Available roles for the currently-selected host (chip-picker source).
   const [availableRoles, setAvailableRoles] = useState<RoleSummary[]>([]);
 
+  // Project the task's conversations are filed in (null = No project), and
+  // the selected host's projects — null until loaded (or if the read failed),
+  // so a saved project isn't called missing before we know.
+  const [selectedProject, setSelectedProject] = useState<string | null>(
+    initialSpec?.project ?? null,
+  );
+  const [availableProjects, setAvailableProjects] = useState<ScheduledAgentProjectOption[] | null>(null);
+
   // Inline error banner (D-25).
   const [error, setError] = useState<string | null>(null);
 
@@ -302,6 +317,31 @@ export function ScheduledAgentsModalForm({
     return () => {
       alive = false;
     };
+  }, [selectedHost]);
+
+  // ─── Fetch projects for the selected host ─────────────────────────────
+  useEffect(() => {
+    setAvailableProjects(null);
+    if (selectedHost === null) return;
+    const hostIdNum = parseInt(String(selectedHost.id), 10);
+    if (!Number.isFinite(hostIdNum)) return;
+    let alive = true;
+    listScheduledAgentProjects(hostIdNum)
+      .then((rows) => {
+        if (alive) setAvailableProjects(rows);
+      })
+      .catch(() => {
+        /* stays null — the picker still offers No project + the saved pick */
+      });
+    return () => {
+      alive = false;
+    };
+  }, [selectedHost]);
+
+  // Picking a different host clears the project — projects belong to one host.
+  const pickHost = useCallback((h: Host): void => {
+    if (selectedHost?.id !== h.id) setSelectedProject(null);
+    setSelectedHost(h);
   }, [selectedHost]);
 
   // ─── Save handler (in-flight ref guard per NewConversationModal:193-199) ──
@@ -386,6 +426,17 @@ export function ScheduledAgentsModalForm({
         roles: noRoles ? [] : selectedRoles,
         enabled: enabledPassthrough,
         archive_if_nothing_to_report: archiveIfNothingToReport,
+        ...(selectedProject !== null ? { project: selectedProject } : {}),
+      };
+      const projectPath =
+        selectedProject !== null && availableProjects !== null
+          ? projectPathFromOptions(selectedProject, availableProjects)
+          : null;
+      const projectFields = {
+        project: selectedProject,
+        projectPath,
+        projectMissing:
+          selectedProject !== null && availableProjects !== null && projectPath === null,
       };
 
       if (mode === "create") {
@@ -403,6 +454,7 @@ export function ScheduledAgentsModalForm({
           prompt: trimmedPrompt,
           roles: noRoles ? [] : selectedRoles,
           archive_if_nothing_to_report: archiveIfNothingToReport,
+          ...projectFields,
             colorHue: null,
           // Fire timestamps unknown on just-created rows — the authoritative
           // refetch replaces them once the server reads .state/<slug>.last
@@ -429,6 +481,9 @@ export function ScheduledAgentsModalForm({
           prompt: trimmedPrompt,
           roles: noRoles ? [] : selectedRoles,
           archive_if_nothing_to_report: archiveIfNothingToReport,
+          ...(availableProjects === null && selectedProject === prev.project
+            ? { project: prev.project, projectPath: prev.projectPath, projectMissing: prev.projectMissing }
+            : projectFields),
             colorHue: prev.colorHue,
           // Preserve the server-known fire timestamps during optimistic
           // edit — the refetch will overlay with a recomputed nextFireAt
@@ -453,6 +508,8 @@ export function ScheduledAgentsModalForm({
     noRoles,
     rolesPicked,
     selectedHost,
+    selectedProject,
+    availableProjects,
     formSchedule,
     isSensor,
     onSaved,
@@ -500,6 +557,18 @@ export function ScheduledAgentsModalForm({
     }
     return map;
   }, [availableRoles]);
+
+  // ─── Project picker options ───────────────────────────────────────────
+  const projectOptions = useMemo(
+    () => (availableProjects === null ? [] : orderProjectsAsTree(availableProjects)),
+    [availableProjects],
+  );
+  // The saved pick isn't in the host's list — either still loading / unreadable
+  // (shown plain) or gone (shown missing). Either way it stays selectable so an
+  // unrelated save keeps it.
+  const savedProjectUnlisted =
+    selectedProject !== null && !projectOptions.some((o) => o.slug === selectedProject);
+  const projectMissing = savedProjectUnlisted && availableProjects !== null;
 
   // ─── Render ───────────────────────────────────────────────────────────
   const nameDisabled = mode === "edit";
@@ -740,7 +809,7 @@ export function ScheduledAgentsModalForm({
                   <button
                     key={h.id}
                     type="button"
-                    onClick={() => setSelectedHost(h)}
+                    onClick={() => pickHost(h)}
                     className="inline-flex items-center rounded-full px-3 py-1 text-[12px] font-medium leading-[16px] cursor-pointer"
                     style={active ? HOST_CHIP_SELECTED : HOST_CHIP_ADDABLE}
                     data-testid={`scheduled-agents-modal-form-host-option-${h.id}`}
@@ -753,6 +822,58 @@ export function ScheduledAgentsModalForm({
           )}
         </div>
         )}
+
+        {/* Field 4b: Project — where each conversation this task starts is filed. */}
+        <div
+          className="flex flex-col gap-1"
+          data-testid="scheduled-agents-modal-form-project"
+        >
+          <label
+            htmlFor="scheduled-agents-modal-form-project-select"
+            className="text-xs font-medium text-[color:var(--color-pv-fg-muted)]"
+          >
+            Project
+          </label>
+          {selectedHost === null ? (
+            <p className="text-[11px] text-[color:var(--color-pv-fg-dim)]">
+              Pick a host first.
+            </p>
+          ) : (
+            <>
+              <select
+                id="scheduled-agents-modal-form-project-select"
+                data-testid="scheduled-agents-modal-form-project-select"
+                value={selectedProject ?? ""}
+                onChange={(e) => setSelectedProject(e.target.value === "" ? null : e.target.value)}
+                className={cn(SCHEDULE_INPUT_CLASS, "w-full")}
+              >
+                <option value="">No project</option>
+                {projectOptions.map((o) => (
+                  <option key={o.slug} value={o.slug}>
+                    {"\u00a0\u00a0\u00a0\u00a0".repeat(o.depth) + o.displayName}
+                  </option>
+                ))}
+                {savedProjectUnlisted && selectedProject !== null && (
+                  <option value={selectedProject}>
+                    {projectMissing ? `${selectedProject} (missing)` : selectedProject}
+                  </option>
+                )}
+              </select>
+              {projectMissing ? (
+                <p
+                  className="text-[11px] text-[hsla(35,85%,70%,1)]"
+                  data-testid="scheduled-agents-modal-form-project-missing"
+                >
+                  This project no longer exists. Conversations go to Conversations until it&apos;s back or you pick another.
+                </p>
+              ) : (
+                <p className="text-[11px] text-[color:var(--color-pv-fg-dim)]">
+                  Each conversation this task starts is filed here.
+                </p>
+              )}
+            </>
+          )}
+        </div>
 
         {/* Field 5: Schedule (D-20 order 5, D-22 kinds) */}
         <div className="flex flex-col gap-2">

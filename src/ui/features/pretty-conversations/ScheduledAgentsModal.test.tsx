@@ -19,6 +19,8 @@
  *   T-15  Modal close → filter state resets on next open
  *   T-18  Kebab → Run now → POST run-now + success toast; failure → banner;
  *         one_shot rows have no Run now item
+ *   T-PR  Project: picker order + save, host switch clears, missing project
+ *         kept on an unrelated edit, row path / missing chip
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
@@ -46,6 +48,7 @@ const deleteScheduledAgentMock = vi.fn();
 const runScheduledAgentNowMock = vi.fn();
 const toastSuccessMock = vi.fn();
 const listRolesForHostMock = vi.fn();
+const listScheduledAgentProjectsMock = vi.fn();
 
 vi.mock("@/api/scheduled-agents-api", () => ({
   listScheduledAgents: (...args: unknown[]) => listScheduledAgentsMock(...args),
@@ -54,6 +57,7 @@ vi.mock("@/api/scheduled-agents-api", () => ({
   toggleScheduledAgentEnabled: (...args: unknown[]) => toggleScheduledAgentEnabledMock(...args),
   deleteScheduledAgent: (...args: unknown[]) => deleteScheduledAgentMock(...args),
   runScheduledAgentNow: (...args: unknown[]) => runScheduledAgentNowMock(...args),
+  listScheduledAgentProjects: (...args: unknown[]) => listScheduledAgentProjectsMock(...args),
 }));
 
 vi.mock("sonner", () => ({
@@ -81,6 +85,9 @@ function makeRow(overrides: Partial<ScheduledAgentListItem> = {}): ScheduledAgen
     prompt: "check inbox",
     roles: ["assistant"],
     archive_if_nothing_to_report: false,
+    project: null,
+    projectPath: null,
+    projectMissing: false,
         colorHue: null,
     lastFiredAt: null,
     nextFireAt: null,
@@ -149,6 +156,8 @@ beforeEach(() => {
   // Default: no roles. Tests that exercise the form opt in by overriding
   // with mockResolvedValueOnce / mockResolvedValue.
   listRolesForHostMock.mockResolvedValue([]);
+  listScheduledAgentProjectsMock.mockReset();
+  listScheduledAgentProjectsMock.mockResolvedValue([]);
 });
 
 afterEach(() => {
@@ -1392,5 +1401,115 @@ describe("ScheduledAgentsModal: Archive if nothing to report", () => {
 
     await waitFor(() => expect(updateScheduledAgentMock).toHaveBeenCalledTimes(1));
     expect(updateScheduledAgentMock.mock.calls[0][2].archive_if_nothing_to_report).toBe(false);
+  });
+});
+
+describe("ScheduledAgentsModal: project", () => {
+  const SELECT = "scheduled-agents-modal-form-project-select";
+  const PROJECTS = [
+    { slug: "skynet", displayName: "SKYNET", parent: null },
+    { slug: "later", displayName: "later", parent: "skynet" },
+    { slug: "aither", displayName: "Aither", parent: null },
+  ];
+  const TWO_HOSTS: HostFolder = {
+    name: "root",
+    children: [
+      ONE_HOST_TREE.children[0] as never,
+      { ...(ONE_HOST_TREE.children[0] as unknown as Record<string, unknown>), id: "2", name: "host-b" } as never,
+    ],
+  };
+
+  it("T-PR1: create — No project by default; lists the host's projects in sidebar order; saves the pick", async () => {
+    listScheduledAgentProjectsMock.mockResolvedValue(PROJECTS);
+    createScheduledAgentMock.mockResolvedValueOnce({ slug: "no-roles", host: 1, spec: {} });
+    listScheduledAgentsMock.mockResolvedValue([]);
+    await openCreateForm();
+    const select = (await screen.findByTestId(SELECT)) as HTMLSelectElement;
+    await waitFor(() => expect(select.options.length).toBe(4));
+    expect(listScheduledAgentProjectsMock).toHaveBeenCalledWith(1);
+    expect(select.value).toBe("");
+    expect([...select.options].map((o) => o.value)).toEqual(["", "aither", "skynet", "later"]);
+    expect(select.options[3].textContent).toBe("\u00a0\u00a0\u00a0\u00a0later");
+    fireEvent.change(select, { target: { value: "later" } });
+    fireEvent.click(screen.getByTestId("scheduled-agents-modal-form-no-roles"));
+    fireEvent.click(screen.getByTestId("scheduled-agents-modal-form-save"));
+    await waitFor(() => expect(createScheduledAgentMock).toHaveBeenCalledTimes(1));
+    expect(createScheduledAgentMock.mock.calls[0][1].project).toBe("later");
+  });
+
+  it("T-PR2: No project saves without a project key", async () => {
+    createScheduledAgentMock.mockResolvedValueOnce({ slug: "no-roles", host: 1, spec: {} });
+    listScheduledAgentsMock.mockResolvedValue([]);
+    await openCreateForm();
+    fireEvent.click(screen.getByTestId("scheduled-agents-modal-form-no-roles"));
+    fireEvent.click(screen.getByTestId("scheduled-agents-modal-form-save"));
+    await waitFor(() => expect(createScheduledAgentMock).toHaveBeenCalledTimes(1));
+    expect("project" in createScheduledAgentMock.mock.calls[0][1]).toBe(false);
+  });
+
+  it("T-PR3: switching the host clears the project pick", async () => {
+    listScheduledAgentsMock.mockResolvedValue([]);
+    listScheduledAgentProjectsMock.mockResolvedValue(PROJECTS);
+    render(<ScheduledAgentsModal open={true} onOpenChange={vi.fn()} hostTree={TWO_HOSTS} />);
+    await screen.findByTestId("scheduled-agents-modal-empty-state");
+    fireEvent.click(screen.getByTestId("scheduled-agents-modal-add-button"));
+    fireEvent.click(await screen.findByTestId("scheduled-agents-modal-form-host-option-1"));
+    const select = (await screen.findByTestId(SELECT)) as HTMLSelectElement;
+    await waitFor(() => expect(select.options.length).toBe(4));
+    fireEvent.change(select, { target: { value: "skynet" } });
+    expect(select.value).toBe("skynet");
+    fireEvent.click(screen.getByTestId("scheduled-agents-modal-form-host-option-1"));
+    expect((screen.getByTestId(SELECT) as HTMLSelectElement).value).toBe("skynet");
+    fireEvent.click(screen.getByTestId("scheduled-agents-modal-form-host-option-2"));
+    await waitFor(() => expect(listScheduledAgentProjectsMock).toHaveBeenCalledWith(2));
+    expect((screen.getByTestId(SELECT) as HTMLSelectElement).value).toBe("");
+  });
+
+  it("T-PR4: edit — a missing project stays picked, marked missing, and an unrelated save keeps it", async () => {
+    listScheduledAgentProjectsMock.mockResolvedValue(PROJECTS);
+    listScheduledAgentsMock.mockResolvedValue([makeRow({ project: "gone", projectPath: null, projectMissing: true })]);
+    updateScheduledAgentMock.mockResolvedValueOnce({ slug: "morning-triage", host: 1, spec: {} });
+    render(<ScheduledAgentsModal open={true} onOpenChange={vi.fn()} hostTree={ONE_HOST_TREE} />);
+    expect(await screen.findByTestId("scheduled-agents-modal-row-morning-triage-project")).toHaveTextContent(
+      "Project missing: gone",
+    );
+    fireEvent.click(screen.getByTestId("scheduled-agents-modal-row-morning-triage"));
+    await screen.findByTestId("scheduled-agents-modal-form-project-missing");
+    const select = screen.getByTestId(SELECT) as HTMLSelectElement;
+    expect(select.value).toBe("gone");
+    expect(select.selectedOptions[0].textContent).toBe("gone (missing)");
+    fireEvent.change(screen.getByTestId("scheduled-agents-modal-form-prompt"), { target: { value: "new words" } });
+    fireEvent.click(screen.getByTestId("scheduled-agents-modal-form-save"));
+    await waitFor(() => expect(updateScheduledAgentMock).toHaveBeenCalledTimes(1));
+    expect(updateScheduledAgentMock.mock.calls[0][2].project).toBe("gone");
+  });
+
+  it("T-PR5: edit — the saved project is picked even before the project list loads, and can be cleared", async () => {
+    let release: (v: unknown) => void = () => {};
+    listScheduledAgentProjectsMock.mockReturnValue(new Promise((r) => { release = r; }));
+    listScheduledAgentsMock.mockResolvedValue([makeRow({ project: "later", projectPath: ["SKYNET", "later"] })]);
+    updateScheduledAgentMock.mockResolvedValueOnce({ slug: "morning-triage", host: 1, spec: {} });
+    render(<ScheduledAgentsModal open={true} onOpenChange={vi.fn()} hostTree={ONE_HOST_TREE} />);
+    expect(await screen.findByTestId("scheduled-agents-modal-row-morning-triage-project")).toHaveTextContent(
+      "SKYNET › later",
+    );
+    fireEvent.click(screen.getByTestId("scheduled-agents-modal-row-morning-triage"));
+    const select = (await screen.findByTestId(SELECT)) as HTMLSelectElement;
+    expect(select.value).toBe("later");
+    expect(screen.queryByTestId("scheduled-agents-modal-form-project-missing")).toBeNull();
+    await act(async () => release(PROJECTS));
+    expect(select.value).toBe("later");
+    expect(select.selectedOptions[0].textContent).toBe("\u00a0\u00a0\u00a0\u00a0later");
+    fireEvent.change(select, { target: { value: "" } });
+    fireEvent.click(screen.getByTestId("scheduled-agents-modal-form-save"));
+    await waitFor(() => expect(updateScheduledAgentMock).toHaveBeenCalledTimes(1));
+    expect("project" in updateScheduledAgentMock.mock.calls[0][2]).toBe(false);
+  });
+
+  it("T-PR6: rows without a project show no project chip", async () => {
+    listScheduledAgentsMock.mockResolvedValue([makeRow()]);
+    render(<ScheduledAgentsModal open={true} onOpenChange={vi.fn()} hostTree={ONE_HOST_TREE} />);
+    await screen.findByText("Morning triage");
+    expect(screen.queryByTestId("scheduled-agents-modal-row-morning-triage-project")).toBeNull();
   });
 });

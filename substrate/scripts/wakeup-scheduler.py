@@ -122,8 +122,10 @@ Schedule specs live at `~/fleet/scheduled-agents/<slug>/scheduled-agent.json`
      "roles": ["box-maintainer"],   # zero or more role names the newborn takes on (D-04); [] births a plain agent
      "prompt": "Check the work Kanban and triage any unassigned cards.",  # newborn's first turn (D-05)
      "schedule": {"type": "interval", "every": "2h"},  # same schedule kinds as per-identity
-     "archive_if_nothing_to_report": true}  # optional, off when absent — tells the newborn to
+     "archive_if_nothing_to_report": true,  # optional, off when absent — tells the newborn to
                                             # archive itself after a smooth run
+     "project": "skynet"}  # optional project slug — each newborn is born filed in it
+                           # (left off the request while the project is missing)
 
 On a due entry the scheduled-agents scheduler drops a create-identity request
 file at `~/fleet/spawn-requests/<uuid>.json` (D-11) for the app's existing
@@ -131,6 +133,7 @@ coordinator-birthing pipeline to consume:
     {"roles": [...], "prompt": "...", "task": null,
      "users": [...],   # optional — spec-provided user tag for the newborn's
                        # frontmatter users: field (absent in spec ⇒ omitted)
+     "project": "...", # optional — the spec's project, only while it exists
      "requested_at": "<ISO-8601 Z-suffixed>"}
 
 No ⏰ lines are printed; there is no running harness to receive them. The spawn-
@@ -1263,11 +1266,27 @@ def _sensor_findings_section(fired_utc, findings, delivered_path=None):
     )
 
 
+_PROJECT_SLUG_RE = re.compile(r"^[a-z0-9-]{1,64}$")
+
+
+def _live_project(slug):
+    """Return `slug` iff it names a live project on this box, else None.
+
+    Live = a valid project slug (not the `archive` folder) whose
+    ~/fleet/projects/<slug>/project.md exists.
+    """
+    if not isinstance(slug, str) or not _PROJECT_SLUG_RE.match(slug) or slug == "archive":
+        return None
+    path = os.path.join(os.path.expanduser("~"), "fleet", "projects", slug, "project.md")
+    return slug if os.path.isfile(path) else None
+
+
 def _drop_spawn_request(spec, state_dir, sensor_fire=None, sensor_broken_prompt=None):
     """Drop a create-identity request file for the spawn-requests pipeline (D-11).
 
     Writes ~/fleet/spawn-requests/<uuid>.json with the extended schema fields:
-    roles, prompt, task (null for scheduled-agent fires), requested_at (ISO-Z).
+    roles, prompt, task (null for scheduled-agent fires), requested_at (ISO-Z),
+    and project when the spec names a live one (see `_live_project`).
     The UUID is 36 chars (standard uuid4) matching the scan-orchestrator's
     ${#base} -eq 36 bash filter. The directory is created if absent (D-03 guard).
 
@@ -1327,6 +1346,17 @@ def _drop_spawn_request(spec, state_dir, sensor_fire=None, sensor_broken_prompt=
     spec_users = spec.get("users")
     if isinstance(spec_users, list) and len(spec_users) > 0:
         body["users"] = spec_users
+    # Spec-provided project — the newborn is born filed in it. Checked at fire
+    # time: a missing project (archived, deleted) is left off the request so
+    # the newborn lands in Conversations; the spec keeps pointing at it, and
+    # filing resumes on its own if the project comes back.
+    project = _live_project(spec.get("project"))
+    if project is not None:
+        body["project"] = project
+    elif spec.get("project") is not None:
+        print("wakeup-scheduler: project %r missing for slug=%s — newborn not filed"
+              % (spec.get("project"), spec.get("_slug", "?")),
+              file=sys.stderr, flush=True)
     req_path = os.path.join(req_dir, req_id + ".json")
     tmp_path = req_path + ".tmp"
     with open(tmp_path, "w") as f:
