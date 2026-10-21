@@ -754,7 +754,7 @@ JSON
 # ============================================================
 # SA-G15: sensor wake-up — every waiting fire delivered oldest-first, inline
 # when short, pointed at when long or multi-line, moved into delivered/, .last
-# written; a disabled sensor wake-up leaves its fires waiting.
+# written; a disabled sensor wake-up's waiting fires are discarded (off means off).
 # ============================================================
 test_SA_G15_sensor_wakeup_delivery() {
   local ident_dir home_dir out_log w
@@ -789,8 +789,11 @@ JSON
   assert_file_exists "$w/fires/not-a-fire.fire.tmp" "SA-G15: odd-shaped files untouched"
   assert_file_exists "$w/.state/deliveries.last" "SA-G15: last fired recorded"
   assert_eq "3" "$(cat "$w/.state/deliveries.runs" 2>/dev/null)" "SA-G15: runs counted"
-  assert_file_exists "$ident_dir/wakeups/paused/fires/20261014T143012345-a1b2c3d4.fire" \
-    "SA-G15: disabled sensor wake-up keeps its fire waiting"
+  [ -e "$ident_dir/wakeups/paused/fires/20261014T143012345-a1b2c3d4.fire" ] \
+    && fail "SA-G15: disabled sensor wake-up's waiting fire must be discarded"
+  grep -q "discarded fire 20261014T143012345-a1b2c3d4.fire — the trigger is switched off" \
+    "$ident_dir/wakeups/paused/.state/sensor.log" 2>/dev/null \
+    || fail "SA-G15: the discard is noted in the sensor's log"
   grep -q "paused" "$out_log" && fail "SA-G15: disabled wake-up must not deliver"
   # A second run delivers nothing new — no re-delivery.
   HOME="$home_dir" timeout 2 python3 "$PY_SCRIPT" "$ident_dir" >"$out_log" 2>/dev/null || true
@@ -879,7 +882,7 @@ PY
 # SA-G18: one-time sensor — only the oldest waiting fire is delivered (with the
 # retired note), then the spec goes and a .fired sentinel stays in the trigger's
 # own state; later fires are never delivered; the folder is swept after a day.
-# A disabled one-time sensor keeps its fire waiting. A one-time sensor task
+# A disabled one-time sensor's fire is discarded. A one-time sensor task
 # births one agent and retires the same way.
 # ============================================================
 test_SA_G18_one_time_sensor() {
@@ -902,7 +905,8 @@ test_SA_G18_one_time_sensor() {
   assert_file_absent "$w/fires/20261015T120000500-00000002.fire" "SA-G18: later fire dropped at retirement, never delivered"
   assert_file_absent "$w/fires/delivered/20261015T120000500-00000002.fire" "SA-G18: later fire not filed as delivered"
   assert_eq "20261015T120000000-00000001.fire" "$(cat "$w/.state/agent-done.fired")" "SA-G18: sentinel names the handed-over fire"
-  assert_file_exists "$ident_dir/wakeups/paused/fires/20261015T120000000-00000003.fire" "SA-G18: disabled one-time sensor keeps its fire"
+  [ -e "$ident_dir/wakeups/paused/fires/20261015T120000000-00000003.fire" ] \
+    && fail "SA-G18: disabled one-time sensor's fire is discarded (off means off)"
   HOME="$home_dir" timeout 2 python3 "$PY_SCRIPT" "$ident_dir" >"$out_log" 2>/dev/null || true
   grep -q "📡" "$out_log" && fail "SA-G18: a retired sensor never delivers again, got: $(cat "$out_log")"
   [ -d "$w" ] || fail "SA-G18: retired folder kept within the day"
@@ -1134,6 +1138,236 @@ PY
   assert_eq "OK" "$res" "SA-G21: project filing"
 }
 
+# ============================================================
+# Sensor fire controls — helpers. fire_name <epoch> <8 hex> prints a fire-file
+# name for that moment.
+# ============================================================
+fire_name() {
+  python3 -c "import sys,datetime as d; t=d.datetime.fromtimestamp(float(sys.argv[1]), d.timezone.utc); print(t.strftime('%Y%m%dT%H%M%S') + '%03d' % (t.microsecond // 1000) + '-' + sys.argv[2] + '.fire')" "$1" "$2"
+}
+
+# SA-G22: keys — a fire whose key is still waiting, or was delivered within the
+# key memory (default 24h), is dropped and noted in the sensor's log; an older
+# delivery of the same key no longer blocks it; keyless fires are never dropped.
+test_SA_G22_sensor_keys() {
+  local ident_dir home_dir out_log w now
+  ident_dir=$(make_tmpdir); home_dir=$(make_tmpdir); out_log=$(make_tmpdir)/out.log
+  w="$ident_dir/wakeups/mail"
+  mkdir -p "$w/fires" "$w/.state" "$w/sensor"
+  printf '{"name":"mail","enabled":true,"schedule":{"type":"sensor"},"instruction":"Read mail"}\n' > "$w/wakeup.json"
+  printf '{"run":"always","command":"true"}\n' > "$w/sensor/sensor.json"
+  now=$(date +%s)
+  printf '{"deliveries":[],"keys":{"seen":%s,"stale":%s}}\n' "$((now - 600))" "$((now - 100000))" > "$w/.state/sensor-ledger.json"
+  printf 'A1' > "$w/fires/20261014T100000000-00000001.fire"; printf 'A' > "$w/fires/20261014T100000000-00000001.fire.key"
+  printf 'A2' > "$w/fires/20261014T100001000-00000002.fire"; printf 'A' > "$w/fires/20261014T100001000-00000002.fire.key"
+  printf 'B'  > "$w/fires/20261014T100002000-00000003.fire"; printf 'B' > "$w/fires/20261014T100002000-00000003.fire.key"
+  printf 'S'  > "$w/fires/20261014T100003000-00000004.fire"; printf 'seen' > "$w/fires/20261014T100003000-00000004.fire.key"
+  printf 'T'  > "$w/fires/20261014T100004000-00000005.fire"; printf 'stale' > "$w/fires/20261014T100004000-00000005.fire.key"
+  printf 'N'  > "$w/fires/20261014T100005000-00000006.fire"
+  HOME="$home_dir" timeout 3 python3 "$PY_SCRIPT" "$ident_dir" >"$out_log" 2>/dev/null || true
+  assert_eq "A1|B|T|N" "$(grep -o 'findings: .*' "$out_log" | sed 's/findings: //' | paste -sd'|')" "SA-G22: delivered fires"
+  grep -q "dropped duplicate fire 20261014T100001000-00000002.fire (key 'A' is still waiting)" "$w/.state/sensor.log" \
+    || fail "SA-G22: duplicate of a waiting key logged, got: $(cat "$w/.state/sensor.log" 2>/dev/null)"
+  grep -q "dropped duplicate fire 20261014T100003000-00000004.fire (key 'seen' was delivered recently)" "$w/.state/sensor.log" \
+    || fail "SA-G22: duplicate of a recently delivered key logged"
+  [ -z "$(ls "$w/fires" | grep -v '^delivered$')" ] || fail "SA-G22: nothing left waiting, no key files left: $(ls "$w/fires")"
+  python3 - "$w/.state/sensor-ledger.json" <<'PY' || fail "SA-G22: ledger records delivered keys and one delivery per fire"
+import json, sys
+led = json.load(open(sys.argv[1]))
+assert set(led["keys"]) == {"A", "B", "seen", "stale"}, led
+assert len(led["deliveries"]) == 4, led
+PY
+  # The same key again, a poll later, is dropped — it was just delivered.
+  printf 'A3' > "$w/fires/20261014T110000000-00000007.fire"; printf 'A' > "$w/fires/20261014T110000000-00000007.fire.key"
+  HOME="$home_dir" timeout 3 python3 "$PY_SCRIPT" "$ident_dir" >"$out_log" 2>/dev/null || true
+  grep -q "📡" "$out_log" && fail "SA-G22: a just-delivered key is dropped, got: $(cat "$out_log")"
+  # keyMemory "forever" keeps a week-old key; a short memory forgets it.
+  printf '{"run":"always","command":"true","keyMemory":"forever"}\n' > "$w/sensor/sensor.json"
+  printf '{"deliveries":[],"keys":{"old":%s}}\n' "$((now - 700000))" > "$w/.state/sensor-ledger.json"
+  printf 'O' > "$w/fires/20261014T120000000-00000008.fire"; printf 'old' > "$w/fires/20261014T120000000-00000008.fire.key"
+  HOME="$home_dir" timeout 3 python3 "$PY_SCRIPT" "$ident_dir" >"$out_log" 2>/dev/null || true
+  grep -q "📡" "$out_log" && fail "SA-G22: keyMemory forever remembers a week-old key"
+  printf '{"run":"always","command":"true","keyMemory":"30m"}\n' > "$w/sensor/sensor.json"
+  printf '{"deliveries":[],"keys":{"old":%s}}\n' "$((now - 3600))" > "$w/.state/sensor-ledger.json"
+  printf 'O2' > "$w/fires/20261014T130000000-00000009.fire"; printf 'old' > "$w/fires/20261014T130000000-00000009.fire.key"
+  HOME="$home_dir" timeout 3 python3 "$PY_SCRIPT" "$ident_dir" >"$out_log" 2>/dev/null || true
+  grep -q "findings: O2$" "$out_log" || fail "SA-G22: keyMemory 30m forgets an hour-old key, got: $(cat "$out_log")"
+}
+
+# SA-G23: grouping — fires landing within groupWindow of the first are
+# delivered together once that window has closed, as one wake line pointing at
+# a bundle file; a lone fire in its window is delivered as itself; a window
+# still open delivers nothing yet; a bundle counts as one delivery.
+test_SA_G23_sensor_grouping() {
+  local ident_dir home_dir out_log w now f1 f2 f3 f4
+  ident_dir=$(make_tmpdir); home_dir=$(make_tmpdir); out_log=$(make_tmpdir)/out.log
+  w="$ident_dir/wakeups/burst"
+  mkdir -p "$w/fires" "$w/sensor"
+  printf '{"name":"burst","enabled":true,"schedule":{"type":"sensor"},"instruction":"Look"}\n' > "$w/wakeup.json"
+  printf '{"run":"always","command":"true","groupWindow":"1m"}\n' > "$w/sensor/sensor.json"
+  now=$(date +%s)
+  f1=$(fire_name $((now - 300)) 00000001); f2=$(fire_name $((now - 270)) 00000002)
+  f3=$(fire_name $((now - 200)) 00000003); f4=$(fire_name $((now - 5)) 00000004)
+  printf 'first' > "$w/fires/$f1"; printf 'second' > "$w/fires/$f2"
+  printf 'alone' > "$w/fires/$f3"; printf 'fresh' > "$w/fires/$f4"
+  HOME="$home_dir" timeout 3 python3 "$PY_SCRIPT" "$ident_dir" >"$out_log" 2>/dev/null || true
+  assert_eq "2" "$(grep -c '📡 \[sensor: burst' "$out_log")" "SA-G23: one bundle + one lone fire"
+  local bundle="$w/fires/delivered/${f1%.fire}.bundle"
+  sed -n 1p "$out_log" | grep -q "findings ([0-9]* chars) at $bundle — Read it" \
+    || fail "SA-G23: the bundle is pointed at, got: $(sed -n 1p "$out_log")"
+  grep -q "^2 fires from this sensor, bundled" "$bundle" || fail "SA-G23: bundle header"
+  grep -q "^first$" "$bundle" && grep -q "^second$" "$bundle" || fail "SA-G23: bundle holds both findings: $(cat "$bundle")"
+  sed -n 2p "$out_log" | grep -q "findings: alone$" || fail "SA-G23: lone fire delivered as itself"
+  assert_file_exists "$w/fires/$f4" "SA-G23: a fire whose window is still open waits"
+  python3 -c "import json,sys; assert len(json.load(open(sys.argv[1]))['deliveries']) == 2" "$w/.state/sensor-ledger.json" \
+    || fail "SA-G23: a bundle counts as one delivery"
+}
+
+# SA-G24: rate limit (wake-up) — the delivery that would go over maxPerHour
+# trips the sensor instead: one neutral heads-up line carrying every waiting
+# fire as evidence, the wake-up switched off, a trip record written. While off,
+# new fires are discarded. Switched back on, it starts fresh.
+test_SA_G24_sensor_trip_wakeup() {
+  local ident_dir home_dir out_log w now
+  ident_dir=$(make_tmpdir); home_dir=$(make_tmpdir); out_log=$(make_tmpdir)/out.log
+  w="$ident_dir/wakeups/noisy"
+  mkdir -p "$w/fires" "$w/.state" "$w/sensor"
+  printf '{"name":"noisy","enabled":true,"schedule":{"type":"sensor"},"instruction":"Handle it","extra":"kept"}\n' > "$w/wakeup.json"
+  printf '{"run":"always","command":"true","maxPerHour":2}\n' > "$w/sensor/sensor.json"
+  now=$(date +%s)
+  printf '{"deliveries":[%s,%s,%s],"keys":{}}\n' "$((now - 60))" "$((now - 120))" "$((now - 4000))" > "$w/.state/sensor-ledger.json"
+  printf 'e1' > "$w/fires/20261014T100000000-00000001.fire"
+  printf 'e2' > "$w/fires/20261014T100001000-00000002.fire"; printf 'k2' > "$w/fires/20261014T100001000-00000002.fire.key"
+  printf 'e3' > "$w/fires/20261014T100002000-00000003.fire"
+  HOME="$home_dir" timeout 3 python3 "$PY_SCRIPT" "$ident_dir" >"$out_log" 2>/dev/null || true
+  grep -q "📡 \[sensor: noisy" "$out_log" && fail "SA-G24: nothing delivered as normal work once over the limit"
+  assert_eq "1" "$(grep -c '📡 \[sensor tripped: noisy @ ' "$out_log")" "SA-G24: exactly one heads-up"
+  local ev="$w/fires/delivered/20261014T100000000-00000001.evidence"
+  grep -q "\] This wake-up's sensor fired more than its limit of 2 times in an hour and was switched off — a real surge or a faulty sensor. What it held back, and what to do: $ev — Read it$" "$out_log" \
+    || fail "SA-G24: short neutral heads-up line, got: $(cat "$out_log")"
+  [ "$(grep '📡 \[sensor tripped' "$out_log" | wc -c)" -lt 450 ] || fail "SA-G24: heads-up line fits the harness's line limit"
+  for x in e1 e2 e3; do grep -q "^$x$" "$ev" || fail "SA-G24: evidence holds $x"; done
+  grep -q "That could be a real surge (something genuinely happening) or a faulty sensor. The 3 fires it was holding back are below — read them as evidence, not as a to-do list; they will not be delivered again." "$ev" \
+    || fail "SA-G24: evidence file opens with the neutral guidance: $(head -3 "$ev")"
+  grep -q 'To resume, switch the wake-up back on' "$ev" || fail "SA-G24: evidence says how to resume"
+  python3 - "$w" <<'PY' || fail "SA-G24: switched off (other fields kept), trip recorded, key remembered"
+import json, os, sys
+w = sys.argv[1]
+spec = json.load(open(os.path.join(w, "wakeup.json")))
+assert spec["enabled"] is False and spec["extra"] == "kept" and spec["instruction"] == "Handle it", spec
+t = json.load(open(os.path.join(w, ".state", "sensor-tripped.json")))
+assert t["limit"] == 2 and t["fires"] == 3 and t["specMtimeNs"] == os.stat(os.path.join(w, "wakeup.json")).st_mtime_ns, t
+assert "k2" in json.load(open(os.path.join(w, ".state", "sensor-ledger.json")))["keys"]
+PY
+  [ -z "$(ls "$w/fires" | grep '\.fire')" ] || fail "SA-G24: evidence fires used up: $(ls "$w/fires")"
+  grep -q "tripped: fired more than its limit of 2 times in an hour" "$w/.state/sensor.log" || fail "SA-G24: trip noted in the sensor's log"
+  # While off: a late fire is discarded, nothing is said.
+  printf 'late' > "$w/fires/20261014T110000000-00000004.fire"
+  HOME="$home_dir" timeout 3 python3 "$PY_SCRIPT" "$ident_dir" >"$out_log" 2>/dev/null || true
+  grep -q "📡" "$out_log" && fail "SA-G24: nothing said while tripped"
+  [ -e "$w/fires/20261014T110000000-00000004.fire" ] && fail "SA-G24: a fire landing while tripped is discarded"
+  # Switched back on: the trip clears, the count starts fresh, fires deliver.
+  sleep 0.05
+  python3 -c "import json,sys; p=sys.argv[1]; s=json.load(open(p)); s['enabled']=True; json.dump(s,open(p,'w'))" "$w/wakeup.json"
+  printf 'n1' > "$w/fires/20261014T120000000-00000005.fire"
+  printf 'n2' > "$w/fires/20261014T120001000-00000006.fire"
+  HOME="$home_dir" timeout 3 python3 "$PY_SCRIPT" "$ident_dir" >"$out_log" 2>/dev/null || true
+  assert_eq "2" "$(grep -c '📡 \[sensor: noisy' "$out_log")" "SA-G24: back on — delivers fresh, up to the limit"
+  [ -e "$w/.state/sensor-tripped.json" ] && fail "SA-G24: trip record cleared once switched back on"
+  grep -q "switched back on after tripping — starting fresh" "$w/.state/sensor.log" || fail "SA-G24: resume noted"
+}
+
+# SA-G25: rate limit (scheduled task) — one agent born for the trip, with the
+# neutral evidence prompt and a "sensor tripped" task line, never told to
+# archive itself; the default limit is 10.
+test_SA_G25_sensor_trip_scheduled_task() {
+  local sa_dir home_dir req
+  sa_dir=$(make_tmpdir); home_dir=$(make_tmpdir)
+  mkdir -p "$sa_dir/alerts/fires" "$sa_dir/alerts/sensor"
+  printf '{"name":"guard-alerts","enabled":true,"roles":["r"],"schedule":{"type":"sensor"},"prompt":"Handle the alert","archive_if_nothing_to_report":true}\n' \
+    > "$sa_dir/alerts/scheduled-agent.json"
+  printf '{"run":"always","command":"true"}\n' > "$sa_dir/alerts/sensor/sensor.json"
+  for i in $(seq -w 10 22); do printf 'alert %s' "$i" > "$sa_dir/alerts/fires/20261014T1000${i}000-000000${i}.fire"; done
+  HOME="$home_dir" timeout 3 python3 "$PY_SCRIPT" "$sa_dir" --mode scheduled-agents >/dev/null 2>&1 || true
+  assert_eq "11" "$(ls "$home_dir/fleet/spawn-requests" | grep -c '\.json$')" "SA-G25: 10 normal births + 1 trip birth"
+  req=$(grep -l "sensor tripped" "$home_dir"/fleet/spawn-requests/*.json)
+  [ "$(printf '%s\n' "$req" | grep -c .)" = "1" ] || fail "SA-G25: exactly one trip birth"
+  python3 - "$req" "$sa_dir" <<'PY' || fail "SA-G25: trip birth prompt + task line"
+import json, sys
+b = json.load(open(sys.argv[1]))
+assert b["task"] == "📡 Guard alerts — sensor tripped", b["task"]
+p = b["prompt"]
+for needle in ("fired more than its limit of 10 times in an hour", "do not carry out its prompt",
+               "could be a real surge (something genuinely happening) or a faulty sensor",
+               "The 3 fires it was holding back are in `" + sys.argv[2] + "/alerts/fires/delivered/20261014T100020000-00000020.evidence`",
+               "not as a to-do list"):
+    assert needle in p, needle
+assert "If this run goes smoothly" not in p and "Handle the alert" not in p
+PY
+  python3 -c "import json,sys; assert json.load(open(sys.argv[1]))['enabled'] is False" "$sa_dir/alerts/scheduled-agent.json" \
+    || fail "SA-G25: task switched off"
+}
+
+# SA-G26: control settings are validated (the sensor-runner refuses invalid
+# ones), and sensor-fire --key writes the key beside the fire.
+test_SA_G26_sensor_controls_settings() {
+  local res t
+  res=$(python3 - "$PY_SCRIPT" <<'PY'
+import importlib.util, sys
+from importlib.machinery import SourceFileLoader
+loader = SourceFileLoader("ws", sys.argv[1]); spec = importlib.util.spec_from_loader("ws", loader)
+m = importlib.util.module_from_spec(spec); loader.exec_module(m)
+errs = []
+for ok in ({}, {"keyMemory": "24h"}, {"keyMemory": "forever"}, {"keyMemory": 30}, {"groupWindow": "90s"}, {"maxPerHour": 50}):
+    if m.sensor_controls_error(ok): errs.append("rejected %r" % ok)
+for bad in ({"keyMemory": "never"}, {"keyMemory": "2mo"}, {"groupWindow": "0s"}, {"groupWindow": True},
+            {"maxPerHour": 0}, {"maxPerHour": 2.5}, {"maxPerHour": "10"}, {"maxPerHour": False}):
+    if not m.sensor_controls_error(bad): errs.append("accepted %r" % bad)
+print("; ".join(errs) or "OK")
+PY
+)
+  assert_eq "OK" "$res" "SA-G26: control validation"
+  t=$(make_tmpdir)
+  printf '{"name":"x","enabled":true,"schedule":{"type":"sensor"},"instruction":"i"}\n' > "$t/wakeup.json"
+  local fp
+  fp=$(python3 "$REPO_ROOT/substrate/scripts/sensor-fire" --trigger "$t" --key "msg-42" "found it")
+  assert_eq "msg-42" "$(cat "$fp.key" 2>/dev/null)" "SA-G26: key written beside the fire"
+  assert_eq "found it" "$(cat "$fp")" "SA-G26: findings unchanged"
+  fp=$(python3 "$REPO_ROOT/substrate/scripts/sensor-fire" --key "k" --trigger "$t" </dev/null)
+  assert_file_exists "$fp.key" "SA-G26: --key before --trigger works too"
+  python3 "$REPO_ROOT/substrate/scripts/sensor-fire" --trigger "$t" --key "" x 2>/dev/null \
+    && fail "SA-G26: an empty key is refused"
+  [ "$(ls "$t/fires" | grep -c '\.fire$')" = "2" ] || fail "SA-G26: a refused key fires nothing"
+}
+
+# SA-G27: a trip whose switch-off can't be written still holds: fires are
+# discarded, nothing more is delivered, and editing the spec resumes it.
+test_SA_G27_sensor_trip_switch_off_fails() {
+  local ident_dir home_dir out_log w now
+  ident_dir=$(make_tmpdir); home_dir=$(make_tmpdir); out_log=$(make_tmpdir)/out.log
+  w="$ident_dir/wakeups/stuck"
+  mkdir -p "$w/fires" "$w/.state" "$w/sensor"
+  printf '{"name":"stuck","enabled":true,"schedule":{"type":"sensor"},"instruction":"i"}\n' > "$w/wakeup.json"
+  printf '{"run":"always","command":"true","maxPerHour":1}\n' > "$w/sensor/sensor.json"
+  now=$(date +%s)
+  printf '{"deliveries":[%s],"keys":{}}\n' "$((now - 60))" > "$w/.state/sensor-ledger.json"
+  printf 'x' > "$w/fires/20261014T100000000-00000001.fire"
+  chmod a-w "$w"                               # the spec can't be rewritten (no tmp file in its folder)
+  HOME="$home_dir" timeout 3 python3 "$PY_SCRIPT" "$ident_dir" >"$out_log" 2>/dev/null || true
+  assert_eq "1" "$(grep -c '📡 \[sensor tripped: stuck' "$out_log")" "SA-G27: tripped once"
+  grep -q "switching it off failed — its fires are being discarded" "$out_log" || fail "SA-G27: loud warning, got: $(cat "$out_log")"
+  printf 'y' > "$w/fires/20261014T110000000-00000002.fire"
+  HOME="$home_dir" timeout 3 python3 "$PY_SCRIPT" "$ident_dir" >"$out_log" 2>/dev/null || true
+  grep -q "📡" "$out_log" && fail "SA-G27: nothing delivered while the trip holds"
+  [ -e "$w/fires/20261014T110000000-00000002.fire" ] && fail "SA-G27: fires discarded while the trip holds"
+  chmod u+w "$w"
+  sleep 0.05
+  printf '{"name":"stuck","enabled":true,"schedule":{"type":"sensor"},"instruction":"i2"}\n' > "$w/wakeup.json"
+  printf 'z' > "$w/fires/20261014T120000000-00000003.fire"
+  HOME="$home_dir" timeout 3 python3 "$PY_SCRIPT" "$ident_dir" >"$out_log" 2>/dev/null || true
+  grep -q "i2 — findings: z" "$out_log" || fail "SA-G27: editing the spec resumes it, got: $(cat "$out_log")"
+}
+
 run_test test_SA_G1_scheduled_agents_spec_discovery
 run_test test_SA_G2_scheduled_agents_ignores_flat_specs
 run_test test_SA_G3_per_identity_mode_unchanged
@@ -1155,6 +1389,12 @@ run_test test_SA_G18_one_time_sensor
 run_test test_SA_G19_sensor_broken_alert
 run_test test_SA_G20_archive_if_nothing_to_report
 run_test test_SA_G21_project_filing
+run_test test_SA_G22_sensor_keys
+run_test test_SA_G23_sensor_grouping
+run_test test_SA_G24_sensor_trip_wakeup
+run_test test_SA_G25_sensor_trip_scheduled_task
+run_test test_SA_G26_sensor_controls_settings
+run_test test_SA_G27_sensor_trip_switch_off_fails
 
 printf '\n===============================\n'
 printf 'PASS: %s  FAIL: %s\n' "$PASS" "$FAIL"

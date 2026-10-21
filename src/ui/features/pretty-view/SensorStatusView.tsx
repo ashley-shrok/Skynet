@@ -5,10 +5,10 @@
  *
  * Two pieces, shared by the wake-ups tab and the scheduled-tasks list:
  *   - SensorSummaryLine — the unopened row's line:
- *       "📡 Sensor · Healthy · Last fired 3h ago · 2 waiting"
+ *       "📡 Sensor · Healthy · Last fired 3h ago"
  *   - SensorDetails — the read-only section in the opened view: status (with
  *       the last error lines when broken), how it runs, last ran, last
- *       fired, waiting fires.
+ *       fired, and why it tripped when it did.
  *
  * Read-only by design: the trigger's existing on/off switch is the only
  * control a user has over a sensor.
@@ -28,6 +28,7 @@ const STATE_LABEL: Record<SensorState, string> = {
   broken: "Broken",
   running_long: "Running long",
   off: "Off",
+  tripped: "Tripped",
   not_live: "Not live yet",
   unknown: "Unknown",
 };
@@ -39,6 +40,7 @@ const STATE_CLASS: Record<SensorState, string> = {
   broken: "text-rose-400 font-semibold",
   running_long: "text-amber-300",
   off: "",
+  tripped: "text-amber-400 font-semibold",
   not_live: "",
   unknown: "text-slate-400",
 };
@@ -48,6 +50,8 @@ const STATE_HINT: Record<SensorState, string> = {
   broken: "The sensor is failing — open it to see why.",
   running_long: "A run is still going when the next one was due.",
   off: "Switched off — the sensor is stopped.",
+  tripped:
+    "Fired far more than usual, so it was switched off and an agent was told. Switch it back on to resume — it starts fresh.",
   not_live: "An agent is still building this sensor; it hasn't been published.",
   unknown: "The app can't read this sensor's status right now.",
 };
@@ -74,8 +78,8 @@ function runText(sensor: SensorStatus): string {
   return "—";
 }
 
-function waitingText(n: number): string {
-  return `${n} waiting`;
+function capitalize(s: string): string {
+  return s ? s[0].toUpperCase() + s.slice(1) : s;
 }
 
 const Dot = () => <span className="mx-1.5 opacity-55">·</span>;
@@ -117,11 +121,11 @@ export function SensorSummaryLine({
       <span title={typeof lastFiredAt === "number" ? formatAbsolute(lastFiredAt, now) : undefined}>
         {lastFiredText(lastFiredAt, now)}
       </span>
-      {sensor.waitingFires > 0 && (
+      {sensor.state === "tripped" && sensor.trippedReason && (
         <>
           <Dot />
-          <span data-testid={testId ? `${testId}-waiting` : undefined}>
-            {waitingText(sensor.waitingFires)}
+          <span data-testid={testId ? `${testId}-tripped` : undefined}>
+            {capitalize(sensor.trippedReason)}
           </span>
         </>
       )}
@@ -172,8 +176,12 @@ export function SensorDetails({
         : "Never fired",
     ],
   ];
-  if (sensor.waitingFires > 0) {
-    rows.push(["Waiting fires", `${sensor.waitingFires} — delivered when switched on`]);
+  if (sensor.state === "tripped") {
+    const when =
+      typeof sensor.trippedAt === "number"
+        ? ` — ${formatRelativePast(sensor.trippedAt, now)} (${formatAbsolute(sensor.trippedAt, now)})`
+        : "";
+    rows.push(["Tripped", `${capitalize(sensor.trippedReason ?? "fired far more than usual")}${when}`]);
   }
 
   return (

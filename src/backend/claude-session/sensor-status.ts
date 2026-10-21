@@ -11,7 +11,8 @@
  *   sensor/sensor.json          published settings (absent = not live yet)
  *   sensor/sensor.json.pending  draft (ignored for status)
  *   .state/sensor-health.json   written by sensor-runner every pass (~30s)
- *   fires/*.fire                fires waiting for delivery
+ *   .state/sensor-tripped.json  written by the wake-up scheduler when the sensor
+ *                               tripped its rate limit and was switched off
  *
  * The same probe is used by the local (bind-mount) and remote (SSH) readers:
  * `sensorProbeShell` emits a delimited block that `parseSensorProbe` reads
@@ -27,6 +28,7 @@ export type SensorState =
   | "broken"
   | "running_long"
   | "off"
+  | "tripped"
   | "not_live"
   | "unknown";
 
@@ -39,8 +41,11 @@ export type SensorStatus = {
   cadenceHuman: string | null;
   /** Epoch seconds of the sensor's last run start; null when it never ran. */
   lastRanAt: number | null;
-  /** Fires waiting for delivery (held while the trigger is off). */
-  waitingFires: number;
+  /** Why it tripped ("fired more than its limit of 10 times in an hour")
+   *  when tripped; null otherwise. */
+  trippedReason: string | null;
+  /** Epoch seconds it tripped at, when tripped; null otherwise. */
+  trippedAt: number | null;
   /** Last error lines when broken; null otherwise. */
   error: string | null;
 };
@@ -52,7 +57,8 @@ export type SensorProbe = {
   settingsRaw: string | null;
   /** Contents of .state/sensor-health.json, or null when absent. */
   healthRaw: string | null;
-  waitingFires: number;
+  /** Contents of .state/sensor-tripped.json, or null when absent. */
+  trippedRaw: string | null;
   /** Epoch seconds on the sensor's own machine when the probe ran; the
    *  staleness check compares the record's timestamp against this, so two
    *  machines' clocks are never mixed. Absent = use the caller's clock. */
@@ -76,8 +82,6 @@ export function triggerEnabledLikeScheduler(spec: Record<string, unknown>): bool
 /** A health record older than this is not trusted — the sensor-runner that
  *  writes it every ~30s may itself be down. */
 export const HEALTH_STALE_SECS = 5 * 60;
-
-const FIRE_NAME_RE = /^20[0-9]{6}T[0-9]{9}-[0-9a-f]{8}\.fire$/;
 
 function isoToEpoch(v: unknown): number | null {
   if (typeof v !== "string" || !v) return null;
@@ -105,6 +109,7 @@ const FUTURE_SLACK_SECS = 2 * 60;
  * Map raw records to the user-facing status.
  *
  *   no published settings                     → not_live
+ *   switched off by tripping its rate limit   → tripped
  *   trigger switched off                      → off
  *   health missing / unreadable / stale /     → unknown
  *     stamped in the future
@@ -124,13 +129,13 @@ export function deriveSensorStatus(
   nowSecs: number,
   humanize: (schedule: unknown) => string,
 ): SensorStatus {
-  const waitingFires = probe?.waitingFires ?? 0;
   const base: SensorStatus = {
     state: "unknown",
     run: null,
     cadenceHuman: null,
     lastRanAt: null,
-    waitingFires,
+    trippedReason: null,
+    trippedAt: null,
     error: null,
   };
 
@@ -149,7 +154,24 @@ export function deriveSensorStatus(
   const health = parseObject(probe.healthRaw);
   if (health) base.lastRanAt = isoToEpoch(health.lastRunAt);
 
-  if (!enabled) return { ...base, state: "off" };
+  if (!enabled) {
+    // A trip record outlives the switch-off; it goes when the trigger is
+    // switched back on (the scheduler clears it then).
+    const tripped = parseObject(probe.trippedRaw);
+    if (tripped) {
+      const limit = typeof tripped.limit === "number" ? tripped.limit : null;
+      return {
+        ...base,
+        state: "tripped",
+        trippedReason:
+          limit !== null
+            ? `fired more than its limit of ${limit} times in an hour`
+            : "fired far more than usual",
+        trippedAt: isoToEpoch(tripped.at),
+      };
+    }
+    return { ...base, state: "off" };
+  }
   if (!health) return base;
 
   const now = typeof probe.observedAt === "number" ? probe.observedAt : nowSecs;
@@ -193,12 +215,7 @@ export const SENSOR_PROBE_MARK = "===SKYNET-SENSOR:";
  *  base64-encoded so nothing a sensor prints into its log (which ends up in
  *  the health record) can be mistaken for the listing's own delimiters. */
 const PROBE_LINE_RE =
-  /===SKYNET-SENSOR:P=([01]);S=([A-Za-z0-9+/=]*);H=([A-Za-z0-9+/=]*);F=(\d+);T=(\d*)===/;
-
-/** Shell glob matching exactly the fire-file name format
- *  `YYYYMMDDTHHMMSSmmm-<8 hex>.fire` (same rule as FIRE_NAME_RE). */
-const FIRE_GLOB =
-  "20" + "[0-9]".repeat(6) + "T" + "[0-9]".repeat(9) + "-" + "[0-9a-f]".repeat(8) + ".fire";
+  /===SKYNET-SENSOR:P=([01]);S=([A-Za-z0-9+/=]*);H=([A-Za-z0-9+/=]*);R=([A-Za-z0-9+/=]*);T=(\d*)===/;
 
 /**
  * Bash snippet that prints the probe line for one trigger folder.
@@ -212,9 +229,9 @@ export function sensorProbeShell(dirExpr: string): string {
   return (
     `if [ -d ${dirExpr}/sensor ] || [ -d ${dirExpr}/fires ]; then ` +
     `_p=0; [ -e ${dirExpr}/sensor/sensor.json ] && _p=1; ` +
-    `_n=0; for _x in ${dirExpr}/fires/*.fire; do case "\${_x##*/}" in ${FIRE_GLOB}) _n=$((_n+1));; esac; done; ` +
     `echo "${SENSOR_PROBE_MARK}P=$_p;S=${b64(`${dirExpr}/sensor/sensor.json`)};` +
-    `H=${b64(`${dirExpr}/.state/sensor-health.json`)};F=$_n;T=$(date +%s)==="; ` +
+    `H=${b64(`${dirExpr}/.state/sensor-health.json`)};` +
+    `R=${b64(`${dirExpr}/.state/sensor-tripped.json`)};T=$(date +%s)==="; ` +
     `fi; `
   );
 }
@@ -230,12 +247,13 @@ function decodeB64(v: string): string {
 export function parseSensorProbe(text: string): SensorProbe | null {
   const m = PROBE_LINE_RE.exec(text);
   if (!m) return null;
-  const [, published, settingsB64, healthB64, fires, observed] = m;
+  const [, published, settingsB64, healthB64, trippedB64, observed] = m;
   const healthText = decodeB64(healthB64);
+  const trippedText = decodeB64(trippedB64);
   const probe: SensorProbe = {
     settingsRaw: published === "1" ? decodeB64(settingsB64) : null,
     healthRaw: healthText ? healthText : null,
-    waitingFires: Number(fires),
+    trippedRaw: trippedText ? trippedText : null,
   };
   if (observed) probe.observedAt = Number(observed);
   return probe;
@@ -257,7 +275,7 @@ export async function readSensorProbeLocal(triggerDir: string): Promise<SensorPr
   if (!hasSensor && !hasFires) return null;
 
   const settingsPath = path.join(sensorDir, "sensor.json");
-  const [settingsRaw, healthRaw, fireNames] = await Promise.all([
+  const [settingsRaw, healthRaw, trippedRaw] = await Promise.all([
     // Present-but-unreadable reads as "" (published, unparseable), same as
     // the remote probe; absent reads as null (not published).
     fs.readFile(settingsPath, "utf-8").then(
@@ -265,11 +283,11 @@ export async function readSensorProbeLocal(triggerDir: string): Promise<SensorPr
       (err: NodeJS.ErrnoException) => (err?.code === "ENOENT" ? null : ""),
     ),
     fs.readFile(path.join(triggerDir, ".state", "sensor-health.json"), "utf-8").catch(() => null),
-    fs.readdir(firesDir).catch(() => [] as string[]),
+    fs.readFile(path.join(triggerDir, ".state", "sensor-tripped.json"), "utf-8").catch(() => null),
   ]);
   return {
     settingsRaw,
     healthRaw: healthRaw && healthRaw.trim() ? healthRaw.trim() : null,
-    waitingFires: fireNames.filter((n) => FIRE_NAME_RE.test(n)).length,
+    trippedRaw: trippedRaw && trippedRaw.trim() ? trippedRaw.trim() : null,
   };
 }

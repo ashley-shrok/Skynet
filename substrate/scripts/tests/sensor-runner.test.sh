@@ -16,7 +16,7 @@
 #   SR-05 — failed cadence run → health failed with the log tail
 #   SR-06 — disabling the trigger stops + removes the unit; health "stopped"
 #   SR-07 — removing the trigger folder (archive/delete) removes the unit
-#   SR-08 — invalid settings → no unit, health "invalid" naming the problem
+#   SR-08 — invalid settings (incl. fire controls) → no unit, health "invalid" naming the problem
 #   SR-09 — units the runner doesn't own (no marker) are never touched
 #   SR-10 — scheduled-task sensors are handled the same way
 #   SR-11 — sensor-fire: arguments, stdin, walk-up discovery, refusal outside a trigger
@@ -229,6 +229,10 @@ SR08() {
   assert_eq "" "$(unit_file)" "no unit for invalid settings"
   assert_eq "invalid" "$(health "$w" state)" "health invalid"
   health "$w" error | grep -q '`run` must be' || fail "problem named: $(health "$w" error)"
+  printf '{"run":"always","command":"x","maxPerHour":0}\n' > "$w/sensor/sensor.json"
+  runner_pass
+  assert_eq "" "$(unit_file)" "no unit for an invalid fire control"
+  health "$w" error | grep -q '`maxPerHour` must be' || fail "fire-control problem named: $(health "$w" error)"
   printf '{"name":"x","enabled":true,"schedule":{"type":"daily","at":"09:00"},"instruction":"x"}\n' > "$w/wakeup.json"
   printf '%s\n' "$ALWAYS" > "$w/sensor/sensor.json"
   runner_pass
@@ -310,7 +314,36 @@ SR14() {
   assert_eq "" "$(unit_file)" "no unit"
 }
 
-for t in SR01 SR02 SR03 SR04 SR05 SR06 SR07 SR08 SR09 SR10 SR11 SR12 SR13 SR14; do run_test "$t"; done
+SR15() {
+  # Off means off even while the wake-up's identity sleeps; a tripped trigger
+  # switched back on starts fresh; the box's own notes aren't error lines.
+  local off on
+  off=$(make_wakeup off false "$ALWAYS")
+  mkdir -p "$off/fires"; printf 'x' > "$off/fires/20261014T100000000-00000001.fire"
+  printf 'k' > "$off/fires/20261014T100000000-00000001.fire.key"
+  on=$(make_wakeup on true '{"run":"always","command":"exit 3"}')
+  mkdir -p "$on/.state"
+  printf '{"at":"2026-10-14T00:00:00Z","limit":10,"fires":2,"specMtimeNs":1}' > "$on/.state/sensor-tripped.json"
+  printf '{"deliveries":[%s],"keys":{"a":%s}}' "$(date +%s)" "$(date +%s)" > "$on/.state/sensor-ledger.json"
+  printf '[2026-10-14T00:00:00Z] box: dropped duplicate fire x (key %s was delivered recently)\n' "'a'" > "$on/.state/sensor.log"
+  runner_pass
+  [ -e "$off/fires/20261014T100000000-00000001.fire" ] && fail "switched-off trigger's waiting fire discarded"
+  [ -e "$off/fires/20261014T100000000-00000001.fire.key" ] && fail "its key file goes too"
+  grep -q "box: discarded fire" "$off/.state/sensor.log" || fail "discard noted in the sensor's log"
+  [ -e "$on/.state/sensor-tripped.json" ] && fail "trip record cleared once switched back on"
+  python3 -c "import json,sys; l=json.load(open(sys.argv[1])); assert l['deliveries']==[] and 'a' in l['keys']" "$on/.state/sensor-ledger.json" \
+    || fail "delivery count starts fresh, keys kept"
+  printf 'boom\n[2026-10-14T00:00:01Z] box: discarded fire y\n' >> "$on/.state/sensor.log"
+  python3 - "$RUNNER" "$on/.state/sensor.log" <<'PYX' || fail "box notes left out of error lines"
+import importlib.util, sys
+from importlib.machinery import SourceFileLoader
+l = SourceFileLoader("sr", sys.argv[1]); sp = importlib.util.spec_from_loader("sr", l)
+m = importlib.util.module_from_spec(sp); l.exec_module(m)
+assert m.tail_lines(sys.argv[2], 10) == "boom", repr(m.tail_lines(sys.argv[2], 10))
+PYX
+}
+
+for t in SR01 SR02 SR03 SR04 SR05 SR06 SR07 SR08 SR09 SR10 SR11 SR12 SR13 SR14 SR15; do run_test "$t"; done
 
 printf '\n===============================\nPASS: %d  FAIL: %d\n' "$PASS" "$FAIL"
 if [ "$FAIL" -gt 0 ]; then

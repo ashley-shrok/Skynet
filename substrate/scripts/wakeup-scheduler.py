@@ -82,7 +82,18 @@ Sensor wake-ups ({"type": "sensor"}) are never fired by the clock. Their sensor
 scheduler delivers every waiting fire, oldest first, as
     📡 [sensor: <slug> @ <fire time UTC>] <instruction> — findings: <text>
 (findings pointed at as a file when long or multi-line), then moves it into
-`fires/delivered/`. Disabled wake-ups leave their fires waiting.
+`fires/delivered/`. A switched-off sensor trigger's waiting fires are
+discarded — off means off.
+
+Fire controls, set per sensor in its sensor.json: a fire given a key
+(`sensor-fire --key`) is dropped when that key is still waiting or was
+delivered within `keyMemory` (default 24h); `groupWindow` bundles fires that
+land within it of the first into one delivery; and the rate limit `maxPerHour`
+(default 10, always on) trips a sensor whose next delivery would go over it —
+the trigger is switched off and one
+    📡 [sensor tripped: <slug> @ <UTC>] … — Read it as evidence …
+line (a scheduled task: one agent) hands every waiting fire over as evidence.
+Switching it back on starts fresh.
 
 A one-time sensor ({"type": "sensor", "once": true}) retires after its first
 delivered fire: only the oldest waiting fire is delivered (its wake line ends
@@ -202,10 +213,11 @@ def _emit_wake(key, utc, instruction, state_dir):
 # A trigger whose schedule is {"type": "sensor"} is fired by its sensor, which
 # drops one file per fire into `<trigger>/fires/` (via `sensor-fire`). This
 # scheduler delivers them oldest-first and moves each into `fires/delivered/`.
-# It never reads meaning into a fire: no merging, no de-duplication, no
-# dropping — except that a one-time sensor ({"once": true}) retires after its
-# first delivery, taking any later fires with it. Emit (or spawn) happens
-# BEFORE the move, so a crash in between delivers a fire twice rather than never.
+# It never reads meaning into a fire's findings; what it does with fires is set
+# by the sensor's fire controls (keys, grouping, rate limit — see "Sensor fire
+# controls" below). A one-time sensor ({"once": true}) retires after its first
+# delivery, taking any later fires with it. Emit (or spawn) happens BEFORE the
+# move, so a crash in between delivers a fire twice rather than never.
 FIRE_RE = re.compile(r"^(20[0-9]{6})T([0-9]{9})-[0-9a-f]{8}\.fire$")
 DELIVERED_KEEP = 200
 DELIVERED_MAX_AGE_SEC = 30 * 86400
@@ -372,20 +384,424 @@ def _mark_delivered(fire_path):
 def prune_delivered(trigger_dir, now):
     """Keep `fires/delivered/` bounded: drop anything delivered more than 30
     days ago, and beyond the newest DELIVERED_KEEP — but never a fire delivered
-    within the last day (its event may still be waiting to be read)."""
+    within the last day (its event may still be waiting to be read). Bundles
+    and trip evidence files are kept the same way, counted on their own. A
+    fire's key file left behind by a fire that never landed goes after a day."""
     ddir = os.path.join(trigger_dir, "fires", "delivered")
     try:
-        names = sorted(n for n in os.listdir(ddir) if FIRE_RE.match(n))
+        listing = os.listdir(ddir)
     except OSError:
-        return
-    for i, n in enumerate(names):
-        p = os.path.join(ddir, n)
+        listing = []
+    for rx in (FIRE_RE, AGG_RE):
+        names = sorted(n for n in listing if rx.match(n))
+        for i, n in enumerate(names):
+            p = os.path.join(ddir, n)
+            try:
+                age = now - os.path.getmtime(p)
+                if age > DELIVERED_GRACE_SEC and (i < len(names) - DELIVERED_KEEP or age > DELIVERED_MAX_AGE_SEC):
+                    os.unlink(p)
+            except OSError:
+                pass
+    fdir = os.path.join(trigger_dir, "fires")
+    try:
+        for n in os.listdir(fdir):
+            if n.endswith(KEY_SUFFIX) and FIRE_RE.match(n[:-len(KEY_SUFFIX)]):
+                p = os.path.join(fdir, n)
+                if not os.path.exists(p[:-len(KEY_SUFFIX)]) and now - os.path.getmtime(p) > DELIVERED_GRACE_SEC:
+                    os.unlink(p)
+    except OSError:
+        pass
+
+
+# ---- Sensor fire controls --------------------------------------------------
+# Three controls between a sensor firing and anything being delivered, each
+# tunable in the sensor's own sensor.json:
+#   keys        `sensor-fire --key K` — a fire whose key matches one still
+#               waiting, or one delivered within `keyMemory` (default 24h;
+#               "forever" allowed), is dropped and noted in the sensor's log.
+#   grouping    `groupWindow` (off unless set) — the first waiting fire opens a
+#               fixed window; every fire that lands inside it is delivered with
+#               it as one bundle when the window closes.
+#   rate limit  `maxPerHour` (default 10) — always on. Counts deliveries (a
+#               bundle is one, a dropped duplicate none) in any rolling hour. The
+#               delivery that would go over it trips the sensor instead: the
+#               trigger is switched off, and one neutral heads-up carries every
+#               waiting fire as evidence. Those fires are used up; switching the
+#               trigger back on starts fresh.
+# Off means off: a switched-off sensor trigger's waiting fires are discarded.
+# One-time sensors deliver once and retire, so none of this applies to them.
+SENSOR_DEFAULT_MAX_PER_HOUR = 10
+SENSOR_DEFAULT_KEY_MEMORY_SEC = 86400
+SENSOR_RATE_WINDOW_SEC = 3600
+SENSOR_LEDGER_MAX_KEYS = 10000
+KEY_SUFFIX = ".key"
+AGG_RE = re.compile(r"^(20[0-9]{6})T([0-9]{9})-[0-9a-f]{8}\.(bundle|evidence)$")
+LEDGER_NAME = "sensor-ledger.json"
+TRIPPED_NAME = "sensor-tripped.json"
+
+
+def _duration_secs(v):
+    """A sensor control duration ("90s", "1m", "24h", "7d"; bare number =
+    minutes) → seconds, else None. Calendar months are not durations here."""
+    p = _parse_every(v)
+    return p[1] if p is not None and p[0] == "s" else None
+
+
+def sensor_controls_error(settings):
+    """Why a sensor.json's fire controls are invalid, or None. Absent = default."""
+    km = settings.get("keyMemory")
+    if km is not None and km != "forever" and _duration_secs(km) is None:
+        return 'sensor.json `keyMemory` must be a duration like "24h", or "forever"'
+    gw = settings.get("groupWindow")
+    if gw is not None and _duration_secs(gw) is None:
+        return 'sensor.json `groupWindow` must be a duration like "1m"'
+    mph = settings.get("maxPerHour")
+    if mph is not None:
+        n = _as_int(mph)
+        if n is None or n < 1:
+            return "sensor.json `maxPerHour` must be a whole number, at least 1"
+    return None
+
+
+def sensor_controls(trigger_dir):
+    """The trigger's fire controls: {"key_memory": seconds | None (forever),
+    "group": seconds (0 = off), "max_per_hour": n}. Unreadable or invalid
+    settings give the defaults (the sensor-runner refuses to run such a sensor,
+    so nothing new arrives anyway)."""
+    out = {"key_memory": SENSOR_DEFAULT_KEY_MEMORY_SEC, "group": 0,
+           "max_per_hour": SENSOR_DEFAULT_MAX_PER_HOUR}
+    try:
+        st = json.load(open(os.path.join(trigger_dir, "sensor", "sensor.json")))
+    except (OSError, ValueError):
+        return out
+    if not isinstance(st, dict) or sensor_controls_error(st):
+        return out
+    if st.get("keyMemory") == "forever":
+        out["key_memory"] = None
+    elif st.get("keyMemory") is not None:
+        out["key_memory"] = _duration_secs(st["keyMemory"])
+    if st.get("groupWindow") is not None:
+        out["group"] = _duration_secs(st["groupWindow"])
+    if st.get("maxPerHour") is not None:
+        out["max_per_hour"] = _as_int(st["maxPerHour"])
+    return out
+
+
+def fire_key(fire_path):
+    """The key a fire was given (`sensor-fire --key`), or None."""
+    try:
+        with open(fire_path + KEY_SUFFIX, "rb") as f:
+            k = f.read().decode("utf-8", errors="replace").strip()
+    except OSError:
+        return None
+    return k or None
+
+
+def _drop_key_file(fire_path):
+    try:
+        os.unlink(fire_path + KEY_SUFFIX)
+    except OSError:
+        pass
+
+
+def discard_fire(fire_path):
+    """Remove a waiting fire (and its key file) without delivering it."""
+    try:
+        os.unlink(fire_path)
+    except OSError:
+        pass
+    _drop_key_file(fire_path)
+
+
+def sensor_log(trigger_dir, msg):
+    """Note something the box did with this sensor's fires in the sensor's own
+    log (`.state/sensor.log`, the file its output goes to). Never creates the
+    trigger folder."""
+    sd = os.path.join(trigger_dir, ".state")
+    try:
+        if not os.path.isdir(sd):
+            if not os.path.isdir(trigger_dir):
+                return
+            os.mkdir(sd)
+        with open(os.path.join(sd, "sensor.log"), "a") as f:
+            f.write("[%s] box: %s\n" % (datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"), msg))
+    except OSError:
+        pass
+
+
+def load_ledger(trigger_dir):
+    """{"deliveries": [epoch, …], "keys": {key: delivered epoch}}."""
+    try:
+        led = json.load(open(os.path.join(trigger_dir, ".state", LEDGER_NAME)))
+        now = time.time()               # a stamp from a clock that has since gone back counts as now
+        deliveries = [min(float(x), now) for x in led.get("deliveries", []) if isinstance(x, (int, float))]
+        keys = {str(k): min(float(v), now) for k, v in (led.get("keys") or {}).items()
+                if isinstance(v, (int, float))}
+        return {"deliveries": deliveries, "keys": keys}
+    except (OSError, ValueError, AttributeError, TypeError):
+        return {"deliveries": [], "keys": {}}
+
+
+def save_ledger(trigger_dir, led, now, key_memory):
+    """Write the ledger back, trimmed: deliveries to the rate window, keys to
+    the key memory (and never more than SENSOR_LEDGER_MAX_KEYS, oldest out)."""
+    led["deliveries"] = [t for t in led["deliveries"] if now - t < SENSOR_RATE_WINDOW_SEC]
+    keys = led["keys"]
+    if key_memory is not None:
+        keys = {k: t for k, t in keys.items() if now - t < key_memory}
+    if len(keys) > SENSOR_LEDGER_MAX_KEYS:
+        keys = dict(sorted(keys.items(), key=lambda kv: kv[1])[-SENSOR_LEDGER_MAX_KEYS:])
+    led["keys"] = keys
+    sd = os.path.join(trigger_dir, ".state")
+    try:
+        if not os.path.isdir(sd):
+            os.mkdir(sd)
+        write_atomic_json(os.path.join(sd, LEDGER_NAME), led)
+    except OSError:
+        pass
+
+
+def drop_duplicate_fires(trigger_dir, fires, led, now, key_memory):
+    """Drop every waiting fire whose key matches an earlier waiting fire, or one
+    delivered within the key memory. Returns the fires left, oldest first."""
+    kept, seen = [], set()
+    for fp in fires:
+        k = fire_key(fp)
+        if k is not None:
+            t = led["keys"].get(k)
+            recent = t is not None and (key_memory is None or now - t < key_memory)
+            if k in seen or recent:
+                discard_fire(fp)
+                sensor_log(trigger_dir, "dropped duplicate fire %s (key %r %s)"
+                           % (os.path.basename(fp), k, "is still waiting" if k in seen else "was delivered recently"))
+                continue
+            seen.add(k)
+        kept.append(fp)
+    return kept
+
+
+def next_bundle(fires, group_secs, now):
+    """The fires to deliver next as one delivery, or [] if nothing is due yet.
+    Without grouping, the oldest fire alone. With grouping, nothing until the
+    oldest fire's window has closed; then every fire inside that window."""
+    if not fires:
+        return []
+    if not group_secs:
+        return fires[:1]
+    start = fire_epoch(fires[0])
+    if now < start + group_secs:
+        return []
+    return [fp for fp in fires if fire_epoch(fp) < start + group_secs]
+
+
+def _fires_text(fires_findings, intro):
+    """Several fires' findings, one after another, each under its own marker
+    line. `fires_findings` = [(fired_utc, findings), …]."""
+    n = len(fires_findings)
+    parts = [intro, ""]
+    for i, (utc, findings) in enumerate(fires_findings, 1):
+        parts.append("----- fire %d of %d, fired %s -----" % (i, n, utc))
+        parts.append(findings[:-1] if findings.endswith("\n") else (findings or "(no findings)"))
+    parts.append("----- end -----")
+    return "\n".join(parts) + "\n"
+
+
+def _aggregate_path(first_fire, kind):
+    """`fires/delivered/<first fire's name>.<kind>` — the file a bundle or trip
+    evidence is written to and pointed at."""
+    base = os.path.basename(first_fire)[:-len(".fire")]
+    return os.path.join(os.path.dirname(first_fire), "delivered", "%s.%s" % (base, kind))
+
+
+def _write_aggregate(path, text):
+    d = os.path.dirname(path)
+    if not os.path.isdir(d):
+        os.mkdir(d)
+    tmp = path + ".tmp"
+    with open(tmp, "w") as f:
+        f.write(text)
+    os.rename(tmp, path)
+
+
+def read_tripped(trigger_dir):
+    try:
+        t = json.load(open(os.path.join(trigger_dir, ".state", TRIPPED_NAME)))
+        return t if isinstance(t, dict) else None
+    except (OSError, ValueError):
+        return None
+
+
+def switch_trigger_off(spec_path):
+    """Set `enabled: false` in a trigger spec, keeping everything else (and the
+    file's mode). Returns the spec file's new mtime (ns), or None on failure. A
+    spec changed by someone else mid-rewrite is re-read and tried again, so
+    their edit isn't lost under ours."""
+    tmp = "%s.tmp.%d.%s" % (spec_path, os.getpid(), _uuid.uuid4().hex[:8])
+    try:
+        for _ in range(3):
+            st = os.stat(spec_path)
+            spec = json.load(open(spec_path))
+            if not isinstance(spec, dict):
+                return None
+            spec["enabled"] = False
+            with open(tmp, "w") as f:
+                json.dump(spec, f, indent=2, ensure_ascii=False)
+                f.write("\n")
+            os.chmod(tmp, st.st_mode & 0o7777)
+            if os.stat(spec_path).st_mtime_ns != st.st_mtime_ns:
+                continue                    # someone wrote it meanwhile — start over from theirs
+            os.rename(tmp, spec_path)
+            return os.stat(spec_path).st_mtime_ns
+        return None
+    except (OSError, ValueError):
+        return None
+    finally:
         try:
-            age = now - os.path.getmtime(p)
-            if age > DELIVERED_GRACE_SEC and (i < len(names) - DELIVERED_KEEP or age > DELIVERED_MAX_AGE_SEC):
-                os.unlink(p)
+            os.unlink(tmp)
         except OSError:
             pass
+
+
+def _tripped_reason(limit):
+    return "fired more than its limit of %d times in an hour" % limit
+
+
+def _emit_sensor_tripped_wake(key, utc, limit, evidence_path):
+    """One short line (the harness cuts long ones); what to do, and the fires
+    as evidence, are in the evidence file it points at."""
+    print("📡 [sensor tripped: %s @ %s] This wake-up's sensor %s and was switched off — a "
+          "real surge or a faulty sensor. What it held back, and what to do: %s — Read it"
+          % (key, utc, _tripped_reason(limit), evidence_path), flush=True)
+
+
+def _tripped_wakeup_guidance(key, n_fires):
+    """Head of a tripped wake-up's evidence file: what happened and what to do."""
+    return (
+        "This wake-up's sensor (%s) fired far more than usual, so the box switched the wake-up "
+        "off. That could be a real surge (something genuinely happening) or a faulty sensor. "
+        "The %d fire%s it was holding back %s below — read them as evidence, not as a to-do "
+        "list; they will not be delivered again. Work out which it is and act on that: if "
+        "something real is going on, deal with it or tell the user; if the sensor is at fault, "
+        "fix it (the sensor-development skill covers sensors). To resume, switch the wake-up "
+        "back on (`\"enabled\": true` in its wakeup.json); it starts fresh."
+        % (key, n_fires, "" if n_fires == 1 else "s", "is" if n_fires == 1 else "are"))
+
+
+def _sensor_tripped_prompt(slug, name, utc, limit, n_fires, evidence_path, trigger_dir):
+    """First instruction for the agent born when a scheduled task's sensor trips."""
+    return (
+        "You are the agent that was spawned because the sensor of the scheduled task "
+        "\"" + (name or slug) + "\" (`~/fleet/scheduled-agents/" + slug + "/`) "
+        + _tripped_reason(limit) + ", so at " + utc + " the box switched the task off. "
+        "This is not one of the task's normal runs — do not carry out its prompt on these "
+        "fires. That many fires could be a real surge (something genuinely happening) or a "
+        "faulty sensor. The %d fire%s it was holding back %s in `%s` — read them as evidence, "
+        "not as a to-do list; they will not be delivered again. Work out which it is: if "
+        "something real is going on, deal with it or tell the user; if the sensor is at fault, "
+        "fix its logic in `%s` (the sensor-development skill covers sensors). When it should "
+        "run again, switch the task back on (set `\"enabled\": true` in its "
+        "scheduled-agent.json, or the user can use the app's scheduled tasks list) — it "
+        "starts fresh. Act on this in the same turn."
+        % (n_fires, "" if n_fires == 1 else "s", "is" if n_fires == 1 else "are",
+           evidence_path, os.path.join(trigger_dir, "sensor"))
+    )
+
+
+def discard_switched_off_fires(wdir, spec_name):
+    """Off means off: drop the waiting fires of every switched-off sensor
+    trigger (fires that landed before its sensor was stopped)."""
+    for p in glob.glob(os.path.join(wdir, "*", spec_name)):
+        d = os.path.dirname(p)
+        if os.path.basename(d).startswith("."):
+            continue
+        try:
+            spec = json.load(open(p))
+        except (OSError, ValueError):
+            continue
+        if not isinstance(spec, dict) or spec.get("enabled", True):
+            continue
+        sch = spec.get("schedule")
+        if not isinstance(sch, dict) or sch.get("type") != SENSOR_TYPE:
+            continue
+        discard_waiting_fires(d)
+
+
+def discard_waiting_fires(trigger_dir):
+    """Drop every waiting fire of a switched-off trigger, noting each in its log."""
+    for fp in pending_fires(trigger_dir):
+        discard_fire(fp)
+        sensor_log(trigger_dir, "discarded fire %s — the trigger is switched off" % os.path.basename(fp))
+
+
+def trip_state(trigger_dir, spec_path):
+    """"tripped" while a trip holds (the trigger hasn't been switched back on
+    since), "resumed" when someone has since rewritten the spec (switched it
+    back on), None when there is no trip record. A record still finishing its
+    switch-off counts as tripped."""
+    t = read_tripped(trigger_dir)
+    if t is None:
+        return None
+    recorded = t.get("specMtimeNs")
+    try:
+        current = os.stat(spec_path).st_mtime_ns
+    except OSError:
+        return "tripped"
+    return "resumed" if recorded is not None and current != recorded else "tripped"
+
+
+def clear_resumed_trip(trigger_dir, spec_path):
+    """If a tripped trigger has been switched back on, end the trip: drop the
+    record and the delivery count, so it starts fresh. Returns True if it did.
+    Used by this scheduler and by the always-running sensor-runner (so a
+    wake-up switched back on while its identity sleeps is settled too)."""
+    if trip_state(trigger_dir, spec_path) != "resumed":
+        return False
+    try:
+        spec = json.load(open(spec_path))
+    except (OSError, ValueError):
+        return False
+    if not isinstance(spec, dict) or not spec.get("enabled", True):
+        return False                            # rewritten but still off: the trip holds
+    try:
+        os.unlink(os.path.join(trigger_dir, ".state", TRIPPED_NAME))
+    except FileNotFoundError:
+        return False                            # someone else just settled it
+    except OSError:
+        return False
+    led = load_ledger(trigger_dir)
+    led["deliveries"] = []
+    save_ledger(trigger_dir, led, time.time(), None)
+    sensor_log(trigger_dir, "switched back on after tripping — starting fresh")
+    return True
+
+
+def sensor_deliverable_count(trigger_dir, spec_path, now):
+    """How many deliveries (or a trip) this repeating sensor trigger would make
+    on a poll at `now` — the dormant-wake peek's question. Pure: nothing is
+    dropped or moved. Duplicates the scheduler would drop don't count, fires
+    whose group window is still open don't count, and a tripped trigger
+    delivers nothing."""
+    if trip_state(trigger_dir, spec_path) == "tripped":
+        return 0
+    ctl = sensor_controls(trigger_dir)
+    led = load_ledger(trigger_dir)
+    seen, fires = set(), []
+    for fp in pending_fires(trigger_dir):
+        k = fire_key(fp)
+        if k is not None:
+            t = led["keys"].get(k)
+            if k in seen or (t is not None and (ctl["key_memory"] is None or now - t < ctl["key_memory"])):
+                continue
+            seen.add(k)
+        fires.append(fp)
+    n = 0
+    while fires:
+        batch = next_bundle(fires, ctl["group"], now)
+        if not batch:
+            break
+        n += 1
+        fires = [fp for fp in fires if fp not in batch]
+    return n
 
 
 FIRED_FOLDER_KEEP_SEC = 86400
@@ -1282,7 +1698,8 @@ def _live_project(slug):
     return slug if os.path.isdir(path) and not os.path.islink(path) else None
 
 
-def _drop_spawn_request(spec, state_dir, sensor_fire=None, sensor_broken_prompt=None):
+def _drop_spawn_request(spec, state_dir, sensor_fire=None, sensor_broken_prompt=None,
+                        sensor_tripped_prompt=None):
     """Drop a create-identity request file for the spawn-requests pipeline (D-11).
 
     Writes ~/fleet/spawn-requests/<uuid>.json with the extended schema fields:
@@ -1322,7 +1739,11 @@ def _drop_spawn_request(spec, state_dir, sensor_fire=None, sensor_broken_prompt=
         prompt += _sensor_findings_section(*sensor_fire)
     if sensor_broken_prompt is not None:
         prompt = sensor_broken_prompt
-    glyph = "📡 " if (sensor_fire is not None or sensor_broken_prompt is not None) else "⏰ "
+    if sensor_tripped_prompt is not None:
+        prompt = sensor_tripped_prompt
+    sensor_note = (" — sensor broken" if sensor_broken_prompt is not None
+                   else " — sensor tripped" if sensor_tripped_prompt is not None else "")
+    glyph = "📡 " if (sensor_fire is not None or sensor_note) else "⏰ "
     body = {
         "roles": spec.get("roles", []),
         "prompt": prompt,
@@ -1333,8 +1754,7 @@ def _drop_spawn_request(spec, state_dir, sensor_fire=None, sensor_broken_prompt=
         # Clock prefix (⏰ ) marks the identity as scheduled-agent-spawned in the
         # sidebar row + open-conversation task line, so users can tell at a
         # glance which conversations are clock-fired vs manually spawned.
-        "task": ((glyph + _prettify_name(spec["name"])
-                  + (" — sensor broken" if sensor_broken_prompt is not None else ""))
+        "task": ((glyph + _prettify_name(spec["name"]) + sensor_note)
                  if spec.get("name") else None),
         "requested_at": fired_at,
     }
@@ -1484,6 +1904,7 @@ def main():
     pruned_at = {}          # trigger dir -> epoch of the last delivered/ prune (first one an hour after start)
     started_at = time.time()
     undeliverable = set()   # fire paths that could be neither moved nor removed
+    trip_warned = {}        # key -> epoch of the last "couldn't switch it off" warning
 
     def mark_once_fired(spec, fired_path, fire_name):
         """Write a one-time trigger's `.fired` sentinel, naming the fire that was
@@ -1561,37 +1982,207 @@ def main():
                 os.unlink(fired_path)
             except OSError:
                 return
-        for fp in pending_fires(spec["_dir"]):
-            if fp in undeliverable:
-                continue
-            try:
-                findings = _read_findings(fp)
-            except OSError:
-                continue            # vanished or unreadable mid-poll; next poll retries
-            fired_utc = fire_time_utc(fp)
-            delivered = os.path.join(os.path.dirname(fp), "delivered", os.path.basename(fp))
-            if is_scheduled_agents_mode:
-                _drop_spawn_request(spec, state_dir, sensor_fire=(fired_utc, findings, delivered))
-            else:
-                _emit_sensor_wake(key, fired_utc, spec["instruction"], findings,
-                                  spec["_state_dir"], delivered, once=once)
-            if once:
+        if once:
+            for fp in pending_fires(spec["_dir"]):
+                if fp in undeliverable:
+                    continue
+                try:
+                    findings = _read_findings(fp)
+                except OSError:
+                    continue            # vanished or unreadable mid-poll; next poll retries
+                fired_utc = fire_time_utc(fp)
+                delivered = os.path.join(os.path.dirname(fp), "delivered", os.path.basename(fp))
+                if is_scheduled_agents_mode:
+                    _drop_spawn_request(spec, state_dir, sensor_fire=(fired_utc, findings, delivered))
+                else:
+                    _emit_sensor_wake(key, fired_utc, spec["instruction"], findings,
+                                      spec["_state_dir"], delivered, once=True)
                 mark_once_fired(spec, fired_path, os.path.basename(fp))
+                finish_delivery(spec, [fp])
+                print("wakeup-scheduler: delivered sensor fire key=%s fire=%s fired_at=%s bytes=%d"
+                      % (key, os.path.basename(fp), fired_utc, len(findings)), file=sys.stderr, flush=True)
+                retire_once_sensor(spec, fired_path)
+                return
+        else:
+            deliver_controlled(spec, now)
+        if now - pruned_at.get(spec["_dir"], started_at) > 3600:
+            pruned_at[spec["_dir"]] = now
+            prune_delivered(spec["_dir"], now)
+
+    def finish_delivery(spec, fires):
+        """After a hand-over: file the fires into `delivered/`, then drop their
+        key files (the ledger remembers keys — saved before this, so a crash in
+        between leaves a waiting fire whose key the ledger already drops), and
+        record the fire."""
+        for fp in fires:
             if _mark_delivered(fp) is None:
                 undeliverable.add(fp)
                 print("⚠️ [wakeup-scheduler: %s] delivered sensor fire %s but could not move "
                       "or remove it — it will not be delivered again this session"
-                      % (key, os.path.basename(fp)), flush=True)
-            set_last(spec, time.time())
-            set_runs(spec, get_runs(spec) + 1)
-            print("wakeup-scheduler: delivered sensor fire key=%s fire=%s fired_at=%s bytes=%d"
-                  % (key, os.path.basename(fp), fired_utc, len(findings)), file=sys.stderr, flush=True)
-            if once:
-                retire_once_sensor(spec, fired_path)
+                      % (spec["_key"], os.path.basename(fp)), flush=True)
+            _drop_key_file(fp)
+        set_last(spec, time.time())
+        set_runs(spec, get_runs(spec) + 1)
+
+    def settle_trip(spec, tripped):
+        """A tripped record exists and the spec is loaded (so it reads as on).
+        Returns True when the trigger is still tripped (deliver nothing): its
+        switch-off hasn't landed yet, so finish it. Returns False when someone
+        has switched it back on since — the trip is over and it starts fresh."""
+        d, key = spec["_dir"], spec["_key"]
+        if clear_resumed_trip(d, spec["_path"]):
+            print("wakeup-scheduler: tripped sensor switched back on key=%s" % key,
+                  file=sys.stderr, flush=True)
+            return False
+        tpath = os.path.join(d, ".state", TRIPPED_NAME)
+        mt = switch_trigger_off(spec["_path"])
+        if mt is None:
+            # Can't switch it off. Still treat it as off — nothing it fires is
+            # delivered — and record the spec as it stands, so the user's next
+            # edit of it (switching it back on) counts as resuming.
+            try:
+                mt = os.stat(spec["_path"]).st_mtime_ns
+            except OSError:
+                mt = None
+            discard_waiting_fires(d)
+            last = trip_warned.get(key, 0)
+            if time.time() - last > 3600:
+                trip_warned[key] = time.time()
+                print("⚠️ [wakeup-scheduler: %s] sensor tripped, but switching it off failed — "
+                      "its fires are being discarded; edit its spec to switch it back on" % key,
+                      flush=True)
+        else:
+            discard_waiting_fires(d)            # off means off: nothing that landed meanwhile survives
+        if mt is not None and tripped.get("specMtimeNs") != mt:
+            tripped["specMtimeNs"] = mt
+            try:
+                write_atomic_json(tpath, tripped)
+            except OSError:
+                pass
+        return True
+
+    def trip(spec, fires, ctl, led, now):
+        """The next delivery would go over the rate limit: hand every waiting
+        fire over as evidence in one heads-up, and switch the trigger off."""
+        key, d = spec["_key"], spec["_dir"]
+        limit = ctl["max_per_hour"]
+        readable = []
+        for fp in fires:
+            try:
+                readable.append((fp, _read_findings(fp)))
+            except OSError:
+                pass
+        if not readable:
+            return
+        n = len(readable)
+        evidence = _aggregate_path(readable[0][0], "evidence")
+        intro = (("This sensor %s and was switched off. These %d fire%s were waiting at that "
+                  "moment. They are evidence of what it was reacting to, not a to-do list."
+                  % (_tripped_reason(limit), n, "" if n == 1 else "s"))
+                 if is_scheduled_agents_mode else _tripped_wakeup_guidance(key, n))
+        try:
+            _write_aggregate(evidence, _fires_text([(fire_time_utc(fp), f) for fp, f in readable], intro))
+        except OSError as e:
+            if (key, "evidence_write_failed") not in warned:
+                print("⚠️ [wakeup-scheduler: %s] sensor should trip, but writing its evidence "
+                      "failed (%s) — holding its fires" % (key, e), flush=True)
+                warned.add((key, "evidence_write_failed"))
+            return
+        utc = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+        # The record goes down before the heads-up: a crash after telling then
+        # only finishes the switch-off — it never trips (and tells) again.
+        tripped = {"at": utc, "limit": limit, "fires": n, "evidence": evidence, "specMtimeNs": None}
+        tpath = os.path.join(d, ".state", TRIPPED_NAME)
+        try:
+            if not os.path.isdir(os.path.dirname(tpath)):
+                os.mkdir(os.path.dirname(tpath))
+            write_atomic_json(tpath, tripped)
+        except OSError as e:
+            if (key, "trip_record_failed") not in warned:
+                print("⚠️ [wakeup-scheduler: %s] sensor should trip, but recording it failed "
+                      "(%s) — holding its fires" % (key, e), flush=True)
+                warned.add((key, "trip_record_failed"))
+            return
+        if is_scheduled_agents_mode:
+            _drop_spawn_request(spec, state_dir, sensor_tripped_prompt=_sensor_tripped_prompt(
+                key, spec.get("name"), utc, limit, n, evidence, d))
+        else:
+            _emit_sensor_tripped_wake(key, utc, limit, evidence)
+        for fp, _ in readable:
+            k = fire_key(fp)
+            if k is not None:
+                led["keys"][k] = now
+        save_ledger(d, led, now, ctl["key_memory"])
+        for fp, _ in readable:
+            _mark_delivered(fp)
+            _drop_key_file(fp)
+        settle_trip(spec, tripped)
+        sensor_log(d, "tripped: %s — switched off; %d waiting fire%s handed over as evidence (%s)"
+                   % (_tripped_reason(limit), n, "" if n == 1 else "s", os.path.basename(evidence)))
+        print("wakeup-scheduler: sensor tripped key=%s limit=%d evidence_fires=%d"
+              % (key, limit, n), file=sys.stderr, flush=True)
+
+    def deliver_controlled(spec, now):
+        """Deliver a repeating sensor's waiting fires through its controls:
+        duplicates dropped, bursts bundled, and the rate limit tripped."""
+        key, d = spec["_key"], spec["_dir"]
+        tripped = read_tripped(d)
+        if tripped is not None and settle_trip(spec, tripped):
+            return
+        ctl = sensor_controls(d)
+        led = load_ledger(d)
+        led["deliveries"] = [t for t in led["deliveries"] if now - t < SENSOR_RATE_WINDOW_SEC]
+        fires = [fp for fp in pending_fires(d) if fp not in undeliverable]
+        fires = drop_duplicate_fires(d, fires, led, now, ctl["key_memory"])
+        while fires:
+            batch = next_bundle(fires, ctl["group"], now)
+            if not batch:
+                break
+            if len(led["deliveries"]) >= ctl["max_per_hour"]:
+                trip(spec, fires, ctl, led, now)
                 return
-        if now - pruned_at.get(spec["_dir"], started_at) > 3600:
-            pruned_at[spec["_dir"]] = now
-            prune_delivered(spec["_dir"], now)
+            readable = []
+            for fp in batch:
+                try:
+                    readable.append((fp, _read_findings(fp)))
+                except OSError:
+                    pass                # vanished or unreadable mid-poll; next poll retries
+            fires = [fp for fp in fires if fp not in batch]
+            if not readable:
+                continue
+            first = readable[0][0]
+            fired_utc = fire_time_utc(first)
+            if len(readable) == 1:
+                findings = readable[0][1]
+                delivered = os.path.join(os.path.dirname(first), "delivered", os.path.basename(first))
+            else:
+                findings = _fires_text([(fire_time_utc(fp), f) for fp, f in readable],
+                                       "%d fires from this sensor, bundled because they landed "
+                                       "close together:" % len(readable))
+                delivered = _aggregate_path(first, "bundle")
+                try:
+                    _write_aggregate(delivered, findings)
+                except OSError as e:
+                    if (key, "bundle_write_failed") not in warned:
+                        print("⚠️ [wakeup-scheduler: %s] writing a bundle of fires failed (%s) "
+                              "— holding them" % (key, e), flush=True)
+                        warned.add((key, "bundle_write_failed"))
+                    break
+            if is_scheduled_agents_mode:
+                _drop_spawn_request(spec, state_dir, sensor_fire=(fired_utc, findings, delivered))
+            else:
+                _emit_sensor_wake(key, fired_utc, spec["instruction"], findings,
+                                  spec["_state_dir"], delivered)
+            led["deliveries"].append(now)
+            for fp, _ in readable:
+                k = fire_key(fp)
+                if k is not None:
+                    led["keys"][k] = now
+            save_ledger(d, led, now, ctl["key_memory"])
+            finish_delivery(spec, [fp for fp, _ in readable])
+            print("wakeup-scheduler: delivered sensor fire key=%s fires=%s fired_at=%s bytes=%d"
+                  % (key, ",".join(os.path.basename(fp) for fp, _ in readable), fired_utc, len(findings)),
+                  file=sys.stderr, flush=True)
 
     def check_sensor_broken(spec, now):
         """Tell the owner once when its sensor has been unhealthy for the grace
@@ -1715,8 +2306,9 @@ def main():
                 sys.exit(0)              # harness gone — self-exit before firing anything
         now_ts = time.time()
         specs = _load_specs_scheduled_agents(wdir) if is_scheduled_agents_mode else _load_specs(wdir)
-        sweep_fired_one_shots(wdir, now_ts,
-                              "scheduled-agent.json" if is_scheduled_agents_mode else "wakeup.json")
+        spec_name = "scheduled-agent.json" if is_scheduled_agents_mode else "wakeup.json"
+        sweep_fired_one_shots(wdir, now_ts, spec_name)
+        discard_switched_off_fires(wdir, spec_name)
         for spec in specs:
             key = spec["_key"]
             zi, tz_err = _zone(spec)

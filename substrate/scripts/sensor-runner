@@ -245,6 +245,10 @@ def evaluate(s, eng):
         if err:
             s.problem = "sensor.json `cadence`: %s" % err
             return False
+    ctl_err = eng.sensor_controls_error(st) if hasattr(eng, "sensor_controls_error") else None
+    if ctl_err:
+        s.problem = ctl_err
+        return False
     if UNSAFE_PATH.search(s.trigger):
         s.problem = "the trigger's path contains characters a service can't use"
         return False
@@ -326,6 +330,9 @@ def unit_is_always(text):
 
 # ---- Health -----------------------------------------------------------------
 
+BOX_NOTE = re.compile(r"^\[[0-9TZ:-]+\] box: ")
+
+
 def tail_lines(path, n):
     try:
         with open(path, "rb") as f:
@@ -335,7 +342,8 @@ def tail_lines(path, n):
             data = f.read().decode("utf-8", errors="replace")
     except OSError:
         return None
-    lines = data.splitlines()[-n:]
+    # The box's own notes about fires (" box: " lines) aren't the sensor's errors.
+    lines = [l for l in data.splitlines() if not BOX_NOTE.match(l)][-n:]
     return "\n".join(lines) if lines else None
 
 
@@ -428,6 +436,16 @@ class Runner:
         self.overrunning = set()            # triggers whose last due slot found a run still going
         self.warned = set()
         self.unreadable_passes = {}         # unit -> consecutive passes its files were unreadable
+
+    def settle_fires(self, s):
+        eng = self.eng
+        if not hasattr(eng, "discard_waiting_fires"):
+            return                          # an older engine: the scheduler alone handles fires
+        enabled = _sensor_spec_enabled(s.spec_path, eng)
+        if enabled is False:
+            eng.discard_waiting_fires(s.trigger)
+        elif enabled and eng.clear_resumed_trip(s.trigger, s.spec_path):
+            log("tripped sensor switched back on — starting fresh trigger=%s" % s.trigger)
 
     def cadence_tick(self, s, now):
         cad = s.settings["cadence"]
@@ -579,6 +597,18 @@ class Runner:
                     self.warned.add(key)
                     log("pass error unit=%s %s: %s" % (unit, type(e).__name__, e))
 
+        # Fire controls that must hold even while a wake-up's identity sleeps (its
+        # scheduler only runs in a live session): a switched-off trigger's waiting
+        # fires are thrown away, and a tripped one switched back on starts fresh.
+        for s in sensors:
+            try:
+                self.settle_fires(s)
+            except Exception as e:
+                key = (s.trigger, "fires")
+                if key not in self.warned:
+                    self.warned.add(key)
+                    log("fire settle error trigger=%s %s: %s" % (s.trigger, type(e).__name__, e))
+
         # Sensors that exist but don't run still get an honest health record.
         for s in sensors:
             if s.unit in wanted or not os.path.isfile(os.path.join(s.sensor_dir, "sensor.json")):
@@ -588,6 +618,19 @@ class Runner:
                 write_health(s, "invalid", False, run=run, error=s.problem, now=now)
             else:
                 write_health(s, "stopped", True, run=run, now=now)
+
+
+def _sensor_spec_enabled(spec_path, eng):
+    """True / False for a sensor-typed trigger's `enabled` (missing = on), None
+    for anything else (unreadable, or not a sensor trigger)."""
+    try:
+        spec = read_json(spec_path)
+    except Exception:
+        return None
+    sch = spec.get("schedule") if isinstance(spec, dict) else None
+    if not isinstance(sch, dict) or sch.get("type") != eng.SENSOR_TYPE:
+        return None
+    return bool(spec.get("enabled", True))
 
 
 def single_instance():

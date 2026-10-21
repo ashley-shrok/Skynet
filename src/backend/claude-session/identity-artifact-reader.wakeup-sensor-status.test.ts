@@ -44,11 +44,15 @@ async function buildFixture(wakeupsDir: string): Promise<void> {
     JSON.stringify({ run: "cadence", state: "idle", healthy: true, lastRunAt: isoNow(60), updatedAt: isoNow(5), error: null }),
   );
   await write(path.join(wakeupsDir, "watcher", ".state", "watcher.last"), "1760001000");
-  // Switched-off sensor holding two fires.
+  // Sensor that tripped its rate limit and was switched off.
   await write(path.join(wakeupsDir, "paused", "wakeup.json"), spec("paused", { type: "sensor" }, false));
   await write(path.join(wakeupsDir, "paused", "sensor", "sensor.json"), JSON.stringify({ run: "always", command: "x" }));
   await write(path.join(wakeupsDir, "paused", "fires", "20261015T120000000-0123abcd.fire"), "a");
   await write(path.join(wakeupsDir, "paused", "fires", "20261015T120001000-0123abce.fire"), "b");
+  await write(
+    path.join(wakeupsDir, "paused", ".state", "sensor-tripped.json"),
+    JSON.stringify({ at: "2026-10-21T10:00:00Z", limit: 10, fires: 3, evidence: "/e", specMtimeNs: 1 }),
+  );
   // Sensor wake-up with no `enabled` field (the runner treats it as on), whose
   // log echoes the listing's own delimiter.
   await write(
@@ -69,10 +73,18 @@ const EXPECTED = {
   fresh: { lastFiredAt: null, sensor: null },
   watcher: {
     lastFiredAt: 1760001000,
-    sensor: { state: "healthy", run: "cadence", cadenceHuman: "Every 5m", waitingFires: 0, error: null },
+    sensor: { state: "healthy", run: "cadence", cadenceHuman: "Every 5m", trippedReason: null, error: null },
   },
-  paused: { lastFiredAt: null, sensor: { state: "off", run: "always", waitingFires: 2 } },
-  planned: { lastFiredAt: null, sensor: { state: "not_live", waitingFires: 0 } },
+  paused: {
+    lastFiredAt: null,
+    sensor: {
+      state: "tripped",
+      run: "always",
+      trippedReason: "fired more than its limit of 10 times in an hour",
+      trippedAt: 1792576800,
+    },
+  },
+  planned: { lastFiredAt: null, sensor: { state: "not_live", trippedReason: null } },
   noisy: { lastFiredAt: null, sensor: { state: "broken", error: "===FILE:ghost===\n{}" } },
 };
 

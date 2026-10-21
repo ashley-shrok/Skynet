@@ -5,6 +5,9 @@ Usage:
   sensor-fire "findings text"          findings from the arguments (joined by spaces)
   some-command | sensor-fire           findings from stdin (when no arguments are given)
   sensor-fire                          fire with no findings (stdin is a terminal or empty)
+  sensor-fire --key <key> ...          say what this fire is about (an email id, a PR
+                                       number); a fire whose key is still waiting, or
+                                       was delivered recently, is dropped by the box
   sensor-fire --trigger <dir> ...      fire a specific trigger folder (testing by hand)
 
 Which trigger fires is never named by the sensor: it is the wake-up or scheduled
@@ -14,7 +17,8 @@ current directory to the folder holding `wakeup.json` or `scheduled-agent.json`.
 
 Writes exactly one file, `<trigger>/fires/<YYYYMMDDTHHMMSSmmm UTC>-<8 hex>.fire`,
 holding the findings verbatim — first under a temporary name, then renamed in, so
-a half-written fire is never seen. Delivery is the wake-up scheduler's job: a
+a half-written fire is never seen. A key goes in `<that name>.key`, written before
+the fire lands. Delivery is the wake-up scheduler's job: a
 wake-up's identity gets a 📡 event (woken from dormancy if needed); a scheduled
 task births one fresh agent per fire. Prints the fire file's path.
 
@@ -27,6 +31,7 @@ import sys
 from datetime import datetime, timezone
 
 SPEC_NAMES = ("wakeup.json", "scheduled-agent.json")
+KEY_MAX_CHARS = 200
 
 
 def die(msg, code=2):
@@ -49,14 +54,29 @@ def find_trigger(start):
         d = parent
 
 
+def write_durable(path, data):
+    tmp = path + ".tmp"
+    with open(tmp, "wb") as f:
+        f.write(data)
+        f.flush()
+        os.fsync(f.fileno())
+    os.rename(tmp, path)
+
+
 def main(argv):
     trigger = None
-    if argv[:1] == ["--trigger"]:
+    key = None
+    while argv[:1] in (["--trigger"], ["--key"]):
         if len(argv) < 2:
-            die("--trigger needs a folder")
-        trigger = os.path.abspath(os.path.expanduser(argv[1]))
+            die("%s needs a value" % argv[0])
+        if argv[0] == "--trigger":
+            trigger = os.path.abspath(os.path.expanduser(argv[1]))
+        else:
+            key = argv[1].strip()
+            if not key or "\n" in key or "\r" in key or len(key) > KEY_MAX_CHARS:
+                die("--key must be one line of 1-%d characters" % KEY_MAX_CHARS)
         argv = argv[2:]
-    elif argv[:1] in (["-h"], ["--help"]):
+    if argv[:1] in (["-h"], ["--help"]):
         print(__doc__.strip())
         return 0
     if trigger is None:
@@ -77,12 +97,9 @@ def main(argv):
     now = datetime.now(timezone.utc)
     name = "%s%03d-%s.fire" % (now.strftime("%Y%m%dT%H%M%S"), now.microsecond // 1000, secrets.token_hex(4))
     final = os.path.join(fdir, name)
-    tmp = final + ".tmp"
-    with open(tmp, "wb") as f:
-        f.write(findings)
-        f.flush()
-        os.fsync(f.fileno())
-    os.rename(tmp, final)
+    if key is not None:
+        write_durable(final + ".key", key.encode("utf-8"))   # before the fire, so it never lands keyless
+    write_durable(final, findings)
     try:
         dfd = os.open(fdir, os.O_RDONLY)
         try:

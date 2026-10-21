@@ -3579,7 +3579,12 @@ def _peek_one(wakedir):
                         and os.path.getmtime(spec_path) <= os.path.getmtime(base + '.fired'):
                     continue
                 # A waiting sensor fire is due now — the scheduler delivers it on its next poll.
-                n = len(eng.pending_fires(folder))
+                # Through the fire controls when the engine has them: duplicates it would
+                # drop, bundles still inside their window and tripped triggers don't wake.
+                if sch.get('once') is not True and hasattr(eng, 'sensor_deliverable_count'):
+                    n = eng.sensor_deliverable_count(folder, spec_path, soon)
+                else:
+                    n = len(eng.pending_fires(folder))
                 if n:
                     return (f"spec={key} type=sensor pending_fires={n} overdue_s=0", errors)
                 # A broken sensor its owner hasn't been told about yet is due too.

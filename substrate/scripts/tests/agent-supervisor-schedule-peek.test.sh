@@ -30,6 +30,9 @@
 #   T-21  — one-time sensor that already handed its fire over → not due
 #   T-22  — one-time sensor with a waiting fire → due
 #   T-23  — sensor broken past the grace period, owner not yet told → due; told → not due
+#   T-24  — sensor whose only waiting fire is a duplicate it would drop → not due
+#   T-25  — tripped sensor (not switched back on) with a waiting fire → not due
+#   T-26  — grouped sensor whose window is still open → not due; closed → due
 #
 # Exits 0 on all-pass; 1 on any failure.
 #
@@ -277,6 +280,33 @@ t20() {
   expect_not_due
 }
 
+t24() {
+  write_spec '{"name":"w","schedule":{"type":"sensor"},"instruction":"x"}'
+  write_fire 20261014T143012345-a1b2c3d4.fire
+  printf 'k' > "$SCRATCH/alice/wakeups/w/fires/20261014T143012345-a1b2c3d4.fire.key"
+  printf '{"deliveries":[],"keys":{"k":%s}}' "$((NOW - 60))" > "$SCRATCH/alice/wakeups/w/.state/sensor-ledger.json"
+  expect_not_due
+}
+
+t25() {
+  write_spec '{"name":"w","schedule":{"type":"sensor"},"instruction":"x"}'
+  write_fire 20261014T143012345-a1b2c3d4.fire
+  printf '{"at":"2026-10-14T00:00:00Z","limit":10,"fires":3,"specMtimeNs":null}' > "$SCRATCH/alice/wakeups/w/.state/sensor-tripped.json"
+  expect_not_due
+}
+
+t26() {
+  write_spec '{"name":"w","schedule":{"type":"sensor"},"instruction":"x"}'
+  mkdir -p "$SCRATCH/alice/wakeups/w/sensor"
+  printf '{"run":"always","command":"x","groupWindow":"1h"}' > "$SCRATCH/alice/wakeups/w/sensor/sensor.json"
+  local name
+  name=$(python3 -c "import datetime as d,time; t=d.datetime.fromtimestamp(time.time()-60, d.timezone.utc); print(t.strftime('%Y%m%dT%H%M%S') + '000-00000001.fire')")
+  write_fire "$name"
+  expect_not_due
+  printf '{"run":"always","command":"x","groupWindow":"1m"}' > "$SCRATCH/alice/wakeups/w/sensor/sensor.json"
+  expect_due
+}
+
 run_case "T-01 daily anchored-only overdue → due" t01
 run_case "T-02 daily fired after slot → not due" t02
 run_case "T-03 interval anchored-only overdue → due" t03
@@ -299,6 +329,9 @@ run_case "T-19 disabled sensor with a waiting fire → not due" t19
 run_case "T-21 one-time sensor already handed over → not due" t21
 run_case "T-22 one-time sensor with a waiting fire → due" t22
 run_case "T-23 broken sensor not yet told → due; told → not due" t23
+run_case "T-24 duplicate-only sensor fire → not due" t24
+run_case "T-25 tripped sensor → not due" t25
+run_case "T-26 grouped window open → not due; closed → due" t26
 run_case "T-20 flat legacy spec ignored → not due" t20
 
 printf '\n===============================\n'

@@ -1155,7 +1155,7 @@ describe("GET /scheduled-agents — sensor status (real bash)", () => {
       expect(watch.sensor).toMatchObject({
         state: "broken",
         run: "always",
-        waitingFires: 1,
+        trippedReason: null,
         error: "Traceback\nboom",
       });
       expect(items.map((i) => i.slug).sort()).toEqual(["aaa-noisy", "clock", "watch"]);
@@ -1178,7 +1178,7 @@ describe("GET /scheduled-agents — sensor status (real bash)", () => {
     );
     const res = await httpRequest(server, { method: "GET", path: "/scheduled-agents" });
     const item = (res.body as { items: Array<Record<string, unknown>> }).items[0];
-    expect(item.sensor).toMatchObject({ state: "not_live", waitingFires: 0 });
+    expect(item.sensor).toMatchObject({ state: "not_live", trippedReason: null });
   });
 });
 

@@ -36,7 +36,7 @@ const CADENCE = JSON.stringify({ run: "cadence", cadence: { type: "interval", ev
 const ALWAYS = JSON.stringify({ run: "always", command: "x" });
 
 function probe(p: Partial<SensorProbe> = {}): SensorProbe {
-  return { settingsRaw: CADENCE, healthRaw: health("idle"), waitingFires: 0, ...p };
+  return { settingsRaw: CADENCE, healthRaw: health("idle"), trippedRaw: null, ...p };
 }
 
 describe("deriveSensorStatus", () => {
@@ -103,21 +103,42 @@ describe("deriveSensorStatus", () => {
     expect(deriveSensorStatus(future, true, NOW, humanize).state).toBe("unknown");
   });
 
-  it("carries run style, humanized cadence, last ran and waiting fires", () => {
-    const s = deriveSensorStatus(probe({ waitingFires: 2 }), true, NOW, humanize);
+  it("carries run style, humanized cadence and last ran", () => {
+    const s = deriveSensorStatus(probe(), true, NOW, humanize);
     expect(s).toMatchObject({
       run: "cadence",
       cadenceHuman: 'H({"type":"interval","every":"5m"})',
       lastRanAt: NOW - 120,
-      waitingFires: 2,
+      trippedReason: null,
+      trippedAt: null,
     });
+    expect(s).not.toHaveProperty("waitingFires");
     const a = deriveSensorStatus(probe({ settingsRaw: ALWAYS }), true, NOW, humanize);
     expect(a.run).toBe("always");
     expect(a.cadenceHuman).toBeNull();
   });
 
-  it("waiting fires are reported while off too", () => {
-    expect(deriveSensorStatus(probe({ waitingFires: 3 }), false, NOW, humanize).waitingFires).toBe(3);
+  it("switched off by tripping → tripped, with the reason and when", () => {
+    const s = deriveSensorStatus(probe({ trippedRaw: JSON.stringify({ at: "2026-10-21T10:00:00Z", limit: 10, fires: 4, evidence: "/x", specMtimeNs: 1 }) }), false, NOW, humanize);
+    expect(s).toMatchObject({
+      state: "tripped",
+      trippedReason: "fired more than its limit of 10 times in an hour",
+      trippedAt: Date.parse("2026-10-21T10:00:00Z") / 1000,
+    });
+  });
+
+  it("a trip record without a limit still reads as tripped", () => {
+    const s = deriveSensorStatus(probe({ trippedRaw: "{}" }), false, NOW, humanize);
+    expect(s.state).toBe("tripped");
+    expect(s.trippedReason).toBe("fired far more than usual");
+  });
+
+  it("a leftover trip record on a trigger that is on again doesn't read as tripped", () => {
+    expect(deriveSensorStatus(probe({ trippedRaw: JSON.stringify({ at: "2026-10-21T10:00:00Z", limit: 10, fires: 4, evidence: "/x", specMtimeNs: 1 }) }), true, NOW, humanize).state).toBe("healthy");
+  });
+
+  it("an unreadable trip record on a switched-off trigger reads as off", () => {
+    expect(deriveSensorStatus(probe({ trippedRaw: "{not json" }), false, NOW, humanize).state).toBe("off");
   });
 });
 
@@ -169,11 +190,11 @@ describe("sensor probe — bash and fs readers agree", () => {
     await fs.writeFile(path.join(dir, "sensor", "sensor.json.pending"), ALWAYS);
     const { observedAt, ...remote } = parseSensorProbe(await bashProbe(dir))!;
     expect(typeof observedAt).toBe("number");
-    expect(remote).toEqual({ settingsRaw: null, healthRaw: null, waitingFires: 0 });
+    expect(remote).toEqual({ settingsRaw: null, healthRaw: null, trippedRaw: null });
     expect(await readSensorProbeLocal(dir)).toEqual(remote);
   });
 
-  it("a published sensor with health and waiting fires, same both ways", async () => {
+  it("a published sensor with health and a trip record, same both ways", async () => {
     const dir = path.join(root, "live");
     await fs.mkdir(path.join(dir, "sensor"), { recursive: true });
     await fs.mkdir(path.join(dir, "fires", "delivered"), { recursive: true });
@@ -185,10 +206,15 @@ describe("sensor probe — bash and fs readers agree", () => {
     await fs.writeFile(path.join(dir, "fires", "20261015T120002000-0123abcf.fire.tmp"), "z");
     await fs.writeFile(path.join(dir, "fires", "2026-odd-name.fire"), "not a fire");
     await fs.writeFile(path.join(dir, "fires", "delivered", "20261015T110000000-0123abcd.fire"), "old");
+    await fs.writeFile(path.join(dir, ".state", "sensor-tripped.json"), JSON.stringify({ at: "2026-10-21T10:00:00Z", limit: 10, fires: 4, evidence: "/x", specMtimeNs: 1 }) + "\n");
 
     const { observedAt, ...remote } = parseSensorProbe(await bashProbe(dir))!;
     expect(Math.abs(observedAt! - Math.floor(Date.now() / 1000))).toBeLessThan(60);
-    expect(remote).toEqual({ settingsRaw: CADENCE, healthRaw: health("failed", { error: "a\nb" }), waitingFires: 2 });
+    expect(remote).toEqual({
+      settingsRaw: CADENCE,
+      healthRaw: health("failed", { error: "a\nb" }),
+      trippedRaw: JSON.stringify({ at: "2026-10-21T10:00:00Z", limit: 10, fires: 4, evidence: "/x", specMtimeNs: 1 }),
+    });
     expect(await readSensorProbeLocal(dir)).toEqual(remote);
   });
 
@@ -198,7 +224,7 @@ describe("sensor probe — bash and fs readers agree", () => {
     await fs.mkdir(path.join(dir, ".state"), { recursive: true });
     await fs.writeFile(path.join(dir, "sensor", "sensor.json"), ALWAYS);
     const nasty = health("failed", {
-      error: "===SLUG:evil===\n===LASTS===\n===FILE:x===\n===SKYNET-SENSOR:P=1;S=;H=;F=9;T=1===\n$(rm -rf /)",
+      error: "===SLUG:evil===\n===LASTS===\n===FILE:x===\n===SKYNET-SENSOR:P=1;S=;H=;R=;T=1===\n$(rm -rf /)",
     });
     await fs.writeFile(path.join(dir, ".state", "sensor-health.json"), nasty);
     const out = await bashProbe(dir);
@@ -207,7 +233,7 @@ describe("sensor probe — bash and fs readers agree", () => {
     expect(out.trim().split("\n")).toHaveLength(1);
     const { observedAt: _o, ...remote } = parseSensorProbe(out)!;
     expect(remote.healthRaw).toBe(nasty);
-    expect(remote.waitingFires).toBe(0);
+    expect(remote.trippedRaw).toBeNull();
   });
 
   it("a present-but-unreadable sensor.json reads as published-unparseable both ways", async () => {

@@ -8,6 +8,7 @@ export type SensorState =
   | "broken"
   | "running_long"
   | "off"
+  | "tripped"
   | "not_live"
   | "unknown";
 
@@ -18,8 +19,10 @@ export type SensorStatus = {
   cadenceHuman: string | null;
   /** Epoch seconds of the last run start. */
   lastRanAt: number | null;
-  /** Fires waiting for delivery (held while the trigger is off). */
-  waitingFires: number;
+  /** Why it tripped, when tripped (switched off for firing too often). */
+  trippedReason: string | null;
+  /** Epoch seconds it tripped at, when tripped. */
+  trippedAt: number | null;
   /** Last error lines when broken. */
   error: string | null;
 };

@@ -256,7 +256,12 @@ External events are automatically fed to you by the agent-supervisor service for
    (long findings are pointed at as a file — Read it). When a wake-up's
    sensor has been broken for ten minutes you get one
    `📡 [sensor broken: <slug> @ <since>] … — Read it` line instead — fix the
-   sensor (`sensor-development` skill), or tell the user if you can't. When you get
+   sensor (`sensor-development` skill), or tell the user if you can't. When a
+   sensor fires more than its hourly limit, the box switches the wake-up off
+   and you get one `📡 [sensor tripped: <slug> @ <time>] … — Read it` line
+   carrying everything it was holding back — evidence, not a to-do list: work
+   out whether it's a real surge or a faulty sensor, act on that, and switch
+   the wake-up back on when it should resume. When you get
    one, **do the instruction**, then carry on. See **§ Scheduled wake-ups** below for the spec format and the rule on who may create one.
 
 3. **Context limit warnings.** At **~90%** it prints ONE soft nudge. **When that nudge lands, act on it:** finish the piece of work you're on (it's not urgent — you have plenty of runway), then run **`/id save`** to flush any deltas, then
@@ -1125,17 +1130,19 @@ crown, then gear.
     wake-ups). Each row's line under the name shows the schedule and when
     it last fired (`daily @ 09:00 · Last fired 3h ago`, or `Never fired`).
     A sensor-fired wake-up's line reads `📡 Sensor · <status> · Last fired
-    …` plus `· N waiting` when fires are being held. Status is one of
+    …`. Status is one of
     **Healthy**, **Broken** (red), **Running long**, **Off** (switched
-    off), **Not live yet** (sensor not published) or **Unknown** (status
+    off), **Tripped** (amber — it fired more than its hourly limit, so the
+    box switched it off and told an agent; the line adds why), **Not live yet** (sensor not published) or **Unknown** (status
     can't be read — no health record, one more than 5 minutes old, or the
     machine stopped answering a refresh). A one-time sensor (retires after
     its first delivered fire) reads `📡 Sensor · once · …`; the mark is
     shown, not editable.
     Expanding a sensor wake-up shows a read-only sensor section: status,
     how it runs, last ran (`Running since` for an always-on sensor), last
-    fired, waiting fires, and the sensor's last error lines when broken. The on/off switch is the only sensor
-    control in the app — sensors are built by agents (`sensor-development`
+    fired, when and why it tripped, and the sensor's last error lines when broken. The on/off switch is the only sensor
+    control in the app — switching a tripped sensor back on resumes it fresh,
+    and switching any sensor off throws away fires still waiting — sensors are built by agents (`sensor-development`
     skill). The tab re-reads itself every ~30s while it's showing.
   - **Files** — full workspace explorer for the identity's `workspace/`
     folder: browse, download, upload, create files and folders, and
@@ -1767,6 +1774,11 @@ name is the wake-up's key. Create one by making the folder and writing
   itself (the 📡 line says so) — don't delete it by hand. If the sensor
   breaks (unhealthy ten minutes), you are told once with a
   `📡 [sensor broken: …]` line; not again until it has recovered.
+  Each sensor has fire controls (keys that drop duplicates, grouping that
+  bundles bursts, and an always-on limit of deliveries per hour — default
+  10); past the limit the wake-up is switched off and you get one
+  `📡 [sensor tripped: …]` line instead. Switched off, its waiting fires are
+  thrown away; switched back on, it starts fresh.
 
 - The scheduler reloads specs every poll, so adding/editing/removing a
   file takes effect within ~30s — no relaunch needed.
@@ -1824,8 +1836,7 @@ either chip for the absolute datetime. Rows that have never actually
 fired (first-sight anchored only — see § On-disk shape below) show just
 `Next`; one_shots past their slot show just `Last`. A sensor-fired
 task has no Next: its line reads `📡 Sensor · <status> · Last fired 3h
-ago` (or `Never fired`), plus `· N waiting` when fires are being held
-while it's off — same statuses as the identity modal's Wake-ups tab
+ago` (or `Never fired`) — same statuses as the identity modal's Wake-ups tab
 (§ Conversation view); a one-time sensor task reads `📡 Sensor · once · …`. Opening one shows the same read-only sensor
 section, including its last error lines when broken. The list re-reads
 itself every ~30s while open; tasks on a machine that isn't answering
@@ -1912,6 +1923,12 @@ to look into it instead — its task line reads `📡 <name> — sensor broken`,
 its instruction is to fix the sensor or tell the user, not to run the task's
 prompt, and it is never told to archive itself, whatever the task's
 `archive_if_nothing_to_report`. Nothing more until the sensor has recovered.
+If a sensor task fires more than its hourly limit (default 10 agents an hour),
+the task is switched off (status **Tripped**) and one agent is born instead —
+task line `📡 <name> — sensor tripped` — holding every fire that was waiting
+as evidence, told to work out whether it's a real surge or a faulty sensor
+and to switch the task back on when it should resume. It is never told to
+archive itself either.
 
 ### Governance — user-reserved
 

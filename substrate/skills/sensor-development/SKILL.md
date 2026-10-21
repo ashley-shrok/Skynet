@@ -20,9 +20,11 @@ does: a **wake-up** wakes the identity it belongs to (from dormancy if needed);
 a **scheduled task** births a fresh agent. What the sensor found rides along.
 
 You write only the logic. The box supplies the rest: the service it runs in,
-restarts, cadence, cleanup, health, and delivery of each fire. The box does
-none of the sensor's thinking — no polling for it, no memory, no de-duplication.
-Checking, remembering what was already seen, and deciding to fire are all yours.
+restarts, cadence, cleanup, health, and delivery of each fire — through the
+fire controls you choose (keys, grouping, a rate limit; see Fire controls).
+The box does none of the sensor's thinking — no polling for it, no reading of
+findings. Checking, remembering what was already seen, and deciding to fire
+are yours.
 
 **Governance is unchanged.** A sensor-triggered wake-up or scheduled task is
 still a wake-up or scheduled task: only the user authorizes creating one (she
@@ -78,19 +80,58 @@ some-check | sensor-fire                           # or on stdin (verbatim, mult
 sensor-fire                                        # fire with no findings
 ```
 
-Each call drops one fire. Every fire is delivered, separately and in order —
-nothing is merged or dropped, so fire once per thing worth acting on (or once
-per batch, if one batch is one thing). Exit quietly when there's nothing.
+Each call drops one fire. Fire once per thing worth acting on (or once per
+batch, if one batch is one thing), and exit quietly when there's nothing. By
+default every fire is delivered, separately and in order; the fire controls
+below change that.
 
 How it arrives:
 
 - **Wake-up** — a line in the identity's conversation:
   `📡 [sensor: <slug> @ <fire time UTC>] <instruction> — findings: <text>`.
   Long or multi-line findings are pointed at instead (`… findings (N chars) at
-  <path> — Read it`). Fires that land while the wake-up is switched off wait
-  and are delivered, with their original fire time, when it's switched on.
+  <path> — Read it`). Off means off: fires still waiting when the wake-up is
+  switched off are thrown away.
 - **Scheduled task** — one fresh agent per fire; its first instruction is the
   task's prompt followed by a `## What the sensor found` section.
+
+## Fire controls
+
+Three controls sit between `sensor-fire` and delivery. Set them in
+`sensor.json`, next to `run` and `command`; leave a field out for its default.
+
+```json
+{ "run": "cadence", "cadence": { "type": "interval", "every": "5m" }, "command": "python3 check.py",
+  "keyMemory": "24h", "groupWindow": "1m", "maxPerHour": 10 }
+```
+
+- **Keys** — `sensor-fire --key <key> "findings"`. Give a key when your fires
+  are about distinct things (an email id, a PR number, an alert id). A fire
+  whose key is still waiting, or was delivered within `keyMemory`, is dropped
+  and noted in `.state/sensor.log`. `keyMemory` is a duration (`"30m"`,
+  `"24h"`, `"7d"`; default `"24h"`) or `"forever"`. Pick it for what "the same
+  thing again" means for your sensor: "PR 12 changed" can recur next week; "a
+  new email arrived" never should. No key, no de-duplication. Keys are the
+  box's backstop, not a replacement for your own memory of what you've seen.
+- **Grouping** — `groupWindow` (a duration; off unless set). The first waiting
+  fire opens the window; every fire that lands before it closes is delivered
+  with it as one bundle — one 📡 line or one agent, the findings of each fire
+  one after another. Turn it on when a burst is really one event (twelve
+  failures from one outage); leave it off when each fire needs handling on its
+  own.
+- **Rate limit** — `maxPerHour` (a whole number; default 10). Always on.
+  Counts deliveries in any rolling hour — a bundle is one, a dropped duplicate
+  none. The delivery that would go over it is not made: the box switches the
+  trigger off (the app shows **Tripped**) and hands every waiting fire over in
+  one heads-up instead — a `📡 [sensor tripped: …]` line to the wake-up's
+  identity, or one agent for a scheduled task — saying it could be a real
+  surge or a faulty sensor. Those fires are used up. Switching the trigger
+  back on starts fresh. Raise the limit only for a sensor that legitimately
+  fires a lot. The count is by delivery time, so a backlog delivered at once
+  (say, after the box was down) counts all together.
+
+An invalid control makes the sensor `invalid`, like any other bad setting.
+One-time sensors deliver once, so the controls don't affect them.
 
 ## One-time sensors
 
@@ -104,7 +145,7 @@ rest of the folder goes a day later (so a findings file the 📡 line points at
 stays readable). Only the oldest waiting fire is delivered; any others go with
 the trigger. A one-time wake-up's 📡 line ends with
 `(one-time sensor — this wake-up has now retired)` — nothing to delete by hand.
-While switched off, its fire waits like any sensor's.
+Switched off, its waiting fire is thrown away like any sensor's.
 
 Test it as a repeating sensor first and add `"once": true` just before
 publishing (see Making one) — otherwise your own test fire is the one
@@ -149,6 +190,11 @@ should give up, fire with that as the findings (e.g. "gave up after 2 days").
 - **Code changes** — a cadence sensor picks them up on its next run. For an
   "always" sensor, restart it: `systemctl --user restart "$(cat .state/sensor.unit)"`.
   Changing `sensor.json` restarts it automatically.
-- **Off / on** — the trigger's own `enabled` switch. Off stops the service.
+- **Off / on** — the trigger's own `enabled` switch. Off stops the service and
+  throws away fires still waiting; on starts fresh.
+- **Tripped** — the box switched the trigger off because it went over
+  `maxPerHour`; `.state/sensor-tripped.json` says when and what was handed over
+  (the evidence file is in `fires/delivered/`). Fix the sensor if it was at
+  fault, then switch the trigger back on (`"enabled": true`).
 - **Removing** — delete the sensor's folder or the whole trigger. Archiving the
   identity, or deleting the scheduled task, stops its sensors automatically.
