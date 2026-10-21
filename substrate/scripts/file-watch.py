@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""file-watch.py — ambient watcher for edits to an identity's role file, identity file, id skill, runbooks, AND project file.
+"""file-watch.py — ambient watcher for edits to an identity's role file, identity file, id skill, role skills, AND project file.
 
 Started as a role-file watcher (hence the `role-file` event tag); it now covers
 every file an identity holds in context. Sibling of the relay receiver, the
@@ -10,7 +10,7 @@ Deferred delivery below), so mid-session edits become visible to a running
 identity without a recycle and without spending a turn on an idle one.
 
 Why this exists: closes the mid-session gap where an agent's in-context copy of its
-role file, its own identity file, the id skill, or a role-scope runbook has
+role file, its own identity file, the id skill, or a role skill has
 diverged from disk. For the role file, that's a peer identity of the same role
 editing it in another session. For the identity file, that's almost always user
 editing it directly (cosmetic frontmatter changes, an identity-scope `remember`)
@@ -18,18 +18,19 @@ editing it directly (cosmetic frontmatter changes, an identity-scope `remember`)
 (user-wide, distributed by fleet-substrate), the driver was the 2026-09-29
 incident where a workstation agent grepped the current on-disk SKILL.md but
 mis-read it against its in-context copy from a pre-rename version, spending
-turns chasing a mismatch that was purely stale-memory. For runbooks, the driver
+turns chasing a mismatch that was purely stale-memory. For role skills (then
+called runbooks), the driver
 was the 2026-09-19 canonical-deploy-command update: an identity edited the deploy
-runbook to include a load-bearing `-f` flag, and a peer identity deployed with
-the OLD command minutes later because the runbook edit fired no ambient event
-and stale memory of the command outweighed re-reading the updated runbook. Every
-fresh /id load STILL reads role + identity + id skill + enumerates runbooks;
+role skill to include a load-bearing `-f` flag, and a peer identity deployed with
+the OLD command minutes later because the role skill edit fired no ambient event
+and stale memory of the command outweighed re-reading the updated role skill. Every
+fresh /id load STILL reads role + identity + id skill + lists role skills;
 this is purely additive.
 
 Role coverage: the identity file's frontmatter `roles:` key (zero or more role
 slugs, any YAML shape — see parse_roles_frontmatter; the singular `role:` key is
 NOT read) names the roles whose `~/fleet/roles/<role>/<role>.md` files and
-runbooks are watched. An identity with no roles (`roles: []`, an empty `roles:`,
+role skills are watched. An identity with no roles (`roles: []`, an empty `roles:`,
 or no key) is normal: there are no role targets, and everything else below is
 watched as usual. Editing `roles:` mid-session re-execs the watcher so the
 targets follow: an added role (including a first one) emits a pointer to read
@@ -46,23 +47,24 @@ Nested projects: every ancestor's project.md is watched too (event tag
 change anywhere in the chain, or an ancestor's folder going away, re-resolves
 the chain and emits one `project-chain` notice instead of a raw diff.
 
-Runbook coverage extends to the sentinel file only — `~/fleet/roles/<role>/runbooks/<slug>/runbook.md`
-per the id skill's runbook convention. Companion files in the same subfolder
+Role-skill coverage extends to the sentinel file only — `~/fleet/roles/<role>/skills/<slug>/SKILL.md`
+per the id skill's role-skill convention. Companion files in the same subfolder
 (checklists, prompt archives, scripts) are IGNORED — their churn is not a signal
-that the canonical procedure changed. Three runbook events fire (same shape rule
+that the canonical procedure changed. The old `runbooks/` folder (forwarding
+links left by the conversion) is not watched. Role-skill events (same shape rule
 as role/identity — see _emit_event):
-  - `📝 [runbook: <role>/<slug>] your <slug> runbook changed — <diff>` (small edit, inline)
-  - `📝 [runbook: <role>/<slug>] your <slug> runbook changed — READ NOW before continuing — <path>` (large edit, spilled)
-  - `📝 [runbook: <role>/<slug>] added — Read <path>` — new runbook appeared
-  - `📝 [runbook: <role>/<slug>] deleted`  — runbook.md OR its parent slug folder removed
+  - `📝 [role-skill: <role>/<slug>] your <slug> role skill changed — <diff>` (small edit, inline)
+  - `📝 [role-skill: <role>/<slug>] your <slug> role skill changed — READ NOW before continuing — <path>` (large edit, spilled)
+  - `📝 [role-skill: <role>/<slug>] added — <description> — Read <path>` — new role skill appeared
+  - `📝 [role-skill: <role>/<slug>] deleted`  — SKILL.md OR its parent slug folder removed
 
 Wake-up coverage: the identity's own `<identity>/wakeups/<slug>/wakeup.json`
-specs (event tag `wakeup`). Same sentinel-per-subfolder shape as runbooks, but
+specs (event tag `wakeup`). Same sentinel-per-subfolder shape as role skills, but
 the agent also creates and deletes these itself — the self-edit hook claims a
 `wakeups/<slug>` the moment a tool call names it, existing or not, so the
 agent's own add / edit / delete stays silent. A spec the scheduler removed
 after its one fire (one_shot, one-time sensor) is not reported either: the
-agent already got the ⏰/📡 line. Unlike runbooks, specs added or deleted while
+agent already got the ⏰/📡 line. Unlike role skills, specs added or deleted while
 the watcher was down are reported at the next start (only the very first run,
 marked by `wakeups-armed`, snapshots silently).
   - `📝 [wakeup: <slug>] your <slug> wake-up changed — <diff>`
@@ -670,12 +672,12 @@ def _role_file_path(role):
 
 def _remove_role_baselines(baseline_dir, role):
     """Drop every baseline this process kept for `role` — the role file's
-    (`last-snapshot.role.<role>`) and its runbooks'
-    (`last-snapshot.runbook.<role>.<slug>`), plus any self-edit markers on
+    (`last-snapshot.role.<role>`) and its role skills'
+    (`last-snapshot.role-skill.<role>.<slug>`), plus any self-edit markers on
     them — so a later re-add cold-starts clean instead of diffing against a
     stale snapshot."""
     role_prefix = "last-snapshot.role.%s" % role
-    runbook_prefix = "last-snapshot.runbook.%s." % role
+    role_skill_prefix = "last-snapshot.role-skill.%s." % role
     try:
         names = os.listdir(baseline_dir)
     except OSError:
@@ -684,7 +686,7 @@ def _remove_role_baselines(baseline_dir, role):
         if (
             n == role_prefix
             or n == role_prefix + ".self-edit-hash"
-            or n.startswith(runbook_prefix)
+            or n.startswith(role_skill_prefix)
         ):
             try:
                 os.remove(os.path.join(baseline_dir, n))
@@ -748,7 +750,7 @@ def _restart_if_scope_changed(identity_file_path, watched_project, watched_roles
     notice holds even when the agent made the change itself.
 
     Roles: same idea per role. Each newly added role gets a pointer to its
-    role file (and runbooks folder, if any) since the agent never read it;
+    role file (and role skills folder, if any) since the agent never read it;
     each removed role gets a one-line notice and its baselines are dropped.
     Gaining a first role or losing the last one is no different. A malformed
     new `roles:` value never re-execs (see _roles_changed)."""
@@ -798,9 +800,9 @@ def _restart_if_scope_changed(identity_file_path, watched_project, watched_roles
             rf = _role_file_path(role)
             if os.path.exists(rf):
                 line = "📝 [role-file: %s] you now hold role %s — Read %s" % (role, role, rf)
-                rd = os.path.expanduser("~/fleet/roles/%s/runbooks" % role)
+                rd = os.path.expanduser("~/fleet/roles/%s/skills" % role)
                 if os.path.isdir(rd):
-                    line += " (runbooks: %s)" % rd
+                    line += " (role skills: %s)" % rd
             else:
                 line = (
                     "📝 [role-file: %s] you now hold role %s — but its role file %s "
@@ -809,7 +811,7 @@ def _restart_if_scope_changed(identity_file_path, watched_project, watched_roles
             _out(line)
         for role in removed:
             _remove_role_baselines(baseline_dir, role)
-            _drop_pending(["📝 [role-file: %s]" % role, "📝 [runbook: %s/" % role])
+            _drop_pending(["📝 [role-file: %s]" % role, "📝 [role-skill: %s/" % role])
             _out("📝 [role-file: %s] you no longer hold role %s" % (role, role))
         reasons.append("roles changed (+%s −%s)" % (
             ",".join(added) or "none", ",".join(removed) or "none",
@@ -1053,7 +1055,7 @@ def _change_phrase(kind, label):
     ("I'll read that after I finish what I'm doing") when the change might bear
     directly on what they're currently doing.
 
-    For runbook, `label` is `<role>/<slug>` — we surface just the slug in the
+    For role skill, `label` is `<role>/<slug>` — we surface just the slug in the
     sentence since the tag already carries both.
     """
     if kind == "role-file":
@@ -1071,9 +1073,9 @@ def _change_phrase(kind, label):
             "parent" if _ancestor_levels.get(label, 1) == 1 else "ancestor",
             _read_project_display_name(label),
         )
-    if kind == "runbook":
+    if kind == "role-skill":
         slug = label.split("/", 1)[-1]
-        return "your %s runbook" % slug
+        return "your %s role skill" % slug
     if kind == "wakeup":
         return "your %s wake-up" % label
     return "the file"  # defensive; kinds are closed-set today
@@ -1082,7 +1084,7 @@ def _change_phrase(kind, label):
 def _emit_event(kind, label, diff_stdout, spill_dir):
     """Emit one event line (or spill to file if over INLINE_MAX).
 
-    `kind` is "role-file", "identity-file", or "runbook"; `label` is the role name,
+    `kind` is "role-file", "identity-file", or "role-skill"; `label` is the role name,
     identity name, or `<role>/<slug>` respectively — the two together form the event
     tag the agent sees.
 
@@ -1333,66 +1335,66 @@ def _diff_and_emit_all(targets, baseline_dir, spill_dir):
 
 
 # ---------------------------------------------------------------------------
-# Runbook helpers (added 2026-09-19 alongside runbook coverage).
+# Role-skill helpers (added 2026-09-19 as runbook coverage).
 # ---------------------------------------------------------------------------
 
 # Slug regex — kebab-case per the id skill's slug rule (shared with bounties +
 # apps). Applied when reading subfolder names off disk to reject anything that
-# would traverse or otherwise not correspond to a legitimate runbook slug (a
+# would traverse or otherwise not correspond to a legitimate role skill slug (a
 # subfolder named "..", spaces, or garbage). Defence in depth on top of "the
-# folder exists and contains a runbook.md" — we simply skip anything the regex
+# folder exists and contains a SKILL.md" — we simply skip anything the regex
 # rejects, matching the sweep script's slug-injection defence.
-_RUNBOOK_SLUG_RE = re.compile(r"^[a-z][a-z0-9-]*$")
-_RUNBOOK_SLUG_MAX_LEN = 64  # generous vs 40-char app cap; runbook names skew descriptive
+_ROLE_SKILL_SLUG_RE = re.compile(r"^[a-z0-9][a-z0-9-]*$")
+_ROLE_SKILL_SLUG_MAX_LEN = 64  # generous vs 40-char app cap; role-skill names skew descriptive
 
 
-def _enumerate_runbook_slugs(runbooks_dir):
-    """Return sorted list of slugs whose `<slug>/runbook.md` exists on disk.
+def _enumerate_role_skill_slugs(skills_dir):
+    """Return sorted list of slugs whose `<slug>/SKILL.md` exists on disk.
 
-    Slugs failing `_RUNBOOK_SLUG_RE` or exceeding `_RUNBOOK_SLUG_MAX_LEN` are
+    Slugs failing `_ROLE_SKILL_SLUG_RE` or exceeding `_ROLE_SKILL_SLUG_MAX_LEN` are
     skipped silently — a peer identity might have half-created a folder or
     dropped something oddly-named. The watch is deliberately conservative:
     ambiguous state means don't-watch, not surface-an-error.
     """
-    if not os.path.isdir(runbooks_dir):
+    if not os.path.isdir(skills_dir):
         return []
     slugs = []
     try:
-        entries = sorted(os.listdir(runbooks_dir))
+        entries = sorted(os.listdir(skills_dir))
     except OSError:
         return []
     for entry in entries:
-        if not _RUNBOOK_SLUG_RE.match(entry):
+        if not _ROLE_SKILL_SLUG_RE.match(entry):
             continue
-        if len(entry) > _RUNBOOK_SLUG_MAX_LEN:
+        if len(entry) > _ROLE_SKILL_SLUG_MAX_LEN:
             continue
-        rb_path = os.path.join(runbooks_dir, entry, "runbook.md")
+        rb_path = os.path.join(skills_dir, entry, "SKILL.md")
         if not os.path.isfile(rb_path):
             continue
         slugs.append(entry)
     return slugs
 
 
-def _runbook_paths(runbooks_dir, baseline_dir, role, slug):
-    """Return the (runbook.md path, per-role/per-slug baseline path) tuple.
+def _role_skill_paths(skills_dir, baseline_dir, role, slug):
+    """Return the (SKILL.md path, per-role/per-slug baseline path) tuple.
 
-    Baselines are namespaced by role — `last-snapshot.runbook.<role>.<slug>` —
-    so an identity holding roles A and B whose runbook slugs happen to collide
-    (both have a `deploy` runbook, say) don't stomp each other's baselines.
+    Baselines are namespaced by role — `last-snapshot.role-skill.<role>.<slug>` —
+    so an identity holding roles A and B whose role skill slugs happen to collide
+    (both have a `deploy` role skill, say) don't stomp each other's baselines.
     """
-    rb_path = os.path.join(runbooks_dir, slug, "runbook.md")
-    base_path = os.path.join(baseline_dir, "last-snapshot.runbook.%s.%s" % (role, slug))
+    rb_path = os.path.join(skills_dir, slug, "SKILL.md")
+    base_path = os.path.join(baseline_dir, "last-snapshot.role-skill.%s.%s" % (role, slug))
     return rb_path, base_path
 
 
 def _existing_baseline_slugs(baseline_dir, role):
-    """Return the set of runbook slugs currently baselined for `role`.
+    """Return the set of role-skill slugs currently baselined for `role`.
 
-    Reads `last-snapshot.runbook.<role>.<slug>` files. Used at startup to detect
-    runbooks that were deleted while we were down (baselines with no matching
-    on-disk runbook.md).
+    Reads `last-snapshot.role-skill.<role>.<slug>` files. Used at startup to detect
+    role skills that were deleted while we were down (baselines with no matching
+    on-disk SKILL.md).
     """
-    prefix = "last-snapshot.runbook.%s." % role
+    prefix = "last-snapshot.role-skill.%s." % role
     slugs = set()
     try:
         for name in os.listdir(baseline_dir):
@@ -1403,36 +1405,76 @@ def _existing_baseline_slugs(baseline_dir, role):
     return slugs
 
 
-def _emit_runbook_added(role, slug, rb_path):
-    """New-runbook event — points at the file rather than emitting a diff.
+def _role_skill_description(rb_path):
+    """The `description:` from a SKILL.md's frontmatter, folded onto one line
+    ("" when absent or unreadable). Plain, quoted and block-scalar values —
+    the same reading as id-load-context's role-skill listing."""
+    try:
+        with open(rb_path, encoding="utf-8-sig") as f:
+            lines = f.read().split("\n")
+    except (OSError, UnicodeDecodeError):
+        return ""
+    if not lines or lines[0].strip() != "---":
+        return ""
+    end = next((i for i in range(1, len(lines)) if lines[i].strip() == "---"), None)
+    if end is None:
+        return ""
+    block = lines[1:end]
+    for i, line in enumerate(block):
+        if not line.startswith("description:"):
+            continue
+        raw = line[len("description:"):].strip()
+        cont = []
+        for nxt in block[i + 1:]:
+            if not (nxt.startswith((" ", "\t")) or not nxt.strip()):
+                break
+            if nxt.strip():
+                cont.append(nxt.strip())
+        if raw[:1] in (">", "|"):
+            value = " ".join(cont)
+        else:
+            value = " ".join([raw] + cont)
+            if len(value) >= 2 and value[0] == value[-1] and value[0] in "\"'":
+                value = value[1:-1]
+        return " ".join(value.split())
+    return ""
 
-    Runbooks are documents meant to be read in full; a diff-from-empty would
+
+def _emit_role_skill_added(role, slug, rb_path):
+    """New-role-skill event — its description plus a pointer to the file
+    rather than a diff.
+
+    Role skills are documents meant to be read in full; a diff-from-empty would
     be either large + spilled (equivalent to the pointer) or small and still
     not useful as a `+`-prefixed diff. Match the recv.sh long-message idiom
     of PATH-before-preview so the agent has an obvious next step.
     """
-    _out("📝 [runbook: %s/%s] added — Read %s" % (role, slug, rb_path))
+    desc = _role_skill_description(rb_path)
+    if desc:
+        _out("📝 [role-skill: %s/%s] added — %s — Read %s" % (role, slug, desc, rb_path))
+    else:
+        _out("📝 [role-skill: %s/%s] added — Read %s" % (role, slug, rb_path))
 
 
-def _emit_runbook_deleted(role, slug):
-    """Runbook-deleted event — no diff possible, one honest line."""
-    _out("📝 [runbook: %s/%s] deleted" % (role, slug))
+def _emit_role_skill_deleted(role, slug):
+    """Role-skill-deleted event — no diff possible, one honest line."""
+    _out("📝 [role-skill: %s/%s] deleted" % (role, slug))
 
 
-def _slug_from_event(w_path, f_name, runbook_roles):
+def _slug_from_event(w_path, f_name, role_skill_roles):
     """Given an inotify event's `%w` (watched dir) and `%f` (filename), return
-    (role, slug) for the runbook involved, or (None, None) if the event is not
-    on a runbook.md / slug-subfolder we care about.
+    (role, slug) for the role skill involved, or (None, None) if the event is not
+    on a SKILL.md / slug-subfolder we care about.
 
-    `runbook_roles` is a list of `(role, runbooks_dir)` — one per role the
+    `role_skill_roles` is a list of `(role, skills_dir)` — one per role the
     identity holds. Event routing walks the list and returns as soon as a
-    match is found, so an event fired inside role A's runbooks tree is
+    match is found, so an event fired inside role A's role skills tree is
     attributed to role A (never confused with role B).
 
     Two shapes we want to match, per role:
-      1. `%w = runbooks_dir/<slug>`, `%f = runbook.md`  → returns (role, <slug>)
+      1. `%w = skills_dir/<slug>`, `%f = SKILL.md`  → returns (role, <slug>)
          (the sentinel file itself changed / was created / deleted)
-      2. `%w = runbooks_dir`, `%f = <slug>` with ISDIR event
+      2. `%w = skills_dir`, `%f = <slug>` with ISDIR event
          → returns (role, <slug>) (the whole slug subfolder was created or removed)
     Everything else — companion files inside a slug folder, nested subdirs,
     events on unrelated paths — returns (None, None).
@@ -1441,49 +1483,49 @@ def _slug_from_event(w_path, f_name, runbook_roles):
     # on %w for -r-watched dirs).
     w_norm = w_path.rstrip("/")
 
-    for role, runbooks_dir in runbook_roles:
-        rb_root = runbooks_dir.rstrip("/")
+    for role, skills_dir in role_skill_roles:
+        rb_root = skills_dir.rstrip("/")
 
-        # Shape 1: event on <runbooks>/<slug>/runbook.md
-        if f_name == "runbook.md":
+        # Shape 1: event on <skills>/<slug>/SKILL.md
+        if f_name == "SKILL.md":
             parent = os.path.dirname(w_norm)
             if parent == rb_root:
                 slug = os.path.basename(w_norm)
-                if _RUNBOOK_SLUG_RE.match(slug) and len(slug) <= _RUNBOOK_SLUG_MAX_LEN:
+                if _ROLE_SKILL_SLUG_RE.match(slug) and len(slug) <= _ROLE_SKILL_SLUG_MAX_LEN:
                     return role, slug
-        # Shape 2: event on <runbooks>/<slug> directly (create/delete of folder)
+        # Shape 2: event on <skills>/<slug> directly (create/delete of folder)
         if w_norm == rb_root and f_name:
-            if _RUNBOOK_SLUG_RE.match(f_name) and len(f_name) <= _RUNBOOK_SLUG_MAX_LEN:
+            if _ROLE_SKILL_SLUG_RE.match(f_name) and len(f_name) <= _ROLE_SKILL_SLUG_MAX_LEN:
                 return role, f_name
     return None, None
 
 
-def _handle_runbook_event(
-    role, slug, events, tracked_slugs, runbooks_dir, baseline_dir, spill_dir,
+def _handle_role_skill_event(
+    role, slug, events, tracked_slugs, skills_dir, baseline_dir, spill_dir,
 ):
-    """Route a runbook event to add / edit / delete emission.
+    """Route a role-skill event to add / edit / delete emission.
 
-    `tracked_slugs` is a mutable set — the set of runbook slugs whose baseline
+    `tracked_slugs` is a mutable set — the set of role skill slugs whose baseline
     exists in the state directory. This function mutates it in place:
       - Add: slug goes from untracked → tracked; write baseline, emit "added".
       - Edit: slug already tracked; diff baseline vs current, emit if changed.
       - Delete: slug goes from tracked → untracked; remove baseline, emit "deleted".
 
     Events we care about (uppercased set, matching inotifywait --format %e output):
-      - CLOSE_WRITE / MODIFY / MOVED_TO on a runbook.md → edit or add depending
+      - CLOSE_WRITE / MODIFY / MOVED_TO on a SKILL.md → edit or add depending
         on whether the slug was already tracked.
-      - CREATE on a runbook.md (or MOVED_TO landing runbook.md into the folder)
+      - CREATE on a SKILL.md (or MOVED_TO landing SKILL.md into the folder)
         → same handling; the CLOSE_WRITE case covers the write-then-close path.
-      - DELETE / MOVED_FROM on a runbook.md or on the slug subfolder → delete.
+      - DELETE / MOVED_FROM on a SKILL.md or on the slug subfolder → delete.
     """
-    rb_path, base_path = _runbook_paths(runbooks_dir, baseline_dir, role, slug)
+    rb_path, base_path = _role_skill_paths(skills_dir, baseline_dir, role, slug)
 
     is_delete = bool(events & {"DELETE", "MOVED_FROM"})
     is_write = bool(events & {"CLOSE_WRITE", "CREATE", "MOVED_TO", "MODIFY"})
 
     if is_delete:
         # Confirm on disk — inotifywait can fire DELETE on transient files that
-        # were briefly present (editor swap files). If runbook.md is still
+        # were briefly present (editor swap files). If SKILL.md is still
         # readable, treat as no-op.
         if os.path.isfile(rb_path):
             return
@@ -1493,14 +1535,14 @@ def _handle_runbook_event(
             except OSError:
                 pass
             tracked_slugs.discard(slug)
-            _emit_runbook_deleted(role, slug)
+            _emit_role_skill_deleted(role, slug)
         return
 
     if is_write:
         # Settle window: give the PostToolUse sync hook time to refresh the
         # baseline + drop its hash marker before we compare (matches
         # _diff_and_emit's settle for role/identity events), after holding
-        # for any in-flight tool call that claimed this runbook.
+        # for any in-flight tool call that claimed this role skill.
         if slug in tracked_slugs:
             _wait_for_claim_release(rb_path, base_path)
         if SELF_EDIT_SETTLE_MS > 0:
@@ -1515,13 +1557,13 @@ def _handle_runbook_event(
         # Consume any self-edit marker eagerly (see _is_self_edit).
         is_self_edit = _is_self_edit(base_path, current)
         if baseline is None:
-            # New runbook (either we've never seen it, or the baseline was
+            # New role skill (either we've never seen it, or the baseline was
             # cleaned up). Snapshot; emit "added" unless the sync hook
             # confirmed this is the agent's own creation.
             _atomic_write_baseline(baseline_dir, base_path, current)
             tracked_slugs.add(slug)
             if not is_self_edit:
-                _emit_runbook_added(role, slug, rb_path)
+                _emit_role_skill_added(role, slug, rb_path)
             return
         if current != baseline:
             if is_self_edit:
@@ -1529,7 +1571,7 @@ def _handle_runbook_event(
                 _atomic_write_baseline(baseline_dir, base_path, current)
                 return
             diff_stdout = _run_diff(base_path, rb_path)
-            _emit_event("runbook", "%s/%s" % (role, slug), diff_stdout, spill_dir)
+            _emit_event("role-skill", "%s/%s" % (role, slug), diff_stdout, spill_dir)
             _atomic_write_baseline(baseline_dir, base_path, current)
 
 
@@ -1664,7 +1706,7 @@ def _wakeup_slug_from_event(w_path, f_name, events, wakeups_dir):
 
 def _handle_wakeup_event(slug, events, tracked_slugs, wakeups_dir, baseline_dir, spill_dir):
     """Route a wake-up event to add / edit / delete emission. Mutates
-    `tracked_slugs` (the slugs with a baseline) like _handle_runbook_event.
+    `tracked_slugs` (the slugs with a baseline) like _handle_role_skill_event.
 
     Writes are taken on CLOSE_WRITE / MOVED_TO only (plus a whole folder moved
     or created in), never a bare CREATE of the file — a spec written with
@@ -1854,7 +1896,7 @@ def main():
     # drifted from disk" gap (2026-09-29 incident: workstation agent grepped
     # current on-disk file while running against pre-rename in-context copy).
     # Gated on file existence so a fresh box mid-distributor-install, or a
-    # hermetic test env, doesn't fatal — same posture as runbooks_watched.
+    # hermetic test env, doesn't fatal — same posture as role_skills_watched.
     # If the file lands later, the next watcher process pick it up on cold-start.
     id_skill_path = os.path.expanduser("~/.claude/skills/id/SKILL.md")
     id_skill_watched = os.path.isfile(id_skill_path)
@@ -1904,15 +1946,15 @@ def main():
                 "parent-project", slug, pmd, _project_baseline_path(baseline_dir, slug),
             ))
 
-    # --- Runbooks trees — role-scope; one dir per role. Empty or nonexistent
-    # is fine (skipped). `runbook_roles` is the ordered list of (role, dir) that
-    # actually exist on disk; `runbooks_watched` is true iff at least one does.
-    runbook_roles = []
+    # --- Role skills trees — role-scope; one dir per role. Empty or nonexistent
+    # is fine (skipped). `role_skill_roles` is the ordered list of (role, dir) that
+    # actually exist on disk; `role_skills_watched` is true iff at least one does.
+    role_skill_roles = []
     for role, _ in role_files:
-        rd = os.path.expanduser("~/fleet/roles/%s/runbooks" % role)
+        rd = os.path.expanduser("~/fleet/roles/%s/skills" % role)
         if os.path.isdir(rd):
-            runbook_roles.append((role, rd))
-    runbooks_watched = len(runbook_roles) > 0
+            role_skill_roles.append((role, rd))
+    role_skills_watched = len(role_skill_roles) > 0
 
     # --- Wake-ups folder — always watched; created if absent so the first
     # wake-up (agent- or app-made) lands inside an armed watch.
@@ -1928,7 +1970,7 @@ def main():
     state_dir = os.path.join(baseline_dir, ".state")
     os.makedirs(state_dir, exist_ok=True)
     # `baseline_dir` may not exist yet on very first run (before role/identity
-    # cold-start writes any baseline). Ensure it exists so runbook baselines
+    # cold-start writes any baseline). Ensure it exists so role skill baselines
     # can be written even if the role/identity ones haven't landed yet.
     os.makedirs(baseline_dir, exist_ok=True)
 
@@ -1937,13 +1979,10 @@ def main():
     # (2) Pre-multi-role: `last-snapshot.role` → `last-snapshot.role.<primary>`
     #     (single-role → per-role scheme). Promotes onto the primary role so
     #     existing single-role identities keep continuity.
-    # (3) Runbook baselines: `last-snapshot.runbook.<slug>` (unprefixed, old
-    #     single-role scheme) → `last-snapshot.runbook.<primary>.<slug>`. Old
-    #     scheme has zero dots in the suffix; new scheme has one (role.slug),
-    #     so we discriminate by checking for `.` in the suffix.
+    # (3) Runbook baselines → role-skill baselines (see below).
     # All migrations are best-effort — a failure logs to stderr and falls
     # through to cold-start (one silent snapshot instead of continuity).
-    # All three need a primary role, so a roleless identity skips them.
+    # (1) and (2) need a primary role, so a roleless identity skips them.
     legacy_bare_baseline = os.path.join(baseline_dir, "last-snapshot")
     legacy_role_baseline = os.path.join(baseline_dir, "last-snapshot.role")
     primary_role_baseline = os.path.join(
@@ -1976,33 +2015,49 @@ def main():
                 file=sys.stderr,
                 flush=True,
             )
-    # Runbook baseline migration (old unprefixed slug → new role-namespaced).
-    if primary_role is not None:
-        old_runbook_prefix = "last-snapshot.runbook."
-        new_runbook_prefix = "last-snapshot.runbook.%s." % primary_role
+    # Role-skill baseline migration: role skills were runbooks until
+    # 2026-10, kept under `last-snapshot.runbook.<role>.<slug>` (or the older
+    # unprefixed `last-snapshot.runbook.<slug>`). Rename onto
+    # `last-snapshot.role-skill.<role>.<slug>` — the distributor's conversion
+    # already rewrote their content to match the converted SKILL.md (and wrote
+    # the role-skill one too), so the renamed baseline diffs clean. Self-edit
+    # markers ride along by suffix.
+    _legacy_prefix = "last-snapshot.runbook."
+    try:
+        _legacy_entries = [e for e in os.listdir(baseline_dir) if e.startswith(_legacy_prefix)]
+    except OSError:
+        _legacy_entries = []
+    for entry in _legacy_entries:
+        suffix = entry[len(_legacy_prefix):]
+        if "." not in suffix:
+            if primary_role is None:
+                continue
+            suffix = "%s.%s" % (primary_role, suffix)
+        # Only once that runbook has actually been converted (its SKILL.md is
+        # in place and its old folder is a forwarding link). Until then the
+        # old baseline waits — renaming it early would report the runbook as
+        # deleted now and added again when the conversion lands.
+        _role, _, _slug = suffix.partition(".")
+        _rd = os.path.expanduser("~/fleet/roles/%s" % _role)
+        if not (
+            os.path.isfile(os.path.join(_rd, "skills", _slug.split(".")[0], "SKILL.md"))
+            and os.path.islink(os.path.join(_rd, "runbooks", _slug.split(".")[0]))
+        ):
+            continue
+        src = os.path.join(baseline_dir, entry)
+        dst = os.path.join(baseline_dir, "last-snapshot.role-skill." + suffix)
         try:
-            for entry in os.listdir(baseline_dir):
-                if not entry.startswith(old_runbook_prefix):
-                    continue
-                suffix = entry[len(old_runbook_prefix):]
-                if "." in suffix:
-                    continue  # already role-namespaced (new scheme)
-                new_entry = new_runbook_prefix + suffix
-                src = os.path.join(baseline_dir, entry)
-                dst = os.path.join(baseline_dir, new_entry)
-                if os.path.exists(dst):
-                    continue  # don't clobber a new-scheme baseline
-                try:
-                    os.replace(src, dst)
-                except OSError as e:
-                    print(
-                        "⚠️ [file-watch] runbook baseline migration failed for %s: %s"
-                        % (entry, e),
-                        file=sys.stderr,
-                        flush=True,
-                    )
-        except OSError:
-            pass
+            if os.path.exists(dst):
+                os.remove(src)  # a role-skill baseline already wins
+            else:
+                os.replace(src, dst)
+        except OSError as e:
+            print(
+                "⚠️ [file-watch] role-skill baseline migration failed for %s: %s"
+                % (entry, e),
+                file=sys.stderr,
+                flush=True,
+            )
 
     # --- Single-instance guard ---
     _single_instance(state_dir, ident_dir)
@@ -2090,31 +2145,31 @@ def main():
             if gone:
                 sys.exit(1)
 
-    # --- Runbook cold-start / resume pass — per-role.
-    # For each role, enumerate on-disk runbooks. For each: if no baseline →
+    # --- Role skill cold-start / resume pass — per-role.
+    # For each role, enumerate on-disk role skills. For each: if no baseline →
     # snapshot silently (cold start); if baseline + file changed → emit edit
     # diff (resume); if baseline exists but file gone → emit "deleted"
     # (resume-delete). Runs BEFORE the inotifywait watch loop starts so events
     # landing during the watch's arming don't compete with cold-start baseline
-    # writes. `tracked_runbook_slugs` is keyed by role so runbook slugs
+    # writes. `tracked_role_skill_slugs` is keyed by role so role skill slugs
     # colliding across roles don't share a set.
-    tracked_runbook_slugs = {}
-    for role, rb_dir in runbook_roles:
-        tracked_runbook_slugs[role] = _existing_baseline_slugs(baseline_dir, role)
-        on_disk_slugs = set(_enumerate_runbook_slugs(rb_dir))
+    tracked_role_skill_slugs = {}
+    for role, rb_dir in role_skill_roles:
+        tracked_role_skill_slugs[role] = _existing_baseline_slugs(baseline_dir, role)
+        on_disk_slugs = set(_enumerate_role_skill_slugs(rb_dir))
 
-        # (a) On-disk runbooks — diff or cold-snapshot.
+        # (a) On-disk role skills — diff or cold-snapshot.
         for slug in sorted(on_disk_slugs):
-            rb_path, base_path = _runbook_paths(rb_dir, baseline_dir, role, slug)
-            if slug not in tracked_runbook_slugs[role]:
+            rb_path, base_path = _role_skill_paths(rb_dir, baseline_dir, role, slug)
+            if slug not in tracked_role_skill_slugs[role]:
                 current = _read_bytes(rb_path)
                 if current is None:
-                    # Runbook file vanished between listdir and read — race
+                    # Role skill file vanished between listdir and read — race
                     # with a peer identity's delete. Skip silently; the
                     # delete-side pass below cleans up any dangling baseline.
                     continue
                 _atomic_write_baseline(baseline_dir, base_path, current)
-                tracked_runbook_slugs[role].add(slug)
+                tracked_role_skill_slugs[role].add(slug)
                 # Silent cold-start — no emit (shape invariant).
             else:
                 # Baseline exists → treat as resume. Diff if changed.
@@ -2135,20 +2190,20 @@ def main():
                         continue
                     diff_stdout = _run_diff(base_path, rb_path)
                     _emit_event(
-                        "runbook", "%s/%s" % (role, slug), diff_stdout, spill_dir,
+                        "role-skill", "%s/%s" % (role, slug), diff_stdout, spill_dir,
                     )
                     _atomic_write_baseline(baseline_dir, base_path, current)
 
-        # (b) Baselines for slugs no longer on disk — the runbook was deleted
+        # (b) Baselines for slugs no longer on disk — the role skill was deleted
         # while we were down. Emit deletion + remove the baseline.
-        for slug in sorted(tracked_runbook_slugs[role] - on_disk_slugs):
-            _, base_path = _runbook_paths(rb_dir, baseline_dir, role, slug)
+        for slug in sorted(tracked_role_skill_slugs[role] - on_disk_slugs):
+            _, base_path = _role_skill_paths(rb_dir, baseline_dir, role, slug)
             try:
                 os.remove(base_path)
             except OSError:
                 pass
-            tracked_runbook_slugs[role].discard(slug)
-            _emit_runbook_deleted(role, slug)
+            tracked_role_skill_slugs[role].discard(slug)
+            _emit_role_skill_deleted(role, slug)
 
     tracked_wakeup_slugs = (
         _wakeup_startup_pass(wakeups_dir, baseline_dir, spill_dir) if wakeups_watched else set()
@@ -2183,12 +2238,12 @@ def main():
         #      Events on any of these are dispatched to
         #      _diff_and_emit_all(targets, …); we re-diff every fixed target on
         #      any of their events (cheap, no per-file bookkeeping needed).
-        #   2. runbooks/ (if it exists) — passed with `-r` so newly-created
+        #   2. skills/ (if it exists) — passed with `-r` so newly-created
         #      slug subfolders get their inotify watches added automatically.
-        #      Per-event routing via _slug_from_event isolates runbook.md
+        #      Per-event routing via _slug_from_event isolates SKILL.md
         #      events + slug-subfolder create/delete from companion churn.
         #
-        # Event set — union of what fixed targets and the runbook tree need:
+        # Event set — union of what fixed targets and the role skill tree need:
         #   close_write: normal file save
         #   move_self:   fixed-target inode itself renamed away → respawn
         #   delete_self: fixed-target inode unlinked (backend atomic tmp+rename over
@@ -2199,14 +2254,14 @@ def main():
         #                whereas an atomic-rename-over makes it the DISPLACED
         #                target. Without delete_self + respawn, the watch dies
         #                silently and every subsequent edit is invisible.
-        #   moved_to:    fixed-target replaced OR new file landed in runbooks/
-        #   delete:      runbook.md removed OR slug subfolder removed
-        #   create:      slug subfolder created OR runbook.md created
-        #   moved_from:  runbook.md renamed out OR slug subfolder renamed out
+        #   moved_to:    fixed-target replaced OR new file landed in skills/
+        #   delete:      SKILL.md removed OR slug subfolder removed
+        #   create:      slug subfolder created OR SKILL.md created
+        #   moved_from:  SKILL.md renamed out OR slug subfolder renamed out
         fixed_target_paths = [t[2] for t in targets]
         watched_args = list(fixed_target_paths)
-        if runbooks_watched:
-            for _role, rb_dir in runbook_roles:
+        if role_skills_watched:
+            for _role, rb_dir in role_skill_roles:
                 watched_args.append(rb_dir)
         if wakeups_watched:
             watched_args.append(wakeups_dir)
@@ -2245,7 +2300,7 @@ def main():
                 _inotify_proc = subprocess.Popen(
                     [
                         "inotifywait", "-m",
-                    ] + (["-r"] if runbooks_watched or wakeups_watched else []) + [
+                    ] + (["-r"] if role_skills_watched or wakeups_watched else []) + [
                         "-e", inotify_events,
                         "--format", "%w|%f|%e",
                     ] + exclude_args + watched_args,
@@ -2354,17 +2409,17 @@ def main():
                         )
                         continue
 
-                    # (B) Route runbook-tree events. Only fires when we're
-                    # actually watching at least one runbooks dir. `_slug_from_event`
-                    # walks every role's runbooks tree and returns the (role, slug)
+                    # (B) Route role skill-tree events. Only fires when we're
+                    # actually watching at least one role skills dir. `_slug_from_event`
+                    # walks every role's role skills tree and returns the (role, slug)
                     # match — event routing stays role-scoped even with multiple
                     # roles active.
-                    if runbooks_watched:
-                        rb_role, slug = _slug_from_event(w_path, f_name, runbook_roles)
+                    if role_skills_watched:
+                        rb_role, slug = _slug_from_event(w_path, f_name, role_skill_roles)
                         if slug is not None:
-                            rb_dir = next(d for r, d in runbook_roles if r == rb_role)
-                            _handle_runbook_event(
-                                rb_role, slug, events, tracked_runbook_slugs[rb_role],
+                            rb_dir = next(d for r, d in role_skill_roles if r == rb_role)
+                            _handle_role_skill_event(
+                                rb_role, slug, events, tracked_role_skill_slugs[rb_role],
                                 rb_dir, baseline_dir, spill_dir,
                             )
                             continue

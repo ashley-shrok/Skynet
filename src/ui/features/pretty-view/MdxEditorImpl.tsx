@@ -132,7 +132,7 @@ export function MdxEditorImpl({
       readOnly={disabled || readOnly}
       // Disable the mdast-util-mdx-jsx extension so bare `<thing>` /
       // `<slug>` / `<name>` placeholders in prose (common in SKILL.md,
-      // role files, runbooks) stop being interpreted as attempted JSX
+      // role files, role skills) stop being interpreted as attempted JSX
       // tags and silently rendering an empty editor. Tradeoff: inline
       // HTML tags inside markdown (e.g. `<u>...</u>`, `<kbd>...</kbd>`)
       // no longer render — but Skynet's markdown files are plain

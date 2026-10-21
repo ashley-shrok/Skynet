@@ -129,6 +129,9 @@ export async function runSweepForHost(
   // must hold the host open for a retry: the new readers ignore an
   // unmigrated `role:` key, leaving that identity with no roles.
   if (bootstrap?.rolesKeyMigrationOk === false) itemsFailed++;
+  // Same for the runbooks → role skills conversion: an unconverted runbook is
+  // invisible to the new readers.
+  if (bootstrap?.roleSkillsMigrationOk === false) itemsFailed++;
 
   for (const entry of catalog) {
     itemsChecked++;

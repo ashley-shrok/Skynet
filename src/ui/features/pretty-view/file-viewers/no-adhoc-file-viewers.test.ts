@@ -23,7 +23,7 @@ import { execSync } from "node:child_process";
 
 const UI_ROOT = path.join(__dirname, "..", "..", "..");
 
-const FILE_READ_CALL = /\b(readWorkspaceFile|readSkillFile|readRunbookFile|fetchHostFileUrl|fetchTailnetUrl)\(/;
+const FILE_READ_CALL = /\b(readWorkspaceFile|readSkillFile|readRoleSkillFile|fetchHostFileUrl|fetchTailnetUrl)\(/;
 const USES_FILE_VIEW = /from\s+["'](?:\.\.?\/)+(?:pretty-view\/)?(?:file-viewers\/FileView|SkillFileTab)["']/;
 const IMPORTS_EDITOR = /from\s+["'][^"']*\/(MarkdownEditor|CodeEditorImpl)["']|import\(\s*["'][^"']*\/(MarkdownEditor|CodeEditorImpl)["']\s*\)/;
 

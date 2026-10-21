@@ -65,6 +65,8 @@
  *   - Steps 4 + 5 + 5b (host-parent, host-name, host-id) — always implemented.
  *   - Step 7 (roles-key migration) — always runs, via migrateRolesKeyUnder
  *     (TS port of the SSH path's python script; the container has no python3).
+ *   - Step 7b (runbooks → role skills) — always runs, via
+ *     migrateRoleSkillsUnder (same TS-port arrangement).
  *   - Steps 1-3 (systemd + settings patch + cleanup) — only when
  *     `XDG_RUNTIME_DIR` is present in the container process env (evidence of
  *     a running systemd-user session). Absent → skip-with-warn using
@@ -112,6 +114,7 @@ import {
   USAGE_REPORTER_RETIRED_DIR,
 } from "./run-bootstrap.js";
 import { migrateRolesKeyUnder } from "./roles-key-migration.js";
+import { migrateRoleSkillsUnder, logRoleSkillsMigration } from "./role-skills-migration.js";
 
 /**
  * Read the WRAPPED= original statusLine command out of a usage-reporter.conf
@@ -1252,6 +1255,7 @@ export async function bootstrapFleetSubstrateLocally(
   let hostIdOk = false;
   let usageReporterRetireOk = false;
   let rolesKeyMigrationOk = false;
+  let roleSkillsMigrationOk = false;
   let hadError = false;
 
   const claudeDir = path.join(getLocalHomeRoot(), ".claude");
@@ -1535,6 +1539,51 @@ export async function bootstrapFleetSubstrateLocally(
     hadError = true;
   }
 
+  // ---- Step 7b: runbooks → role skills ----
+  // Parallel with SSH surface (run-bootstrap.ts Step 7b); rules in
+  // role-skills-migration.ts. Logs only when something changed / conflicts.
+  try {
+    const counts = await migrateRoleSkillsUnder(getLocalHomeRoot());
+    logRoleSkillsMigration(host, counts, "local_fleet_role_skills_migration", "local-fleet-bootstrap");
+    if (counts.errorCount > 0) {
+      hadError = true;
+      systemLogger.warn(
+        `local-fleet-bootstrap: runbooks → role skills had ${counts.errorCount} failure(s) for ${host.name}`,
+        {
+          operation: "local_fleet_role_skills_migration_error",
+          fleetHostId: host.id,
+          hostName: host.name,
+          errorCount: counts.errorCount,
+          errors: counts.errors,
+        },
+      );
+    } else if (counts.deferred > 0) {
+      systemLogger.warn(
+        `local-fleet-bootstrap: ${counts.deferred} file(s) changed mid runbooks → role skills for ${host.name} — will retry`,
+        {
+          operation: "local_fleet_role_skills_migration_deferred",
+          fleetHostId: host.id,
+          hostName: host.name,
+          deferred: counts.deferred,
+        },
+      );
+    } else {
+      roleSkillsMigrationOk = true;
+    }
+  } catch (err) {
+    systemLogger.warn(
+      `local-fleet-bootstrap: runbooks → role skills threw for ${host.name}`,
+      {
+        operation: "local_fleet_role_skills_migration_error",
+        site: "outer_catch",
+        fleetHostId: host.id,
+        hostName: host.name,
+        error: err instanceof Error ? err.message : String(err),
+      },
+    );
+    hadError = true;
+  }
+
   const result: BootstrapResult = {
     alreadyEnabled,
     bootstrapRan,
@@ -1546,6 +1595,7 @@ export async function bootstrapFleetSubstrateLocally(
     hostIdOk,
     usageReporterRetireOk,
     rolesKeyMigrationOk,
+    roleSkillsMigrationOk,
     // Step 8 (desktop packages) is SSH-only: the container can't install host
     // packages, and agent-desktop's own first-use install covers this box.
     desktopDeps: null,

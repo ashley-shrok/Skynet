@@ -74,12 +74,12 @@ import PreferencesModal from "@/features/pretty-view/PreferencesModal";
 // only rendered for admins.
 import AdminModal from "@/features/admin/AdminModal";
 // Phase 90 Plan 90-06 (D-07 / D-04): the header's Edit roles icon button
-// opens RolesListModal; a row click swaps to RoleModal; runbook click swaps to
-// RunbookEditorModal (mirrors PrettyView's mount at L3281). All three are
+// opens RolesListModal; a row click swaps to RoleModal; role skill click swaps to
+// RoleSkillEditorModal (mirrors PrettyView's mount at L3281). All three are
 // mounted as siblings alongside GlobalFilesModal + SkillsEditorModal.
 import { RolesListModal } from "@/features/pretty-view/RolesListModal";
 import { RoleModal } from "@/features/pretty-view/RoleModal";
-import RunbookEditorModal from "@/features/pretty-view/RunbookEditorModal";
+import RoleSkillEditorModal from "@/features/pretty-view/RoleSkillEditorModal";
 import { useTranslation } from "react-i18next";
 import { useDragPreviewClaim } from "@/shell/drag-preview-session";
 import {
@@ -1211,8 +1211,8 @@ export function PrettyConversationsPanel({
   const [scheduledAgentsModalOpen, setScheduledAgentsModalOpen] = useState(false);
   // Phase 90 Plan 90-06 (D-04): role modal swap-not-stack coordination. Set by
   // RolesListModal's onSelectRole (row click closes list + opens role modal).
-  // Also used by the nested RoleModal → RunbookEditorModal swap through
-  // runbookEditorOpenState below. Cleared to null on close.
+  // Also used by the nested RoleModal → RoleSkillEditorModal swap through
+  // roleSkillEditorOpenState below. Cleared to null on close.
   // Phase 90 Plan 90-10 (D-08.3 lock): the earlier identity-shim prop was
   // removed from this state slot. Every read/write on the RoleModal now routes
   // through role-name-keyed helpers (Plan 90-09), so `roleName` + `hostId`
@@ -1225,12 +1225,12 @@ export function PrettyConversationsPanel({
         hostId: number;
       }
   >(null);
-  // Phase 90 Plan 90-06 (D-06): nested RunbookEditorModal swap target. RoleModal
-  // opened from RolesListModal fires onOpenRunbook → set this state → RoleModal
-  // closes + RunbookEditorModal opens. Mirrors PrettyView's mount at L3281 shape.
-  const [panelRunbookEditorOpenState, setPanelRunbookEditorOpenState] = useState<
+  // Phase 90 Plan 90-06 (D-06): nested RoleSkillEditorModal swap target. RoleModal
+  // opened from RolesListModal fires onOpenRoleSkill → set this state → RoleModal
+  // closes + RoleSkillEditorModal opens. Mirrors PrettyView's mount at L3281 shape.
+  const [panelRoleSkillEditorOpenState, setPanelRoleSkillEditorOpenState] = useState<
     | null
-    | { roleName: string; runbookName: string; hostId: number }
+    | { roleName: string; roleSkillName: string; hostId: number }
   >(null);
 
   // Phase 119 Plan 04 (D-03): Apps section collapsed by default on every
@@ -4301,7 +4301,7 @@ export function PrettyConversationsPanel({
       />
       {/* Phase 90 Plan 90-06 (D-04): RoleModal — swap target for RolesListModal
           row click. Mounted at document.body via its own DialogPrimitive.Portal
-          (D-03). Runbook row click nests to RunbookEditorModal (below) —
+          (D-03). RoleSkill row click nests to RoleSkillEditorModal (below) —
           mirrors PrettyView's mount pattern. */}
       {roleModalOpenState && (
         <RoleModal
@@ -4312,34 +4312,34 @@ export function PrettyConversationsPanel({
           roleName={roleModalOpenState.roleName}
           roleCosmetics={roleModalOpenState.roleCosmetics}
           hostId={roleModalOpenState.hostId}
-          onOpenRunbook={(runbookName) => {
-            // Nested swap: close role modal, open runbook editor.
+          onOpenRoleSkill={(roleSkillName) => {
+            // Nested swap: close role modal, open role skill editor.
             // Capture hostId + roleName BEFORE clearing roleModalOpenState so
-            // the runbook editor can read them even after the parent state
+            // the role skill editor can read them even after the parent state
             // slot went null.
-            setPanelRunbookEditorOpenState({
+            setPanelRoleSkillEditorOpenState({
               roleName: roleModalOpenState.roleName,
-              runbookName,
+              roleSkillName,
               hostId: roleModalOpenState.hostId,
             });
             setRoleModalOpenState(null);
           }}
         />
       )}
-      {/* Phase 90 Plan 90-06 (D-06 nested): RunbookEditorModal — swap target
-          for RoleModal's onOpenRunbook. Mirrors PrettyView's mount at L3281.
+      {/* Phase 90 Plan 90-06 (D-06 nested): RoleSkillEditorModal — swap target
+          for RoleModal's onOpenRoleSkill. Mirrors PrettyView's mount at L3281.
           Close just clears state (no reopen of RoleModal per D-03). */}
-      {panelRunbookEditorOpenState && (
-        <RunbookEditorModal
+      {panelRoleSkillEditorOpenState && (
+        <RoleSkillEditorModal
           open={true}
           onOpenChange={(o) => {
-            if (!o) setPanelRunbookEditorOpenState(null);
+            if (!o) setPanelRoleSkillEditorOpenState(null);
           }}
-          hostId={panelRunbookEditorOpenState.hostId}
-          roleName={panelRunbookEditorOpenState.roleName}
-          runbookName={panelRunbookEditorOpenState.runbookName}
+          hostId={panelRoleSkillEditorOpenState.hostId}
+          roleName={panelRoleSkillEditorOpenState.roleName}
+          roleSkillName={panelRoleSkillEditorOpenState.roleSkillName}
           onRenamed={(newName) =>
-            setPanelRunbookEditorOpenState((prev) => (prev ? { ...prev, runbookName: newName } : prev))
+            setPanelRoleSkillEditorOpenState((prev) => (prev ? { ...prev, roleSkillName: newName } : prev))
           }
         />
       )}

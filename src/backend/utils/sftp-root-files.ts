@@ -1,7 +1,7 @@
 /**
  * Read (download / inline-view) or write a file that must live under a
- * fixed root on a managed host (a skill directory, a runbook directory).
- * Used by the skills / runbooks editor `GET /download` and
+ * fixed root on a managed host (a skill directory, a role skill directory).
+ * Used by the skills / role skills editor `GET /download` and
  * `PUT /write-binary` routes.
  *
  * Path safety: callers validate names + the relative path with their own

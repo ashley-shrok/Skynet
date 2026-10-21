@@ -140,8 +140,8 @@ import instanceWideRoutes from "./routes/instance-wide.js";
 import instanceFileRoutes from "./routes/instance-file.js";
 // /document-convert: LibreOffice converter sidecar front door (file viewers).
 import documentConvertRoutes from "./routes/document-convert.js";
-// Phase 89 Plan 02: /runbooks-editor router — 7 endpoints (list-runbooks / list-files / read / write / create / delete-file / delete-runbook) for editing role-scoped runbook folders on managed hosts. Mount + nginx block sit alongside the /skills-editor pair.
-import runbooksEditorRoutes from "./routes/runbooks-editor.js";
+// /role-skills-editor router (Phase 89's /runbooks-editor, renamed with runbooks → role skills) — list / create / rename / delete role skills and read / write / create / delete their files on managed hosts. Mount + nginx block sit alongside the /skills-editor pair.
+import roleSkillsEditorRoutes from "./routes/role-skills-editor.js";
 // Phase 118 Plan 118-01 (D-04, D-16, D-17, D-19, D-20, D-21, D-22): /workspace CRUD router — 9 endpoints (list, read-file, write-file, delete, rename, mkdir, create-file, upload, download) for browsing the identity workspace on any user-accessible host via SFTP. Matching nginx location blocks in BOTH docker/nginx.conf AND docker/nginx-https.conf per CLAUDE.md nginx caveat (missing in HTTPS conf → /workspace returns index.html and crashes the frontend).
 import workspaceRoutes from "./routes/workspace-routes.js";
 // Read-only git view over identity workspaces (repos / repo / diff). Served under /workspace/git, so the existing /workspace nginx location blocks already cover it.
@@ -2187,8 +2187,8 @@ app.use("/instance-wide", express.json({ limit: "64kb" }), instanceWideRoutes);
 // Instance file (/etc/claude-code/CLAUDE.md on every host). Matching nginx
 // location blocks in BOTH docker/nginx.conf AND docker/nginx-https.conf.
 app.use("/instance-file", instanceFileRoutes);
-// Phase 89 Plan 02: /runbooks-editor router — mounted alongside /skills-editor. Matching nginx location blocks in BOTH docker/nginx.conf AND docker/nginx-https.conf (parity load-bearing per patch #446 arc).
-app.use("/runbooks-editor", runbooksEditorRoutes);
+// /role-skills-editor router — mounted alongside /skills-editor. Matching nginx location blocks in BOTH docker/nginx.conf AND docker/nginx-https.conf (parity load-bearing per patch #446 arc).
+app.use("/role-skills-editor", roleSkillsEditorRoutes);
 // File viewers: legacy Office / OpenDocument conversion via the converter sidecar (SKYNET_CONVERTER_URL). Matching nginx location blocks in BOTH docker/nginx.conf AND docker/nginx-https.conf.
 app.use("/document-convert", documentConvertRoutes);
 // Phase 118 Plan 118-01 (D-04, D-16, D-17, D-19, D-20, D-21, D-22): /workspace CRUD router — 9 endpoints (list, read-file, write-file, delete, rename, mkdir, create-file, upload, download). Matching nginx location blocks land in BOTH docker/nginx.conf AND docker/nginx-https.conf per CLAUDE.md nginx caveat (missing in HTTPS conf → /workspace returns index.html and crashes the frontend).
@@ -2200,7 +2200,7 @@ app.use("/workspace/desktop", workspaceDesktopRoutes);
 app.use("/workspace", workspaceRoutes);
 // Phase 117 Plan 04 (D-25, D-30, D-36a, D-37): /projects router — GET list
 // + POST create + POST :slug/archive. JSON body per D-36a. Mounted alongside
-// /runbooks-editor BEFORE any late catch-alls. Every successful write path
+// /role-skills-editor BEFORE any late catch-alls. Every successful write path
 // triggers subscription-registry.publishProjectListChanged so connected WS
 // clients re-hydrate the sidebar's projects zone.
 app.use("/projects", projectListRoutes);

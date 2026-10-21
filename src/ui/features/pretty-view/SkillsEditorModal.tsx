@@ -62,13 +62,13 @@ import { InstanceWideChip, InstanceWideSyncStatus } from "./InstanceWideStatus";
 //     Row 2 (picker bar sibling directly under head): host select
 //     (hidden on single-host installs), skill select, delete-skill
 //     Trash (only when a skill is picked).
-//   - File strip MOVED from bottom to TOP (matches RunbookEditor
+//   - File strip MOVED from bottom to TOP (matches RoleSkillEditor
 //     translation — IDE convention: tabs atop the surface they select).
 //     "+ New file" pill pinned at the end of the strip.
 //   - Body: layered branches preserved (no-host / loading-skills /
 //     error-skills / no-skills / no-skill-picked / loading-files /
 //     error-files / no-files / editor). Active tab renders SkillFileTab
-//     directly (Radix Tabs dropped — matches Runbook).
+//     directly (Radix Tabs dropped — matches Role skill).
 //   - Foot: canonical <ModalFoot> with Close (secondary) + Save
 //     (primary). Save dispatches to active tab's write. Per-tab draft
 //     state tracked at modal level via drafts Map + dirtySet.

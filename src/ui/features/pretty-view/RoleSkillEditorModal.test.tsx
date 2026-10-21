@@ -1,22 +1,22 @@
-// RunbookEditorModal — rename (folder ↔ name) coverage.
+// RoleSkillEditorModal — rename (folder ↔ name) coverage.
 
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import "@testing-library/jest-dom/vitest";
 import { render, screen, waitFor, fireEvent } from "@testing-library/react";
 
-vi.mock("@/api/runbooks-api", async (importOriginal) => {
+vi.mock("@/api/role-skills-api", async (importOriginal) => {
   const orig = (await importOriginal()) as Record<string, unknown>;
   return {
     ...orig,
-    enumerateRunbookFiles: vi.fn().mockResolvedValue([{ path: "ship.md" }, { path: "notes.md" }]),
-    readRunbookFile: vi.fn().mockResolvedValue({
+    enumerateRoleSkillFiles: vi.fn().mockResolvedValue([{ path: "notes.md" }, { path: "SKILL.md" }]),
+    readRoleSkillFile: vi.fn().mockResolvedValue({
       content: "---\nname: ship\n---\n# Ship\n",
       mtime: 1_700_000_042,
       size: 24,
       isText: true,
     }),
-    writeRunbookFile: vi.fn().mockResolvedValue({ mtime: 1_700_000_099 }),
-    renameRunbook: vi.fn().mockResolvedValue({ name: "deploy" }),
+    writeRoleSkillFile: vi.fn().mockResolvedValue({ mtime: 1_700_000_099 }),
+    renameRoleSkill: vi.fn().mockResolvedValue({ name: "deploy" }),
   };
 });
 
@@ -39,17 +39,17 @@ vi.mock("./SkillFileTab", () => ({
     ) : null,
 }));
 
-import RunbookEditorModal from "./RunbookEditorModal";
-import * as runbooksApi from "@/api/runbooks-api";
+import RoleSkillEditorModal from "./RoleSkillEditorModal";
+import * as roleSkillsApi from "@/api/role-skills-api";
 
 function renderModal(onRenamed = vi.fn()) {
   render(
-    <RunbookEditorModal
+    <RoleSkillEditorModal
       open={true}
       onOpenChange={vi.fn()}
       hostId={1}
       roleName="box-maintainer"
-      runbookName="ship"
+      roleSkillName="ship"
       onRenamed={onRenamed}
       container={document.body}
     />,
@@ -57,36 +57,42 @@ function renderModal(onRenamed = vi.fn()) {
   return onRenamed;
 }
 
-describe("RunbookEditorModal rename", () => {
+describe("RoleSkillEditorModal rename", () => {
   beforeEach(() => vi.clearAllMocks());
   afterEach(() => vi.restoreAllMocks());
 
-  it("the pencil renames the runbook and hands the new slug to the parent", async () => {
+  it("the pencil renames the role skill and hands the new slug to the parent", async () => {
     vi.spyOn(window, "prompt").mockReturnValue("Deploy");
     const onRenamed = renderModal();
     await screen.findByTestId("file-editor");
-    fireEvent.click(screen.getByTestId("runbook-editor-modal-rename-runbook"));
+    fireEvent.click(screen.getByTestId("role-skill-editor-modal-rename"));
     await waitFor(() => {
-      expect(runbooksApi.renameRunbook).toHaveBeenCalledWith(1, "box-maintainer", "ship", "deploy", undefined);
+      expect(roleSkillsApi.renameRoleSkill).toHaveBeenCalledWith(1, "box-maintainer", "ship", "deploy", undefined);
     });
     expect(onRenamed).toHaveBeenCalledWith("deploy");
   });
 
-  it("saving the main file with a changed name: renames with the draft riding along", async () => {
+  it("opens on SKILL.md even when another file sorts first", async () => {
+    renderModal();
+    await screen.findByTestId("file-editor");
+    expect(roleSkillsApi.readRoleSkillFile).toHaveBeenCalledWith(1, "box-maintainer", "ship", "SKILL.md");
+  });
+
+  it("saving SKILL.md with a changed name: renames with the draft riding along", async () => {
     vi.spyOn(window, "confirm").mockReturnValue(true);
     const onRenamed = renderModal();
     const editor = (await screen.findByTestId("file-editor")) as HTMLTextAreaElement;
     fireEvent.change(editor, { target: { value: "---\nname: deploy\n---\n# Ship\n" } });
-    await waitFor(() => expect(screen.getByTestId("runbook-editor-modal-save")).not.toBeDisabled());
-    fireEvent.click(screen.getByTestId("runbook-editor-modal-save"));
+    await waitFor(() => expect(screen.getByTestId("role-skill-editor-modal-save")).not.toBeDisabled());
+    fireEvent.click(screen.getByTestId("role-skill-editor-modal-save"));
     await waitFor(() => {
-      expect(runbooksApi.renameRunbook).toHaveBeenCalledWith(1, "box-maintainer", "ship", "deploy", {
-        path: "ship.md",
+      expect(roleSkillsApi.renameRoleSkill).toHaveBeenCalledWith(1, "box-maintainer", "ship", "deploy", {
+        path: "SKILL.md",
         content: "---\nname: deploy\n---\n# Ship\n",
         expectedMtime: 1_700_000_042,
       });
     });
-    expect(runbooksApi.writeRunbookFile).not.toHaveBeenCalled();
+    expect(roleSkillsApi.writeRoleSkillFile).not.toHaveBeenCalled();
     expect(onRenamed).toHaveBeenCalledWith("deploy");
   });
 });

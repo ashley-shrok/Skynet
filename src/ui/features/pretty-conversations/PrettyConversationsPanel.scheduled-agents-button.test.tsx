@@ -124,9 +124,9 @@ vi.mock("@/features/pretty-view/RoleModal", () => ({
     props.open ? <div data-testid="role-modal-stub" /> : null,
 }));
 
-vi.mock("@/features/pretty-view/RunbookEditorModal", () => ({
+vi.mock("@/features/pretty-view/RoleSkillEditorModal", () => ({
   default: (props: { open: boolean }) =>
-    props.open ? <div data-testid="runbook-editor-modal-stub" /> : null,
+    props.open ? <div data-testid="role-skill-editor-modal-stub" /> : null,
 }));
 
 // Additional scheduled-agents-specific mocks.

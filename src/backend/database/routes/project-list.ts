@@ -44,7 +44,7 @@
  *     databaseLogger.error only.
  *   - T-117-04-04 (DoS unauth flood): authenticateJWT gate on every route.
  *
- * Mounted at /projects in database.ts alongside /runbooks-editor.
+ * Mounted at /projects in database.ts alongside /role-skills-editor.
  */
 
 import type { AuthenticatedRequest } from "../../../types/index.js";

@@ -395,6 +395,9 @@ export function createServerSubstrateOrchestrator(
         if (bootstrap?.rolesKeyMigrationOk === false) {
           result = { ...result, itemsFailed: result.itemsFailed + 1 };
         }
+        if (bootstrap?.roleSkillsMigrationOk === false) {
+          result = { ...result, itemsFailed: result.itemsFailed + 1 };
+        }
       } catch (err) {
         // Belt-and-suspenders — the local helpers are already never-throw.
         // Any escape here is a code bug, not a runtime failure; log it and

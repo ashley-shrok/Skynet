@@ -23,9 +23,9 @@
 #           marker. Regression guard for the pre-multi-role-filename bug: hook
 #           wrote `last-snapshot.role` while watcher used `last-snapshot.role.<role>`,
 #           so the sync silently no-op'd on every role-file self-edit.
-#   T-S11 — sync-script runbook-baseline drift → atomic baseline overwrite +
-#           hash marker. Regression guard for the same bug class on runbooks:
-#           watcher writes `last-snapshot.runbook.<role>.<slug>`, hook was
+#   T-S11 — sync-script role-skill-baseline drift → atomic baseline overwrite +
+#           hash marker. Regression guard for the same bug class on role skills:
+#           watcher writes `last-snapshot.role-skill.<role>.<slug>`, hook was
 #           globbing with slug-only extraction and failing kebab-case validation.
 #   T-S12 — PreToolUse Edit payload claims the exact target; Post* with the
 #           same tool_use_id syncs the baseline then releases the claim
@@ -558,51 +558,51 @@ test_T_S10_sync_role_drift() {
 }
 
 # ============================================================
-# T-S11: sync-script runbook-baseline drift → atomic baseline overwrite + hash
-# marker. Regression guard: same bug class as T-S10 but for runbooks. Pre-fix
-# the hook globbed `last-snapshot.runbook.*` and treated the full suffix as the
+# T-S11: sync-script role-skill-baseline drift → atomic baseline overwrite + hash
+# marker. Regression guard: same bug class as T-S10 but for role skills. Pre-fix
+# the hook globbed `last-snapshot.role-skill.*` and treated the full suffix as the
 # slug, which failed kebab-case validation on the watcher's per-role names of
-# shape `last-snapshot.runbook.<role>.<slug>` (file-watch.py:483). Fix:
+# shape `last-snapshot.role-skill.<role>.<slug>` (file-watch.py:483). Fix:
 # split the suffix on first `.` into <role>.<slug> and route to
-# `~/fleet/roles/<role>/runbooks/<slug>/runbook.md`.
+# `~/fleet/roles/<role>/skills/<slug>/SKILL.md`.
 # ============================================================
-test_T_S11_sync_runbook_drift() {
+test_T_S11_sync_role_skill_drift() {
   seed_fixture "s11role" "s11name"
 
-  local runbook_dir="$HOME_DIR/fleet/roles/s11role/runbooks/deploy"
-  mkdir -p "$runbook_dir"
-  local runbook="$runbook_dir/runbook.md"
-  printf '# deploy runbook\n\nstep 1\n' > "$runbook"
+  local skill_dir="$HOME_DIR/fleet/roles/s11role/skills/deploy"
+  mkdir -p "$skill_dir"
+  local skill="$skill_dir/SKILL.md"
+  printf '# deploy role skill\n\nstep 1\n' > "$skill"
 
-  local baseline="$STATE_DIR/last-snapshot.runbook.s11role.deploy"
-  cp "$runbook" "$baseline"
+  local baseline="$STATE_DIR/last-snapshot.role-skill.s11role.deploy"
+  cp "$skill" "$baseline"
 
-  # Diverge the real runbook (simulates agent edit).
-  printf '# deploy runbook\n\nstep 1\nstep 2 — self-edit\n' > "$runbook"
+  # Diverge the real role skill (simulates agent edit).
+  printf '# deploy role skill\n\nstep 1\nstep 2 — self-edit\n' > "$skill"
 
-  if cmp -s "$runbook" "$baseline"; then
+  if cmp -s "$skill" "$baseline"; then
     fail "T-S11: fixture broken — baseline already equals real"
     return
   fi
 
   HOME="$HOME_DIR" FLEET_IDENTITY="s11name" bash "$SYNC_SCRIPT" </dev/null
 
-  if ! cmp -s "$runbook" "$baseline"; then
-    fail "T-S11: runbook baseline not refreshed after sync (bug would silently no-op here)"
+  if ! cmp -s "$skill" "$baseline"; then
+    fail "T-S11: role-skill baseline not refreshed after sync (bug would silently no-op here)"
     return
   fi
 
   local marker="$baseline.self-edit-hash"
   if [ ! -f "$marker" ]; then
-    fail "T-S11: runbook hash marker not written at $marker"
+    fail "T-S11: role-skill hash marker not written at $marker"
     return
   fi
 
   local expected recorded
-  expected=$(sha256sum "$runbook" | awk '{print $1}')
+  expected=$(sha256sum "$skill" | awk '{print $1}')
   recorded=$(cat "$marker" | tr -d '\n')
   if [ "$expected" != "$recorded" ]; then
-    fail "T-S11: runbook marker hash mismatch (expected=$expected got=$recorded)"
+    fail "T-S11: role-skill marker hash mismatch (expected=$expected got=$recorded)"
     return
   fi
 }
@@ -898,7 +898,7 @@ run_test test_T_S7_watcher_no_marker_fires
 run_test test_T_S8_role_injection_defense
 run_test test_T_S9_sync_id_skill
 run_test test_T_S10_sync_role_drift
-run_test test_T_S11_sync_runbook_drift
+run_test test_T_S11_sync_role_skill_drift
 run_test test_T_S12_claim_edit_then_release
 run_test test_T_S13_claim_bash_by_name
 run_test test_T_S14_watcher_holds_claimed_self_edit

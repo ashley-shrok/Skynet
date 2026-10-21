@@ -9,7 +9,7 @@
 # single values, bare comma-separated forms. The singular `role:` key is NOT read.
 # This driver covers the end-to-end watch: with multiple roles in the identity
 # frontmatter, both role files must be watched, edits to either must fire a
-# correctly-tagged event, per-role runbook baselines must not collide across
+# correctly-tagged event, per-role role-skill baselines must not collide across
 # roles, and legacy single-role baselines must migrate onto the primary role
 # so a substrate upgrade doesn't lose continuity.
 #
@@ -24,9 +24,9 @@
 #   T-M4 — legacy `last-snapshot.role` (previous single-role scheme) is
 #          promoted to `last-snapshot.role.<primary>` on cold-start, no
 #          spurious diff event fires.
-#   T-M5 — runbook slug that exists in BOTH roles (e.g. both have a
-#          "deploy" runbook) gets per-role baselines
-#          (`last-snapshot.runbook.<role>.<slug>`) and edits to one don't
+#   T-M5 — role-skill slug that exists in BOTH roles (e.g. both have a
+#          "deploy" role skill) gets per-role baselines
+#          (`last-snapshot.role-skill.<role>.<slug>`) and edits to one don't
 #          bleed into the other.
 #   T-M6 — bare comma-separated frontmatter (`roles: a, b`): both watched.
 #   T-M7 — no `roles:` key (only a singular `role:`, which is not read):
@@ -34,7 +34,7 @@
 #          file, id skill and project file, watches no role file, and logs
 #          no warning.
 #   T-M8 — role ADDED mid-session (identity-file edit): pointer line to the
-#          new role file (+ runbooks folder) emitted, watcher re-execs in
+#          new role file (+ role skills folder) emitted, watcher re-execs in
 #          place, the new role file is then watched.
 #   T-M9 — role REMOVED mid-session: removal line emitted, its baseline
 #          dropped, its edits go silent, the remaining role still fires.
@@ -368,22 +368,22 @@ test_T_M4_legacy_baseline_migration() {
 }
 
 # ============================================================
-# T-M5: same slug in two roles' runbooks trees gets per-role
+# T-M5: same slug in two roles' role-skill trees gets per-role
 # baselines and events don't collide.
 # ============================================================
-test_T_M5_runbook_slug_per_role() {
+test_T_M5_role_skill_slug_per_role() {
   local name="rbname"
   seed_multi_role_fixture "$name" "roles: [rbrolea, rbroleb]" rbrolea rbroleb
 
-  # Seed a `deploy` runbook in BOTH roles.
-  local rba="$HOME_DIR/fleet/roles/rbrolea/runbooks/deploy"
-  local rbb="$HOME_DIR/fleet/roles/rbroleb/runbooks/deploy"
+  # Seed a `deploy` role skill in BOTH roles.
+  local rba="$HOME_DIR/fleet/roles/rbrolea/skills/deploy"
+  local rbb="$HOME_DIR/fleet/roles/rbroleb/skills/deploy"
   mkdir -p "$rba" "$rbb"
-  printf 'rbrolea deploy v1\n' > "$rba/runbook.md"
-  printf 'rbroleb deploy v1\n' > "$rbb/runbook.md"
+  printf 'rbrolea deploy v1\n' > "$rba/SKILL.md"
+  printf 'rbroleb deploy v1\n' > "$rbb/SKILL.md"
 
-  local baseline_a="$IDENT_DIR/file-watch/last-snapshot.runbook.rbrolea.deploy"
-  local baseline_b="$IDENT_DIR/file-watch/last-snapshot.runbook.rbroleb.deploy"
+  local baseline_a="$IDENT_DIR/file-watch/last-snapshot.role-skill.rbrolea.deploy"
+  local baseline_b="$IDENT_DIR/file-watch/last-snapshot.role-skill.rbroleb.deploy"
 
   launch_watcher "$HOME_DIR" "$IDENT_DIR"
 
@@ -399,25 +399,25 @@ test_T_M5_runbook_slug_per_role() {
 
   # Old unprefixed baseline should NOT be created (that would prove the
   # old naming scheme is still in use — regression guard).
-  if [ -f "$IDENT_DIR/file-watch/last-snapshot.runbook.deploy" ]; then
-    fail "T-M5: unprefixed runbook baseline created — regression"
+  if [ -f "$IDENT_DIR/file-watch/last-snapshot.role-skill.deploy" ]; then
+    fail "T-M5: unprefixed role-skill baseline created — regression"
     return
   fi
 
-  # Edit rbrolea's deploy → expect [runbook: rbrolea/deploy] event, NOT rbroleb.
-  atomic_write "$rba/runbook.md" "rbrolea deploy v2 — updated
+  # Edit rbrolea's deploy → expect [role-skill: rbrolea/deploy] event, NOT rbroleb.
+  atomic_write "$rba/SKILL.md" "rbrolea deploy v2 — updated
 "
-  if ! wait_for_stdout_match '📝 \[runbook: rbrolea/deploy\]' "$OUT_LOG"; then
+  if ! wait_for_stdout_match '📝 \[role-skill: rbrolea/deploy\]' "$OUT_LOG"; then
     fail "T-M5: no rbrolea/deploy event; out=$(cat "$OUT_LOG"); err=$(cat "$ERR_LOG")"
     return
   fi
-  # rbroleb baseline must NOT have moved (its runbook wasn't touched).
+  # rbroleb baseline must NOT have moved (its role skill wasn't touched).
   if ! grep -q "rbroleb deploy v1" "$baseline_b" 2>/dev/null; then
     fail "T-M5: rbroleb baseline mutated by rbrolea edit — cross-role bleed"
     return
   fi
   # And no rbroleb event should have fired.
-  if grep -q '📝 \[runbook: rbroleb/deploy\]' "$OUT_LOG" 2>/dev/null; then
+  if grep -q '📝 \[role-skill: rbroleb/deploy\]' "$OUT_LOG" 2>/dev/null; then
     fail "T-M5: rbroleb event fired when only rbrolea was edited"
     return
   fi
@@ -499,7 +499,7 @@ write_identity_fm() {
 test_T_M8_role_added_mid_session() {
   local name="addname"
   seed_multi_role_fixture "$name" "roles: addbase" addbase addnew
-  mkdir -p "$HOME_DIR/fleet/roles/addnew/runbooks"
+  mkdir -p "$HOME_DIR/fleet/roles/addnew/skills"
   local bdir="$IDENT_DIR/file-watch"
   launch_watcher "$HOME_DIR" "$IDENT_DIR"
   if ! wait_for_baseline "$bdir/last-snapshot.identity"; then
@@ -511,7 +511,7 @@ test_T_M8_role_added_mid_session() {
   fi
   write_identity_fm "roles: [addbase, addnew]"
   local rf="$HOME_DIR/fleet/roles/addnew/addnew.md"
-  if ! wait_for_stdout_match "📝 \[role-file: addnew\] you now hold role addnew — Read $rf \(runbooks: $HOME_DIR/fleet/roles/addnew/runbooks\)" "$OUT_LOG"; then
+  if ! wait_for_stdout_match "📝 \[role-file: addnew\] you now hold role addnew — Read $rf \(role skills: $HOME_DIR/fleet/roles/addnew/skills\)" "$OUT_LOG"; then
     fail "T-M8: no add pointer; out=$(cat "$OUT_LOG"); err=$(cat "$ERR_LOG")"; return
   fi
   if ! wait_for_baseline "$bdir/last-snapshot.role.addnew"; then
@@ -766,13 +766,74 @@ task: edited $i"
   done
 }
 
+# ============================================================
+# T-M15: runbook → role-skill conversion. A baseline the watcher kept under
+# the old runbook name (`last-snapshot.runbook.<role>.<slug>`, content already
+# matching the converted SKILL.md) is renamed onto the role-skill name at
+# startup and diffs clean — no notice. A role skill added afterwards emits
+# its description with the Read pointer.
+# ============================================================
+test_T_M15_runbook_baseline_renamed_and_added_has_description() {
+  local name="convname"
+  seed_multi_role_fixture "$name" "roles: [convrole]" convrole
+
+  local sk="$HOME_DIR/fleet/roles/convrole/skills/deploy"
+  mkdir -p "$sk" "$IDENT_DIR/file-watch" "$HOME_DIR/fleet/roles/convrole/runbooks/pending"
+  printf -- '---\nname: deploy\ndescription: Ship it.\n---\nsteps\n' > "$sk/SKILL.md"
+  ln -s ../skills/deploy "$HOME_DIR/fleet/roles/convrole/runbooks/deploy"
+  cp "$sk/SKILL.md" "$IDENT_DIR/file-watch/last-snapshot.runbook.convrole.deploy"
+  # A runbook not converted yet keeps its old baseline and says nothing.
+  printf 'p\n' > "$HOME_DIR/fleet/roles/convrole/runbooks/pending/runbook.md"
+  printf 'p\n' > "$IDENT_DIR/file-watch/last-snapshot.runbook.convrole.pending"
+
+  launch_watcher "$HOME_DIR" "$IDENT_DIR"
+
+  local migrated="$IDENT_DIR/file-watch/last-snapshot.role-skill.convrole.deploy"
+  if ! wait_for_baseline "$migrated"; then
+    fail "T-M15: runbook baseline not renamed onto role-skill (err=$(cat "$ERR_LOG"))"
+    return
+  fi
+  if [ -e "$IDENT_DIR/file-watch/last-snapshot.runbook.convrole.deploy" ]; then
+    fail "T-M15: legacy runbook baseline left behind"
+    return
+  fi
+
+  local added="$HOME_DIR/fleet/roles/convrole/skills/restore"
+  mkdir -p "$added"
+  atomic_write "$added/SKILL.md" "---
+name: restore
+description: >-
+  Bring a backup
+  back.
+---
+steps
+"
+  if ! wait_for_stdout_match "📝 \[role-skill: convrole/restore\] added — Bring a backup back\. — Read $added/SKILL.md" "$OUT_LOG"; then
+    fail "T-M15: added notice missing description; out=$(cat "$OUT_LOG"); err=$(cat "$ERR_LOG")"
+    return
+  fi
+  if [ ! -f "$IDENT_DIR/file-watch/last-snapshot.runbook.convrole.pending" ] \
+     || [ -e "$IDENT_DIR/file-watch/last-snapshot.role-skill.convrole.pending" ]; then
+    fail "T-M15: an unconverted runbook's baseline was moved"
+    return
+  fi
+  if grep -q 'convrole/pending' "$OUT_LOG" 2>/dev/null; then
+    fail "T-M15: unconverted runbook emitted a notice; out=$(cat "$OUT_LOG")"
+    return
+  fi
+  if grep -q 'convrole/deploy' "$OUT_LOG" 2>/dev/null; then
+    fail "T-M15: converted role skill emitted a notice; out=$(cat "$OUT_LOG")"
+    return
+  fi
+}
+
 # ---- run ----
 
 run_test test_T_M1_flow_list_both_watched
 run_test test_T_M2_block_sequence_both_watched
 run_test test_T_M3_missing_role_skipped
 run_test test_T_M4_legacy_baseline_migration
-run_test test_T_M5_runbook_slug_per_role
+run_test test_T_M5_role_skill_slug_per_role
 run_test test_T_M6_bare_comma_both_watched
 run_test test_T_M7_no_roles_key_keeps_running
 run_test test_T_M8_role_added_mid_session
@@ -782,6 +843,7 @@ run_test test_T_M11_last_role_removed
 run_test test_T_M12_first_role_added
 run_test test_T_M13_last_role_removed_via_null
 run_test test_T_M14_startup_null_roles_keeps_running
+run_test test_T_M15_runbook_baseline_renamed_and_added_has_description
 
 # ---- summary ----
 

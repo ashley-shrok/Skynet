@@ -1,7 +1,7 @@
 /**
  * Serving files read over SFTP as HTTP responses — shared by every route
  * that hands a remote file to the browser (`GET /file/:host/*`, workspace
- * `/download`, skills / runbooks editor `/download`).
+ * `/download`, skills / role skills editor `/download`).
  *
  * - Per-extension content-type dispatch with an XSS-safe disposition lane
  *   (html / js / svg are always attachment) and a text/binary sniff

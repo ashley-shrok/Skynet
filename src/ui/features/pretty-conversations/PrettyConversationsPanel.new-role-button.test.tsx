@@ -118,7 +118,7 @@ vi.mock("@/state/session-working-store", () => ({
 
 // Phase 137 D-29: GlobalFilesModal retired — mock removed.
 
-// Phase 90 Plan 90-06: mock SkillsEditorModal + RoleModal + RunbookEditorModal
+// Phase 90 Plan 90-06: mock SkillsEditorModal + RoleModal + RoleSkillEditorModal
 // so the panel mounts them as stubs. RolesListModal we let render for real —
 // it's the one whose "Roles" title we assert on.
 vi.mock("@/features/pretty-view/SkillsEditorModal", () => ({
@@ -129,9 +129,9 @@ vi.mock("@/features/pretty-view/RoleModal", () => ({
   RoleModal: (props: { open: boolean }) =>
     props.open ? <div data-testid="role-modal-stub" /> : null,
 }));
-vi.mock("@/features/pretty-view/RunbookEditorModal", () => ({
+vi.mock("@/features/pretty-view/RoleSkillEditorModal", () => ({
   default: (props: { open: boolean }) =>
-    props.open ? <div data-testid="runbook-editor-modal-stub" /> : null,
+    props.open ? <div data-testid="role-skill-editor-modal-stub" /> : null,
 }));
 
 // Mock the identities API listRolesForHost so RolesListModal renders without a

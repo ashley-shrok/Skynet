@@ -37,7 +37,7 @@ export function FileSpeakButton({
   );
   if (speech.length === 0) return null;
   // Keyed by filename: switching files in a host that reuses the viewer
-  // (skills/runbook editor tabs) remounts, and the unmount stops playback.
+  // (skills/role skill editor tabs) remounts, and the unmount stops playback.
   return <SpeakButton key={filename} speech={speech} className={className} />;
 }
 

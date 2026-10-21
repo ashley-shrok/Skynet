@@ -102,10 +102,10 @@ vi.mock("@/state/identities-store", async (importOriginal) => {
   };
 });
 
-// Phase 89 Plan 05: RunbooksTab (mounted inside IdentityModal) calls listRunbooks
+// Phase 89 Plan 05: RoleSkillsTab (mounted inside IdentityModal) calls listRoleSkills
 // via HTTP. Mock it to return an empty list so the tab renders without a network call.
-vi.mock("@/api/runbooks-api", () => ({
-  listRunbooks: vi.fn().mockResolvedValue([]),
+vi.mock("@/api/role-skills-api", () => ({
+  listRoleSkills: vi.fn().mockResolvedValue([]),
 }));
 
 // Phase 112 Plan 03 — AddWakeupDialog's instruction field now routes through

@@ -1,52 +1,58 @@
 /**
- * Phase 89 (Plan 89-02): /runbooks-editor Express router — 7 endpoints.
+ * /role-skills-editor Express router — role skills (`~/fleet/roles/<role>/skills/<name>/`;
+ * runbooks until 2026-10). Started as Phase 89's /runbooks-editor.
  *
  * Byte-shape mirror of Phase 44's `skills-editor.ts` with three structural
  * adaptations:
  *   1. **Role dimension** replaces `hostId` alone: requests carry
- *      `(hostId, roleName, [runbookName], [relativePath])`. Runbooks live at
- *      `~/fleet/roles/<roleName>/runbooks/<runbookName>/...` on the remote host.
- *   2. **Role validation 404**: before any runbook I/O, the backend checks that
+ *      `(hostId, roleName, [skillName], [relativePath])`. Role skills live at
+ *      `~/fleet/roles/<roleName>/skills/<skillName>/...` on the remote host.
+ *   2. **Role validation 404**: before any skill I/O, the backend checks that
  *      `~/fleet/roles/<roleName>/` exists on the host and returns 404
- *      `{error:"role not found"}` if not (D-15). Missing runbooks folder within
+ *      `{error:"role not found"}` if not (D-15). Missing role skills folder within
  *      a valid role is empty-list-not-404 (mirrors skills' "missing = empty state"
  *      posture — same as skills-editor.ts L294-302).
  *   3. **Path-safety gate widens**: adds `ROLE_NAME_RE` regex gate (identical
- *      shape to `SKILL_NAME_RE`) alongside the existing `RUNBOOK_NAME_RE` +
+ *      shape to `SKILL_NAME_RE`) alongside `SKILL_NAME_RE` +
  *      `isSafeRelativePath`. Per D-16 no path traversal via `roleName` or
- *      `runbookName` — both regex-gated BEFORE any SSH connection opens.
+ *      `skillName` — both regex-gated BEFORE any SSH connection opens.
  *
  * Endpoints (all gated by authenticateJWT + resolveHostById(hostId, userId)):
- *   GET  /runbooks-editor/runbooks?hostId=<n>&role=<r>
- *     → 200 { runbooks: [{name}] } sorted alphabetically; empty array when
- *       `~/fleet/roles/<r>/runbooks/` is missing OR empty (matches skills'
+ *   GET  /role-skills-editor/skills?hostId=<n>&role=<r>
+ *     → 200 { skills: [{name}] } sorted alphabetically; empty array when
+ *       `~/fleet/roles/<r>/skills/` is missing OR empty (matches skills'
  *       "missing = empty state" posture per skills-editor.ts L294-302); 404
  *       `{error:"role not found"}` when `~/fleet/roles/<r>/` itself is absent
  *       (per D-15).
- *   GET  /runbooks-editor/files?hostId=<n>&role=<r>&runbook=<b>
- *     → 200 { files: [{path}] } — recursive `find <runbookRoot> -type f
- *       -printf '%P\n' | sort`; empty when the runbook folder has no files.
- *   POST /runbooks-editor/read      { hostId, role, runbook, path }
+ *   GET  /role-skills-editor/files?hostId=<n>&role=<r>&skill=<b>
+ *     → 200 { files: [{path}] } — recursive `find <skillRoot> -type f
+ *       -printf '%P\n' | sort`; empty when the skill folder has no files.
+ *   POST /role-skills-editor/read      { hostId, role, skill, path }
  *     → 200 { content, mtime, size, isText } — content is "" when !isText.
- *   PUT  /runbooks-editor/write     { hostId, role, runbook, path, content, expectedMtime? }
+ *   PUT  /role-skills-editor/write     { hostId, role, skill, path, content, expectedMtime? }
  *     → 200 { mtime } | 409 { error:"mtime mismatch", currentMtime, currentContent }
  *       (byte-identical 409 shape to skills-editor).
- *   POST /runbooks-editor/create    { hostId, role, runbook, path }
+ *   POST /role-skills-editor/create    { hostId, role, skill, path }
  *     → 200 { path, mtime } | 409 { error:"file exists" }.
- *   DELETE /runbooks-editor/file    { hostId, role, runbook, path }
+ *   DELETE /role-skills-editor/file    { hostId, role, skill, path }
  *     → 200 { ok:true } (idempotent — `rm -f` swallows missing files).
- *   DELETE /runbooks-editor/runbook { hostId, role, runbook }
- *     → 200 { ok:true } (removes the runbook folder recursively — path-safety
+ *   POST /role-skills-editor/skill   { hostId, role, skill, description }
+ *     → 200 { slug, mtime } — creates the role skill with a standard SKILL.md
+ *       seed | 409 { error:"skill exists" }.
+ *   POST /role-skills-editor/rename  { hostId, role, skill, newName, … }
+ *     → 200 { name } (see the route for the draft-save fields).
+ *   DELETE /role-skills-editor/skill { hostId, role, skill }
+ *     → 200 { ok:true } (removes the skill folder recursively — path-safety
  *       gate is LIFE-CRITICAL; two-layer defense assertion runs before shell exec).
  *
  * Security posture (STRIDE mitigations — see 89-02-PLAN.md <threat_model>):
  *   - `ROLE_NAME_RE` `/^[a-zA-Z0-9._-]{1,128}$/` rejects `.`, `..`, `/`, and
  *     every shell metacharacter at input validation — BEFORE resolveHostById +
- *     SSH connect. `RUNBOOK_NAME_RE` (identical shape) gates the runbook name
+ *     SSH connect. `SKILL_NAME_RE` (identical shape) gates the skill name
  *     dimension. `isSafeRelativePath` rejects `..` segments, leading `/`, NUL
  *     bytes, empty segments, and paths over 512 chars — ALL three gates fire
  *     BEFORE any SSH connection is opened.
- *   - Belt-and-suspenders `absPath.startsWith(runbookRoot + "/")` prefix
+ *   - Belt-and-suspenders `absPath.startsWith(skillRoot + "/")` prefix
  *     assertion post-compose. Regex gates make it unreachable but the invariant
  *     is asserted anyway (defense in depth).
  *   - `shellEscape` single-quote wraps every user-supplied value before shell
@@ -60,9 +66,9 @@
  *     `{error:"SSH connect failed"}`, `{error:"role not found"}` etc.) — never
  *     leak stderr, remote paths, or credential fragments.
  *
- * Mount: app.use("/runbooks-editor", runbooksEditorRoutes) in database.ts
+ * Mount: app.use("/role-skills-editor", roleSkillsEditorRoutes) in database.ts
  * alongside /skills-editor. Nginx: BOTH docker/nginx.conf AND
- * docker/nginx-https.conf need `location ~ ^/runbooks-editor(/.*)?$` blocks
+ * docker/nginx-https.conf need `location ~ ^/role-skills-editor(/.*)?$` blocks
  * (parity load-bearing per patch #446 arc).
  */
 
@@ -83,6 +89,7 @@ import {
   nameMismatchesFolder,
   refuseIfNameMismatch,
   withFrontmatterName,
+  composeSkillMdSeed,
 } from "../../utils/folder-item-name.js";
 
 const router = express.Router();
@@ -119,16 +126,16 @@ const MAX_CONTENT_BYTES = 2_000_000;
 const ROLE_NAME_RE = /^[a-zA-Z0-9._-]{1,128}$/;
 
 /**
- * Runbook-name gate: alphanumeric, hyphen, underscore, dot; 1-128 chars.
+ * Role skill-name gate: alphanumeric, hyphen, underscore, dot; 1-128 chars.
  * Rejects `.`, `..`, empty, anything with a `/`, backslash, shell metachars,
  * spaces. Runs BEFORE resolveHostById + SSH connect on every endpoint.
  * Identical shape to SKILL_NAME_RE in skills-editor.ts:103.
  */
-const RUNBOOK_NAME_RE = /^[a-zA-Z0-9._-]{1,128}$/;
+const SKILL_NAME_RE = /^[a-zA-Z0-9._-]{1,128}$/;
 
 /**
  * Relative path root for roles on the remote host.
- * Runbook root is composed as `${remoteHome}/${ROLE_ROOT_REL}/${role}/runbooks/${runbook}`.
+ * Role skill root is composed as `${remoteHome}/${ROLE_ROOT_REL}/${role}/skills/${skill}`.
  * Mirrors SKILL_ROOT_REL = ".claude/skills" in skills-editor.ts:109.
  * Updated Phase 96 (D-01/D-02): roles now live under ~/fleet/roles/ on the managed host.
  */
@@ -159,7 +166,7 @@ function execWithTimeout(
 
 /**
  * Single-quote-escape helper for interpolating user-supplied values into
- * bash commands. The regex gates (isValidRoleName + isValidRunbookName +
+ * bash commands. The regex gates (isValidRoleName + isValidSkillName +
  * isSafeRelativePath) are the AUTH gate; shellEscape is the INJECTION gate —
  * both required per Phase 23's PATTERNS trap #3.
  * Pattern: `abc'def` → `'abc'"'"'def'`
@@ -181,14 +188,14 @@ function isValidRoleName(v: unknown): v is string {
 }
 
 /**
- * Runbook-name AUTH gate. Rejects any value that could escape the runbook root
- * (via `..`) or inject shell metachars. Returns true only for a RUNBOOK_NAME_RE
+ * Role skill-name AUTH gate. Rejects any value that could escape the skill root
+ * (via `..`) or inject shell metachars. Returns true only for a SKILL_NAME_RE
  * match that is not `.` or `..`. Runs BEFORE any I/O.
  */
-function isValidRunbookName(v: unknown): v is string {
+function isValidSkillName(v: unknown): v is string {
   if (typeof v !== "string") return false;
   if (v === "." || v === "..") return false;
-  return RUNBOOK_NAME_RE.test(v);
+  return SKILL_NAME_RE.test(v);
 }
 
 /**
@@ -205,12 +212,9 @@ async function readRemoteText(
   ).toString("utf-8");
 }
 
-/**
- * True for a runbook's main markdown: `runbook.md` (the id skill's
- * convention) or `<runbook>.md` (older runbooks named after their folder).
- */
-function isMainRunbookFile(relPath: string, runbook: string): boolean {
-  return relPath === "runbook.md" || relPath === `${runbook}.md`;
+/** True for a role skill's main file. */
+function isMainSkillFile(relPath: unknown): boolean {
+  return relPath === "SKILL.md";
 }
 
 /**
@@ -221,8 +225,8 @@ function isMainRunbookFile(relPath: string, runbook: string): boolean {
  *   - leading `/` (absolute paths)
  *   - NUL byte
  *   - any `..`, `.`, or empty segment when split by `/`
- * Runs BEFORE any I/O. Complements ROLE_NAME_RE + RUNBOOK_NAME_RE gates on the
- * role/runbook dimensions. Together they make the belt-and-suspenders prefix
+ * Runs BEFORE any I/O. Complements ROLE_NAME_RE + SKILL_NAME_RE gates on the
+ * role/skill dimensions. Together they make the belt-and-suspenders prefix
  * assertion unreachable in normal flow — but the assertion runs anyway.
  * Duplicated from skills-editor.ts L170-179 (fifth instance in the chain).
  */
@@ -272,18 +276,18 @@ function detectIsText(buf: Buffer): boolean {
 }
 
 // ---------------------------------------------------------------------------
-// GET /runbooks-editor/runbooks?hostId=<n>&role=<r>
+// GET /role-skills-editor/skills?hostId=<n>&role=<r>
 // ---------------------------------------------------------------------------
 
 /**
- * List runbooks for a role on the host — `find ~/fleet/roles/<r>/runbooks
+ * List role skills for a role on the host — `find ~/fleet/roles/<r>/role skills
  * -mindepth 1 -maxdepth 1 -type d -printf '%f\n' | sort`. Returns empty array
- * when the runbooks directory is missing (not 404 — mirrors skills' "missing =
+ * when the role skills directory is missing (not 404 — mirrors skills' "missing =
  * empty state"). Returns 404 `{error:"role not found"}` when the role folder
  * itself is absent (D-15 — separate exec to avoid masking role-missing as empty).
  */
 router.get(
-  "/runbooks",
+  "/skills",
   authenticateJWT,
   async (req: Request, res: Response): Promise<void> => {
     const userId = (req as AuthenticatedRequest).userId;
@@ -324,8 +328,8 @@ router.get(
           SSH_CONNECT_TIMEOUT_MS,
         );
       } catch (err) {
-        sshLogger.warn("runbooks-editor runbooks: SSH connect failed", {
-          operation: "runbooks_editor_runbooks_connect",
+        sshLogger.warn("role-skills-editor skills: SSH connect failed", {
+          operation: "role_skills_editor_skills_connect",
           hostId,
           role,
           error: err instanceof Error ? err.message : "Unknown",
@@ -339,8 +343,8 @@ router.get(
         await execWithTimeout(conn, "echo $HOME")
       ).trim();
       if (!remoteHome || remoteHome.startsWith("~")) {
-        sshLogger.warn("runbooks-editor runbooks: could not resolve remote HOME", {
-          operation: "runbooks_editor_runbooks_home",
+        sshLogger.warn("role-skills-editor skills: could not resolve remote HOME", {
+          operation: "role_skills_editor_skills_home",
           hostId,
           role,
           remoteHome,
@@ -354,9 +358,9 @@ router.get(
       const escapedRoleRoot = shellEscape(roleRoot);
 
       // 7. D-15 role-existence check — separate exec so "role missing" is NOT
-      //    masked as "no runbooks" by the find command's 2>/dev/null stderr swallow.
-      sshLogger.info("runbooks-editor runbooks: checking role existence", {
-        operation: "runbooks_editor_runbooks_role_check",
+      //    masked as "no role skills" by the find command's 2>/dev/null stderr swallow.
+      sshLogger.info("role-skills-editor skills: checking role existence", {
+        operation: "role_skills_editor_skills_role_check",
         hostId,
         role,
       });
@@ -367,8 +371,8 @@ router.get(
         )
       ).trim();
       if (roleCheckOutput !== "ok") {
-        sshLogger.warn("runbooks-editor runbooks: role not found", {
-          operation: "runbooks_editor_runbooks_role_missing",
+        sshLogger.warn("role-skills-editor skills: role not found", {
+          operation: "role_skills_editor_skills_role_missing",
           hostId,
           role,
         });
@@ -376,31 +380,31 @@ router.get(
         return;
       }
 
-      // 8. Compose runbooksRoot.
-      const runbooksRoot = `${roleRoot}/runbooks`;
-      const escapedRunbooksRoot = shellEscape(runbooksRoot);
+      // 8. Compose skillsRoot.
+      const skillsRoot = `${roleRoot}/skills`;
+      const escapedSkillsRoot = shellEscape(skillsRoot);
 
-      // 9. List runbook subfolders. 2>/dev/null swallows the missing-runbooks-folder
+      // 9. List skill subfolders. 2>/dev/null swallows the missing-skills-folder
       //    case → empty output → empty list (matches skills' "missing = empty state").
-      sshLogger.info("runbooks-editor runbooks: listing runbooks", {
-        operation: "runbooks_editor_runbooks_find",
+      sshLogger.info("role-skills-editor skills: listing role skills", {
+        operation: "role_skills_editor_skills_find",
         hostId,
         role,
       });
-      const listCmd = `find ${escapedRunbooksRoot} -mindepth 1 -maxdepth 1 -type d -printf '%f\\n' 2>/dev/null | sort`;
+      const listCmd = `find ${escapedSkillsRoot} -mindepth 1 -maxdepth 1 -type d -printf '%f\\n' 2>/dev/null | sort`;
       const output = await execWithTimeout(conn, listCmd);
 
       // 10. Parse, filter, map.
-      const runbooks = output
+      const skills = output
         .split("\n")
         .map((line) => line.trim())
         .filter((line) => line.length > 0)
         .map((name) => ({ name }));
 
-      res.json({ runbooks });
+      res.json({ skills });
     } catch (err) {
-      sshLogger.error("runbooks-editor runbooks: unexpected error", {
-        operation: "runbooks_editor_runbooks_error",
+      sshLogger.error("role-skills-editor skills: unexpected error", {
+        operation: "role_skills_editor_skills_error",
         hostId,
         role,
         error: err instanceof Error ? err.message : "Unknown",
@@ -421,13 +425,13 @@ router.get(
 );
 
 // ---------------------------------------------------------------------------
-// GET /runbooks-editor/files?hostId=<n>&role=<r>&runbook=<b>
+// GET /role-skills-editor/files?hostId=<n>&role=<r>&skill=<b>
 // ---------------------------------------------------------------------------
 
 /**
- * List files inside a runbook (recursively, path-relative to the runbook root).
- * `find <runbookRoot> -type f -printf '%P\n' | sort`. Returns empty array when
- * the runbook has no files (or does not exist — "missing = empty state" posture,
+ * List files inside a skill (recursively, path-relative to the skill root).
+ * `find <skillRoot> -type f -printf '%P\n' | sort`. Returns empty array when
+ * the skill has no files (or does not exist — "missing = empty state" posture,
  * mirroring skills-editor.ts L404-412). Returns 404 `{error:"role not found"}`
  * when the role folder itself is absent (D-15).
  */
@@ -457,13 +461,13 @@ router.get(
     }
     const role = rawRole;
 
-    // 3. Runbook AUTH gate — BEFORE any I/O.
-    const rawRunbook = req.query.runbook;
-    if (!isValidRunbookName(rawRunbook)) {
-      res.status(400).json({ error: "invalid runbook name" });
+    // 3. Role skill AUTH gate — BEFORE any I/O.
+    const rawSkill = req.query.skill;
+    if (!isValidSkillName(rawSkill)) {
+      res.status(400).json({ error: "invalid skill name" });
       return;
     }
-    const runbook = rawRunbook;
+    const skill = rawSkill;
 
     // 4. Per-user host isolation.
     const host = await resolveHostById(hostId, userId);
@@ -481,11 +485,11 @@ router.get(
           SSH_CONNECT_TIMEOUT_MS,
         );
       } catch (err) {
-        sshLogger.warn("runbooks-editor files: SSH connect failed", {
-          operation: "runbooks_editor_files_connect",
+        sshLogger.warn("role-skills-editor files: SSH connect failed", {
+          operation: "role_skills_editor_files_connect",
           hostId,
           role,
-          runbook,
+          skill,
           error: err instanceof Error ? err.message : "Unknown",
         });
         res.status(502).json({ error: "SSH connect failed" });
@@ -497,11 +501,11 @@ router.get(
         await execWithTimeout(conn, "echo $HOME")
       ).trim();
       if (!remoteHome || remoteHome.startsWith("~")) {
-        sshLogger.warn("runbooks-editor files: could not resolve remote HOME", {
-          operation: "runbooks_editor_files_home",
+        sshLogger.warn("role-skills-editor files: could not resolve remote HOME", {
+          operation: "role_skills_editor_files_home",
           hostId,
           role,
-          runbook,
+          skill,
           remoteHome,
         });
         res.status(502).json({ error: "could not resolve remote HOME" });
@@ -511,11 +515,11 @@ router.get(
       // 7. D-15 role-existence check.
       const roleRoot = `${remoteHome}/${ROLE_ROOT_REL}/${role}`;
       const escapedRoleRoot = shellEscape(roleRoot);
-      sshLogger.info("runbooks-editor files: checking role existence", {
-        operation: "runbooks_editor_files_role_check",
+      sshLogger.info("role-skills-editor files: checking role existence", {
+        operation: "role_skills_editor_files_role_check",
         hostId,
         role,
-        runbook,
+        skill,
       });
       const roleCheckOutput = (
         await execWithTimeout(
@@ -524,28 +528,28 @@ router.get(
         )
       ).trim();
       if (roleCheckOutput !== "ok") {
-        sshLogger.warn("runbooks-editor files: role not found", {
-          operation: "runbooks_editor_files_role_missing",
+        sshLogger.warn("role-skills-editor files: role not found", {
+          operation: "role_skills_editor_files_role_missing",
           hostId,
           role,
-          runbook,
+          skill,
         });
         res.status(404).json({ error: "role not found" });
         return;
       }
 
-      // 8. Compose runbookRoot.
-      const runbookRoot = `${roleRoot}/runbooks/${runbook}`;
-      const escapedRunbookRoot = shellEscape(runbookRoot);
+      // 8. Compose skillRoot.
+      const skillRoot = `${roleRoot}/skills/${skill}`;
+      const escapedSkillRoot = shellEscape(skillRoot);
 
-      // 9. List files recursively. 2>/dev/null swallows missing runbook folder.
-      sshLogger.info("runbooks-editor files: listing files", {
-        operation: "runbooks_editor_files_find",
+      // 9. List files recursively. 2>/dev/null swallows missing skill folder.
+      sshLogger.info("role-skills-editor files: listing files", {
+        operation: "role_skills_editor_files_find",
         hostId,
         role,
-        runbook,
+        skill,
       });
-      const listCmd = `find ${escapedRunbookRoot} -type f -printf '%P\\n' 2>/dev/null | sort`;
+      const listCmd = `find ${escapedSkillRoot} -type f -printf '%P\\n' 2>/dev/null | sort`;
       const output = await execWithTimeout(conn, listCmd);
 
       // 10. Parse, filter, map.
@@ -557,11 +561,11 @@ router.get(
 
       res.json({ files });
     } catch (err) {
-      sshLogger.error("runbooks-editor files: unexpected error", {
-        operation: "runbooks_editor_files_error",
+      sshLogger.error("role-skills-editor files: unexpected error", {
+        operation: "role_skills_editor_files_error",
         hostId,
         role,
-        runbook,
+        skill,
         error: err instanceof Error ? err.message : "Unknown",
       });
       if (!res.headersSent) {
@@ -580,11 +584,11 @@ router.get(
 );
 
 // ---------------------------------------------------------------------------
-// POST /runbooks-editor/read
+// POST /role-skills-editor/read
 // ---------------------------------------------------------------------------
 
 /**
- * Read a file inside a runbook. Returns { content, mtime, size, isText };
+ * Read a file inside a skill. Returns { content, mtime, size, isText };
  * content is "" when !isText (frontend renders the "Not a text file"
  * placeholder branch — bandwidth-saving decision). Missing file →
  * { content:"", mtime:0, size:0, isText:true } (cat + stat swallow errors).
@@ -593,7 +597,7 @@ router.get(
 router.post(
   "/read",
   authenticateJWT,
-  express.json({ limit: "32kb" }), // hostId + role + runbook + path only
+  express.json({ limit: "32kb" }), // hostId + role + skill + path only
   async (req: Request, res: Response): Promise<void> => {
     const userId = (req as AuthenticatedRequest).userId;
 
@@ -601,7 +605,7 @@ router.post(
     const body = (req.body ?? {}) as Record<string, unknown>;
     const rawHostId = body.hostId;
     const rawRole = body.role;
-    const rawRunbook = body.runbook;
+    const rawSkill = body.skill;
     const rawPath = body.path;
 
     if (
@@ -616,8 +620,8 @@ router.post(
       res.status(400).json({ error: "invalid role name" });
       return;
     }
-    if (!isValidRunbookName(rawRunbook)) {
-      res.status(400).json({ error: "invalid runbook name" });
+    if (!isValidSkillName(rawSkill)) {
+      res.status(400).json({ error: "invalid skill name" });
       return;
     }
     if (!isSafeRelativePath(rawPath)) {
@@ -626,7 +630,7 @@ router.post(
     }
     const hostId = rawHostId;
     const role = rawRole;
-    const runbook = rawRunbook;
+    const skill = rawSkill;
     const relPath = rawPath;
 
     // 2. Per-user host isolation.
@@ -645,11 +649,11 @@ router.post(
           SSH_CONNECT_TIMEOUT_MS,
         );
       } catch (err) {
-        sshLogger.warn("runbooks-editor read: SSH connect failed", {
-          operation: "runbooks_editor_read_connect",
+        sshLogger.warn("role-skills-editor read: SSH connect failed", {
+          operation: "role_skills_editor_read_connect",
           hostId,
           role,
-          runbook,
+          skill,
           error: err instanceof Error ? err.message : "Unknown",
         });
         res.status(502).json({ error: "SSH connect failed" });
@@ -661,11 +665,11 @@ router.post(
         await execWithTimeout(conn, "echo $HOME")
       ).trim();
       if (!remoteHome || remoteHome.startsWith("~")) {
-        sshLogger.warn("runbooks-editor read: could not resolve remote HOME", {
-          operation: "runbooks_editor_read_home",
+        sshLogger.warn("role-skills-editor read: could not resolve remote HOME", {
+          operation: "role_skills_editor_read_home",
           hostId,
           role,
-          runbook,
+          skill,
           remoteHome,
         });
         res.status(502).json({ error: "could not resolve remote HOME" });
@@ -675,11 +679,11 @@ router.post(
       // 5. D-15 role-existence check.
       const roleRoot = `${remoteHome}/${ROLE_ROOT_REL}/${role}`;
       const escapedRoleRoot = shellEscape(roleRoot);
-      sshLogger.info("runbooks-editor read: checking role existence", {
-        operation: "runbooks_editor_read_role_check",
+      sshLogger.info("role-skills-editor read: checking role existence", {
+        operation: "role_skills_editor_read_role_check",
         hostId,
         role,
-        runbook,
+        skill,
       });
       const roleCheckOutput = (
         await execWithTimeout(
@@ -688,30 +692,30 @@ router.post(
         )
       ).trim();
       if (roleCheckOutput !== "ok") {
-        sshLogger.warn("runbooks-editor read: role not found", {
-          operation: "runbooks_editor_read_role_missing",
+        sshLogger.warn("role-skills-editor read: role not found", {
+          operation: "role_skills_editor_read_role_missing",
           hostId,
           role,
-          runbook,
+          skill,
         });
         res.status(404).json({ error: "role not found" });
         return;
       }
 
-      // 6. Compose runbookRoot + absolute file path.
-      const runbookRoot = `${roleRoot}/runbooks/${runbook}`;
-      const absPath = `${runbookRoot}/${relPath}`;
+      // 6. Compose skillRoot + absolute file path.
+      const skillRoot = `${roleRoot}/skills/${skill}`;
+      const absPath = `${skillRoot}/${relPath}`;
 
       // 7. Belt-and-suspenders prefix assertion — regex gates make this
       //    unreachable but assert anyway (defense in depth).
-      if (!absPath.startsWith(runbookRoot + "/")) {
-        sshLogger.error("runbooks-editor read: path escapes runbook root (impossible-per-regex-gate case)", {
-          operation: "runbooks_editor_read_escape_detected",
+      if (!absPath.startsWith(skillRoot + "/")) {
+        sshLogger.error("role-skills-editor read: path escapes skill root (impossible-per-regex-gate case)", {
+          operation: "role_skills_editor_read_escape_detected",
           hostId,
           role,
-          runbook,
+          skill,
         });
-        res.status(400).json({ error: "path escapes runbook root" });
+        res.status(400).json({ error: "path escapes skill root" });
         return;
       }
 
@@ -749,11 +753,11 @@ router.post(
         isText,
       });
     } catch (err) {
-      sshLogger.error("runbooks-editor read: unexpected error", {
-        operation: "runbooks_editor_read_error",
+      sshLogger.error("role-skills-editor read: unexpected error", {
+        operation: "role_skills_editor_read_error",
         hostId,
         role,
-        runbook,
+        skill,
         error: err instanceof Error ? err.message : "Unknown",
       });
       if (!res.headersSent) {
@@ -772,11 +776,11 @@ router.post(
 );
 
 // ---------------------------------------------------------------------------
-// PUT /runbooks-editor/write
+// PUT /role-skills-editor/write
 // ---------------------------------------------------------------------------
 
 /**
- * Save a file inside a runbook with optimistic-concurrency mtime check.
+ * Save a file inside a skill with optimistic-concurrency mtime check.
  * On mtime drift returns 409 with byte-identical shape to Phase 23 / skills-editor:
  *   { error: "mtime mismatch", currentMtime, currentContent }
  * Atomic write goes through writeMarkdownFileAtomic.
@@ -793,7 +797,7 @@ router.put(
     const body = (req.body ?? {}) as Record<string, unknown>;
     const rawHostId = body.hostId;
     const rawRole = body.role;
-    const rawRunbook = body.runbook;
+    const rawSkill = body.skill;
     const rawPath = body.path;
     const rawContent = body.content;
     const rawExpectedMtime = body.expectedMtime;
@@ -810,8 +814,8 @@ router.put(
       res.status(400).json({ error: "invalid role name" });
       return;
     }
-    if (!isValidRunbookName(rawRunbook)) {
-      res.status(400).json({ error: "invalid runbook name" });
+    if (!isValidSkillName(rawSkill)) {
+      res.status(400).json({ error: "invalid skill name" });
       return;
     }
     if (!isSafeRelativePath(rawPath)) {
@@ -845,7 +849,7 @@ router.put(
     const hostId = rawHostId;
     const role = rawRole;
     if (!(await guardInstanceWideRoleWrite(res, userId, hostId, role))) return;
-    const runbook = rawRunbook;
+    const skill = rawSkill;
     const relPath = rawPath;
     const content = rawContent;
     const expectedMtime =
@@ -869,11 +873,11 @@ router.put(
           SSH_CONNECT_TIMEOUT_MS,
         );
       } catch (err) {
-        sshLogger.warn("runbooks-editor write: SSH connect failed", {
-          operation: "runbooks_editor_write_connect",
+        sshLogger.warn("role-skills-editor write: SSH connect failed", {
+          operation: "role_skills_editor_write_connect",
           hostId,
           role,
-          runbook,
+          skill,
           error: err instanceof Error ? err.message : "Unknown",
         });
         res.status(502).json({ error: "SSH connect failed" });
@@ -885,11 +889,11 @@ router.put(
         await execWithTimeout(conn, "echo $HOME")
       ).trim();
       if (!remoteHome || remoteHome.startsWith("~")) {
-        sshLogger.warn("runbooks-editor write: could not resolve remote HOME", {
-          operation: "runbooks_editor_write_home",
+        sshLogger.warn("role-skills-editor write: could not resolve remote HOME", {
+          operation: "role_skills_editor_write_home",
           hostId,
           role,
-          runbook,
+          skill,
           remoteHome,
         });
         res.status(502).json({ error: "could not resolve remote HOME" });
@@ -899,11 +903,11 @@ router.put(
       // 5. D-15 role-existence check.
       const roleRoot = `${remoteHome}/${ROLE_ROOT_REL}/${role}`;
       const escapedRoleRoot = shellEscape(roleRoot);
-      sshLogger.info("runbooks-editor write: checking role existence", {
-        operation: "runbooks_editor_write_role_check",
+      sshLogger.info("role-skills-editor write: checking role existence", {
+        operation: "role_skills_editor_write_role_check",
         hostId,
         role,
-        runbook,
+        skill,
       });
       const roleCheckOutput = (
         await execWithTimeout(
@@ -912,37 +916,37 @@ router.put(
         )
       ).trim();
       if (roleCheckOutput !== "ok") {
-        sshLogger.warn("runbooks-editor write: role not found", {
-          operation: "runbooks_editor_write_role_missing",
+        sshLogger.warn("role-skills-editor write: role not found", {
+          operation: "role_skills_editor_write_role_missing",
           hostId,
           role,
-          runbook,
+          skill,
         });
         res.status(404).json({ error: "role not found" });
         return;
       }
 
-      // 6. Compose runbookRoot + absolute file path + belt-and-suspenders assertion.
-      const runbookRoot = `${roleRoot}/runbooks/${runbook}`;
-      const absPath = `${runbookRoot}/${relPath}`;
-      if (!absPath.startsWith(runbookRoot + "/")) {
-        sshLogger.error("runbooks-editor write: path escapes runbook root (impossible-per-regex-gate case)", {
-          operation: "runbooks_editor_write_escape_detected",
+      // 6. Compose skillRoot + absolute file path + belt-and-suspenders assertion.
+      const skillRoot = `${roleRoot}/skills/${skill}`;
+      const absPath = `${skillRoot}/${relPath}`;
+      if (!absPath.startsWith(skillRoot + "/")) {
+        sshLogger.error("role-skills-editor write: path escapes skill root (impossible-per-regex-gate case)", {
+          operation: "role_skills_editor_write_escape_detected",
           hostId,
           role,
-          runbook,
+          skill,
         });
-        res.status(400).json({ error: "path escapes runbook root" });
+        res.status(400).json({ error: "path escapes skill root" });
         return;
       }
       const escapedPath = shellEscape(absPath);
 
-      // A runbook's main file (`runbook.md`, or `<runbook>.md` on older ones)
-      // can't newly name a different runbook in its frontmatter — renaming
+      // A role skill's SKILL.md can't newly name a different role skill in its
+      // frontmatter — renaming
       // goes through POST /rename.
-      if (isMainRunbookFile(relPath, runbook)) {
+      if (isMainSkillFile(relPath)) {
         const c = conn;
-        if (await refuseIfNameMismatch(res, "runbook", runbook, content, () => readRemoteText(c, absPath))) {
+        if (await refuseIfNameMismatch(res, "skill", skill, content, () => readRemoteText(c, absPath))) {
           return;
         }
       }
@@ -975,11 +979,11 @@ router.put(
       try {
         await writeMarkdownFileAtomic(conn, absPath, content);
       } catch (err) {
-        sshLogger.error("runbooks-editor write: SFTP write failed", {
-          operation: "runbooks_editor_write_sftp",
+        sshLogger.error("role-skills-editor write: SFTP write failed", {
+          operation: "role_skills_editor_write_sftp",
           hostId,
           role,
-          runbook,
+          skill,
           error: err instanceof Error ? err.message : "Unknown",
         });
         res.status(502).json({ error: "SSH exec failed" });
@@ -997,11 +1001,11 @@ router.put(
 
       res.json({ mtime: newMtime });
     } catch (err) {
-      sshLogger.error("runbooks-editor write: unexpected error", {
-        operation: "runbooks_editor_write_error",
+      sshLogger.error("role-skills-editor write: unexpected error", {
+        operation: "role_skills_editor_write_error",
         hostId,
         role,
-        runbook,
+        skill,
         error: err instanceof Error ? err.message : "Unknown",
       });
       if (!res.headersSent) {
@@ -1020,15 +1024,15 @@ router.put(
 );
 
 // ---------------------------------------------------------------------------
-// POST /runbooks-editor/create
+// POST /role-skills-editor/create
 // ---------------------------------------------------------------------------
 
 /**
- * Create a new empty file inside a runbook. Rejects duplicates with 409.
+ * Create a new empty file inside a skill. Rejects duplicates with 409.
  * Subpaths honored — mkdir -p on the parent dir before touch, so
  * `prompts/main.md` creates the `prompts/` dir if needed.
  * Returns 404 `{error:"role not found"}` when the role folder is absent (D-15).
- * Returns 404 `{error:"runbook not found"}` when the runbook folder is absent.
+ * Returns 404 `{error:"skill not found"}` when the skill folder is absent.
  */
 router.post(
   "/create",
@@ -1041,7 +1045,7 @@ router.post(
     const body = (req.body ?? {}) as Record<string, unknown>;
     const rawHostId = body.hostId;
     const rawRole = body.role;
-    const rawRunbook = body.runbook;
+    const rawSkill = body.skill;
     const rawPath = body.path;
 
     if (
@@ -1056,8 +1060,8 @@ router.post(
       res.status(400).json({ error: "invalid role name" });
       return;
     }
-    if (!isValidRunbookName(rawRunbook)) {
-      res.status(400).json({ error: "invalid runbook name" });
+    if (!isValidSkillName(rawSkill)) {
+      res.status(400).json({ error: "invalid skill name" });
       return;
     }
     if (!isSafeRelativePath(rawPath)) {
@@ -1067,7 +1071,7 @@ router.post(
     const hostId = rawHostId;
     const role = rawRole;
     if (!(await guardInstanceWideRoleWrite(res, userId, hostId, role))) return;
-    const runbook = rawRunbook;
+    const skill = rawSkill;
     const relPath = rawPath;
 
     // 2. Per-user host isolation.
@@ -1086,11 +1090,11 @@ router.post(
           SSH_CONNECT_TIMEOUT_MS,
         );
       } catch (err) {
-        sshLogger.warn("runbooks-editor create: SSH connect failed", {
-          operation: "runbooks_editor_create_connect",
+        sshLogger.warn("role-skills-editor create: SSH connect failed", {
+          operation: "role_skills_editor_create_connect",
           hostId,
           role,
-          runbook,
+          skill,
           error: err instanceof Error ? err.message : "Unknown",
         });
         res.status(502).json({ error: "SSH connect failed" });
@@ -1102,11 +1106,11 @@ router.post(
         await execWithTimeout(conn, "echo $HOME")
       ).trim();
       if (!remoteHome || remoteHome.startsWith("~")) {
-        sshLogger.warn("runbooks-editor create: could not resolve remote HOME", {
-          operation: "runbooks_editor_create_home",
+        sshLogger.warn("role-skills-editor create: could not resolve remote HOME", {
+          operation: "role_skills_editor_create_home",
           hostId,
           role,
-          runbook,
+          skill,
           remoteHome,
         });
         res.status(502).json({ error: "could not resolve remote HOME" });
@@ -1116,11 +1120,11 @@ router.post(
       // 5. D-15 role-existence check.
       const roleRoot = `${remoteHome}/${ROLE_ROOT_REL}/${role}`;
       const escapedRoleRoot = shellEscape(roleRoot);
-      sshLogger.info("runbooks-editor create: checking role existence", {
-        operation: "runbooks_editor_create_role_check",
+      sshLogger.info("role-skills-editor create: checking role existence", {
+        operation: "role_skills_editor_create_role_check",
         hostId,
         role,
-        runbook,
+        skill,
       });
       const roleCheckOutput = (
         await execWithTimeout(
@@ -1129,39 +1133,39 @@ router.post(
         )
       ).trim();
       if (roleCheckOutput !== "ok") {
-        sshLogger.warn("runbooks-editor create: role not found", {
-          operation: "runbooks_editor_create_role_missing",
+        sshLogger.warn("role-skills-editor create: role not found", {
+          operation: "role_skills_editor_create_role_missing",
           hostId,
           role,
-          runbook,
+          skill,
         });
         res.status(404).json({ error: "role not found" });
         return;
       }
 
-      // 6. Compose runbookRoot + absolute file path.
-      const runbookRoot = `${roleRoot}/runbooks/${runbook}`;
-      const escapedRunbookRoot = shellEscape(runbookRoot);
-      const absPath = `${runbookRoot}/${relPath}`;
+      // 6. Compose skillRoot + absolute file path.
+      const skillRoot = `${roleRoot}/skills/${skill}`;
+      const escapedSkillRoot = shellEscape(skillRoot);
+      const absPath = `${skillRoot}/${relPath}`;
       const escapedPath = shellEscape(absPath);
 
-      // 7. Runbook-existence gate — Creating a brand-new runbook from scratch is
+      // 7. Role skill-existence gate — Creating a brand-new skill from scratch is
       //    out of scope. Without this guard, mkdir -p would silently create the
-      //    runbook folder, violating the scope contract.
-      sshLogger.info("runbooks-editor create: checking runbook existence", {
-        operation: "runbooks_editor_create_runbook_check",
+      //    skill folder, violating the scope contract.
+      sshLogger.info("role-skills-editor create: checking skill existence", {
+        operation: "role_skills_editor_create_skill_check",
         hostId,
         role,
-        runbook,
+        skill,
       });
-      const runbookDirCheck = (
+      const skillDirCheck = (
         await execWithTimeout(
           conn,
-          `test -d ${escapedRunbookRoot} && echo exists || echo missing`,
+          `test -d ${escapedSkillRoot} && echo exists || echo missing`,
         )
       ).trim();
-      if (runbookDirCheck !== "exists") {
-        res.status(404).json({ error: "runbook not found" });
+      if (skillDirCheck !== "exists") {
+        res.status(404).json({ error: "skill not found" });
         return;
       }
 
@@ -1177,7 +1181,7 @@ router.post(
         return;
       }
 
-      // 9. Ensure parent dir exists inside the runbook (mkdir -p is idempotent).
+      // 9. Ensure parent dir exists inside the skill (mkdir -p is idempotent).
       const parentDir = absPath.slice(0, absPath.lastIndexOf("/"));
       await execWithTimeout(conn, `mkdir -p ${shellEscape(parentDir)}`);
 
@@ -1195,11 +1199,11 @@ router.post(
 
       res.json({ path: relPath, mtime });
     } catch (err) {
-      sshLogger.error("runbooks-editor create: unexpected error", {
-        operation: "runbooks_editor_create_error",
+      sshLogger.error("role-skills-editor create: unexpected error", {
+        operation: "role_skills_editor_create_error",
         hostId,
         role,
-        runbook,
+        skill,
         error: err instanceof Error ? err.message : "Unknown",
       });
       if (!res.headersSent) {
@@ -1218,22 +1222,218 @@ router.post(
 );
 
 // ---------------------------------------------------------------------------
-// POST /runbooks-editor/rename
+// POST /role-skills-editor/skill
 // ---------------------------------------------------------------------------
 
 /**
- * Rename a runbook: `{ hostId, role, runbook, newName }` → 200 `{ name }`.
- * Moves the runbook folder; an older runbook whose main file is named after
- * its folder (`<runbook>.md`) gets that file renamed too; a `name:` in the
- * main file's frontmatter is rewritten to match.
+ * Create a role skill: `{ hostId, role, skill, description }` → 200
+ * `{ slug, mtime }`. Writes `~/fleet/roles/<role>/skills/<skill>/SKILL.md`
+ * seeded in the standard shape (name + description frontmatter, a heading) —
+ * the same seed and the same description rules as POST /skills-editor/skill.
+ * 404 when the role is missing, 409 `{error:"skill exists"}` when the name is
+ * taken.
+ */
+router.post(
+  "/skill",
+  authenticateJWT, // BEFORE body parser
+  express.json({ limit: "32kb" }),
+  async (req: Request, res: Response): Promise<void> => {
+    const userId = (req as AuthenticatedRequest).userId;
+
+    const body = (req.body ?? {}) as Record<string, unknown>;
+    const rawHostId = body.hostId;
+    const rawRole = body.role;
+    const rawSkill = body.skill;
+    const rawDescription = body.description;
+
+    if (
+      typeof rawHostId !== "number" ||
+      !Number.isInteger(rawHostId) ||
+      rawHostId <= 0
+    ) {
+      res.status(400).json({ error: "hostId must be a positive integer" });
+      return;
+    }
+    if (!isValidRoleName(rawRole)) {
+      res.status(400).json({ error: "invalid role name" });
+      return;
+    }
+    if (!isValidSkillName(rawSkill)) {
+      res.status(400).json({ error: "invalid skill name" });
+      return;
+    }
+    if (typeof rawDescription !== "string") {
+      res.status(400).json({ error: "description must be a string" });
+      return;
+    }
+    const description = rawDescription.trim();
+    if (description.length === 0) {
+      res.status(400).json({ error: "description is required" });
+      return;
+    }
+    if (Buffer.byteLength(description, "utf-8") > 4096) {
+      res.status(400).json({ error: "description must be ≤4096 bytes" });
+      return;
+    }
+    if (description.includes("\n") || description.includes("\r")) {
+      res.status(400).json({ error: "description must be single-line" });
+      return;
+    }
+    const hostId = rawHostId;
+    const role = rawRole;
+    const skill = rawSkill;
+    if (!(await guardInstanceWideRoleWrite(res, userId, hostId, role))) return;
+
+    const host = await resolveHostById(hostId, userId);
+    if (!host) {
+      res.status(404).json({ error: "Host not found" });
+      return;
+    }
+
+    let conn: Awaited<ReturnType<typeof connectOneShot>> | null = null;
+    try {
+      try {
+        conn = await connectOneShot(
+          host as unknown as Parameters<typeof connectOneShot>[0],
+          SSH_CONNECT_TIMEOUT_MS,
+        );
+      } catch (err) {
+        sshLogger.warn("role-skills-editor create-skill: SSH connect failed", {
+          operation: "role_skills_editor_create_skill_connect",
+          hostId,
+          role,
+          skill,
+          error: err instanceof Error ? err.message : "Unknown",
+        });
+        res.status(502).json({ error: "SSH connect failed" });
+        return;
+      }
+
+      const remoteHome = (await execWithTimeout(conn, "echo $HOME")).trim();
+      if (!remoteHome || remoteHome.startsWith("~")) {
+        sshLogger.warn("role-skills-editor create-skill: could not resolve remote HOME", {
+          operation: "role_skills_editor_create_skill_home",
+          hostId,
+          role,
+          remoteHome,
+        });
+        res.status(502).json({ error: "could not resolve remote HOME" });
+        return;
+      }
+
+      const roleRoot = `${remoteHome}/${ROLE_ROOT_REL}/${role}`;
+      const roleCheck = (
+        await execWithTimeout(conn, `test -d ${shellEscape(roleRoot)} && echo ok || echo missing`)
+      ).trim();
+      if (roleCheck !== "ok") {
+        res.status(404).json({ error: "role not found" });
+        return;
+      }
+
+      const skillsPrefix = `${roleRoot}/skills/`;
+      const skillRoot = `${skillsPrefix}${skill}`;
+      if (!skillRoot.startsWith(skillsPrefix) || skillRoot.includes("..")) {
+        res.status(400).json({ error: "path escape detected" });
+        return;
+      }
+      const escapedSkillRoot = shellEscape(skillRoot);
+
+      // Taken name — a folder, or anything else already sitting there.
+      const made = (
+        await execWithTimeout(
+          conn,
+          `if [ -e ${escapedSkillRoot} ] || [ -L ${escapedSkillRoot} ]; then echo exists; ` +
+            `else mkdir -p ${shellEscape(`${roleRoot}/skills`)} && mkdir ${escapedSkillRoot} && echo ok; fi`,
+        )
+      ).trim();
+      if (made === "exists") {
+        res.status(409).json({ error: "skill exists" });
+        return;
+      }
+      if (made !== "ok") {
+        sshLogger.error("role-skills-editor create-skill: mkdir failed", {
+          operation: "role_skills_editor_create_skill_mkdir",
+          hostId,
+          role,
+          skill,
+          output: made.slice(0, 200),
+        });
+        res.status(502).json({ error: "SSH exec failed" });
+        return;
+      }
+
+      const skillMdPath = `${skillRoot}/SKILL.md`;
+      try {
+        await writeMarkdownFileAtomic(conn, skillMdPath, composeSkillMdSeed(skill, description));
+      } catch (err) {
+        try {
+          await execWithTimeout(conn, `rm -rf ${escapedSkillRoot}`);
+        } catch {
+          /* best-effort cleanup */
+        }
+        sshLogger.error("role-skills-editor create-skill: SFTP write failed", {
+          operation: "role_skills_editor_create_skill_sftp",
+          hostId,
+          role,
+          skill,
+          error: err instanceof Error ? err.message : "Unknown",
+        });
+        res.status(502).json({ error: "SSH exec failed" });
+        return;
+      }
+
+      const mtime =
+        parseInt(
+          (await execWithTimeout(conn, `stat -c '%Y' ${shellEscape(skillMdPath)} 2>/dev/null || echo 0`)).trim(),
+          10,
+        ) || 0;
+
+      sshLogger.info("role-skills-editor create-skill: created", {
+        operation: "role_skills_editor_skill_created",
+        hostId,
+        role,
+        skill,
+      });
+      res.json({ slug: skill, mtime });
+    } catch (err) {
+      sshLogger.error("role-skills-editor create-skill: unexpected error", {
+        operation: "role_skills_editor_create_skill_error",
+        hostId,
+        role,
+        skill,
+        error: err instanceof Error ? err.message : "Unknown",
+      });
+      if (!res.headersSent) {
+        res.status(500).json({ error: "internal" });
+      }
+    } finally {
+      if (conn) {
+        try {
+          conn.end();
+        } catch {
+          /* best-effort cleanup */
+        }
+      }
+    }
+  },
+);
+
+// ---------------------------------------------------------------------------
+// POST /role-skills-editor/rename
+// ---------------------------------------------------------------------------
+
+/**
+ * Rename a role skill: `{ hostId, role, skill, newName }` → 200 `{ name }`.
+ * Moves the role skill folder, retargets any forwarding links its skill
+ * conversion left behind, and rewrites the `name:` in SKILL.md to match.
  *
  * Optional `path` + `content` + `expectedMtime`: the editor's draft of a
- * main file, saved into the renamed runbook in the same request (its `name:`
+ * main file, saved into the renamed skill in the same request (its `name:`
  * forced to the new name). `expectedMtime` is checked BEFORE anything moves —
  * 409 `mtime mismatch` like PUT /write. The response's `path` is where that
  * file now lives. Folder moved but draft not written: 502 `{ renamed: true }`.
  *
- * 404 when the role or runbook is missing, 409 `{error:"runbook exists"}`
+ * 404 when the role or skill is missing, 409 `{error:"skill exists"}`
  * when the new name is taken.
  */
 router.post(
@@ -1246,7 +1446,7 @@ router.post(
     const body = (req.body ?? {}) as Record<string, unknown>;
     const rawHostId = body.hostId;
     const rawRole = body.role;
-    const rawRunbook = body.runbook;
+    const rawSkill = body.skill;
     const rawNewName = body.newName;
     const rawPath = body.path;
     const rawContent = body.content;
@@ -1264,17 +1464,17 @@ router.post(
       res.status(400).json({ error: "invalid role name" });
       return;
     }
-    if (!isValidRunbookName(rawRunbook)) {
-      res.status(400).json({ error: "invalid runbook name" });
+    if (!isValidSkillName(rawSkill)) {
+      res.status(400).json({ error: "invalid skill name" });
       return;
     }
-    if (!isValidRunbookName(rawNewName)) {
-      res.status(400).json({ error: "invalid new runbook name" });
+    if (!isValidSkillName(rawNewName)) {
+      res.status(400).json({ error: "invalid new skill name" });
       return;
     }
     if (rawContent !== undefined || rawPath !== undefined || rawExpectedMtime !== undefined) {
-      if (typeof rawPath !== "string" || !isMainRunbookFile(rawPath, rawRunbook)) {
-        res.status(400).json({ error: "path must name the runbook's main file" });
+      if (typeof rawPath !== "string" || !isMainSkillFile(rawPath)) {
+        res.status(400).json({ error: "path must name the role skill's main file" });
         return;
       }
       if (typeof rawContent !== "string" || Buffer.byteLength(rawContent, "utf-8") > MAX_CONTENT_BYTES) {
@@ -1295,9 +1495,9 @@ router.post(
         : null;
     const hostId = rawHostId;
     const role = rawRole;
-    const runbook = rawRunbook;
+    const skill = rawSkill;
     const newName = rawNewName;
-    if (newName === runbook) {
+    if (newName === skill) {
       res.status(400).json({ error: "new name is the same as the current name" });
       return;
     }
@@ -1317,11 +1517,11 @@ router.post(
           SSH_CONNECT_TIMEOUT_MS,
         );
       } catch (err) {
-        sshLogger.warn("runbooks-editor rename: SSH connect failed", {
-          operation: "runbooks_editor_rename_connect",
+        sshLogger.warn("role-skills-editor rename: SSH connect failed", {
+          operation: "role_skills_editor_rename_connect",
           hostId,
           role,
-          runbook,
+          skill,
           error: err instanceof Error ? err.message : "Unknown",
         });
         res.status(502).json({ error: "SSH connect failed" });
@@ -1330,11 +1530,11 @@ router.post(
 
       const remoteHome = (await execWithTimeout(conn, "echo $HOME")).trim();
       if (!remoteHome || remoteHome.startsWith("~")) {
-        sshLogger.warn("runbooks-editor rename: could not resolve remote HOME", {
-          operation: "runbooks_editor_rename_home",
+        sshLogger.warn("role-skills-editor rename: could not resolve remote HOME", {
+          operation: "role_skills_editor_rename_home",
           hostId,
           role,
-          runbook,
+          skill,
           remoteHome,
         });
         res.status(502).json({ error: "could not resolve remote HOME" });
@@ -1350,9 +1550,9 @@ router.post(
         return;
       }
 
-      const runbooksPrefix = `${roleRoot}/runbooks/`;
-      const fromRoot = `${runbooksPrefix}${runbook}`;
-      const toRoot = `${runbooksPrefix}${newName}`;
+      const skillsPrefix = `${roleRoot}/skills/`;
+      const fromRoot = `${skillsPrefix}${skill}`;
+      const toRoot = `${skillsPrefix}${newName}`;
       if (fromRoot.includes("..") || toRoot.includes("..")) {
         res.status(400).json({ error: "path escape detected" });
         return;
@@ -1387,19 +1587,19 @@ router.post(
         )
       ).trim();
       if (moved === "missing") {
-        res.status(404).json({ error: "runbook not found" });
+        res.status(404).json({ error: "skill not found" });
         return;
       }
       if (moved === "exists") {
-        res.status(409).json({ error: "runbook exists" });
+        res.status(409).json({ error: "skill exists" });
         return;
       }
       if (moved !== "ok") {
-        sshLogger.error("runbooks-editor rename: mv failed", {
-          operation: "runbooks_editor_rename_mv",
+        sshLogger.error("role-skills-editor rename: mv failed", {
+          operation: "role_skills_editor_rename_mv",
           hostId,
           role,
-          runbook,
+          skill,
           newName,
           output: moved.slice(0, 200),
         });
@@ -1407,27 +1607,29 @@ router.post(
         return;
       }
 
-      // Older runbooks name their main file after the folder — carry it along
-      // (unless the runbook already holds a file with the new name).
-      const mainMoved = (
+      // A role skill converted from a runbook left forwarding links in the
+      // role's runbooks/ folder (runbooks/<old> → ../skills/<name>, and a
+      // loose runbooks/<old>.md → ../skills/<name>/SKILL.md) — possibly from
+      // an earlier name. Point every link aimed at this role skill at its new
+      // name so old paths keep resolving. Links aimed elsewhere are left.
+      const runbooksDir = `${roleRoot}/runbooks`;
+      const forwardersMoved = (
         await execWithTimeout(
           conn,
-          `if [ -f ${shellEscape(`${toRoot}/${runbook}.md`)} ] && [ ! -e ${shellEscape(`${toRoot}/${newName}.md`)} ]; then ` +
-            `mv -T ${shellEscape(`${toRoot}/${runbook}.md`)} ${shellEscape(`${toRoot}/${newName}.md`)} && echo moved; else echo kept; fi`,
+          `n=0; for l in ${shellEscape(runbooksDir)}/* ${shellEscape(runbooksDir)}/.[!.]*; do ` +
+            `[ -L "$l" ] || continue; t=$(readlink "$l"); ` +
+            `if [ "$t" = ${shellEscape(`../skills/${skill}`)} ]; then ln -sfn ${shellEscape(`../skills/${newName}`)} "$l" && n=$((n+1)); ` +
+            `elif [ "$t" = ${shellEscape(`../skills/${skill}/SKILL.md`)} ]; then ln -sfn ${shellEscape(`../skills/${newName}/SKILL.md`)} "$l" && n=$((n+1)); fi; ` +
+            `done; echo $n`,
         )
-      ).trim() === "moved";
-      // Where a main file sits now, by its pre-rename relative path.
-      const afterRename = (rel: string): string =>
-        rel === `${runbook}.md` && mainMoved ? `${newName}.md` : rel;
+      ).trim();
 
-      // Keep `name:` in step in every main file — the draft's from the draft,
-      // the others from disk. A main file left as `<old>.md` (its new-name
-      // slot was taken) still gets the new name.
-      const mainFiles = [...new Set(["runbook.md", afterRename(`${runbook}.md`)])];
+      // Keep `name:` in step in the main file — from the draft when one came
+      // along, else from disk.
       let nameRewritten = 0;
-      for (const rel of mainFiles) {
+      for (const rel of ["SKILL.md"]) {
         const abs = `${toRoot}/${rel}`;
-        const isDraft = draft !== null && afterRename(draft.path) === rel;
+        const isDraft = draft !== null && draft.path === rel;
         try {
           const current = isDraft ? draft!.content : await readRemoteText(conn, abs);
           const rewritten = withFrontmatterName(current, newName);
@@ -1437,11 +1639,11 @@ router.post(
           }
         } catch (err) {
           // The folder already moved; a stale `name:` is recoverable by hand.
-          sshLogger.error("runbooks-editor rename: main-file write failed", {
-            operation: "runbooks_editor_rename_name_write",
+          sshLogger.error("role-skills-editor rename: main-file write failed", {
+            operation: "role_skills_editor_rename_name_write",
             hostId,
             role,
-            runbook,
+            skill,
             newName,
             file: rel,
             withDraft: isDraft,
@@ -1454,23 +1656,23 @@ router.post(
         }
       }
 
-      sshLogger.info("runbooks-editor rename: renamed", {
-        operation: "runbooks_editor_renamed",
+      sshLogger.info("role-skills-editor rename: renamed", {
+        operation: "role_skills_editor_renamed",
         hostId,
         role,
-        runbook,
+        skill,
         newName,
-        mainFileRenamed: mainMoved,
+        forwardersMoved: parseInt(forwardersMoved, 10) || 0,
         nameRewritten,
         withDraft: draft !== null,
       });
-      res.json(draft ? { name: newName, path: afterRename(draft.path) } : { name: newName });
+      res.json(draft ? { name: newName, path: draft.path } : { name: newName });
     } catch (err) {
-      sshLogger.error("runbooks-editor rename: unexpected error", {
-        operation: "runbooks_editor_rename_error",
+      sshLogger.error("role-skills-editor rename: unexpected error", {
+        operation: "role_skills_editor_rename_error",
         hostId,
         role,
-        runbook,
+        skill,
         newName,
         error: err instanceof Error ? err.message : "Unknown",
       });
@@ -1490,11 +1692,11 @@ router.post(
 );
 
 // ---------------------------------------------------------------------------
-// DELETE /runbooks-editor/file
+// DELETE /role-skills-editor/file
 // ---------------------------------------------------------------------------
 
 /**
- * Delete a single file inside a runbook. Idempotent — rm -f swallows the
+ * Delete a single file inside a skill. Idempotent — rm -f swallows the
  * missing-file case, so double-deletes and races both return 200.
  * Returns 404 `{error:"role not found"}` when the role folder is absent (D-15).
  */
@@ -1509,7 +1711,7 @@ router.delete(
     const body = (req.body ?? {}) as Record<string, unknown>;
     const rawHostId = body.hostId;
     const rawRole = body.role;
-    const rawRunbook = body.runbook;
+    const rawSkill = body.skill;
     const rawPath = body.path;
 
     if (
@@ -1524,8 +1726,8 @@ router.delete(
       res.status(400).json({ error: "invalid role name" });
       return;
     }
-    if (!isValidRunbookName(rawRunbook)) {
-      res.status(400).json({ error: "invalid runbook name" });
+    if (!isValidSkillName(rawSkill)) {
+      res.status(400).json({ error: "invalid skill name" });
       return;
     }
     if (!isSafeRelativePath(rawPath)) {
@@ -1535,7 +1737,7 @@ router.delete(
     const hostId = rawHostId;
     const role = rawRole;
     if (!(await guardInstanceWideRoleWrite(res, userId, hostId, role))) return;
-    const runbook = rawRunbook;
+    const skill = rawSkill;
     const relPath = rawPath;
 
     // 2. Per-user host isolation.
@@ -1554,11 +1756,11 @@ router.delete(
           SSH_CONNECT_TIMEOUT_MS,
         );
       } catch (err) {
-        sshLogger.warn("runbooks-editor delete-file: SSH connect failed", {
-          operation: "runbooks_editor_delete_file_connect",
+        sshLogger.warn("role-skills-editor delete-file: SSH connect failed", {
+          operation: "role_skills_editor_delete_file_connect",
           hostId,
           role,
-          runbook,
+          skill,
           error: err instanceof Error ? err.message : "Unknown",
         });
         res.status(502).json({ error: "SSH connect failed" });
@@ -1571,12 +1773,12 @@ router.delete(
       ).trim();
       if (!remoteHome || remoteHome.startsWith("~")) {
         sshLogger.warn(
-          "runbooks-editor delete-file: could not resolve remote HOME",
+          "role-skills-editor delete-file: could not resolve remote HOME",
           {
-            operation: "runbooks_editor_delete_file_home",
+            operation: "role_skills_editor_delete_file_home",
             hostId,
             role,
-            runbook,
+            skill,
             remoteHome,
           },
         );
@@ -1587,11 +1789,11 @@ router.delete(
       // 5. D-15 role-existence check.
       const roleRoot = `${remoteHome}/${ROLE_ROOT_REL}/${role}`;
       const escapedRoleRoot = shellEscape(roleRoot);
-      sshLogger.info("runbooks-editor delete-file: checking role existence", {
-        operation: "runbooks_editor_delete_file_role_check",
+      sshLogger.info("role-skills-editor delete-file: checking role existence", {
+        operation: "role_skills_editor_delete_file_role_check",
         hostId,
         role,
-        runbook,
+        skill,
       });
       const roleCheckOutput = (
         await execWithTimeout(
@@ -1600,27 +1802,27 @@ router.delete(
         )
       ).trim();
       if (roleCheckOutput !== "ok") {
-        sshLogger.warn("runbooks-editor delete-file: role not found", {
-          operation: "runbooks_editor_delete_file_role_missing",
+        sshLogger.warn("role-skills-editor delete-file: role not found", {
+          operation: "role_skills_editor_delete_file_role_missing",
           hostId,
           role,
-          runbook,
+          skill,
         });
         res.status(404).json({ error: "role not found" });
         return;
       }
 
-      // 6. Compose runbookRoot + absolute file path + belt-and-suspenders assertion.
-      const runbookRoot = `${roleRoot}/runbooks/${runbook}`;
-      const absPath = `${runbookRoot}/${relPath}`;
-      if (!absPath.startsWith(runbookRoot + "/")) {
-        sshLogger.error("runbooks-editor delete-file: path escapes runbook root (impossible-per-regex-gate case)", {
-          operation: "runbooks_editor_delete_file_escape_detected",
+      // 6. Compose skillRoot + absolute file path + belt-and-suspenders assertion.
+      const skillRoot = `${roleRoot}/skills/${skill}`;
+      const absPath = `${skillRoot}/${relPath}`;
+      if (!absPath.startsWith(skillRoot + "/")) {
+        sshLogger.error("role-skills-editor delete-file: path escapes skill root (impossible-per-regex-gate case)", {
+          operation: "role_skills_editor_delete_file_escape_detected",
           hostId,
           role,
-          runbook,
+          skill,
         });
-        res.status(400).json({ error: "path escapes runbook root" });
+        res.status(400).json({ error: "path escapes skill root" });
         return;
       }
       const escapedPath = shellEscape(absPath);
@@ -1630,11 +1832,11 @@ router.delete(
 
       res.json({ ok: true });
     } catch (err) {
-      sshLogger.error("runbooks-editor delete-file: unexpected error", {
-        operation: "runbooks_editor_delete_file_error",
+      sshLogger.error("role-skills-editor delete-file: unexpected error", {
+        operation: "role_skills_editor_delete_file_error",
         hostId,
         role,
-        runbook,
+        skill,
         error: err instanceof Error ? err.message : "Unknown",
       });
       if (!res.headersSent) {
@@ -1653,37 +1855,37 @@ router.delete(
 );
 
 // ---------------------------------------------------------------------------
-// DELETE /runbooks-editor/runbook
+// DELETE /role-skills-editor/skill
 // ---------------------------------------------------------------------------
 
 /**
- * Delete an entire runbook (folder + all contents).
+ * Delete an entire skill (folder + all contents).
  *
- * LIFE-CRITICAL: recursive folder deletion on the composed runbookRoot. The
+ * LIFE-CRITICAL: recursive folder deletion on the composed skillRoot. The
  * path-safety gate MUST fire before the shell command runs. Three-layer defense:
- *   1. ROLE_NAME_RE + RUNBOOK_NAME_RE regex gates reject any name containing
+ *   1. ROLE_NAME_RE + SKILL_NAME_RE regex gates reject any name containing
  *      `/`, `..`, or shell metachars — so no user-supplied value can escape
  *      the composed root.
  *   2. Post-compose belt-and-suspenders assertions:
- *      - runbookRoot MUST contain `/runbooks/`
- *      - runbookRoot MUST end with `/${runbook}`
- *      - runbookRoot MUST NOT contain `..`
+ *      - skillRoot MUST contain `/skills/`
+ *      - skillRoot MUST end with `/${skill}`
+ *      - skillRoot MUST NOT contain `..`
  *   3. shellEscape single-quote wraps the value one more time before
  *      interpolation into the shell delete command.
  * Returns 404 `{error:"role not found"}` when the role folder is absent (D-15).
  */
 router.delete(
-  "/runbook",
+  "/skill",
   authenticateJWT, // BEFORE body parser — extra important on the recursive-delete endpoint
   express.json({ limit: "32kb" }),
   async (req: Request, res: Response): Promise<void> => {
     const userId = (req as AuthenticatedRequest).userId;
 
-    // 1. Body validation — role + runbook only; no path field.
+    // 1. Body validation — role + skill only; no path field.
     const body = (req.body ?? {}) as Record<string, unknown>;
     const rawHostId = body.hostId;
     const rawRole = body.role;
-    const rawRunbook = body.runbook;
+    const rawSkill = body.skill;
 
     if (
       typeof rawHostId !== "number" ||
@@ -1697,14 +1899,14 @@ router.delete(
       res.status(400).json({ error: "invalid role name" });
       return;
     }
-    if (!isValidRunbookName(rawRunbook)) {
-      res.status(400).json({ error: "invalid runbook name" });
+    if (!isValidSkillName(rawSkill)) {
+      res.status(400).json({ error: "invalid skill name" });
       return;
     }
     const hostId = rawHostId;
     const role = rawRole;
     if (!(await guardInstanceWideRoleWrite(res, userId, hostId, role))) return;
-    const runbook = rawRunbook;
+    const skill = rawSkill;
 
     // 2. Per-user host isolation.
     const host = await resolveHostById(hostId, userId);
@@ -1722,11 +1924,11 @@ router.delete(
           SSH_CONNECT_TIMEOUT_MS,
         );
       } catch (err) {
-        sshLogger.warn("runbooks-editor delete-runbook: SSH connect failed", {
-          operation: "runbooks_editor_delete_runbook_connect",
+        sshLogger.warn("role-skills-editor delete-skill: SSH connect failed", {
+          operation: "role_skills_editor_delete_skill_connect",
           hostId,
           role,
-          runbook,
+          skill,
           error: err instanceof Error ? err.message : "Unknown",
         });
         res.status(502).json({ error: "SSH connect failed" });
@@ -1739,12 +1941,12 @@ router.delete(
       ).trim();
       if (!remoteHome || remoteHome.startsWith("~")) {
         sshLogger.warn(
-          "runbooks-editor delete-runbook: could not resolve remote HOME",
+          "role-skills-editor delete-skill: could not resolve remote HOME",
           {
-            operation: "runbooks_editor_delete_runbook_home",
+            operation: "role_skills_editor_delete_skill_home",
             hostId,
             role,
-            runbook,
+            skill,
             remoteHome,
           },
         );
@@ -1755,11 +1957,11 @@ router.delete(
       // 5. D-15 role-existence check.
       const roleRoot = `${remoteHome}/${ROLE_ROOT_REL}/${role}`;
       const escapedRoleRoot = shellEscape(roleRoot);
-      sshLogger.info("runbooks-editor delete-runbook: checking role existence", {
-        operation: "runbooks_editor_delete_runbook_role_check",
+      sshLogger.info("role-skills-editor delete-skill: checking role existence", {
+        operation: "role_skills_editor_delete_skill_role_check",
         hostId,
         role,
-        runbook,
+        skill,
       });
       const roleCheckOutput = (
         await execWithTimeout(
@@ -1768,55 +1970,55 @@ router.delete(
         )
       ).trim();
       if (roleCheckOutput !== "ok") {
-        sshLogger.warn("runbooks-editor delete-runbook: role not found", {
-          operation: "runbooks_editor_delete_runbook_role_missing",
+        sshLogger.warn("role-skills-editor delete-skill: role not found", {
+          operation: "role_skills_editor_delete_skill_role_missing",
           hostId,
           role,
-          runbook,
+          skill,
         });
         res.status(404).json({ error: "role not found" });
         return;
       }
 
-      // 6. Compose runbookRoot + LIFE-CRITICAL belt-and-suspenders assertions.
-      //    ROLE_NAME_RE + RUNBOOK_NAME_RE should have made these unreachable,
+      // 6. Compose skillRoot + LIFE-CRITICAL belt-and-suspenders assertions.
+      //    ROLE_NAME_RE + SKILL_NAME_RE should have made these unreachable,
       //    but the recursive folder delete is life-critical — assert the invariants regardless.
-      const runbookRoot = `${roleRoot}/runbooks/${runbook}`;
-      if (!runbookRoot.includes("/runbooks/")) {
+      const skillRoot = `${roleRoot}/skills/${skill}`;
+      if (!skillRoot.includes("/skills/")) {
         sshLogger.error(
-          "runbooks-editor delete-runbook: runbookRoot missing /runbooks/ segment (impossible-per-regex-gate case)",
-          { operation: "runbooks_editor_delete_runbook_assertion_failed", hostId, role, runbook },
+          "role-skills-editor delete-skill: skillRoot missing /skills/ segment (impossible-per-regex-gate case)",
+          { operation: "role_skills_editor_delete_skill_assertion_failed", hostId, role, skill },
         );
         res.status(500).json({ error: "internal" });
         return;
       }
-      if (!runbookRoot.endsWith(`/${runbook}`)) {
+      if (!skillRoot.endsWith(`/${skill}`)) {
         sshLogger.error(
-          "runbooks-editor delete-runbook: runbookRoot does not end with runbook name (impossible-per-regex-gate case)",
-          { operation: "runbooks_editor_delete_runbook_assertion_failed", hostId, role, runbook },
+          "role-skills-editor delete-skill: skillRoot does not end with skill name (impossible-per-regex-gate case)",
+          { operation: "role_skills_editor_delete_skill_assertion_failed", hostId, role, skill },
         );
         res.status(500).json({ error: "internal" });
         return;
       }
-      if (runbookRoot.includes("..")) {
+      if (skillRoot.includes("..")) {
         sshLogger.error(
-          "runbooks-editor delete-runbook: runbookRoot contains '..' (impossible-per-regex-gate case)",
-          { operation: "runbooks_editor_delete_runbook_assertion_failed", hostId, role, runbook },
+          "role-skills-editor delete-skill: skillRoot contains '..' (impossible-per-regex-gate case)",
+          { operation: "role_skills_editor_delete_skill_assertion_failed", hostId, role, skill },
         );
         res.status(500).json({ error: "internal" });
         return;
       }
 
-      const escapedRunbookRoot = shellEscape(runbookRoot);
-      await execWithTimeout(conn, `rm -rf ${escapedRunbookRoot}`);
+      const escapedSkillRoot = shellEscape(skillRoot);
+      await execWithTimeout(conn, `rm -rf ${escapedSkillRoot}`);
 
       res.json({ ok: true });
     } catch (err) {
-      sshLogger.error("runbooks-editor delete-runbook: unexpected error", {
-        operation: "runbooks_editor_delete_runbook_error",
+      sshLogger.error("role-skills-editor delete-skill: unexpected error", {
+        operation: "role_skills_editor_delete_skill_error",
         hostId,
         role,
-        runbook,
+        skill,
         error: err instanceof Error ? err.message : "Unknown",
       });
       if (!res.headersSent) {
@@ -1835,14 +2037,14 @@ router.delete(
 );
 
 // ---------------------------------------------------------------------------
-// GET /runbooks-editor/download?hostId=&role=&runbook=&path=[&inline=1]
+// GET /role-skills-editor/download?hostId=&role=&skill=&path=[&inline=1]
 // ---------------------------------------------------------------------------
 
 /**
- * Stream a file inside a runbook: a download, or with `inline=1` an
+ * Stream a file inside a skill: a download, or with `inline=1` an
  * in-page source for viewers (media, PDF, text; html / js / svg stay
  * downloads). Range requests are honoured. The resolved file must stay
- * inside the resolved runbook directory (sendRemoteFileUnderRoot).
+ * inside the resolved skill directory (sendRemoteFileUnderRoot).
  */
 router.get(
   "/download",
@@ -1859,8 +2061,8 @@ router.get(
       res.status(400).json({ error: "invalid role name" });
       return;
     }
-    if (!isValidRunbookName(q.runbook)) {
-      res.status(400).json({ error: "invalid runbook name" });
+    if (!isValidSkillName(q.skill)) {
+      res.status(400).json({ error: "invalid skill name" });
       return;
     }
     if (!isSafeRelativePath(q.path)) {
@@ -1868,7 +2070,7 @@ router.get(
       return;
     }
     const role = q.role;
-    const runbook = q.runbook;
+    const skill = q.skill;
     const relPath = q.path;
     const host = await resolveHostById(hostId, userId);
     if (!host) {
@@ -1880,15 +2082,15 @@ router.get(
       res,
       host: host as unknown as Parameters<typeof connectOneShot>[0],
       buildPaths: (home) => {
-        const root = `${home}/${ROLE_ROOT_REL}/${role}/runbooks/${runbook}`;
+        const root = `${home}/${ROLE_ROOT_REL}/${role}/skills/${skill}`;
         const absPath = `${root}/${relPath}`;
         return absPath.startsWith(root + "/") ? { root, absPath } : null;
       },
       inline: q.inline === "1",
     });
     if (!result.ok) {
-      sshLogger.warn("runbooks-editor download failed", {
-        operation: "runbooks_editor_download",
+      sshLogger.warn("role-skills-editor download failed", {
+        operation: "role_skills_editor_download",
         hostId,
         error: result.error,
       });
@@ -1897,13 +2099,13 @@ router.get(
 );
 
 // ---------------------------------------------------------------------------
-// PUT /runbooks-editor/write-binary?hostId=&role=&runbook=&path=   (body: raw bytes)
+// PUT /role-skills-editor/write-binary?hostId=&role=&skill=&path=   (body: raw bytes)
 // ---------------------------------------------------------------------------
 
 /**
- * Replace (or create) a file inside a runbook with raw bytes — for binary
+ * Replace (or create) a file inside a skill with raw bytes — for binary
  * edits such as an annotated PDF. Atomic temp-file + posix-rename; the
- * target must stay inside the resolved runbook directory. Last-write-wins
+ * target must stay inside the resolved skill directory. Last-write-wins
  * (no mtime check), like the workspace upload.
  */
 router.put(
@@ -1922,8 +2124,8 @@ router.put(
       res.status(400).json({ error: "invalid role name" });
       return;
     }
-    if (!isValidRunbookName(q.runbook)) {
-      res.status(400).json({ error: "invalid runbook name" });
+    if (!isValidSkillName(q.skill)) {
+      res.status(400).json({ error: "invalid skill name" });
       return;
     }
     if (!isSafeRelativePath(q.path)) {
@@ -1936,13 +2138,13 @@ router.put(
     }
     // Binary writes of a main file get the strict name check (no on-disk
     // comparison — the text editor's save is the path for real edits).
-    if (isMainRunbookFile(q.path, q.runbook) && nameMismatchesFolder(req.body.toString("utf-8"), q.runbook)) {
-      res.status(400).json(nameMismatchBody("runbook", q.runbook, frontmatterName(req.body.toString("utf-8"))));
+    if (isMainSkillFile(q.path) && nameMismatchesFolder(req.body.toString("utf-8"), q.skill)) {
+      res.status(400).json(nameMismatchBody("skill", q.skill, frontmatterName(req.body.toString("utf-8"))));
       return;
     }
     const role = q.role;
     if (!(await guardInstanceWideRoleWrite(res, userId, hostId, role))) return;
-    const runbook = q.runbook;
+    const skill = q.skill;
     const relPath = q.path;
     const host = await resolveHostById(hostId, userId);
     if (!host) {
@@ -1952,15 +2154,15 @@ router.put(
     const result = await writeRemoteFileUnderRoot({
       host: host as unknown as Parameters<typeof connectOneShot>[0],
       buildPaths: (home) => {
-        const root = `${home}/${ROLE_ROOT_REL}/${role}/runbooks/${runbook}`;
+        const root = `${home}/${ROLE_ROOT_REL}/${role}/skills/${skill}`;
         const absPath = `${root}/${relPath}`;
         return absPath.startsWith(root + "/") ? { root, absPath } : null;
       },
       bytes: req.body,
     });
     if ("error" in result) {
-      sshLogger.warn("runbooks-editor write-binary failed", {
-        operation: "runbooks_editor_write_binary",
+      sshLogger.warn("role-skills-editor write-binary failed", {
+        operation: "role_skills_editor_write_binary",
         hostId,
         error: result.error,
       });
@@ -1981,8 +2183,8 @@ router.use(
     res: Response,
     _next: express.NextFunction,
   ) => {
-    sshLogger.error("runbooks-editor: unhandled error", {
-      operation: "runbooks_editor_error",
+    sshLogger.error("role-skills-editor: unhandled error", {
+      operation: "role_skills_editor_error",
       error: err?.message,
     });
     return res.status(500).json({ error: "internal" });

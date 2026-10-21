@@ -374,7 +374,7 @@ vi.mock("@/features/pretty-view/RoleModal", () => ({
   RoleModal: () => null,
 }));
 
-vi.mock("@/features/pretty-view/RunbookEditorModal", () => ({
+vi.mock("@/features/pretty-view/RoleSkillEditorModal", () => ({
   default: () => null,
 }));
 

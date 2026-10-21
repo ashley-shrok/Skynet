@@ -339,7 +339,7 @@ export async function createSkill(
   }
 }
 
-/** Thrown by renameSkill / renameRunbook when the folder moved but the draft sent along couldn't be saved. */
+/** Thrown by renameSkill / renameRoleSkill when the folder moved but the draft sent along couldn't be saved. */
 export class RenamedButEditsNotSavedError extends Error {
   constructor(public readonly newName: string) {
     super("renamed, but the edits couldn't be saved");

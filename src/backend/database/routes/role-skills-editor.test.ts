@@ -1,23 +1,23 @@
 /**
- * Phase 89 (Plan 89-02): Vitest coverage for /runbooks-editor router.
+ * Vitest coverage for the /role-skills-editor router (Phase 89's /runbooks-editor).
  *
  * Byte-shape mirror of `skills-editor.test.ts` (Phase 44) with:
- *   - role dimension added (role + runbook query params / body fields)
+ *   - role dimension added (role + role skill query params / body fields)
  *   - role-404 validation case added (D-15 — role-existence check before
- *     touching runbooks)
+ *     touching role skills)
  *   - per-endpoint happy-path + error-path coverage for all 7 endpoints
  *   - a dedicated `describe("path-safety gate")` block with 12+ SEC-labeled
  *     attack-input tests proving every escape attempt returns 400 BEFORE
- *     any SSH connection opens (role AND runbook AND path attack vectors)
+ *     any SSH connection opens (role AND role skill AND path attack vectors)
  *
  * Endpoints covered:
- *   GET  /runbooks-editor/runbooks
- *   GET  /runbooks-editor/files
- *   POST /runbooks-editor/read
- *   PUT  /runbooks-editor/write
- *   POST /runbooks-editor/create
- *   DELETE /runbooks-editor/file
- *   DELETE /runbooks-editor/runbook
+ *   GET  /role-skills-editor/skills
+ *   GET  /role-skills-editor/files
+ *   POST /role-skills-editor/read
+ *   PUT  /role-skills-editor/write
+ *   POST /role-skills-editor/create
+ *   DELETE /role-skills-editor/file
+ *   DELETE /role-skills-editor/skill
  *
  * Test pattern: bare Express app + Node's built-in http module (mirrors
  * skills-editor.test.ts pattern — no supertest dependency). All SSH
@@ -182,31 +182,31 @@ const stubHost = {
 // Import the router under test (dynamic import AFTER vi.mock() declarations)
 // ---------------------------------------------------------------------------
 
-const { default: router } = await import("./runbooks-editor.js");
+const { default: router } = await import("./role-skills-editor.js");
 
 let server: http.Server;
 
 /**
  * Default exec behavior: canned outputs matching a healthy fixture with
- * role "box-maintainer" existing, 2 runbooks, and files inside them.
+ * role "box-maintainer" existing, 2 role skills, and files inside them.
  * Tests override with `mockImplementation` where they want to exercise
  * a specific branch.
  */
 function defaultExecImpl(cmd: string): Promise<string> {
   if (cmd === "echo $HOME") return Promise.resolve("/home/testuser\n");
   // Role existence check — default: role exists
-  if (cmd.includes("test -d") && cmd.includes("roles") && !cmd.includes("runbooks"))
+  if (cmd.includes("test -d") && cmd.includes("roles") && !cmd.includes("/skills/"))
     return Promise.resolve("ok");
-  // Runbook existence check — default: runbook exists
-  if (cmd.includes("test -d") && cmd.includes("runbooks"))
+  // Role skill existence check — default: role skill exists
+  if (cmd.includes("test -d") && cmd.includes("/skills/"))
     return Promise.resolve("exists");
-  // List runbooks (find with -maxdepth 1 -type d)
+  // List role skills (find with -maxdepth 1 -type d)
   if (cmd.startsWith("find") && cmd.includes("-maxdepth 1"))
     return Promise.resolve("avatar-flow\ncss-fast-path\n");
   // List files recursively (find with -type f)
   if (cmd.startsWith("find") && cmd.includes("-type f"))
-    return Promise.resolve("runbook.md\navatar-prompts/amelia.md\n");
-  if (cmd.startsWith("cat ")) return Promise.resolve("hello runbook");
+    return Promise.resolve("role skill.md\navatar-prompts/amelia.md\n");
+  if (cmd.startsWith("cat ")) return Promise.resolve("hello role skill");
   if (cmd.includes("stat -c '%Y'")) return Promise.resolve("1700000042");
   if (cmd.includes("stat -c '%s'")) return Promise.resolve("13");
   if (cmd.startsWith("test -e")) return Promise.resolve("ok");
@@ -234,7 +234,7 @@ beforeEach(() => {
   (writeMarkdownFileAtomic as Mock).mockResolvedValue(undefined);
 
   const app = express();
-  app.use("/runbooks-editor", router);
+  app.use("/role-skills-editor", router);
 
   server = http.createServer(app);
   server.listen(0);
@@ -245,38 +245,38 @@ afterEach(() => {
 });
 
 // ===========================================================================
-// GET /runbooks-editor/runbooks
+// GET /role-skills-editor/skills
 // ===========================================================================
 
-describe("GET /runbooks-editor/runbooks", () => {
-  it("200 with { runbooks: [{name}...] } sorted alphabetically", async () => {
+describe("GET /role-skills-editor/skills", () => {
+  it("200 with { skills: [{name}...] } sorted alphabetically", async () => {
     const res = await httpRequest(server, {
       method: "GET",
-      path: "/runbooks-editor/runbooks?hostId=1&role=box-maintainer",
+      path: "/role-skills-editor/skills?hostId=1&role=box-maintainer",
     });
     expect(res.status).toBe(200);
-    const body = res.body as { runbooks: { name: string }[] };
-    expect(body.runbooks).toEqual([
+    const body = res.body as { skills: { name: string }[] };
+    expect(body.skills).toEqual([
       { name: "avatar-flow" },
       { name: "css-fast-path" },
     ]);
   });
 
-  it("200 with { runbooks: [] } when the runbooks directory is missing (empty state)", async () => {
+  it("200 with { skills: [] } when the role skills directory is missing (empty state)", async () => {
     (execCommand as Mock).mockImplementation(
       async (_conn: unknown, cmd: string) => {
         if (cmd === "echo $HOME") return "/home/testuser\n";
-        if (cmd.includes("test -d") && !cmd.includes("runbooks")) return "ok";
+        if (cmd.includes("test -d") && !cmd.includes("/skills/")) return "ok";
         if (cmd.startsWith("find") && cmd.includes("-maxdepth 1")) return "";
         return "";
       },
     );
     const res = await httpRequest(server, {
       method: "GET",
-      path: "/runbooks-editor/runbooks?hostId=1&role=box-maintainer",
+      path: "/role-skills-editor/skills?hostId=1&role=box-maintainer",
     });
     expect(res.status).toBe(200);
-    expect((res.body as { runbooks: unknown[] }).runbooks).toEqual([]);
+    expect((res.body as { skills: unknown[] }).skills).toEqual([]);
   });
 
   it("404 with { error: 'role not found' } when the role folder is absent", async () => {
@@ -289,11 +289,11 @@ describe("GET /runbooks-editor/runbooks", () => {
     );
     const res = await httpRequest(server, {
       method: "GET",
-      path: "/runbooks-editor/runbooks?hostId=1&role=box-maintainer",
+      path: "/role-skills-editor/skills?hostId=1&role=box-maintainer",
     });
     expect(res.status).toBe(404);
     expect((res.body as { error: string }).error).toBe("role not found");
-    // Runbooks listing find must NOT have been called after the 404.
+    // Role skills listing find must NOT have been called after the 404.
     const calls = (execCommand as Mock).mock.calls as [unknown, string][];
     const findCall = calls.find(
       ([, cmd]) => cmd.startsWith("find") && cmd.includes("-maxdepth 1"),
@@ -304,7 +304,7 @@ describe("GET /runbooks-editor/runbooks", () => {
   it("400 on missing role — SSH must NOT be attempted", async () => {
     const res = await httpRequest(server, {
       method: "GET",
-      path: "/runbooks-editor/runbooks?hostId=1",
+      path: "/role-skills-editor/skills?hostId=1",
     });
     expect(res.status).toBe(400);
     expect((res.body as { error: string }).error).toBe("invalid role name");
@@ -314,7 +314,7 @@ describe("GET /runbooks-editor/runbooks", () => {
   it("400 on missing hostId", async () => {
     const res = await httpRequest(server, {
       method: "GET",
-      path: "/runbooks-editor/runbooks?role=box-maintainer",
+      path: "/role-skills-editor/skills?role=box-maintainer",
     });
     expect(res.status).toBe(400);
     expect((res.body as { error: string }).error).toBe("hostId is required");
@@ -323,7 +323,7 @@ describe("GET /runbooks-editor/runbooks", () => {
   it("400 on non-integer hostId", async () => {
     const res = await httpRequest(server, {
       method: "GET",
-      path: "/runbooks-editor/runbooks?hostId=abc&role=box-maintainer",
+      path: "/role-skills-editor/skills?hostId=abc&role=box-maintainer",
     });
     expect(res.status).toBe(400);
     expect((res.body as { error: string }).error).toBe(
@@ -335,7 +335,7 @@ describe("GET /runbooks-editor/runbooks", () => {
     mockUserId = null;
     const res = await httpRequest(server, {
       method: "GET",
-      path: "/runbooks-editor/runbooks?hostId=1&role=box-maintainer",
+      path: "/role-skills-editor/skills?hostId=1&role=box-maintainer",
     });
     expect(res.status).toBe(401);
   });
@@ -343,7 +343,7 @@ describe("GET /runbooks-editor/runbooks", () => {
   it("404 on cross-user / unknown host", async () => {
     const res = await httpRequest(server, {
       method: "GET",
-      path: "/runbooks-editor/runbooks?hostId=999&role=box-maintainer",
+      path: "/role-skills-editor/skills?hostId=999&role=box-maintainer",
     });
     expect(res.status).toBe(404);
   });
@@ -352,7 +352,7 @@ describe("GET /runbooks-editor/runbooks", () => {
     (connectOneShot as Mock).mockRejectedValueOnce(new Error("connect refused"));
     const res = await httpRequest(server, {
       method: "GET",
-      path: "/runbooks-editor/runbooks?hostId=1&role=box-maintainer",
+      path: "/role-skills-editor/skills?hostId=1&role=box-maintainer",
     });
     expect(res.status).toBe(502);
     expect((res.body as { error: string }).error).toBe("SSH connect failed");
@@ -360,49 +360,49 @@ describe("GET /runbooks-editor/runbooks", () => {
 });
 
 // ===========================================================================
-// GET /runbooks-editor/files
+// GET /role-skills-editor/files
 // ===========================================================================
 
-describe("GET /runbooks-editor/files", () => {
+describe("GET /role-skills-editor/files", () => {
   it("200 with { files: [{path}...] } sorted alphabetically, path-relative", async () => {
     const res = await httpRequest(server, {
       method: "GET",
-      path: "/runbooks-editor/files?hostId=1&role=box-maintainer&runbook=avatar-flow",
+      path: "/role-skills-editor/files?hostId=1&role=box-maintainer&skill=avatar-flow",
     });
     expect(res.status).toBe(200);
     const body = res.body as { files: { path: string }[] };
-    // Mock returns "runbook.md\navatar-prompts/amelia.md\n" — the shell `| sort`
+    // Mock returns "role skill.md\navatar-prompts/amelia.md\n" — the shell `| sort`
     // is mocked via execCommand so order mirrors the mock string output order.
     expect(body.files).toEqual([
-      { path: "runbook.md" },
+      { path: "role skill.md" },
       { path: "avatar-prompts/amelia.md" },
     ]);
   });
 
-  it("200 with { files: [] } when the runbook has no files", async () => {
+  it("200 with { files: [] } when the role skill has no files", async () => {
     (execCommand as Mock).mockImplementation(
       async (_conn: unknown, cmd: string) => {
         if (cmd === "echo $HOME") return "/home/testuser\n";
-        if (cmd.includes("test -d") && !cmd.includes("runbooks")) return "ok";
+        if (cmd.includes("test -d") && !cmd.includes("/skills/")) return "ok";
         if (cmd.startsWith("find") && cmd.includes("-type f")) return "";
         return "";
       },
     );
     const res = await httpRequest(server, {
       method: "GET",
-      path: "/runbooks-editor/files?hostId=1&role=box-maintainer&runbook=avatar-flow",
+      path: "/role-skills-editor/files?hostId=1&role=box-maintainer&skill=avatar-flow",
     });
     expect(res.status).toBe(200);
     expect((res.body as { files: unknown[] }).files).toEqual([]);
   });
 
-  it("400 on invalid runbook name (traversal attempt) — SSH NOT attempted", async () => {
+  it("400 on invalid role skill name (traversal attempt) — SSH NOT attempted", async () => {
     const res = await httpRequest(server, {
       method: "GET",
-      path: "/runbooks-editor/files?hostId=1&role=box-maintainer&runbook=../evil",
+      path: "/role-skills-editor/files?hostId=1&role=box-maintainer&skill=../evil",
     });
     expect(res.status).toBe(400);
-    expect((res.body as { error: string }).error).toBe("invalid runbook name");
+    expect((res.body as { error: string }).error).toBe("invalid skill name");
     expect((connectOneShot as Mock).mock.calls).toHaveLength(0);
   });
 
@@ -416,7 +416,7 @@ describe("GET /runbooks-editor/files", () => {
     );
     const res = await httpRequest(server, {
       method: "GET",
-      path: "/runbooks-editor/files?hostId=1&role=box-maintainer&runbook=avatar-flow",
+      path: "/role-skills-editor/files?hostId=1&role=box-maintainer&skill=avatar-flow",
     });
     expect(res.status).toBe(404);
     expect((res.body as { error: string }).error).toBe("role not found");
@@ -426,7 +426,7 @@ describe("GET /runbooks-editor/files", () => {
     (connectOneShot as Mock).mockRejectedValueOnce(new Error("boom"));
     const res = await httpRequest(server, {
       method: "GET",
-      path: "/runbooks-editor/files?hostId=1&role=box-maintainer&runbook=avatar-flow",
+      path: "/role-skills-editor/files?hostId=1&role=box-maintainer&skill=avatar-flow",
     });
     expect(res.status).toBe(502);
   });
@@ -434,26 +434,26 @@ describe("GET /runbooks-editor/files", () => {
   it("404 on cross-user / unknown host", async () => {
     const res = await httpRequest(server, {
       method: "GET",
-      path: "/runbooks-editor/files?hostId=999&role=box-maintainer&runbook=avatar-flow",
+      path: "/role-skills-editor/files?hostId=999&role=box-maintainer&skill=avatar-flow",
     });
     expect(res.status).toBe(404);
   });
 });
 
 // ===========================================================================
-// POST /runbooks-editor/read
+// POST /role-skills-editor/read
 // ===========================================================================
 
-describe("POST /runbooks-editor/read", () => {
+describe("POST /role-skills-editor/read", () => {
   it("200 with { content, mtime, size, isText:true } for a text file", async () => {
     const res = await httpRequest(server, {
       method: "POST",
-      path: "/runbooks-editor/read",
+      path: "/role-skills-editor/read",
       body: JSON.stringify({
         hostId: 1,
         role: "box-maintainer",
-        runbook: "avatar-flow",
-        path: "runbook.md",
+        skill: "avatar-flow",
+        path: "role skill.md",
       }),
     });
     expect(res.status).toBe(200);
@@ -463,7 +463,7 @@ describe("POST /runbooks-editor/read", () => {
       size: number;
       isText: boolean;
     };
-    expect(body.content).toBe("hello runbook");
+    expect(body.content).toBe("hello role skill");
     expect(body.mtime).toBe(1700000042);
     expect(body.size).toBe(13);
     expect(body.isText).toBe(true);
@@ -477,7 +477,7 @@ describe("POST /runbooks-editor/read", () => {
     (execCommand as Mock).mockImplementation(
       async (_conn: unknown, cmd: string) => {
         if (cmd === "echo $HOME") return "/home/testuser\n";
-        if (cmd.includes("test -d") && !cmd.includes("runbooks")) return "ok";
+        if (cmd.includes("test -d") && !cmd.includes("/skills/")) return "ok";
         // Return content with a 0x01 byte to trigger detectIsText→false
         if (cmd.startsWith("cat ")) return "\x01binarydata";
         if (cmd.includes("stat -c '%Y'")) return "1700000000";
@@ -487,11 +487,11 @@ describe("POST /runbooks-editor/read", () => {
     );
     const res = await httpRequest(server, {
       method: "POST",
-      path: "/runbooks-editor/read",
+      path: "/role-skills-editor/read",
       body: JSON.stringify({
         hostId: 1,
         role: "box-maintainer",
-        runbook: "avatar-flow",
+        skill: "avatar-flow",
         path: "img.png",
       }),
     });
@@ -504,11 +504,11 @@ describe("POST /runbooks-editor/read", () => {
   it("400 on invalid path (empty) — SSH NOT attempted", async () => {
     const res = await httpRequest(server, {
       method: "POST",
-      path: "/runbooks-editor/read",
+      path: "/role-skills-editor/read",
       body: JSON.stringify({
         hostId: 1,
         role: "box-maintainer",
-        runbook: "avatar-flow",
+        skill: "avatar-flow",
         path: "",
       }),
     });
@@ -520,12 +520,12 @@ describe("POST /runbooks-editor/read", () => {
     mockUserId = null;
     const res = await httpRequest(server, {
       method: "POST",
-      path: "/runbooks-editor/read",
+      path: "/role-skills-editor/read",
       body: JSON.stringify({
         hostId: 1,
         role: "box-maintainer",
-        runbook: "avatar-flow",
-        path: "runbook.md",
+        skill: "avatar-flow",
+        path: "role skill.md",
       }),
     });
     expect(res.status).toBe(401);
@@ -541,12 +541,12 @@ describe("POST /runbooks-editor/read", () => {
     );
     const res = await httpRequest(server, {
       method: "POST",
-      path: "/runbooks-editor/read",
+      path: "/role-skills-editor/read",
       body: JSON.stringify({
         hostId: 1,
         role: "box-maintainer",
-        runbook: "avatar-flow",
-        path: "runbook.md",
+        skill: "avatar-flow",
+        path: "role skill.md",
       }),
     });
     expect(res.status).toBe(404);
@@ -556,12 +556,12 @@ describe("POST /runbooks-editor/read", () => {
   it("404 on unknown host", async () => {
     const res = await httpRequest(server, {
       method: "POST",
-      path: "/runbooks-editor/read",
+      path: "/role-skills-editor/read",
       body: JSON.stringify({
         hostId: 999,
         role: "box-maintainer",
-        runbook: "avatar-flow",
-        path: "runbook.md",
+        skill: "avatar-flow",
+        path: "role skill.md",
       }),
     });
     expect(res.status).toBe(404);
@@ -571,12 +571,12 @@ describe("POST /runbooks-editor/read", () => {
     (connectOneShot as Mock).mockRejectedValueOnce(new Error("boom"));
     const res = await httpRequest(server, {
       method: "POST",
-      path: "/runbooks-editor/read",
+      path: "/role-skills-editor/read",
       body: JSON.stringify({
         hostId: 1,
         role: "box-maintainer",
-        runbook: "avatar-flow",
-        path: "runbook.md",
+        skill: "avatar-flow",
+        path: "role skill.md",
       }),
     });
     expect(res.status).toBe(502);
@@ -584,20 +584,20 @@ describe("POST /runbooks-editor/read", () => {
 });
 
 // ===========================================================================
-// PUT /runbooks-editor/write
+// PUT /role-skills-editor/write
 // ===========================================================================
 
-describe("PUT /runbooks-editor/write", () => {
+describe("PUT /role-skills-editor/write", () => {
   it("200 with { mtime } on valid write with matching expectedMtime", async () => {
     const res = await httpRequest(server, {
       method: "PUT",
-      path: "/runbooks-editor/write",
+      path: "/role-skills-editor/write",
       body: JSON.stringify({
         hostId: 1,
         role: "box-maintainer",
-        runbook: "avatar-flow",
-        path: "runbook.md",
-        content: "new runbook content\n",
+        skill: "avatar-flow",
+        path: "role skill.md",
+        content: "new role skill content\n",
         expectedMtime: 1700000042,
       }),
     });
@@ -608,16 +608,16 @@ describe("PUT /runbooks-editor/write", () => {
     const [, sftpPath, sftpContent] = (writeMarkdownFileAtomic as Mock).mock
       .calls[0] as [unknown, string, string];
     expect(sftpPath).toBe(
-      "/home/testuser/fleet/roles/box-maintainer/runbooks/avatar-flow/runbook.md",
+      "/home/testuser/fleet/roles/box-maintainer/skills/avatar-flow/role skill.md",
     );
-    expect(sftpContent).toBe("new runbook content\n");
+    expect(sftpContent).toBe("new role skill content\n");
   });
 
   it("409 with byte-identical mtime-mismatch shape on drift", async () => {
     (execCommand as Mock).mockImplementation(
       async (_conn: unknown, cmd: string) => {
         if (cmd === "echo $HOME") return "/home/testuser\n";
-        if (cmd.includes("test -d") && !cmd.includes("runbooks")) return "ok";
+        if (cmd.includes("test -d") && !cmd.includes("/skills/")) return "ok";
         if (cmd.includes("stat -c '%Y'")) return "1700000999";
         if (cmd.startsWith("cat ")) return "current disk content\n";
         return "";
@@ -625,12 +625,12 @@ describe("PUT /runbooks-editor/write", () => {
     );
     const res = await httpRequest(server, {
       method: "PUT",
-      path: "/runbooks-editor/write",
+      path: "/role-skills-editor/write",
       body: JSON.stringify({
         hostId: 1,
         role: "box-maintainer",
-        runbook: "avatar-flow",
-        path: "runbook.md",
+        skill: "avatar-flow",
+        path: "role skill.md",
         content: "my draft",
         expectedMtime: 1700000042,
       }),
@@ -652,12 +652,12 @@ describe("PUT /runbooks-editor/write", () => {
     const oversized = "x".repeat(2_000_001);
     const res = await httpRequest(server, {
       method: "PUT",
-      path: "/runbooks-editor/write",
+      path: "/role-skills-editor/write",
       body: JSON.stringify({
         hostId: 1,
         role: "box-maintainer",
-        runbook: "avatar-flow",
-        path: "runbook.md",
+        skill: "avatar-flow",
+        path: "role skill.md",
         content: oversized,
       }),
     });
@@ -667,11 +667,11 @@ describe("PUT /runbooks-editor/write", () => {
   it("400 on invalid path (path traversal attempt)", async () => {
     const res = await httpRequest(server, {
       method: "PUT",
-      path: "/runbooks-editor/write",
+      path: "/role-skills-editor/write",
       body: JSON.stringify({
         hostId: 1,
         role: "box-maintainer",
-        runbook: "avatar-flow",
+        skill: "avatar-flow",
         path: "../etc/passwd",
         content: "x",
       }),
@@ -689,12 +689,12 @@ describe("PUT /runbooks-editor/write", () => {
     );
     const res = await httpRequest(server, {
       method: "PUT",
-      path: "/runbooks-editor/write",
+      path: "/role-skills-editor/write",
       body: JSON.stringify({
         hostId: 1,
         role: "box-maintainer",
-        runbook: "avatar-flow",
-        path: "runbook.md",
+        skill: "avatar-flow",
+        path: "role skill.md",
         content: "content",
       }),
     });
@@ -708,12 +708,12 @@ describe("PUT /runbooks-editor/write", () => {
     );
     const res = await httpRequest(server, {
       method: "PUT",
-      path: "/runbooks-editor/write",
+      path: "/role-skills-editor/write",
       body: JSON.stringify({
         hostId: 1,
         role: "box-maintainer",
-        runbook: "avatar-flow",
-        path: "runbook.md",
+        skill: "avatar-flow",
+        path: "role skill.md",
         content: "new content",
       }),
     });
@@ -722,18 +722,18 @@ describe("PUT /runbooks-editor/write", () => {
 });
 
 // ===========================================================================
-// POST /runbooks-editor/create
+// POST /role-skills-editor/create
 // ===========================================================================
 
-describe("POST /runbooks-editor/create", () => {
+describe("POST /role-skills-editor/create", () => {
   it("200 with { path, mtime } on new file", async () => {
     const res = await httpRequest(server, {
       method: "POST",
-      path: "/runbooks-editor/create",
+      path: "/role-skills-editor/create",
       body: JSON.stringify({
         hostId: 1,
         role: "box-maintainer",
-        runbook: "avatar-flow",
+        skill: "avatar-flow",
         path: "new-note.md",
       }),
     });
@@ -748,7 +748,7 @@ describe("POST /runbooks-editor/create", () => {
     const touchCall = calls.find(([, cmd]) => cmd.startsWith("touch "));
     expect(touchCall).toBeDefined();
     expect(touchCall![1]).toContain(
-      "'/home/testuser/fleet/roles/box-maintainer/runbooks/avatar-flow/new-note.md'",
+      "'/home/testuser/fleet/roles/box-maintainer/skills/avatar-flow/new-note.md'",
     );
   });
 
@@ -756,20 +756,20 @@ describe("POST /runbooks-editor/create", () => {
     (execCommand as Mock).mockImplementation(
       async (_conn: unknown, cmd: string) => {
         if (cmd === "echo $HOME") return "/home/testuser\n";
-        if (cmd.includes("test -d") && !cmd.includes("runbooks")) return "ok";
-        if (cmd.includes("test -d") && cmd.includes("runbooks")) return "exists";
+        if (cmd.includes("test -d") && !cmd.includes("/skills/")) return "ok";
+        if (cmd.includes("test -d") && cmd.includes("/skills/")) return "exists";
         if (cmd.startsWith("test -e")) return "exists";
         return defaultExecImpl(cmd);
       },
     );
     const res = await httpRequest(server, {
       method: "POST",
-      path: "/runbooks-editor/create",
+      path: "/role-skills-editor/create",
       body: JSON.stringify({
         hostId: 1,
         role: "box-maintainer",
-        runbook: "avatar-flow",
-        path: "runbook.md",
+        skill: "avatar-flow",
+        path: "role skill.md",
       }),
     });
     expect(res.status).toBe(409);
@@ -783,11 +783,11 @@ describe("POST /runbooks-editor/create", () => {
   it("400 on invalid path — SSH NOT attempted", async () => {
     const res = await httpRequest(server, {
       method: "POST",
-      path: "/runbooks-editor/create",
+      path: "/role-skills-editor/create",
       body: JSON.stringify({
         hostId: 1,
         role: "box-maintainer",
-        runbook: "avatar-flow",
+        skill: "avatar-flow",
         path: "../evil.md",
       }),
     });
@@ -805,17 +805,17 @@ describe("POST /runbooks-editor/create", () => {
     );
     const res = await httpRequest(server, {
       method: "POST",
-      path: "/runbooks-editor/create",
+      path: "/role-skills-editor/create",
       body: JSON.stringify({
         hostId: 1,
         role: "box-maintainer",
-        runbook: "avatar-flow",
+        skill: "avatar-flow",
         path: "new.md",
       }),
     });
     expect(res.status).toBe(404);
     expect((res.body as { error: string }).error).toBe("role not found");
-    // Critical: no mkdir or touch fired after the 404 — no runbook materialized.
+    // Critical: no mkdir or touch fired after the 404 — no role skill materialized.
     const calls = (execCommand as Mock).mock.calls as [unknown, string][];
     expect(calls.find(([, c]) => c.startsWith("mkdir -p"))).toBeUndefined();
     expect(calls.find(([, c]) => c.startsWith("touch "))).toBeUndefined();
@@ -823,19 +823,19 @@ describe("POST /runbooks-editor/create", () => {
 });
 
 // ===========================================================================
-// DELETE /runbooks-editor/file
+// DELETE /role-skills-editor/file
 // ===========================================================================
 
-describe("DELETE /runbooks-editor/file", () => {
+describe("DELETE /role-skills-editor/file", () => {
   it("200 with { ok:true } on valid input; rm -f against composed path", async () => {
     const res = await httpRequest(server, {
       method: "DELETE",
-      path: "/runbooks-editor/file",
+      path: "/role-skills-editor/file",
       body: JSON.stringify({
         hostId: 1,
         role: "box-maintainer",
-        runbook: "avatar-flow",
-        path: "runbook.md",
+        skill: "avatar-flow",
+        path: "role skill.md",
       }),
     });
     expect(res.status).toBe(200);
@@ -844,7 +844,7 @@ describe("DELETE /runbooks-editor/file", () => {
     const rmCall = calls.find(([, cmd]) => cmd.startsWith("rm -f "));
     expect(rmCall).toBeDefined();
     expect(rmCall![1]).toContain(
-      "'/home/testuser/fleet/roles/box-maintainer/runbooks/avatar-flow/runbook.md'",
+      "'/home/testuser/fleet/roles/box-maintainer/skills/avatar-flow/role skill.md'",
     );
   });
 
@@ -852,11 +852,11 @@ describe("DELETE /runbooks-editor/file", () => {
     // rm -f swallows missing files; the exec returns empty string regardless.
     const res = await httpRequest(server, {
       method: "DELETE",
-      path: "/runbooks-editor/file",
+      path: "/role-skills-editor/file",
       body: JSON.stringify({
         hostId: 1,
         role: "box-maintainer",
-        runbook: "avatar-flow",
+        skill: "avatar-flow",
         path: "nonexistent.md",
       }),
     });
@@ -867,11 +867,11 @@ describe("DELETE /runbooks-editor/file", () => {
   it("400 on invalid path — SSH NOT attempted", async () => {
     const res = await httpRequest(server, {
       method: "DELETE",
-      path: "/runbooks-editor/file",
+      path: "/role-skills-editor/file",
       body: JSON.stringify({
         hostId: 1,
         role: "box-maintainer",
-        runbook: "avatar-flow",
+        skill: "avatar-flow",
         path: "../etc/passwd",
       }),
     });
@@ -889,12 +889,12 @@ describe("DELETE /runbooks-editor/file", () => {
     );
     const res = await httpRequest(server, {
       method: "DELETE",
-      path: "/runbooks-editor/file",
+      path: "/role-skills-editor/file",
       body: JSON.stringify({
         hostId: 1,
         role: "box-maintainer",
-        runbook: "avatar-flow",
-        path: "runbook.md",
+        skill: "avatar-flow",
+        path: "role skill.md",
       }),
     });
     expect(res.status).toBe(404);
@@ -904,12 +904,12 @@ describe("DELETE /runbooks-editor/file", () => {
   it("404 on unknown host", async () => {
     const res = await httpRequest(server, {
       method: "DELETE",
-      path: "/runbooks-editor/file",
+      path: "/role-skills-editor/file",
       body: JSON.stringify({
         hostId: 999,
         role: "box-maintainer",
-        runbook: "avatar-flow",
-        path: "runbook.md",
+        skill: "avatar-flow",
+        path: "role skill.md",
       }),
     });
     expect(res.status).toBe(404);
@@ -917,18 +917,18 @@ describe("DELETE /runbooks-editor/file", () => {
 });
 
 // ===========================================================================
-// DELETE /runbooks-editor/runbook
+// DELETE /role-skills-editor/skill
 // ===========================================================================
 
-describe("DELETE /runbooks-editor/runbook", () => {
-  it("200 with { ok:true } on valid runbook; rm -rf against composed runbookRoot", async () => {
+describe("DELETE /role-skills-editor/skill", () => {
+  it("200 with { ok:true } on valid role skill; rm -rf against composed skillRoot", async () => {
     const res = await httpRequest(server, {
       method: "DELETE",
-      path: "/runbooks-editor/runbook",
+      path: "/role-skills-editor/skill",
       body: JSON.stringify({
         hostId: 1,
         role: "box-maintainer",
-        runbook: "avatar-flow",
+        skill: "avatar-flow",
       }),
     });
     expect(res.status).toBe(200);
@@ -937,18 +937,18 @@ describe("DELETE /runbooks-editor/runbook", () => {
     const rmrfCall = calls.find(([, cmd]) => cmd.startsWith("rm -rf "));
     expect(rmrfCall).toBeDefined();
     expect(rmrfCall![1]).toContain(
-      "'/home/testuser/fleet/roles/box-maintainer/runbooks/avatar-flow'",
+      "'/home/testuser/fleet/roles/box-maintainer/skills/avatar-flow'",
     );
   });
 
-  it("400 on invalid runbook '../etc' BEFORE any rm -rf runs — SSH NOT attempted", async () => {
+  it("400 on invalid role skill '../etc' BEFORE any rm -rf runs — SSH NOT attempted", async () => {
     const res = await httpRequest(server, {
       method: "DELETE",
-      path: "/runbooks-editor/runbook",
+      path: "/role-skills-editor/skill",
       body: JSON.stringify({
         hostId: 1,
         role: "box-maintainer",
-        runbook: "../etc",
+        skill: "../etc",
       }),
     });
     expect(res.status).toBe(400);
@@ -970,11 +970,11 @@ describe("DELETE /runbooks-editor/runbook", () => {
     );
     const res = await httpRequest(server, {
       method: "DELETE",
-      path: "/runbooks-editor/runbook",
+      path: "/role-skills-editor/skill",
       body: JSON.stringify({
         hostId: 1,
         role: "box-maintainer",
-        runbook: "avatar-flow",
+        skill: "avatar-flow",
       }),
     });
     expect(res.status).toBe(404);
@@ -988,11 +988,11 @@ describe("DELETE /runbooks-editor/runbook", () => {
   it("404 on unknown host", async () => {
     const res = await httpRequest(server, {
       method: "DELETE",
-      path: "/runbooks-editor/runbook",
+      path: "/role-skills-editor/skill",
       body: JSON.stringify({
         hostId: 999,
         role: "box-maintainer",
-        runbook: "avatar-flow",
+        skill: "avatar-flow",
       }),
     });
     expect(res.status).toBe(404);
@@ -1009,12 +1009,12 @@ describe("path-safety gate", () => {
   it("SEC-1: rejects role '..' with 400 before SSH", async () => {
     const res = await httpRequest(server, {
       method: "POST",
-      path: "/runbooks-editor/read",
+      path: "/role-skills-editor/read",
       body: JSON.stringify({
         hostId: 1,
         role: "..",
-        runbook: "avatar-flow",
-        path: "runbook.md",
+        skill: "avatar-flow",
+        path: "role skill.md",
       }),
     });
     expect(res.status).toBe(400);
@@ -1024,12 +1024,12 @@ describe("path-safety gate", () => {
   it("SEC-2: rejects role '../etc' with 400 before SSH", async () => {
     const res = await httpRequest(server, {
       method: "POST",
-      path: "/runbooks-editor/read",
+      path: "/role-skills-editor/read",
       body: JSON.stringify({
         hostId: 1,
         role: "../etc",
-        runbook: "avatar-flow",
-        path: "runbook.md",
+        skill: "avatar-flow",
+        path: "role skill.md",
       }),
     });
     expect(res.status).toBe(400);
@@ -1039,12 +1039,12 @@ describe("path-safety gate", () => {
   it("SEC-3: rejects role 'role/../evil' (embedded slash) with 400 before SSH", async () => {
     const res = await httpRequest(server, {
       method: "POST",
-      path: "/runbooks-editor/read",
+      path: "/role-skills-editor/read",
       body: JSON.stringify({
         hostId: 1,
         role: "role/../evil",
-        runbook: "avatar-flow",
-        path: "runbook.md",
+        skill: "avatar-flow",
+        path: "role skill.md",
       }),
     });
     expect(res.status).toBe(400);
@@ -1054,12 +1054,12 @@ describe("path-safety gate", () => {
   it("SEC-4: rejects role '' (empty) with 400 before SSH", async () => {
     const res = await httpRequest(server, {
       method: "POST",
-      path: "/runbooks-editor/read",
+      path: "/role-skills-editor/read",
       body: JSON.stringify({
         hostId: 1,
         role: "",
-        runbook: "avatar-flow",
-        path: "runbook.md",
+        skill: "avatar-flow",
+        path: "role skill.md",
       }),
     });
     expect(res.status).toBe(400);
@@ -1069,12 +1069,12 @@ describe("path-safety gate", () => {
   it("SEC-5: rejects role 'role;rm -rf /' (shell metachar) with 400 before SSH", async () => {
     const res = await httpRequest(server, {
       method: "POST",
-      path: "/runbooks-editor/read",
+      path: "/role-skills-editor/read",
       body: JSON.stringify({
         hostId: 1,
         role: "role;rm -rf /",
-        runbook: "avatar-flow",
-        path: "runbook.md",
+        skill: "avatar-flow",
+        path: "role skill.md",
       }),
     });
     expect(res.status).toBe(400);
@@ -1084,44 +1084,44 @@ describe("path-safety gate", () => {
   it("SEC-6: rejects role 'role name with spaces' (spaces rejected by ROLE_NAME_RE) with 400 before SSH", async () => {
     const res = await httpRequest(server, {
       method: "POST",
-      path: "/runbooks-editor/read",
+      path: "/role-skills-editor/read",
       body: JSON.stringify({
         hostId: 1,
         role: "role name with spaces",
-        runbook: "avatar-flow",
-        path: "runbook.md",
+        skill: "avatar-flow",
+        path: "role skill.md",
       }),
     });
     expect(res.status).toBe(400);
     expect((connectOneShot as Mock).mock.calls).toHaveLength(0);
   });
 
-  // ---- RUNBOOK attack vectors ----
+  // ---- SKILL-name attack vectors ----
 
-  it("SEC-7: rejects runbook '..' with 400 before SSH", async () => {
+  it("SEC-7: rejects role skill '..' with 400 before SSH", async () => {
     const res = await httpRequest(server, {
       method: "POST",
-      path: "/runbooks-editor/read",
+      path: "/role-skills-editor/read",
       body: JSON.stringify({
         hostId: 1,
         role: "box-maintainer",
-        runbook: "..",
-        path: "runbook.md",
+        skill: "..",
+        path: "role skill.md",
       }),
     });
     expect(res.status).toBe(400);
     expect((connectOneShot as Mock).mock.calls).toHaveLength(0);
   });
 
-  it("SEC-8: rejects runbook '../evil' with 400 before SSH", async () => {
+  it("SEC-8: rejects role skill '../evil' with 400 before SSH", async () => {
     const res = await httpRequest(server, {
       method: "POST",
-      path: "/runbooks-editor/read",
+      path: "/role-skills-editor/read",
       body: JSON.stringify({
         hostId: 1,
         role: "box-maintainer",
-        runbook: "../evil",
-        path: "runbook.md",
+        skill: "../evil",
+        path: "role skill.md",
       }),
     });
     expect(res.status).toBe(400);
@@ -1133,11 +1133,11 @@ describe("path-safety gate", () => {
   it("SEC-9: rejects path '../../etc/passwd' (..' segment) with 400 before SSH", async () => {
     const res = await httpRequest(server, {
       method: "POST",
-      path: "/runbooks-editor/read",
+      path: "/role-skills-editor/read",
       body: JSON.stringify({
         hostId: 1,
         role: "box-maintainer",
-        runbook: "avatar-flow",
+        skill: "avatar-flow",
         path: "../../etc/passwd",
       }),
     });
@@ -1148,11 +1148,11 @@ describe("path-safety gate", () => {
   it("SEC-10: rejects path '/etc/passwd' (leading slash) with 400 before SSH", async () => {
     const res = await httpRequest(server, {
       method: "POST",
-      path: "/runbooks-editor/read",
+      path: "/role-skills-editor/read",
       body: JSON.stringify({
         hostId: 1,
         role: "box-maintainer",
-        runbook: "avatar-flow",
+        skill: "avatar-flow",
         path: "/etc/passwd",
       }),
     });
@@ -1163,11 +1163,11 @@ describe("path-safety gate", () => {
   it("SEC-11: rejects path with NUL byte with 400 before SSH", async () => {
     const res = await httpRequest(server, {
       method: "POST",
-      path: "/runbooks-editor/read",
+      path: "/role-skills-editor/read",
       body: JSON.stringify({
         hostId: 1,
         role: "box-maintainer",
-        runbook: "avatar-flow",
+        skill: "avatar-flow",
         path: "foo\0.md",
       }),
     });
@@ -1179,11 +1179,11 @@ describe("path-safety gate", () => {
     const longPath = "a".repeat(513);
     const res = await httpRequest(server, {
       method: "POST",
-      path: "/runbooks-editor/read",
+      path: "/role-skills-editor/read",
       body: JSON.stringify({
         hostId: 1,
         role: "box-maintainer",
-        runbook: "avatar-flow",
+        skill: "avatar-flow",
         path: longPath,
       }),
     });
@@ -1191,13 +1191,13 @@ describe("path-safety gate", () => {
     expect((connectOneShot as Mock).mock.calls).toHaveLength(0);
   });
 
-  // ---- DELETE /runbook rm-rf guard ----
+  // ---- DELETE /role skill rm-rf guard ----
 
-  it("SEC-13: rejects DELETE /runbook on role '..' (life-critical rm -rf guard)", async () => {
+  it("SEC-13: rejects DELETE /role skill on role '..' (life-critical rm -rf guard)", async () => {
     const res = await httpRequest(server, {
       method: "DELETE",
-      path: "/runbooks-editor/runbook",
-      body: JSON.stringify({ hostId: 1, role: "..", runbook: "avatar-flow" }),
+      path: "/role-skills-editor/skill",
+      body: JSON.stringify({ hostId: 1, role: "..", skill: "avatar-flow" }),
     });
     expect(res.status).toBe(400);
     // rm -rf must NEVER have been dispatched.
@@ -1208,10 +1208,10 @@ describe("path-safety gate", () => {
     expect((connectOneShot as Mock).mock.calls).toHaveLength(0);
   });
 
-  it("SEC-14: rejects GET /runbooks-editor/runbooks with role containing backslash with 400 before SSH", async () => {
+  it("SEC-14: rejects GET /role-skills-editor/skills with role containing backslash with 400 before SSH", async () => {
     const res = await httpRequest(server, {
       method: "GET",
-      path: "/runbooks-editor/runbooks?hostId=1&role=foo%5Cbar",
+      path: "/role-skills-editor/skills?hostId=1&role=foo%5Cbar",
     });
     expect(res.status).toBe(400);
     expect((connectOneShot as Mock).mock.calls).toHaveLength(0);
@@ -1219,26 +1219,26 @@ describe("path-safety gate", () => {
 });
 
 // ===========================================================================
-// GET /runbooks-editor/download
+// GET /role-skills-editor/download
 // ===========================================================================
 
-describe("GET /runbooks-editor/download", () => {
+describe("GET /role-skills-editor/download", () => {
   it("rejects bad input before any SSH", async () => {
     for (const q of [
-      "hostId=1&role=box-maintainer&runbook=avatar-flow&path=../x",
-      "hostId=1&role=Bad Role&runbook=avatar-flow&path=a.md",
-      "hostId=abc&role=box-maintainer&runbook=avatar-flow&path=a.md",
+      "hostId=1&role=box-maintainer&skill=avatar-flow&path=../x",
+      "hostId=1&role=Bad Role&skill=avatar-flow&path=a.md",
+      "hostId=abc&role=box-maintainer&skill=avatar-flow&path=a.md",
     ]) {
       const res = await httpRequest(server, {
         method: "GET",
-        path: `/runbooks-editor/download?${q.replace(/ /g, "%20")}`,
+        path: `/role-skills-editor/download?${q.replace(/ /g, "%20")}`,
       });
       expect(res.status).toBe(400);
     }
     expect((connectOneShot as Mock).mock.calls).toHaveLength(0);
   });
 
-  it("streams the file from inside the runbook directory", async () => {
+  it("streams the file from inside the role skill directory", async () => {
     const realStub = stubConn as typeof stubConn & { sftp?: unknown };
     const seen: string[] = [];
     realStub.sftp = (cb: (e: Error | null, s: unknown) => void) =>
@@ -1254,11 +1254,11 @@ describe("GET /runbooks-editor/download", () => {
     try {
       const res = await httpRequest(server, {
         method: "GET",
-        path: "/runbooks-editor/download?hostId=1&role=box-maintainer&runbook=avatar-flow&path=steps.md",
+        path: "/role-skills-editor/download?hostId=1&role=box-maintainer&skill=avatar-flow&path=steps.md",
       });
       expect(res.status).toBe(200);
       expect(res.body).toBe("ok");
-      expect(seen).toContain("/home/testuser/fleet/roles/box-maintainer/runbooks/avatar-flow/steps.md");
+      expect(seen).toContain("/home/testuser/fleet/roles/box-maintainer/skills/avatar-flow/steps.md");
     } finally {
       delete realStub.sftp;
     }
@@ -1266,18 +1266,18 @@ describe("GET /runbooks-editor/download", () => {
 });
 
 // ===========================================================================
-// PUT /runbooks-editor/write-binary
+// PUT /role-skills-editor/write-binary
 // ===========================================================================
 
-describe("PUT /runbooks-editor/write-binary", () => {
+describe("PUT /role-skills-editor/write-binary", () => {
   it("rejects bad input and empty bodies before any SSH", async () => {
     for (const [q, body] of [
-      ["hostId=1&role=box-maintainer&runbook=avatar-flow&path=../x.pdf", "%PDF"],
-      ["hostId=1&role=box-maintainer&runbook=avatar-flow&path=a.pdf", ""],
+      ["hostId=1&role=box-maintainer&skill=avatar-flow&path=../x.pdf", "%PDF"],
+      ["hostId=1&role=box-maintainer&skill=avatar-flow&path=a.pdf", ""],
     ]) {
       const res = await httpRequest(server, {
         method: "PUT",
-        path: `/runbooks-editor/write-binary?${q}`,
+        path: `/role-skills-editor/write-binary?${q}`,
         headers: { "Content-Type": "application/octet-stream" },
         body,
       });
@@ -1288,64 +1288,130 @@ describe("PUT /runbooks-editor/write-binary", () => {
 });
 
 // ===========================================================================
-// Folder ↔ name: POST /runbooks-editor/rename + PUT /write name gate
+// Folder ↔ name: POST /role-skills-editor/rename + PUT /write name gate
 // ===========================================================================
 
-describe("POST /runbooks-editor/rename", () => {
-  function rename(body: Record<string, unknown>) {
+describe("POST /role-skills-editor/skill", () => {
+  function create(body: Record<string, unknown>) {
     return httpRequest(server, {
       method: "POST",
-      path: "/runbooks-editor/rename",
+      path: "/role-skills-editor/skill",
       body: JSON.stringify(body),
     });
   }
 
-  it("moves the folder and an old-style <runbook>.md main file", async () => {
+  it("creates skills/<name>/SKILL.md with the standard seed", async () => {
     (execCommand as Mock).mockImplementation(async (_c: unknown, cmd: string) => {
-      if (cmd.startsWith("if [ ! -d ")) return "ok";
-      if (cmd.startsWith("if [ -f ")) return "moved";
-      if (cmd.startsWith("base64 -w0") && cmd.includes("/deploy.md"))
-        return Buffer.from("---\nname: ship\n---\n# Ship\n").toString("base64");
-      if (cmd.startsWith("base64 -w0")) return ""; // no runbook.md
+      if (cmd.startsWith("if [ -e ")) return "ok";
+      if (cmd.startsWith("stat -c")) return "1700000099";
       return defaultExecImpl(cmd);
     });
-    const res = await rename({ hostId: 1, role: "box-maintainer", runbook: "ship", newName: "deploy" });
+    const res = await create({ hostId: 1, role: "box-maintainer", skill: "ship", description: 'Ship it "now".' });
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ slug: "ship", mtime: 1700000099 });
+    const root = "/home/testuser/fleet/roles/box-maintainer/skills";
+    const cmds = (execCommand as Mock).mock.calls.map((c) => c[1] as string);
+    expect(cmds.find((c) => c.startsWith("if [ -e "))).toContain(`mkdir '${root}/ship'`);
+    expect(writeMarkdownFileAtomic).toHaveBeenCalledWith(
+      stubConn,
+      `${root}/ship/SKILL.md`,
+      '---\nname: ship\ndescription: "Ship it \\"now\\"."\n---\n\n# Ship\n',
+    );
+  });
+
+  it("409 when the name is taken", async () => {
+    (execCommand as Mock).mockImplementation(async (_c: unknown, cmd: string) => {
+      if (cmd.startsWith("if [ -e ")) return "exists";
+      return defaultExecImpl(cmd);
+    });
+    const res = await create({ hostId: 1, role: "box-maintainer", skill: "ship", description: "d" });
+    expect(res.status).toBe(409);
+    expect(res.body).toEqual({ error: "skill exists" });
+    expect(writeMarkdownFileAtomic).not.toHaveBeenCalled();
+  });
+
+  it("removes the folder again when the SKILL.md write fails", async () => {
+    (execCommand as Mock).mockImplementation(async (_c: unknown, cmd: string) => {
+      if (cmd.startsWith("if [ -e ")) return "ok";
+      return defaultExecImpl(cmd);
+    });
+    (writeMarkdownFileAtomic as Mock).mockRejectedValueOnce(new Error("sftp"));
+    const res = await create({ hostId: 1, role: "box-maintainer", skill: "ship", description: "d" });
+    expect(res.status).toBe(502);
+    const cmds = (execCommand as Mock).mock.calls.map((c) => c[1] as string);
+    expect(cmds).toContain("rm -rf '/home/testuser/fleet/roles/box-maintainer/skills/ship'");
+  });
+
+  it("400s a missing, blank or multi-line description and unsafe names before any SSH", async () => {
+    for (const body of [
+      { hostId: 1, role: "box-maintainer", skill: "ship" },
+      { hostId: 1, role: "box-maintainer", skill: "ship", description: "   " },
+      { hostId: 1, role: "box-maintainer", skill: "ship", description: "a\nb" },
+      { hostId: 1, role: "box-maintainer", skill: "../x", description: "d" },
+      { hostId: 1, role: "../x", skill: "ship", description: "d" },
+    ]) {
+      expect((await create(body)).status).toBe(400);
+    }
+    expect(connectOneShot).not.toHaveBeenCalled();
+  });
+});
+
+describe("POST /role-skills-editor/rename", () => {
+  function rename(body: Record<string, unknown>) {
+    return httpRequest(server, {
+      method: "POST",
+      path: "/role-skills-editor/rename",
+      body: JSON.stringify(body),
+    });
+  }
+
+  it("moves the folder, retargets forwarding links, rewrites SKILL.md's name", async () => {
+    (execCommand as Mock).mockImplementation(async (_c: unknown, cmd: string) => {
+      if (cmd.startsWith("if [ ! -d ")) return "ok";
+      if (cmd.startsWith("n=0;")) return "1";
+      if (cmd.startsWith("base64 -w0") && cmd.includes("/deploy/SKILL.md"))
+        return Buffer.from("---\nname: ship\n---\n# Ship\n").toString("base64");
+      return defaultExecImpl(cmd);
+    });
+    const res = await rename({ hostId: 1, role: "box-maintainer", skill: "ship", newName: "deploy" });
     expect(res.status).toBe(200);
     expect(res.body).toEqual({ name: "deploy" });
     const cmds = (execCommand as Mock).mock.calls.map((c) => c[1] as string);
-    const root = "/home/testuser/fleet/roles/box-maintainer/runbooks";
-    expect(cmds.find((c) => c.startsWith("if [ ! -d "))).toContain(`mv -T '${root}/ship' '${root}/deploy'`);
-    expect(cmds.find((c) => c.startsWith("if [ -f "))).toContain(`mv -T '${root}/deploy/ship.md' '${root}/deploy/deploy.md'`);
+    const role = "/home/testuser/fleet/roles/box-maintainer";
+    expect(cmds.find((c) => c.startsWith("if [ ! -d "))).toContain(`mv -T '${role}/skills/ship' '${role}/skills/deploy'`);
+    const fwd = cmds.find((c) => c.startsWith("n=0;")) ?? "";
+    expect(fwd).toContain(`for l in '${role}/runbooks'/*`);
+    expect(fwd).toContain(`if [ "$t" = '../skills/ship' ]; then ln -sfn '../skills/deploy' "$l"`);
+    expect(fwd).toContain(`elif [ "$t" = '../skills/ship/SKILL.md' ]; then ln -sfn '../skills/deploy/SKILL.md' "$l"`);
     expect(writeMarkdownFileAtomic).toHaveBeenCalledWith(
       stubConn,
-      `${root}/deploy/deploy.md`,
+      `${role}/skills/deploy/SKILL.md`,
       "---\nname: deploy\n---\n# Ship\n",
     );
   });
 
-  it("a main file whose new-name slot is taken stays put and still gets the new name; the draft path says where it lives", async () => {
+  it("saves a SKILL.md draft into the renamed folder", async () => {
     (execCommand as Mock).mockImplementation(async (_c: unknown, cmd: string) => {
       if (cmd.startsWith("if [ ! -d ")) return "ok";
-      if (cmd.startsWith("if [ -f ")) return "kept";
-      if (cmd.startsWith("base64 -w0")) return "";
+      if (cmd.startsWith("n=0;")) return "0";
+      if (cmd.startsWith("stat -c")) return "1700000042";
       return defaultExecImpl(cmd);
     });
     const res = await rename({
       hostId: 1,
       role: "box-maintainer",
-      runbook: "deploy",
+      skill: "deploy",
       newName: "staging",
-      path: "deploy.md",
+      path: "SKILL.md",
       content: "---\nname: staging\n---\nedited\n",
       expectedMtime: 1700000042,
     });
     expect(res.status).toBe(200);
-    expect(res.body).toEqual({ name: "staging", path: "deploy.md" });
-    const root = "/home/testuser/fleet/roles/box-maintainer/runbooks";
+    expect(res.body).toEqual({ name: "staging", path: "SKILL.md" });
     expect(writeMarkdownFileAtomic).toHaveBeenCalledTimes(1);
     expect(writeMarkdownFileAtomic).toHaveBeenCalledWith(
       stubConn,
-      `${root}/staging/deploy.md`,
+      "/home/testuser/fleet/roles/box-maintainer/skills/staging/SKILL.md",
       "---\nname: staging\n---\nedited\n",
     );
   });
@@ -1354,9 +1420,9 @@ describe("POST /runbooks-editor/rename", () => {
     const res = await rename({
       hostId: 1,
       role: "box-maintainer",
-      runbook: "ship",
+      skill: "ship",
       newName: "deploy",
-      path: "ship.md",
+      path: "SKILL.md",
       content: "x",
       expectedMtime: 1,
     });
@@ -1365,16 +1431,11 @@ describe("POST /runbooks-editor/rename", () => {
     expect(cmds.some((c) => c.includes("mv -T"))).toBe(false);
   });
 
-  it("400 when a draft path isn't the runbook's main file", async () => {
-    const res = await rename({
-      hostId: 1,
-      role: "box-maintainer",
-      runbook: "ship",
-      newName: "deploy",
-      path: "notes.md",
-      content: "x",
-    });
-    expect(res.status).toBe(400);
+  it("400 when a draft path isn't SKILL.md", async () => {
+    for (const path of ["notes.md", "runbook.md", "ship.md"]) {
+      const res = await rename({ hostId: 1, role: "box-maintainer", skill: "ship", newName: "deploy", path, content: "x" });
+      expect(res.status).toBe(400);
+    }
   });
 
   it("409 when the new name is taken", async () => {
@@ -1382,16 +1443,16 @@ describe("POST /runbooks-editor/rename", () => {
       if (cmd.startsWith("if [ ! -d ")) return "exists";
       return defaultExecImpl(cmd);
     });
-    const res = await rename({ hostId: 1, role: "box-maintainer", runbook: "ship", newName: "admin" });
+    const res = await rename({ hostId: 1, role: "box-maintainer", skill: "ship", newName: "admin" });
     expect(res.status).toBe(409);
-    expect(res.body).toEqual({ error: "runbook exists" });
+    expect(res.body).toEqual({ error: "skill exists" });
   });
 
   it("400s unsafe or no-op names before any SSH connect", async () => {
     for (const body of [
-      { hostId: 1, role: "box-maintainer", runbook: "ship", newName: "../x" },
-      { hostId: 1, role: "../x", runbook: "ship", newName: "deploy" },
-      { hostId: 1, role: "box-maintainer", runbook: "ship", newName: "ship" },
+      { hostId: 1, role: "box-maintainer", skill: "ship", newName: "../x" },
+      { hostId: 1, role: "../x", skill: "ship", newName: "deploy" },
+      { hostId: 1, role: "box-maintainer", skill: "ship", newName: "ship" },
     ]) {
       expect((await rename(body)).status).toBe(400);
     }
@@ -1399,12 +1460,12 @@ describe("POST /runbooks-editor/rename", () => {
   });
 });
 
-describe("PUT /runbooks-editor/write — main-file name must match the folder", () => {
+describe("PUT /role-skills-editor/write — SKILL.md's name must match the folder", () => {
   function write(path: string, content: string) {
     return httpRequest(server, {
       method: "PUT",
-      path: "/runbooks-editor/write",
-      body: JSON.stringify({ hostId: 1, role: "box-maintainer", runbook: "ship", path, content }),
+      path: "/role-skills-editor/write",
+      body: JSON.stringify({ hostId: 1, role: "box-maintainer", skill: "ship", path, content }),
     });
   }
   function onDisk(text: string) {
@@ -1414,21 +1475,21 @@ describe("PUT /runbooks-editor/write — main-file name must match the folder", 
     });
   }
 
-  it("400 name_mismatch on runbook.md and <runbook>.md", async () => {
+  it("400 name_mismatch on SKILL.md", async () => {
     onDisk("# no frontmatter\n");
-    for (const path of ["runbook.md", "ship.md"]) {
-      const res = await write(path, "---\nname: other\n---\n");
-      expect(res.status).toBe(400);
-      expect((res.body as { code: string }).code).toBe("name_mismatch");
-    }
+    const res = await write("SKILL.md", "---\nname: other\n---\n");
+    expect(res.status).toBe(400);
+    expect((res.body as { code: string }).code).toBe("name_mismatch");
   });
 
   it("an untouched pre-existing mismatch still saves", async () => {
     onDisk("---\nname: Old Ship\n---\n");
-    expect((await write("ship.md", "---\nname: Old Ship\n---\nedited\n")).status).toBe(200);
+    expect((await write("SKILL.md", "---\nname: Old Ship\n---\nedited\n")).status).toBe(200);
   });
 
-  it("ignores name: in companion files", async () => {
-    expect((await write("notes.md", "---\nname: other\n---\n")).status).toBe(200);
+  it("ignores name: in companion files, including old runbook main-file names", async () => {
+    for (const path of ["notes.md", "runbook.md", "ship.md"]) {
+      expect((await write(path, "---\nname: other\n---\n")).status).toBe(200);
+    }
   });
 });

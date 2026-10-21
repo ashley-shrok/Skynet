@@ -56,7 +56,7 @@ armed() { systemctl is-active --quiet "$UNIT.timer"; }
 
 compose_files() {
   # Mirrors COMPOSE_FILE in /opt/skynet/.env; the override is load-bearing on
-  # co-located hosts (see runbooks/skynet-ship).
+  # co-located hosts (see the box-maintainer role skill skynet-ship).
   local files=(-f "$COMPOSE_DIR/docker-compose.yml")
   [ -f "$COMPOSE_DIR/docker-compose.host-systemd.override.yml" ] &&
     files+=(-f "$COMPOSE_DIR/docker-compose.host-systemd.override.yml")

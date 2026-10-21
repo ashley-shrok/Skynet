@@ -78,7 +78,7 @@ export function setUserInvocationDisabled(content: string, disabled: boolean): s
   return disabled && isModelInvocationDisabled(next) ? setKey(next, MODEL_KEY, null) : next;
 }
 
-// `name:` — the folder name IS a skill's (or runbook's) name; a `name:` in its
+// `name:` — the folder name IS a skill's (or role skill's) name; a `name:` in its
 // main file must agree with it. Mirrors src/backend/utils/folder-item-name.ts.
 const NAME_LINE = /^name\s*:\s*(.*?)\s*$/;
 

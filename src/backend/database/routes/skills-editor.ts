@@ -78,6 +78,7 @@ import {
   frontmatterName,
   refuseIfNameMismatch,
   withFrontmatterName,
+  composeSkillMdSeed,
 } from "../../utils/folder-item-name.js";
 import { getInstanceWide } from "../../instance-wide/production.js";
 import {
@@ -261,44 +262,6 @@ function buildAbsSkillFilePath(
   return { skillRoot, absPath };
 }
 
-/**
- * Phase 113 D-06 + D-07: compose the seed SKILL.md body for a brand-new skill.
- *
- * Shape (LF line endings) — frontmatter block + prettified-slug H1 so
- * MDXEditor's Lexical parser has at least one markdown node to render; with
- * pure-frontmatter-plus-blank the contenteditable rendered empty and the
- * silent-failure detector swapped the editor into the code-editor fallback
- * for every freshly-created skill (field repro 2026-10-03):
- *
- *   ---\n
- *   name: <slug>\n
- *   description: "<yaml-safe-desc>"\n
- *   ---\n
- *   \n
- *   # <PrettifiedSlug>\n
- *
- * Prettify = `-`/`_` → space, first char uppercased (same deslugify shape as
- * the scheduled-agents `task:` prefix). Users can rename the heading to the
- * display name they actually want in the editor.
- *
- * YAML-safety (D-07): unconditional double-quote wrap; escape embedded `\` and
- * `"`. ORDER MATTERS — escape `\` FIRST, then `"`. Reversing the order would
- * mangle `\"` (the `"`-escape's output is `\"`, which the subsequent
- * `\`-escape would then turn into `\\"`). See RESEARCH.md § Common Pitfalls #7.
- *
- * The `\n`/`\r` reject in the POST /skill handler is belt-and-suspenders — no
- * caller should reach this helper with multi-line content, but if they do the
- * quote wrap still produces valid YAML (embedded LF in a double-quoted YAML
- * string is invalid on its own but our upstream rejection catches it first).
- */
-function composeSkillMdSeed(slug: string, description: string): string {
-  const yamlSafeDesc = description
-    .replace(/\\/g, "\\\\")
-    .replace(/"/g, '\\"');
-  const spaced = slug.replace(/[-_]/g, " ");
-  const heading = spaced.charAt(0).toUpperCase() + spaced.slice(1);
-  return `---\nname: ${slug}\ndescription: "${yamlSafeDesc}"\n---\n\n# ${heading}\n`;
-}
 
 // ---------------------------------------------------------------------------
 // GET /skills-editor/skills?hostId=<n>

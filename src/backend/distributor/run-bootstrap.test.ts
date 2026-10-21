@@ -73,11 +73,16 @@ import {
 } from "./run-bootstrap.js";
 import { systemLogger } from "../utils/logger.js";
 import { ROLES_KEY_MIGRATION_SENTINEL } from "./roles-key-migration.js";
+import { ROLE_SKILLS_MIGRATION_SENTINEL } from "./role-skills-migration.js";
 import { DESKTOP_DEPS_SENTINEL } from "./desktop-deps.js";
 
 /** Step 7 output when there's nothing to migrate. */
 const ROLES_NOOP_OUTPUT =
   `ROLES_KEY_MIGRATION_RESULT {"filesMigrated": 0, "baselinesMigrated": 0, "conflicts": 0, "conflictPaths": [], "errorCount": 0, "errors": []}\n${ROLES_KEY_MIGRATION_SENTINEL}`;
+
+/** Step 7b output when there's nothing to convert. */
+const ROLE_SKILLS_NOOP_OUTPUT =
+  `ROLE_SKILLS_MIGRATION_RESULT {"converted": 0, "skillsDirsCreated": 0, "baselinesUpdated": 0, "specsRepointed": 0, "conflicts": 0, "conflictPaths": [], "errorCount": 0, "errors": [], "deferred": 0}\n${ROLE_SKILLS_MIGRATION_SENTINEL}`;
 
 // Suppress logger output in tests
 vi.mock("../utils/logger.js", () => ({
@@ -131,6 +136,8 @@ function makeChannel(
     // Default happy-path for Step 7 (roles-key migration): nothing to do.
     // Tests specifically exercising Step 7 override this key.
     [ROLES_KEY_MIGRATION_SENTINEL]: ROLES_NOOP_OUTPUT,
+    // Default happy-path for Step 7b (runbooks → role skills): nothing to do.
+    [ROLE_SKILLS_MIGRATION_SENTINEL]: ROLE_SKILLS_NOOP_OUTPUT,
     // Default happy-path for Step 8 (desktop packages): already present.
     [DESKTOP_DEPS_SENTINEL]: `${DESKTOP_DEPS_SENTINEL} present`,
     ...handlers,
@@ -1586,6 +1593,7 @@ describe("runBootstrapForHost", () => {
         // Step 6 usage-reporter retire: check sentinel first since cmd also has SETTINGS=.
         if (cmd.includes("__USAGE_REPORTER_RETIRED__")) return "__USAGE_REPORTER_RETIRED__";
         if (cmd.includes(ROLES_KEY_MIGRATION_SENTINEL)) return ROLES_NOOP_OUTPUT;
+        if (cmd.includes(ROLE_SKILLS_MIGRATION_SENTINEL)) return ROLE_SKILLS_NOOP_OUTPUT;
         if (cmd.includes(DESKTOP_DEPS_SENTINEL)) return `${DESKTOP_DEPS_SENTINEL} present`;
         if (cmd.includes("SETTINGS=")) return "__SETTINGS_OK__";
         if (cmd.includes("gsd-context-monitor")) return "__CLEANUP_OK__";
@@ -1634,6 +1642,7 @@ describe("runBootstrapForHost", () => {
         if (cmd.includes("is-enabled interactive-messages-gc.timer")) return "disabled\nEXIT:1";
         if (cmd.includes("__USAGE_REPORTER_RETIRED__")) return "__USAGE_REPORTER_RETIRED__";
         if (cmd.includes(ROLES_KEY_MIGRATION_SENTINEL)) return ROLES_NOOP_OUTPUT;
+        if (cmd.includes(ROLE_SKILLS_MIGRATION_SENTINEL)) return ROLE_SKILLS_NOOP_OUTPUT;
         if (cmd.includes(DESKTOP_DEPS_SENTINEL)) return `${DESKTOP_DEPS_SENTINEL} present`;
         if (cmd.includes("SETTINGS=")) return "__SETTINGS_OK__";
         if (cmd.includes("gsd-context-monitor")) return "__CLEANUP_OK__";
@@ -1659,6 +1668,7 @@ describe("runBootstrapForHost", () => {
         if (cmd.includes("is-enabled interactive-messages-gc.timer")) return "disabled\nEXIT:1";
         if (cmd.includes("__USAGE_REPORTER_RETIRED__")) return "__USAGE_REPORTER_RETIRED__";
         if (cmd.includes(ROLES_KEY_MIGRATION_SENTINEL)) return ROLES_NOOP_OUTPUT;
+        if (cmd.includes(ROLE_SKILLS_MIGRATION_SENTINEL)) return ROLE_SKILLS_NOOP_OUTPUT;
         if (cmd.includes(DESKTOP_DEPS_SENTINEL)) return `${DESKTOP_DEPS_SENTINEL} present`;
         if (cmd.includes("SETTINGS=")) return "__SETTINGS_OK__";
         if (cmd.includes("gsd-context-monitor")) return "__CLEANUP_OK__";
@@ -1685,6 +1695,7 @@ describe("runBootstrapForHost", () => {
         if (cmd.includes("daemon-reload")) return "__RELOAD_OK__";
         if (cmd.includes("__USAGE_REPORTER_RETIRED__")) return "__USAGE_REPORTER_RETIRED__";
         if (cmd.includes(ROLES_KEY_MIGRATION_SENTINEL)) return ROLES_NOOP_OUTPUT;
+        if (cmd.includes(ROLE_SKILLS_MIGRATION_SENTINEL)) return ROLE_SKILLS_NOOP_OUTPUT;
         if (cmd.includes(DESKTOP_DEPS_SENTINEL)) return `${DESKTOP_DEPS_SENTINEL} present`;
         if (cmd.includes("SETTINGS=")) return "__SETTINGS_OK__";
         if (cmd.includes("gsd-context-monitor")) return "__CLEANUP_OK__";
@@ -1729,6 +1740,7 @@ describe("runBootstrapForHost", () => {
         if (cmd.includes("daemon-reload")) return "__RELOAD_OK__";
         if (cmd.includes("__USAGE_REPORTER_RETIRED__")) return "__USAGE_REPORTER_RETIRED__";
         if (cmd.includes(ROLES_KEY_MIGRATION_SENTINEL)) return ROLES_NOOP_OUTPUT;
+        if (cmd.includes(ROLE_SKILLS_MIGRATION_SENTINEL)) return ROLE_SKILLS_NOOP_OUTPUT;
         if (cmd.includes(DESKTOP_DEPS_SENTINEL)) return `${DESKTOP_DEPS_SENTINEL} present`;
         if (cmd.includes("SETTINGS=")) return "__SETTINGS_OK__";
         if (cmd.includes("gsd-context-monitor")) return "__CLEANUP_OK__";
@@ -1825,6 +1837,7 @@ describe("runBootstrapForHost", () => {
           return "disabled\nEXIT:1";
         if (cmd.includes("__USAGE_REPORTER_RETIRED__")) return "__USAGE_REPORTER_RETIRED__";
         if (cmd.includes(ROLES_KEY_MIGRATION_SENTINEL)) return ROLES_NOOP_OUTPUT;
+        if (cmd.includes(ROLE_SKILLS_MIGRATION_SENTINEL)) return ROLE_SKILLS_NOOP_OUTPUT;
         if (cmd.includes(DESKTOP_DEPS_SENTINEL)) return `${DESKTOP_DEPS_SENTINEL} present`;
         if (cmd.includes("SETTINGS=")) return "__SETTINGS_OK__";
         if (cmd.includes("gsd-context-monitor")) return "__CLEANUP_OK__";
@@ -1879,6 +1892,7 @@ describe("runBootstrapForHost", () => {
           return "disabled\nEXIT:1";
         if (cmd.includes("__USAGE_REPORTER_RETIRED__")) return "__USAGE_REPORTER_RETIRED__";
         if (cmd.includes(ROLES_KEY_MIGRATION_SENTINEL)) return ROLES_NOOP_OUTPUT;
+        if (cmd.includes(ROLE_SKILLS_MIGRATION_SENTINEL)) return ROLE_SKILLS_NOOP_OUTPUT;
         if (cmd.includes(DESKTOP_DEPS_SENTINEL)) return `${DESKTOP_DEPS_SENTINEL} present`;
         if (cmd.includes("SETTINGS=")) return "__SETTINGS_OK__";
         if (cmd.includes("gsd-context-monitor")) return "__CLEANUP_OK__";
@@ -1907,6 +1921,7 @@ describe("runBootstrapForHost", () => {
           return "disabled\nEXIT:1";
         if (cmd.includes("__USAGE_REPORTER_RETIRED__")) return "__USAGE_REPORTER_RETIRED__";
         if (cmd.includes(ROLES_KEY_MIGRATION_SENTINEL)) return ROLES_NOOP_OUTPUT;
+        if (cmd.includes(ROLE_SKILLS_MIGRATION_SENTINEL)) return ROLE_SKILLS_NOOP_OUTPUT;
         if (cmd.includes(DESKTOP_DEPS_SENTINEL)) return `${DESKTOP_DEPS_SENTINEL} present`;
         if (cmd.includes("SETTINGS=")) return "__SETTINGS_OK__";
         if (cmd.includes("gsd-context-monitor")) return "__CLEANUP_OK__";
@@ -2189,6 +2204,104 @@ describe("step 8: agent-desktop packages", () => {
       expect(r.desktopDeps).toBeNull();
       expect(r.hadError).toBe(true);
       expect(depsFailures()).toHaveLength(1);
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Step 7b: runbooks → role skills. Full behavior lives in
+// role-skills-migration.test.ts (both implementations); here only the step's
+// wiring: ok flag, activity log, failure handling.
+// ---------------------------------------------------------------------------
+describe("step 7b: runbooks → role skills", () => {
+  const out = (counts: Record<string, unknown>) =>
+    `ROLE_SKILLS_MIGRATION_RESULT ${JSON.stringify({
+      converted: 0,
+      skillsDirsCreated: 0,
+      baselinesUpdated: 0,
+      specsRepointed: 0,
+      conflicts: 0,
+      conflictPaths: [],
+      errorCount: 0,
+      errors: [],
+      deferred: 0,
+      ...counts,
+    })}\n${ROLE_SKILLS_MIGRATION_SENTINEL}`;
+
+  const baseHandlers = {
+    "is-enabled": "enabled\nEXIT:0",
+    "daemon-reload": "__RELOAD_OK__",
+    SETTINGS: "__SETTINGS_OK__",
+    "gsd-context-monitor": "__CLEANUP_OK__",
+    "host/name": "__HOST_NAME_OK__",
+  };
+
+  const logs = (level: "info" | "warn") =>
+    vi
+      .mocked(systemLogger[level])
+      .mock.calls.filter(
+        ([, ctx]) =>
+          (ctx as Record<string, unknown> | undefined)?.operation ===
+          "fleet_substrate_role_skills_migration",
+      );
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("(rs-1) nothing to do → ok, one exec, no activity log", async () => {
+    const { channel, exec } = makeChannel(baseHandlers);
+    const result = await runBootstrapForHost(channel, HOST);
+    expect(result.roleSkillsMigrationOk).toBe(true);
+    expect(result.hadError).toBe(false);
+    expect(captureCommands(exec).filter((c) => c.includes(ROLE_SKILLS_MIGRATION_SENTINEL))).toHaveLength(1);
+    expect(logs("info")).toHaveLength(0);
+    expect(logs("warn")).toHaveLength(0);
+  });
+
+  it("(rs-2) conversions → info log with counts", async () => {
+    const { channel } = makeChannel({
+      ...baseHandlers,
+      [ROLE_SKILLS_MIGRATION_SENTINEL]: out({ converted: 3, skillsDirsCreated: 2, specsRepointed: 1 }),
+    });
+    const result = await runBootstrapForHost(channel, HOST);
+    expect(result.roleSkillsMigrationOk).toBe(true);
+    expect(logs("info")[0]?.[1]).toMatchObject({ converted: 3, skillsDirsCreated: 2, specsRepointed: 1 });
+  });
+
+  it("(rs-3) conflicts → warn, still ok", async () => {
+    const { channel } = makeChannel({
+      ...baseHandlers,
+      [ROLE_SKILLS_MIGRATION_SENTINEL]: out({ conflicts: 1, conflictPaths: ["/h/fleet/roles/r/skills/x"] }),
+    });
+    const result = await runBootstrapForHost(channel, HOST);
+    expect(result.roleSkillsMigrationOk).toBe(true);
+    expect(result.hadError).toBe(false);
+    expect(logs("warn")[0]?.[1]).toMatchObject({ conflictPaths: ["/h/fleet/roles/r/skills/x"] });
+  });
+
+  it("(rs-4) errors → hadError, not ok; deferred → not ok", async () => {
+    const { channel } = makeChannel({
+      ...baseHandlers,
+      [ROLE_SKILLS_MIGRATION_SENTINEL]: out({ errorCount: 1, errors: [{ path: "/p", error: "EACCES" }] }),
+    });
+    const r1 = await runBootstrapForHost(channel, HOST);
+    expect(r1.roleSkillsMigrationOk).toBe(false);
+    expect(r1.hadError).toBe(true);
+    const { channel: ch2 } = makeChannel({
+      ...baseHandlers,
+      [ROLE_SKILLS_MIGRATION_SENTINEL]: out({ deferred: 1 }),
+    });
+    const r2 = await runBootstrapForHost(ch2, HOST);
+    expect(r2.roleSkillsMigrationOk).toBe(false);
+  });
+
+  it("(rs-5) channel null / missing sentinel → hadError, never rejects", async () => {
+    for (const response of [null, "Traceback: boom"]) {
+      const { channel } = makeChannel({ ...baseHandlers, [ROLE_SKILLS_MIGRATION_SENTINEL]: response });
+      const result = await runBootstrapForHost(channel, HOST);
+      expect(result.roleSkillsMigrationOk).toBe(false);
+      expect(result.hadError).toBe(true);
     }
   });
 });

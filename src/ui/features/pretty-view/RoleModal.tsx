@@ -8,7 +8,7 @@
 //     picker for avatar upload) + display name (no pencil — roles are not
 //     renamable via UI 2026-09-29) + role slug meta + color chip pinned
 //     top-right + voice chip pinned top-right + close X.
-//   - Two section-tabs at TOP: Role file / Runbooks. Cosmetics tab
+//   - Two section-tabs at TOP: Role file / Role skills. Cosmetics tab
 //     retired entirely — cosmetic edits happen via the head chips + the
 //     avatar pencil overlay. RoleCosmeticEditBlock retired.
 //   - Foot: canonical <ModalFoot> with a single Close button.
@@ -56,7 +56,7 @@ import {
 } from "@/api/claude-session-api";
 import type { TabState } from "./IdentityFileTab";
 import { RoleFileTab } from "./RoleFileTab";
-import { RunbooksTab } from "./RunbooksTab";
+import { RoleSkillsTab } from "./RoleSkillsTab";
 import { VoicePicker } from "./pickers/VoicePicker";
 import { useVoiceLabel } from "./pickers/useVoiceCatalog";
 import { ColorPicker } from "./pickers/ColorPicker";
@@ -70,7 +70,7 @@ const FALLBACK_HUE = 190;
 
 const NAV_SECTIONS = [
   { value: "role", label: "Role file", Icon: Users },
-  { value: "runbooks", label: "Runbooks", Icon: BookOpen },
+  { value: "skills", label: "Skills", Icon: BookOpen },
   { value: "files", label: "Files", Icon: Folder },
 ] as const;
 
@@ -173,7 +173,7 @@ export interface RoleModalProps {
     instanceWide?: boolean;
   };
   hostId: number;
-  onOpenRunbook: (runbookName: string) => void;
+  onOpenRoleSkill: (roleSkillName: string) => void;
   container?: HTMLElement | null;
 }
 
@@ -183,7 +183,7 @@ export function RoleModal({
   roleName,
   roleCosmetics,
   hostId,
-  onOpenRunbook,
+  onOpenRoleSkill,
   container,
 }: RoleModalProps): JSX.Element {
   const initialHue = roleCosmetics.colorHue ?? FALLBACK_HUE;
@@ -640,13 +640,13 @@ export function RoleModal({
         </TabsContent>
 
         <TabsContent
-          value="runbooks"
+          value="skills"
           className="flex-1 min-h-0 overflow-y-auto px-6 py-4"
         >
-          <RunbooksTab
+          <RoleSkillsTab
             hostId={hostId}
             roleName={roleName}
-            onOpenRunbook={onOpenRunbook}
+            onOpenRoleSkill={onOpenRoleSkill}
           />
         </TabsContent>
 
@@ -664,7 +664,7 @@ export function RoleModal({
             hostId={hostId}
             hue={hue}
             hiddenNames={filesTabHiddenNames(roleName)}
-            introCopy="Files inside this role's folder — reference material, runbooks, etc. Every agent holding this role sees the same stuff."
+            introCopy="Files inside this role's folder — reference material, role skills, etc. Every agent holding this role sees the same stuff."
           />
         </TabsContent>
 

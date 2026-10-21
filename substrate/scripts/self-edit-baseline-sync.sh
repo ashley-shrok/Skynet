@@ -28,11 +28,11 @@
 #          last-snapshot.id-skill         → ~/.claude/skills/id/SKILL.md
 #          last-snapshot.user-claudemd    → ~/.claude/CLAUDE.md
 #          last-snapshot.role.<role>      → ~/fleet/roles/<role>/<role>.md
-#          last-snapshot.runbook.<role>.<slug>
-#                                         → ~/fleet/roles/<role>/runbooks/<slug>/runbook.md
+#          last-snapshot.role-skill.<role>.<slug>
+#                                         → ~/fleet/roles/<role>/skills/<slug>/SKILL.md
 #          last-snapshot.project.<slug>   → ~/fleet/projects/<slug>/project.md
 #          last-snapshot.wakeup.<slug>    → ~/fleet/identities/<name>/wakeups/<slug>/wakeup.json
-#      Role + runbook baselines encode <role> in the filename (watcher's
+#      Role + role-skill baselines encode <role> in the filename (watcher's
 #      per-role scheme), so no frontmatter parsing is needed to route them.
 #   4. If real file != baseline, atomically overwrite the baseline (tmp +
 #      rename) and write sha256(real) into <baseline>.self-edit-hash (also
@@ -49,7 +49,7 @@
 #     * Write / Edit / MultiEdit / NotebookEdit — the exact target path.
 #     * Bash — the command text names the file as a whole path token: its
 #       full path, its ~/ or $HOME/ form, its last two path components
-#       (`id/SKILL.md`, `.claude/CLAUDE.md`, `<slug>/runbook.md`), or — for
+#       (`id/SKILL.md`, `.claude/CLAUDE.md`, `<slug>/SKILL.md`), or — for
 #       identity and role files, whose basenames are already unique — the
 #       bare basename. "Whole token" = not glued to a longer path or name, so
 #       `repo/.claude/CLAUDE.md` does not claim ~/.claude/CLAUDE.md and
@@ -214,13 +214,13 @@ timeout 2 bash -c '
             printf "%s\t%s\t1\n" "$baseline" "$HOME/fleet/roles/$slug/$slug.md"
         done
 
-        # Runbook baselines — `last-snapshot.runbook.<role>.<slug>`. Role AND
+        # Role-skill baselines — `last-snapshot.role-skill.<role>.<slug>`. Role AND
         # slug come from the filename; both halves must be kebab-case. A slug
         # containing a further `.` (a `.self-edit-hash` marker, or a legacy
         # un-roled baseline where slug == suffix) fails and skips.
-        for baseline in "$STATE_DIR"/last-snapshot.runbook.*; do
+        for baseline in "$STATE_DIR"/last-snapshot.role-skill.*; do
             bname=$(basename "$baseline")
-            suffix="${bname#last-snapshot.runbook.}"
+            suffix="${bname#last-snapshot.role-skill.}"
             role_part="${suffix%%.*}"
             slug="${suffix#*.}"
             case "$role_part" in
@@ -229,7 +229,7 @@ timeout 2 bash -c '
             case "$slug" in
                 *[!a-z0-9-]*|-*|""|"$suffix") continue ;;
             esac
-            printf "%s\t%s\t0\n" "$baseline" "$HOME/fleet/roles/$role_part/runbooks/$slug/runbook.md"
+            printf "%s\t%s\t0\n" "$baseline" "$HOME/fleet/roles/$role_part/skills/$slug/SKILL.md"
         done
 
         # Project baselines — `last-snapshot.project.<slug>` (the identity'"'"'s

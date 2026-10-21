@@ -513,7 +513,7 @@ export const FLEET_SUBSTRATE_CATALOG: readonly CatalogEntry[] = [
   },
 
   // id-load-context: UserPromptSubmit hook that, on an `/id <name>` load,
-  // hands the agent its identity file, role files, runbook names, the
+  // hands the agent its identity file, role files, role skills, the
   // scheduled tasks that run with its roles, its own wake-ups and its
   // project chain — so the load needs no lookup tool calls. Whole files go
   // in while they fit under Claude Code's 10K additionalContext cap; the

@@ -1,7 +1,7 @@
 /**
  * MarkdownEditor — shared controlled editor for every file-edit surface.
  *
- * File-tab surfaces (four file tabs + EditableFileModal + RunbookEditorModal
+ * File-tab surfaces (four file tabs + EditableFileModal + RoleSkillEditorModal
  * + WorkspaceTab + project-file-tab) plus two prose-input fields (BountyCard
  * premise, AddWakeupDialog instruction) all drop this in place of a raw
  * <textarea>. This component owns:

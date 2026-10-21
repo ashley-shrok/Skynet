@@ -6,8 +6,9 @@ supervised session, and of any hand-typed load), hand the agent everything the
 id skill's load steps would otherwise have it look up with tool calls:
 
   - its identity file
-  - each role's role file, runbook names, and the scheduled tasks that run
-    with that role (name, schedule, on/off, last fired)
+  - each role's role file, its role skills (name, description, and where
+    each lives — or a line saying one couldn't be read), and the scheduled
+    tasks that run with that role (name, schedule, on/off, last fired)
   - its own wake-ups (name, schedule, on/off, last fired)
   - its project chain, top-down: each project.md and the project folder's
     top-level listing
@@ -268,6 +269,91 @@ def _own_wakeups(name):
     return out
 
 
+ROLE_SKILL_DESCRIPTION_MAX = 300  # chars of a description shown in the listing
+
+
+def _unquote(value):
+    v = value.strip()
+    if len(v) >= 2 and v[0] == v[-1] and v[0] in "\"'":
+        inner = v[1:-1]
+        if v[0] == '"':
+            inner = inner.replace('\\"', '"').replace("\\\\", "\\")
+        else:
+            inner = inner.replace("''", "'")
+        return inner
+    return v
+
+
+def _skill_frontmatter(text):
+    """(name, description) from a skill file's frontmatter, or None when it has
+    no readable frontmatter block. Either value may be "" when absent. Reads
+    plain, quoted and block-scalar (`>`, `|`) values — enough for skill files,
+    not a general YAML parser."""
+    lines = text.split("\n")
+    if not lines or lines[0].strip() != "---":
+        return None
+    end = next((i for i in range(1, len(lines)) if lines[i].strip() == "---"), None)
+    if end is None:
+        return None
+    block = lines[1:end]
+    values = {}
+    i = 0
+    while i < len(block):
+        m = re.match(r"^([A-Za-z_][A-Za-z0-9_-]*):(.*)$", block[i])
+        i += 1
+        if not m or m.group(1) not in ("name", "description"):
+            continue
+        raw = m.group(2).strip()
+        cont = []
+        while i < len(block) and (block[i].startswith((" ", "\t")) or not block[i].strip()):
+            cont.append(block[i].strip())
+            i += 1
+        if raw[:1] in (">", "|"):
+            joiner = "\n" if raw[0] == "|" else " "
+            value = joiner.join(c for c in cont if c)
+        else:
+            value = " ".join([raw] + [c for c in cont if c])
+            value = _unquote(value)
+        values[m.group(1)] = " ".join(value.split())
+    return values.get("name", ""), values.get("description", "")
+
+
+def _role_skills_text(role):
+    """The role's skills: one line each with its description, or a line saying
+    the skill couldn't be read so the agent goes and fixes it."""
+    root = os.path.join(FLEET, "roles", role, "skills")
+    try:
+        slugs = sorted(n for n in os.listdir(root)
+                       if not n.startswith(".") and os.path.isdir(os.path.join(root, n)))
+    except OSError:
+        slugs = []
+    if not slugs:
+        return "Role skills: none"
+    lines = []
+    for slug in slugs:
+        path = os.path.join(root, slug, "SKILL.md")
+        text = _read(path)
+        if text is None:
+            lines.append("- %s — ⚠️ couldn't be read: it has no readable SKILL.md. Open %s/ and "
+                         "give it one with name and description frontmatter." % (slug, _display(os.path.join(root, slug))))
+            continue
+        fm = _skill_frontmatter(text)
+        if fm is None:
+            lines.append("- %s — ⚠️ couldn't be read: its SKILL.md has no frontmatter block. Open %s "
+                         "and fix the frontmatter (name and description)." % (slug, _display(path)))
+            continue
+        desc = fm[1]
+        if not desc:
+            lines.append("- %s — ⚠️ couldn't be read: its frontmatter has no description. Open %s "
+                         "and add one." % (slug, _display(path)))
+            continue
+        if len(desc) > ROLE_SKILL_DESCRIPTION_MAX:
+            desc = desc[:ROLE_SKILL_DESCRIPTION_MAX - 1].rstrip() + "…"
+        lines.append("- %s — %s" % (slug, desc))
+    return ("Role skills — each is %s/<name>/SKILL.md; when one's description fits the "
+            "situation, read it and follow it:\n" % _display(root)) + "\n".join(lines)
+
+
 def _listdir_visible(path, skip=()):
     try:
         names = sorted(os.listdir(path))
@@ -336,8 +422,7 @@ def build(name):
             f = _File("Role file", role_path, role_text)
             files.append(f)
             parts.append(f)
-        runbooks = _listdir_visible(os.path.join(FLEET, "roles", role, "runbooks"))
-        parts.append("Runbooks: " + (", ".join(r.rstrip("/") for r in runbooks if r.endswith("/")) or "none"))
+        parts.append(_role_skills_text(role))
         tasks = _scheduled_tasks_for(role)
         parts.append("Scheduled tasks with this role:\n" + "\n".join(tasks) if tasks
                      else "Scheduled tasks with this role: none")

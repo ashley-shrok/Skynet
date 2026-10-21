@@ -4,7 +4,7 @@ import { FileView } from "./file-viewers/FileView";
 import type { BinaryDraft } from "./file-viewers/registry";
 
 // Phase 44 SKILLED-05: per-file tab body for SkillsEditorModal and
-// RunbookEditorModal.
+// RoleSkillEditorModal.
 //
 // The file body (viewer choice, draft, binary notice, Save) is the shared
 // <FileView>; this wrapper only adds the skill-specific delete-file trigger
@@ -48,7 +48,7 @@ export default function SkillFileTab({
    * Phase 112 Plan 02a: file path/name (with extension) — drives the D-06
    * filetype gate inside MarkdownEditor (.md → pretty MDXEditor, else →
    * raw <textarea>). Required so the gate is deterministic; hosting modals
-   * (SkillsEditorModal, RunbookEditorModal) always know the filename.
+   * (SkillsEditorModal, RoleSkillEditorModal) always know the filename.
    */
   filename: string;
   /**
@@ -56,7 +56,7 @@ export default function SkillFileTab({
    * owns save placement in its own foot. Consumers still receive onSave
    * calls through the outer Save button (via onDraftContentChange +
    * external save handler). Modal-unification 2026-09-29 seam:
-   * RunbookEditorModal passes true to move Save into the canonical
+   * RoleSkillEditorModal passes true to move Save into the canonical
    * <ModalFoot>. Default false preserves the pre-unification behavior
    * SkillsEditorModal relies on.
    */

@@ -65,8 +65,8 @@ ALLOW_LIST=(
   "src/backend/database/routes/roles-list-for-host.ts"
 
 
-  # runbooks-editor.ts — multiple connectOneShot call sites for runbook execution.
-  "src/backend/database/routes/runbooks-editor.ts"
+  # role-skills-editor.ts — multiple connectOneShot call sites for role-skill editing.
+  "src/backend/database/routes/role-skills-editor.ts"
 
 
 

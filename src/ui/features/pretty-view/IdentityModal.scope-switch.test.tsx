@@ -139,7 +139,7 @@ describe("IdentityModal (Phase 90 D-09): scope switch removed", () => {
     ).toBeNull();
   });
 
-  it("does NOT render role-scope tabs (Role file / Runbooks / Bounties)", async () => {
+  it("does NOT render role-scope tabs (Role file / Role skills / Bounties)", async () => {
     render(
       <IdentityModal
         open={true}
@@ -160,14 +160,14 @@ describe("IdentityModal (Phase 90 D-09): scope switch removed", () => {
       document.querySelectorAll(".shrink-0.flex.items-stretch button"),
     ).map((b) => b.textContent?.trim() ?? "");
     expect(navButtons).not.toContain("Role file");
-    expect(navButtons).not.toContain("Runbooks");
+    expect(navButtons).not.toContain("Skills");
     expect(navButtons).not.toContain("Bounties");
     // Also verify no matching tabpanels exist.
     const panels = Array.from(document.querySelectorAll('[role="tabpanel"]'));
     for (const p of panels) {
       const id = p.getAttribute("id") ?? "";
       expect(id).not.toMatch(/-role$/);
-      expect(id).not.toMatch(/runbooks/);
+      expect(id).not.toMatch(/roleSkills/);
       expect(id).not.toMatch(/bounties/);
       expect(id).not.toMatch(/role-wakeups/);
     }

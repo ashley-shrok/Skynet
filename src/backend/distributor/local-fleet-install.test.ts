@@ -1488,3 +1488,49 @@ describe("BR4 — bootstrap migrates identity role: → roles:", () => {
     }
   });
 });
+
+// ---------------------------------------------------------------------------
+// BR5 — bootstrap Step 7b: runbooks → role skills. The full rule table runs in
+// role-skills-migration.test.ts; this covers the local wiring.
+// ---------------------------------------------------------------------------
+
+describe("BR5 — bootstrap converts runbooks into role skills", () => {
+  async function put(p: string, content: string) {
+    await fs.mkdir(path.dirname(p), { recursive: true });
+    await fs.writeFile(p, content);
+  }
+
+  async function activityLogs(level: "info" | "warn") {
+    const { systemLogger } = await import("../utils/logger.js");
+    return vi
+      .mocked(systemLogger[level])
+      .mock.calls.filter(
+        ([, ctx]) =>
+          (ctx as Record<string, unknown> | undefined)?.operation ===
+          "local_fleet_role_skills_migration",
+      );
+  }
+
+  it("converts, logs once, then stays silent", async () => {
+    process.env.SKYNET_PUBLIC_URL = "https://skynet.example.com";
+    const role = path.join(tmpRoot, "fleet", "roles", "keeper");
+    await put(path.join(role, "keeper.md"), "role\n");
+    await put(path.join(role, "runbooks", "deploy", "runbook.md"), "# Deploy\n");
+
+    const { bootstrapFleetSubstrateLocally } = await importFresh();
+    const result = await bootstrapFleetSubstrateLocally(host);
+    expect(result.roleSkillsMigrationOk).toBe(true);
+    expect(result.hadError).toBe(false);
+    expect(await fs.readFile(path.join(role, "skills", "deploy", "SKILL.md"), "utf-8")).toBe(
+      "---\nname: deploy\n---\n\n# Deploy\n",
+    );
+    expect(await fs.readlink(path.join(role, "runbooks", "deploy"))).toBe("../skills/deploy");
+    expect((await activityLogs("info"))[0]?.[1]).toMatchObject({ converted: 1, skillsDirsCreated: 1 });
+
+    vi.clearAllMocks();
+    const again = await bootstrapFleetSubstrateLocally(host);
+    expect(again.roleSkillsMigrationOk).toBe(true);
+    expect(await activityLogs("info")).toHaveLength(0);
+    expect(await activityLogs("warn")).toHaveLength(0);
+  });
+});

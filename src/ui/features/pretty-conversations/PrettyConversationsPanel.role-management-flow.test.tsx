@@ -182,11 +182,11 @@ vi.mock("@/features/pretty-view/SkillsEditorModal", () => ({
     props.open ? <div data-testid="skills-editor-modal-stub" /> : null,
 }));
 
-vi.mock("@/features/pretty-view/RunbookEditorModal", () => ({
-  default: (props: { open: boolean; roleName: string; runbookName: string }) =>
+vi.mock("@/features/pretty-view/RoleSkillEditorModal", () => ({
+  default: (props: { open: boolean; roleName: string; roleSkillName: string }) =>
     props.open ? (
-      <div data-testid="runbook-editor-modal-stub">
-        {props.roleName}/{props.runbookName}
+      <div data-testid="role-skill-editor-modal-stub">
+        {props.roleName}/{props.roleSkillName}
       </div>
     ) : null,
 }));
@@ -253,16 +253,16 @@ vi.mock("@/main-axios", () => ({
   getUserInfo: vi.fn().mockResolvedValue({ userId: "u-1" }),
 }));
 
-vi.mock("@/api/runbooks-api", () => ({
-  listRunbooks: vi.fn().mockResolvedValue([]),
-  enumerateRunbookFiles: vi.fn().mockResolvedValue([]),
-  readRunbookFile: vi.fn().mockResolvedValue({ content: "", mtime: 0, isText: true }),
-  writeRunbookFile: vi.fn(),
-  createRunbookFile: vi.fn(),
-  deleteRunbookFile: vi.fn(),
-  deleteRunbook: vi.fn(),
-  RunbookFileMtimeConflictError: class extends Error {},
-  RunbookFileAlreadyExistsError: class extends Error {},
+vi.mock("@/api/role-skills-api", () => ({
+  listRoleSkills: vi.fn().mockResolvedValue([]),
+  enumerateRoleSkillFiles: vi.fn().mockResolvedValue([]),
+  readRoleSkillFile: vi.fn().mockResolvedValue({ content: "", mtime: 0, isText: true }),
+  writeRoleSkillFile: vi.fn(),
+  createRoleSkillFile: vi.fn(),
+  deleteRoleSkillFile: vi.fn(),
+  deleteRoleSkill: vi.fn(),
+  RoleSkillFileMtimeConflictError: class extends Error {},
+  RoleSkillFileAlreadyExistsError: class extends Error {},
 }));
 
 // ── Late imports ─────────────────────────────────────────────────────────────
@@ -614,7 +614,7 @@ function TitleJumpHarness(): React.ReactElement {
           roleName={roleModalState.roleName}
           roleCosmetics={roleModalState.roleCosmetics}
           hostId={3}
-          onOpenRunbook={vi.fn()}
+          onOpenRoleSkill={vi.fn()}
         />
       )}
     </>

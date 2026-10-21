@@ -16,7 +16,7 @@ import { isSpeakableFile } from "./file-speak";
 
 /**
  * FileView — the shared body for every surface that opens an arbitrary file
- * (chat file modal, skills editor, runbooks editor, workspace file browser).
+ * (chat file modal, skills editor, role skills editor, workspace file browser).
  *
  * Looks the filename up in the file-viewer registry and renders the matching
  * mode: a native media viewer, the text/code editor, or the "can't preview"

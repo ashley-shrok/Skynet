@@ -3,7 +3,7 @@
 #
 # Hermetic test driver for substrate/scripts/id-load-context.py — the
 # UserPromptSubmit hook that hands an `/id <name>` load its identity, role,
-# runbook, scheduled-task, wake-up and project context.
+# role-skill, scheduled-task, wake-up and project context.
 #
 # Each test builds a scratch ~/fleet under a temp HOME, feeds the hook a
 # UserPromptSubmit payload, and asserts on the additionalContext it emits.
@@ -106,7 +106,16 @@ test_full_context() {
 project: child'
   role keeper "keeper directives"
   role gardener "gardener directives"
-  mkdir -p "$F/roles/keeper/runbooks/deploy" "$F/roles/keeper/runbooks/restore"
+  mkdir -p "$F/roles/keeper/skills/deploy" "$F/roles/keeper/skills/restore" \
+    "$F/roles/keeper/skills/empty" "$F/roles/keeper/skills/nofm" "$F/roles/keeper/skills/nodesc" \
+    "$F/roles/keeper/skills/.hidden" "$F/roles/keeper/runbooks/old"
+  printf -- '---\nname: deploy\ndescription: "Ship the app. Use when told to deploy."\n---\n# Deploy\n' \
+    > "$F/roles/keeper/skills/deploy/SKILL.md"
+  printf -- '---\nname: restore\ndescription: >-\n  Bring a backup\n  back.\n---\n' \
+    > "$F/roles/keeper/skills/restore/SKILL.md"
+  printf -- '# No frontmatter\n' > "$F/roles/keeper/skills/nofm/SKILL.md"
+  printf -- '---\nname: nodesc\n---\n' > "$F/roles/keeper/skills/nodesc/SKILL.md"
+  touch "$F/roles/keeper/skills/stray.txt"
   mkdir -p "$F/scheduled-agents/nightly" "$F/scheduled-agents/other-role"
   printf '{"name":"nightly","enabled":true,"roles":["keeper"],"prompt":"p","schedule":{"type":"daily","at":"02:00"}}' \
     > "$F/scheduled-agents/nightly/scheduled-agent.json"
@@ -129,7 +138,18 @@ project: child'
   assert_contains $t "$out" "## Role: keeper" || return
   assert_contains $t "$out" "keeper directives" || return
   assert_contains $t "$out" "gardener directives" || return
-  assert_contains $t "$out" "Runbooks: deploy, restore" || return
+  assert_contains $t "$out" "Role skills — each is ~/fleet/roles/keeper/skills/<name>/SKILL.md; when one's description fits the situation, read it and follow it:" || return
+  assert_contains $t "$out" "- deploy — Ship the app. Use when told to deploy." || return
+  assert_contains $t "$out" "- restore — Bring a backup back." || return
+  assert_contains $t "$out" "- empty — ⚠️ couldn't be read: it has no readable SKILL.md." || return
+  assert_contains $t "$out" "- nofm — ⚠️ couldn't be read: its SKILL.md has no frontmatter block." || return
+  assert_contains $t "$out" "- nodesc — ⚠️ couldn't be read: its frontmatter has no description." || return
+  assert_not_contains $t "$out" ".hidden" || return
+  assert_not_contains $t "$out" "stray.txt" || return
+  assert_not_contains $t "$out" "- old" || return
+  assert_not_contains $t "$out" "Runbooks" || return
+  # gardener has no skills folder at all.
+  assert_contains $t "$out" "Role skills: none" || return
   assert_contains $t "$out" '- nightly — {"type": "daily", "at": "02:00"} · enabled · last fired' || return
   assert_not_contains $t "$out" "other-role" || return
   assert_contains $t "$out" '- ping — {"type": "interval", "every": "2h"} · disabled · last fired' || return
@@ -159,8 +179,8 @@ none" || return
   pass
 }
 
-test_never_fired_and_no_runbooks() {
-  local t=test_never_fired_and_no_runbooks
+test_never_fired_and_no_role_skills() {
+  local t=test_never_fired_and_no_role_skills
   reset_home
   identity beta 'roles: [keeper]'
   role keeper "k"
@@ -169,7 +189,7 @@ test_never_fired_and_no_runbooks() {
     > "$F/scheduled-agents/weekly/scheduled-agent.json"
   local out
   out="$(run_hook "/id beta")"
-  assert_contains $t "$out" "Runbooks: none" || return
+  assert_contains $t "$out" "Role skills: none" || return
   assert_contains $t "$out" "- weekly (Weekly Sweep) — " || return
   assert_contains $t "$out" "· enabled · never fired" || return
   pass
@@ -225,7 +245,7 @@ test_silent_on_other_prompts
 test_fences_enabled_and_listing_cap
 test_full_context
 test_no_roles_no_project
-test_never_fired_and_no_runbooks
+test_never_fired_and_no_role_skills
 test_budget_points_at_large_files
 
 printf '\n===============================\nPASS: %d  FAIL: %d\n' "$PASS" "$FAIL"

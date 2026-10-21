@@ -73,7 +73,7 @@ import { ColumnarChipPreview, SqliteChipPreview } from "./data/DataChipPreviews"
  * File-viewer registry — the ONE place that decides how a file type is shown.
  *
  * Every surface that can open an arbitrary file (chat file modal, skills
- * editor, runbooks editor, workspace file browser) renders <FileView>, and
+ * editor, role skills editor, workspace file browser) renders <FileView>, and
  * chat file chips read their inline preview from here. Adding a file type
  * means adding an entry below plus its components; nothing per-surface.
  *

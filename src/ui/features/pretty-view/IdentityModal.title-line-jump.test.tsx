@@ -6,7 +6,7 @@
  *      Files/Workspace).
  *   B: no scope switch — `queryByRole('group', {name: /scope/i})` is null.
  *   C: no role-scope Role file tab.
- *   D: no Runbooks tab in identity modal.
+ *   D: no Role skills tab in identity modal.
  *   E: no Bounties tab in identity modal.
  *   F: only ONE Wakeups tab (identity-wakeups); no role-wakeups tab.
  *   G: title-line clickable treatment when identity has both title + role:
@@ -36,7 +36,7 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import type { Identity } from "@/api/identities-api";
 
-// ── WS stub (mirrors runbooks-swap test scaffold) ────────────────────────────
+// ── WS stub (mirrors role skills-swap test scaffold) ────────────────────────────
 type WsStub = {
   readyState: number;
   bufferedAmount: number;
@@ -223,7 +223,7 @@ describe("IdentityModal Phase 90 refactor — tab structure", () => {
     expect(panels.find((p) => p.getAttribute("id")?.match(/-role$/))).toBeUndefined();
   });
 
-  it("D: no Runbooks nav button + no runbooks TabsContent", async () => {
+  it("D: no Skills nav button + no skills TabsContent", async () => {
     renderModal();
     await waitFor(() => {
       expect(document.querySelector('[role="dialog"]')).toBeTruthy();
@@ -231,9 +231,9 @@ describe("IdentityModal Phase 90 refactor — tab structure", () => {
     const navButtons = Array.from(
       document.querySelectorAll(".shrink-0.flex.items-stretch button"),
     ).map((b) => b.textContent?.trim() ?? "");
-    expect(navButtons).not.toContain("Runbooks");
+    expect(navButtons).not.toContain("Skills");
     const panels = Array.from(document.querySelectorAll('[role="tabpanel"]'));
-    expect(panels.find((p) => p.getAttribute("id")?.includes("runbooks"))).toBeUndefined();
+    expect(panels.find((p) => p.getAttribute("id")?.includes("skills"))).toBeUndefined();
   });
 
   it("E: no Bounties nav button + no bounties TabsContent", async () => {

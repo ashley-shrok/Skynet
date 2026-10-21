@@ -8,10 +8,10 @@
  * mock those helpers directly rather than mocking openClaudeSessionSocket.
  * Phase 134 Plan 134-02 retired role-scope wake-up CRUD top-to-bottom;
  * Phase 136 retired the bounties tab. Test A now expects 2 tabs
- * (role / runbooks).
+ * (role / role skills).
  *
  * Tests:
- *   A. renders 2 tabs — Role file / Runbooks; default active tab = "role"
+ *   A. renders 2 tabs — Role file / Role skills; default active tab = "role"
  *   B. hue chrome applied — role.colorHue 320 → DialogContent style contains hsla(320, ...)
  *   C. fallback hue — colorHue undefined → hue 190 (D-05 fallback)
  *   D. no scope switch — role=group aria-label=scope absent (this is IdentityModal's)
@@ -19,7 +19,7 @@
  *   F. header avatar src — matches /roles/box-maintainer/avatar?hostId=3
  *   G. role file save wires to updateRoleFileByName — save fires with merged markdown
  *   H. portal to body — no container prop threaded to Portal
- *   I. runbook click swaps modals — onOpenRunbook fires with runbook name
+ *   I. role skill click swaps modals — onOpenRoleSkill fires with role skill name
  *   J. close on X — onOpenChange(false) fires
  *   K. Plan 90-10 avatar-upload gate — save handler POSTs bytes via
  *      updateRoleAvatarByName BEFORE calling updateRoleFileByName
@@ -135,9 +135,9 @@ vi.mock("@/api/identities-api", async (importOriginal) => {
   };
 });
 
-// RunbooksTab uses HTTP listRunbooks — mock it so the tab renders empty state.
-vi.mock("@/api/runbooks-api", () => ({
-  listRunbooks: vi.fn().mockResolvedValue([]),
+// RoleSkillsTab uses HTTP listRoleSkills — mock it so the tab renders empty state.
+vi.mock("@/api/role-skills-api", () => ({
+  listRoleSkills: vi.fn().mockResolvedValue([]),
 }));
 
 import { RoleModal } from "./RoleModal";
@@ -155,7 +155,7 @@ function renderModal(overrides: Partial<Parameters<typeof RoleModal>[0]> = {}) {
       avatar: "box-maintainer.webp",
     },
     hostId: 3,
-    onOpenRunbook: vi.fn(),
+    onOpenRoleSkill: vi.fn(),
   } as const;
   return render(<RoleModal {...defaultProps} {...overrides} />);
 }
@@ -176,7 +176,7 @@ afterEach(() => {
 });
 
 describe("RoleModal — Phase 90 Plan 90-04 Task 3", () => {
-  it("Test A: renders 3 tabs — Role file / Runbooks / Files; default active tab = 'role'", () => {
+  it("Test A: renders 3 tabs — Role file / Role skills / Files; default active tab = 'role'", () => {
     renderModal();
 
     // Bottom nav bar renders 3 buttons. Phase 134 Plan 134-02 retired the
@@ -189,7 +189,7 @@ describe("RoleModal — Phase 90 Plan 90-04 Task 3", () => {
     expect(navButtons).toBeDefined();
     expect(navButtons!.length).toBe(3);
     expect(navButtons![0].textContent).toContain("Role file");
-    expect(navButtons![1].textContent).toContain("Runbooks");
+    expect(navButtons![1].textContent).toContain("Skills");
     expect(navButtons![2].textContent).toContain("Files");
 
     // Default active TabsContent id ends in "content-role" (Radix pattern).
@@ -328,32 +328,32 @@ describe("RoleModal — Phase 90 Plan 90-04 Task 3", () => {
     expect(document.body.contains(content)).toBe(true);
   });
 
-  it("Test I: runbook click swaps modals — onOpenRunbook fires with runbook name", async () => {
-    const onOpenRunbook = vi.fn();
-    renderModal({ onOpenRunbook });
+  it("Test I: role skill click swaps modals — onOpenRoleSkill fires with role skill name", async () => {
+    const onOpenRoleSkill = vi.fn();
+    renderModal({ onOpenRoleSkill });
 
-    // Navigate to Runbooks tab.
+    // Navigate to Role skills tab.
     const navButtons = document
       .querySelector(".shrink-0.flex.items-stretch")
       ?.querySelectorAll("button");
-    const runbooksBtn = Array.from(navButtons ?? []).find((b) =>
-      b.textContent?.includes("Runbooks"),
+    const roleSkillsBtn = Array.from(navButtons ?? []).find((b) =>
+      b.textContent?.includes("Skills"),
     ) as HTMLButtonElement | undefined;
-    expect(runbooksBtn).toBeDefined();
-    fireEvent.click(runbooksBtn!);
+    expect(roleSkillsBtn).toBeDefined();
+    fireEvent.click(roleSkillsBtn!);
 
-    // The RunbooksTab uses listRunbooks (HTTP) mocked to []. Instead of
+    // The RoleSkillsTab uses listRoleSkills (HTTP) mocked to []. Instead of
     // clicking a rendered row (which won't exist for the empty list), assert
-    // the onOpenRunbook prop was passed through unchanged — this is the
+    // the onOpenRoleSkill prop was passed through unchanged — this is the
     // wiring contract the test guards. The rendered-row behavior lives in
-    // RunbooksTab's own tests. Here we just prove RoleModal threads the
+    // RoleSkillsTab's own tests. Here we just prove RoleModal threads the
     // prop; no click happens.
-    expect(onOpenRunbook).not.toHaveBeenCalled();
-    // Simulate what RunbooksTab does internally when a row is clicked:
-    // call onOpenRunbook with the row name. This proves the callback is
+    expect(onOpenRoleSkill).not.toHaveBeenCalled();
+    // Simulate what RoleSkillsTab does internally when a row is clicked:
+    // call onOpenRoleSkill with the row name. This proves the callback is
     // wired through (Test I from plan is about wiring, not row rendering).
-    onOpenRunbook("my-runbook");
-    expect(onOpenRunbook).toHaveBeenCalledWith("my-runbook");
+    onOpenRoleSkill("my-skill");
+    expect(onOpenRoleSkill).toHaveBeenCalledWith("my-skill");
   });
 
   it("Test J: close on X — onOpenChange(false) fires", () => {
@@ -465,7 +465,7 @@ describe("RoleModal — Phase 90 Plan 90-04 Task 3", () => {
 
   it("Test M (Plan 90-10 D-08.3): the modal accepts no identity-shim prop", () => {
     // Type-level assertion via runtime — the props TS interface carries only
-    // roleName + hostId + roleCosmetics + open/onOpenChange + onOpenRunbook +
+    // roleName + hostId + roleCosmetics + open/onOpenChange + onOpenRoleSkill +
     // container (post-2026-09-29 canonical Modal). The tests above prove the
     // modal functions with those props alone.
     renderModal();

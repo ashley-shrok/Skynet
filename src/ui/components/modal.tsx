@@ -290,7 +290,7 @@ interface ModalHeadProps {
    *  on the parent Modal for required-shell modals. */
   hideClose?: boolean;
   /** Rendered next to the close button (e.g. a delete icon on the
-   *  Runbook editor for delete-runbook). */
+   *  role skill editor for delete-skill). */
   actions?: React.ReactNode;
   /** Passed through to the close button — for test targeting. */
   closeTestId?: string;
@@ -442,7 +442,7 @@ function ModalFoot({
 // ─── ModalTabs ───────────────────────────────────────────────────────────
 //
 // Canonical section-tabs row for modals that host multiple panels
-// (IdentityModal, RoleModal, RunbookEditorModal). Underline-style per the
+// (IdentityModal, RoleModal, RoleSkillEditorModal). Underline-style per the
 // tasting spec (border-bottom accent when selected, transparent otherwise).
 // Consumers own their tab STATE + PANEL rendering — this component only
 // renders the row and fires onValueChange. It intentionally does NOT pull
@@ -474,7 +474,7 @@ interface ModalTabsProps<V extends string> {
    *  the migration. */
   rowTestId?: string;
   /** Rendered inline after the tabs, styled as a peer of the tab buttons.
-   *  Used for row-scoped actions (RunbookEditorModal's `+ Add file`). */
+   *  Used for row-scoped actions (RoleSkillEditorModal's `+ Add file`). */
   trailing?: React.ReactNode;
   /** When true, the row scrolls horizontally under overflow (file-strip
    *  case where the tab list is dynamic and can grow past the row width). */
@@ -657,7 +657,7 @@ function ModalDrillBack({
 // unbounded number of tabs. The horizontal ModalTabs strip works fine
 // for 2-4 fixed section tabs (IdentityModal, RoleModal); it breaks down
 // when the tab count is dynamic and can grow past the modal width
-// (RunbookEditorModal / SkillsEditorModal with many files) — files fall
+// (RoleSkillEditorModal / SkillsEditorModal with many files) — files fall
 // off the right edge, need shift+scroll on desktop, and are inaccessible
 // on mobile (2026-09-30 UAT).
 //
@@ -682,7 +682,7 @@ interface ModalSidebarProps<V extends string> {
    *  across the migration. */
   rowTestId?: string;
   /** Rendered inside the sidebar column, below the list — for
-   *  sidebar-scoped actions (RunbookEditor / SkillsEditor "+ Add
+   *  sidebar-scoped actions (RoleSkillEditor / SkillsEditor "+ Add
    *  file"). */
   trailing?: React.ReactNode;
   /** The right-column main editor pane content. */

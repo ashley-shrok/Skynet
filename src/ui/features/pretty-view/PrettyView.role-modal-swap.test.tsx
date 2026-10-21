@@ -4,7 +4,7 @@
  * Locks the swap-not-stack behavior owned by PrettyView (D-04): the identity
  * modal's title-line click closes the identity modal and opens the role modal
  * at the same tick. Uses a small in-file TestHarness that mirrors PrettyView's
- * state-management shape (matches the runbooks-swap test scaffold from
+ * state-management shape (matches the role skills-swap test scaffold from
  * Phase 89 Plan 06). Rendering the full PrettyView here would require ~30
  * additional mocks — the harness proves the SHAPE of the coordination.
  *
@@ -17,8 +17,8 @@
  *      disappearing from the DOM)
  *   D: role modal mounts as sibling when roleModalOpenState !== null
  *   E: role modal close clears state; identity modal STAYS closed (D-03)
- *   F: nested swap — runbook row click inside role modal fires handleOpenRunbook
- *      (mocked); role modal closes and runbook state opens
+ *   F: nested swap — role skill row click inside role modal fires handleOpenRoleSkill
+ *      (mocked); role modal closes and role skill state opens
  *   G: IdentityModal's onOpenRoleModal prop is threaded from handleOpenRoleModal
  */
 
@@ -116,16 +116,16 @@ vi.mock("@/main-axios", () => ({
   getUserInfo: vi.fn().mockResolvedValue({ userId: "u-1" }),
 }));
 
-vi.mock("@/api/runbooks-api", () => ({
-  listRunbooks: vi.fn().mockResolvedValue([]),
-  enumerateRunbookFiles: vi.fn().mockResolvedValue([]),
-  readRunbookFile: vi.fn().mockResolvedValue({ content: "", mtime: 0, isText: true }),
-  writeRunbookFile: vi.fn(),
-  createRunbookFile: vi.fn(),
-  deleteRunbookFile: vi.fn(),
-  deleteRunbook: vi.fn(),
-  RunbookFileMtimeConflictError: class extends Error {},
-  RunbookFileAlreadyExistsError: class extends Error {},
+vi.mock("@/api/role-skills-api", () => ({
+  listRoleSkills: vi.fn().mockResolvedValue([]),
+  enumerateRoleSkillFiles: vi.fn().mockResolvedValue([]),
+  readRoleSkillFile: vi.fn().mockResolvedValue({ content: "", mtime: 0, isText: true }),
+  writeRoleSkillFile: vi.fn(),
+  createRoleSkillFile: vi.fn(),
+  deleteRoleSkillFile: vi.fn(),
+  deleteRoleSkill: vi.fn(),
+  RoleSkillFileMtimeConflictError: class extends Error {},
+  RoleSkillFileAlreadyExistsError: class extends Error {},
 }));
 
 // ── Late imports ─────────────────────────────────────────────────────────────
@@ -161,10 +161,10 @@ function makeIdentity(overrides?: Partial<Identity>): Identity {
 
 interface TestHarnessProps {
   identity: Identity;
-  onRunbookOpen?: (runbookName: string, roleName?: string) => void;
+  onRoleSkillOpen?: (roleSkillName: string, roleName?: string) => void;
 }
 
-function TestHarness({ identity, onRunbookOpen }: TestHarnessProps): React.ReactElement {
+function TestHarness({ identity, onRoleSkillOpen }: TestHarnessProps): React.ReactElement {
   const [isIdModalOpen, setIsIdModalOpen] = React.useState(true);
   const [roleModalOpenState, setRoleModalOpenState] = React.useState<
     | null
@@ -195,15 +195,15 @@ function TestHarness({ identity, onRunbookOpen }: TestHarnessProps): React.React
     }
   }, []);
 
-  const handleOpenRunbook = React.useCallback(
-    (runbookName: string, roleNameOverride?: string) => {
+  const handleOpenRoleSkill = React.useCallback(
+    (roleSkillName: string, roleNameOverride?: string) => {
       const roleName = roleNameOverride ?? identity.role ?? null;
       if (roleName === null) return;
       setRoleModalOpenState(null);
       setIsIdModalOpen(false);
-      onRunbookOpen?.(runbookName, roleName);
+      onRoleSkillOpen?.(roleSkillName, roleName);
     },
-    [identity.role, onRunbookOpen],
+    [identity.role, onRoleSkillOpen],
   );
 
   return (
@@ -226,7 +226,7 @@ function TestHarness({ identity, onRunbookOpen }: TestHarnessProps): React.React
           roleName={roleModalOpenState.roleName}
           roleCosmetics={roleModalOpenState.roleCosmetics}
           hostId={7}
-          onOpenRunbook={(rn) => handleOpenRunbook(rn, roleModalOpenState.roleName)}
+          onOpenRoleSkill={(rn) => handleOpenRoleSkill(rn, roleModalOpenState.roleName)}
         />
       )}
     </>
@@ -305,10 +305,10 @@ describe("PrettyView role-modal swap coordination (Phase 90 D-04)", () => {
     });
   });
 
-  it("F: nested swap — RoleModal onOpenRunbook fires with the role's name", async () => {
-    const runbookOpen = vi.fn();
+  it("F: nested swap — RoleModal onOpenRoleSkill fires with the role's name", async () => {
+    const roleSkillOpen = vi.fn();
     render(
-      <TestHarness identity={makeIdentity()} onRunbookOpen={runbookOpen} />,
+      <TestHarness identity={makeIdentity()} onRoleSkillOpen={roleSkillOpen} />,
     );
     await waitFor(() => {
       expect(document.querySelector('[role="dialog"]')).toBeTruthy();
@@ -316,10 +316,10 @@ describe("PrettyView role-modal swap coordination (Phase 90 D-04)", () => {
     act(() => {
       fireEvent.click(screen.getByTestId("identity-modal-title-line-jump"));
     });
-    // Role modal is open. Fire its onOpenRunbook handler directly by
-    // simulating what a Runbooks row click would do — we can't drive the
+    // Role modal is open. Fire its onOpenRoleSkill handler directly by
+    // simulating what a Role skills row click would do — we can't drive the
     // full nested UI without more mocks, so the harness exposes the wiring
-    // through the state slot: verifying handleOpenRunbook fires correctly
+    // through the state slot: verifying handleOpenRoleSkill fires correctly
     // is enough. To avoid brittle UI-drilling, we assert on the state seam
     // by observing that the RoleModal DID render (D from Test A) and that
     // the harness state slot is properly threaded.

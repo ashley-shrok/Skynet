@@ -48,12 +48,12 @@ import { PrettyViewErrorOverlay } from "./PrettyViewErrorOverlay";
 import { usePaneResolvingMachine } from "./usePaneResolvingMachine";
 import type { WsTransportState, PaneState } from "./resolve-phase";
 import { IdentityModal } from "./IdentityModal";
-// Phase 89 Plan 06: RunbookEditorModal — swap-not-stack coordination (D-06).
+// Phase 89 Plan 06: RoleSkillEditorModal — swap-not-stack coordination (D-06).
 // Mounted as a top-level sibling alongside IdentityModal + EditableFileModal.
-import RunbookEditorModal from "./RunbookEditorModal";
+import RoleSkillEditorModal from "./RoleSkillEditorModal";
 // Phase 90 Plan 90-06 (D-04): RoleModal — swap-not-stack target for the
 // identity-modal title-line jump. Mounted as a top-level sibling alongside
-// IdentityModal + RunbookEditorModal.
+// IdentityModal + RoleSkillEditorModal.
 import { RoleModal } from "./RoleModal";
 // Phase 92 Slice 1 (D-07): ChatSurfaceSource discriminated-union prop +
 // unified adapter hook. Slice 1 wires the type and the hook contract; the
@@ -1119,24 +1119,24 @@ export function PrettyView({
     return () => popIdentityModalOpen();
   }, [isIdentityModalOpen]);
   // Phase 89 Plan 06: swap-not-stack coordination (D-06) — non-null when the
-  // runbook editor is open, null when closed. Set by handleOpenRunbook (fired
-  // from IdentityModal's Runbooks tab row click OR from RoleModal's Runbooks
-  // tab); cleared to null by the RunbookEditorModal's onOpenChange(false)
+  // role skill editor is open, null when closed. Set by handleOpenRoleSkill (fired
+  // from IdentityModal's Role skills tab row click OR from RoleModal's Role skills
+  // tab); cleared to null by the RoleSkillEditorModal's onOpenChange(false)
   // close handler.
   //
   // 2026-09-30 UAT: `parentRoleModalState` carries a snapshot of the
-  // RoleModal state that was open at the moment the runbook was opened,
-  // when the swap originated from RoleModal. On RunbookEditor close we
+  // RoleModal state that was open at the moment the role skill was opened,
+  // when the swap originated from RoleModal. On RoleSkillEditor close we
   // restore that snapshot so the user lands back on the RoleModal they
-  // came from — mirrors the RoleModal→RunbookEditor forward swap.
-  // Null when the runbook was opened from a non-RoleModal path (e.g.
-  // IdentityModal's now-retired Runbooks tab), in which case close is
+  // came from — mirrors the RoleModal→RoleSkillEditor forward swap.
+  // Null when the role skill was opened from a non-RoleModal path (e.g.
+  // IdentityModal's now-retired Role skills tab), in which case close is
   // a no-reopen terminal event as before.
-  const [runbookEditorOpenState, setRunbookEditorOpenState] = useState<
+  const [roleSkillEditorOpenState, setRoleSkillEditorOpenState] = useState<
     | null
     | {
         roleName: string;
-        runbookName: string;
+        roleSkillName: string;
         parentRoleModalState: {
           roleName: string;
           roleCosmetics: RoleSummary;
@@ -2658,33 +2658,33 @@ export function PrettyView({
     [],
   );
 
-  // Phase 89 Plan 06: Runbooks tab row click handler. D-06 swap-not-stack —
-  // closes the identity modal at the same tick the runbook editor opens.
+  // Phase 89 Plan 06: Role skills tab row click handler. D-06 swap-not-stack —
+  // closes the identity modal at the same tick the role skill editor opens.
   // Defensive guard: if the identity has no resolved role, silently no-op
-  // (RunbooksTab's fetch would have returned an empty list via the D-10
+  // (RoleSkillsTab's fetch would have returned an empty list via the D-10
   // fast-path, so no row-click should reach here in that case — but the
   // guard prevents crashes if some future call path bypasses the fast-path).
   //
   // Phase 90 Plan 90-06: optional `roleNameOverride` param supports the
-  // nested swap RoleModal → RunbookEditorModal. RoleModal already knows the
+  // nested swap RoleModal → RoleSkillEditorModal. RoleModal already knows the
   // roleName (it was opened for that role), so it passes it in explicitly
   // rather than depending on pvIdentity?.role. This also lets a RoleModal
   // opened via title-line-jump-from-a-different-identity resolve correctly
   // (though the current UI always jumps to the identity's own role).
-  const handleOpenRunbook = useCallback(
-    (runbookName: string, roleNameOverride?: string): void => {
+  const handleOpenRoleSkill = useCallback(
+    (roleSkillName: string, roleNameOverride?: string): void => {
       const roleName = roleNameOverride ?? pvIdentity?.role ?? null;
       if (roleName === null) {
-        console.debug("[PrettyView] handleOpenRunbook: no role — skipping", { runbookName });
+        console.debug("[PrettyView] handleOpenRoleSkill: no role — skipping", { roleSkillName });
         return;
       }
-      console.debug("[PrettyView] handleOpenRunbook: swap", { roleName, runbookName });
+      console.debug("[PrettyView] handleOpenRoleSkill: swap", { roleName, roleSkillName });
       // Capture RoleModal snapshot BEFORE clearing it so we can restore
-      // on RunbookEditor close (2026-09-30 UAT swap-back).
+      // on RoleSkillEditor close (2026-09-30 UAT swap-back).
       const parentRoleModalState = roleModalOpenState;
       setIsIdentityModalOpen(false);
       setRoleModalOpenState(null);
-      setRunbookEditorOpenState({ roleName, runbookName, parentRoleModalState });
+      setRoleSkillEditorOpenState({ roleName, roleSkillName, parentRoleModalState });
     },
     [pvIdentity, roleModalOpenState],
   );
@@ -4613,17 +4613,17 @@ export function PrettyView({
           // coordination. IdentityModal already fires onOpenChange(false) at the
           // same tick; this handler resolves the RoleSummary and opens the role
           // modal (which is mounted below at document.body per D-03).
-          // Phase 89's Runbooks-tab onOpenRunbook is retired — Runbooks moved
-          // to RoleModal (Plan 90-04); nested runbook swap now goes through
-          // RoleModal's onOpenRunbook mounted below.
+          // Phase 89's Role skills-tab onOpenRoleSkill is retired — Role skills moved
+          // to RoleModal (Plan 90-04); nested role skill swap now goes through
+          // RoleModal's onOpenRoleSkill mounted below.
           onOpenRoleModal={handleOpenRoleModal}
         />
       )}
       {/* Phase 90 Plan 90-06 (D-04): RoleModal — swap-not-stack sibling of
           IdentityModal. Portal target defaults to document.body per D-03 (no
           per-pane context — matches GlobalFilesModal/SkillsEditorModal chrome).
-          Runbook row click inside this modal delegates to handleOpenRunbook
-          (nested swap: RoleModal → RunbookEditorModal). Closing the role modal
+          RoleSkill row click inside this modal delegates to handleOpenRoleSkill
+          (nested swap: RoleModal → RoleSkillEditorModal). Closing the role modal
           just clears state — no reopen of the identity modal per D-03. */}
       {roleModalOpenState && (
         <RoleModal
@@ -4637,10 +4637,10 @@ export function PrettyView({
           roleName={roleModalOpenState.roleName}
           roleCosmetics={roleModalOpenState.roleCosmetics}
           hostId={hostId}
-          onOpenRunbook={(runbookName) => {
-            // Nested swap-not-stack: close role modal, open runbook editor
+          onOpenRoleSkill={(roleSkillName) => {
+            // Nested swap-not-stack: close role modal, open role skill editor
             // with the role modal's own roleName (no reliance on pvIdentity).
-            handleOpenRunbook(runbookName, roleModalOpenState.roleName);
+            handleOpenRoleSkill(roleSkillName, roleModalOpenState.roleName);
           }}
         />
       )}
@@ -4653,37 +4653,37 @@ export function PrettyView({
           via the existing AttachmentChipStrip wiring at ComposeBox and the
           existing reply-with-attachment path handles the send, so this plan
           adds zero new plumbing on the return trip. */}
-      {/* Phase 89 Plan 06: RunbookEditorModal — mounted as a top-level sibling
+      {/* Phase 89 Plan 06: RoleSkillEditorModal — mounted as a top-level sibling
           alongside IdentityModal + EditableFileModal. Portal target defaults
           to document.body (no `container` prop passed) since this is a top-
           level surface per D-06 swap-not-stack — the modal is NOT portaled
           into the chat-region wrapper; it fills the viewport
           like SkillsEditorModal / GlobalFilesModal do.
-          runbookEditorOpenState.roleName + runbookName are already validated
-          non-null by handleOpenRunbook (the defensive guard rejects null-role
+          roleSkillEditorOpenState.roleName + roleSkillName are already validated
+          non-null by handleOpenRoleSkill (the defensive guard rejects null-role
           calls before setting state). */}
-      {runbookEditorOpenState && (
-        <RunbookEditorModal
+      {roleSkillEditorOpenState && (
+        <RoleSkillEditorModal
           open={true}
           onOpenChange={(open) => {
             if (!open) {
-              // 2026-09-30 UAT: reverse-swap. If this runbook was opened
+              // 2026-09-30 UAT: reverse-swap. If this role skill was opened
               // from RoleModal, restore that RoleModal on close so the
               // user lands back where they came from. Otherwise close
               // terminates as before.
-              const parent = runbookEditorOpenState.parentRoleModalState;
-              console.debug("[PrettyView] runbook-editor-close", {
+              const parent = roleSkillEditorOpenState.parentRoleModalState;
+              console.debug("[PrettyView] role-skill-editor-close", {
                 reopenRoleModal: parent !== null,
               });
-              setRunbookEditorOpenState(null);
+              setRoleSkillEditorOpenState(null);
               if (parent) setRoleModalOpenState(parent);
             }
           }}
           hostId={hostId}
-          roleName={runbookEditorOpenState.roleName}
-          runbookName={runbookEditorOpenState.runbookName}
+          roleName={roleSkillEditorOpenState.roleName}
+          roleSkillName={roleSkillEditorOpenState.roleSkillName}
           onRenamed={(newName) =>
-            setRunbookEditorOpenState((prev) => (prev ? { ...prev, runbookName: newName } : prev))
+            setRoleSkillEditorOpenState((prev) => (prev ? { ...prev, roleSkillName: newName } : prev))
           }
         />
       )}

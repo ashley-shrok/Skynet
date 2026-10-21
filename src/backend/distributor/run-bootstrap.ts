@@ -45,7 +45,7 @@
  *          a session how long it has been since its last activity when the
  *          gap is 30+ minutes — see substrate/scripts/resume-gap-notice.sh)
  *        - hooks.UserPromptSubmit contains an "id-load-context" entry (hands
- *          an `/id <name>` load its identity, role, runbook, scheduled-task,
+ *          an `/id <name>` load its identity, role, role-skill, scheduled-task,
  *          wake-up and project context — see substrate/scripts/id-load-context.py)
  *        - hooks.PreToolUse contains an "allow-all-tools" entry with NO
  *          matcher — universal auto-allow that eliminates residual permission
@@ -128,6 +128,18 @@
  *      listdir + a small read per identity, and nothing is logged unless a
  *      file was migrated or a conflict exists.
  *
+ *   7b. runbooks → role skills:
+ *      Under every live ~/fleet/roles/<role>/, ensure skills/ exists and
+ *      convert each runbooks/<slug> (folder or loose <slug>.md) into
+ *      skills/<slug>/SKILL.md with `name:` frontmatter, leaving relative
+ *      forwarding links at every old path, and repoint wake-up / scheduled-task
+ *      specs that name an old location. Watcher baselines are transformed
+ *      first so running watchers stay quiet. One `python3 -` exec per host
+ *      (ROLE_SKILLS_MIGRATION_CMD in role-skills-migration.ts — the local
+ *      surface runs a TS port of the same rules). Idempotent — converted
+ *      entries are links and are skipped; logs only when something changed
+ *      or a conflict exists.
+ *
  *   8. agent-desktop system packages (Xvnc, openbox, xdotool, ImageMagick):
  *      start a background install of whatever is missing with the host's
  *      package manager (rpm-ostree --apply-live on image-based Fedora, else
@@ -154,6 +166,11 @@ import {
   parseRolesKeyMigrationOutput,
   type RolesKeyMigrationCounts,
 } from "./roles-key-migration.js";
+import {
+  ROLE_SKILLS_MIGRATION_CMD,
+  parseRoleSkillsMigrationOutput,
+  logRoleSkillsMigration,
+} from "./role-skills-migration.js";
 import {
   DESKTOP_DEPS_CMD,
   parseDesktopDepsOutput,
@@ -199,6 +216,10 @@ export interface BootstrapResult {
    *  completion. Conflicts (both keys present) do NOT make this false;
    *  per-file read/write failures do (and imply hadError). */
   rolesKeyMigrationOk: boolean;
+  /** Whether the runbooks → role skills conversion (Step 7b) ran to
+   *  completion. Conflicts (skills/<slug> already present) do NOT make this
+   *  false; per-item failures and mid-conversion edits do. */
+  roleSkillsMigrationOk: boolean;
   /** Step 8 outcome for the agent-desktop packages (statuses documented in
    *  desktop-deps.ts), or null when the step didn't run or produced no
    *  result line. On the SSH path, null, `no-root` and a `started` retry
@@ -319,7 +340,7 @@ function logRolesKeyMigration(
  *   - task-field-check on UserPromptSubmit (identity `task:` placeholder nudge).
  *   - resume-gap-notice on UserPromptSubmit (time-since-last-activity note
  *     when a session receives a message after a 30+ minute gap).
- *   - id-load-context on UserPromptSubmit (identity/role/runbook/
+ *   - id-load-context on UserPromptSubmit (identity/role/role-skill/
  *     scheduled-task/wake-up/project context for an `/id <name>` load).
  *   - allow-all-tools on PreToolUse (fleet-wide auto-allow — no matcher,
  *     fires for every tool; completes "no prompts, ever" by overriding the
@@ -1363,6 +1384,53 @@ export async function runBootstrapForHost(
   }
 
   // -------------------------------------------------------------------------
+  // Step 7b: runbooks → role skills. One python3 exec; the script and its
+  //          rules live in role-skills-migration.ts.
+  // -------------------------------------------------------------------------
+  let roleSkillsMigrationOk = false;
+  try {
+    const raw = await channel.exec(ROLE_SKILLS_MIGRATION_CMD);
+    const counts = raw === null ? null : parseRoleSkillsMigrationOutput(raw);
+    if (raw === null) {
+      hadError = true;
+      logBootstrapFailed(host, "role-skills-migration", "channel returned null");
+    } else if (counts === null) {
+      hadError = true;
+      logBootstrapFailed(
+        host,
+        "role-skills-migration",
+        raw.trimEnd().slice(0, 500) || "role-skills migration failed",
+      );
+    } else {
+      logRoleSkillsMigration(host, counts);
+      if (counts.errorCount > 0) {
+        hadError = true;
+        logBootstrapFailed(
+          host,
+          "role-skills-migration",
+          `${counts.errorCount} item(s) failed: ` +
+            counts.errors.map((e) => `${e.path}: ${e.error}`).join("; ").slice(0, 500),
+        );
+      } else if (counts.deferred > 0) {
+        logBootstrapFailed(
+          host,
+          "role-skills-migration",
+          `${counts.deferred} file(s) changed mid-conversion — will retry`,
+        );
+      } else {
+        roleSkillsMigrationOk = true;
+      }
+    }
+  } catch (err) {
+    hadError = true;
+    logBootstrapFailed(
+      host,
+      "role-skills-migration",
+      err instanceof Error ? err.message : "unknown throw",
+    );
+  }
+
+  // -------------------------------------------------------------------------
   // Step 8: agent-desktop system packages. One sh exec; the script lives in
   //         desktop-deps.ts and detaches the install itself. Never fails the
   //         sweep — a host without them still works, its agents just can't
@@ -1433,6 +1501,7 @@ export async function runBootstrapForHost(
     hostIdOk,
     usageReporterRetireOk,
     rolesKeyMigrationOk,
+    roleSkillsMigrationOk,
     desktopDeps,
     gcTimerAlreadyEnabled,
     gcTimerBootstrapped,
