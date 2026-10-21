@@ -82,9 +82,12 @@ export default function AdminModal({ open, onOpenChange, currentUserId }: AdminM
   const [selectedUserId, setSelectedUserId] = useState<string | null>(null);
   const [selectedHostKey, setSelectedHostKey] = useState<string | null>(null);
   const [editingFile, setEditingFile] = useState(false);
+  // Kept here so going into a user and back keeps what was typed.
+  const [userQuery, setUserQuery] = useState("");
   const rawDrill = useModalDrillIn<AdminTab>(tab, false, open);
 
-  // The instance file registers this while it has unsaved edits.
+  // The instance file and a user's page (an unsaved phone number) register
+  // this while they hold unsaved edits.
   const leaveGuard = useRef<AdminLeaveGuard | null>(null);
   const registerLeaveGuard = useCallback((guard: AdminLeaveGuard | null) => {
     leaveGuard.current = guard;
@@ -106,6 +109,7 @@ export default function AdminModal({ open, onOpenChange, currentUserId }: AdminM
       setTab("users");
       setSelectedUserId(null);
       setSelectedHostKey(null);
+      setUserQuery("");
       leaveGuard.current = null;
       return;
     }
@@ -128,14 +132,26 @@ export default function AdminModal({ open, onOpenChange, currentUserId }: AdminM
     ...rawDrill,
     // Picking the open section again lands on its top level.
     drillIn: () => {
-      setSelectedUserId(null);
-      setSelectedHostKey(null);
-      rawDrill.drillIn();
+      void mayLeave().then((ok) => {
+        if (!ok) return;
+        setSelectedUserId(null);
+        setSelectedHostKey(null);
+        rawDrill.drillIn();
+      });
     },
+    // Back to the section list (phone): a deeper view doesn't stay behind.
     back: () => {
-      void mayLeave().then((ok) => ok && rawDrill.back());
+      void mayLeave().then((ok) => {
+        if (!ok) return;
+        setSelectedUserId(null);
+        setSelectedHostKey(null);
+        rawDrill.back();
+      });
     },
   };
+  const leaveUser = useCallback(async () => {
+    if (await mayLeave()) setSelectedUserId(null);
+  }, [mayLeave]);
   const handleOpenChange = useCallback(
     async (next: boolean) => {
       if (next) return onOpenChange(true);
@@ -166,7 +182,8 @@ export default function AdminModal({ open, onOpenChange, currentUserId }: AdminM
     tab === "instance-file" ? (
       <AdminInstanceFilePane hero={hero} registerLeaveGuard={registerLeaveGuard} onEditingChange={setEditingFile} />
     ) : (
-      <ModalBody data-testid="admin-modal-pane" className="pt-1 pb-7">
+      // A new level starts at the top, not at the list's scroll position.
+      <ModalBody key={`${tab}:${selectedUserId ?? ""}:${selectedHostKey ?? ""}`} data-testid="admin-modal-pane" className="pt-1 pb-7">
         <div className="max-w-[600px] mx-auto">
           {hero}
           {tab === "users" &&
@@ -177,8 +194,9 @@ export default function AdminModal({ open, onOpenChange, currentUserId }: AdminM
                 currentUserId={currentUserId}
                 adminCount={adminCount}
                 oidcInUse={oidcInUse}
-                onBack={() => setSelectedUserId(null)}
-                onUserChanged={() => void loadUsers()}
+                onBack={() => void leaveUser()}
+                registerLeaveGuard={registerLeaveGuard}
+                onUserChanged={loadUsers}
                 onUserDeleted={() => {
                   setSelectedUserId(null);
                   void loadUsers();
@@ -190,6 +208,8 @@ export default function AdminModal({ open, onOpenChange, currentUserId }: AdminM
                 error={usersError}
                 currentUserId={currentUserId}
                 oidcInUse={oidcInUse}
+                query={userQuery}
+                onQueryChange={setUserQuery}
                 onOpenUser={setSelectedUserId}
               />
             ))}
@@ -246,7 +266,9 @@ export default function AdminModal({ open, onOpenChange, currentUserId }: AdminM
             className="pb-0 min-h-[52px]"
           />
         )}
-        {body}
+        {/* On a phone the section list replaces the section, so nothing
+            behind it keeps polling or listening for Esc. */}
+        {fullscreen && !rawDrill.drilled ? null : body}
       </ModalSidebar>
     </Modal>
   );

@@ -16,7 +16,7 @@
  * controls are disabled rather than failing on click.
  */
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   KitAvatar,
   KitBanner,
@@ -43,6 +43,7 @@ import {
 import { getSSHHosts } from "@/api/ssh-host-management-api";
 import type { SSHHostWithStatus } from "@/main-axios";
 import { AdminServiceSecrets } from "./AdminServiceSecrets";
+import type { AdminLeaveGuard } from "./AdminModal";
 import {
   AdminBack,
   adminErrorMessage,
@@ -58,9 +59,12 @@ export interface AdminUserViewProps {
   currentUserId: string;
   adminCount: number;
   oidcInUse: boolean;
+  /** Back to the list (the window asks first if the phone number is unsaved). */
   onBack: () => void;
+  /** The window asks this before leaving the page. */
+  registerLeaveGuard: (guard: AdminLeaveGuard | null) => void;
   /** Re-fetch the user list after any change to a user row. */
-  onUserChanged: () => void;
+  onUserChanged: () => Promise<void>;
   /** Called after the user is deleted (the parent goes back to the list). */
   onUserDeleted: () => void;
 }
@@ -71,11 +75,32 @@ export function AdminUserView({
   adminCount,
   oidcInUse,
   onBack,
+  registerLeaveGuard,
   onUserChanged,
   onUserDeleted,
 }: AdminUserViewProps) {
   const isSelf = user.id === currentUserId;
   useEscBack(true, onBack);
+
+  // An unsaved phone number is asked about before the page is left.
+  const phoneDirty = useRef(false);
+  const setPhoneDirty = useCallback((d: boolean) => {
+    phoneDirty.current = d;
+  }, []);
+  useEffect(() => {
+    registerLeaveGuard(async () =>
+      phoneDirty.current
+        ? kitConfirm({
+            title: "Discard the new number?",
+            body: `${user.username}'s phone number hasn't been saved.`,
+            confirmLabel: "Discard",
+            cancelLabel: "Keep editing",
+            destructive: true,
+          })
+        : true,
+    );
+    return () => registerLeaveGuard(null);
+  }, [registerLeaveGuard, user.username]);
 
   return (
     <div data-testid="admin-user-view">
@@ -93,7 +118,7 @@ export function AdminUserView({
       </div>
       <div className="flex flex-col gap-5">
         <AccessGroup user={user} isSelf={isSelf} onUserChanged={onUserChanged} />
-        <PhoneGroup user={user} onUserChanged={onUserChanged} />
+        <PhoneGroup user={user} onUserChanged={onUserChanged} onDirtyChange={setPhoneDirty} />
         <AdminServiceSecrets userId={user.id} />
         <SessionsGroup user={user} isSelf={isSelf} />
         <HostsGroup user={user} />
@@ -116,7 +141,15 @@ export function AdminUserView({
 
 // ─── Access ──────────────────────────────────────────────────────────────
 
-function AccessGroup({ user, isSelf, onUserChanged }: { user: AdminUser; isSelf: boolean; onUserChanged: () => void }) {
+function AccessGroup({
+  user,
+  isSelf,
+  onUserChanged,
+}: {
+  user: AdminUser;
+  isSelf: boolean;
+  onUserChanged: () => Promise<void>;
+}) {
   const [busy, setBusy] = useState<"admin" | "notif" | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -141,7 +174,8 @@ function AccessGroup({ user, isSelf, onUserChanged }: { user: AdminUser; isSelf:
     try {
       if (next) await makeUserAdmin(user.id);
       else await removeAdminStatus(user.id);
-      onUserChanged();
+      // The switch follows the list — keep it busy until the list has the change.
+      await onUserChanged();
     } catch (err) {
       setError(adminErrorMessage(err, "Failed to change admin access."));
     } finally {
@@ -154,7 +188,7 @@ function AccessGroup({ user, isSelf, onUserChanged }: { user: AdminUser; isSelf:
     setError(null);
     try {
       await setUserNotificationsEnabled(user.id, next);
-      onUserChanged();
+      await onUserChanged();
     } catch (err) {
       setError(adminErrorMessage(err, "Failed to change notifications access."));
     } finally {
@@ -212,7 +246,15 @@ function AccessGroup({ user, isSelf, onUserChanged }: { user: AdminUser; isSelf:
 
 // ─── Phone ───────────────────────────────────────────────────────────────
 
-function PhoneGroup({ user, onUserChanged }: { user: AdminUser; onUserChanged: () => void }) {
+function PhoneGroup({
+  user,
+  onUserChanged,
+  onDirtyChange,
+}: {
+  user: AdminUser;
+  onUserChanged: () => Promise<void>;
+  onDirtyChange: (dirty: boolean) => void;
+}) {
   const [draft, setDraft] = useState(user.phoneE164 ?? "");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -224,6 +266,7 @@ function PhoneGroup({ user, onUserChanged }: { user: AdminUser; onUserChanged: (
 
   const trimmed = draft.trim();
   const dirty = trimmed !== (user.phoneE164 ?? "");
+  useEffect(() => onDirtyChange(dirty), [dirty, onDirtyChange]);
 
   const save = async () => {
     if (!dirty || !trimmed) return;
@@ -233,7 +276,7 @@ function PhoneGroup({ user, onUserChanged }: { user: AdminUser; onUserChanged: (
     try {
       await setUserPhone(user.id, trimmed);
       setSaved(true);
-      onUserChanged();
+      await onUserChanged();
     } catch (err) {
       setError(adminErrorMessage(err, "Failed to save number."));
     } finally {
@@ -276,6 +319,16 @@ function PhoneGroup({ user, onUserChanged }: { user: AdminUser; onUserChanged: (
                   setDraft(e.target.value);
                   setError(null);
                   setSaved(false);
+                }}
+                // While changed, Esc puts the saved number back instead of
+                // leaving the page.
+                {...(dirty ? { "data-modal-esc-local": "" } : {})}
+                onKeyDown={(e) => {
+                  if (e.key === "Escape" && dirty) {
+                    e.preventDefault();
+                    setDraft(user.phoneE164 ?? "");
+                    setError(null);
+                  }
                 }}
                 className="w-[180px] text-right"
               />
@@ -433,7 +486,8 @@ function SessionsGroup({ user, isSelf }: { user: AdminUser; isSelf: boolean }) {
           ))
         )}
       </KitSettingsGroup>
-      {revocable.length > 1 || (revocable.length === 1 && !isSelf) ? (
+      {/* Only when it does more than one row's own Log out would. */}
+      {revocable.length > 1 ? (
         <KitSettingsGroup>
           <KitSettingsRow
             tone="danger"

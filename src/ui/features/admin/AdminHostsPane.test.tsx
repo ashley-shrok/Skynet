@@ -154,6 +154,24 @@ describe("AdminHostsPane — the list", () => {
     vi.useRealTimers();
   });
 
+  it("never starts a second read while one is still on its way", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    let release: (v: unknown) => void = () => {};
+    m.getAdminHosts.mockReturnValueOnce(new Promise((r) => (release = r)));
+    render(<Harness />);
+    await vi.advanceTimersByTimeAsync(31_000);
+    document.dispatchEvent(new Event("visibilitychange"));
+    expect(m.getAdminHosts).toHaveBeenCalledTimes(1);
+    release({ hosts: [HEALTHY_AGENT], generatedAt: NOW });
+    await screen.findByTestId("admin-host-t1000");
+    vi.useRealTimers();
+  });
+
+  it("a host whose sync keeps failing stays flagged while a retry runs", async () => {
+    const retrying = { ...BROKEN_AGENT, fleet: { ...BROKEN_AGENT.fleet!, supervisorRunning: true }, substrate: { ...BROKEN_AGENT.substrate!, inFlight: true } };
+    expect(needsAttention(retrying)).toBe(true);
+  });
+
   it("shows an error when the overview fails to load", async () => {
     m.getAdminHosts.mockRejectedValue(new Error("boom"));
     render(<Harness />);

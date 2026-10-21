@@ -98,6 +98,18 @@ describe("AdminInstanceFilePane", () => {
     expect(onEditingChange).toHaveBeenLastCalledWith(false);
   });
 
+  it("saving it empty removes it everywhere and says so", async () => {
+    const user = userEvent.setup();
+    m.getInstanceFile.mockResolvedValue({ content: "a", updatedAt: 1 });
+    m.saveInstanceFile.mockResolvedValue({ content: "", updatedAt: 2 });
+    renderPane();
+    await user.click(await screen.findByTestId("admin-instance-file-edit"));
+    await user.type(await screen.findByRole("textbox"), "{Backspace}");
+    await user.click(screen.getByTestId("admin-instance-file-save"));
+    expect((await screen.findByTestId("admin-instance-file-saved")).textContent).toBe("Saved — removing it from every host.");
+    expect(screen.getByTestId("admin-instance-file-empty")).toBeTruthy();
+  });
+
   it("Cancel with unsaved edits asks first; keep editing stays, discard goes back", async () => {
     const user = userEvent.setup();
     const answers = [false, true];

@@ -7,7 +7,7 @@
  * OIDC there is nothing OIDC-shaped in the panel at all.
  */
 
-import { useMemo, useState } from "react";
+import { useMemo } from "react";
 import type { AdminUser } from "@/api/user-management-api";
 import {
   KitAvatar,
@@ -28,12 +28,21 @@ export interface AdminUsersPaneProps {
   error: string | null;
   currentUserId: string;
   oidcInUse: boolean;
+  /** The search text — the window keeps it across opening someone. */
+  query: string;
+  onQueryChange: (query: string) => void;
   onOpenUser: (userId: string) => void;
 }
 
-export function AdminUsersPane({ users, error, currentUserId, oidcInUse, onOpenUser }: AdminUsersPaneProps) {
-  const [query, setQuery] = useState("");
-
+export function AdminUsersPane({
+  users,
+  error,
+  currentUserId,
+  oidcInUse,
+  query,
+  onQueryChange,
+  onOpenUser,
+}: AdminUsersPaneProps) {
   const groups = useMemo(() => {
     const words = query.trim().toLowerCase().split(/\s+/).filter(Boolean);
     const sorted = [...(users ?? [])]
@@ -62,7 +71,7 @@ export function AdminUsersPane({ users, error, currentUserId, oidcInUse, onOpenU
       {users.length > SEARCH_FROM && (
         <KitSearch
           value={query}
-          onValueChange={setQuery}
+          onValueChange={onQueryChange}
           placeholder="Search users"
           aria-label="Search users"
           wrapperClassName="mb-5"

@@ -504,3 +504,100 @@ describe("AdminModal — Instance file", () => {
     expect(await screen.findByTestId("admin-users-pane")).toBeTruthy();
   });
 });
+
+describe("AdminModal — a user (review fixes)", () => {
+  it("the back link takes focus when a user opens", async () => {
+    renderModal();
+    await openUser("zoey");
+    expect(document.activeElement).toBe(screen.getByTestId("admin-user-back"));
+  });
+
+  it("keeps the search across opening someone and coming back", async () => {
+    m.getUserList.mockResolvedValue({
+      users: [...USERS, ...Array.from({ length: 7 }, (_, i) => user({ id: `x${i}`, username: `extra${i}` }))],
+    });
+    renderModal();
+    await userEvent.type(await screen.findByTestId("admin-users-search"), "zo");
+    await userEvent.click(screen.getByTestId("admin-user-row-u2"));
+    await userEvent.click(await screen.findByTestId("admin-user-back"));
+    expect(((await screen.findByTestId("admin-users-search")) as HTMLInputElement).value).toBe("zo");
+    expect(screen.queryByTestId("admin-user-row-me")).toBeNull();
+  });
+
+  it("an unsaved phone number is asked about before leaving; Esc in the box puts it back", async () => {
+    const answers = [false, true];
+    const dialogs = autoAnswerKitDialogs({ confirm: () => answers.shift() ?? true });
+    renderModal();
+    await openUser("zoey");
+    const box = screen.getByTestId("admin-user-phone-input") as HTMLInputElement;
+    await userEvent.type(box, "+1716");
+    await userEvent.click(screen.getByTestId("admin-user-back"));
+    await waitFor(() => expect(dialogs.calls).toHaveLength(1));
+    expect(dialogs.calls[0].opts.title).toBe("Discard the new number?");
+    expect(screen.getByTestId("admin-user-view")).toBeTruthy();
+
+    box.focus();
+    await userEvent.keyboard("{Escape}");
+    expect(box.value).toBe("");
+    expect(screen.getByTestId("admin-user-view")).toBeTruthy();
+
+    await userEvent.type(box, "+1");
+    await userEvent.click(screen.getByTestId("admin-tab-hosts"));
+    await waitFor(() => expect(dialogs.calls).toHaveLength(2));
+    expect(await screen.findByTestId("admin-hosts-pane")).toBeTruthy();
+  });
+
+  it("your own page with one other device has no log-out-other-devices row (its Log out does that)", async () => {
+    const future = new Date(Date.now() + 86_400_000).toISOString();
+    const past = new Date(Date.now() - 86_400_000).toISOString();
+    const base = { deviceType: "web", createdAt: past, lastActiveAt: past, userId: "me", expiresAt: future };
+    m.getSessions.mockResolvedValue({
+      sessions: [
+        { ...base, id: "here", deviceInfo: "This one", isCurrentSession: true },
+        { ...base, id: "phone", deviceInfo: "Phone" },
+      ],
+    });
+    renderModal();
+    await openUser("alice");
+    expect(await screen.findByTestId("admin-session-phone")).toBeTruthy();
+    expect(screen.getByTestId("admin-session-here").textContent).toContain("This browser");
+    expect(screen.queryByTestId("admin-user-sessions-revoke-all")).toBeNull();
+  });
+
+  it("the admin switch stays busy until the list has the change", async () => {
+    autoAnswerKitDialogs({ confirm: true });
+    let release: () => void = () => {};
+    renderModal();
+    await openUser("zoey");
+    m.getUserList.mockImplementationOnce(
+      () =>
+        new Promise((r) => {
+          release = () => r({ users: USERS.map((u) => (u.id === "u2" ? { ...u, isAdmin: true } : u)) });
+        }),
+    );
+    await userEvent.click(sw("admin-user-admin-switch"));
+    await waitFor(() => expect(m.makeUserAdmin).toHaveBeenCalled());
+    expect(sw("admin-user-admin-switch").disabled).toBe(true);
+    release();
+    await waitFor(() => expect(sw("admin-user-admin-switch").checked).toBe(true));
+    expect(sw("admin-user-admin-switch").disabled).toBe(false);
+  });
+});
+
+describe("AdminModal — Sign-in (review fixes)", () => {
+  it("a valid change still saves when the window closes without leaving the box", async () => {
+    const settings = await import("@/api/settings-api");
+    (settings.updateSessionTimeout as ReturnType<typeof vi.fn>).mockResolvedValue({});
+    const { rerender } = renderModal();
+    await screen.findByTestId("admin-users-pane");
+    await userEvent.click(screen.getByTestId("admin-tab-signin"));
+    const box = (await screen.findByTestId("admin-signin-timeout-input")) as HTMLInputElement;
+    await waitFor(() => expect(box.value).toBe("24"));
+    // Change the value without moving focus out (no blur fires).
+    await userEvent.clear(box);
+    await userEvent.type(box, "12");
+    (settings.updateSessionTimeout as ReturnType<typeof vi.fn>).mockClear();
+    rerender(<AdminModal open={false} onOpenChange={vi.fn()} currentUserId="me" />);
+    await waitFor(() => expect(settings.updateSessionTimeout).toHaveBeenCalledWith(12));
+  });
+});

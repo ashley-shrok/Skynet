@@ -77,7 +77,8 @@ export function useEscBack(active: boolean, onBack: () => void): void {
   }, []);
 }
 
-/** "‹ Users" — back to the list a deeper view came from. */
+/** "‹ Users" — back to the list a deeper view came from. Takes focus when
+ *  the view opens, so the keyboard lands where the clicked row was. */
 export function AdminBack({
   label,
   onBack,
@@ -87,8 +88,13 @@ export function AdminBack({
   onBack: () => void;
   testId: string;
 }) {
+  const ref = useRef<HTMLButtonElement>(null);
+  useEffect(() => {
+    ref.current?.focus({ preventScroll: true });
+  }, []);
   return (
     <button
+      ref={ref}
       type="button"
       onClick={onBack}
       className="inline-flex items-center gap-0.5 -ml-1 py-1.5 pr-1.5 text-[14px] font-[550] text-[var(--k-acc-text)] cursor-pointer"
@@ -100,18 +106,24 @@ export function AdminBack({
   );
 }
 
-/** "just now" / "12m ago" / "3h ago" / "4d ago" — or the date when older. */
-export function relativeAdminTime(value: string | null | undefined, now: number): string {
-  if (!value) return "—";
-  const iso = /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/.test(value) ? `${value.replace(" ", "T")}Z` : value;
-  const t = Date.parse(iso);
-  if (Number.isNaN(t)) return value;
+/** "just now" / "12m ago" / "3h ago" / "4d ago" — or the date past 30 days.
+ *  Takes a server timestamp string or epoch milliseconds. */
+export function relativeAdminTime(value: string | number | null | undefined, now: number): string {
+  if (value == null || value === "") return "—";
+  let t: number;
+  if (typeof value === "number") {
+    t = value;
+  } else {
+    const iso = /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/.test(value) ? `${value.replace(" ", "T")}Z` : value;
+    t = Date.parse(iso);
+    if (Number.isNaN(t)) return value;
+  }
   const s = Math.max(0, Math.round((now - t) / 1000));
   if (s < 45) return "just now";
   const m = Math.round(s / 60);
   if (m < 60) return `${m}m ago`;
   const h = Math.round(m / 60);
-  if (h < 48) return `${h}h ago`;
+  if (h < 24) return `${h}h ago`;
   const d = Math.round(h / 24);
-  return d < 30 ? `${d}d ago` : formatAdminDate(value);
+  return d < 30 ? `${d}d ago` : formatAdminDate(new Date(t).toISOString());
 }

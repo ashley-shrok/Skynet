@@ -12,7 +12,7 @@
  * rather than offered.
  */
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   KitBanner,
   KitInput,
@@ -89,6 +89,15 @@ export function AdminSignInPane({ oidcInUse }: { oidcInUse: boolean }) {
         .then((r) => set("oidcAutoProvision")(r.enabled))
         .catch(fail);
     }
+    return () => {
+      cancelled = true;
+    };
+  }, [oidcInUse]);
+
+  // Read once — "OIDC in use" settling later must not overwrite a length
+  // the admin has started typing.
+  useEffect(() => {
+    let cancelled = false;
     getSessionTimeout()
       .then((r) => {
         if (cancelled) return;
@@ -104,7 +113,7 @@ export function AdminSignInPane({ oidcInUse }: { oidcInUse: boolean }) {
     return () => {
       cancelled = true;
     };
-  }, [oidcInUse]);
+  }, []);
 
   const flip = async (key: ToggleKey, next: boolean) => {
     if (
@@ -147,6 +156,21 @@ export function AdminSignInPane({ oidcInUse }: { oidcInUse: boolean }) {
     parsedTimeout >= MIN_TIMEOUT_HOURS &&
     parsedTimeout <= MAX_TIMEOUT_HOURS;
   const timeoutDirty = timeout !== null && parsedTimeout !== timeout;
+
+  // Leaving the section (or closing the window) with a valid change still
+  // saves it — focus can go away without the box ever losing it.
+  const pending = useRef<number | null>(null);
+  pending.current = timeoutValid && timeoutDirty && !timeoutBusy ? parsedTimeout : null;
+  useEffect(
+    () => () => {
+      if (pending.current !== null) {
+        const hours = pending.current;
+        void updateSessionTimeout(hours).catch(() => {});
+        console.info({ operation: "session_timeout_saved_on_leave", hours });
+      }
+    },
+    [],
+  );
 
   const saveTimeout = async () => {
     if (!timeoutValid || !timeoutDirty || timeoutBusy) return;
@@ -236,7 +260,9 @@ export function AdminSignInPane({ oidcInUse }: { oidcInUse: boolean }) {
                     data-testid="admin-signin-timeout-input"
                     aria-label="Sign-ins last, in hours"
                     value={timeoutDraft}
-                    disabled={timeoutBusy || timeout === null}
+                    // Read-only (not disabled) while saving, so focus stays put.
+                    readOnly={timeoutBusy}
+                    disabled={timeout === null}
                     invalid={!timeoutValid && timeoutDraft !== ""}
                     onChange={(e) => {
                       setTimeoutDraft(e.target.value);

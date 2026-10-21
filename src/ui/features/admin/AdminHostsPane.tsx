@@ -6,7 +6,7 @@
  * Polls while the pane is open; the backend probes on demand.
  */
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Server } from "lucide-react";
 import {
   getAdminHosts,
@@ -20,7 +20,7 @@ import {
   KitSettingsGroup,
   KitSettingsRow,
 } from "@/components/kit";
-import { AdminBack, adminErrorMessage, useEscBack } from "./admin-ui";
+import { AdminBack, adminErrorMessage, relativeAdminTime, useEscBack } from "./admin-ui";
 
 const POLL_MS = 15_000;
 const WARN = 0.75;
@@ -48,15 +48,7 @@ type Level = "ok" | "warn" | "bad";
 const level = (f: number, warn = WARN, crit = CRIT): Level =>
   f >= crit ? "bad" : f >= warn ? "warn" : "ok";
 
-function ago(ts: number, now: number): string {
-  const s = Math.max(0, Math.round((now - ts) / 1000));
-  if (s < 45) return "just now";
-  const m = Math.round(s / 60);
-  if (m < 60) return `${m}m ago`;
-  const h = Math.round(m / 60);
-  if (h < 48) return `${h}h ago`;
-  return `${Math.round(h / 24)}d ago`;
-}
+const ago = (ts: number, now: number): string => relativeAdminTime(ts, now);
 
 function duration(sec: number): string {
   const d = Math.floor(sec / 86400);
@@ -94,9 +86,12 @@ function fractions(h: AdminHostOverview): Fractions {
   };
 }
 
+/** The last sync failed — and a retry in progress doesn't clear that, so a
+ *  host that keeps failing doesn't flicker out of "Needs attention". */
 function substrateFailing(h: AdminHostOverview): boolean {
   const s = h.substrate;
-  return !!s && !s.inFlight && s.lastFailureAt !== null && s.lastFailureAt > (s.lastSuccessAt ?? 0);
+  if (!s || s.lastFailureAt === null || s.lastFailureAt <= (s.lastSuccessAt ?? 0)) return false;
+  return !s.inFlight || s.consecutiveFailures > 0;
 }
 
 export function needsAttention(h: AdminHostOverview): boolean {
@@ -321,18 +316,29 @@ export function AdminHostsPane({
   const [error, setError] = useState<string | null>(null);
   const [now, setNow] = useState(() => Date.now());
 
+  // One read at a time — probing unreachable hosts can outlast the poll
+  // interval — and nothing lands after the pane is gone.
+  const inFlight = useRef(false);
+  const alive = useRef(true);
   const load = useCallback(async () => {
+    if (inFlight.current) return;
+    inFlight.current = true;
     try {
-      setData(await getAdminHosts());
+      const next = await getAdminHosts();
+      if (!alive.current) return;
+      setData(next);
       setError(null);
     } catch (err) {
-      setError(adminErrorMessage(err, "Failed to load hosts."));
+      if (alive.current) setError(adminErrorMessage(err, "Failed to load hosts."));
+    } finally {
+      inFlight.current = false;
     }
-    setNow(Date.now());
+    if (alive.current) setNow(Date.now());
   }, []);
 
   // Poll only while the browser tab is visible; refresh on return.
   useEffect(() => {
+    alive.current = true;
     void load();
     const t = setInterval(() => {
       if (!document.hidden) void load();
@@ -342,6 +348,7 @@ export function AdminHostsPane({
     };
     document.addEventListener("visibilitychange", onVisible);
     return () => {
+      alive.current = false;
       clearInterval(t);
       document.removeEventListener("visibilitychange", onVisible);
     };
