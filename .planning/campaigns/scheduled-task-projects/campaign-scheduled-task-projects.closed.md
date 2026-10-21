@@ -1,7 +1,8 @@
 # Campaign: project support for scheduled tasks
 
 **Opened:** 2026-10-21
-**Status:** in_progress
+**Status:** closed
+**Closed:** 2026-10-21 — single shape closed; committed and pushed, deploy pending a separate greenlight.
 **Workspace:** .planning/campaigns/scheduled-task-projects/
 
 ## Concept
@@ -26,7 +27,7 @@ listing of tasks inside the project modal.
 
 - **[declared] shape-scheduled-task-projects**: project picker in the
   scheduled tasks modal, plus the scheduler placing each conversation it starts
-  into the project. Status: in_progress.
+  into the project. Status: closed.
 
 ## Other work
 

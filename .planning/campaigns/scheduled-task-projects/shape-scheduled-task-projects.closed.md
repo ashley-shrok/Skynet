@@ -81,3 +81,42 @@ why the scheduler has to check at fire time.
 - The agent-facing app guide must describe the new Project choice and row path
   in the same change.
 - Close with `/close scheduled-task-projects`.
+
+---
+
+## Close-Out
+
+**Closed:** 2026-10-21
+**Overall verdict:** closed-hit
+
+### Shape features (conformance)
+
+- **Project choice in the task form** — present · Create and edit show a Project dropdown, starting at "No project", listing the machine's projects in sidebar order with sub-projects indented; switching machine clears it.
+- **Filing at fire time (clock, sensor, sensor-broken)** — present · Every kind of fire adds the project only while it exists; the ⏰ / 📡 title marks are unchanged.
+- **Project path on the clock list row** — present · The row chip shows the full top-down path joined with ›.
+- **Missing project: still fires, goes to Conversations** — present · Checked at every fire; a gone project is left off and the fire goes ahead.
+- **Missing project: task keeps pointing at it; row says missing** — present · The stored project is kept; the row shows "Project missing".
+- **Missing project: form shows it as the current pick, marked missing** — present · Kept selected as "(missing)" with an explanatory line.
+- **Missing project: filing resumes when it comes back** — present · Per-fire check plus kept slug.
+- **What would make it wrong: task stops firing because its project is gone** — present · Guarded.
+- **What would make it wrong: conversation born pointing at a nonexistent project** — present · Guarded for scheduled fires and Run now.
+- **What would make it wrong: unrelated edit clears or changes the project** — present · Form sends the saved project back, even when missing or unreadable.
+- **What would make it wrong: changing the project moves earlier conversations** — present · Nothing touches existing conversations.
+- **What would make it wrong: tasks with no project change behavior** — present · Request built exactly as before; no chip.
+- **What would make it wrong: projects shown differently per user** — present · Both list and path read projects unfiltered.
+- **Matching update to the agent-facing app guide** — present · Dropdown, reset, chips, missing handling and fire-time check described.
+- **Out-of-scope items absent** — present · No header-menu entry, no project-modal/sidebar listing, no Pinned, no per-run choice, no moving, no per-user handling.
+- **Handoff: scheduler reaches the fleet via the distributor** — cannot-verify · Rollout, not build; change is in the distributed source.
+
+### Additions (in the result, not in the shape)
+
+- Run now also files into the project with the same missing check — endorsed-as-drift (covered by "every conversation a task starts").
+- Presentation details: folder icon, green/amber chip colors, hover text, helper line under the dropdown, "Pick a host first", scheduler log line — endorsed-as-drift.
+
+### Follow-ups
+
+None.
+
+### Notes
+
+No divergence questions. Planning documents in the commit are process artifacts.
