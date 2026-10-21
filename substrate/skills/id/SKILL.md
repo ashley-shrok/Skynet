@@ -1085,8 +1085,9 @@ crown, then gear.
   screen (or flicking) goes to the list, letting go short slides it back.
   Same result as the round ← button at the top left. It doesn't start on the
   compose box or other text fields, on selected text, while a dialog is open,
-  or on wide content (a code block, a table) that's scrolled sideways —
-  there it scrolls the content back first. Over an open app's page the app
+  on controls that take their own drags (the mic, a split-view divider, a
+  zoomable image), or on wide content (a code block, a table) that's
+  scrolled sideways — there it scrolls the content back first. Over an open app's page the app
   gets the touch; swipe on its bar instead.
   *Agent-side: none.*
 

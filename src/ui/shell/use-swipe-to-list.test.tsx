@@ -17,6 +17,9 @@ function Harness({ enabled = true }: { enabled?: boolean }) {
         <input data-testid="field" />
         <div data-testid="optout" data-no-swipe-to-list="" />
         <pre data-testid="wide" style={{ overflowX: "auto" }} />
+        <div data-testid="owndrag" style={{ touchAction: "none" }}>
+          <span data-testid="owndrag-child" />
+        </div>
       </div>
     </>
   );
@@ -179,6 +182,60 @@ describe("useSwipeToList", () => {
     advance(SWIPE_SLIDE_MS);
     expect(onCommit).toHaveBeenCalledTimes(2);
     advance(1500);
+    expect(layer().style.transform).toBe("");
+  });
+
+  it("never cancels an undecided move, so a scroll that starts out leaning right still scrolls", () => {
+    render(<Harness />);
+    touch("touchstart", el("content"), [[100, 100]]);
+    const first = touch("touchmove", el("content"), [[102, 99]]);
+    expect(first.defaultPrevented).toBe(false);
+    touch("touchmove", el("content"), [[103, 70]]);
+    touch("touchend", el("content"), []);
+    expect(layer().style.transform).toBe("");
+  });
+
+  it("doesn't start on a control that takes its own drags (touch-action: none)", () => {
+    render(<Harness />);
+    swipe(el("owndrag-child"), 300);
+    advance(SWIPE_SLIDE_MS);
+    expect(onCommit).not.toHaveBeenCalled();
+    expect(layer().style.transform).toBe("");
+  });
+
+  it("slides back when a second finger lands mid-swipe", () => {
+    render(<Harness />);
+    touch("touchstart", el("content"), [[10, 100]]);
+    touch("touchmove", el("content"), [[160, 100]]);
+    expect(layer().style.transform).toBe(`translateX(${150 - WIDTH}px)`);
+    touch("touchstart", el("content"), [[160, 100], [300, 300]]);
+    advance(SWIPE_SLIDE_MS);
+    expect(layer().style.transform).toBe("");
+    touch("touchend", el("content"), []);
+    advance(SWIPE_SLIDE_MS);
+    expect(onCommit).not.toHaveBeenCalled();
+  });
+
+  it("doesn't count a flick when the finger rested before lifting", () => {
+    render(<Harness />);
+    touch("touchstart", el("content"), [[10, 100]]);
+    touch("touchmove", el("content"), [[30, 100]]);
+    touch("touchmove", el("content"), [[70, 100]]);
+    now += 300;
+    touch("touchend", el("content"), []);
+    advance(SWIPE_SLIDE_MS);
+    expect(onCommit).not.toHaveBeenCalled();
+  });
+
+  it("cancels on a flick back to the left, even past the threshold", () => {
+    render(<Harness />);
+    touch("touchstart", el("content"), [[10, 100]]);
+    touch("touchmove", el("content"), [[30, 100]]);
+    touch("touchmove", el("content"), [[250, 100]]);
+    touch("touchmove", el("content"), [[200, 100]]);
+    touch("touchend", el("content"), []);
+    advance(SWIPE_SLIDE_MS);
+    expect(onCommit).not.toHaveBeenCalled();
     expect(layer().style.transform).toBe("");
   });
 

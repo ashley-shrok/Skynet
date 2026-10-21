@@ -14,8 +14,10 @@
 // touchmove would re-render the whole shell — and clears it when done.
 //
 // A swipe doesn't start on: a text field, a text selection, an open
-// dialog/menu, anything marked [data-no-swipe-to-list], or content that can
-// still scroll left (a wide code block scrolled right keeps the swipe to
+// dialog/menu, anything marked [data-no-swipe-to-list], anything with
+// `touch-action: none` (controls that take their own drags — split dividers,
+// image pan/zoom, the hold-to-record mic), or content that can still scroll
+// left (a wide code block scrolled right keeps the swipe to
 // scroll itself back). Embedded frames (app panes) never pass touches here.
 
 import { useEffect, useRef, type RefObject } from "react";
@@ -29,6 +31,8 @@ export const SWIPE_FLICK_MIN_PX = 40;
 export const SWIPE_SLIDE_MS = PEEK_SLIDE_MS;
 const SLIDE_EASING = "cubic-bezier(0.2, 0.8, 0.2, 1)";
 const COMMIT_STUCK_MS = 1500;
+// A finger held still this long before lifting isn't a flick.
+const FLICK_MAX_HOLD_MS = 100;
 
 export interface UseSwipeToListOptions {
   /** Touchscreen, conversation screen showing, nothing modal on top. */
@@ -51,9 +55,10 @@ function blockedStart(target: EventTarget | null): string | null {
       return "text-field";
     }
     if (el instanceof HTMLElement && el.isContentEditable) return "text-field";
+    const style = getComputedStyle(el);
+    if (style.touchAction === "none") return "own-drag";
     if (el.scrollLeft > 0 && el.scrollWidth > el.clientWidth) {
-      const ox = getComputedStyle(el).overflowX;
-      if (ox === "auto" || ox === "scroll") return "scrolled-content";
+      if (style.overflowX === "auto" || style.overflowX === "scroll") return "scrolled-content";
     }
   }
   return null;
@@ -100,7 +105,8 @@ export function useSwipeToList({ enabled, layerRef, onCommit }: UseSwipeToListOp
     const onStart = (e: TouchEvent) => {
       if (phase === "settling") return;
       if (e.touches.length !== 1) {
-        phase = "idle";
+        if (phase === "dragging") release("second-finger", true, e.timeStamp);
+        else phase = "idle";
         return;
       }
       const blocked = blockedStart(e.target);
@@ -119,7 +125,7 @@ export function useSwipeToList({ enabled, layerRef, onCommit }: UseSwipeToListOp
     const onMove = (e: TouchEvent) => {
       if (phase !== "pending" && phase !== "dragging") return;
       if (e.touches.length !== 1) {
-        if (phase === "dragging") release("second-finger", true);
+        if (phase === "dragging") release("second-finger", true, e.timeStamp);
         else phase = "idle";
         return;
       }
@@ -127,12 +133,11 @@ export function useSwipeToList({ enabled, layerRef, onCommit }: UseSwipeToListOp
       const mx = t.clientX - startX;
       const my = t.clientY - startY;
       if (phase === "pending") {
-        const sideways = mx > 0 && mx > Math.abs(my);
-        // Claim the touch as soon as it leans right, so iOS doesn't start
-        // scrolling the conversation before the swipe is decided.
-        if (sideways && e.cancelable) e.preventDefault();
+        // Undecided moves are never cancelled: cancelling a touch's first
+        // move stops the page scrolling for the whole touch, which would
+        // freeze a scroll that merely started out leaning right.
         if (Math.hypot(mx, my) < SWIPE_DECIDE_PX) return;
-        if (!sideways || Math.abs(my) * 1.5 > mx) {
+        if (mx <= 0 || Math.abs(my) * 1.5 > mx) {
           phase = "idle";
           return;
         }
@@ -154,11 +159,14 @@ export function useSwipeToList({ enabled, layerRef, onCommit }: UseSwipeToListOp
       setLayer(dx, 0);
     };
 
-    const release = (reason: string, forceCancel: boolean) => {
+    const release = (reason: string, forceCancel: boolean, endT: number) => {
       const dt = lastT - prevT;
-      const velocity = dt > 0 ? (lastX - prevX) / dt : 0;
+      // Speed of the last move, unless the finger then rested before lifting.
+      const velocity = dt > 0 && endT - lastT <= FLICK_MAX_HOLD_MS ? (lastX - prevX) / dt : 0;
       const commit =
         !forceCancel &&
+        // A flick back to the left cancels, however far out the list is.
+        velocity > -SWIPE_FLICK_PX_PER_MS &&
         (dx >= width * SWIPE_COMMIT_FRACTION || (velocity >= SWIPE_FLICK_PX_PER_MS && dx >= SWIPE_FLICK_MIN_PX));
       systemLogger.info(`swipe-to-list ${commit ? "commit" : "cancel"}`, {
         operation: "swipe_to_list",
@@ -194,12 +202,12 @@ export function useSwipeToList({ enabled, layerRef, onCommit }: UseSwipeToListOp
       }, slideMs);
     };
 
-    const onEnd = () => {
-      if (phase === "dragging") release("touchend", false);
+    const onEnd = (e: TouchEvent) => {
+      if (phase === "dragging") release("touchend", false, e.timeStamp);
       else if (phase === "pending") phase = "idle";
     };
-    const onCancel = () => {
-      if (phase === "dragging") release("touchcancel", true);
+    const onCancel = (e: TouchEvent) => {
+      if (phase === "dragging") release("touchcancel", true, e.timeStamp);
       else if (phase === "pending") phase = "idle";
     };
 
