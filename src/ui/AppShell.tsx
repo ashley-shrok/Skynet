@@ -217,6 +217,7 @@ import {
 } from "@/state/app-tiles-store";
 import { useAnyIdentityModalOpen } from "@/state/identity-modal-open-store";
 import { useKeyboardViewportLock } from "@/hooks/use-keyboard-viewport-lock";
+import { WhatsNewModal } from "@/features/whats-new/WhatsNewModal";
 import {
   publishFleetStatusTmuxSession,
   publishFleetStatusTmuxSessionGone,
@@ -4782,6 +4783,7 @@ export function AppShell({
           toast.success("Thanks — feedback sent.", { duration: 2000 });
         }}
       />
+      <WhatsNewModal />
     </>
   );
 }

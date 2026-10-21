@@ -203,6 +203,7 @@ import agentResetRoutes from "./routes/agent-reset.js";
 import relayRoomCreateRoutes from "./routes/relay-room-create.js";
 import relayRoomParticipantsRoutes from "./routes/relay-room-participants.js";
 import userPreferencesRoutes from "./routes/user-preferences.js";
+import whatsNewRoutes from "./routes/whats-new.js";
 import debugRoutes from "./routes/debug.js";
 import voiceRoutes from "./routes/voice.js";
 import relayPointerRoutes from "./routes/relay-pointer.js";
@@ -2270,6 +2271,7 @@ app.use("/relay-rooms", relayRoomProjectTagRoutes);
 // /:roomId/project write route above (non-overlapping sub-paths).
 app.use("/relay-rooms", relayRoomProjectTagsListRoutes);
 app.use("/user-preferences", userPreferencesRoutes);
+app.use("/whats-new", whatsNewRoutes);
 // RELAYBUB-04 (Phase 17): /relay-pointer needs matching location blocks in BOTH docker/nginx.conf
 // AND docker/nginx-https.conf — see CLAUDE.md nginx caveat. Handler uses head -c bounded remote
 // read for CLAUDE.md fleet-availability protection ("user never loses access to her fleet").

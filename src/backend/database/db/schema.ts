@@ -848,6 +848,7 @@ export const userPreferences = sqliteTable("user_preferences", {
   ttsPlaybackRate: real("tts_playback_rate"),  // per-user speak playback speed (nullable — null → 1.0)
   voiceModeEndOfTurn: text("voice_mode_end_of_turn"),  // hands-free voice mode turn end: "timed" | "phrase" (null → "timed")
   voiceModeSendPhrase: text("voice_mode_send_phrase"),  // spoken send phrase for "phrase" mode (null → "send it")
+  whatsNewSeen: text("whats_new_seen"),  // JSON array of seen what's-new note ids (null → not yet counted; see whats-new-state.ts)
   updatedAt: text("updated_at")
     .notNull()
     .default(sql`CURRENT_TIMESTAMP`),

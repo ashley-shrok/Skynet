@@ -1067,6 +1067,16 @@ crown, then gear.
   they drill in instead: the list fills the screen, tapping an item opens
   it full screen with a back arrow (‹ Preferences / ‹ Files) to return.
 
+- **What's new (pops up after an update).** When Skynet has been updated
+  and the user hasn't yet seen the notes for what changed, a **What's new**
+  panel opens on its own when the app loads: a short flat list of plain
+  notes, newest first, covering every update they missed. **Got it** (or
+  the X / Esc) closes it and marks those notes seen on their account — it
+  won't show again on any device until something new ships. Updates with
+  nothing user-facing show nothing, and there is no place to reread old
+  notes. If the user asks what changed recently, this is what they saw.
+  *Agent-side: none.*
+
 ### Conversation view
 
 - **Task pill (top-center of the open conversation).** The conversation's
