@@ -130,7 +130,6 @@ function SetupSteps({ onSaved }: { onSaved: (s: TelegramStatus) => void }): Reac
                 placeholder="123456789:AA…"
                 autoComplete="off"
                 spellCheck={false}
-                aria-label="Bot token"
                 data-testid="preferences-telegram-token-input"
                 className="flex-1 min-w-0 w-auto"
               />

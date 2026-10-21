@@ -112,7 +112,7 @@ export function PreferencesAboutPane(): JSX.Element {
             footer={
               <>
                 In practice: anyone using this instance can get its source code from the Source code
-                link. If this instance runs a modified Skynet, that link must point to the modified
+                link. If this instance runs a modified version, that link must point to the modified
                 source (for example a public fork); the server setting{" "}
                 <code className="text-[12px]">SKYNET_SOURCE_URL</code> controls it.
               </>
@@ -122,7 +122,7 @@ export function PreferencesAboutPane(): JSX.Element {
               <p className="m-0">
                 This app is built on Skynet, which is open source under the Apache License 2.0. It
                 includes SuperDoc, the Word document editor, which is licensed under the GNU
-                AGPL-3.0, so Skynet as distributed is covered by the AGPL-3.0 terms.
+                AGPL-3.0, so the app as distributed is covered by the AGPL-3.0 terms.
               </p>
               <p className="m-0 text-[var(--k-t2)]" data-testid="preferences-about-copyright">
                 Copyright 2025 Luke Gustafson and contributors. This program comes with absolutely

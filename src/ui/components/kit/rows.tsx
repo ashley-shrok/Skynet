@@ -121,6 +121,7 @@ export function KitSettingsRow({
       <div
         className={cn("k-row", className)}
         data-split="true"
+        data-tone={tone === "default" ? undefined : tone}
         data-truncate={truncate ? "true" : undefined}
         data-disabled={disabled ? "true" : undefined}
         data-testid={testId}

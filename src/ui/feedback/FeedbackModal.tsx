@@ -61,14 +61,13 @@ export function FeedbackModal({
   const sentRef = useRef(false);
   const closeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // Every open starts empty.
+  // Reset on close as well as open, so a reopened dialog never shows the
+  // last "Thanks — sent." for a frame.
   useEffect(() => {
-    if (open) {
-      setDraft("");
-      setIsSubmitting(false);
-      setSent(false);
-      sentRef.current = false;
-    }
+    setDraft("");
+    setIsSubmitting(false);
+    setSent(false);
+    sentRef.current = false;
     return () => {
       if (closeTimer.current) clearTimeout(closeTimer.current);
       closeTimer.current = null;
@@ -96,7 +95,8 @@ export function FeedbackModal({
       // The user's whitespace is kept exactly; the server normalises.
       await onSubmit(draft);
     } catch (err) {
-      // Not sent: Send works again, and closing a thumbs-down still sends the vote.
+      // onSubmit threw: Send works again, and closing a thumbs-down still
+      // sends the vote. (Today's callers post fire-and-forget and never throw.)
       sentRef.current = false;
       console.warn({ operation: "feedback_send_failed", variant, reason: err instanceof Error ? err.message : String(err) });
       return;

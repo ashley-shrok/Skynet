@@ -44,6 +44,8 @@ export function PreferencesPhonePane({
   const busy = status !== "idle";
 
   const handleSave = async () => {
+    // Enter in the box with nothing changed (Save hidden) does nothing.
+    if (!isDirty) return;
     setSaved(false);
     if (!PHONE_E164_RE.test(normalized)) {
       setError(

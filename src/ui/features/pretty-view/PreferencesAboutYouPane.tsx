@@ -99,6 +99,7 @@ export function PreferencesAboutYouPane({
   // re-serialises the file on load, so that (not the raw file) is "unchanged".
   const [baseline, setBaseline] = useState("");
   const interacted = useRef(false);
+  const dirtyRef = useRef(false);
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
 
@@ -127,6 +128,11 @@ export function PreferencesAboutYouPane({
   useEffect(() => {
     if (selectedHostId == null) return;
     let cancelled = false;
+    // A machine change the user didn't ask for (the list refreshed) must not
+    // carry the editor — and its draft — over to another machine's file.
+    dirtyRef.current = false;
+    setEditing(false);
+    setSaveError(null);
     setFiles({ status: "loading" });
     setFileData(new Map());
     setActiveFile(null);
@@ -184,7 +190,6 @@ export function PreferencesAboutYouPane({
   const activeState = activeFile ? fileData.get(activeFile) : undefined;
   const content = activeState?.status === "ready" ? activeState.data.content : "";
   const dirty = editing && draft !== baseline;
-  const dirtyRef = useRef(dirty);
   dirtyRef.current = dirty;
 
   const startEditing = useCallback(() => {
@@ -305,9 +310,16 @@ export function PreferencesAboutYouPane({
           interacted.current = false;
           return;
         }
-        // Keep the draft; say so without the backend's "mtime" jargon.
+        // Keep the draft, but take the newer file as what a save replaces, so
+        // Save again really overwrites it (and Cancel shows the newer one).
+        setFileData((prev) =>
+          new Map(prev).set(activeFile, {
+            status: "ready",
+            data: { content: err.currentContent, mtime: err.currentMtime },
+          }),
+        );
         setSaveError(
-          "Not saved — the file changed since you started editing. Save again to overwrite, or Cancel and reopen to see the newer version.",
+          "Not saved — the file changed since you started editing. Save again to overwrite it, or Cancel to see the newer version.",
         );
         return;
       }

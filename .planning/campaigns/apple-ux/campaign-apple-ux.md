@@ -35,7 +35,7 @@ Starting order: foundation, skills, then the remaining modals, then host targeti
 - **[declared] shape-identity-modal** — agent window: who the agent is on top, wake-ups / new wake-up / git one level deeper in the same window (see shape-identity-modal.closed.md) — closed 2026-10-18
 - **[declared] shape-project-modals** — project window like the agent window (folder tile, lineage, count; read → Edit), new-project dialogs with Cancel (see shape-project-modals.closed.md) — closed 2026-10-18
 - **[declared] shape-scheduled-tasks-modal** — scheduled tasks list by machine, each task one level deeper, Run now a button; shared "When" section (see shape-scheduled-tasks-modal.closed.md) — closed 2026-10-21
-- **[declared] shape-preferences-modal** — preferences (and the feedback dialog) — in_progress
+- **[declared] shape-preferences-modal** — account-first Preferences (account card, section headers, save-as-you-go, About you read → Edit, branded About), self-confirming feedback dialogs (see shape-preferences-modal.closed.md) — closed 2026-10-21
 - **[declared] shape-admin-modals** — admin panel + admin user modal — not started
 - **[declared] shape-creation-and-search-dialogs** — new conversation, new session, conversation search, archived apps — not started
 - **[declared] shape-file-modal** — the editable file modal — not started
@@ -69,6 +69,9 @@ The foundation already moved every modal onto the kit, so each remaining modal s
 - A wake-up's schedule line says "(box-local)" even when it carries a time zone (server-side description) — not started
 - Long project lineages ("In A › B › C") cut off from the end, losing the nearest parent — consider trimming from the start (agent window, project window, new sub-project dialog) — not started
 - The app's host list dropped the "can run agents" flag, so new scheduled tasks (and anything else filtering on it) saw no machines — found and fixed during shape-scheduled-tasks-modal
+- What's-new note for the whole redesign — the role now asks for one per user-visible change; this campaign writes ONE note at campaign close (Ashley approves the exact text before it's committed) — not started
+- Upstream's new "What's new" pop-up (a9261d84, 2026-10-21) is another window to bring onto the kit/family — fold into shape-creation-and-search-dialogs — not started
+- Upstream gave the scheduled-task form a Project picker (146599d2) — carry it into the redesigned scheduled-tasks window at the next rebase — not started
 - Shared-skill hiding for non-admins goes by name and lets skills show if the sync engine is down (logged) — revisit in shape-host-targeting alongside the sync machinery
 
 ## Lingerers (explicitly approved)

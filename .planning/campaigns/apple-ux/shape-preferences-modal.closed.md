@@ -88,3 +88,49 @@ The Preferences window (gear icon in the sidebar footer) keeps its side list but
 
 - In: the Preferences window and its sections, the two feedback dialogs, the id skill's Preferences description.
 - Out: the admin panel (next shape), window sizes (shape-modal-sizing), the sidebar footer itself (shape-sidebar).
+
+---
+
+## Close-Out
+
+**Closed:** 2026-10-21
+**Overall verdict:** closed-hit (closed-partial at review; Ashley endorsed all six divergences 2026-10-21: "I'm cool with those recommendations")
+
+### Shape features (conformance)
+
+- **Window** — present · account card leads the list, then About you, Voice, Notifications, Phone, Services (same visibility as before), About pinned last; General and the Log out item gone; opens on the account each time; section headers; no Close foot; phone list in rounded groups with "‹ Preferences" back.
+- **Account** — present · large clickable picture, name, Administrator/Member and the address; Picture group with Choose… / Remove (only with a picture); red Log out in its own group, asking first.
+- **About you** — present · only agent-capable machines, row only with more than one, always set to one; file switcher kept; formatted read, Edit → Cancel / Save; "Nothing written yet" + Write it; discard prompt on every way out; reload-on-conflict kept.
+- **Voice** — drifted (endorsed) · all present; the unavailable-voice line says "the current voice service's voices" rather than naming the service (the service name is admin-only).
+- **Notifications** — present · connected, not-set-up (three numbered steps, Open BotFather, Connect) and bot-saved states as agreed; Use a different bot kept.
+- **Phone** — present · number edits in place, Save only once changed, country-code line; red Remove asks first and drops Phone from the list.
+- **Services** — present · header, a group per service, set / replace / remove, never shown back.
+- **About** — present · branded logo and name, version; Source code, Licence, Included components, the last two one level deeper; licence page names Skynet once, with copyright and no-warranty lines and the "in practice" note.
+- **Feedback dialogs** — drifted (endorsed) · as agreed, except: closing the thumbs-down with ✕ / Esc sends the vote with no after-the-fact confirmation (the dialog's "sent either way" line is enough); "clicking outside" closes no window in the app, before or after, so that path doesn't exist; size left to shape-modal-sizing.
+- **id skill Preferences description** — present.
+- **What would make it wrong: General or a separate Log out item still in the side list, or the window opening anywhere but the account** — present (guarded).
+- **What would make it wrong: "Skynet" shown in the About header or the side list** — present (guarded).
+- **What would make it wrong: About you opening on an empty "pick a machine" screen, or listing machines that can't run agents** — present (guarded).
+- **What would make it wrong: a Close button at the bottom of sections that save as they change** — present (guarded).
+- **What would make it wrong: the phrase box shown when voice mode sends after a pause** — present (guarded).
+- **What would make it wrong: a saved voice the service doesn't have, shown as if it were in use** — present (guarded).
+- **What would make it wrong: the thumbs-down dialog closing without saying the vote is sent anyway** — present (guarded).
+- **What would make it wrong: unsaved About-you writing vanishing without asking** — present (guarded).
+
+### Additions (in the result, not in the shape)
+
+- "Thanks — sent." carries a second line ("Every note shapes the beta." / "This helps make replies better.") — endorsed-as-drift
+- Phone: "Agents won't be able to call you. Adding a number again needs an admin." under Remove — endorsed-as-drift
+- About: Esc on the Licence / Included components page goes back to About — endorsed-as-drift
+- About you: "No machines can run agents yet" when there are none — endorsed-as-drift
+- About you: Cancel asks before discarding unsaved writing — endorsed-as-drift
+- Notifications (bot saved): Use a different bot as its own row, "One last step links it to you." — endorsed-as-drift
+
+### Follow-ups
+
+- Feedback dialog size — deferred (shape-modal-sizing)
+- Clicking outside closes no window in the app — accepted-as-drift (deliberate)
+
+### Notes
+
+The Voice and feedback divergences are wording / platform realities, not gaps. Ashley preferred all divergences at once with a recommendation each.

@@ -309,6 +309,46 @@ describe("PreferencesAboutYouPane", () => {
     expect((screen.getByTestId("mock-editor") as HTMLTextAreaElement).value).toBe("My local edits");
   });
 
+  it("(4c) keep my edits, then Save again: overwrites the newer file", async () => {
+    vi.mocked(writeGlobalFile)
+      .mockRejectedValueOnce(new GlobalFileMtimeConflictError(1_700_000_002, "Server version of the file"))
+      .mockResolvedValueOnce({ mtime: 1_700_000_003 });
+    autoAnswerKitDialogs({ confirm: false });
+    render(<PreferencesAboutYouPane hostTree={SINGLE_HOST_TREE} defaultHostId={1} />);
+
+    const editor = await openEditor();
+    typeInto(editor, "My local edits");
+    fireEvent.click(screen.getByTestId("preferences-about-you-save"));
+    await screen.findByTestId("preferences-about-you-save-error");
+
+    fireEvent.click(screen.getByTestId("preferences-about-you-save"));
+    await waitFor(() =>
+      expect(vi.mocked(writeGlobalFile)).toHaveBeenLastCalledWith(
+        expect.objectContaining({ content: "My local edits", expectedMtime: 1_700_000_002 }),
+      ),
+    );
+    await screen.findByTestId("preferences-about-you-file");
+  });
+
+  it("(4d) the machine changes under an open editor (list refreshed): the editor closes, nothing is saved", async () => {
+    const { rerender } = render(
+      <PreferencesAboutYouPane hostTree={MULTI_HOST_TREE} defaultHostId={2} />,
+    );
+    const editor = await openEditor();
+    typeInto(editor, "Written for host-beta");
+    // host-beta can no longer run agents → the window falls back to host-alpha.
+    rerender(
+      <PreferencesAboutYouPane
+        hostTree={{ name: "root", children: [host("1", "host-alpha"), host("2", "host-beta", false)] }}
+        defaultHostId={2}
+      />,
+    );
+    await waitFor(() => expect(vi.mocked(listGlobalFiles)).toHaveBeenCalledWith(1));
+    await screen.findByTestId("preferences-about-you-file");
+    expect(screen.queryByTestId("mock-editor")).toBeNull();
+    expect(vi.mocked(writeGlobalFile)).not.toHaveBeenCalled();
+  });
+
   // ── Case 5: machine row visibility ─────────────────────────────────────────
 
   it("(5) one machine: no Machine row", async () => {
