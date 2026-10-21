@@ -1225,6 +1225,24 @@ describe("scheduled-agents LIST: project", () => {
     expect(row).toMatchObject({ project: "later", projectPath: null, projectMissing: false });
   });
 
+  it("a project read that hangs costs only the paths, not the host's rows", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    try {
+      simpleDbSelectMock.mockResolvedValue([hostA]);
+      listProjectsMock.mockReturnValue(new Promise(() => {}));
+      execCommandMock.mockResolvedValue(makeRemoteStdout([{ slug: "nested", body: spec({ project: "later" }) }]));
+      const pending = httpRequest(server, { method: "GET", path: "/scheduled-agents" });
+      await vi.waitFor(() => expect(listProjectsMock).toHaveBeenCalled());
+      await vi.advanceTimersByTimeAsync(4_000);
+      const res = await pending;
+      const items = (res.body as { items: Array<Record<string, unknown>> }).items;
+      expect(items).toHaveLength(1);
+      expect(items[0]).toMatchObject({ project: "later", projectPath: null, projectMissing: false });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("skips the project read when no row names a project", async () => {
     simpleDbSelectMock.mockResolvedValue([hostA]);
     execCommandMock.mockResolvedValue(makeRemoteStdout([{ slug: "none", body: spec({}) }]));

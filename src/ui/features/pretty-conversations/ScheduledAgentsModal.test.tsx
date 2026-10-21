@@ -1506,6 +1506,15 @@ describe("ScheduledAgentsModal: project", () => {
     expect("project" in updateScheduledAgentMock.mock.calls[0][2]).toBe(false);
   });
 
+  it("T-PR7: a project whose host couldn't be read shows its slug in the neutral style", async () => {
+    listScheduledAgentsMock.mockResolvedValue([makeRow({ project: "later", projectPath: null, projectMissing: false })]);
+    render(<ScheduledAgentsModal open={true} onOpenChange={vi.fn()} hostTree={ONE_HOST_TREE} />);
+    const chip = await screen.findByTestId("scheduled-agents-modal-row-morning-triage-project");
+    expect(chip).toHaveTextContent("later");
+    expect(chip).toHaveClass("unknown");
+    expect(chip).not.toHaveClass("missing");
+  });
+
   it("T-PR6: rows without a project show no project chip", async () => {
     listScheduledAgentsMock.mockResolvedValue([makeRow()]);
     render(<ScheduledAgentsModal open={true} onOpenChange={vi.fn()} hostTree={ONE_HOST_TREE} />);

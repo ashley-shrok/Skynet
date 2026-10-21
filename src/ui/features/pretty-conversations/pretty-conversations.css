@@ -2165,6 +2165,12 @@
   color: hsla(160, 50%, 82%, 1);
 }
 
+.pv-agent-row-chip.project.unknown {
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(220, 225, 245, 0.16);
+  color: var(--color-pv-fg-muted);
+}
+
 .pv-agent-row-chip.project.missing {
   background: hsla(35, 80%, 50%, 0.14);
   border: 1px solid hsla(35, 80%, 60%, 0.36);

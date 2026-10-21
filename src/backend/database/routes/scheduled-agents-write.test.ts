@@ -155,6 +155,7 @@ vi.mock("../../ssh/host-semaphore-registry.js", () => {
 // ---------------------------------------------------------------------------
 
 const fsAccessMock = vi.fn();
+const fsLstatMock = vi.fn();
 const fsMkdirMock = vi.fn();
 const fsRmMock = vi.fn();
 const fsUnlinkMock = vi.fn();
@@ -165,6 +166,7 @@ const fsRenameMock = vi.fn();
 vi.mock("fs/promises", () => ({
   default: {
     access: (p: string) => fsAccessMock(p),
+    lstat: (p: string) => fsLstatMock(p),
     mkdir: (p: string, opts?: unknown) => fsMkdirMock(p, opts),
     rm: (p: string, opts?: unknown) => fsRmMock(p, opts),
     unlink: (p: string) => fsUnlinkMock(p),
@@ -174,6 +176,7 @@ vi.mock("fs/promises", () => ({
     rename: (a: string, b: string) => fsRenameMock(a, b),
   },
   access: (p: string) => fsAccessMock(p),
+  lstat: (p: string) => fsLstatMock(p),
   mkdir: (p: string, opts?: unknown) => fsMkdirMock(p, opts),
   rm: (p: string, opts?: unknown) => fsRmMock(p, opts),
   unlink: (p: string) => fsUnlinkMock(p),
@@ -1351,7 +1354,7 @@ describe("scheduled-agents: project", () => {
     expect((await runNow(7)).status).toBe(202);
     expect(droppedBody().project).toBe("skynet");
     const probe = (execCommand as Mock).mock.calls.map((c) => c[1] as string).find((c) => c.includes("/fleet/projects/"));
-    expect(probe).toContain('test -f "$HOME/fleet/projects/skynet/project.md"');
+    expect(probe).toContain('p="$HOME/fleet/projects/skynet"; [ -d "$p" ] && [ ! -L "$p" ]');
   });
 
   it("run-now REMOTE with a missing project still fires, unfiled", async () => {
@@ -1370,14 +1373,20 @@ describe("scheduled-agents: project", () => {
     (isLocalHostId as Mock).mockReturnValue(true);
     fsReadFileMock.mockResolvedValue(JSON.stringify({ ...validSpec, project: "skynet" }));
     fsMkdirMock.mockResolvedValue(undefined);
-    fsAccessMock.mockResolvedValue(undefined);
+    fsLstatMock.mockResolvedValue({ isDirectory: () => true });
     expect((await runNow(1)).status).toBe(202);
-    expect(fsAccessMock).toHaveBeenCalledWith("/tmp/test-fleet/projects/skynet/project.md");
+    expect(fsLstatMock).toHaveBeenCalledWith("/tmp/test-fleet/projects/skynet");
     expect(droppedBody().project).toBe("skynet");
 
-    (writeMarkdownFileAtomic as Mock).mockClear();
-    fsAccessMock.mockRejectedValue(Object.assign(new Error("nope"), { code: "ENOENT" }));
-    expect((await runNow(1)).status).toBe(202);
-    expect("project" in droppedBody()).toBe(false);
+    // A symlink (lstat → not a directory) or a gone folder is not a project.
+    for (const lstat of [
+      () => fsLstatMock.mockResolvedValue({ isDirectory: () => false }),
+      () => fsLstatMock.mockRejectedValue(Object.assign(new Error("nope"), { code: "ENOENT" })),
+    ]) {
+      (writeMarkdownFileAtomic as Mock).mockClear();
+      lstat();
+      expect((await runNow(1)).status).toBe(202);
+      expect("project" in droppedBody()).toBe(false);
+    }
   });
 });

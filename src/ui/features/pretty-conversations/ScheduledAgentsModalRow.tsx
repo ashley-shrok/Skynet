@@ -10,7 +10,8 @@
  *     - Line 2: row.scheduleHuman (muted)
  *     - Line 3: row.prompt (2-line clamp)
  *     - Line 4: role chips (magenta) + project chip (green — the full
- *       "Parent › Child" path; amber "missing" when the project is gone)
+ *       "Parent › Child" path; amber "missing" when the project is gone;
+ *       neutral slug when the host's projects couldn't be read)
  *   top-right actions bar (aligned with the name baseline):
  *     - toggle pill (row.enabled, pessimistic — parent flips on server ack)
  *     - RowKebabMenu → Edit + Delete popover
@@ -188,12 +189,20 @@ export function ScheduledAgentsModalRow({
             ))}
             {row.project && (
               <span
-                className={row.projectMissing ? "pv-agent-row-chip project missing" : "pv-agent-row-chip project"}
+                className={
+                  row.projectMissing
+                    ? "pv-agent-row-chip project missing"
+                    : row.projectPath
+                      ? "pv-agent-row-chip project"
+                      : "pv-agent-row-chip project unknown"
+                }
                 data-testid={`scheduled-agents-modal-row-${row.slug}-project`}
                 title={
                   row.projectMissing
                     ? "This project no longer exists — new conversations go to Conversations"
-                    : "New conversations are filed in this project"
+                    : row.projectPath
+                      ? "New conversations are filed in this project"
+                      : "Couldn't read this machine's projects right now"
                 }
               >
                 <Folder size={10} aria-hidden="true" />

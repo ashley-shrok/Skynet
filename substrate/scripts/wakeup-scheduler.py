@@ -1272,13 +1272,14 @@ _PROJECT_SLUG_RE = re.compile(r"^[a-z0-9-]{1,64}$")
 def _live_project(slug):
     """Return `slug` iff it names a live project on this box, else None.
 
-    Live = a valid project slug (not the `archive` folder) whose
-    ~/fleet/projects/<slug>/project.md exists.
+    Live = a valid project slug (not the `archive` folder) naming a real,
+    non-symlink directory under ~/fleet/projects/ — the same test the app's
+    project listing (sidebar, task form) applies, so filing and display agree.
     """
     if not isinstance(slug, str) or not _PROJECT_SLUG_RE.match(slug) or slug == "archive":
         return None
-    path = os.path.join(os.path.expanduser("~"), "fleet", "projects", slug, "project.md")
-    return slug if os.path.isfile(path) else None
+    path = os.path.join(os.path.expanduser("~"), "fleet", "projects", slug)
+    return slug if os.path.isdir(path) and not os.path.islink(path) else None
 
 
 def _drop_spawn_request(spec, state_dir, sensor_fire=None, sensor_broken_prompt=None):

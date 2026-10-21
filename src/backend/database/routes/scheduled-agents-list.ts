@@ -94,6 +94,10 @@ const PER_HOST_TIMEOUT_MS = 15_000;
 /** SSH exec race timeout — bounds a single exec inside the per-host window. */
 const SSH_EXEC_TIMEOUT_MS = 10_000;
 
+/** Bound on the LIST's project read — well inside the per-host window, so a
+ *  slow read costs only the rows' project paths, never the host's rows. */
+const PROJECT_READ_TIMEOUT_MS = 4_000;
+
 /** Shape of a single scheduled-agent row in the aggregated LIST response.
  *  Distinct from the per-identity `Wakeup` type in identity-artifact-reader.ts
  *  (which uses `instruction` — per-identity wake-ups fire an instruction into
@@ -354,7 +358,9 @@ function attachProjectPaths(
   }
 }
 
-/** Host-level project read for the LIST — only when some row names one. */
+/** Host-level project read for the LIST — only when some row names one.
+ *  Times out to "unreadable" (rows keep null paths) after
+ *  PROJECT_READ_TIMEOUT_MS. */
 async function readHostProjectsForList(
   conn: SSHClientType | null,
   rows: ScheduledAgentListItem[],
@@ -362,7 +368,23 @@ async function readHostProjectsForList(
   hostName: string,
 ): Promise<void> {
   if (!rows.some((r) => r.project !== null)) return;
-  attachProjectPaths(rows, await readHostProjects(conn, hostId, hostName));
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const projects = await Promise.race([
+    readHostProjects(conn, hostId, hostName),
+    new Promise<null>((resolve) => {
+      timer = setTimeout(() => {
+        sshLogger.warn("scheduled-agents-list: project read timed out", {
+          operation: "scheduled_agents_list_project_read_timeout",
+          hostId,
+          hostName,
+          timeoutMs: PROJECT_READ_TIMEOUT_MS,
+        });
+        resolve(null);
+      }, PROJECT_READ_TIMEOUT_MS);
+    }),
+  ]);
+  clearTimeout(timer);
+  attachProjectPaths(rows, projects);
 }
 
 /**

@@ -481,11 +481,11 @@ function specProjectSlug(spec: unknown): string | null {
   return isProjectSlug(p) ? p : null;
 }
 
-/** LOCAL: does `~/fleet/projects/<slug>/project.md` exist? */
+/** LOCAL: is `~/fleet/projects/<slug>` a real (non-symlink) directory? Same
+ *  test listProjects applies, so filing agrees with the sidebar and picker. */
 async function localProjectExists(slug: string): Promise<boolean> {
   try {
-    await fs.access(path.join(getLocalProjectsRoot(), slug, "project.md"));
-    return true;
+    return (await fs.lstat(path.join(getLocalProjectsRoot(), slug))).isDirectory();
   } catch {
     return false;
   }
@@ -1410,7 +1410,7 @@ router.post(
           try {
             const probe = await execWithTimeout(
               conn,
-              `test -f "$HOME/fleet/projects/${project}/project.md" && echo __PROJECT_PRESENT__ || echo __PROJECT_ABSENT__`,
+              `p="$HOME/fleet/projects/${project}"; [ -d "$p" ] && [ ! -L "$p" ] && echo __PROJECT_PRESENT__ || echo __PROJECT_ABSENT__`,
             );
             projectExists = probe.includes("__PROJECT_PRESENT__");
           } catch (err) {

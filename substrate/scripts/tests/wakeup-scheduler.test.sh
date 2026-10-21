@@ -1101,8 +1101,9 @@ PY
 
 # ============================================================
 # SA-G21: "project" files the newborn in the spec's project, but only while
-# ~/fleet/projects/<slug>/project.md exists — a missing project, the archive
-# folder, or a malformed slug leaves it off (newborn lands in Conversations).
+# ~/fleet/projects/<slug>/ is a real directory (what the app lists as a
+# project) — a missing project, a symlink, the archive folder, or a malformed
+# slug leaves it off (newborn lands in Conversations).
 # Applies to clock, sensor and broken-sensor births alike.
 # ============================================================
 test_SA_G21_project_filing() {
@@ -1110,6 +1111,7 @@ test_SA_G21_project_filing() {
   home_dir=$(make_tmpdir)
   mkdir -p "$home_dir/fleet/projects/skynet" "$home_dir/fleet/projects/archive/old" "$home_dir/fleet/projects/empty"
   printf -- '---\ndisplayName: SKYNET\n---\n' > "$home_dir/fleet/projects/skynet/project.md"
+  ln -s "$home_dir/fleet/projects/skynet" "$home_dir/fleet/projects/linked"
   res=$(HOME="$home_dir" python3 - "$PY_SCRIPT" "$home_dir" <<'PY'
 import importlib.util, json, sys
 from importlib.machinery import SourceFileLoader
@@ -1123,7 +1125,8 @@ errs = []
 if fire("skynet").get("project") != "skynet": errs.append("live project not carried")
 if fire("skynet", sensor_fire=("2026-10-18T00:00:00Z", "x", None)).get("project") != "skynet": errs.append("sensor fire not filed")
 if fire("skynet", sensor_broken_prompt="fix it").get("project") != "skynet": errs.append("broken-sensor birth not filed")
-for bad in (None, "gone", "archive", "empty", "Bad Slug", 7, "../skynet"):
+if fire("empty").get("project") != "empty": errs.append("bare project folder (listed by the app) not filed")
+for bad in (None, "gone", "archive", "linked", "Bad Slug", 7, "../skynet"):
     if "project" in fire(bad): errs.append("project=%r carried" % (bad,))
 print("; ".join(errs) or "OK")
 PY
