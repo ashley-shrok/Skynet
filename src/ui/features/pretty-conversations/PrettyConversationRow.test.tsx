@@ -1994,11 +1994,8 @@ describe("PrettyConversationRow: Rename menu item", () => {
 //
 //   showSpinnerOn = isWorking===true || isRecycling
 //
-// P47-15 is a LOAD-BEARING regression guard locking the decouple — ambient
-// (non-active-set) working rows DO spin, because agent-readiness is
-// client-scope-independent. It guards against a regression back to the
-// 2026-08-20 active-set-scoped shape (which made the same agent's readiness
-// client-dependent). Do NOT weaken or delete.
+// The spinner ring was retired 2026-10-21 (unread outline replaces it);
+// P47-15 locks that no row emits `spinner-on`.
 describe("PrettyConversationRow: Phase 48 Plan 05 v14 shape", () => {
   it("Test P48-01: title line renders identityName + ' (hostname)' suffix (parens contain hostname, single space between name and parens)", () => {
     currentIdentity = { ...makeIdentity(210, "Tanya") };
@@ -2224,16 +2221,10 @@ describe("PrettyConversationRow: Phase 48 Plan 05 v14 shape", () => {
   // Tests P47-12 and P47-13 (both badge wraps render / neither renders — zero-null
   // contract) — RETIRED in Phase 104 Plan 03 alongside the bounty-count wire.
 
-  it("Test P47-15 (LOAD-BEARING): inActiveSet=false + isWorking=true → row HAS `spinner-on` class (agent-readiness is client-scope-independent, user 2026-09-21 decouple)", async () => {
-    // Decoupled gate: `showSpinnerOn = isWorking === true || isRecycling`.
-    // `activeSet` is a per-tab client-side artifact and the wrong axis to
-    // gate on — the same agent's readiness must not appear or disappear
-    // depending on which client has the tab open. `isWorking` and
-    // `isRecycling` are backend-authoritative via the fleet-status poller
-    // (Plan 53-03); the spinner lights whenever the agent is working
-    // regardless of active-set membership. This test locks the decouple —
-    // if a future change re-scoped the gate back to `inActiveSet && ...`,
-    // this test would fail.
+  it("Test P47-15: working rows carry NO `spinner-on` class (avatar spinner ring retired, user 2026-10-21)", async () => {
+    // The unread outline + DM badge replaced the working ring as the
+    // sidebar's "come look" cue; a working row only carries the `.working`
+    // state hook, which paints nothing.
     currentIdentity = makeIdentity(210, "tanya");
     const { container } = render(
       <PrettyConversationRow
@@ -2252,11 +2243,7 @@ describe("PrettyConversationRow: Phase 48 Plan 05 v14 shape", () => {
       '[data-conversation-id="conv-1"]',
     ) as HTMLElement;
     const body = wrapper.querySelector('[role="button"]') as HTMLElement;
-    expect(body.className).toContain("spinner-on");
-    // The row carries `.working` (isWorking===true) and does NOT carry
-    // `.active-set` (inActiveSet=false) — the spinner is now gated on the
-    // fleet-authoritative work axis alone, decoupled from client-side
-    // active-set membership.
+    expect(body.className).not.toContain("spinner-on");
     expect(body.className).toContain("working");
     expect(body.className).not.toContain("active-set");
   });

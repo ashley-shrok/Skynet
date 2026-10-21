@@ -9,9 +9,8 @@
 //     the sole avatar-corner affordance.
 //   * The pre-Phase-48 ready-dot span (with its inline display-block hack)
 //     plus the 4-input `isWorking-false + !isRecycling` JSX render gate — the
-//     "come look" cue is now INVERTED: idle rows have
-//     NOTHING; working rows get a slow dashed spinner ring painted on
-//     `.pv-avatar::before` (CSS only; no JSX element for the spinner).
+//     "come look" cue was inverted to a working spinner ring on the avatar,
+//     itself retired 2026-10-21 — the unread outline + DM badge carry it.
 //   * `.pv-host` Server-icon rendering — hostname migrates to the title line
 //     wrapped in parens (`identityName (hostname)`); the subtitle line becomes
 //     the aiTitle text (or an italic ellipsis placeholder when aiTitle is null).
@@ -33,19 +32,6 @@
 //     in Phase 48 Plan 05 (retired in Phase 104 Plan 03 alongside the
 //     bounty-count wire). The current avatar-corner affordance is the
 //     Phase 104 Plan 02 trapped-work indicator.
-//   * `showSpinnerOn` JS-computed boolean (user 2026-09-21 decouple from
-//     active-set, superseding the 2026-08-20 active-set-scoped shape). The
-//     spinner is a pure agent-readiness signal: ON when the agent is
-//     working or recycling, regardless of whether this client happens to
-//     have the tab open. `activeSet` is a per-tab client-side artifact and
-//     was the wrong axis to gate on — the same agent's readiness appeared
-//     or disappeared depending on the client's tab history. Concretely:
-//     `showSpinnerOn = isWorking === true || isRecycling`.
-//     Both are backend-authoritative via the fleet-status poller (Plan
-//     53-03). Emitted as the `spinner-on` className on `.pv-row` (see
-//     className composition below). CSS keys off
-//     `.pv-row.spinner-on .pv-avatar::before` — single class match; all
-//     inputs live in JS, CSS is the paint layer only.
 //
 // Phase 13 Plan 01 (user 2026-07-23 lift-from-mock v4) — as amended by
 // Phase 41 Plan 01 (user 2026-08-14 ambient-retirement): the row renders the
@@ -63,12 +49,6 @@
 //
 // This component keeps only the surviving JS-only concerns:
 //
-//   - Working-spinner gate (user 2026-09-21 decouple from active-set):
-//     JS computes `showSpinnerOn = isWorking === true || isRecycling`.
-//     Backend-authoritative via the fleet-status poller; no client-side
-//     scope. Emitted as the `spinner-on` className on `.pv-row`; CSS at
-//     `.pv-row.spinner-on .pv-avatar::before` paints the slow dashed
-//     spinner ring. All inputs live in JS; CSS is the paint layer only.
 //   - Avatar image src selection (identity.avatarUrl vs initial letter vs
 //     tabIcon fallback).
 //   - Click / keyboard / touch handlers, aria-labels, `--pv-hue` custom
@@ -517,25 +497,9 @@ function PrettyConversationRowImpl({
   // the amb-recession className toggle — the corresponding CSS block is
   // deleted so the row no longer emits that class.
 
-  // Working-spinner gate (user 2026-09-21 decouple from active-set).
-  // `activeSet` is a per-tab client-side artifact — a sessionStorage-backed
-  // set of tab ids this ONE client currently has open or recently opened.
-  // Gating spinner visibility on it made the same agent's readiness appear
-  // or disappear depending on which client the user was looking from, which
-  // is the wrong axis. `isWorking` and `isRecycling` are already backend-
-  // authoritative via the fleet-status poller (Plan 53-03), so the spinner
-  // now lights on the fleet signal alone regardless of which client has
-  // the tab open.
-  //
-  //   showSpinnerOn = isWorking === true || isRecycling
-  //
-  // Emitted as the `spinner-on` className on `.pv-row`; CSS matches on that
-  // single class alone at `.pv-row.spinner-on .pv-avatar::before`. The
-  // `.active-set` class is still emitted from `inActiveSet` for the other
-  // things active-set legitimately drives (deactivate hover-reveal,
-  // "Open in new tab" menu behavior) — it just no longer gates the
-  // spinner.
-  const showSpinnerOn = isWorking === true || isRecycling;
+  // No working affordance on the row (user 2026-10-21): the avatar spinner
+  // ring is retired — the unread outline and DM badge below carry the
+  // "come look" cue. `working` / `recycling` classes stay as state hooks.
 
   const rowClassName = cn(
     "pv-row",
@@ -543,7 +507,6 @@ function PrettyConversationRowImpl({
     selected && "selected",
     inActiveSet && "active-set",
     isWorking === true && "working",
-    showSpinnerOn && "spinner-on",
     isRecycling === true && "recycling",
     pinned && "pinned",
     // Unread: the agent finished a turn this user hasn't seen. Brighter
@@ -896,9 +859,8 @@ function PrettyConversationRowImpl({
                 entirely (per-identity indicator wire deletion).
               - The pre-Phase-48 ready-dot span (with its inline display-block
                 hack) plus the 4-input `isWorkingFalse + notRecycling +
-                noQueuePending` JSX render gate → replaced by the CSS-painted
-                spinner ring on `.pv-avatar::before` (see pretty-conversations
-                .css). */}
+                noQueuePending` JSX render gate → replaced by an avatar spinner
+                ring, retired 2026-10-21 in favor of the unread outline. */}
         {/* shape-sidebar-header-affordances: row-level kebab menu. Positioned
             absolute, right edge of the row card, vertically centered. Hover-reveal on desktop
             (opacity-0 at md+, group-hover + group-focus-within bump to 100);

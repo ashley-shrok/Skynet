@@ -698,61 +698,9 @@
   flex-shrink: 0;
 }
 
-/* ═══════════════════════════════════════════════════════════════════════════
-   WORKING SPINNER RING (avatar `::before` pseudo)
-   ═══════════════════════════════════════════════════════════════════════════
-   Slow dashed spinner ring painted around the avatar disc, keyed on the
-   `.spinner-on` class emitted by PrettyConversationRow.tsx from the JS-
-   computed boolean:
-
-     showSpinnerOn = isWorking === true || isRecycling || hasQueuePending
-
-   user 2026-09-21 decouple: the active-set scope was retired. The spinner
-   is a pure agent-readiness signal — `isWorking` and `isRecycling` are
-   backend-authoritative via the fleet-status poller, so the ring lights
-   whenever the agent is working regardless of which client has the tab
-   open. `hasQueuePending` remains as a first-class positive trigger; it's
-   a per-client ComposeBox signal, so it only fires for sessions this
-   client has open, which is the intended shape.
-
-   All inputs live in JS; CSS keys off the single resulting className. DO
-   NOT add `:is(.working, .recycling)` narrowing on the CSS side — that would
-   drop `hasQueuePending` from the input set. See PrettyConversationRow.tsx
-   showSpinnerOn computation for the authoritative comment.
-
-   Visual: 18 dashes spanning 10° each with 10° gaps between (36-slot conic-
-   gradient), masked to a thin outer ring via radial-gradient mask, rotating
-   360deg over 3s linear. Copied verbatim from ring-patterns.html .av.p05
-   with only the hue-variable name rewritten (--hue → --pv-hue). */
-.pv-row.spinner-on .pv-avatar::before {
-  content: "";
-  position: absolute;
-  inset: -3px;
-  border-radius: 50%;
-  background: conic-gradient(
-    hsla(var(--pv-hue, 210), 70%, 65%, 1) 0 10deg, transparent 10deg 30deg,
-    hsla(var(--pv-hue, 210), 70%, 65%, 1) 30deg 40deg, transparent 40deg 60deg,
-    hsla(var(--pv-hue, 210), 70%, 65%, 1) 60deg 70deg, transparent 70deg 90deg,
-    hsla(var(--pv-hue, 210), 70%, 65%, 1) 90deg 100deg, transparent 100deg 120deg,
-    hsla(var(--pv-hue, 210), 70%, 65%, 1) 120deg 130deg, transparent 130deg 150deg,
-    hsla(var(--pv-hue, 210), 70%, 65%, 1) 150deg 160deg, transparent 160deg 180deg,
-    hsla(var(--pv-hue, 210), 70%, 65%, 1) 180deg 190deg, transparent 190deg 210deg,
-    hsla(var(--pv-hue, 210), 70%, 65%, 1) 210deg 220deg, transparent 220deg 240deg,
-    hsla(var(--pv-hue, 210), 70%, 65%, 1) 240deg 250deg, transparent 250deg 270deg,
-    hsla(var(--pv-hue, 210), 70%, 65%, 1) 270deg 280deg, transparent 280deg 300deg,
-    hsla(var(--pv-hue, 210), 70%, 65%, 1) 300deg 310deg, transparent 310deg 330deg,
-    hsla(var(--pv-hue, 210), 70%, 65%, 1) 330deg 340deg, transparent 340deg 360deg
-  );
-  -webkit-mask: radial-gradient(circle, transparent 60%, #000 62%, #000 100%);
-          mask: radial-gradient(circle, transparent 60%, #000 62%, #000 100%);
-  animation: pv-spinner-spin 3s linear infinite;
-  pointer-events: none;
-  z-index: 1;
-}
-
-@keyframes pv-spinner-spin {
-  to { transform: rotate(360deg); }
-}
+/* Working spinner ring RETIRED (user 2026-10-21): the unread outline and DM
+   badge now carry the "come look" cue, so rows no longer paint a ring
+   around the avatar while the agent works. */
 
 /* Phase 48 Plan 05 avatar-corner bounty-badge positioning rules RETIRED in
    Phase 104 Plan 03 alongside the bounty-count wire (D-04). The trapped-work
@@ -891,12 +839,9 @@
      - The pre-Phase-48 badge invocation → Phase 104 Plan 03 retired those
        entirely alongside their data wire.
      - `.pv-ready-dot` span + its `display: none` / `display: block` toggle
-       under `.pv-row:not(.working):not(.recycling)` → REPLACED by the
-       CSS-painted spinner ring on `.pv-avatar::before` (see the
-       `.pv-row.spinner-on .pv-avatar::before` rule above). The single class
-       match is driven by the JS-computed `showSpinnerOn` boolean in
-       PrettyConversationRow.tsx (user 2026-08-19 full 4-input verbatim
-       gate; 48-CONTEXT.md § Working indicator INVERSION).
+       under `.pv-row:not(.working):not(.recycling)` → replaced by an avatar
+       spinner ring, itself retired 2026-10-21 in favor of the unread
+       outline.
    Defensive `.pv-meta { display: none; }` rule below in case any stray
    render path still emits the element — it will not paint anything, and
    PrettyConversationRow.tsx does not emit one anyway. */
@@ -911,11 +856,8 @@
   /* Reserved for downstream extension. */
 }
 
-/* .pv-row.working: no visual override at the row level. Phase 48 Plan 05
-   moved the working affordance to `.pv-row.spinner-on .pv-avatar::before`
-   (the spinner ring), keyed on the JS-computed `showSpinnerOn` boolean
-   from the full 4-input user-verbatim gate — NOT on the narrower
-   `.working` class alone. See the spinner block near L525. */
+/* .pv-row.working: no visual override at the row level — the working state
+   has no row-list affordance (spinner ring retired 2026-10-21). */
 .pv-row.working {
   /* Reserved for downstream extension. */
 }
@@ -1571,15 +1513,6 @@
     width: 18px;
     height: 18px;
   }
-
-  /* Phase 48 Plan 05: Patch #251's mobile-bump ready-dot rule DELETED — the
-     idle-dot itself is retired and the working affordance now lives on the
-     avatar's `::before` spinner ring, whose sizing tracks the avatar disc's
-     own em-scaled dimensions (`.pv-row--mobile .pv-avatar` — the ring's
-     `inset: -3px` scales with the disc since the pseudo is positioned
-     absolutely inside the avatar). If mobile-specific spinner tweaks emerge
-     from UAT, add them here as `.pv-row--mobile.spinner-on .pv-avatar
-     ::before { ... }`. */
 
   /* Patch #261 — half-a-row bottom padding on the conversation list so the
      last row(s) aren't clipped by browser bottom chrome / iOS home indicator.
