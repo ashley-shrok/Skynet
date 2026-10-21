@@ -15,6 +15,7 @@ import {
   deleteSkillFile,
   deleteSkill,
   renameSkill,
+  RenamedButEditsNotSavedError,
   SkillFileMtimeConflictError,
   SkillFileAlreadyExistsError,
   SkillAlreadyExistsError,
@@ -623,41 +624,33 @@ export default function SkillsEditorModal({
   }, [selectedHostId, selectedSkillName, selectedIsInstance]);
 
   // Rename = move the skill's folder (the backend also rewrites SKILL.md's
-  // `name:`). With `skillMdDraft`, that draft is then saved into the renamed
-  // skill — the path for a SKILL.md whose `name:` was edited.
+  // `name:`). With `draft`, that SKILL.md draft rides along in the same
+  // request — checked against the mtime it was loaded at before anything
+  // moves — the path for a SKILL.md whose `name:` was edited.
   const performRename = useCallback(
-    async (newName: string, skillMdDraft: string | null): Promise<void> => {
+    async (newName: string, draft: { content: string; expectedMtime: number } | null): Promise<void> => {
       if (selectedHostId == null || selectedSkillName == null || selectedIsInstance) return;
       const hostId = selectedHostId;
       const oldName = selectedSkillName;
       console.info(
-        `[skills-editor] rename hostId=${hostId} from=${oldName} to=${newName} withDraft=${skillMdDraft != null}`,
+        `[skills-editor] rename hostId=${hostId} from=${oldName} to=${newName} withDraft=${draft != null}`,
       );
-      savingRef.current = true;
       let renamed = false;
       try {
-        const result = await renameSkill(hostId, oldName, newName);
+        await renameSkill(hostId, oldName, newName, draft ?? undefined);
         renamed = true;
-        if (skillMdDraft != null) {
-          await writeSkillFile({
-            hostId,
-            skill: newName,
-            path: SKILL_MD,
-            content: skillMdDraft,
-            expectedMtime: result.mtime,
-          });
-        }
       } catch (err) {
+        renamed = err instanceof RenamedButEditsNotSavedError;
         console.info(`[skills-editor] rename-error hostId=${hostId} from=${oldName} to=${newName} renamed=${renamed}`);
         window.alert(
           err instanceof SkillAlreadyExistsError
             ? `A skill named "${newName}" already exists on this host.`
+            : err instanceof SkillFileMtimeConflictError
+            ? "SKILL.md changed on disk since you opened it, so nothing was renamed. Copy your edits somewhere, reload the skill, and try again."
             : renamed
-            ? `Renamed to "${newName}", but your SKILL.md edits couldn't be saved: ${err instanceof Error ? err.message : "unknown error"}`
+            ? `Renamed to "${newName}", but your SKILL.md edits couldn't be saved.`
             : `Couldn't rename "${oldName}": ${err instanceof Error ? err.message : "unknown error"}`,
         );
-      } finally {
-        savingRef.current = false;
       }
       if (!renamed) return;
       try {
@@ -688,14 +681,17 @@ export default function SkillsEditorModal({
     await performRename(slug, null);
   }, [selectedSkillName, dirtySet, binaryDrafts, performRename]);
 
-  // A SKILL.md whose `name:` no longer matches the folder is never saved as
-  // is — the backend refuses it. Offer the real rename instead. Returns true
-  // when it handled the save (renamed, or refused with an explanation).
+  // A SKILL.md whose `name:` was changed away from the folder is never saved
+  // as is — the backend refuses it. Offer the real rename instead. A name
+  // that already disagreed on disk (older skills) and wasn't touched saves
+  // normally. Returns true when it handled the save (renamed, or refused
+  // with an explanation).
   const handleSkillMdNameChange = useCallback(
-    async (content: string): Promise<boolean> => {
+    async (content: string, loaded: SkillFileTabData): Promise<boolean> => {
       if (selectedSkillName == null) return false;
       const name = frontmatterName(content);
       if (name === null || name === selectedSkillName) return false;
+      if (name === frontmatterName(loaded.content)) return false;
       const slug = slugifyRoleName(name);
       if (slug !== name) {
         window.alert(
@@ -719,7 +715,7 @@ export default function SkillsEditorModal({
         )
       )
         return true;
-      await performRename(name, content);
+      await performRename(name, { content, expectedMtime: loaded.mtime });
       return true;
     },
     [selectedSkillName, selectedIsInstance, dirtySet, binaryDrafts, performRename],
@@ -753,7 +749,11 @@ export default function SkillsEditorModal({
     setSaving(true);
     savingRef.current = true;
     try {
-      if (activeTab === SKILL_MD && (await handleSkillMdNameChange(draft))) return;
+      if (activeTab === SKILL_MD && (await handleSkillMdNameChange(draft, tab.data))) {
+        // Nothing (or a rename) was saved — don't leave the close guard off.
+        savingRef.current = false;
+        return;
+      }
       await handleSave(activeTab, draft, tab.data.mtime);
     } catch (err) {
       window.alert(err instanceof Error ? `Save failed: ${err.message}` : "Save failed");
@@ -1244,7 +1244,13 @@ export default function SkillsEditorModal({
               <SkillFileTab
                 state={tabData.get(activeTab) ?? { status: "loading" }}
                 onSave={async (content, expectedMtime) => {
-                  if (activeTab === SKILL_MD && (await handleSkillMdNameChange(content))) return;
+                  const loaded = tabData.get(activeTab);
+                  if (
+                    activeTab === SKILL_MD &&
+                    loaded?.status === "ready" &&
+                    (await handleSkillMdNameChange(content, loaded.data))
+                  )
+                    return;
                   await handleSave(activeTab, content, expectedMtime);
                 }}
                 onRequestDelete={

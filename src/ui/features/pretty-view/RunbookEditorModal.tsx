@@ -12,6 +12,7 @@ import {
   deleteRunbook,
   renameRunbook,
   RunbookAlreadyExistsError,
+  RenamedButEditsNotSavedError,
   RunbookFileMtimeConflictError,
   RunbookFileAlreadyExistsError,
   type RunbookFileEntry,
@@ -351,32 +352,31 @@ export default function RunbookEditorModal({
   );
 
   // Rename = move the runbook folder (backend also renames a `<runbook>.md`
-  // main file and rewrites a frontmatter `name:`). With `draft`, that draft
-  // is then saved into the renamed runbook at `draftPath`.
+  // main file and rewrites a frontmatter `name:`). With `draft`, that
+  // main-file draft rides along in the same request — checked against the
+  // mtime it was loaded at before anything moves.
   const performRename = useCallback(
-    async (newName: string, draft: { path: string; content: string } | null): Promise<void> => {
+    async (
+      newName: string,
+      draft: { path: string; content: string; expectedMtime: number } | null,
+    ): Promise<void> => {
       console.debug("[RunbookEditorModal] rename", { from: runbookName, to: newName, withDraft: draft != null });
-      savingRef.current = true;
       let renamed = false;
       try {
-        await renameRunbook(hostId, roleName, runbookName, newName);
+        await renameRunbook(hostId, roleName, runbookName, newName, draft ?? undefined);
         renamed = true;
-        if (draft) {
-          // An old-style main file moved with the folder: `<old>.md` → `<new>.md`.
-          const path = draft.path === `${runbookName}.md` ? `${newName}.md` : draft.path;
-          await writeRunbookFile({ hostId, role: roleName, runbook: newName, path, content: draft.content });
-        }
       } catch (err) {
+        renamed = err instanceof RenamedButEditsNotSavedError;
         console.debug("[RunbookEditorModal] rename-error", { from: runbookName, to: newName, renamed });
         window.alert(
           err instanceof RunbookAlreadyExistsError
             ? `A runbook named "${newName}" already exists in this role.`
+            : err instanceof RunbookFileMtimeConflictError
+            ? `${draft?.path ?? "The file"} changed on disk since you opened it, so nothing was renamed. Copy your edits somewhere, reopen the runbook, and try again.`
             : renamed
-            ? `Renamed to "${newName}", but your edits couldn't be saved: ${err instanceof Error ? err.message : "unknown error"}`
+            ? `Renamed to "${newName}", but your edits couldn't be saved.`
             : `Couldn't rename "${runbookName}": ${err instanceof Error ? err.message : "unknown error"}`,
         );
-      } finally {
-        savingRef.current = false;
       }
       if (renamed) onRenamed(newName);
     },
@@ -399,13 +399,16 @@ export default function RunbookEditorModal({
     await performRename(slug, null);
   }, [runbookName, dirtySet, binaryDrafts, performRename]);
 
-  // Main-file save whose `name:` no longer matches the folder. Returns true
-  // when it handled the save (renamed, or refused with an explanation).
+  // Main-file save whose `name:` was changed away from the folder. A name
+  // that already disagreed on disk and wasn't touched saves normally.
+  // Returns true when it handled the save (renamed, or refused with an
+  // explanation).
   const handleMainFileNameChange = useCallback(
-    async (path: string, content: string): Promise<boolean> => {
+    async (path: string, content: string, loaded: SkillFileTabData): Promise<boolean> => {
       if (path !== "runbook.md" && path !== `${runbookName}.md`) return false;
       const name = frontmatterName(content);
       if (name === null || name === runbookName) return false;
+      if (name === frontmatterName(loaded.content)) return false;
       const slug = slugifyRoleName(name);
       if (slug !== name) {
         window.alert(
@@ -423,7 +426,7 @@ export default function RunbookEditorModal({
         )
       )
         return true;
-      await performRename(name, { path, content });
+      await performRename(name, { path, content, expectedMtime: loaded.mtime });
       return true;
     },
     [runbookName, dirtySet, binaryDrafts, performRename],
@@ -456,7 +459,11 @@ export default function RunbookEditorModal({
     setSaving(true);
     savingRef.current = true;
     try {
-      if (await handleMainFileNameChange(activeTab, draft)) return;
+      if (await handleMainFileNameChange(activeTab, draft, tab.data)) {
+        // Nothing (or a rename) was saved — don't leave the close guard off.
+        savingRef.current = false;
+        return;
+      }
       await handleSave(activeTab, draft, tab.data.mtime);
     } catch (err) {
       window.alert(err instanceof Error ? `Save failed: ${err.message}` : "Save failed");
@@ -614,7 +621,9 @@ export default function RunbookEditorModal({
               <SkillFileTab
                 state={tabData.get(activeTab) ?? { status: "loading" }}
                 onSave={async (content, expectedMtime) => {
-                  if (await handleMainFileNameChange(activeTab, content)) return;
+                  const loaded = tabData.get(activeTab);
+                  if (loaded?.status === "ready" && (await handleMainFileNameChange(activeTab, content, loaded.data)))
+                    return;
                   await handleSave(activeTab, content, expectedMtime);
                 }}
                 onRequestDelete={() => {

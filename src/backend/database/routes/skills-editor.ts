@@ -76,8 +76,7 @@ import { sshLogger } from "../../utils/logger.js";
 import { sendRemoteFileUnderRoot, writeRemoteFileUnderRoot } from "../../utils/sftp-root-files.js";
 import {
   frontmatterName,
-  nameMismatchBody,
-  nameMismatchesFolder,
+  refuseIfNameMismatch,
   withFrontmatterName,
 } from "../../utils/folder-item-name.js";
 import { getInstanceWide } from "../../instance-wide/production.js";
@@ -369,6 +368,20 @@ async function refuseIfDistributed(
   });
   res.status(403).json({ error: "distributed skills are read-only" });
   return true;
+}
+
+/**
+ * A remote file's text ("" when missing). base64 round-trip: execCommand trims
+ * stdout, which would eat a trailing newline.
+ */
+async function readRemoteText(
+  conn: Awaited<ReturnType<typeof connectOneShot>>,
+  absPath: string,
+): Promise<string> {
+  return Buffer.from(
+    await execWithTimeout(conn, `base64 -w0 ${shellEscape(absPath)} 2>/dev/null || true`),
+    "base64",
+  ).toString("utf-8");
 }
 
 /**
@@ -890,12 +903,6 @@ router.put(
       res.status(400).json({ error: "distributed: true is reserved for the fleet distributor" });
       return;
     }
-    // The folder name IS the skill's name — a SKILL.md naming something else
-    // would leave the two out of step. Renaming goes through POST /rename.
-    if (rawPath === "SKILL.md" && nameMismatchesFolder(rawContent, rawSkill)) {
-      res.status(400).json(nameMismatchBody("skill", rawSkill, frontmatterName(rawContent)));
-      return;
-    }
 
     const hostId = rawHostId;
     const skill = rawSkill;
@@ -946,6 +953,17 @@ router.put(
       // Distributor-owned skills are read-only — refuse before touching them.
       if (await refuseIfDistributed(conn, remoteHome, skill, res, "skills_editor_write_distributed", hostId)) {
         return;
+      }
+
+      // The folder name IS the skill's name — a SKILL.md newly naming
+      // something else would leave the two out of step. Renaming goes through
+      // POST /rename.
+      if (relPath === "SKILL.md") {
+        const c = conn;
+        const skillMdPath = `${remoteHome}/${SKILL_ROOT_REL}/${skill}/SKILL.md`;
+        if (await refuseIfNameMismatch(res, "skill", skill, content, () => readRemoteText(c, skillMdPath))) {
+          return;
+        }
       }
 
       const paths = buildAbsSkillFilePath(remoteHome, skill, relPath);
@@ -1404,6 +1422,12 @@ router.post(
  * frontmatter `name:` (when it has one) to match. `{ hostId, skill, newName }`
  * → 200 `{ name, mtime }` (mtime = SKILL.md's, 0 when there is none).
  *
+ * Optional `content` + `expectedMtime`: the editor's SKILL.md draft, saved
+ * into the renamed skill in the same request (its `name:` forced to the new
+ * name). `expectedMtime` is checked BEFORE anything moves — 409 with the
+ * write route's `mtime mismatch` shape when SKILL.md changed underneath. If
+ * the folder moved but the draft couldn't be written: 502 `{ renamed: true }`.
+ *
  * 404 when the skill is missing, 409 `{error:"skill exists"}` when the new
  * name is taken. Distributor-owned and instance-wide skills are refused —
  * the distributor / sync would put the old folder straight back.
@@ -1423,6 +1447,8 @@ router.post(
     const rawHostId = body.hostId;
     const rawSkill = body.skill;
     const rawNewName = body.newName;
+    const rawContent = body.content;
+    const rawExpectedMtime = body.expectedMtime;
 
     if (
       typeof rawHostId !== "number" ||
@@ -1440,6 +1466,26 @@ router.post(
       res.status(400).json({ error: "invalid new skill name" });
       return;
     }
+    if (
+      rawContent !== undefined &&
+      (typeof rawContent !== "string" || Buffer.byteLength(rawContent, "utf-8") > MAX_CONTENT_BYTES)
+    ) {
+      res.status(400).json({ error: `content must be a string ≤${MAX_CONTENT_BYTES} bytes` });
+      return;
+    }
+    if (
+      rawExpectedMtime !== undefined &&
+      (typeof rawExpectedMtime !== "number" || !Number.isInteger(rawExpectedMtime) || rawExpectedMtime < 0)
+    ) {
+      res.status(400).json({ error: "expectedMtime must be a non-negative integer when provided" });
+      return;
+    }
+    if (typeof rawContent === "string" && frontmatterIsDistributed(rawContent)) {
+      res.status(400).json({ error: "distributed: true is reserved for the fleet distributor" });
+      return;
+    }
+    const draft = rawContent as string | undefined;
+    const expectedMtime = rawExpectedMtime as number | undefined;
     const hostId = rawHostId;
     const skill = rawSkill;
     const newName = rawNewName;
@@ -1505,6 +1551,21 @@ router.post(
         return;
       }
 
+      // Stale-draft check before anything moves (same 409 as PUT /write).
+      if (expectedMtime !== undefined) {
+        const fromSkillMd = shellEscape(`${fromRoot}/SKILL.md`);
+        const currentMtime =
+          parseInt((await execWithTimeout(conn, `stat -c '%Y' ${fromSkillMd} 2>/dev/null || echo 0`)).trim(), 10) || 0;
+        if (currentMtime !== expectedMtime) {
+          res.status(409).json({
+            error: "mtime mismatch",
+            currentMtime,
+            currentContent: await readRemoteText(conn, `${fromRoot}/SKILL.md`),
+          });
+          return;
+        }
+      }
+
       // One remote step: refuse a missing source or a taken target, else move.
       // `mv -T` keeps a same-named target directory from swallowing the source.
       const moved = (
@@ -1535,31 +1596,32 @@ router.post(
         return;
       }
 
-      // Keep SKILL.md's `name:` in step with the new folder.
+      // Keep SKILL.md's `name:` in step with the new folder — on the draft
+      // when one came along, else on what's on disk.
       const skillMdPath = `${toRoot}/SKILL.md`;
       const escapedSkillMd = shellEscape(skillMdPath);
-      // base64 round-trip: execCommand trims stdout, which would eat the
-      // file's trailing newline on the rewrite.
-      const current = Buffer.from(
-        await execWithTimeout(conn, `base64 -w0 ${escapedSkillMd} 2>/dev/null || true`),
-        "base64",
-      ).toString("utf-8");
+      const current = draft ?? (await readRemoteText(conn, skillMdPath));
       const rewritten = withFrontmatterName(current, newName);
       let nameRewritten = false;
-      if (rewritten !== current) {
+      if (draft !== undefined || rewritten !== current) {
         try {
           await writeMarkdownFileAtomic(conn, skillMdPath, rewritten);
           nameRewritten = true;
         } catch (err) {
           // The folder already moved; a stale `name:` is recoverable by hand,
           // a rolled-back rename racing other editors is worse.
-          sshLogger.error("skills-editor rename: SKILL.md name rewrite failed", {
+          sshLogger.error("skills-editor rename: SKILL.md write failed", {
             operation: "skills_editor_rename_name_write",
             hostId,
             skill,
             newName,
+            withDraft: draft !== undefined,
             error: err instanceof Error ? err.message : "Unknown",
           });
+          if (draft !== undefined) {
+            res.status(502).json({ error: "renamed, but the edits couldn't be saved", renamed: true, name: newName });
+            return;
+          }
         }
       }
       const mtime =
@@ -2003,6 +2065,14 @@ router.put(
         )
       ) {
         return;
+      }
+      if (relPath === "SKILL.md") {
+        const c = checkConn;
+        const skillMdPath = `${remoteHome}/${SKILL_ROOT_REL}/${skill}/SKILL.md`;
+        const next = (req.body as Buffer).toString("utf-8");
+        if (await refuseIfNameMismatch(res, "skill", skill, next, () => readRemoteText(c, skillMdPath))) {
+          return;
+        }
       }
     } catch (err) {
       sshLogger.error("skills-editor write-binary: distributed check failed", {

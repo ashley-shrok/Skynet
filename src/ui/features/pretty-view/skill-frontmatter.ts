@@ -91,13 +91,13 @@ function unquote(raw: string): string {
   return (hash === -1 ? v : v.slice(0, hash)).trim();
 }
 
-/** The frontmatter `name:` value, or null when there is none. */
+/** The frontmatter `name:` value, or null when there is none (or it is empty). */
 export function frontmatterName(content: string): string | null {
   const { fm } = split(content);
   if (!fm) return null;
   for (const line of fm) {
     const m = NAME_LINE.exec(line);
-    if (m) return unquote(m[1]);
+    if (m) return unquote(m[1]) || null;
   }
   return null;
 }

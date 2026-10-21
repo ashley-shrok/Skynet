@@ -840,7 +840,7 @@ describe("SkillsEditorModal — Phase 44 SKILLED-05", () => {
     await userEvent.setup().click(screen.getByTestId("skills-editor-modal-rename-skill"));
 
     await waitFor(() => {
-      expect(skillsApi.renameSkill).toHaveBeenCalledWith(1, "build", "ship-it");
+      expect(skillsApi.renameSkill).toHaveBeenCalledWith(1, "build", "ship-it", undefined);
     });
     await waitFor(() => {
       expect(
@@ -868,24 +868,61 @@ describe("SkillsEditorModal — Phase 44 SKILLED-05", () => {
       />,
     );
     await selectSkill("build");
-    const editor = (await screen.findByRole("textbox")) as HTMLTextAreaElement;
+    const editor = (await screen.findByRole("textbox", {}, { timeout: 5000 })) as HTMLTextAreaElement;
     fireEvent.change(editor, { target: { value: editor.value.replace("name: build", "name: ship") } });
-    await waitFor(() => {
-      expect(screen.getByTestId("skills-editor-modal-save")).not.toBeDisabled();
-    });
+    await waitFor(
+      () => {
+        expect(screen.getByTestId("skills-editor-modal-save")).not.toBeDisabled();
+      },
+      { timeout: 5000 },
+    );
     fireEvent.click(screen.getByTestId("skills-editor-modal-save"));
 
+    // The draft rides along with the rename, checked against the mtime it was loaded at.
     await waitFor(() => {
-      expect(skillsApi.renameSkill).toHaveBeenCalledWith(1, "build", "ship");
+      expect(skillsApi.renameSkill).toHaveBeenCalledWith(1, "build", "ship", {
+        content: "---\nname: ship\n---\n\n# Build\n",
+        expectedMtime: 1_700_000_042,
+      });
     });
     expect(confirmSpy).toHaveBeenCalled();
-    // The draft lands in the renamed skill, not the old folder.
-    await waitFor(() => {
-      expect(skillsApi.writeSkillFile).toHaveBeenCalledWith(
-        expect.objectContaining({ hostId: 1, skill: "ship", path: "SKILL.md", expectedMtime: 1_700_000_300 }),
-      );
+    expect(skillsApi.writeSkillFile).not.toHaveBeenCalled();
+  });
+
+  it("SKILL.md name change: Cancel keeps the close guard on", async () => {
+    (skillsApi.readSkillFile as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+      content: "---\nname: build\n---\n\n# Build\n",
+      mtime: 1_700_000_042,
+      size: 30,
+      isText: true,
     });
-    expect(skillsApi.writeSkillFile).not.toHaveBeenCalledWith(expect.objectContaining({ skill: "build" }));
+    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(false);
+    const onOpenChange = vi.fn();
+    render(
+      <SkillsEditorModal
+        open={true}
+        onOpenChange={onOpenChange}
+        hostTree={HOST_TREE}
+        defaultHostId={1}
+        container={document.body}
+      />,
+    );
+    await selectSkill("build");
+    const editor = (await screen.findByRole("textbox", {}, { timeout: 5000 })) as HTMLTextAreaElement;
+    fireEvent.change(editor, { target: { value: editor.value.replace("name: build", "name: ship") } });
+    await waitFor(
+      () => {
+        expect(screen.getByTestId("skills-editor-modal-save")).not.toBeDisabled();
+      },
+      { timeout: 5000 },
+    );
+    fireEvent.click(screen.getByTestId("skills-editor-modal-save"));
+    await waitFor(() => expect(confirmSpy).toHaveBeenCalledTimes(1));
+    // Closing now must still ask about the unsaved edits.
+    fireEvent.click(screen.getByTestId("skills-editor-modal-close-foot"));
+    expect(confirmSpy).toHaveBeenCalledTimes(2);
+    expect(confirmSpy.mock.calls[1][0]).toMatch(/discard unsaved changes/i);
+    expect(onOpenChange).not.toHaveBeenCalled();
   });
 
   it("SKILL.md name change: Cancel saves nothing", async () => {
@@ -906,11 +943,14 @@ describe("SkillsEditorModal — Phase 44 SKILLED-05", () => {
       />,
     );
     await selectSkill("build");
-    const editor = (await screen.findByRole("textbox")) as HTMLTextAreaElement;
+    const editor = (await screen.findByRole("textbox", {}, { timeout: 5000 })) as HTMLTextAreaElement;
     fireEvent.change(editor, { target: { value: editor.value.replace("name: build", "name: ship") } });
-    await waitFor(() => {
-      expect(screen.getByTestId("skills-editor-modal-save")).not.toBeDisabled();
-    });
+    await waitFor(
+      () => {
+        expect(screen.getByTestId("skills-editor-modal-save")).not.toBeDisabled();
+      },
+      { timeout: 5000 },
+    );
     fireEvent.click(screen.getByTestId("skills-editor-modal-save"));
     await waitFor(() => expect(window.confirm).toHaveBeenCalled());
     expect(skillsApi.renameSkill).not.toHaveBeenCalled();

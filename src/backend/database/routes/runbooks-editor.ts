@@ -81,6 +81,7 @@ import {
   frontmatterName,
   nameMismatchBody,
   nameMismatchesFolder,
+  refuseIfNameMismatch,
   withFrontmatterName,
 } from "../../utils/folder-item-name.js";
 
@@ -191,6 +192,28 @@ function isValidRunbookName(v: unknown): v is string {
 }
 
 /**
+ * A remote file's text ("" when missing). base64 round-trip: execCommand trims
+ * stdout, which would eat a trailing newline.
+ */
+async function readRemoteText(
+  conn: Awaited<ReturnType<typeof connectOneShot>>,
+  absPath: string,
+): Promise<string> {
+  return Buffer.from(
+    await execWithTimeout(conn, `base64 -w0 ${shellEscape(absPath)} 2>/dev/null || true`),
+    "base64",
+  ).toString("utf-8");
+}
+
+/**
+ * True for a runbook's main markdown: `runbook.md` (the id skill's
+ * convention) or `<runbook>.md` (older runbooks named after their folder).
+ */
+function isMainRunbookFile(relPath: string, runbook: string): boolean {
+  return relPath === "runbook.md" || relPath === `${runbook}.md`;
+}
+
+/**
  * Relative-path AUTH gate. Rejects:
  *   - non-strings
  *   - empty strings
@@ -203,14 +226,6 @@ function isValidRunbookName(v: unknown): v is string {
  * assertion unreachable in normal flow — but the assertion runs anyway.
  * Duplicated from skills-editor.ts L170-179 (fifth instance in the chain).
  */
-/**
- * True for a runbook's main markdown: `runbook.md` (the id skill's
- * convention) or `<runbook>.md` (older runbooks named after their folder).
- */
-function isMainRunbookFile(relPath: string, runbook: string): boolean {
-  return relPath === "runbook.md" || relPath === `${runbook}.md`;
-}
-
 function isSafeRelativePath(p: unknown): p is string {
   if (typeof p !== "string") return false;
   if (p.length === 0 || p.length > MAX_PATH_LENGTH) return false;
@@ -813,13 +828,6 @@ router.put(
       });
       return;
     }
-    // A runbook's main file (`runbook.md`, or `<runbook>.md` on older ones)
-    // can't name a different runbook in its frontmatter — renaming goes
-    // through POST /rename.
-    if (isMainRunbookFile(rawPath, rawRunbook) && nameMismatchesFolder(rawContent, rawRunbook)) {
-      res.status(400).json(nameMismatchBody("runbook", rawRunbook, frontmatterName(rawContent)));
-      return;
-    }
     if (rawExpectedMtime !== undefined) {
       if (
         typeof rawExpectedMtime !== "number" ||
@@ -928,6 +936,16 @@ router.put(
         return;
       }
       const escapedPath = shellEscape(absPath);
+
+      // A runbook's main file (`runbook.md`, or `<runbook>.md` on older ones)
+      // can't newly name a different runbook in its frontmatter — renaming
+      // goes through POST /rename.
+      if (isMainRunbookFile(relPath, runbook)) {
+        const c = conn;
+        if (await refuseIfNameMismatch(res, "runbook", runbook, content, () => readRemoteText(c, absPath))) {
+          return;
+        }
+      }
 
       // 7. Optimistic-concurrency check (only when expectedMtime provided).
       if (typeof expectedMtime === "number") {
@@ -1209,6 +1227,12 @@ router.post(
  * its folder (`<runbook>.md`) gets that file renamed too; a `name:` in the
  * main file's frontmatter is rewritten to match.
  *
+ * Optional `path` + `content` + `expectedMtime`: the editor's draft of a
+ * main file, saved into the renamed runbook in the same request (its `name:`
+ * forced to the new name). `expectedMtime` is checked BEFORE anything moves —
+ * 409 `mtime mismatch` like PUT /write. The response's `path` is where that
+ * file now lives. Folder moved but draft not written: 502 `{ renamed: true }`.
+ *
  * 404 when the role or runbook is missing, 409 `{error:"runbook exists"}`
  * when the new name is taken.
  */
@@ -1224,6 +1248,9 @@ router.post(
     const rawRole = body.role;
     const rawRunbook = body.runbook;
     const rawNewName = body.newName;
+    const rawPath = body.path;
+    const rawContent = body.content;
+    const rawExpectedMtime = body.expectedMtime;
 
     if (
       typeof rawHostId !== "number" ||
@@ -1245,6 +1272,27 @@ router.post(
       res.status(400).json({ error: "invalid new runbook name" });
       return;
     }
+    if (rawContent !== undefined || rawPath !== undefined || rawExpectedMtime !== undefined) {
+      if (typeof rawPath !== "string" || !isMainRunbookFile(rawPath, rawRunbook)) {
+        res.status(400).json({ error: "path must name the runbook's main file" });
+        return;
+      }
+      if (typeof rawContent !== "string" || Buffer.byteLength(rawContent, "utf-8") > MAX_CONTENT_BYTES) {
+        res.status(400).json({ error: `content must be a string ≤${MAX_CONTENT_BYTES} bytes` });
+        return;
+      }
+      if (
+        rawExpectedMtime !== undefined &&
+        (typeof rawExpectedMtime !== "number" || !Number.isInteger(rawExpectedMtime) || rawExpectedMtime < 0)
+      ) {
+        res.status(400).json({ error: "expectedMtime must be a non-negative integer when provided" });
+        return;
+      }
+    }
+    const draft =
+      typeof rawContent === "string" && typeof rawPath === "string"
+        ? { path: rawPath, content: rawContent, expectedMtime: rawExpectedMtime as number | undefined }
+        : null;
     const hostId = rawHostId;
     const role = rawRole;
     const runbook = rawRunbook;
@@ -1310,6 +1358,24 @@ router.post(
         return;
       }
 
+      // Stale-draft check before anything moves (same 409 as PUT /write).
+      if (draft && draft.expectedMtime !== undefined) {
+        const draftAbs = `${fromRoot}/${draft.path}`;
+        const currentMtime =
+          parseInt(
+            (await execWithTimeout(conn, `stat -c '%Y' ${shellEscape(draftAbs)} 2>/dev/null || echo 0`)).trim(),
+            10,
+          ) || 0;
+        if (currentMtime !== draft.expectedMtime) {
+          res.status(409).json({
+            error: "mtime mismatch",
+            currentMtime,
+            currentContent: await readRemoteText(conn, draftAbs),
+          });
+          return;
+        }
+      }
+
       // One remote step: refuse a missing source or a taken target, else move.
       // `mv -T` keeps a same-named target directory from swallowing the source.
       const moved = (
@@ -1341,42 +1407,51 @@ router.post(
         return;
       }
 
-      // Older runbooks name their main file after the folder — carry it along.
-      const oldMain = `${toRoot}/${runbook}.md`;
-      const newMain = `${toRoot}/${newName}.md`;
+      // Older runbooks name their main file after the folder — carry it along
+      // (unless the runbook already holds a file with the new name).
       const mainMoved = (
         await execWithTimeout(
           conn,
-          `if [ -f ${shellEscape(oldMain)} ] && [ ! -e ${shellEscape(newMain)} ]; then ` +
-            `mv -T ${shellEscape(oldMain)} ${shellEscape(newMain)} && echo moved; else echo kept; fi`,
+          `if [ -f ${shellEscape(`${toRoot}/${runbook}.md`)} ] && [ ! -e ${shellEscape(`${toRoot}/${newName}.md`)} ]; then ` +
+            `mv -T ${shellEscape(`${toRoot}/${runbook}.md`)} ${shellEscape(`${toRoot}/${newName}.md`)} && echo moved; else echo kept; fi`,
         )
-      ).trim();
+      ).trim() === "moved";
+      // Where a main file sits now, by its pre-rename relative path.
+      const afterRename = (rel: string): string =>
+        rel === `${runbook}.md` && mainMoved ? `${newName}.md` : rel;
 
-      // Keep a `name:` in the main file's frontmatter in step with the folder.
-      const mainFile = mainMoved === "moved" ? newMain : `${toRoot}/runbook.md`;
-      let nameRewritten = false;
-      try {
-        // base64 round-trip: execCommand trims stdout, which would eat the
-        // file's trailing newline on the rewrite.
-        const current = Buffer.from(
-          await execWithTimeout(conn, `base64 -w0 ${shellEscape(mainFile)} 2>/dev/null || true`),
-          "base64",
-        ).toString("utf-8");
-        const rewritten = withFrontmatterName(current, newName);
-        if (rewritten !== current) {
-          await writeMarkdownFileAtomic(conn, mainFile, rewritten);
-          nameRewritten = true;
+      // Keep `name:` in step in every main file — the draft's from the draft,
+      // the others from disk. A main file left as `<old>.md` (its new-name
+      // slot was taken) still gets the new name.
+      const mainFiles = [...new Set(["runbook.md", afterRename(`${runbook}.md`)])];
+      let nameRewritten = 0;
+      for (const rel of mainFiles) {
+        const abs = `${toRoot}/${rel}`;
+        const isDraft = draft !== null && afterRename(draft.path) === rel;
+        try {
+          const current = isDraft ? draft!.content : await readRemoteText(conn, abs);
+          const rewritten = withFrontmatterName(current, newName);
+          if (isDraft || rewritten !== current) {
+            await writeMarkdownFileAtomic(conn, abs, rewritten);
+            nameRewritten++;
+          }
+        } catch (err) {
+          // The folder already moved; a stale `name:` is recoverable by hand.
+          sshLogger.error("runbooks-editor rename: main-file write failed", {
+            operation: "runbooks_editor_rename_name_write",
+            hostId,
+            role,
+            runbook,
+            newName,
+            file: rel,
+            withDraft: isDraft,
+            error: err instanceof Error ? err.message : "Unknown",
+          });
+          if (isDraft) {
+            res.status(502).json({ error: "renamed, but the edits couldn't be saved", renamed: true, name: newName });
+            return;
+          }
         }
-      } catch (err) {
-        // The folder already moved; a stale `name:` is recoverable by hand.
-        sshLogger.error("runbooks-editor rename: main-file name rewrite failed", {
-          operation: "runbooks_editor_rename_name_write",
-          hostId,
-          role,
-          runbook,
-          newName,
-          error: err instanceof Error ? err.message : "Unknown",
-        });
       }
 
       sshLogger.info("runbooks-editor rename: renamed", {
@@ -1385,10 +1460,11 @@ router.post(
         role,
         runbook,
         newName,
-        mainFileRenamed: mainMoved === "moved",
+        mainFileRenamed: mainMoved,
         nameRewritten,
+        withDraft: draft !== null,
       });
-      res.json({ name: newName });
+      res.json(draft ? { name: newName, path: afterRename(draft.path) } : { name: newName });
     } catch (err) {
       sshLogger.error("runbooks-editor rename: unexpected error", {
         operation: "runbooks_editor_rename_error",
@@ -1856,6 +1932,12 @@ router.put(
     }
     if (!Buffer.isBuffer(req.body) || req.body.length === 0) {
       res.status(400).json({ error: "body must be non-empty application/octet-stream" });
+      return;
+    }
+    // Binary writes of a main file get the strict name check (no on-disk
+    // comparison — the text editor's save is the path for real edits).
+    if (isMainRunbookFile(q.path, q.runbook) && nameMismatchesFolder(req.body.toString("utf-8"), q.runbook)) {
+      res.status(400).json(nameMismatchBody("runbook", q.runbook, frontmatterName(req.body.toString("utf-8"))));
       return;
     }
     const role = q.role;

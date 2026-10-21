@@ -339,33 +339,55 @@ export async function createSkill(
   }
 }
 
+/** Thrown by renameSkill / renameRunbook when the folder moved but the draft sent along couldn't be saved. */
+export class RenamedButEditsNotSavedError extends Error {
+  constructor(public readonly newName: string) {
+    super("renamed, but the edits couldn't be saved");
+    this.name = "RenamedButEditsNotSavedError";
+  }
+}
+
 /**
  * POST /skills-editor/rename
  * Renames a skill's folder and rewrites SKILL.md's frontmatter `name:` to
- * match. Throws SkillAlreadyExistsError (409) when the new name is taken.
+ * match. With `draft`, that SKILL.md draft is saved into the renamed skill in
+ * the same request; `draft.expectedMtime` is checked before anything moves.
+ * Throws SkillAlreadyExistsError (409 taken), SkillFileMtimeConflictError (409
+ * stale draft — nothing moved) or RenamedButEditsNotSavedError.
  * Returns SKILL.md's new mtime (0 when the skill has none).
  */
 export async function renameSkill(
   hostId: number,
   skill: string,
   newName: string,
+  draft?: { content: string; expectedMtime: number },
 ): Promise<{ name: string; mtime: number }> {
   try {
     const response = await authApi.post("/skills-editor/rename", {
       hostId,
       skill,
       newName,
+      ...(draft ? { content: draft.content, expectedMtime: draft.expectedMtime } : {}),
     });
     return response.data as { name: string; mtime: number };
   } catch (error) {
     const err = error as {
-      response?: { status?: number; data?: { error?: string } };
+      response?: {
+        status?: number;
+        data?: { error?: string; currentMtime?: number; currentContent?: string; renamed?: boolean };
+      };
     };
-    if (
-      err?.response?.status === 409 &&
-      err.response.data?.error === "skill exists"
-    ) {
+    if (err?.response?.status === 409 && err.response.data?.error === "skill exists") {
       throw new SkillAlreadyExistsError();
+    }
+    if (err?.response?.status === 409 && err.response.data?.error === "mtime mismatch") {
+      throw new SkillFileMtimeConflictError(
+        err.response.data?.currentMtime ?? 0,
+        err.response.data?.currentContent ?? "",
+      );
+    }
+    if (err?.response?.data?.renamed === true) {
+      throw new RenamedButEditsNotSavedError(newName);
     }
     handleApiError(error, "rename skill");
     throw error; // unreachable

@@ -67,12 +67,12 @@ describe("RunbookEditorModal rename", () => {
     await screen.findByTestId("file-editor");
     fireEvent.click(screen.getByTestId("runbook-editor-modal-rename-runbook"));
     await waitFor(() => {
-      expect(runbooksApi.renameRunbook).toHaveBeenCalledWith(1, "box-maintainer", "ship", "deploy");
+      expect(runbooksApi.renameRunbook).toHaveBeenCalledWith(1, "box-maintainer", "ship", "deploy", undefined);
     });
     expect(onRenamed).toHaveBeenCalledWith("deploy");
   });
 
-  it("saving the main file with a changed name: renames, then saves into the moved main file", async () => {
+  it("saving the main file with a changed name: renames with the draft riding along", async () => {
     vi.spyOn(window, "confirm").mockReturnValue(true);
     const onRenamed = renderModal();
     const editor = (await screen.findByTestId("file-editor")) as HTMLTextAreaElement;
@@ -80,13 +80,13 @@ describe("RunbookEditorModal rename", () => {
     await waitFor(() => expect(screen.getByTestId("runbook-editor-modal-save")).not.toBeDisabled());
     fireEvent.click(screen.getByTestId("runbook-editor-modal-save"));
     await waitFor(() => {
-      expect(runbooksApi.renameRunbook).toHaveBeenCalledWith(1, "box-maintainer", "ship", "deploy");
+      expect(runbooksApi.renameRunbook).toHaveBeenCalledWith(1, "box-maintainer", "ship", "deploy", {
+        path: "ship.md",
+        content: "---\nname: deploy\n---\n# Ship\n",
+        expectedMtime: 1_700_000_042,
+      });
     });
-    await waitFor(() => {
-      expect(runbooksApi.writeRunbookFile).toHaveBeenCalledWith(
-        expect.objectContaining({ runbook: "deploy", path: "deploy.md" }),
-      );
-    });
+    expect(runbooksApi.writeRunbookFile).not.toHaveBeenCalled();
     expect(onRenamed).toHaveBeenCalledWith("deploy");
   });
 });

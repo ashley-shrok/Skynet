@@ -1646,17 +1646,91 @@ describe("PUT /skills-editor/write — SKILL.md name must match the folder", () 
       body: JSON.stringify({ hostId: 1, skill: "build", path, content }),
     });
   }
+  function onDisk(skillMd: string) {
+    (execCommand as Mock).mockImplementation(async (_c: unknown, cmd: string) => {
+      if (cmd.startsWith("base64 -w0")) return Buffer.from(skillMd).toString("base64");
+      return defaultExecImpl(cmd);
+    });
+  }
 
-  it("400 name_mismatch before any SSH connect", async () => {
+  it("400 name_mismatch when the write changes name: away from the folder", async () => {
+    onDisk("---\nname: build\n---\n");
     const res = await write("SKILL.md", "---\nname: other\n---\nbody\n");
     expect(res.status).toBe(400);
     expect((res.body as { code: string }).code).toBe("name_mismatch");
-    expect(connectOneShot).not.toHaveBeenCalled();
+    expect(writeMarkdownFileAtomic).not.toHaveBeenCalled();
   });
 
-  it("allows a matching name, a missing name, and other files", async () => {
+  it("an older skill whose name already disagrees stays saveable while the name is untouched", async () => {
+    onDisk("---\nname: PDF Processing\n---\n");
+    expect((await write("SKILL.md", "---\nname: PDF Processing\n---\nedited\n")).status).toBe(200);
+    expect((await write("SKILL.md", "---\nname: Something Else\n---\n")).status).toBe(400);
+  });
+
+  it("allows a matching name, a missing or empty name, and other files", async () => {
+    onDisk("---\nname: build\n---\n");
     expect((await write("SKILL.md", "---\nname: \"build\"\n---\n")).status).toBe(200);
     expect((await write("SKILL.md", "---\ndescription: x\n---\n")).status).toBe(200);
+    expect((await write("SKILL.md", "---\nname:\n---\n")).status).toBe(200);
     expect((await write("notes.md", "---\nname: other\n---\n")).status).toBe(200);
+  });
+});
+
+describe("POST /skills-editor/rename with a draft", () => {
+  function rename(body: Record<string, unknown>) {
+    return httpRequest(server, {
+      method: "POST",
+      path: "/skills-editor/rename",
+      body: JSON.stringify(body),
+    });
+  }
+
+  it("409 mtime mismatch before anything moves when SKILL.md changed underneath", async () => {
+    (execCommand as Mock).mockImplementation(async (_c: unknown, cmd: string) => {
+      if (cmd.startsWith("base64 -w0")) return Buffer.from("---\nname: build\n---\nnewer\n").toString("base64");
+      return defaultExecImpl(cmd); // stat → 1700000042
+    });
+    const res = await rename({
+      hostId: 1,
+      skill: "build",
+      newName: "ship",
+      content: "---\nname: ship\n---\n",
+      expectedMtime: 1,
+    });
+    expect(res.status).toBe(409);
+    expect((res.body as { error: string }).error).toBe("mtime mismatch");
+    const cmds = (execCommand as Mock).mock.calls.map((c) => c[1] as string);
+    expect(cmds.some((c) => c.includes("mv -T"))).toBe(false);
+  });
+
+  it("saves the draft into the renamed skill with name: forced to the new name", async () => {
+    (execCommand as Mock).mockImplementation(async (_c: unknown, cmd: string) => {
+      if (cmd.startsWith("if [ ! -d ")) return "ok";
+      return defaultExecImpl(cmd);
+    });
+    const res = await rename({
+      hostId: 1,
+      skill: "build",
+      newName: "ship",
+      content: "---\nname: ship\n---\nedited\n",
+      expectedMtime: 1700000042,
+    });
+    expect(res.status).toBe(200);
+    expect(writeMarkdownFileAtomic).toHaveBeenCalledWith(
+      stubConn,
+      "/home/testuser/.claude/skills/ship/SKILL.md",
+      "---\nname: ship\n---\nedited\n",
+    );
+  });
+
+  it("502 renamed:true when the folder moved but the draft write failed", async () => {
+    (execCommand as Mock).mockImplementation(async (_c: unknown, cmd: string) => {
+      if (cmd.startsWith("if [ ! -d ")) return "ok";
+      return defaultExecImpl(cmd);
+    });
+    (writeMarkdownFileAtomic as Mock).mockRejectedValueOnce(new Error("sftp"));
+    const res = await rename({ hostId: 1, skill: "build", newName: "ship", content: "x" });
+    expect(res.status).toBe(502);
+    expect((res.body as { renamed: boolean }).renamed).toBe(true);
   });
 });

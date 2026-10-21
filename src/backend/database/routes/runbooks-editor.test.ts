@@ -1304,7 +1304,9 @@ describe("POST /runbooks-editor/rename", () => {
     (execCommand as Mock).mockImplementation(async (_c: unknown, cmd: string) => {
       if (cmd.startsWith("if [ ! -d ")) return "ok";
       if (cmd.startsWith("if [ -f ")) return "moved";
-      if (cmd.startsWith("base64 -w0")) return Buffer.from("---\nname: ship\n---\n# Ship\n").toString("base64");
+      if (cmd.startsWith("base64 -w0") && cmd.includes("/deploy.md"))
+        return Buffer.from("---\nname: ship\n---\n# Ship\n").toString("base64");
+      if (cmd.startsWith("base64 -w0")) return ""; // no runbook.md
       return defaultExecImpl(cmd);
     });
     const res = await rename({ hostId: 1, role: "box-maintainer", runbook: "ship", newName: "deploy" });
@@ -1319,6 +1321,60 @@ describe("POST /runbooks-editor/rename", () => {
       `${root}/deploy/deploy.md`,
       "---\nname: deploy\n---\n# Ship\n",
     );
+  });
+
+  it("a main file whose new-name slot is taken stays put and still gets the new name; the draft path says where it lives", async () => {
+    (execCommand as Mock).mockImplementation(async (_c: unknown, cmd: string) => {
+      if (cmd.startsWith("if [ ! -d ")) return "ok";
+      if (cmd.startsWith("if [ -f ")) return "kept";
+      if (cmd.startsWith("base64 -w0")) return "";
+      return defaultExecImpl(cmd);
+    });
+    const res = await rename({
+      hostId: 1,
+      role: "box-maintainer",
+      runbook: "deploy",
+      newName: "staging",
+      path: "deploy.md",
+      content: "---\nname: staging\n---\nedited\n",
+      expectedMtime: 1700000042,
+    });
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ name: "staging", path: "deploy.md" });
+    const root = "/home/testuser/fleet/roles/box-maintainer/runbooks";
+    expect(writeMarkdownFileAtomic).toHaveBeenCalledTimes(1);
+    expect(writeMarkdownFileAtomic).toHaveBeenCalledWith(
+      stubConn,
+      `${root}/staging/deploy.md`,
+      "---\nname: staging\n---\nedited\n",
+    );
+  });
+
+  it("409 mtime mismatch before anything moves", async () => {
+    const res = await rename({
+      hostId: 1,
+      role: "box-maintainer",
+      runbook: "ship",
+      newName: "deploy",
+      path: "ship.md",
+      content: "x",
+      expectedMtime: 1,
+    });
+    expect(res.status).toBe(409);
+    const cmds = (execCommand as Mock).mock.calls.map((c) => c[1] as string);
+    expect(cmds.some((c) => c.includes("mv -T"))).toBe(false);
+  });
+
+  it("400 when a draft path isn't the runbook's main file", async () => {
+    const res = await rename({
+      hostId: 1,
+      role: "box-maintainer",
+      runbook: "ship",
+      newName: "deploy",
+      path: "notes.md",
+      content: "x",
+    });
+    expect(res.status).toBe(400);
   });
 
   it("409 when the new name is taken", async () => {
@@ -1351,13 +1407,25 @@ describe("PUT /runbooks-editor/write — main-file name must match the folder", 
       body: JSON.stringify({ hostId: 1, role: "box-maintainer", runbook: "ship", path, content }),
     });
   }
+  function onDisk(text: string) {
+    (execCommand as Mock).mockImplementation(async (_c: unknown, cmd: string) => {
+      if (cmd.startsWith("base64 -w0")) return Buffer.from(text).toString("base64");
+      return defaultExecImpl(cmd);
+    });
+  }
 
   it("400 name_mismatch on runbook.md and <runbook>.md", async () => {
+    onDisk("# no frontmatter\n");
     for (const path of ["runbook.md", "ship.md"]) {
       const res = await write(path, "---\nname: other\n---\n");
       expect(res.status).toBe(400);
       expect((res.body as { code: string }).code).toBe("name_mismatch");
     }
+  });
+
+  it("an untouched pre-existing mismatch still saves", async () => {
+    onDisk("---\nname: Old Ship\n---\n");
+    expect((await write("ship.md", "---\nname: Old Ship\n---\nedited\n")).status).toBe(200);
   });
 
   it("ignores name: in companion files", async () => {

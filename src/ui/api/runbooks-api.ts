@@ -1,4 +1,7 @@
 import { authApi, handleApiError } from "@/main-axios";
+import { RenamedButEditsNotSavedError } from "./skills-api";
+
+export { RenamedButEditsNotSavedError };
 
 // Phase 89 Plan 03: Frontend API helpers for the seven runbooks-editor endpoints
 // landed in Wave 2 (`src/backend/database/routes/runbooks-editor.ts`). Mirrors
@@ -304,32 +307,46 @@ export class RunbookAlreadyExistsError extends Error {
 /**
  * POST /runbooks-editor/rename
  * Renames a runbook's folder (and a main file named after it), keeping a
- * frontmatter `name:` in step. Throws RunbookAlreadyExistsError (409) when
- * the new name is taken.
+ * frontmatter `name:` in step. With `draft`, that main-file draft is saved
+ * into the renamed runbook in the same request (`path` in the result is where
+ * it now lives); `draft.expectedMtime` is checked before anything moves.
+ * Throws RunbookAlreadyExistsError (409 taken), RunbookFileMtimeConflictError
+ * (409 stale draft — nothing moved) or RenamedButEditsNotSavedError.
  */
 export async function renameRunbook(
   hostId: number,
   role: string,
   runbook: string,
   newName: string,
-): Promise<{ name: string }> {
+  draft?: { path: string; content: string; expectedMtime: number },
+): Promise<{ name: string; path?: string }> {
   try {
     const response = await authApi.post("/runbooks-editor/rename", {
       hostId,
       role,
       runbook,
       newName,
+      ...(draft ?? {}),
     });
-    return response.data as { name: string };
+    return response.data as { name: string; path?: string };
   } catch (error) {
     const err = error as {
-      response?: { status?: number; data?: { error?: string } };
+      response?: {
+        status?: number;
+        data?: { error?: string; currentMtime?: number; currentContent?: string; renamed?: boolean };
+      };
     };
-    if (
-      err?.response?.status === 409 &&
-      err.response.data?.error === "runbook exists"
-    ) {
+    if (err?.response?.status === 409 && err.response.data?.error === "runbook exists") {
       throw new RunbookAlreadyExistsError();
+    }
+    if (err?.response?.status === 409 && err.response.data?.error === "mtime mismatch") {
+      throw new RunbookFileMtimeConflictError(
+        err.response.data?.currentMtime ?? 0,
+        err.response.data?.currentContent ?? "",
+      );
+    }
+    if (err?.response?.data?.renamed === true) {
+      throw new RenamedButEditsNotSavedError(newName);
     }
     handleApiError(error, "rename runbook");
     throw error; // unreachable

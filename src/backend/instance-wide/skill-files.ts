@@ -15,7 +15,7 @@ import { getInstanceWide } from "./production.js";
 import { isSafeRelPath, isValidItemName } from "./model.js";
 import { COMMON_RESPONSE_HEADERS, dispatchByExtensionOnly } from "../utils/sftp-file-response.js";
 import { callerIsAdmin } from "./admin.js";
-import { frontmatterName, nameMismatchBody, nameMismatchesFolder } from "../utils/folder-item-name.js";
+import { refuseIfNameMismatch } from "../utils/folder-item-name.js";
 
 export const INSTANCE_HOST_ID = 0;
 
@@ -69,6 +69,13 @@ async function skillOr404(res: Response, skill: unknown): Promise<string | null>
     return null;
   }
   return skill;
+}
+
+/** The master copy's SKILL.md text, "" when it has none. */
+async function masterText(skill: string): Promise<string> {
+  const store = getInstanceWide()!.masterStore;
+  if (!(await store.statFile("skill", skill, "SKILL.md"))) return "";
+  return (await store.readFile("skill", skill, "SKILL.md")).toString("utf-8");
 }
 
 // GET /skills
@@ -135,8 +142,7 @@ export async function writeInstanceSkillFile(req: Request, res: Response): Promi
     res.status(400).json({ error: "content must be a string ≤2MB" });
     return;
   }
-  if (a.path === "SKILL.md" && nameMismatchesFolder(a.content, skill)) {
-    res.status(400).json(nameMismatchBody("skill", skill, frontmatterName(a.content)));
+  if (a.path === "SKILL.md" && (await refuseIfNameMismatch(res, "skill", skill, a.content, () => masterText(skill)))) {
     return;
   }
   const rel = a.path;
@@ -172,6 +178,9 @@ export async function writeInstanceSkillBinary(req: Request, res: Response): Pro
   }
   const rel = a.path;
   const bytes = req.body;
+  if (rel === "SKILL.md" && (await refuseIfNameMismatch(res, "skill", skill, bytes.toString("utf-8"), () => masterText(skill)))) {
+    return;
+  }
   await getInstanceWide()!.editMaster("skill", skill, (s) => s.writeFile("skill", skill, rel, bytes));
   res.json({ ok: true });
 }
