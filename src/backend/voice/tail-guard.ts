@@ -12,8 +12,9 @@
  * at the pause the model reliably leaves before it.
  *
  * Cut rule (tuned on 40 real messages, validated on 165 held-out clips across
- * 55 unseen messages and all 13 OpenAI voices — 0 real words lost, 0 filler
- * left audible on a cut):
+ * 55 unseen messages and all 13 OpenAI voices; PAUSE_MIN_SEC re-checked on 877
+ * fresh clips — 768 marin, 109 other voices — preferring a stray filler word
+ * over a lost real one):
  *   - a "pause" is a run of samples below -45 dBFS lasting ≥ PAUSE_MIN_SEC
  *   - scanning pauses from the end, cut at the first one whose following
  *     speech lasts FILLER_MIN_SEC..FILLER_MAX_SEC (the filler's spoken length)
@@ -32,7 +33,13 @@ export const TAIL_GUARD_FILLER =
 
 /** -45 dBFS in 16-bit sample units (ffmpeg silencedetect noise=-45dB). */
 const SILENCE_AMPLITUDE = Math.round(32768 * Math.pow(10, -45 / 20));
-const PAUSE_MIN_SEC = 0.25;
+/**
+ * The model sometimes runs the real ending into the filler with a pause well
+ * under 0.25s, which made the cut land a sentence early. 0.15 lost no real
+ * words on the re-check; lower values start cutting a real last sentence when
+ * the model drops the filler, and leave more filler fragments audible.
+ */
+const PAUSE_MIN_SEC = 0.15;
 /** Trailing silence shorter than this still counts as speech end. */
 const TRAILING_SILENCE_MIN_SEC = 0.1;
 const FILLER_MIN_SEC = 3.2;

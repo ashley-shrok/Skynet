@@ -69,8 +69,19 @@ describe("findTailGuardCut", () => {
   });
 
   it("refuses on continuous speech (no pause long enough)", () => {
-    const d = findTailGuardCut(pcm([["speech", 3], ["pause", 0.2], ["speech", 4.5]]), SR);
+    const d = findTailGuardCut(pcm([["speech", 3], ["pause", 0.1], ["speech", 4.5]]), SR);
     expect(d).toMatchObject({ decision: "refused", reason: "no-qualifying-pause" });
+  });
+
+  it("a short sentence run into the filler: cuts at its short pause, not the sentence break before it", () => {
+    // "Both suites pass. [0.27s] Pushing and building now. [0.17s] <filler>"
+    const d = findTailGuardCut(
+      pcm([["speech", 1.2], ["pause", 0.27], ["speech", 1.3], ["pause", 0.17], ["speech", 4.5]]),
+      SR,
+    );
+    expect(d.decision).toBe("cut");
+    if (d.decision !== "cut") return;
+    expect(sec(d.cutByte)).toBeCloseTo(2.855, 2); // inside the 0.17s pause, after "Pushing and building now."
   });
 
   it("refuses when the speech after the last pause is not filler-length", () => {
