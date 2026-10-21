@@ -770,6 +770,13 @@ export const FLEET_SUBSTRATE_CATALOG: readonly CatalogEntry[] = [
     restartHook: null,
   },
   {
+    slug: "app-development-make-icon",
+    sourceKind: "bundled",
+    bundledPath: "/app/fleet-substrate/skills/app-development/make-icon.sh",
+    installPath: "~/.claude/skills/app-development/make-icon.sh",
+    restartHook: null,
+  },
+  {
     slug: "app-development-template-gitignore",
     sourceKind: "bundled",
     bundledPath: "/app/fleet-substrate/skills/app-development/templates/app-starter/.gitignore",

@@ -97,16 +97,15 @@ file that already has to exist:
 - **Slug** — the folder name (`birthdays`).
 - **Port** — the systemd unit file (grep for `PORT`).
 - **Icon** — a conventional filename in the app folder. The client looks for
-  `icon.webp`. New apps get one generated via the `image-gen` skill during
-  step 8 of § Making a new app; if the file doesn't exist, the client falls
-  back to a generic app glyph. Icons in another format must be converted
-  to `.webp` before dropping in — one filename, no drift. Step 8 also
-  symlinks `static/icon.webp` → `../icon.webp` so the same file doubles as
-  the browser tab favicon when the user opens the app in a new tab. If you
-  replace or re-generate the icon on an existing app, rebuild
-  (`bun run build`) and restart (`systemctl --user restart app-<slug>`)
-  for the new favicon to land — the symlink stays in place, but the built
-  output under `build/client/` holds a copy of the bytes.
+  `icon.webp`. New apps get one from `make-icon.sh` in step 8 of § Making a
+  new app; if the file doesn't exist, the client falls back to a generic app
+  glyph. Icons in another format must be converted to `.webp` before dropping
+  in — one filename, no drift. `static/icon.webp` is a symlink to
+  `../icon.webp` so the same file doubles as the browser tab favicon when the
+  user opens the app in a new tab. The built output under `build/client/`
+  holds a copy of the bytes, so a replaced icon needs a rebuild
+  (`bun run build`) and restart (`systemctl --user restart app-<slug>`) —
+  `make-icon.sh accept` does both.
 - **Created-at** — the folder's filesystem timestamp.
 
 Do NOT add fields to `app.json`. Two fields today, two fields forever. The
@@ -127,7 +126,7 @@ For **editing** an existing app, this doesn't apply — its `app.json`
 already exists (it's already on her sidebar). Only NEW apps go through
 the pending flow.
 
-## Lifecycle — the five helpers
+## Lifecycle — the helpers
 
 Every generic step in an app's life is a bundled helper script alongside
 this file. Where the work is app-specific (designing the schema, writing the
@@ -159,6 +158,11 @@ everything else.
   `apps-archive/` to `apps/`, re-installs the systemd unit from the
   stashed copy inside the folder, and starts the service. Same disk
   gesture pattern as archive from an agent's perspective.
+
+- **`make-icon.sh`** — makes an icon in the house style (see step 8 of
+  § Making a new app). `colors <slug>` lists the palette and which colors
+  the other apps use; `draft <slug> <color> "<symbol>"` generates a draft
+  and a preview; `accept <slug>` installs the draft, rebuilds and restarts.
 
 - **`backup-app.sh <slug>`** — snapshots `~/fleet/apps/<slug>/` and the
   systemd unit file into `~/fleet/apps-backups/<slug>-<timestamp>/`. Restoring
@@ -230,35 +234,54 @@ everything else.
    moment before it goes on the user's sidebar. If anything is still
    broken, do NOT continue — the remaining steps (icon, publish) assume a
    working app.
-8. **Generate an icon.** Every app tile on the sidebar gets a visual mark;
-   without one, the client falls back to a generic app glyph. Use the
-   `image-gen` skill to make one that reflects the app, then convert the
-   PNG to WebP and drop it at `~/fleet/apps/<slug>/icon.webp`:
+8. **Make an icon.** Every app tile on the sidebar gets a visual mark;
+   without one, the client falls back to a generic app glyph. The house
+   style is one white, logo-like symbol — simple, not visually busy —
+   centered on a flat background of the app's own color, the way icons on a
+   phone home screen look. Each app having its own color is what lets the
+   user find it at a glance. `make-icon.sh` produces this style: the image
+   generator only draws the symbol, and the helper sizes it, centers it and
+   puts it on the color, so every icon comes out the same way.
 
-       image-gen "flat vector app icon, <one short concept about the app>, \
-   solid background, centered subject, no text, iOS-style rounded square, \
-   sharp silhouette that reads at small sizes" \
-         --size 1024x1024 \
-         --out ~/fleet/apps/<slug>/icon.png
-       convert ~/fleet/apps/<slug>/icon.png ~/fleet/apps/<slug>/icon.webp
-       rm ~/fleet/apps/<slug>/icon.png
-       ln -sf ../icon.webp ~/fleet/apps/<slug>/static/icon.webp
-       (cd ~/fleet/apps/<slug> && bun run build)
-       systemctl --user restart app-<slug>
+   This is the default. Anything the user asks for — a particular color, a
+   different style, an icon of their own — wins.
+
+   1. **Pick a color.** List the palette and what the other apps use:
+
+          bash ~/.claude/skills/app-development/make-icon.sh colors <slug>
+
+      Choose a free color that suits the app (green for shopping, teal for
+      money, …). Only when every color is taken, reuse whichever fits best.
+   2. **Draft it.** Name the symbol in a few plain words — one object that
+      says what the app is ("a shopping basket", "a stopwatch", "a bell"):
+
+          bash ~/.claude/skills/app-development/make-icon.sh draft <slug> <color> "<symbol>"
+
+   3. **Look at the preview before accepting.** Read the preview image the
+      draft step prints — never accept a draft unseen. It passes only if the
+      symbol reads clearly at the small size, says what the app is, has
+      nothing extra (text, stray marks, a second object), and isn't thin or
+      fussy. If it fails, reword the symbol and draft again — up to three
+      drafts in total.
+   4. **Accept it.** Installs it as `icon.webp`, links the favicon, rebuilds
+      and restarts:
+
+          bash ~/.claude/skills/app-development/make-icon.sh accept <slug>
 
    Rules:
 
-   - **If the user brought their own icon**, use that instead — drop it
-     at `~/fleet/apps/<slug>/icon.webp` (convert from any other format
-     with `convert <src> ~/fleet/apps/<slug>/icon.webp`) and skip the
-     generation call.
-   - **If `image-gen` fails** (`content_blocked`, `provider_unavailable`,
-     `not_configured`), the app still ships — the client falls back to
-     the generic glyph. Don't block publish on the icon. Rephrase once
-     on `content_blocked`; if it fails again, move on.
-   - **Prompt shape matters at 64×64.** Ask for a flat, iconic mark with
-     a clear silhouette and no text — realistic scenes and typography
-     both muddy at sidebar size.
+   - **If no draft passes after three tries, or `image-gen` fails**
+     (`content_blocked`, `provider_unavailable`, `not_configured`), ship
+     without an icon — the client shows the generic glyph — and tell the
+     user, so they can ask for another try or bring their own. Don't block
+     publish on the icon, and don't accept a bad one: a poor icon gets
+     learned and sticks.
+   - **If the user brought their own icon**, use that instead — convert it
+     with `convert <src> ~/fleet/apps/<slug>/icon.webp`, then
+     `ln -sf ../icon.webp ~/fleet/apps/<slug>/static/icon.webp`, rebuild
+     and restart.
+   - **Replacing an existing app's icon** is the same three steps; `accept`
+     overwrites the old one.
 9. **Publish.** This is the moment the tile appears on the user's sidebar.
    Only do this once step 7 has actually passed:
 
