@@ -118,10 +118,10 @@
       "backToList": "Back to conversations",
       "loading": "Loading agents…"
     },
-    "newSessionTitle": "Create a new agent conversation",
-    "newSessionDescription": "Agents are the workers you chat with. Each one adopts a role that shapes what they know and how they help.",
+    "newSessionTitle": "New conversation",
+    "newSessionDescription": "An agent to chat with. Its roles shape what it knows and how it helps.",
     "newSessionSearchHosts": "Search hosts",
-    "newSessionNameLabel": "Agent name (optional)",
+    "newSessionNameLabel": "Name (optional)",
     "newSessionNamePlaceholder": "auto",
     "newSessionNameError": "Use letters, numbers, underscores, or dashes (max 64 characters).",
     "newSessionNoHosts": "No hosts available",

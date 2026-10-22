@@ -42,18 +42,20 @@
  * dropped, preventing "typed foo, then bar, then foo's results overwrite
  * bar's results" and React duplicate-key warnings from load-more races.
  *
- * Chrome (apple-ux kit pass): canonical <Modal> + <ModalHead> + <ModalBody>
- * + conditional <ModalFoot>. The kit search box sits in its own row BELOW
- * the head; results are KitListRows; Load more is a plain kit button at the
- * end of the list; the foot is rendered ONLY when there's an error to
- * surface (as a KitBanner). Backdrop click
+ * Chrome (apple-ux shape-creation-and-search-dialogs): <Modal> + "Search"
+ * head + <ModalBody>, no foot. The kit search box sits in its own row BELOW
+ * the head, with "Press Return to search." under it while what's typed
+ * hasn't been searched yet; then a count line, the results as KitListRows,
+ * Load more at the end. An error shows as a banner at the top of the body.
+ * The empty state says what is searched. Backdrop click
  * never dismisses (unified rule at the Modal layer — no per-modal opt-in).
  * Size "wide-list" (2026-10-10): grows wide + full 85vh on big screens so
  * the multi-passage rows have room to read.
  */
 
 import { useEffect, useState } from "react";
-import { Modal, ModalHead, ModalBody, ModalFoot } from "@/components/modal";
+import { Search } from "lucide-react";
+import { Modal, ModalHead, ModalBody } from "@/components/modal";
 import {
   KitBanner,
   KitButton,
@@ -307,7 +309,7 @@ export function ConversationSearchModal({
       size="wide-list"
       data-testid="conversation-search-modal"
     >
-      <ModalHead title="Search conversations" />
+      <ModalHead title="Search" />
 
       {/* Search row — the kit search box, directly below the head.
           autoFocus so the input takes focus on open. Enter fires the
@@ -332,36 +334,57 @@ export function ConversationSearchModal({
               handleClear();
             }
           }}
-          placeholder="Search conversations..."
+          placeholder="Search every conversation"
           aria-label="Search conversations"
           data-testid="conversation-search-input"
           clearTestId="conversation-search-clear-button"
           /* eslint-disable-next-line jsx-a11y/no-autofocus */
           autoFocus
         />
+        {/* Return is the only thing that searches (D-01) — say so once
+            something new has been typed. */}
+        {localValue.trim() !== "" && localValue.trim() !== state.query && (
+          <p className="m-0 mt-2 px-1 text-[12.5px] text-[var(--k-t3)]" data-testid="conversation-search-hint">
+            Press Return to search.
+          </p>
+        )}
       </div>
 
       {/* Body — results list / empty / searching / no-results, and the
           inline Load more at the end of the list. */}
       <ModalBody className="flex flex-col pt-1" data-testid="conversation-search-body">
+        {state.error && (
+          <KitBanner tone="danger" className="mb-3" data-testid="conversation-search-error">
+            {state.error}
+          </KitBanner>
+        )}
         {showSearching && (
           <KitLoading
-            label="Searching..."
+            label="Searching every conversation — this can take a few seconds…"
             lines={3}
             data-testid="conversation-search-searching"
           />
         )}
         {showEmptyState && !showSearching && (
           <KitEmpty
-            title="Type a query and press Enter"
+            icon={<Search aria-hidden="true" />}
+            title="Search every conversation"
+            body="What you, your agents and their tools said — archived conversations too. Type, then press Return."
             data-testid="conversation-search-empty-state"
           />
         )}
         {showNoResults && (
           <KitEmpty
             title={<>No results for &quot;{state.query}&quot;</>}
+            body="Try fewer or different words."
             data-testid="conversation-search-no-results"
           />
+        )}
+        {state.results.length > 0 && (
+          <p className="m-0 mb-2 px-1 text-[13px] text-[var(--k-t2)]" data-testid="conversation-search-count">
+            {state.results.length}
+            {state.hasMore ? "+" : ""} {state.results.length === 1 && !state.hasMore ? "conversation" : "conversations"}
+          </p>
         )}
         {state.results.length > 0 && (
           <KitList>
@@ -390,14 +413,6 @@ export function ConversationSearchModal({
         )}
       </ModalBody>
 
-      {/* Foot — rendered ONLY when there's an error to surface. */}
-      {state.error && (
-        <ModalFoot>
-          <KitBanner tone="danger" className="w-full" data-testid="conversation-search-error">
-            {state.error}
-          </KitBanner>
-        </ModalFoot>
-      )}
     </Modal>
   );
 }

@@ -27,6 +27,7 @@ import { useEffect, useState } from "react";
 import { Modal, ModalHead, ModalBody } from "@/components/modal";
 import {
   KitBanner,
+  KitButton,
   KitEmpty,
   KitList,
   KitListRow,
@@ -40,7 +41,6 @@ import {
 import { unarchiveApp, UnarchiveError } from "@/api/apps-unarchive-api";
 import { clearPendingAppArchive } from "@/state/app-tiles-store";
 import {
-  RowKebabMenu,
   RowKebabContextMenuSurface,
   type RowKebabMenuItem,
 } from "./RowKebabMenu";
@@ -54,6 +54,10 @@ type ModalState =
 
 // ─── Component ────────────────────────────────────────────────────────────────
 
+// apple-ux shape-creation-and-search-dialogs: a line under the title saying
+// what this is, and Un-archive as a visible button on every row (the row's
+// right-click menu still offers it, so the row needs no ⋮ of its own). A row's button shows progress while the
+// request is out.
 export function ArchivedAppsModal({
   open,
   onOpenChange,
@@ -62,6 +66,7 @@ export function ArchivedAppsModal({
   onOpenChange: (open: boolean) => void;
 }): React.JSX.Element {
   const [state, setState] = useState<ModalState>({ status: "loading" });
+  const [busyKey, setBusyKey] = useState<string | null>(null);
 
   // D-09: Fetch on every open (re-fetch = authoritative recovery path per Risk Summary).
   useEffect(() => {
@@ -89,6 +94,9 @@ export function ArchivedAppsModal({
   // 4. D-19: never auto-close — modal stays open after un-archive.
   async function handleUnarchive(entry: ArchivedAppListEntry): Promise<void> {
     const label = entry.title ?? entry.slug;
+    const key = `${entry.hostId}:${entry.slug}`;
+    if (busyKey !== null) return;
+    setBusyKey(key);
 
     try {
       // STEP 1: endpoint first — row MUST NOT be removed before this resolves.
@@ -124,6 +132,8 @@ export function ArchivedAppsModal({
             "Try again in a moment.";
 
       await kitAlert({ title: `Couldn't un-archive ${label}`, body });
+    } finally {
+      setBusyKey(null);
     }
   }
 
@@ -136,7 +146,10 @@ export function ArchivedAppsModal({
       size="list"
       data-testid="archived-apps-modal"
     >
-      <ModalHead title="Archived apps" />
+      <ModalHead
+        title="Archived apps"
+        subtitle="Apps you've archived. Un-archive one to put it back in the sidebar."
+      />
       <ModalBody className="flex flex-col">
         {state.status === "loading" ? (
           <KitLoading label="Loading…" />
@@ -144,7 +157,7 @@ export function ArchivedAppsModal({
           <KitBanner tone="danger">{state.error}</KitBanner>
         ) : state.data.length === 0 ? (
           // D-18: empty state — always visible so the archived surface is discoverable.
-          <KitEmpty title="No archived apps." />
+          <KitEmpty title="No archived apps" body="Apps you archive land here, ready to bring back." />
         ) : (
           // D-09: row list with rounded-square avatars, no host label.
           <KitList>
@@ -170,13 +183,16 @@ export function ArchivedAppsModal({
                     // available, slug otherwise).
                     avatar={label.charAt(0).toUpperCase()}
                     title={label}
-                    menu={
-                      // Single Un-archive item (D-12/D-13).
-                      <RowKebabMenu
-                        items={kebabItems}
-                        ariaLabel={`Row menu for ${entry.slug}`}
-                        testId={`archived-apps-row-kebab-${entry.hostId}-${entry.slug}`}
-                      />
+                    trailing={
+                      <KitButton
+                        size="sm"
+                        busy={busyKey === `${entry.hostId}:${entry.slug}`}
+                        disabled={busyKey !== null}
+                        onClick={() => void handleUnarchive(entry)}
+                        data-testid={`archived-apps-unarchive-${entry.hostId}-${entry.slug}`}
+                      >
+                        Un-archive
+                      </KitButton>
                     }
                   />
                 </RowKebabContextMenuSurface>

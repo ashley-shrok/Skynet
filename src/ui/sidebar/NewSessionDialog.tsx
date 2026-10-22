@@ -129,17 +129,17 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 
 import { Modal, ModalHead, ModalBody, ModalFoot } from "@/components/modal";
-import { MultiSelect } from "@/components/multi-select";
+import { Bot, Terminal } from "lucide-react";
 import {
   KitButton,
-  KitCheckbox,
   KitField,
   KitHostPicker,
   KitInput,
-  KitOption,
   KitSearch,
+  KitSegmented,
   kitAlert,
 } from "@/components/kit";
+import { RolePickList, type RolePickGroup } from "./RolePickList";
 import type { Host, HostFolder } from "@/types/ui-types";
 import {
   listIdentities,
@@ -147,6 +147,7 @@ import {
   openBirthStream,
   listRolesForHost,
   pickPoolName,
+  roleAvatarUrl,
   type BirthEvent,
   type RoleSummary,
 } from "@/api/identities-api";
@@ -739,6 +740,26 @@ export function NewSessionDialog({
     });
     return [noRolesOption, ...hostOptions];
   });
+  // The same entries as a list in the dialog: pictures and descriptions.
+  const roleGroups: RolePickGroup[] = sortedHosts.flatMap((host) => {
+    if (hostRoles[host.id]?.error && multiHost) return [];
+    const hostIdNum = parseInt(String(host.id), 10);
+    return [
+      {
+        key: String(host.id),
+        title: host.name,
+        items: [
+          { value: roleOptionValue(host, NO_ROLES_OPTION), label: noRolesLabel, noRoles: true },
+          ...(hostRoles[host.id]?.roles ?? []).map((role) => ({
+            value: roleOptionValue(host, role.name),
+            label: roleDisplayName(role.name, role.displayName) + (role.instanceWide ? " · on every host" : ""),
+            description: role.description,
+            avatarSrc: role.avatar && Number.isFinite(hostIdNum) ? roleAvatarUrl(hostIdNum, role.name) : null,
+          })),
+        ],
+      },
+    ];
+  });
   const pickedRoleValues = selectedHost
     ? (noRoles ? [NO_ROLES_OPTION] : selectedRoles).map((r) => roleOptionValue(selectedHost, r))
     : [];
@@ -921,7 +942,7 @@ export function NewSessionDialog({
   // step that host can arrive (or change) after the name was typed — via the
   // role pick — so check again whenever it does.
   useEffect(() => {
-    if (shellOnly || !autoName || name.trim() === "") return;
+    if (shellOnly || name.trim() === "" || name.trim() === poolPickedNameRef.current) return;
     runCollisionPrecheck(name);
     // Keyed on the host only; the name is re-checked on blur as before.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -1225,7 +1246,7 @@ export function NewSessionDialog({
   // ADOPTS a role"). See 88-CONTEXT.md §Verbatim copy for LOCKED text.
   const startDescription = t("nav.newSessionDescription", {
     defaultValue:
-      "Agents are the workers you chat with. Each one can adopt roles that shape what they know and how they help.",
+      "An agent to chat with. Its roles shape what it knows and how it helps.",
   });
   const searchPlaceholder = t("nav.newSessionSearchHosts", {
     defaultValue: "Search hosts",
@@ -1234,7 +1255,7 @@ export function NewSessionDialog({
     defaultValue: "auto",
   });
   const nameLabel = t("nav.newSessionNameLabel", {
-    defaultValue: "Agent name (optional)",
+    defaultValue: "Name (optional)",
   });
   const nameErrorText = t("nav.newSessionNameError", {
     defaultValue:
@@ -1256,10 +1277,25 @@ export function NewSessionDialog({
         // handleBirth after clearing the `birthing` flag.
         if (!next && !birthing) onClose();
       }}
-      size="md"
+      size="lg"
     >
-      <ModalHead title={startTitle} subtitle={startDescription} />
+      <ModalHead title={startTitle} subtitle={shellOnly ? "A terminal on one of your machines, with no agent in it." : startDescription} />
       <ModalBody className="flex flex-col gap-4">
+        {/* Admins choose between an agent and a plain shell. */}
+        {isAdmin && (
+          <KitSegmented
+            full
+            aria-label="What to open"
+            value={shellOnly ? "shell" : "agent"}
+            onValueChange={(v) => !formDisabled && setShellOnly(v === "shell")}
+            options={[
+              { value: "agent", label: "Agent", Icon: Bot, disabled: formDisabled },
+              { value: "shell", label: "Shell", Icon: Terminal, disabled: formDisabled },
+            ]}
+            testIdPrefix="new-session-mode"
+            data-testid="new-session-identity-mode"
+          />
+        )}
         {/*
          * Host list — admin shell branch only (agents get their host from the
          * picked roles). Phase 84 (D-CONTEXT item 8): hidden entirely when the
@@ -1335,23 +1371,6 @@ export function NewSessionDialog({
           </KitField>
         )}
 
-        {/* Phase 88: admin-only shell-mode checkbox. Label text LOCKED
-            (U+2014 em-dash); DOM anchor id stays stable. */}
-        {isAdmin && (
-          <KitOption
-            disabled={formDisabled}
-            label="Just a shell — no agent"
-            control={
-              <KitCheckbox
-                id="new-session-identity-mode"
-                checked={shellOnly}
-                onCheckedChange={(next) => !formDisabled && setShellOnly(next)}
-                disabled={formDisabled}
-              />
-            }
-          />
-        )}
-
         {/* Identity-birth cluster — agent mode. Gated on `!effectiveShellOnly`
             so it agrees with the submit handler (Phase 88 M2). */}
         {!effectiveShellOnly && (
@@ -1362,67 +1381,41 @@ export function NewSessionDialog({
                 order is the order the identity file lists them in. Role
                 fetch errors are not shown — an unreachable host is routine,
                 its roles just don't list (console.warn logs it). */}
-            <KitField label="Roles" htmlFor="new-identity-roles">
-              <MultiSelect
-                id="new-identity-roles"
-                ariaLabel="Roles"
-                // Options show as each host answers; the placeholder only
-                // says "loading" while there is nothing to pick yet.
-                placeholder={
-                  anyRolesLoading && allRoles.length === 0
-                    ? "Loading roles..."
-                    : "Pick roles…"
-                }
-                disabled={
-                  formDisabled ||
-                  (anyRolesLoading && allRoles.length === 0) ||
-                  (roleOptions.length === 0 && !onNewRole)
-                }
-                options={roleOptions}
+            <KitField group label="Roles" data-testid="new-identity-roles">
+              <RolePickList
+                groups={roleGroups}
                 value={pickedRoleValues}
                 onChange={handleRolesChange}
-                leadingAction={
+                loading={anyRolesLoading && allRoles.length === 0}
+                disabled={formDisabled}
+                onNewRole={
                   onNewRole
-                    ? {
-                        label: "New role…",
-                        onSelect: () => {
-                          console.log(
-                            `[new-session] new-role hop hostId=${selectedHost?.id ?? "-"} roles=${selectedRoles.join(",") || "-"}`,
-                          );
-                          // Only a name the user chose travels; a pool
-                          // suggestion is re-picked on the way back.
-                          const customName =
-                            autoName && name.trim() !== "" && name !== poolPickedName
-                              ? name
-                              : null;
-                          onNewRole({ host: selectedHost, roles: selectedRoles, name: customName });
-                        },
+                    ? () => {
+                        console.log(
+                          `[new-session] new-role hop hostId=${selectedHost?.id ?? "-"} roles=${selectedRoles.join(",") || "-"}`,
+                        );
+                        // Only a name the user chose travels; a pool
+                        // suggestion is re-picked on the way back.
+                        const customName = name.trim() !== "" && name !== poolPickedName ? name : null;
+                        onNewRole({ host: selectedHost, roles: selectedRoles, name: customName });
                       }
                     : undefined
                 }
               />
             </KitField>
 
-            {/* 2026-09-27: name = checkbox + conditional input. Unchecked
-                leaves the name to the vetted-pool picker's suggestion; a
-                pool-pick failure flips autoName true silently so the user is
-                never stuck without an input. The input keeps aria-label="Name". */}
+            {/* The name is always shown: a suggestion fills it (picked to be
+                free on the agent's machine); typing replaces it. */}
             <div className="flex flex-col gap-2">
-              <KitOption
-                disabled={formDisabled}
-                label="Choose a custom agent name"
-                control={
-                  <KitCheckbox
-                    id="new-identity-auto-name"
-                    checked={autoName}
-                    onCheckedChange={(next) => !formDisabled && setAutoName(next)}
-                    disabled={formDisabled}
-                  />
-                }
-              />
-              {autoName && (
+              {(
                 <KitField
+                  label="Name"
                   htmlFor="new-identity-name"
+                  help={
+                    poolPickedName !== null && name.trim() === poolPickedName
+                      ? "Suggested — change it if you like."
+                      : undefined
+                  }
                   error={
                     name.trim().length > 0 && !nameValid
                       ? name.trim().length > 80
@@ -1447,7 +1440,7 @@ export function NewSessionDialog({
                     }}
                     onBlur={() => runCollisionPrecheck(name)}
                     onKeyDown={submitOnEnter(canOpen, handleCreate)}
-                    placeholder="e.g. alicia"
+                    placeholder={selectedHost ? "e.g. alicia" : "Pick a role first"}
                     disabled={formDisabled}
                     invalid={name.trim().length > 0 && !nameValid}
                   />
@@ -1459,6 +1452,9 @@ export function NewSessionDialog({
       </ModalBody>
 
       <ModalFoot>
+        <KitButton disabled={birthing} onClick={onClose} data-testid="new-session-cancel">
+          Cancel
+        </KitButton>
         {/* Phase 106 Plan 106-02 (D-14): the Create button is the progress
             surface — busy spinner while the birth stream is in flight. */}
         <KitButton

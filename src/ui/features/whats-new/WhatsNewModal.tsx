@@ -1,6 +1,8 @@
 // What's new — pops up once after an update when this person has notes they
-// haven't seen. One flat list, newest first. Closing it (button, X or Esc)
-// marks every listed note seen; nothing shows when there is nothing new.
+// haven't seen (apple-ux shape-creation-and-search-dialogs). A sparkle tile
+// and "What's new in <the instance's name>" on top, the notes as a grouped
+// list newest first, one Continue at the foot. Closing it (Continue, X or
+// Esc) marks every listed note seen; nothing shows when there is nothing new.
 //
 // The "seen" save can fail — most often because a deploy landed while the
 // panel was open and the old tab's request is refused. The ids are kept in
@@ -8,8 +10,10 @@
 // next load before asking what's new, so the same notes don't come back.
 
 import { useEffect, useState } from "react";
-import { Button } from "@/components/button";
+import { Sparkles } from "lucide-react";
 import { Modal, ModalHead, ModalBody, ModalFoot } from "@/components/modal";
+import { KitButton } from "@/components/kit";
+import { useBrandingConfig } from "@/branding/branding-store";
 import {
   getWhatsNew,
   markWhatsNewSeen,
@@ -35,6 +39,7 @@ async function flushSeen(username: string, ids: string[]): Promise<void> {
 }
 
 export function WhatsNewModal({ username }: { username: string }) {
+  const branding = useBrandingConfig();
   const [notes, setNotes] = useState<WhatsNewNote[]>([]);
   const [open, setOpen] = useState(false);
 
@@ -90,29 +95,36 @@ export function WhatsNewModal({ username }: { username: string }) {
       onOpenChange={(next) => {
         if (!next) close();
       }}
-      size="lg"
+      size="md"
       data-testid="whats-new-modal"
     >
-      <ModalHead title="What's new" />
-      <ModalBody>
-        <ul className="flex flex-col gap-2.5 list-disc pl-5 text-sm leading-relaxed">
+      <ModalHead title={<span className="sr-only">What&apos;s new</span>} className="pb-0" />
+      <ModalBody className="pt-0">
+        <div className="flex flex-col items-center text-center gap-2 pb-5">
+          <span className="k-hero-tile size-14 rounded-[16px]" aria-hidden="true">
+            <Sparkles className="size-7" />
+          </span>
+          <h2 className="m-0 text-[22px] font-bold tracking-[-0.02em] text-[var(--k-t1)]" data-testid="whats-new-title">
+            What&apos;s new in {branding.appName}
+          </h2>
+        </div>
+        <ul className="k-group m-0 p-0 list-none" data-testid="whats-new-notes">
           {notes.map((note) => (
-            <li key={note.id} data-testid="whats-new-note">
-              {note.text}
+            <li
+              key={note.id}
+              data-testid="whats-new-note"
+              className="k-row items-start gap-3 text-[14px] leading-relaxed text-[var(--k-t1)]"
+            >
+              <span className="mt-[9px] size-1.5 rounded-full bg-[var(--k-acc)] shrink-0" aria-hidden="true" />
+              <span>{note.text}</span>
             </li>
           ))}
         </ul>
       </ModalBody>
       <ModalFoot>
-        <Button
-          type="button"
-          variant="default"
-          data-testid="whats-new-dismiss"
-          onClick={close}
-          className="cursor-pointer h-8"
-        >
-          Got it
-        </Button>
+        <KitButton variant="primary" full data-testid="whats-new-dismiss" onClick={close}>
+          Continue
+        </KitButton>
       </ModalFoot>
     </Modal>
   );
