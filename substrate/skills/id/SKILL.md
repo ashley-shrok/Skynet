@@ -1055,7 +1055,9 @@ crown, then gear.
     a Reset) for how fast agents speak, and **when voice mode sends**:
     *After a pause* (default — three seconds of silence) or *When I say a
     phrase* (silence never sends; ending with the phrase does — "send it"
-    by default, editable). Follows the user's account across devices.
+    by default, editable), and **when voice mode listens**: *All the time*
+    (default) or *When I press my headphones* (press to talk — see the
+    sound-wave button). Follows the user's account across devices.
   - **Notifications** — phone notifications through the user's OWN
     Telegram bot; each user sets theirs up here, nothing server-side. The
     pane walks them through it: open @BotFather in Telegram, send
@@ -1307,13 +1309,29 @@ crown, then gear.
   the last message and then turning voice mode on hears that message first.
   Tapping one while a reply is being read cuts that reply off.
   While on, the button widens into a small chip that shows the state
-  (Starting, Listening, Hearing, Sending, Speaking, Paused); tap the chip
+  (Starting, Listening, Hearing, Sending, Speaking, Paused, Muted); tap the chip
   while a reply (or speak button) is playing to skip it. The chip's × — or ending a sentence
   with "stop voice mode" — ends voice mode and throws away anything not yet
   sent. Replies are spoken in the agent's voice —
   its own, else its role's, else the user's **Agent voices** fallback, else
   the box's default. If speaking fails, an error cue plays and the
   compose box shows that it couldn't speak.
+  **Press to talk** (Agent voices → *When I press my headphones*): voice
+  mode sits **Muted** with the mic fully off, still reading agents' new
+  messages aloud. A press of play/pause on the user's headphones (an AirPod
+  stem) — or a tap on the Muted chip — opens the mic for one turn: Starting
+  while it opens (2–3 seconds), the "your turn" sound once it's ready, then
+  the turn ends the usual way and the mic turns off again by itself (while
+  the mic is open, a tap on the chip ends the turn at once — presses don't
+  reach Skynet then, so that tap is the way out without the send phrase). Saying
+  nothing for 15 seconds closes it with a soft falling tone. A double press
+  skips what's being read; a single press while a reply is being read cuts
+  it off and opens the mic. Headphone buttons work in a desktop browser
+  (AirPods or a headset connected to the computer); on iPhone they don't
+  reach Skynet, so there the Muted chip's tap is the way to talk (the
+  Preferences option says so). Presses only reach Skynet while it's the
+  device's "now playing" source — music or a video started elsewhere takes
+  the buttons until it stops.
   *Agent-side: none.*
 
 - **⚡ Lightning bolt — Skills menu** (agent conversations only). Sits

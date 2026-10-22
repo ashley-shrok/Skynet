@@ -61,6 +61,7 @@ type Row = {
   ttsPlaybackRate?: number | null;
   voiceModeEndOfTurn?: string | null;
   voiceModeSendPhrase?: string | null;
+  voiceModeListen?: string | null;
   pinnedConversationIds: string | null;
   updatedAt: string;
 };
@@ -105,6 +106,7 @@ const insertChain = {
           ttsPlaybackRate: v.ttsPlaybackRate ?? existing?.ttsPlaybackRate ?? null,
           voiceModeEndOfTurn: v.voiceModeEndOfTurn ?? existing?.voiceModeEndOfTurn ?? null,
           voiceModeSendPhrase: v.voiceModeSendPhrase ?? existing?.voiceModeSendPhrase ?? null,
+          voiceModeListen: v.voiceModeListen ?? existing?.voiceModeListen ?? null,
           pinnedConversationIds:
             v.pinnedConversationIds ?? existing?.pinnedConversationIds ?? null,
           updatedAt: v.updatedAt ?? new Date().toISOString(),
@@ -1126,6 +1128,26 @@ describe("voice mode turn-end preferences GET/PUT", () => {
     await handlePutPreferences(USER_ID, { voiceModeSendPhrase: v }, res as unknown as Response);
     expect(res._status).toBe(400);
     expect((res._body as { error?: string }).error).toContain("voiceModeSendPhrase");
+  });
+
+  it("VM-06: GET for a user with no row returns voiceModeListen null", () => {
+    const res = makeRes();
+    handleGetPreferences(USER_ID, res as unknown as Response);
+    expect((res._body as Record<string, unknown>).voiceModeListen).toBeNull();
+  });
+
+  it.each(["always", "press", null])("VM-07: PUT voiceModeListen: %s returns 200", async (v) => {
+    const res = makeRes();
+    await handlePutPreferences(USER_ID, { voiceModeListen: v }, res as unknown as Response);
+    expect(res._status).toBe(200);
+    if (v !== null) expect((res._body as Record<string, unknown>).voiceModeListen).toBe(v);
+  });
+
+  it.each(["pause", "", 1, true])("VM-08: PUT voiceModeListen: %s returns 400", async (v) => {
+    const res = makeRes();
+    await handlePutPreferences(USER_ID, { voiceModeListen: v }, res as unknown as Response);
+    expect(res._status).toBe(400);
+    expect((res._body as { error?: string }).error).toContain("voiceModeListen");
   });
 });
 

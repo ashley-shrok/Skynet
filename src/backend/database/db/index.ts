@@ -544,6 +544,7 @@ async function initializeCompleteDatabase(): Promise<void> {
         tts_playback_rate REAL,                                -- per-user speak playback speed; NULL → 1.0
         voice_mode_end_of_turn TEXT,                           -- voice mode turn end: 'timed' | 'phrase'; NULL → 'timed'
         voice_mode_send_phrase TEXT,                           -- voice mode send phrase; NULL → 'send it'
+        voice_mode_listen TEXT,                                -- when voice mode listens: 'always' | 'press'; NULL → 'always'
         whats_new_seen TEXT,                                   -- JSON array of seen what's-new note ids; NULL → not yet counted
         updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
         FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE
@@ -1133,6 +1134,7 @@ const migrateSchema = async () => {
   addColumnIfNotExists("user_preferences", "tts_playback_rate", "REAL");
   addColumnIfNotExists("user_preferences", "voice_mode_end_of_turn", "TEXT");
   addColumnIfNotExists("user_preferences", "voice_mode_send_phrase", "TEXT");
+  addColumnIfNotExists("user_preferences", "voice_mode_listen", "TEXT");
   addColumnIfNotExists("user_preferences", "whats_new_seen", "TEXT");
   try {
     const counted = countUncountedAccounts(sqlite, WHATS_NEW_NOTES);
