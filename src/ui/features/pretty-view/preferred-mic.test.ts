@@ -15,11 +15,13 @@ function streamWith(label: string): MediaStream {
 }
 
 const enumerateDevices = vi.fn();
+const IOS_UA = "Mozilla/5.0 (iPhone; CPU iPhone OS 18_7 like Mac OS X) AppleWebKit/605.1.15";
 
 beforeEach(() => {
   __resetPreferredMicForTests();
   enumerateDevices.mockReset();
   Object.defineProperty(navigator, "mediaDevices", { configurable: true, value: { enumerateDevices } });
+  Object.defineProperty(navigator, "userAgent", { configurable: true, value: IOS_UA });
 });
 
 describe("preferred-mic", () => {
@@ -52,5 +54,28 @@ describe("preferred-mic", () => {
     expect(await learnHeadsetMic(streamWith("iPhone Microphone"), () => {})).toBe(true);
     expect(await learnHeadsetMic(streamWith("iPhone Microphone"), () => {})).toBe(false);
     expect(await learnHeadsetMic(streamWith("AirPods"), () => {})).toBe(false);
+  });
+});
+
+describe("preferred-mic — guards", () => {
+  it("never loops between two headsets", async () => {
+    enumerateDevices
+      .mockResolvedValueOnce([dev("b1", "iPhone Microphone"), dev("h1", "AirPods"), dev("h2", "Car")])
+      .mockResolvedValueOnce([dev("b1", "iPhone Microphone"), dev("h2", "Car"), dev("h1", "AirPods")])
+      .mockResolvedValueOnce([dev("b1", "iPhone Microphone"), dev("h1", "AirPods"), dev("h2", "Car")]);
+    const s = streamWith("iPhone Microphone");
+    expect(await learnHeadsetMic(s, () => {})).toBe(true); // h1
+    expect(await learnHeadsetMic(s, () => {})).toBe(true); // h2
+    expect(await learnHeadsetMic(s, () => {})).toBe(false); // both tried
+  });
+
+  it("leaves a Mac alone (an iPhone's Continuity mic has the same label)", async () => {
+    Object.defineProperty(navigator, "userAgent", {
+      configurable: true,
+      value: "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15",
+    });
+    enumerateDevices.mockResolvedValue([dev("c1", "iPhone Microphone"), dev("m1", "MacBook Pro Microphone")]);
+    expect(isBuiltInMic("iPhone Microphone")).toBe(false);
+    expect(await learnHeadsetMic(streamWith("iPhone Microphone"), () => {})).toBe(false);
   });
 });

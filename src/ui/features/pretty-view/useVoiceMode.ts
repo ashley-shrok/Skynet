@@ -1194,6 +1194,9 @@ export function useVoiceMode(args: UseVoiceModeArgs): UseVoiceModeReturn {
     void learnHeadsetMic(stream, log).then((learned) => {
       if (!learned || !activeRef.current || streamRef.current !== stream) return;
       log("mic-switch-to-headset");
+      // Press to talk: anything said since the chime is dropped with this
+      // stream — chime again once the headset mic is ready.
+      turnCuedRef.current = false;
       dropStream();
       pumpRef.current();
     });
@@ -1210,16 +1213,20 @@ export function useVoiceMode(args: UseVoiceModeArgs): UseVoiceModeReturn {
     // permission — release it and wait for a press.
     if (pressModeRef.current && !turnOpenRef.current) {
       console.info(`[voice-mode] press-permission-ok ${describeMicTrack(stream)} ${tagRef.current}`);
-      preferHeadsetMic(stream); // so the first turn opens the headset mic
-      stream.getTracks().forEach((t) => t.stop());
-      setAudioSessionType("playback", log);
-      if (reclaimTimerRef.current !== null) clearTimeout(reclaimTimerRef.current);
-      reclaimTimerRef.current = setTimeout(() => {
-        reclaimTimerRef.current = null;
-        if (activeRef.current && !turnOpenRef.current) remoteRef.current?.reclaim();
-      }, RECLAIM_DELAY_MS);
+      // Learn the headset (so the first turn opens it) before letting go:
+      // device labels may hide once nothing is capturing.
+      void learnHeadsetMic(stream, log).finally(() => {
+        stream.getTracks().forEach((t) => t.stop());
+        if (!activeRef.current) return;
+        if (!turnOpenRef.current) setAudioSessionType("playback", log);
+        if (reclaimTimerRef.current !== null) clearTimeout(reclaimTimerRef.current);
+        reclaimTimerRef.current = setTimeout(() => {
+          reclaimTimerRef.current = null;
+          if (activeRef.current && !turnOpenRef.current) remoteRef.current?.reclaim();
+        }, RECLAIM_DELAY_MS);
+        pumpRef.current();
+      });
       void acquireWakeLock();
-      pumpRef.current();
       return;
     }
     streamRef.current = stream;

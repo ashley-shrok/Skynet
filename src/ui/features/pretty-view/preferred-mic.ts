@@ -19,10 +19,21 @@
 const BUILT_IN_MIC = /^(iphone|ipad) microphone$/i;
 
 let preferredInputId: string | null = null;
+/** Every headset already tried, so a phone that keeps handing out the built-in mic can't loop. */
+const triedInputIds = new Set<string>();
 
-/** Is this the phone's own mic? */
+/** iPhone / iPad (iPadOS reports itself as a Mac with touch). */
+function onIosDevice(): boolean {
+  if (typeof navigator === "undefined") return false;
+  return /iPhone|iPad|iPod/.test(navigator.userAgent) || (/Macintosh/.test(navigator.userAgent) && navigator.maxTouchPoints > 1);
+}
+
+/**
+ * Is this the phone's own mic? Only on an iPhone / iPad — a Mac labels an
+ * iPhone's Continuity mic the same way, and there it may be the user's pick.
+ */
 export function isBuiltInMic(label: string): boolean {
-  return BUILT_IN_MIC.test(label.trim());
+  return onIosDevice() && BUILT_IN_MIC.test(label.trim());
 }
 
 /**
@@ -37,7 +48,8 @@ export function headsetInputId(devices: ReadonlyArray<MediaDeviceInfo>, currentL
       d.deviceId !== "" &&
       d.deviceId !== "default" &&
       d.label !== "" &&
-      !isBuiltInMic(d.label),
+      !isBuiltInMic(d.label) &&
+      !triedInputIds.has(d.deviceId),
   );
   return headset?.deviceId ?? null;
 }
@@ -52,7 +64,8 @@ export function micAudioConstraints(base: MediaTrackConstraints = {}): MediaTrac
  * Check a freshly opened stream. If it got the built-in mic and a headset mic
  * exists that hasn't been tried yet, remember the headset and resolve true
  * (the caller may swap streams). Each headset is tried once, so a phone that
- * keeps handing out the built-in mic can't cause a loop.
+ * keeps handing out the built-in mic can't cause a loop. Call it before
+ * stopping the stream's tracks: device labels may hide once nothing captures.
  */
 export async function learnHeadsetMic(stream: MediaStream, log: (msg: string) => void): Promise<boolean> {
   const label = stream.getAudioTracks?.()[0]?.label ?? "";
@@ -62,8 +75,9 @@ export async function learnHeadsetMic(stream: MediaStream, log: (msg: string) =>
   try {
     const devices = await navigator.mediaDevices.enumerateDevices();
     const id = headsetInputId(devices, label);
-    if (!id || id === preferredInputId) return false;
+    if (!id) return false;
     preferredInputId = id;
+    triedInputIds.add(id);
     const to = devices.find((d) => d.deviceId === id)?.label ?? "?";
     log(`mic-prefer-headset from="${label}" to="${to}"`);
     return true;
@@ -76,4 +90,5 @@ export async function learnHeadsetMic(stream: MediaStream, log: (msg: string) =>
 /** Test helper. */
 export function __resetPreferredMicForTests(): void {
   preferredInputId = null;
+  triedInputIds.clear();
 }

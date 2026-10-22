@@ -1273,7 +1273,11 @@ describe("useVoiceRecording — headset mic over the phone's own", () => {
       { deviceId: "h1", label: "AirPods", kind: "audioinput", groupId: "" },
     ]);
     Object.defineProperty(globalThis, "navigator", {
-      value: { mediaDevices: { getUserMedia: gum, enumerateDevices } },
+      value: {
+        mediaDevices: { getUserMedia: gum, enumerateDevices },
+        userAgent: "Mozilla/5.0 (iPhone; CPU iPhone OS 18_7 like Mac OS X) AppleWebKit/605.1.15",
+        maxTouchPoints: 5,
+      },
       writable: true,
       configurable: true,
     });

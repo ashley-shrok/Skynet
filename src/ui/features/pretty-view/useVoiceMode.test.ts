@@ -1280,6 +1280,29 @@ describe("useVoiceMode — press to talk", () => {
 });
 
 describe("useVoiceMode — headset mic over the phone's own", () => {
+  beforeEach(() => {
+    Object.defineProperty(navigator, "userAgent", {
+      configurable: true,
+      value: "Mozilla/5.0 (iPhone; CPU iPhone OS 18_7 like Mac OS X) AppleWebKit/605.1.15",
+    });
+  });
+  afterEach(() => {
+    delete (navigator as unknown as Record<string, unknown>).userAgent;
+  });
+
+  it("press to talk: learns the headset from the permission stream, so the first turn asks for it", async () => {
+    setVoiceModeSettings({ endOfTurn: null, sendPhrase: null, listen: "press" });
+    track.label = "iPhone Microphone";
+    enumerateDevices.mockResolvedValue([dev("b1", "iPhone Microphone"), dev("h1", "AirPods")]);
+    const { result } = await startVoiceMode();
+    await flush();
+    expect(result.current.phase).toBe("muted");
+    expect(track.stop).toHaveBeenCalled();
+    act(() => result.current.talk());
+    await flush();
+    expect(getUserMedia.mock.calls[1][0].audio).toMatchObject({ deviceId: { ideal: "h1" } });
+  });
+
   const dev = (deviceId: string, label: string) =>
     ({ deviceId, label, kind: "audioinput", groupId: "", toJSON: () => ({}) }) as MediaDeviceInfo;
 
