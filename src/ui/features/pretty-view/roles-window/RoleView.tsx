@@ -127,7 +127,6 @@ export interface RoleViewProps {
 
 export function RoleView({
   hostId,
-  hostName,
   role,
   shared,
   isAdmin,
@@ -574,8 +573,12 @@ export function RoleView({
     agents.length === 0
       ? "No agents hold this role"
       : `${plural(agents.length, "agent")} ${agents.length === 1 ? "holds" : "hold"} this role`,
-    shared ? "on every host" : `on ${hostName}`,
-  ].join(" · ");
+    // The machine isn't named (Ashley, 2026-10-22); a shared role still says
+    // it's kept on every host.
+    shared ? "on every host" : null,
+  ]
+    .filter(Boolean)
+    .join(" · ");
 
   const hero = (
     <div className="px-6 max-sm:px-5 pb-4 flex gap-[18px] max-sm:gap-3.5 items-center max-sm:items-start flex-shrink-0">

@@ -179,19 +179,20 @@ describe("role view — description", () => {
 // ─── Facts, tabs ────────────────────────────────────────────────────────────
 
 describe("role view — facts line and tabs", () => {
-  it("one agent: '1 agent holds this role · on <host>'", async () => {
+  it("one agent: '1 agent holds this role' — no machine named", async () => {
     store.identities = [agent("tabitha", ["box-maintainer"])];
     await openRole();
-    expect(screen.getByTestId("role-view-facts").textContent).toMatch(new RegExp("^" + "1 agent holds this role · on thenasty"));
+    expect(screen.getByTestId("role-view-facts").textContent).not.toContain("thenasty");
+    expect(screen.getByTestId("role-view-facts").textContent).toMatch(new RegExp("^" + "1 agent holds this role"));
   });
 
   it("several agents: plural; none: 'No agents hold this role'", async () => {
     store.identities = [agent("tabitha", ["box-maintainer"]), agent("rex", ["box-maintainer"])];
     await openRole();
-    expect(screen.getByTestId("role-view-facts").textContent).toMatch(new RegExp("^" + "2 agents hold this role · on thenasty"));
+    expect(screen.getByTestId("role-view-facts").textContent).toMatch(new RegExp("^" + "2 agents hold this role"));
     fireEvent.click(backButton());
     await openRoleFromLibrary("ally-role");
-    expect(screen.getByTestId("role-view-facts").textContent).toMatch(new RegExp("^" + "No agents hold this role · on thenasty"));
+    expect(screen.getByTestId("role-view-facts").textContent).toMatch(new RegExp("^" + "No agents hold this role"));
   });
 
   it("a shared role lives 'on every host' and counts its agents everywhere", async () => {
