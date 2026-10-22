@@ -227,6 +227,8 @@ export function useSidebarPeek({ enabled, width, panelRef, toggleRef }: UseSideb
       const s = stateRef.current;
       if (s !== "drag-open" && s !== "dragging") return;
       const reason = e.type === "drop" ? "drop" : "dragend";
+      // A pending edge re-open must not land after the drag is over.
+      clearTimers();
       // After the drop target's own handlers have run.
       if (s === "dragging") {
         x = Number.POSITIVE_INFINITY;
