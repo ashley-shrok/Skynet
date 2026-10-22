@@ -21,14 +21,12 @@
  *   four strings in ONE named constant means a future edit is a single-line
  *   diff, and the tests + one place to audit.
  *
- * Why `PREVIEW_MAX_BODY_LEN = 100`:
- *   D-07-adjacent shipping shape from PATTERNS.md §4. 100 chars is a soft
- *   cap that fits comfortably on an iOS lock-screen preview line while
- *   preserving enough context to be useful; longer bodies also bump into
- *   Web Push's ~4KB post-encryption payload cap (aggregate cap across
- *   title + body + roomId + agentMxid — 100 is a safe budget). Also
- *   the T-128-12 mitigation for adversarial 10-MB event bodies (see
- *   128-03-PLAN.md <threat_model>).
+ * Why `PREVIEW_MAX_BODY_LEN = 3800`:
+ *   Notifications go out as Telegram messages, which hold up to 4096
+ *   characters. 3800 leaves room for the header line (name + roles, capped
+ *   in resolve-agent-label.ts) so nearly every agent message arrives whole
+ *   and the user only has to open Skynet for the rare longer one. A cut
+ *   message ends in "…" so it's clear there's more.
  *
  * Contract:
  *   - No I/O; no side effects; deterministic given input.
@@ -68,11 +66,9 @@ export const PREVIEW_LABELS = {
 } as const;
 
 /**
- * Cap for m.text bodies. Longer bodies get sliced to this length.
- * See module-doc for the rationale (T-128-12 mitigation + iOS lock-screen
- * ergonomics + Web Push payload budget).
+ * Cap for the preview, "…" included. See module-doc for the rationale.
  */
-export const PREVIEW_MAX_BODY_LEN = 100;
+export const PREVIEW_MAX_BODY_LEN = 3800;
 
 /**
  * Absolute-last-resort placeholder — never returned when the sender has
@@ -100,6 +96,18 @@ export interface MatrixMessageEvent {
   };
 }
 
+/**
+ * Cut `text` to PREVIEW_MAX_BODY_LEN, ending in "…" when it was cut. Never
+ * splits a surrogate pair — a lone half would make the send invalid UTF-8.
+ */
+function capPreview(text: string): string {
+  if (text.length <= PREVIEW_MAX_BODY_LEN) return text;
+  let cut = PREVIEW_MAX_BODY_LEN - 1;
+  const last = text.charCodeAt(cut - 1);
+  if (last >= 0xd800 && last <= 0xdbff) cut--;
+  return text.slice(0, cut) + "…";
+}
+
 // ---------------------------------------------------------------------------
 // Public API
 // ---------------------------------------------------------------------------
@@ -109,16 +117,23 @@ export interface MatrixMessageEvent {
  *
  * Behavior (per 128-03-PLAN.md <behavior> and PATTERNS.md §4):
  *   - `m.text` (or undefined msgtype) → body verbatim, truncated at
- *     PREVIEW_MAX_BODY_LEN.
+ *     PREVIEW_MAX_BODY_LEN with a trailing "…".
  *   - `m.image` → PREVIEW_LABELS.image (with filename in parens when set).
  *   - `m.audio` → PREVIEW_LABELS.audio.
  *   - `m.video` → PREVIEW_LABELS.video.
  *   - `m.file`  → PREVIEW_LABELS.file (with filename in parens when set).
  *   - Any other msgtype → body if present, else EMPTY_FALLBACK.
  *
- * Never throws. Never returns "" (the empty-fallback guards the tail).
+ * Every result is capped at PREVIEW_MAX_BODY_LEN, so no event (a long
+ * filename, a huge unknown-msgtype body) can push the Telegram message past
+ * its limit. Never throws. Never returns "" (the empty-fallback guards the
+ * tail).
  */
 export function derivePreviewText(event: MatrixMessageEvent): string {
+  return capPreview(uncappedPreview(event));
+}
+
+function uncappedPreview(event: MatrixMessageEvent): string {
   const msgtype = event.content?.msgtype;
   const body = event.content?.body ?? "";
   const filename = event.content?.filename;
@@ -138,13 +153,13 @@ export function derivePreviewText(event: MatrixMessageEvent): string {
         : PREVIEW_LABELS.file;
     case "m.text":
     case undefined:
-      // Truncate at PREVIEW_MAX_BODY_LEN. Body may be empty (rare: some
+      // derivePreviewText caps the length. Body may be empty (rare: some
       // Matrix clients emit m.text with body:"" for edits or pipeline
       // races). We MUST NOT let "" reach the sw.js push handler — iOS's
       // silent-revocation heuristic invalidates the subscription when the
       // rendered body is empty (Pitfall 3). Fall back to the sentinel so
       // the visible notification always has content.
-      return body ? body.slice(0, PREVIEW_MAX_BODY_LEN) : EMPTY_FALLBACK;
+      return body || EMPTY_FALLBACK;
     default:
       // Unknown msgtype (m.location, m.notice, custom types, ...) — mirror
       // the client's best-effort "show the body" behavior. If the body is

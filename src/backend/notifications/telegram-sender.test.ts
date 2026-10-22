@@ -76,6 +76,12 @@ describe("formatting", () => {
     );
   });
 
+  it("shows the name once when the roles read the same", () => {
+    expect(buildTelegramText({ ...payload, title: "Skynet", subtitle: "skynet" }, false)).toBe(
+      "<b>Skynet</b>\na &lt; b &amp; c",
+    );
+  });
+
   it("title-only drops the body", () => {
     expect(buildTelegramText(payload, true)).toBe(
       "<b>General Assistant</b> · <i>Mitzi</i>\nNew message",

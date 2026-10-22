@@ -55,11 +55,15 @@ function escapeHtml(text: string): string {
 
 /**
  * Message text in Telegram HTML parse mode: a header line — the agent's roles
- * in bold, then its name in italics (just the name, bold, when it has no
- * roles) — over the preview. Title-only hides the preview body.
+ * in bold, then its name in italics — over the preview. With no roles, or
+ * roles that read the same as the name, the header is just the name in bold.
+ * Title-only hides the preview body.
  */
 export function buildTelegramText(payload: PushPayload, titleOnly: boolean): string {
-  const header = payload.subtitle
+  const showRoles =
+    payload.subtitle !== null &&
+    payload.subtitle.trim().toLowerCase() !== payload.title.trim().toLowerCase();
+  const header = showRoles && payload.subtitle
     ? `<b>${escapeHtml(payload.subtitle)}</b> · <i>${escapeHtml(payload.title)}</i>`
     : `<b>${escapeHtml(payload.title)}</b>`;
   return `${header}\n${titleOnly ? "New message" : escapeHtml(payload.body)}`;

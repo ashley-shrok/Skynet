@@ -2,12 +2,12 @@
  * Phase 128 Plan 03 Task 1 — tests for the pure `derivePreviewText` utility.
  *
  * Contract exercised (from 128-03-PLAN.md <behavior>):
- *   - m.text  → body verbatim (truncated at 100 chars)
+ *   - m.text  → body verbatim (cut to 3800 chars, ending in "…")
  *   - m.image → "image 🖼️"  (or "image 🖼️ (filename)" when filename present)
  *   - m.audio → "audio 🎤"
  *   - m.video → "video 🎬"
  *   - m.file  → "file 📎"  (or "file 📎 (filename)" when filename present)
- *   - undefined msgtype → treated as m.text (returns body truncated at 100)
+ *   - undefined msgtype → treated as m.text (same as m.text)
  *   - unknown msgtype (m.location etc.) → body fallback
  *   - unknown msgtype + no body → "(message)" — NEVER empty (Pitfall 3: iOS
  *     invalidates silent pushes)
@@ -22,25 +22,45 @@
 
 import { describe, it, expect } from "vitest";
 
-import { derivePreviewText } from "./preview-text.js";
+import { derivePreviewText, PREVIEW_MAX_BODY_LEN } from "./preview-text.js";
 
 describe("derivePreviewText", () => {
   // ─── m.text / undefined msgtype ─────────────────────────────────────────
 
-  it("returns the body verbatim for m.text under 100 chars", () => {
+  it("returns the body verbatim for m.text under the cap", () => {
     const result = derivePreviewText({
       content: { msgtype: "m.text", body: "hi" },
     });
     expect(result).toBe("hi");
   });
 
-  it("truncates m.text bodies at 100 chars", () => {
-    const longBody = "x".repeat(200);
+  it("keeps a body exactly at the cap whole", () => {
+    const body = "x".repeat(PREVIEW_MAX_BODY_LEN);
+    expect(derivePreviewText({ content: { msgtype: "m.text", body } })).toBe(body);
+  });
+
+  it("cuts longer m.text bodies to the cap, ending in an ellipsis", () => {
     const result = derivePreviewText({
-      content: { msgtype: "m.text", body: longBody },
+      content: { msgtype: "m.text", body: "x".repeat(5000) },
     });
-    expect(result).toBe("x".repeat(100));
-    expect(result.length).toBe(100);
+    expect(result).toBe("x".repeat(PREVIEW_MAX_BODY_LEN - 1) + "…");
+    expect(result.length).toBe(PREVIEW_MAX_BODY_LEN);
+  });
+
+  it("never splits an emoji at the cut", () => {
+    // The emoji's high surrogate would land as the last kept char.
+    const body = "x".repeat(PREVIEW_MAX_BODY_LEN - 2) + "😀" + "y".repeat(10);
+    const result = derivePreviewText({ content: { msgtype: "m.text", body } });
+    expect(result).toBe("x".repeat(PREVIEW_MAX_BODY_LEN - 2) + "…");
+    expect(result).not.toMatch(/[\ud800-\udbff]…$/);
+  });
+
+  it("caps unknown-msgtype bodies too", () => {
+    const result = derivePreviewText({
+      content: { msgtype: "m.notice", body: "z".repeat(10000) },
+    });
+    expect(result.length).toBe(PREVIEW_MAX_BODY_LEN);
+    expect(result.endsWith("…")).toBe(true);
   });
 
   it("treats undefined msgtype as m.text (returns body)", () => {
