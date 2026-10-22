@@ -63,7 +63,7 @@ export type PvSweepSchemaVersion = typeof PV_SWEEP_SCHEMA_VERSION;
  *   • identity       — the tmux session name (= identity name, fleet convention).
  *                      Safe-char validated server-side by the Python script
  *                      (^[a-zA-Z0-9_-]+$) and belt-and-suspenders by the caller.
- *   • context_pct    — autocompact-normalized display percentage (0-100), or null
+ *   • context_pct    — percentage of the 1M context window used (0-100), or null
  *                      when the JSONL had no assistant turn yet (fresh session) or
  *                      file could not be read. Null emits from the caller emit a
  *                      loading placeholder in the frontend (accepted UX per

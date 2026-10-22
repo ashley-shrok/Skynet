@@ -9,49 +9,21 @@ import { sshLogger } from "../utils/logger.js";
  *
  * WHY THIS EXISTS
  * ─────────────────────────────────────────────────────────────────────
- * The tmux capture-pane scrape path (parseContextPct in
- * context-pct-parser.ts) becomes unreliable on user's mobile PWA when
- * the browser collapses the pane to ~2 chars wide — the statusline pct
- * chars survive but the AND-anchored bar glyphs (█/░) get truncated so
- * parseContextPct returns null and the pretty-view meter freezes on the
- * last-known value. Reading directly from the JSONL is pane-width-
- * independent and future-proofs the meter against any statusline-format
- * changes upstream (JSONL is Claude Code's own wire format for token
- * accounting; pane scrape is a display-surface hack).
+ * The JSONL is Claude Code's own wire format for token accounting, so
+ * reading it is pane-width-independent and immune to display changes.
  *
- * NORMALIZATION (mirrors ~/.claude/hooks/gsd-statusline.js:306-318)
+ * FORMULA
  * ─────────────────────────────────────────────────────────────────────
- * Claude Code reserves the last 16.5% of the context window as an
- * autocompact buffer. The displayed pct in the statusline is normalized
- * against the *usable* window, not the raw window. This helper applies
- * the same 16.5% normalization so the two meters stay aligned.
+ * pct = (input + cache_creation + cache_read tokens of the last assistant
+ * turn) / MODEL_CONTEXT_WINDOW. The fleet runs with DISABLE_AUTO_COMPACT=1,
+ * so no part of the window is reserved for an autocompact buffer and the
+ * whole window is usable — this matches the `Tokens: N / 1m (P%)` line
+ * Claude Code's own `/context` prints.
  *
  * MODEL WINDOW
  * ─────────────────────────────────────────────────────────────────────
  * 2026-08-08 user lock: every model in the harness is 1M-token window.
- * We do NOT read CLAUDE_CODE_AUTO_COMPACT_WINDOW here — that's the hook's
- * concern; the helper stays on the fleet default.
- *
- * ROUNDING NOTE
- * ─────────────────────────────────────────────────────────────────────
- * This helper normalizes floats first then rounds only at display. Claude
- * Code's statusline rounds `remaining_percentage` to integer *before*
- * normalizing — so the two can differ by ±1 in the last digit. Empirical
- * 2026-08-08 = 5/8 exact + 3/8 off-by-1 across 8 live Opus-4.7 sessions.
- * Sub-1% precision is well below the 80% context-watch nudge threshold,
- * so the discrepancy is acceptable.
- *
- * FALLBACK PATH
- * ─────────────────────────────────────────────────────────────────────
- * context-pct-parser.ts remains the fallback path in the poll callback
- * for (a) hosts with no resolved sessionFile yet (before
- * discoverClaudeSession lands) and (b) fresh sessions where the JSONL
- * exists but contains no assistant turn yet (returns null → falls
- * through to pane-scrape).
  */
-
-// Mirrors the same default in ~/.claude/hooks/gsd-statusline.js:312-314.
-const AUTO_COMPACT_BUFFER_PCT = 16.5;
 
 // 2026-08-08 fleet lock: every model in the harness is 1M-token window.
 const MODEL_CONTEXT_WINDOW = 1_000_000;
@@ -133,10 +105,9 @@ function reverseScanForAssistantUsageSum(tailOutput: string): number | null {
 
 /**
  * Tail the JSONL session file, reverse-scan for the last assistant turn
- * with usage, and return the autocompact-normalized displayed pct. Returns
+ * with usage, and return the used pct of the context window. Returns
  * null on any error, timeout, empty tail, no-assistant-turn-with-usage,
- * or exec failure — the caller falls back to parseContextPct(tmux
- * capture-pane) in that case.
+ * or exec failure.
  *
  * ITERATIVE TAIL EXPANSION (quick-260830-f1e)
  * ─────────────────────────────────────────────────────────────────────
@@ -186,8 +157,7 @@ export async function readContextPctFromJsonl(
       ]);
     } catch (err) {
       // SSH-side failure, timeout, or exec error. Bail — retrying wider
-      // won't fix a broken exec channel; caller falls back to
-      // parseContextPct(tmux capture-pane) in the poll callback.
+      // won't fix a broken exec channel.
       sshLogger.warn("context-pct: exec threw", {
         operation: "context_pct_exec_throw",
         sessionFileBasename,
@@ -243,15 +213,7 @@ export async function readContextPctFromJsonl(
     return null;
   }
 
-  // Normalize against the usable window (100% - autocompact buffer).
-  const remaining_pct = 100 - (sum / MODEL_CONTEXT_WINDOW) * 100;
-  const usable_remaining = Math.max(
-    0,
-    ((remaining_pct - AUTO_COMPACT_BUFFER_PCT) /
-      (100 - AUTO_COMPACT_BUFFER_PCT)) *
-      100,
-  );
-  const displayed = Math.round(100 - usable_remaining);
+  const displayed = Math.round((sum / MODEL_CONTEXT_WINDOW) * 100);
 
   // Defensive range clamp against float edge cases.
   return Math.max(0, Math.min(100, displayed));

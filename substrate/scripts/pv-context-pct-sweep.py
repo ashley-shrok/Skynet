@@ -46,8 +46,8 @@ Port ledger (behavioral parity required — Plan 05 has a regression test):
                          — context-pct-from-jsonl.ts L83
     * reverseScanForAssistantUsageSum predicate
                          — context-pct-from-jsonl.ts L99-L132
-    * context_pct normalization (AUTO_COMPACT_BUFFER_PCT=16.5, MODEL_CONTEXT_WINDOW=1_000_000)
-                         — context-pct-from-jsonl.ts L54-L57
+    * context_pct formula (token_sum / MODEL_CONTEXT_WINDOW, MODEL_CONTEXT_WINDOW=1_000_000)
+                         — context-pct-from-jsonl.ts readContextPctFromJsonl
     * Phase 32 JSONL discovery predicate
                          — discover-identity-session-file.ts L134-L158
       Load-bearing: partial-match rejection (tiff must NOT match tiffany —
@@ -92,11 +92,10 @@ SAFE_NAME_RE = re.compile(r"^[a-zA-Z0-9_-]+$")
 TAIL_EXPANSION_STEPS = [10_000, 50_000, 200_000, 512_000]
 
 # ---------------------------------------------------------------------------
-# context_pct normalization constants — port of context-pct-from-jsonl.ts L54-L57.
+# context_pct window — port of context-pct-from-jsonl.ts MODEL_CONTEXT_WINDOW.
+# The fleet runs with DISABLE_AUTO_COMPACT=1, so the whole window is usable;
+# no autocompact buffer is subtracted.
 # ---------------------------------------------------------------------------
-
-# Mirrors ~/.claude/hooks/gsd-statusline.js:312-314.
-AUTO_COMPACT_BUFFER_PCT = 16.5
 
 # 2026-08-08 fleet lock: every model in the harness is 1M-token window.
 MODEL_CONTEXT_WINDOW = 1_000_000
@@ -290,7 +289,7 @@ def _compute_context_pct(jsonl_path):
     """Port of readContextPctFromJsonl in context-pct-from-jsonl.ts.
 
     Iterates TAIL_EXPANSION_STEPS until an assistant usage turn is found,
-    applies the same 16.5% autocompact normalization, returns 0-100 int or None.
+    divides by the full context window, returns 0-100 int or None.
 
     Returns None on any file read error, empty tail, or exhausted expansion steps.
     The caller emits context_pct: null in that case (loading placeholder on frontend).
@@ -321,16 +320,8 @@ def _compute_context_pct(jsonl_path):
 
             token_sum = _reverse_scan_for_assistant_usage_sum(tail_output)
             if token_sum is not None:
-                # Found a usage turn — compute the normalized pct.
-                # Mirrors context-pct-from-jsonl.ts L247-L257 exactly.
-                remaining_pct = 100 - (token_sum / MODEL_CONTEXT_WINDOW) * 100
-                usable_remaining = max(
-                    0,
-                    ((remaining_pct - AUTO_COMPACT_BUFFER_PCT)
-                     / (100 - AUTO_COMPACT_BUFFER_PCT))
-                    * 100,
-                )
-                displayed = round(100 - usable_remaining)
+                # Found a usage turn — same formula as context-pct-from-jsonl.ts.
+                displayed = round(token_sum / MODEL_CONTEXT_WINDOW * 100)
                 # Defensive range clamp against float edge cases.
                 return max(0, min(100, displayed))
             # No usage turn in this window — try the next larger step.
