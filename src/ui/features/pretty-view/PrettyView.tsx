@@ -27,6 +27,12 @@ import {
 // Mounted at the top of the message-list scroll container by Task 2b.
 import { LoadMoreOlderButton } from "./LoadMoreOlderButton";
 import { speakVoiceCandidates } from "./voice-candidates";
+import {
+  queuedOutboundBytes,
+  selectUnsentFrames,
+  trackOutboundBytes,
+  type InputFrameRecord,
+} from "./unsent-input-frames";
 import { ChatMessage } from "./ChatMessage";
 import {
   FILE_CHIP_MIME,
@@ -1602,6 +1608,13 @@ export function PrettyView({
   // CAN throw if the socket transitions from OPEN to CLOSING between the readyState
   // guard and the actual send (backgrounding, tab-hide, mid-write network flap).
   // Returning false on catch gives the caller a truthful no-send signal.
+  //
+  // inputFramesRef: every mqid-tagged input frame sent on the current socket,
+  // with its byte offset in that socket's outbound stream. On WS close the
+  // frames that provably never left the browser go to resendQueueRef and are
+  // resent once the next connection is attached (see unsent-input-frames.ts).
+  const inputFramesRef = useRef<Map<string, InputFrameRecord>>(new Map());
+  const resendQueueRef = useRef<InputFrameRecord[]>([]);
   const sendInput = useCallback((
     text: string,
     mqid?: string,
@@ -1638,6 +1651,7 @@ export function PrettyView({
     // depth at every text-input send so we can see whether the client's WS
     // outbound was jammed when the injected turn was dispatched.
     const bufBefore = ws.bufferedAmount;
+    const frameStart = queuedOutboundBytes(ws);
     try {
       ws.send(
         JSON.stringify({
@@ -1646,6 +1660,19 @@ export function PrettyView({
           ...(mqid ? { messageQueueItemId: mqid } : {}),
         }),
       );
+      if (mqid) {
+        const frames = inputFramesRef.current;
+        for (const [key, r] of frames) {
+          if (r.ws !== ws) frames.delete(key);
+        }
+        frames.set(mqid, {
+          mqid,
+          text,
+          skipTagNeutralize: options?.skipTagNeutralize === true,
+          ws,
+          start: frameStart,
+        });
+      }
       console.info("[pv-input-client] sendInput sent", {
         mqid: mqid ?? null,
         dataLen: data.length,
@@ -2106,14 +2133,18 @@ export function PrettyView({
   // against a torn-down component AND matches Plan 50-02's per-connection
   // pendingMqidsForThisConnection cleanup on the backend so both sides
   // release together (T-50-03-05 mitigation).
-  const clearAllPendingSends = useCallback((reason: string = "unspecified") => {
+  // `keep` names pendings to leave in place (timer and all) — the sends queued
+  // for resend after a WS drop; their bubbles stay up until the resend settles.
+  const clearAllPendingSends = useCallback((reason: string = "unspecified", keep?: ReadonlySet<string>) => {
     for (const p of pendingSendsRef.current) {
+      if (keep?.has(p.mqid)) continue;
       if (p.timer !== null) {
         window.clearTimeout(p.timer);
       }
       console.info(`[diag-dormant-send] cleanup mqid=${p.mqid} matched_by=${reason} elapsedMs=${Date.now() - p.sentAt} replaced=false state=${p.state}`);
     }
-    setPendingSends([]);
+    if (!keep) resendQueueRef.current = [];
+    setPendingSends((prev) => (keep ? prev.filter((p) => keep.has(p.mqid)) : []));
     settledBubbleKeyRef.current.clear();
     clearOptimisticWip(`pending-cleanup ${reason}`);
     setComposeOverrideText(null);
@@ -2123,6 +2154,32 @@ export function PrettyView({
       clearAllPendingSends("ws-close-unmount");
     };
   }, [clearAllPendingSends]);
+  // Resends the sends that never left the browser before the last WS drop.
+  // Called once the new connection is attached to the pane (pane_state), since
+  // the server ignores input that arrives before attach. A send whose pending
+  // is gone (settled, cleared) is skipped; one the new socket refuses flips to
+  // the red failed bubble.
+  const flushResendQueue = useCallback(() => {
+    const queue = resendQueueRef.current;
+    if (queue.length === 0) return;
+    resendQueueRef.current = [];
+    for (const r of queue) {
+      const pending = pendingSendsRef.current.find((p) => p.mqid === r.mqid && p.state === "sending");
+      if (!pending) {
+        console.info(`[pv-resend] skip mqid=${r.mqid} reason=no-sending-pending`);
+        continue;
+      }
+      const ok = sendInput(r.text, r.mqid, { skipTagNeutralize: r.skipTagNeutralize });
+      console.info(`[pv-resend] resend mqid=${r.mqid} textLen=${r.text.length} ok=${ok} hostId=${hostId} tmuxSession=${tmuxSession ?? "null"}`);
+      if (ok) {
+        armOptimisticWip(r.mqid, Math.max(0, pending.sentAt + 90_000 - Date.now()));
+      } else {
+        flipToFailed(r.mqid, "resend-refused");
+      }
+    }
+  }, [sendInput, flipToFailed, armOptimisticWip, hostId, tmuxSession]);
+  const flushResendQueueRef = useRef(flushResendQueue);
+  flushResendQueueRef.current = flushResendQueue;
   // WIP indicator: composite isWorking from session-working-store.
   // Patch #260806-ixl: both the PTY-side ttyBusy signal (Terminal.tsx) and
   // the backgrounded-work signal (PrettyView WS frames) now converge in the
@@ -2929,6 +2986,7 @@ export function PrettyView({
 
     let cancelled = false;
     const ws = openClaudeSessionSocket();
+    trackOutboundBytes(ws);
     wsRef.current = ws;
 
     ws.onopen = () => {
@@ -3044,6 +3102,11 @@ export function PrettyView({
             console.info(`[pane-state] state-transition from=${paneStateRef.current ?? 'null'} to=${parsed.state} trigger=pane-state-frame sessionId=${tmuxSession ?? 'null'} hostId=${hostId}`);
           }
           setPaneState(parsed.state);
+          // The connection is attached to the pane — sends lost to the last
+          // WS drop can go out now.
+          if (parsed.state === "active" || parsed.state === "dormant") {
+            flushResendQueueRef.current();
+          }
           // Phase 76 Plan 01 — D-01/D-02 signal unification (option a):
           //
           // D-01: Two dormancy signal sources exist. Signal A ({type:"dormant"})
@@ -3853,7 +3916,25 @@ export function PrettyView({
       // pending, clear its 20s timer, empty the pendingSends array. Pairs
       // with Plan 50-02's backend per-connection pendingMqidsForThisConnection
       // cleanup so both sides release together on WS teardown.
-      clearAllPendingSends("ws-close-unmount");
+      // Exception: sends whose bytes were still in this socket's outbound
+      // buffer never reached the server — keep their bubbles and resend them
+      // once the next connection attaches (flushResendQueue).
+      const bufferedAtClose = ws.bufferedAmount;
+      const unsent = selectUnsentFrames(
+        [...inputFramesRef.current.values()].filter((r) =>
+          pendingSendsRef.current.some((p) => p.mqid === r.mqid && p.state === "sending"),
+        ),
+        ws,
+        bufferedAtClose,
+      );
+      inputFramesRef.current.clear();
+      console.info(`[pv-resend] ws-close bufferedAmount=${bufferedAtClose} queuedBytes=${queuedOutboundBytes(ws)} sendingCount=${pendingSendsRef.current.filter((p) => p.state === "sending").length} unsentCount=${unsent.length} mqids=${unsent.map((r) => r.mqid).join(",")} hostId=${hostId} tmuxSession=${tmuxSession ?? "null"}`);
+      if (unsent.length > 0) {
+        clearAllPendingSends("ws-close-unmount", new Set(unsent.map((r) => r.mqid)));
+        resendQueueRef.current = unsent;
+      } else {
+        clearAllPendingSends("ws-close-unmount");
+      }
       // A fetch_older_range response can't arrive on a dead WS — release the
       // in-flight guard so the button isn't stuck disabled on its spinner.
       if (loadOlderInFlightRef.current) {
