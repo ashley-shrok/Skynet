@@ -98,16 +98,25 @@ export function WhatsNewModal({ username }: { username: string }) {
       size="md"
       data-testid="whats-new-modal"
     >
-      <ModalHead title={<span className="sr-only">What&apos;s new</span>} className="pb-0" />
-      <ModalBody className="pt-0">
-        <div className="flex flex-col items-center text-center gap-2 pb-5">
-          <span className="k-hero-tile size-14 rounded-[16px]" aria-hidden="true">
-            <Sparkles className="size-7" />
+      {/* The visible "What's new in <name>" IS the dialog's title (its
+          accessible name), with the sparkle tile above it. The tile sits
+          below the close button's line and a 32px spacer on the left balances
+          that button, so the pair stays centred on the sheet. */}
+      <ModalHead
+        className="pb-0"
+        leading={<span className="block w-8" aria-hidden="true" />}
+        title={
+          <span className="flex flex-col items-center text-center gap-2 pt-8 pb-5">
+            <span className="k-hero-tile size-14 rounded-[16px]" aria-hidden="true">
+              <Sparkles className="size-7" />
+            </span>
+            <span className="text-[22px] tracking-[-0.02em]" data-testid="whats-new-title">
+              What&apos;s new in {branding.appName}
+            </span>
           </span>
-          <h2 className="m-0 text-[22px] font-bold tracking-[-0.02em] text-[var(--k-t1)]" data-testid="whats-new-title">
-            What&apos;s new in {branding.appName}
-          </h2>
-        </div>
+        }
+      />
+      <ModalBody className="pt-0">
         <ul className="k-group m-0 p-0 list-none" data-testid="whats-new-notes">
           {notes.map((note) => (
             <li

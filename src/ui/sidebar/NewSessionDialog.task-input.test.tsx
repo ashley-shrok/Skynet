@@ -664,6 +664,45 @@ describe("NewSessionDialog name: always shown, pre-filled with the suggestion", 
     expect(screen.queryByText(SUGGESTED_HELP)).toBeNull();
   });
 
+  it("a machine change drops the previous machine's untouched suggestion; the new machine's fills in", async () => {
+    let resolveSecond!: (v: { name: string }) => void;
+    mockPickPoolName
+      .mockResolvedValueOnce({ name: "willow" })
+      .mockImplementationOnce(() => new Promise((r) => { resolveSecond = r; }));
+    mockListRolesForHost.mockResolvedValue([{ name: "box-maintainer", description: "" }]);
+    renderDialog({ hostTree: twoHostTree });
+    await waitFor(() => expect(queryRolesGroup()).toBeTruthy());
+    toggleRole("box-maintainer", "1");
+    await waitFor(() => expect(nameInput().value).toBe("willow"));
+    expect(screen.getByText(SUGGESTED_HELP)).toBeTruthy();
+    // Picking on the other machine: willow was checked on machine 1 only.
+    toggleRole("box-maintainer", "2");
+    await waitFor(() => expect(mockPickPoolName).toHaveBeenCalledTimes(2));
+    expect(nameInput().value).toBe("");
+    expect(screen.queryByText(SUGGESTED_HELP)).toBeNull();
+    // Machine 2's own suggestion lands in the emptied field, labelled again.
+    resolveSecond({ name: "aster" });
+    await waitFor(() => expect(nameInput().value).toBe("aster"));
+    expect(screen.getByText(SUGGESTED_HELP)).toBeTruthy();
+  });
+
+  it("a machine change whose suggestion fails leaves an empty field, not the old machine's name", async () => {
+    mockPickPoolName
+      .mockResolvedValueOnce({ name: "willow" })
+      .mockRejectedValueOnce(new Error("pool down"));
+    mockListRolesForHost.mockResolvedValue([{ name: "box-maintainer", description: "" }]);
+    renderDialog({ hostTree: twoHostTree });
+    await waitFor(() => expect(queryRolesGroup()).toBeTruthy());
+    toggleRole("box-maintainer", "1");
+    await waitFor(() => expect(nameInput().value).toBe("willow"));
+    toggleRole("box-maintainer", "2");
+    await waitFor(() => expect(mockPickPoolName).toHaveBeenCalledTimes(2));
+    await new Promise((r) => setTimeout(r, 20));
+    expect(nameInput().value).toBe("");
+    expect(nameInput().disabled).toBe(false);
+    expect(screen.queryByText(SUGGESTED_HELP)).toBeNull();
+  });
+
   it("no suggestion (pool down) → the field is empty and typable, with no help line and no error", async () => {
     renderDialog();
     await waitFor(() => expect(mockPickPoolName).toHaveBeenCalled());

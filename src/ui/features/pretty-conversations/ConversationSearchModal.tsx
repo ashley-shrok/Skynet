@@ -296,9 +296,14 @@ export function ConversationSearchModal({
       localValue.length === 0);
 
   const showSearching = state.isFetching && state.results.length === 0;
+  // Not after a failed search (the error banner says what happened), and not
+  // while there are more pages — an un-archive can empty the loaded page
+  // without the search having come up empty.
   const showNoResults =
     !state.isFetching &&
     !showEmptyState &&
+    !state.error &&
+    !state.hasMore &&
     state.results.length === 0 &&
     state.query.length > 0;
 
@@ -382,6 +387,8 @@ export function ConversationSearchModal({
         )}
         {state.results.length > 0 && (
           <p className="m-0 mb-2 px-1 text-[13px] text-[var(--k-t2)]" data-testid="conversation-search-count">
+            {/* The results listed right now (an un-archive takes its row out);
+                "+" while there are more pages to load. */}
             {state.results.length}
             {state.hasMore ? "+" : ""} {state.results.length === 1 && !state.hasMore ? "conversation" : "conversations"}
           </p>

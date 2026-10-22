@@ -858,17 +858,27 @@ describe("NewSessionDialog roles: Test 25 — zero roles is a normal choice", ()
 // Loading + fetch errors — each host answers on its own
 // ─────────────────────────────────────────────────────────────────────────────
 describe("NewSessionDialog roles: per-host loading and errors", () => {
-  it("'Loading roles…' only until the first host answers; its roles are pickable while the other still loads", async () => {
+  it("'Loading roles…' stays while any host is still answering, under the groups; loaded roles are pickable meanwhile", async () => {
     const alpha = deferred<ReturnType<typeof role>[]>();
     const bravo = deferred<ReturnType<typeof role>[]>();
     mockListRolesForHost.mockImplementation(rolesByHost({ 1: alpha.promise, 2: bravo.promise }));
     renderDialog();
     await waitFor(() => expect(rolesLoading()).toBe(true));
-    expect(roleListRows()).toEqual([]);
+    // Each machine's "No roles" is there from the start.
+    expect(roleListRows()).toEqual([
+      "# alpha", `1/${NO_ROLES_VALUE}`,
+      "# bravo", `2/${NO_ROLES_VALUE}`,
+    ]);
 
     bravo.resolve([role("tina"), role("ops")]);
-    await waitFor(() => expect(rolesLoading()).toBe(false));
-    expect(roleOptionValues()).toEqual(["2/tina", "2/ops"]);
+    await waitFor(() => expect(roleOptionValues()).toEqual(["2/tina", "2/ops"]));
+    // alpha hasn't answered yet: the loading line stays, under the groups.
+    expect(rolesLoading()).toBe(true);
+    const list = screen.getByTestId("role-pick-list");
+    const loadingLine = screen.getByTestId("role-pick-loading");
+    const lastGroup = screen.getByTestId("role-pick-group-2");
+    expect(list.contains(loadingLine)).toBe(true);
+    expect(lastGroup.compareDocumentPosition(loadingLine) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     // No zero-roles hint while a host is still loading.
     expect(screen.queryByText(/no roles (on this host )?yet/i)).toBeNull();
     toggleRole("tina");
@@ -876,6 +886,7 @@ describe("NewSessionDialog roles: per-host loading and errors", () => {
 
     alpha.resolve([role("box-maintainer")]);
     await waitFor(() => expect(roleOptionValues()).toHaveLength(3));
+    expect(rolesLoading()).toBe(false);
     expect(roleGroupHeaders()).toEqual(["alpha", "bravo"]);
     // A late host's roles don't disturb the picks.
     expect(pickedRoleValues()).toEqual(["2/tina"]);
@@ -911,6 +922,24 @@ describe("NewSessionDialog roles: per-host loading and errors", () => {
     expect(screen.queryByText(/boom/)).toBeNull();
     expect(screen.queryByText(/couldn't load roles/i)).toBeNull();
     expect(screen.queryByText(/no roles (on this host )?yet/i)).toBeNull();
+    // Nothing to list, and nothing was searched for: a plain empty line, not
+    // "No matching roles".
+    expect(screen.queryByTestId("role-pick-no-matches")).toBeNull();
+    expect(screen.getByTestId("role-pick-empty").textContent).toBe("No roles to pick from right now");
+  });
+
+  it("one machine: No roles is there, preselected and pickable while its roles are still loading", async () => {
+    const alpha = deferred<ReturnType<typeof role>[]>();
+    mockListRolesForHost.mockImplementation(rolesByHost({ 1: alpha.promise }));
+    renderDialog({ hostTree: oneHostTree });
+    await waitFor(() => expect(pickedRoleValues()).toEqual([NO_ROLES_VALUE]));
+    expect(rolesLoading()).toBe(true);
+    expect(roleListRows()).toEqual([NO_ROLES_VALUE]);
+    expect(screen.queryByTestId("role-pick-empty")).toBeNull();
+    alpha.resolve([role("tina")]);
+    await waitFor(() => expect(rolesLoading()).toBe(false));
+    expect(roleListRows()).toEqual([NO_ROLES_VALUE, "tina"]);
+    expect(pickedRoleValues()).toEqual([NO_ROLES_VALUE]);
   });
 
   it("single host failing → no error line", async () => {

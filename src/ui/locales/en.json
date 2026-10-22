@@ -125,7 +125,19 @@
     "newSessionNamePlaceholder": "auto",
     "newSessionNameError": "Use letters, numbers, underscores, or dashes (max 64 characters).",
     "newSessionNoHosts": "No hosts available",
-    "newSessionHostList": "Hosts"
+    "newSessionHostList": "Hosts",
+    "newSessionShellDescription": "A terminal on one of your machines, with no agent in it.",
+    "newSessionNameSuggested": "Suggested — change it if you like.",
+    "newSessionNamePickRoleFirst": "Pick a role first",
+    "newSessionNoRoles": "No roles",
+    "newSessionNoRolesDescription": "A plain agent — give it roles later if you like.",
+    "newSessionOnEveryHost": "· on every host",
+    "newSessionSearchRoles": "Search roles",
+    "newSessionLoadingRoles": "Loading roles…",
+    "newSessionNoMatchingRoles": "No matching roles",
+    "newSessionNoRolesToPick": "No roles to pick from right now",
+    "newSessionRolePicked": "Picked",
+    "newSessionNewRole": "New role…"
   },
   "hosts": {
     "hosts": "Hosts",

@@ -318,7 +318,7 @@ describe("NewSessionDialog: host list render", () => {
   });
 
   it("Test 3a: agent mode (default) renders no host list or host search", () => {
-    const { queryByText, queryByLabelText } = render(
+    const { queryByLabelText } = render(
       <NewSessionDialog
         open={true}
         onClose={vi.fn()}
@@ -328,9 +328,13 @@ describe("NewSessionDialog: host list render", () => {
       />,
     );
     expect(queryByLabelText(/search hosts/i)).toBeNull();
-    expect(queryByText("alpha")).toBeNull();
-    expect(queryByText("bravo")).toBeNull();
-    expect(queryByText("charlie")).toBeNull();
+    // Machine names only appear as the roles list's group headings (shown
+    // from the start, each with its "No roles"), never as a host picker.
+    const outsideRoles = (name: string) =>
+      screen.queryAllByText(name).filter((el) => !el.closest('[data-testid="role-pick-list"]'));
+    expect(outsideRoles("alpha")).toEqual([]);
+    expect(outsideRoles("bravo")).toEqual([]);
+    expect(outsideRoles("charlie")).toEqual([]);
     expect(screen.queryByText(/pick a host/i)).toBeNull();
   });
 });

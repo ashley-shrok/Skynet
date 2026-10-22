@@ -1273,5 +1273,52 @@ describe("ConversationSearchModal: apple-ux chrome", () => {
     const body = screen.getByTestId("conversation-search-body");
     expect(body.firstElementChild).toBe(banner);
     expect(document.querySelector('[data-slot="modal-foot"]')).toBeNull();
+    // A failed search isn't "no results".
+    expect(screen.queryByTestId("conversation-search-no-results")).toBeNull();
+    expect(screen.queryByText("Try fewer or different words.")).toBeNull();
+  });
+
+  async function unarchiveRow(identityKey: string, hostId: number): Promise<void> {
+    const user = userEvent.setup();
+    await user.click(screen.getByTestId(`conversation-search-archived-row-kebab-${identityKey}-${hostId}`));
+    await user.click(await screen.findByRole("menuitem", { name: /^Un-archive$/ }));
+  }
+
+  it("count line follows the listed results after an un-archive takes a row out", async () => {
+    unarchiveIdentityMock.mockResolvedValue({ ok: true });
+    autoAnswerKitDialogs();
+    const rows = [
+      makeRow({ transcriptPath: "/x0.jsonl", identityKey: "gone", hostId: 1, isArchived: true }),
+      ...rowsOf(19, "y"),
+    ];
+    searchConversationsMock.mockResolvedValueOnce({ results: rows, hasMore: true });
+    renderModal();
+    const user = userEvent.setup();
+    await user.type(input(), "foo");
+    await user.keyboard("{Enter}");
+    expect(await screen.findByTestId("conversation-search-count")).toHaveTextContent(/^20\+ conversations$/);
+    await unarchiveRow("gone", 1);
+    await waitFor(() =>
+      expect(screen.getByTestId("conversation-search-count")).toHaveTextContent(/^19\+ conversations$/),
+    );
+  });
+
+  it("un-archiving the last listed row while more pages remain shows Load more, not \"No results\"", async () => {
+    unarchiveIdentityMock.mockResolvedValue({ ok: true });
+    autoAnswerKitDialogs();
+    searchConversationsMock.mockResolvedValueOnce({
+      results: [makeRow({ transcriptPath: "/only.jsonl", identityKey: "only", hostId: 2, isArchived: true })],
+      hasMore: true,
+    });
+    renderModal();
+    const user = userEvent.setup();
+    await user.type(input(), "foo");
+    await user.keyboard("{Enter}");
+    await screen.findByTestId("conversation-search-row-/only.jsonl");
+    await unarchiveRow("only", 2);
+    await waitFor(() => expect(screen.queryByTestId("conversation-search-row-/only.jsonl")).toBeNull());
+    expect(screen.queryByTestId("conversation-search-count")).toBeNull();
+    expect(screen.queryByTestId("conversation-search-no-results")).toBeNull();
+    expect(screen.getByTestId("conversation-search-load-more")).toBeInTheDocument();
   });
 });

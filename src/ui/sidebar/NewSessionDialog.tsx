@@ -314,7 +314,7 @@ export function NewSessionDialog({
    */
   onNewRole?: (ctx: { host: Host | null; roles: string[]; name: string | null }) => void;
   /**
-   * A custom agent name to restore (with the custom-name input revealed) —
+   * A custom agent name to restore into the Name field —
    * set when returning from the "New role…" hop. Pool suggestions are not
    * carried; a fresh one is picked on reopen.
    */
@@ -363,15 +363,6 @@ export function NewSessionDialog({
   // this dialog; those live at the role level now and the born identity
   // inherits them on landing. Only the identity's own name + task remain.
   const [name, setName] = useState(""); // identity name (distinct from regular sessionName)
-
-  // 2026-09-27: auto-generate name by default. `autoName === false` (unchecked,
-  // the default) means the pool-picked name is submitted silently and the manual
-  // input is hidden. `autoName === true` means the user opted into typing their
-  // own name — the input reveals and the pool suggestion becomes a starting point
-  // they can accept, edit, or replace. On pool-pick failure the catch branch in
-  // the effect below flips this to `true` so the input reveals and the user can
-  // recover manually without seeing an error.
-  const [autoName, setAutoName] = useState(false);
 
   // 2026-09-14: the task-description textarea and its `task` state were removed.
   // Birth sends TASK_PLACEHOLDER and the agent self-fills on first wake.
@@ -480,9 +471,6 @@ export function NewSessionDialog({
   const anyRolesLoading = agentHosts.some(
     (h) => hostRoles[h.id] === undefined || hostRoles[h.id].loading,
   );
-  const allRoles = sortedHosts.flatMap((h) =>
-    (hostRoles[h.id]?.roles ?? []).map((role) => ({ host: h, role })),
-  );
   // The picked host's roles — what the stale-role guard validates against.
   const selectedHostRoles = selectedHost ? hostRoles[selectedHost.id] : undefined;
   const rolesForHost = selectedHostRoles?.roles ?? NO_ROLES;
@@ -532,7 +520,6 @@ export function NewSessionDialog({
         if (firstRun && initialName) {
           nameRef.current = initialName;
           setName(initialName);
-          setAutoName(true);
         }
       } else if (pool.length === 1) {
         setSelectedHost(pool[0]);
@@ -555,7 +542,6 @@ export function NewSessionDialog({
       setPath("~/");
       setShellOnly(false);
       setName("");
-      setAutoName(false);
       // Phase 80 Plan 80-06: reset pool-pick tracking on close.
       setPoolPickedName(null);
       // Reset the prefill effect's mirrors too. State setters above are async,
@@ -708,7 +694,7 @@ export function NewSessionDialog({
     }
   }, [rolesForHost, rolesLoading, selectedRoles, multiHost]);
 
-  // Roles dropdown wiring. With several hosts an option's value is
+  // Roles list wiring. With several hosts an option's value is
   // `<hostId>/<role>` (a role can exist on more than one host — instance-wide
   // roles are on all of them); with one host it is the bare role name.
   // Each host's entries start with "No roles" (value NO_ROLES_OPTION in place
@@ -719,28 +705,9 @@ export function NewSessionDialog({
   const roleOptionValue = (host: Host, role: string) =>
     multiHost ? `${host.id}/${role}` : role;
   const noRolesLabel = t("nav.newSessionNoRoles", { defaultValue: "No roles" });
-  const roleOptions = sortedHosts.flatMap((host) => {
-    if (hostRoles[host.id]?.error && multiHost) return [];
-    const group = multiHost ? { group: host.name } : {};
-    const noRolesOption = {
-      value: roleOptionValue(host, NO_ROLES_OPTION),
-      label: noRolesLabel,
-      ...(multiHost ? { ...group, pillLabel: `${noRolesLabel} · ${host.name}` } : {}),
-    };
-    const hostOptions = (hostRoles[host.id]?.roles ?? []).map((role) => {
-      // Instance-wide roles carry a marker (same role on every host).
-      const label =
-        roleDisplayName(role.name, role.displayName) +
-        (role.instanceWide ? " · instance-wide" : "");
-      return {
-        value: roleOptionValue(host, role.name),
-        label,
-        ...(multiHost ? { ...group, pillLabel: `${label} · ${host.name}` } : {}),
-      };
-    });
-    return [noRolesOption, ...hostOptions];
-  });
-  // The same entries as a list in the dialog: pictures and descriptions.
+  // Instance-wide roles carry a marker (same role on every host).
+  const onEveryHost = t("nav.newSessionOnEveryHost", { defaultValue: "· on every host" });
+  // The entries as a list in the dialog: pictures and descriptions.
   const roleGroups: RolePickGroup[] = sortedHosts.flatMap((host) => {
     if (hostRoles[host.id]?.error && multiHost) return [];
     const hostIdNum = parseInt(String(host.id), 10);
@@ -752,7 +719,7 @@ export function NewSessionDialog({
           { value: roleOptionValue(host, NO_ROLES_OPTION), label: noRolesLabel, noRoles: true },
           ...(hostRoles[host.id]?.roles ?? []).map((role) => ({
             value: roleOptionValue(host, role.name),
-            label: roleDisplayName(role.name, role.displayName) + (role.instanceWide ? " · on every host" : ""),
+            label: roleDisplayName(role.name, role.displayName) + (role.instanceWide ? ` ${onEveryHost}` : ""),
             description: role.description,
             avatarSrc: role.avatar && Number.isFinite(hostIdNum) ? roleAvatarUrl(hostIdNum, role.name) : null,
           })),
@@ -811,6 +778,29 @@ export function NewSessionDialog({
     if (roles.length === 0 && multiHost) setSelectedHost(null);
   }
 
+  // The agent's machine changed (a role picked on another machine, or the
+  // pick withdrawn): a suggestion still sitting untouched in the Name field
+  // was picked to be free on the PREVIOUS machine, so it goes — field and
+  // `poolPickedName` both — and the new machine's suggestion (below) can fill
+  // it. Until then nothing is labelled "Suggested" or sent as poolPicked for a
+  // machine it wasn't checked on. A typed name never matches and stays put.
+  // Declared before the prefill effect so it runs first on the same commit.
+  const suggestionHostIdRef = useRef<string | null>(null);
+  useEffect(() => {
+    const hostId = selectedHost ? String(selectedHost.id) : null;
+    const prev = suggestionHostIdRef.current;
+    suggestionHostIdRef.current = hostId;
+    if (prev === null || prev === hostId) return;
+    const suggestion = poolPickedNameRef.current;
+    if (suggestion !== null && nameRef.current === suggestion) {
+      console.log(`[new-session] host changed from=${prev} to=${hostId ?? "-"}; dropping suggested name`);
+      nameRef.current = "";
+      poolPickedNameRef.current = null;
+      setName("");
+      setPoolPickedName(null);
+    }
+  }, [selectedHost]);
+
   // Phase 80 Plan 80-06 Task 2: auto-prefill Name via pickPoolName.
   //
   // 2026-09-14: the `!selectedRoles` gate is GONE. It was never about names —
@@ -868,17 +858,10 @@ export function NewSessionDialog({
           setPoolPickedName(poolName);
         }
       } catch {
-        // Silent: pool endpoint failure just means no prefill. User can type
-        // a name manually. Do NOT surface an inline error banner — pool is a
-        // suggestion source, not a hard requirement (T-80-06-03 mitigation).
-        //
-        // 2026-09-27: on failure, flip the auto-name checkbox to `true` so the
-        // manual input reveals. Without this the user would sit staring at just
-        // a checked-off "Choose a custom agent name" checkbox with no input to
-        // type in, and Create would be disabled forever. Same "degrade
-        // invisibly" spirit as the swallow above — no banner, no explanation,
-        // the input just appears and the user types.
-        if (!cancelled) setAutoName(true);
+        // Silent: pool endpoint failure just means no prefill — the Name
+        // field (always shown) stays empty and the user types one. Do NOT
+        // surface an inline error banner — pool is a suggestion source, not a
+        // hard requirement (T-80-06-03 mitigation).
       }
     })();
     return () => {
@@ -1261,6 +1244,16 @@ export function NewSessionDialog({
     defaultValue:
       "Use letters, numbers, underscores, or dashes (max 64 characters).",
   });
+  const shellDescription = t("nav.newSessionShellDescription", {
+    defaultValue: "A terminal on one of your machines, with no agent in it.",
+  });
+  const nameSuggestedHelp = t("nav.newSessionNameSuggested", {
+    defaultValue: "Suggested — change it if you like.",
+  });
+  const namePickRoleFirst = t("nav.newSessionNamePickRoleFirst", {
+    defaultValue: "Pick a role first",
+  });
+  const cancelLabel = t("common.cancel", { defaultValue: "Cancel" });
   const openLabel = t("common.create", { defaultValue: "Create" });
   const emptyHostsLabel = t("nav.newSessionNoHosts", {
     defaultValue: "No hosts available",
@@ -1279,7 +1272,7 @@ export function NewSessionDialog({
       }}
       size="lg"
     >
-      <ModalHead title={startTitle} subtitle={shellOnly ? "A terminal on one of your machines, with no agent in it." : startDescription} />
+      <ModalHead title={startTitle} subtitle={shellOnly ? shellDescription : startDescription} />
       <ModalBody className="flex flex-col gap-4">
         {/* Admins choose between an agent and a plain shell. */}
         {isAdmin && (
@@ -1386,7 +1379,7 @@ export function NewSessionDialog({
                 groups={roleGroups}
                 value={pickedRoleValues}
                 onChange={handleRolesChange}
-                loading={anyRolesLoading && allRoles.length === 0}
+                loading={anyRolesLoading}
                 disabled={formDisabled}
                 onNewRole={
                   onNewRole
@@ -1407,45 +1400,43 @@ export function NewSessionDialog({
             {/* The name is always shown: a suggestion fills it (picked to be
                 free on the agent's machine); typing replaces it. */}
             <div className="flex flex-col gap-2">
-              {(
-                <KitField
-                  label="Name"
-                  htmlFor="new-identity-name"
-                  help={
-                    poolPickedName !== null && name.trim() === poolPickedName
-                      ? "Suggested — change it if you like."
-                      : undefined
-                  }
-                  error={
-                    name.trim().length > 0 && !nameValid
-                      ? name.trim().length > 80
-                        ? "Name must be 80 characters or fewer"
-                        : "Name must contain at least one letter"
-                      : skynetCollision
-                        ? `Already exists in ${brandingConfig.appName}`
-                        : hostCollision && selectedHost
-                          ? `Already exists on ${selectedHost.name}`
-                          : undefined
-                  }
-                >
-                  <KitInput
-                    id="new-identity-name"
-                    aria-label="Name"
-                    value={name}
-                    onChange={(e) => {
-                      setName(e.target.value);
-                      // Clear collision state when name changes (re-check on blur)
-                      setSkynetCollision(false);
-                      setHostCollision(false);
-                    }}
-                    onBlur={() => runCollisionPrecheck(name)}
-                    onKeyDown={submitOnEnter(canOpen, handleCreate)}
-                    placeholder={selectedHost ? "e.g. alicia" : "Pick a role first"}
-                    disabled={formDisabled}
-                    invalid={name.trim().length > 0 && !nameValid}
-                  />
-                </KitField>
-              )}
+              <KitField
+                label="Name"
+                htmlFor="new-identity-name"
+                help={
+                  poolPickedName !== null && name.trim() === poolPickedName
+                    ? nameSuggestedHelp
+                    : undefined
+                }
+                error={
+                  name.trim().length > 0 && !nameValid
+                    ? name.trim().length > 80
+                      ? "Name must be 80 characters or fewer"
+                      : "Name must contain at least one letter"
+                    : skynetCollision
+                      ? `Already exists in ${brandingConfig.appName}`
+                      : hostCollision && selectedHost
+                        ? `Already exists on ${selectedHost.name}`
+                        : undefined
+                }
+              >
+                <KitInput
+                  id="new-identity-name"
+                  aria-label="Name"
+                  value={name}
+                  onChange={(e) => {
+                    setName(e.target.value);
+                    // Clear collision state when name changes (re-check on blur)
+                    setSkynetCollision(false);
+                    setHostCollision(false);
+                  }}
+                  onBlur={() => runCollisionPrecheck(name)}
+                  onKeyDown={submitOnEnter(canOpen, handleCreate)}
+                  placeholder={selectedHost ? "e.g. alicia" : namePickRoleFirst}
+                  disabled={formDisabled}
+                  invalid={name.trim().length > 0 && !nameValid}
+                />
+              </KitField>
             </div>
           </div>
         )}
@@ -1453,7 +1444,7 @@ export function NewSessionDialog({
 
       <ModalFoot>
         <KitButton disabled={birthing} onClick={onClose} data-testid="new-session-cancel">
-          Cancel
+          {cancelLabel}
         </KitButton>
         {/* Phase 106 Plan 106-02 (D-14): the Create button is the progress
             surface — busy spinner while the birth stream is in flight. */}

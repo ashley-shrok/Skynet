@@ -223,6 +223,19 @@ describe("kit rows and choices", () => {
     expect(onRow).toHaveBeenCalled();
   });
 
+  it("a settings row announces pressed on its button, in both layouts", () => {
+    render(
+      <>
+        <KitSettingsRow label="Plain" onClick={() => {}} pressed />
+        <KitSettingsRow label="Split" onClick={() => {}} pressed={false} control={<span>x</span>} />
+        <KitSettingsRow label="Untoggled" onClick={() => {}} />
+      </>,
+    );
+    expect(screen.getByRole("button", { name: /Plain/ })).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByRole("button", { name: /Split/ })).toHaveAttribute("aria-pressed", "false");
+    expect(screen.getByRole("button", { name: /Untoggled/ })).not.toHaveAttribute("aria-pressed");
+  });
+
   it("busy button is disabled and announces it", () => {
     render(<KitButton variant="primary" busy>Saving…</KitButton>);
     const b = screen.getByRole("button", { name: /Saving/ });

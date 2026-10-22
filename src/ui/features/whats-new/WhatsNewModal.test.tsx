@@ -31,7 +31,9 @@ describe("WhatsNewModal", () => {
     getWhatsNew.mockResolvedValue(notes);
     render(<WhatsNewModal username="ash" />);
     await screen.findByTestId("whats-new-modal");
-    expect(screen.getByRole("dialog", { name: "What's new" })).toBeTruthy();
+    // The visible title is the dialog's name — one heading, no hidden twin.
+    expect(screen.getByRole("dialog", { name: "What's new in SKYNET" })).toBeTruthy();
+    expect(screen.getAllByRole("heading").map((h) => h.textContent)).toEqual(["What's new in SKYNET"]);
     expect(screen.getAllByTestId("whats-new-note").map((li) => li.textContent)).toEqual([
       "Newest change.",
       "Older change.",
@@ -59,6 +61,7 @@ describe("WhatsNewModal", () => {
     render(<WhatsNewModal username="ash" />);
     const modal = await screen.findByTestId("whats-new-modal");
     expect(screen.getByTestId("whats-new-title").textContent).toBe("What's new in Acme Hub");
+    expect(screen.getByRole("dialog", { name: "What's new in Acme Hub" })).toBeTruthy();
     expect(modal.textContent).not.toMatch(/skynet/i);
   });
 

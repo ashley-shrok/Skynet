@@ -27,14 +27,18 @@ function queryList(): HTMLElement | null {
   return document.querySelector<HTMLElement>('[data-testid="role-pick-list"]');
 }
 
+const queryLoadingLine = (list: HTMLElement) =>
+  list.querySelector('[data-testid="role-pick-loading"]');
+
 /**
- * The roles list, or null when it isn't usable yet — absent (shell mode) or
- * still showing "Loading roles…".
+ * The roles list once every machine has answered, or null — absent (shell
+ * mode) or still showing its "Loading roles…" line. (Groups that have loaded
+ * show and can be picked while that line is up; see rolesLoading.)
  */
 export function queryRolesGroup(): HTMLElement | null {
   const list = queryList();
   if (!list) return null;
-  if (/loading roles/i.test(list.textContent ?? "")) return null;
+  if (queryLoadingLine(list)) return null;
   return list;
 }
 
@@ -45,10 +49,10 @@ export function getRolesGroup(): HTMLElement {
   return list;
 }
 
-/** The list is showing its "Loading roles…" placeholder. */
+/** The list is showing its "Loading roles…" line (some machine hasn't answered). */
 export function rolesLoading(): boolean {
   const list = queryList();
-  return !!list && /loading roles/i.test(list.textContent ?? "");
+  return !!list && !!queryLoadingLine(list);
 }
 
 /** Every role row (including "No roles"), in list order. */
@@ -69,9 +73,18 @@ export function roleRow(value: string): HTMLElement | null {
   return roleRows().find((r) => rowValue(r) === value) ?? null;
 }
 
-/** A row is picked when it carries the check. */
+/**
+ * A row is picked when it carries the check — and its button says so to
+ * screen readers (aria-pressed); the two must agree.
+ */
 export function isPicked(row: HTMLElement): boolean {
-  return row.querySelector('[aria-label="Picked"]') !== null;
+  const checked = row.querySelector('[aria-label="Picked"]') !== null;
+  const btn = row.matches("button") ? row : row.querySelector("button");
+  const pressed = btn?.getAttribute("aria-pressed") === "true";
+  if (checked !== pressed) {
+    throw new Error(`isPicked: check (${checked}) and aria-pressed (${pressed}) disagree`);
+  }
+  return checked;
 }
 
 /** A row is disabled while the dialog is busy. */

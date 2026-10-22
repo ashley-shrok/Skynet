@@ -264,8 +264,10 @@ describe("NewSessionDialog chain: Test 2 — no props preserves existing behavio
         onNewRole={onNewRole}
       />,
     );
-    // No host list in agent mode.
-    expect(screen.queryByText("box-a")).toBeNull();
+    // No host list in agent mode — machine names only head the roles groups.
+    expect(
+      screen.queryAllByText("box-a").filter((el) => !el.closest('[data-testid="role-pick-list"]')),
+    ).toEqual([]);
     await waitFor(() =>
       expect(roleOptionValues()).toEqual(["1/box-maintainer", "2/box-maintainer"]),
     );

@@ -8,9 +8,11 @@
 // what picking means (No roles is exclusive, a role from another machine
 // moves the agent there) is the caller's — this only reports the next list
 // of picked values. A search box appears once there are more than eight
-// roles; "New role…" sits at the bottom.
+// roles; "New role…" sits at the bottom. Rows are toggle buttons
+// (aria-pressed) so the picked state reaches screen readers too.
 
 import { useMemo, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { Check, CircleDashed, Plus } from "lucide-react";
 import {
   KitAvatar,
@@ -52,11 +54,17 @@ export function RolePickList({
   value: string[];
   onChange: (next: string[]) => void;
   onNewRole?: () => void;
-  /** Roles are still arriving and nothing is listed yet. */
+  /**
+   * Some machine's roles are still arriving. The groups that are there still
+   * show (each machine's "No roles" is always pickable); a "Loading roles…"
+   * line sits under them until every machine has answered.
+   */
   loading?: boolean;
   disabled?: boolean;
 }): JSX.Element {
+  const { t } = useTranslation();
   const [query, setQuery] = useState("");
+  const searching = query.trim() !== "";
   const roleCount = groups.reduce((n, g) => n + g.items.filter((i) => !i.noRoles).length, 0);
   const shown = useMemo(() => {
     const words = query.trim().toLowerCase().split(/\s+/).filter(Boolean);
@@ -73,6 +81,12 @@ export function RolePickList({
       .filter((g) => g.items.length > 0);
   }, [groups, query]);
 
+  const searchLabel = t("nav.newSessionSearchRoles", { defaultValue: "Search roles" });
+  const noRolesDescription = t("nav.newSessionNoRolesDescription", {
+    defaultValue: "A plain agent — give it roles later if you like.",
+  });
+  const pickedLabel = t("nav.newSessionRolePicked", { defaultValue: "Picked" });
+
   const toggle = (v: string): void => {
     if (disabled) return;
     onChange(value.includes(v) ? value.filter((x) => x !== v) : [...value, v]);
@@ -84,17 +98,25 @@ export function RolePickList({
         <KitSearch
           value={query}
           onValueChange={setQuery}
-          placeholder="Search roles"
-          aria-label="Search roles"
+          placeholder={searchLabel}
+          aria-label={searchLabel}
           disabled={disabled}
           data-testid="role-pick-search"
         />
       )}
       <div className="max-h-[min(46vh,360px)] overflow-y-auto overscroll-contain -mx-1 px-1">
-        {loading ? (
-          <KitLoading label="Loading roles…" />
-        ) : shown.length === 0 ? (
-          <KitEmpty title="No matching roles" data-testid="role-pick-no-matches" />
+        {shown.length === 0 ? (
+          loading ? null : searching ? (
+            <KitEmpty
+              title={t("nav.newSessionNoMatchingRoles", { defaultValue: "No matching roles" })}
+              data-testid="role-pick-no-matches"
+            />
+          ) : (
+            <KitEmpty
+              title={t("nav.newSessionNoRolesToPick", { defaultValue: "No roles to pick from right now" })}
+              data-testid="role-pick-empty"
+            />
+          )
         ) : (
           shown.map((g) => (
             <KitSettingsGroup key={g.key} title={groups.length > 1 ? g.title : undefined} data-testid={`role-pick-group-${g.key}`}>
@@ -114,14 +136,15 @@ export function RolePickList({
                       )
                     }
                     label={<span className={picked ? "text-[var(--k-acc-text)]" : undefined}>{i.label}</span>}
-                    description={i.noRoles ? "A plain agent — give it roles later if you like." : i.description || undefined}
+                    description={i.noRoles ? noRolesDescription : i.description || undefined}
                     truncate
                     chevron={false}
                     disabled={disabled}
                     onClick={() => toggle(i.value)}
+                    pressed={picked}
                     control={
                       picked ? (
-                        <Check className="size-[18px] text-[var(--k-acc-text)] shrink-0" aria-label="Picked" />
+                        <Check className="size-[18px] text-[var(--k-acc-text)] shrink-0" aria-label={pickedLabel} />
                       ) : (
                         <span className="size-[18px] shrink-0" aria-hidden="true" />
                       )
@@ -131,6 +154,13 @@ export function RolePickList({
               })}
             </KitSettingsGroup>
           ))
+        )}
+        {loading && (
+          <KitLoading
+            lines={0}
+            label={t("nav.newSessionLoadingRoles", { defaultValue: "Loading roles…" })}
+            data-testid="role-pick-loading"
+          />
         )}
         {onNewRole && (
           <KitSettingsGroup className="mt-[22px]">
@@ -142,7 +172,7 @@ export function RolePickList({
                   <Plus className="size-5" aria-hidden="true" />
                 </span>
               }
-              label="New role…"
+              label={t("nav.newSessionNewRole", { defaultValue: "New role…" })}
               disabled={disabled}
               onClick={onNewRole}
               data-testid="role-pick-new-role"

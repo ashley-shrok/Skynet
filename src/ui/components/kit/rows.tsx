@@ -79,6 +79,8 @@ export interface KitSettingsRowProps {
   truncate?: boolean;
   /** Accessible name for the row's open button (when onClick + control). */
   openLabel?: string;
+  /** A toggle row: announces picked/not picked (aria-pressed) on its button. */
+  pressed?: boolean;
   /** Right-click on the row (e.g. a row menu at the cursor). */
   onContextMenu?: React.MouseEventHandler<HTMLElement>;
   className?: string;
@@ -100,6 +102,7 @@ export function KitSettingsRow({
   stacked,
   truncate,
   openLabel,
+  pressed,
   onContextMenu,
   className,
   "data-testid": testId,
@@ -134,7 +137,7 @@ export function KitSettingsRow({
           onClick();
         }}
       >
-        <button type="button" className="k-row-main" onClick={onClick} disabled={disabled} aria-label={openLabel}>
+        <button type="button" className="k-row-main" onClick={onClick} disabled={disabled} aria-label={openLabel} aria-pressed={pressed}>
           {text}
         </button>
         {value != null ? <span className="k-row-value">{value}</span> : null}
@@ -164,7 +167,7 @@ export function KitSettingsRow({
   };
   if (onClick) {
     return (
-      <button type="button" disabled={disabled} onClick={onClick} {...common}>
+      <button type="button" disabled={disabled} onClick={onClick} aria-pressed={pressed} {...common}>
         {inner}
       </button>
     );

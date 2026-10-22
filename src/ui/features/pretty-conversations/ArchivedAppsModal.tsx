@@ -167,6 +167,8 @@ export function ArchivedAppsModal({
                 {
                   label: "Un-archive",
                   onClick: () => void handleUnarchive(entry),
+                  // Like the row's button: one un-archive at a time.
+                  disabled: busyKey !== null,
                 },
               ];
 

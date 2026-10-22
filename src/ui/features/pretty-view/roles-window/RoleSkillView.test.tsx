@@ -235,6 +235,24 @@ describe("role skill view", () => {
     );
   });
 
+  it("saving SKILL.md refreshes the description under the name", async () => {
+    m.listRoleSkills.mockResolvedValue([{ name: RB, description: "Old line." }]);
+    m.writeRoleSkillFile.mockResolvedValue({ mtime: 12 });
+    await openSkill();
+    expect(await screen.findByText("Old line.")).toBeTruthy();
+    await waitFor(() => expect(editor().value).toBe("content of SKILL.md"));
+    const listCalls = m.listRoleSkills.mock.calls.length;
+    m.listRoleSkills.mockResolvedValue([{ name: RB, description: "New line." }]);
+    fireEvent.change(editor(), { target: { value: `---\nname: ${RB}\ndescription: New line.\n---\n` } });
+    await waitFor(() => expect((screen.getByTestId("skill-view-save") as HTMLButtonElement).disabled).toBe(false));
+    fireEvent.click(screen.getByTestId("skill-view-save"));
+    await waitFor(() => expect(m.writeRoleSkillFile).toHaveBeenCalledTimes(1));
+    expect(await screen.findByText("New line.")).toBeTruthy();
+    expect(screen.queryByText("Old line.")).toBeNull();
+    expect(m.listRoleSkills.mock.calls.length).toBe(listCalls + 1);
+    expect(m.listRoleSkills).toHaveBeenLastCalledWith(HOST_ID, "box-maintainer");
+  });
+
   it("leaving with unsaved edits asks first; 'no' stays", async () => {
     const dialogs = autoAnswerKitDialogs({ confirm: false });
     await openSkill();

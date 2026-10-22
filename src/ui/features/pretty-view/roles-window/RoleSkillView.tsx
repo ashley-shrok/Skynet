@@ -16,6 +16,7 @@ import { KitBanner, KitButton, KitEmpty, KitLoading, kitAlert, kitConfirm, kitPr
 import { RowKebabMenu, type RowKebabMenuItem } from "@/features/pretty-conversations/RowKebabMenu";
 import type { RoleSummary } from "@/api/identities-api";
 import {
+  listRoleSkills,
   enumerateRoleSkillFiles,
   readRoleSkillFile,
   writeRoleSkillFile,
@@ -76,6 +77,10 @@ export function RoleSkillView({
   const [binaryDrafts, setBinaryDrafts] = useState<Map<string, BinaryDraft>>(new Map());
   const [saving, setSaving] = useState(false);
   const [filesOpen, setFilesOpen] = useState(false);
+  // The description under the name: starts as the one this view was opened
+  // with, refreshed after SKILL.md (where it lives) is saved.
+  const [headDescription, setHeadDescription] = useState(description);
+  useEffect(() => setHeadDescription(description), [description]);
 
   useEffect(() => {
     let cancelled = false;
@@ -171,6 +176,22 @@ export function RoleSkillView({
           new Map(prev).set(path, { status: "ready", data: { content, mtime: result.mtime, isText: keepIsText(prev) } }),
         );
         console.debug("[RoleSkillView] save-ok", { path, mtime: result.mtime });
+        // SKILL.md's frontmatter carries the description under the name; ask
+        // the backend for it again (it parses the frontmatter) so the head
+        // doesn't keep the one this view was opened with.
+        if (path === "SKILL.md") {
+          listRoleSkills(hostId, roleName)
+            .then((skills) => {
+              const entry = skills.find((s) => s.name === skill);
+              if (entry) setHeadDescription(entry.description);
+            })
+            .catch((err: unknown) => {
+              console.warn("[RoleSkillView] description refresh failed", {
+                skill,
+                error: err instanceof Error ? err.message : String(err),
+              });
+            });
+        }
       } catch (err) {
         if (err instanceof RoleSkillFileMtimeConflictError) {
           const reload = await kitConfirm({
@@ -497,7 +518,7 @@ export function RoleSkillView({
     <>
       <ModalHead
         title={skill}
-        subtitle={description ? <span className="line-clamp-2">{description}</span> : "Role skill"}
+        subtitle={headDescription ? <span className="line-clamp-2">{headDescription}</span> : "Role skill"}
         closeTestId="roles-window-close"
         leading={
           <KitButton variant="plain" size="sm" onClick={onBack} className="max-w-[40vw]" data-testid="roles-window-back">

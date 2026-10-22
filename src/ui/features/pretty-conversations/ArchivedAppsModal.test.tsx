@@ -227,8 +227,10 @@ describe("Phase 143 Plan 143-06 Task 1 — ArchivedAppsModal", () => {
     fireEvent.click(unarchiveBtn(2, "timer"));
     // Right-click on the other row can't start one either.
     fireEvent.contextMenu(screen.getByText("timer"), { clientX: 10, clientY: 10 });
-    const item = screen.queryByRole("menuitem", { name: "Un-archive" });
-    if (item) fireEvent.click(item);
+    // Its menu item says so: disabled while an un-archive is in flight.
+    const item = await screen.findByRole("menuitem", { name: "Un-archive" });
+    expect(item).toHaveAttribute("aria-disabled", "true");
+    fireEvent.click(item);
     expect(unarchiveAppMock).toHaveBeenCalledTimes(1);
     expect(unarchiveAppMock).toHaveBeenCalledWith(1, "notes-app");
 
