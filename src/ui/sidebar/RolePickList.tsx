@@ -91,7 +91,7 @@ export function RolePickList({
         />
       )}
       <div className="max-h-[min(46vh,360px)] overflow-y-auto overscroll-contain -mx-1 px-1">
-        {loading && groups.length === 0 ? (
+        {loading ? (
           <KitLoading label="Loading roles…" />
         ) : shown.length === 0 ? (
           <KitEmpty title="No matching roles" data-testid="role-pick-no-matches" />

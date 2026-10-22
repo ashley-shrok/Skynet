@@ -63,12 +63,12 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, fireEvent, waitFor, screen } from "@testing-library/react";
 
-// Phase 88 (Plan 88-03): single source of truth for the identity-mode
-// checkbox label regex. The old label "Create with new identity" was
-// flipped to "Just a shell — no agent" (Plan 88-02 Edit C) so all
-// getByRole("checkbox", { name: … }) sites below reference this constant
-// instead of an inline literal. Prevents label-drift regressions.
-const IDENTITY_MODE_CHECKBOX_RE = /just a shell.*no agent/i;
+// apple-ux (shape-creation-and-search-dialogs, 2026-10-22): the admin-only
+// "Just a shell — no agent" tick-box became an Agent / Shell segmented control
+// (data-testid new-session-identity-mode; segments new-session-mode-agent /
+// new-session-mode-shell). chooseShell() / chooseAgent() drive it. The
+// "Choose a custom agent name" tick-box is gone: the Name field is always
+// shown, pre-filled with the pool suggestion when there is one.
 
 vi.mock("react-i18next", () => ({
   useTranslation: () => ({
@@ -173,7 +173,11 @@ import {
   getRolesGroup,
   pickedRoleValues,
   toggleRole,
-  closeRoleDropdown,
+  chooseShell,
+  chooseAgent,
+  shellChosen,
+  queryModeSwitch,
+  roleGroupHeaders,
 } from "./NewSessionDialog.roles-test-helpers";
 // Phase 10 Wave 3: Test 10 retargeted from the retiring ConversationsPanel
 // to the new PrettyConversationsPanel. Tests 2-9 in this file cover
@@ -255,13 +259,25 @@ async function pickRoleFromAlpha() {
   await waitFor(() => expect(queryRolesGroup()).toBeTruthy());
   toggleRole("box-maintainer", "h1");
   await waitFor(() => expect(pickedRoleValues()).toEqual(["h1/box-maintainer"]));
-  closeRoleDropdown();
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Test 2: dialog close affordance closes without emitting onCreate
 // ─────────────────────────────────────────────────────────────────────────────
 describe("NewSessionDialog: cancel", () => {
+  it("Test 2b: the Cancel button in the foot calls onClose and does NOT call onCreate", () => {
+    const onClose = vi.fn();
+    const onCreate = vi.fn();
+    render(
+      <NewSessionDialog open onClose={onClose} hostTree={threeHostTree} onCreate={onCreate} />,
+    );
+    const cancel = screen.getByTestId("new-session-cancel");
+    expect(cancel.textContent).toBe("Cancel");
+    fireEvent.click(cancel);
+    expect(onClose).toHaveBeenCalledTimes(1);
+    expect(onCreate).not.toHaveBeenCalled();
+  });
+
   it("Test 2: clicking Close calls onClose and does NOT call onCreate", () => {
     const onClose = vi.fn();
     const onCreate = vi.fn();
@@ -295,7 +311,7 @@ describe("NewSessionDialog: host list render", () => {
         isAdmin={true}
       />,
     );
-    fireEvent.click(getByRole("checkbox", { name: IDENTITY_MODE_CHECKBOX_RE }));
+    chooseShell();
     expect(getByText("alpha")).toBeTruthy();
     expect(getByText("bravo")).toBeTruthy();
     expect(getByText("charlie")).toBeTruthy();
@@ -333,7 +349,7 @@ describe("NewSessionDialog: search filter", () => {
         isAdmin={true}
       />,
     );
-    fireEvent.click(getByRole("checkbox", { name: IDENTITY_MODE_CHECKBOX_RE }));
+    chooseShell();
     const searchInput = getByLabelText(/search hosts/i) as HTMLInputElement;
     fireEvent.change(searchInput, { target: { value: "alp" } });
 
@@ -365,8 +381,7 @@ describe("NewSessionDialog: empty name accepted", () => {
     );
 
     // Click checkbox to opt into shell mode (regular-session path)
-    const checkbox = getByRole("checkbox", { name: IDENTITY_MODE_CHECKBOX_RE });
-    fireEvent.click(checkbox);
+    chooseShell();
 
     // Pre-select-host: Open is disabled
     let openBtn = getByRole("button", { name: /^create$/i }) as HTMLButtonElement;
@@ -408,11 +423,10 @@ describe("NewSessionDialog: non-empty name passthrough", () => {
     );
 
     // Click checkbox to opt into shell mode (regular-session path)
-    const checkbox = getByRole("checkbox", { name: IDENTITY_MODE_CHECKBOX_RE });
-    fireEvent.click(checkbox);
+    chooseShell();
 
     fireEvent.click(getByText("alpha"));
-    const nameInput = getByLabelText(/agent name/i) as HTMLInputElement;
+    const nameInput = getByLabelText(/^name \(optional\)$/i) as HTMLInputElement;
     fireEvent.change(nameInput, { target: { value: "my-session" } });
 
     const openBtn = getByRole("button", { name: /^create$/i }) as HTMLButtonElement;
@@ -448,11 +462,10 @@ describe("NewSessionDialog: invalid name disables Open", () => {
       />,
     );
     // Click checkbox to opt into shell mode → reveals session-name input
-    const checkbox = getByRole("checkbox", { name: IDENTITY_MODE_CHECKBOX_RE });
-    fireEvent.click(checkbox);
+    chooseShell();
 
     fireEvent.click(getByText("alpha"));
-    const nameInput = getByLabelText(/agent name/i) as HTMLInputElement;
+    const nameInput = getByLabelText(/^name \(optional\)$/i) as HTMLInputElement;
     fireEvent.change(nameInput, { target: { value: "bad;name`chars" } });
 
     const openBtn = getByRole("button", { name: /^create$/i }) as HTMLButtonElement;
@@ -505,8 +518,7 @@ describe("NewSessionDialog: single-host auto-select", () => {
       />,
     );
     // Click checkbox to opt into shell mode
-    const checkbox = getByRole("checkbox", { name: IDENTITY_MODE_CHECKBOX_RE });
-    fireEvent.click(checkbox);
+    chooseShell();
 
     // Open button should be enabled immediately (sole host pre-selected + no extra fields needed)
     const openBtn = getByRole("button", { name: /^create$/i }) as HTMLButtonElement;
@@ -659,8 +671,7 @@ describe("NewSessionDialog: Test A — path field visible only in shell mode (un
     // the DOM. Toggling the admin-only "Just a shell" checkbox reveals it.
     const { queryByLabelText, getByLabelText, getByRole } = renderDialog();
     expect(queryByLabelText(/^path$/i)).toBeNull();
-    const checkbox = getByRole("checkbox", { name: IDENTITY_MODE_CHECKBOX_RE });
-    fireEvent.click(checkbox);
+    chooseShell();
     expect(getByLabelText(/^path$/i)).toBeTruthy();
   });
 });
@@ -672,7 +683,7 @@ describe("NewSessionDialog: Test B — path defaults to empty (shell mode)", () 
   it("Test B: shell-mode initial render → path input value is empty (normalizePath('') → '~' → shell opens in home)", () => {
     const { getByLabelText, getByRole } = renderDialog();
     // Path field only renders in shell mode; toggle to reveal it.
-    fireEvent.click(getByRole("checkbox", { name: IDENTITY_MODE_CHECKBOX_RE }));
+    chooseShell();
     const pathInput = getByLabelText(/^path$/i) as HTMLInputElement;
     expect(pathInput.value).toBe("");
   });
@@ -688,8 +699,7 @@ describe("NewSessionDialog: Test C — path normalizes backslashes", () => {
     // Phase 88 semantic-invert: click OPTS INTO shell mode (was: opted out
     // of identity mode). Shell mode is the branch that calls onCreate with
     // identityMode:false — the path we're testing the normalize for.
-    const checkbox = getByRole("checkbox", { name: IDENTITY_MODE_CHECKBOX_RE });
-    fireEvent.click(checkbox);
+    chooseShell();
     // Set backslash path
     const pathInput = getByLabelText(/^path$/i) as HTMLInputElement;
     fireEvent.change(pathInput, { target: { value: "\\home\\ubuntu\\test\\dir" } });
@@ -714,11 +724,35 @@ describe("NewSessionDialog: Test C — path normalizes backslashes", () => {
 // The checkbox is admin-gated (Plan 88-02 Edit C) so this test renders
 // under isAdmin=true (the renderDialog helper default) to see the
 // checkbox at all.
-describe("NewSessionDialog: Test D — identity-mode checkbox defaults UNCHECKED (admin-only, agent mode is default)", () => {
-  it("Test D: initial render with isAdmin=true → 'Just a shell — no agent' checkbox is unchecked", () => {
-    const { getByRole } = renderDialog({ isAdmin: true });
-    const checkbox = getByRole("checkbox", { name: IDENTITY_MODE_CHECKBOX_RE }) as HTMLInputElement;
-    expect(checkbox.checked).toBe(false);
+// apple-ux 2026-10-22: the tick-box is now an Agent / Shell switch; Agent is
+// the pressed segment on open.
+describe("NewSessionDialog: Test D — Agent / Shell switch defaults to Agent (admin-only)", () => {
+  it("Test D: initial render with isAdmin=true → the switch is there with Agent pressed", () => {
+    renderDialog({ isAdmin: true });
+    expect(queryModeSwitch()).toBeTruthy();
+    expect(screen.getByTestId("new-session-mode-agent").getAttribute("aria-pressed")).toBe("true");
+    expect(shellChosen()).toBe(false);
+    // The old tick-box is gone.
+    expect(screen.queryByRole("checkbox", { name: /just a shell/i })).toBeNull();
+  });
+
+  it("Test D2: the subtitle says what each mode opens; switching back to Agent restores the agent fields", async () => {
+    renderDialog({ isAdmin: true });
+    expect(screen.getByText("New conversation")).toBeTruthy();
+    expect(
+      screen.getByText("An agent to chat with. Its roles shape what it knows and how it helps."),
+    ).toBeTruthy();
+    chooseShell();
+    expect(shellChosen()).toBe(true);
+    expect(
+      screen.getByText("A terminal on one of your machines, with no agent in it."),
+    ).toBeTruthy();
+    expect(screen.queryByLabelText(/^name$/i)).toBeNull();
+    chooseAgent();
+    expect(shellChosen()).toBe(false);
+    expect(screen.queryByLabelText(/^path$/i)).toBeNull();
+    await waitFor(() => expect(queryRolesGroup()).toBeTruthy());
+    expect(screen.getByLabelText(/^name$/i)).toBeTruthy();
   });
 });
 
@@ -735,8 +769,7 @@ describe("NewSessionDialog: Test E — shell mode hides birth fields (opt in via
     // out of identity mode). Shell mode is the branch where the
     // identity-cluster is not rendered — same assertion, inverted intent.
     const { getByRole, queryByLabelText } = renderDialog();
-    const checkbox = getByRole("checkbox", { name: IDENTITY_MODE_CHECKBOX_RE });
-    fireEvent.click(checkbox);
+    chooseShell();
     // Identity-cluster fields gone
     expect(queryByLabelText(/^task$/i)).toBeNull();
     expect(queryRolesGroup()).toBeNull();
@@ -754,20 +787,21 @@ describe("NewSessionDialog: Test E — shell mode hides birth fields (opt in via
 // from source — those assertions have been removed.
 // ─────────────────────────────────────────────────────────────────────────────
 describe("NewSessionDialog: Test F — identity-mode ON reveals birth fields", () => {
-  it("Test F: default (identity-mode ON) → roles group + auto-name checkbox present; name input hidden until checkbox clicked; task and cosmetic controls absent", async () => {
+  it("Test F: default (agent mode) → roles list + Name field present (no tick-box in front of it); task and cosmetic controls absent", async () => {
     const { getByLabelText, queryByLabelText, queryByRole } = renderDialog();
-    // No host step: the roles group renders as soon as the hosts answer.
+    // No host step: the roles list renders as soon as the hosts answer.
     await waitFor(() => expect(queryRolesGroup()).toBeTruthy());
-
-    // 2026-09-27: the identity-name input is hidden by default now — the
-    // vetted-pool picker names the agent silently. A "Choose a custom agent
-    // name" checkbox reveals the input for a user who wants to pick their own.
-    expect(queryByLabelText(/^name$/i)).toBeNull();
-    expect(getByLabelText(/choose a custom agent name/i)).toBeTruthy();
-    // Click the checkbox → the input appears.
-    fireEvent.click(getByLabelText(/choose a custom agent name/i));
-    expect(getByLabelText(/^name$/i)).toBeTruthy();
     expect(getRolesGroup()).toBeTruthy();
+
+    // apple-ux 2026-10-22: the Name field is always shown — shape §What would
+    // make it wrong: "A name field hidden behind a tick-box".
+    expect(getByLabelText(/^name$/i)).toBeTruthy();
+    expect(queryByLabelText(/choose a custom agent name/i)).toBeNull();
+    expect(screen.queryByRole("checkbox")).toBeNull();
+    // Several machines, nothing picked yet: the Name says to pick a role.
+    expect((getByLabelText(/^name$/i) as HTMLInputElement).placeholder).toBe("Pick a role first");
+    // Three machines → each gets its heading.
+    expect(roleGroupHeaders()).toEqual(["alpha", "bravo", "charlie"]);
 
     // 2026-09-14: the task textarea was removed — birth sends a placeholder and
     // the agent self-fills its own `task:` frontmatter on first wake. Asserted
@@ -794,7 +828,6 @@ describe("NewSessionDialog: Test G — name + role + host enables Create", () =>
     // Picking alpha's role is what picks the host.
     await pickRoleFromAlpha();
     // 2026-09-27: reveal the manual name input by opting into custom name.
-    fireEvent.click(getByLabelText(/choose a custom agent name/i));
     // Fill name.
     fireEvent.change(getByLabelText(/^name$/i), { target: { value: "alicia" } });
 
@@ -816,7 +849,6 @@ describe("NewSessionDialog: Test H — unslugifiable name disables Create + show
     // letters (all-emoji / all-punctuation / empty) is rejected.
     const { getByLabelText, getByRole, queryByText } = renderDialog();
     await pickRoleFromAlpha();
-    fireEvent.click(getByLabelText(/choose a custom agent name/i));
     fireEvent.change(getByLabelText(/^name$/i), { target: { value: "🎉🎉🎉" } });
     const createBtn = getByRole("button", { name: /^(open|create)$/i }) as HTMLButtonElement;
     expect(createBtn.disabled).toBe(true);
@@ -836,7 +868,6 @@ describe("NewSessionDialog: Test I — Skynet collision blocks Create", () => {
     mockGetIdentityExistsOnHost.mockResolvedValue(false);
     const { getByLabelText, getByRole } = renderDialog();
     await pickRoleFromAlpha();
-    fireEvent.click(getByLabelText(/choose a custom agent name/i));
     const nameInput = getByLabelText(/^name$/i);
     fireEvent.change(nameInput, { target: { value: "alicia" } });
     fireEvent.blur(nameInput);
@@ -858,7 +889,6 @@ describe("NewSessionDialog: Test J — host collision blocks Create", () => {
     mockGetIdentityExistsOnHost.mockResolvedValue(true);
     const { getByLabelText, getByRole } = renderDialog();
     await pickRoleFromAlpha();
-    fireEvent.click(getByLabelText(/choose a custom agent name/i));
     const nameInput = getByLabelText(/^name$/i);
     fireEvent.change(nameInput, { target: { value: "new-agent" } });
     fireEvent.blur(nameInput);
@@ -885,7 +915,6 @@ describe("NewSessionDialog: Test K — collision clears when name changes", () =
 
     const { getByLabelText } = renderDialog();
     await pickRoleFromAlpha();
-    fireEvent.click(getByLabelText(/choose a custom agent name/i));
     const nameInput = getByLabelText(/^name$/i);
     fireEvent.change(nameInput, { target: { value: "alicia" } });
     fireEvent.blur(nameInput);
@@ -908,7 +937,6 @@ describe("NewSessionDialog: Test K2 — collision precheck follows the role's ho
     mockGetIdentityExistsOnHost.mockImplementation(async (hostId: unknown) => hostId === "h2");
     const { getByLabelText } = renderDialog();
     await waitFor(() => expect(queryRolesGroup()).toBeTruthy());
-    fireEvent.click(getByLabelText(/choose a custom agent name/i));
     const nameInput = getByLabelText(/^name$/i);
     fireEvent.change(nameInput, { target: { value: "new-agent" } });
     fireEvent.blur(nameInput);
@@ -917,7 +945,6 @@ describe("NewSessionDialog: Test K2 — collision precheck follows the role's ho
     expect(mockGetIdentityExistsOnHost).not.toHaveBeenCalled();
 
     toggleRole("box-maintainer", "h1");
-    closeRoleDropdown();
     await waitFor(
       () => expect(mockGetIdentityExistsOnHost).toHaveBeenCalledWith("h1", "new-agent"),
       { timeout: 2000 },
@@ -925,7 +952,6 @@ describe("NewSessionDialog: Test K2 — collision precheck follows the role's ho
     expect(screen.queryByText(/already exists on/i)).toBeNull();
 
     toggleRole("box-maintainer", "h2");
-    closeRoleDropdown();
     await waitFor(
       () => expect(mockGetIdentityExistsOnHost).toHaveBeenCalledWith("h2", "new-agent"),
       { timeout: 2000 },
@@ -967,7 +993,6 @@ describe("NewSessionDialog: Test R — onCreate payload with identity-mode ON", 
     const { getByLabelText, getByRole } = renderDialog({ onCreate });
     // Phase 22 SRIC-02: a role must be picked (and it picks the host).
     await pickRoleFromAlpha();
-    fireEvent.click(getByLabelText(/choose a custom agent name/i));
     fireEvent.change(getByLabelText(/^name$/i), { target: { value: "alicia" } });
     await waitFor(() => {
       const createBtn = getByRole("button", { name: /^(open|create|creating)/i }) as HTMLButtonElement;
@@ -1007,8 +1032,7 @@ describe("NewSessionDialog: Test S — onCreate payload with shell mode (identit
     // `shellOnly`, public discriminant unchanged).
     const onCreate = vi.fn();
     const { getByLabelText, getByRole } = renderDialog({ onCreate });
-    const checkbox = getByRole("checkbox", { name: IDENTITY_MODE_CHECKBOX_RE });
-    fireEvent.click(checkbox);
+    chooseShell();
     // Select host
     fireEvent.click(screen.getByText("bravo"));
     // Click Create
@@ -1039,17 +1063,17 @@ describe("NewSessionDialog: Test S — onCreate payload with shell mode (identit
 describe("NewSessionDialog: Test U — modal state resets on close", () => {
   it("Test U: fill fields, close, re-open → all fields back to defaults", () => {
     const onClose = vi.fn();
-    const { getByLabelText, getByRole, queryByLabelText, rerender } = renderDialog({ onClose });
+    const { getByLabelText, rerender } = renderDialog({ onClose });
     // Fill the agent-mode fields. Path lives in the shell branch now; its reset
     // is covered by Test B (default is "" on shell toggle) so it isn't
     // reasserted here.
     //
     // 2026-09-14: only `name` remains fillable here — the task textarea was
     // removed, so there is no task state left to reset.
-    // 2026-09-27: reveal the manual name input by opting into custom name so
-    // the input renders and can be filled.
-    fireEvent.click(getByLabelText(/choose a custom agent name/i));
     fireEvent.change(getByLabelText(/^name$/i), { target: { value: "alicia" } });
+    // And switch to Shell, so the reset of the mode is observable too.
+    chooseShell();
+    expect(shellChosen()).toBe(true);
 
     // Close the dialog.
     rerender(
@@ -1071,15 +1095,9 @@ describe("NewSessionDialog: Test U — modal state resets on close", () => {
         isAdmin={true}
       />
     );
-    // 2026-09-27: auto-name resets to false on close → input is hidden on
-    // reopen. Assert the input is NOT in the DOM (the reset happened) and the
-    // custom-name checkbox is UNCHECKED (matches the default entry state).
-    expect(queryByLabelText(/^name$/i)).toBeNull();
-    const autoNameCheckbox = getByLabelText(/choose a custom agent name/i) as HTMLInputElement;
-    expect(autoNameCheckbox.checked).toBe(false);
-    // Shell-only checkbox re-arms to the default UNCHECKED (agent mode).
-    const checkbox = getByRole("checkbox", { name: IDENTITY_MODE_CHECKBOX_RE }) as HTMLInputElement;
-    expect(checkbox.checked).toBe(false);
+    // Back to Agent, with an empty Name.
+    expect(shellChosen()).toBe(false);
+    expect((getByLabelText(/^name$/i) as HTMLInputElement).value).toBe("");
   });
 });
 
@@ -1095,10 +1113,7 @@ describe("NewSessionDialog: Test U — modal state resets on close", () => {
 async function fillIdentityForm(utils: ReturnType<typeof renderDialog>) {
   const { getByLabelText } = utils;
   await pickRoleFromAlpha();
-  // 2026-09-27: name input is hidden by default (auto-generate mode). Tests that
-  // want to control the name explicitly must first check "Choose a custom agent
-  // name" to reveal the input.
-  fireEvent.click(getByLabelText(/choose a custom agent name/i));
+  // The Name field is always shown; typing replaces any suggestion.
   fireEvent.change(getByLabelText(/^name$/i), { target: { value: "alicia" } });
   await waitFor(() => {
     const createBtn = utils.getByRole("button", { name: /^(open|create|creating)/i }) as HTMLButtonElement;
@@ -1161,7 +1176,6 @@ describe("NewSessionDialog: Enter in the custom name field", () => {
 
   it("Enter does nothing while Create is disabled (no role picked)", () => {
     const utils = renderDialog();
-    fireEvent.click(utils.getByLabelText(/choose a custom agent name/i));
     fireEvent.change(utils.getByLabelText(/^name$/i), { target: { value: "alicia" } });
     fireEvent.keyDown(utils.getByLabelText(/^name$/i), { key: "Enter" });
     expect(mockOpenBirthStream).not.toHaveBeenCalled();
@@ -1263,8 +1277,8 @@ describe("NewSessionDialog: Test 106B — modal is fully locked during birthing"
     }) as HTMLButtonElement;
     fireEvent.click(createBtn);
 
-    // Wait for birthing to flip on. The Cancel button is gone, so the
-    // detector is the Create button going disabled while it spins.
+    // Wait for birthing to flip on: the Create button goes disabled while it
+    // spins.
     await waitFor(() => {
       expect(createBtn.disabled).toBe(true);
     });
@@ -1278,6 +1292,18 @@ describe("NewSessionDialog: Test 106B — modal is fully locked during birthing"
     // The X close affordance is also inert while birthing (same D-15 gate).
     fireEvent.click(utils.getByRole("button", { name: /close/i }));
     expect(onClose).not.toHaveBeenCalled();
+
+    // Cancel is disabled, the button reads "Creating…", and the form is
+    // locked: the roles and the Name can't be changed mid-birth.
+    const cancel = utils.getByTestId("new-session-cancel") as HTMLButtonElement;
+    expect(cancel.disabled).toBe(true);
+    fireEvent.click(cancel);
+    expect(onClose).not.toHaveBeenCalled();
+    expect(createBtn.textContent).toMatch(/creating…/i);
+    expect((utils.getByLabelText(/^name$/i) as HTMLInputElement).disabled).toBe(true);
+    expect((utils.getByTestId("new-session-mode-shell") as HTMLButtonElement).disabled).toBe(true);
+    toggleRole("box-maintainer", "h2");
+    expect(pickedRoleValues()).toEqual(["h1/box-maintainer"]);
 
     // Cleanup
     resolveStream();
@@ -1410,7 +1436,7 @@ describe("NewSessionDialog: Test GG — shell mode does NOT call openBirthStream
     // discriminant `identityMode:false` on the wire is unchanged.
     const onCreate = vi.fn();
     const { getByRole } = renderDialog({ onCreate });
-    fireEvent.click(getByRole("checkbox", { name: IDENTITY_MODE_CHECKBOX_RE }));
+    chooseShell();
     // Select host
     fireEvent.click(screen.getByText("bravo"));
     // Click Create
@@ -1430,23 +1456,47 @@ describe("NewSessionDialog: Test GG — shell mode does NOT call openBirthStream
 // not exist pre-Phase-88.
 // ─────────────────────────────────────────────────────────────────────────────
 describe("NewSessionDialog: Phase 88 admin-gate + backend substitution", () => {
-  it("Phase 88 T1: isAdmin=false → no Path input AND no shell-only checkbox rendered", () => {
+  it("Phase 88 T1: isAdmin=false → no Path input AND no Agent / Shell switch, nor any other way to a shell", async () => {
     const { queryByLabelText, queryByRole } = renderDialog({ isAdmin: false });
     // Path field is admin-gated (Plan 88-02 Edit B: {isAdmin && (…)} wrap).
     expect(queryByLabelText(/^path$/i)).toBeNull();
-    // Shell-only checkbox is admin-gated (Plan 88-02 Edit C: {isAdmin && (…)} wrap).
-    expect(queryByRole("checkbox", { name: IDENTITY_MODE_CHECKBOX_RE })).toBeNull();
+    // Shape §What would make it wrong: a non-admin seeing the Agent / Shell
+    // switch, or any way to open a plain shell.
+    expect(queryModeSwitch()).toBeNull();
+    expect(screen.queryByTestId("new-session-mode-shell")).toBeNull();
+    expect(screen.queryByTestId("new-session-mode-agent")).toBeNull();
+    expect(queryByRole("button", { name: /^shell$/i })).toBeNull();
+    expect(queryByRole("checkbox", { name: /just a shell/i })).toBeNull();
+    expect(screen.queryByText(/a terminal on one of your machines/i)).toBeNull();
+    expect(queryByLabelText(/search hosts/i)).toBeNull();
+    // Still the agent dialog: roles + name.
+    await waitFor(() => expect(queryRolesGroup()).toBeTruthy());
+    expect(screen.getByLabelText(/^name$/i)).toBeTruthy();
   });
 
-  it("Phase 88 T2: isAdmin=true → shell-only checkbox present unchecked AND Path field NOT rendered (agent mode default)", () => {
-    const { queryByLabelText, getByRole } = renderDialog({ isAdmin: true });
+  it("Phase 88 T1b: non-admin with one machine still never sees the switch, and Create births an agent", async () => {
+    mockOpenBirthStream.mockReturnValueOnce(createMockStream([]));
+    const onCreate = vi.fn();
+    renderDialog({ isAdmin: false, hostTree: oneHostTree, onCreate });
+    await waitFor(() => expect(queryRolesGroup()).toBeTruthy());
+    expect(queryModeSwitch()).toBeNull();
+    fireEvent.change(screen.getByLabelText(/^name$/i), { target: { value: "alicia" } });
+    const createBtn = screen.getByRole("button", { name: /^create$/i }) as HTMLButtonElement;
+    await waitFor(() => expect(createBtn.disabled).toBe(false));
+    fireEvent.click(createBtn);
+    await waitFor(() => expect(mockOpenBirthStream).toHaveBeenCalledTimes(1));
+    // No regular-session (shell) onCreate.
+    expect(onCreate.mock.calls.every((c) => c[0].identityMode !== false)).toBe(true);
+  });
+
+  it("Phase 88 T2: isAdmin=true → Agent / Shell switch present on Agent AND Path field NOT rendered (agent mode default)", () => {
+    const { queryByLabelText } = renderDialog({ isAdmin: true });
     // Path field is now gated on `isAdmin && shellOnly`. Default state is
     // agent mode (shellOnly=false), so the field stays out of the DOM — the
     // birth branch relies on backend workspace-default substitution.
     expect(queryByLabelText(/^path$/i)).toBeNull();
-    const checkbox = getByRole("checkbox", { name: IDENTITY_MODE_CHECKBOX_RE }) as HTMLInputElement;
-    expect(checkbox).toBeTruthy();
-    expect(checkbox.checked).toBe(false);
+    expect(queryModeSwitch()).toBeTruthy();
+    expect(shellChosen()).toBe(false);
   });
 
   it("Phase 88 T3: isAdmin=false submit path sends path:'' — backend substitutes `~/<name>/` per Plan 88-01 narrow", async () => {

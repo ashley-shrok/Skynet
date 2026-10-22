@@ -137,9 +137,12 @@ import { __resetKitDialogsForTests } from "@/components/kit";
 import { requestNewConversation } from "@/lib/new-conversation-request";
 import { m, resetRolesWindowMocks } from "@/features/pretty-view/roles-window/roles-window.test-mocks";
 import {
-  closeRoleDropdown,
   pickedRoleValues,
+  queryNewRoleRow,
   queryRolesGroup,
+  roleGroupHeaders,
+  roleRow,
+  rowDescription,
   toggleRole,
 } from "@/sidebar/NewSessionDialog.roles-test-helpers";
 
@@ -208,12 +211,12 @@ function escape(): void {
   fireEvent.keyDown(document.activeElement ?? document.body, { key: "Escape", code: "Escape" });
 }
 
-/** Open the new-agent dialog, pick hallmonitor, then "New role…". */
+/** Open the new-agent dialog, pick hallmonitor, then the list's "New role…" row. */
 async function hopToNewRole(): Promise<void> {
   fireEvent.click(screen.getByTestId("pv-header-new-agent-button"));
-  await waitFor(() => expect(queryRolesGroup()).toBeTruthy());
+  await waitFor(() => expect(roleRow("hallmonitor")).toBeTruthy());
   toggleRole("hallmonitor");
-  fireEvent.click(screen.getByTestId("multi-select-leading-action"));
+  fireEvent.click(queryNewRoleRow()!);
   await screen.findByTestId("new-role-name");
 }
 
@@ -281,6 +284,18 @@ describe("sidebar → roles window", () => {
 });
 
 describe("new-conversation dialog → New role… hop", () => {
+  it("B0: the pencil's dialog lists the roles in the dialog — one machine, so no heading — with their descriptions and New role… at the bottom", async () => {
+    renderPanel();
+    fireEvent.click(screen.getByTestId("pv-header-new-agent-button"));
+    await waitFor(() => expect(roleRow("hallmonitor")).toBeTruthy());
+    expect(roleGroupHeaders()).toEqual([]);
+    expect(rowDescription(roleRow("hallmonitor")!)).toBe("The hall monitor role");
+    expect(rowDescription(roleRow("box-maintainer")!)).toBe("The box maintainer role");
+    expect(queryNewRoleRow()).toBeTruthy();
+    // One machine: "No roles" is preselected.
+    expect(pickedRoleValues()).toEqual([":no-roles"]);
+  });
+
   it("B: New role… swaps to the window's new-role view; back restores the dialog with the earlier picks", async () => {
     renderPanel();
     await hopToNewRole();
@@ -361,7 +376,6 @@ describe("new-conversation request", () => {
     await waitFor(() => expect(rolesWindow()).toBeNull());
     await waitFor(() => expect(queryRolesGroup()).toBeTruthy());
     await waitFor(() => expect(pickedRoleValues()).toEqual(["hallmonitor"]));
-    closeRoleDropdown();
     expect(dialogCount()).toBe(1);
   });
 });

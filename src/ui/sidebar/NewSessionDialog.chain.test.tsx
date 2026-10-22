@@ -30,18 +30,16 @@
 //   Test 7: "change host" is now "pick a role from the other host".
 // Host ids are numeric strings so rolesByHost() can answer per host.
 //
+// 2026-10-22 (apple-ux): the roles are a list in the dialog; a picked row's
+// machine is the group it sits in (the drop-down's "· <host>" pill suffix is
+// gone), the Name field is always shown, and the admin-only "Just a shell"
+// tick-box is an Agent / Shell switch.
+//
 // Mock pattern lifted verbatim from NewSessionDialog.role-dropdown.test.tsx so this
 // sibling file stays self-contained + isolated from the 25+ pre-existing suite.
 
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, fireEvent, waitFor, screen } from "@testing-library/react";
-
-// Phase 88 (Plan 88-03): single source of truth for the identity-mode
-// checkbox label regex. The old label was flipped from "Create with new
-// identity" to "Just a shell — no agent" in Plan 88-02 Edit C; the
-// checkbox is admin-gated so any test that needs to reach it must render
-// under isAdmin={true} (see Test 10c + Test 9 below).
-const IDENTITY_MODE_CHECKBOX_RE = /just a shell.*no agent/i;
 
 vi.mock("react-i18next", () => ({
   useTranslation: () => ({
@@ -111,8 +109,11 @@ import {
   pickedRoleSlugs,
   pickedRoleLabels,
   toggleRole,
-  closeRoleDropdown,
   rolesByHost,
+  roleRow,
+  queryNewRoleRow,
+  chooseShell,
+  typeName,
   NO_ROLES_VALUE,
 } from "./NewSessionDialog.roles-test-helpers";
 import type { Host, HostFolder } from "@/types/ui-types";
@@ -158,8 +159,7 @@ const role = (name: string) => ({ name, description: "" });
 // The host the dialog would hand to "New role…" right now — the observable
 // stand-in for "which host is selected" when no role pins it (null = none).
 function selectedHostViaNewRole(onNewRole: ReturnType<typeof vi.fn>): Host | null {
-  fireEvent.click(getRolesGroup());
-  fireEvent.click(screen.getByTestId("multi-select-leading-action"));
+  fireEvent.click(queryNewRoleRow()!);
   const calls = onNewRole.mock.calls;
   return (calls[calls.length - 1][0] as { host: Host | null }).host;
 }
@@ -211,7 +211,11 @@ describe("NewSessionDialog chain: Test 1 — initialHost + initialRole pre-fill 
     await waitFor(() => {
       expect(pickedRoleValues()).toEqual(["1/box-maintainer"]);
     });
-    expect(pickedRoleLabels()).toEqual(["Box Maintainer · box-a"]);
+    expect(pickedRoleLabels()).toEqual(["Box Maintainer"]);
+    // On box-a: the picked row sits in box-a's group, under its heading.
+    const groupA = screen.getByTestId("role-pick-group-1");
+    expect(groupA.contains(roleRow("1/box-maintainer"))).toBe(true);
+    expect(groupA.querySelector(".k-group-title")?.textContent).toBe("box-a");
 
     // Every host was asked (the seed doesn't narrow the fetch), by numeric id
     expect(mockListRolesForHost.mock.calls.map((c) => c[0]).sort()).toEqual([1, 2]);
@@ -245,7 +249,6 @@ describe("NewSessionDialog chain: Test 2 — no props preserves existing behavio
     // Flat list (single host): bare role names; no role seeded, so the
     // one-host default "No roles" is what's picked.
     await waitFor(() => expect(roleOptionValues()).toEqual(["box-maintainer", "tina"]));
-    closeRoleDropdown();
     expect(pickedRoleValues()).toEqual([NO_ROLES_VALUE]);
     expect(selectedHostViaNewRole(onNewRole)?.id).toBe("1");
   });
@@ -266,7 +269,6 @@ describe("NewSessionDialog chain: Test 2 — no props preserves existing behavio
     await waitFor(() =>
       expect(roleOptionValues()).toEqual(["1/box-maintainer", "2/box-maintainer"]),
     );
-    closeRoleDropdown();
     expect(pickedRoleValues()).toEqual([]);
     // No host auto-selected either.
     expect(selectedHostViaNewRole(onNewRole)).toBeNull();
@@ -295,7 +297,6 @@ describe("NewSessionDialog chain: Test 3 — initialHost alone", () => {
     );
     // Roles group appears (identity-mode default ON)
     await waitFor(() => expect(roleOptionValues()).toHaveLength(4));
-    closeRoleDropdown();
     // Role selection empty (user must manually pick)
     expect(pickedRoleValues()).toEqual([]);
     // Host pre-selected: it is what "New role…" would hand over.
@@ -316,7 +317,6 @@ describe("NewSessionDialog chain: Test 3 — initialHost alone", () => {
       />,
     );
     await waitFor(() => expect(roleOptionValues()).toEqual(["1/box-maintainer"]));
-    closeRoleDropdown();
     expect(pickedRoleValues()).toEqual([]);
   });
 });
@@ -338,7 +338,6 @@ describe("NewSessionDialog chain: Test 4 — initialRole alone", () => {
       />,
     );
     await waitFor(() => expect(roleOptionValues()).toHaveLength(2));
-    closeRoleDropdown();
     expect(pickedRoleValues()).toEqual([]);
   });
 
@@ -459,8 +458,9 @@ describe("NewSessionDialog chain: Test 7 — pre-filled fields are editable", ()
     await waitFor(() => {
       expect(pickedRoleValues()).toEqual(["1/box-maintainer"]);
     });
-    // The roles trigger MUST NOT be disabled
-    expect(getRolesGroup().disabled).toBe(false);
+    // The rows MUST NOT be disabled
+    expect(getRolesGroup()).toBeTruthy();
+    expect(roleRow("1/tina")!.dataset.disabled).toBeUndefined();
 
     // Add a role on the same host
     toggleRole("tina");
@@ -473,7 +473,8 @@ describe("NewSessionDialog chain: Test 7 — pre-filled fields are editable", ()
     await waitFor(() => {
       expect(pickedRoleValues()).toEqual(["2/other-role"]);
     });
-    expect(pickedRoleLabels()).toEqual(["Other Role · box-b"]);
+    expect(pickedRoleLabels()).toEqual(["Other Role"]);
+    expect(screen.getByTestId("role-pick-group-2").contains(roleRow("2/other-role"))).toBe(true);
   });
 });
 
@@ -523,7 +524,6 @@ describe("NewSessionDialog chain: Test 8 — seed values do not persist across c
     // Roles group is back (default mock: one role per host, no auto-select)
     // with nothing picked and no host carried over → stale state was cleared
     await waitFor(() => expect(roleOptionValues()).toHaveLength(2));
-    closeRoleDropdown();
     expect(pickedRoleValues()).toEqual([]);
     expect(selectedHostViaNewRole(onNewRole)).toBeNull();
   });
@@ -574,13 +574,9 @@ describe("NewSessionDialog chain: Test 10 — initialBrief ignored (brief field 
   });
 
   it("Test 10c: shell mode → brief field also absent (brief was identity-mode-only; now brief is always absent)", async () => {
-    // Phase 88 (Plan 88-03): checkbox is admin-gated. Pass isAdmin={true}
-    // so we can reach the checkbox at all. Click OPTS INTO shell mode
-    // (semantic-invert: post-Phase-88 the click enters shell mode; the
-    // brief field was always identity-cluster-only, and it's now
-    // always-absent post-Phase-86, so this assertion is trivially true
-    // — but the test still exercises the checkbox-click path as a
-    // regression guard on the admin-gate + label + click semantics.
+    // The Agent / Shell switch is admin-gated, so isAdmin={true}. The brief
+    // field was always identity-cluster-only and is always absent since
+    // Phase 86, so this is trivially true — it still exercises the switch.
     render(
       <NewSessionDialog
         open
@@ -592,8 +588,7 @@ describe("NewSessionDialog chain: Test 10 — initialBrief ignored (brief field 
         isAdmin={true}
       />,
     );
-    const checkbox = screen.getByRole("checkbox", { name: IDENTITY_MODE_CHECKBOX_RE });
-    fireEvent.click(checkbox);
+    chooseShell();
     await waitFor(() => {
       expect(screen.queryByLabelText(/^brief$/i)).toBeFalsy();
     });
@@ -604,11 +599,10 @@ describe("NewSessionDialog chain: Test 10 — initialBrief ignored (brief field 
 // Test 9: user opts into shell mode → initialRole is IGNORED (roles group gone)
 // ─────────────────────────────────────────────────────────────────────────────
 // Phase 88 (Plan 88-03): semantic-inverted from the old "identity-mode OFF"
-// framing. Post-Phase-88 clicking the checkbox OPTS INTO shell mode
-// (was: opted out of identity mode). Same click, inverted intent. The
-// checkbox is admin-gated so this test renders under isAdmin={true}.
+// framing; the tick-box is now the admin-only Agent / Shell switch, so this
+// test renders under isAdmin={true}.
 describe("NewSessionDialog chain: Test 9 — initialRole ignored when user opts into shell mode", () => {
-  it("Test 9: open with seed → roles group populated; click 'Just a shell — no agent' → roles group gone; seed does not leak into shell mode", async () => {
+  it("Test 9: open with seed → roles list populated; choose Shell → roles list gone; seed does not leak into shell mode", async () => {
     mockListRolesForHost.mockResolvedValue([
       { name: "box-maintainer", description: "" },
     ]);
@@ -627,9 +621,7 @@ describe("NewSessionDialog chain: Test 9 — initialRole ignored when user opts 
     await waitFor(() => {
       expect(pickedRoleSlugs()).toEqual(["box-maintainer"]);
     });
-    // Toggle identity-mode OFF
-    const checkbox = screen.getByRole("checkbox", { name: IDENTITY_MODE_CHECKBOX_RE });
-    fireEvent.click(checkbox);
+    chooseShell();
     // Roles group must be gone (CREATE-only surface per D-CONTEXT §UX rules)
     await waitFor(() => {
       expect(queryRolesGroup()).toBeFalsy();
@@ -692,14 +684,8 @@ describe("NewSessionDialog chain: Test 11 — birth+auto-route chain fires on en
       expect(pickedRoleValues()).toEqual(["1/box-maintainer"]);
     });
 
-    // 2026-09-27: name input is hidden by default (auto-generate mode). Reveal
-    // it so this test can drive the manual-name path (asserting a specific
-    // typed name flows through the birth chain). With numeric host ids the
-    // (rejecting) pool pick may already have flipped it on — don't toggle off.
-    const customNameCb = screen.getByLabelText(/choose a custom agent name/i) as HTMLInputElement;
-    if (!customNameCb.checked) fireEvent.click(customNameCb);
-    // Fill the required name field (only remaining gate for Create).
-    fireEvent.change(screen.getByLabelText(/^name$/i), { target: { value: "alicia" } });
+    // Type a name (the Name field is always shown).
+    typeName("alicia");
 
     // Wait for Create to become enabled, then click.
     await waitFor(() => {

@@ -23,6 +23,14 @@
  *         does NOT re-render; "no results" shows instead
  *   T-13  D-03: no global document.addEventListener registered (grep only —
  *         file-level assertion; runtime asserts via no keydown-listener)
+ *
+ * apple-ux (shape-creation-and-search-dialogs, 2026-10-22): the window says
+ * what it searches — title "Search", box "Search every conversation", an
+ * empty state naming what is searched, "Press Return to search." under the
+ * box once something new is typed (Return still the only trigger), a
+ * searching line, a count line over the results, "Try fewer or different
+ * words." when nothing matches, and an error banner at the top of the body
+ * (no foot). See the "apple-ux chrome" describe at the end.
  */
 
 // ─── Global mocks BEFORE imports ─────────────────────────────────────────────
@@ -164,9 +172,11 @@ describe("ConversationSearchModal: closed vs open", () => {
         onOpenActiveConversation={vi.fn()}
       />,
     );
-    expect(
-      screen.getByTestId("conversation-search-empty-state"),
-    ).toHaveTextContent(/type a query and press enter/i);
+    const empty = screen.getByTestId("conversation-search-empty-state");
+    expect(empty).toHaveTextContent("Search every conversation");
+    expect(empty).toHaveTextContent(
+      "What you, your agents and their tools said — archived conversations too. Type, then press Return.",
+    );
     expect(screen.getByTestId("conversation-search-input")).toBeInTheDocument();
   });
 });
@@ -1135,5 +1145,133 @@ describe("Phase 143 — kebab-menu Un-archive on archived-identity rows (D-11, D
     expect(onOpenActive).not.toHaveBeenCalled();
     expect(onOpenChange).not.toHaveBeenCalledWith(false);
     expect(alertSpy.calls).toHaveLength(0);
+  });
+});
+
+// ─── apple-ux (shape-creation-and-search-dialogs): the window says what it does ───
+describe("ConversationSearchModal: apple-ux chrome", () => {
+  function renderModal() {
+    return render(
+      <ConversationSearchModal open={true} onOpenChange={vi.fn()} onOpenActiveConversation={vi.fn()} />,
+    );
+  }
+  const input = () => screen.getByTestId("conversation-search-input") as HTMLInputElement;
+  const rowsOf = (n: number, prefix = "r") =>
+    Array.from({ length: n }, (_, i) => makeRow({ transcriptPath: `/${prefix}${i}.jsonl` }));
+
+  it("title is \"Search\" and the box reads \"Search every conversation\"", () => {
+    renderModal();
+    expect(screen.getByRole("dialog", { name: "Search" })).toBeInTheDocument();
+    expect(input().placeholder).toBe("Search every conversation");
+    // No hint before anything is typed.
+    expect(screen.queryByTestId("conversation-search-hint")).toBeNull();
+  });
+
+  it("typing shows \"Press Return to search.\" — and still fires nothing, keystroke after keystroke", async () => {
+    renderModal();
+    const user = userEvent.setup();
+    await user.type(input(), "deploy notes");
+    expect(screen.getByTestId("conversation-search-hint")).toHaveTextContent("Press Return to search.");
+    expect(searchConversationsMock).not.toHaveBeenCalled();
+    // The empty state stays until Return.
+    expect(screen.getByTestId("conversation-search-empty-state")).toBeInTheDocument();
+    // Only whitespace is nothing new.
+    await user.clear(input());
+    await user.type(input(), "   ");
+    expect(screen.queryByTestId("conversation-search-hint")).toBeNull();
+    // Return on whitespace searches nothing either.
+    await user.keyboard("{Enter}");
+    expect(searchConversationsMock).not.toHaveBeenCalled();
+  });
+
+  it("the hint goes once Return searches what's typed, and comes back when the text differs from the searched query", async () => {
+    searchConversationsMock.mockResolvedValue({ results: rowsOf(1), hasMore: false });
+    renderModal();
+    const user = userEvent.setup();
+    await user.type(input(), "foo");
+    await user.keyboard("{Enter}");
+    await waitFor(() => expect(searchConversationsMock).toHaveBeenCalledTimes(1));
+    expect(screen.queryByTestId("conversation-search-hint")).toBeNull();
+    await user.type(input(), "d");
+    expect(screen.getByTestId("conversation-search-hint")).toBeInTheDocument();
+    expect(searchConversationsMock).toHaveBeenCalledTimes(1);
+    await user.keyboard("{Backspace}");
+    expect(screen.queryByTestId("conversation-search-hint")).toBeNull();
+  });
+
+  it("while searching: \"Searching every conversation — this can take a few seconds…\"", async () => {
+    let resolve!: (v: { results: ConversationSearchResult[]; hasMore: boolean }) => void;
+    searchConversationsMock.mockReturnValueOnce(new Promise((r) => { resolve = r; }));
+    renderModal();
+    const user = userEvent.setup();
+    await user.type(input(), "foo");
+    await user.keyboard("{Enter}");
+    const searching = await screen.findByTestId("conversation-search-searching");
+    expect(searching).toHaveTextContent("Searching every conversation — this can take a few seconds…");
+    expect(screen.queryByTestId("conversation-search-empty-state")).toBeNull();
+    resolve({ results: rowsOf(2), hasMore: false });
+    await waitFor(() => expect(screen.queryByTestId("conversation-search-searching")).toBeNull());
+  });
+
+  it("count line: \"12 conversations\"", async () => {
+    searchConversationsMock.mockResolvedValueOnce({ results: rowsOf(12), hasMore: false });
+    renderModal();
+    const user = userEvent.setup();
+    await user.type(input(), "foo");
+    await user.keyboard("{Enter}");
+    expect(await screen.findByTestId("conversation-search-count")).toHaveTextContent(/^12 conversations$/);
+  });
+
+  it("count line: \"1 conversation\" for a single result", async () => {
+    searchConversationsMock.mockResolvedValueOnce({ results: rowsOf(1), hasMore: false });
+    renderModal();
+    const user = userEvent.setup();
+    await user.type(input(), "foo");
+    await user.keyboard("{Enter}");
+    expect(await screen.findByTestId("conversation-search-count")).toHaveTextContent(/^1 conversation$/);
+  });
+
+  it("count line: \"20+ conversations\" while there's more to load, then the real total after Load more", async () => {
+    searchConversationsMock
+      .mockResolvedValueOnce({ results: rowsOf(20, "a"), hasMore: true })
+      .mockResolvedValueOnce({ results: rowsOf(3, "b"), hasMore: false });
+    renderModal();
+    const user = userEvent.setup();
+    await user.type(input(), "foo");
+    await user.keyboard("{Enter}");
+    expect(await screen.findByTestId("conversation-search-count")).toHaveTextContent(/^20\+ conversations$/);
+    // Load more sits after the results.
+    const loadMore = screen.getByTestId("conversation-search-load-more");
+    const lastRow = screen.getByTestId("conversation-search-row-/a19.jsonl");
+    expect(lastRow.compareDocumentPosition(loadMore) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    fireEvent.click(loadMore);
+    await waitFor(() =>
+      expect(screen.getByTestId("conversation-search-count")).toHaveTextContent(/^23 conversations$/),
+    );
+  });
+
+  it("no results: \"No results for \"…\"\" with \"Try fewer or different words.\" and no count line", async () => {
+    searchConversationsMock.mockResolvedValueOnce({ results: [], hasMore: false });
+    renderModal();
+    const user = userEvent.setup();
+    await user.type(input(), "zzz qqq");
+    await user.keyboard("{Enter}");
+    const none = await screen.findByTestId("conversation-search-no-results");
+    expect(none).toHaveTextContent('No results for "zzz qqq"');
+    expect(none).toHaveTextContent("Try fewer or different words.");
+    expect(screen.queryByTestId("conversation-search-count")).toBeNull();
+  });
+
+  it("an error shows as a banner at the top of the body; there is no foot", async () => {
+    searchConversationsMock.mockRejectedValueOnce(new Error("search_backend_down"));
+    renderModal();
+    const user = userEvent.setup();
+    await user.type(input(), "foo");
+    await user.keyboard("{Enter}");
+    const banner = await screen.findByTestId("conversation-search-error");
+    expect(banner).toHaveTextContent("search_backend_down");
+    const body = screen.getByTestId("conversation-search-body");
+    expect(body.firstElementChild).toBe(banner);
+    expect(document.querySelector('[data-slot="modal-foot"]')).toBeNull();
   });
 });

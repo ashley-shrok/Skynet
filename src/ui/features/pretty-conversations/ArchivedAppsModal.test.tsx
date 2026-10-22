@@ -12,6 +12,13 @@
  *   Test 5  row stays on Un-archive failure (D-17)
  *   Test 6  name_collision reason surfaces distinct copy (D-17)
  *   Test 7  modal stays open after un-archive (D-19)
+ *
+ * apple-ux (shape-creation-and-search-dialogs, 2026-10-22): a line under the
+ * title says what the window is; every row has a visible Un-archive button
+ * (busy while it works, one at a time) instead of a ⋮ kebab; right-click on
+ * a row still offers Un-archive; the empty state is "No archived apps —
+ * Apps you archive land here, ready to bring back." The un-archive tests
+ * below click the row's button (data-testid archived-apps-unarchive-<hostId>-<slug>).
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
@@ -85,6 +92,9 @@ if (typeof window !== "undefined" && !window.ResizeObserver) {
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
+const unarchiveBtn = (hostId: number, slug: string) =>
+  screen.getByTestId(`archived-apps-unarchive-${hostId}-${slug}`) as HTMLButtonElement;
+
 function makeEntry(overrides: Partial<{ hostId: number; slug: string; title?: string; iconUrl?: string }> = {}) {
   return {
     hostId: 1,
@@ -128,7 +138,7 @@ describe("Phase 143 Plan 143-06 Task 1 — ArchivedAppsModal", () => {
 
   // ─── Test 2: Empty state (D-18) ───────────────────────────────────────────
 
-  it("Test 2 (D-18 empty state): renders 'No archived apps.' when list is empty", async () => {
+  it("Test 2 (D-18 empty state): renders 'No archived apps' with its explainer when list is empty", async () => {
     listArchivedAppsMock.mockResolvedValue([]);
 
     render(
@@ -138,13 +148,22 @@ describe("Phase 143 Plan 143-06 Task 1 — ArchivedAppsModal", () => {
       />,
     );
 
-    const emptyState = await screen.findByText("No archived apps.");
-    expect(emptyState).toBeTruthy();
+    expect(await screen.findByText("No archived apps")).toBeTruthy();
+    expect(screen.getByText("Apps you archive land here, ready to bring back.")).toBeTruthy();
+  });
+
+  it("Test 2b: the subtitle under the title says what the window is", async () => {
+    listArchivedAppsMock.mockResolvedValue([]);
+    render(<ArchivedAppsModal open={true} onOpenChange={() => {}} />);
+    expect(screen.getByText("Archived apps")).toBeTruthy();
+    expect(
+      screen.getByText("Apps you've archived. Un-archive one to put it back in the sidebar."),
+    ).toBeTruthy();
   });
 
   // ─── Test 3: Row list (D-09) ──────────────────────────────────────────────
 
-  it("Test 3 (D-09 rows): renders slug labels and kebab triggers for each entry", async () => {
+  it("Test 3 (D-09 rows): every row shows its name and its own visible Un-archive button — no ⋮ kebab", async () => {
     listArchivedAppsMock.mockResolvedValue([
       makeEntry({ hostId: 1, slug: "notes-app" }),
       makeEntry({ hostId: 2, slug: "timer" }),
@@ -160,9 +179,79 @@ describe("Phase 143 Plan 143-06 Task 1 — ArchivedAppsModal", () => {
     await screen.findByText("notes-app");
     await screen.findByText("timer");
 
-    // Both kebab triggers present via data-testid.
-    expect(screen.getByTestId("archived-apps-row-kebab-1-notes-app")).toBeTruthy();
-    expect(screen.getByTestId("archived-apps-row-kebab-2-timer")).toBeTruthy();
+    // Shape §What would make it wrong: "Un-archive reachable only through a
+    // hidden menu." Each row's button is there without opening anything.
+    for (const [hostId, slug] of [[1, "notes-app"], [2, "timer"]] as const) {
+      const btn = unarchiveBtn(hostId, slug);
+      expect(btn.textContent).toBe("Un-archive");
+      expect(btn.disabled).toBe(false);
+    }
+    expect(screen.getAllByRole("button", { name: "Un-archive" })).toHaveLength(2);
+    // No ⋮ on rows.
+    expect(document.querySelector('[data-testid*="kebab"]')).toBeNull();
+    expect(screen.queryByRole("button", { name: /more|options|actions/i })).toBeNull();
+    expect(screen.queryByText("⋮")).toBeNull();
+  });
+
+  it("Test 3b: a row shows the app's title (else its slug) and its picture (else its initial)", async () => {
+    listArchivedAppsMock.mockResolvedValue([
+      makeEntry({ hostId: 1, slug: "notes-app", title: "Notes", iconUrl: "/apps/1/notes-app/icon" }),
+      makeEntry({ hostId: 2, slug: "timer" }),
+    ]);
+    render(<ArchivedAppsModal open={true} onOpenChange={() => {}} />);
+    await screen.findByText("Notes");
+    expect(screen.queryByText("notes-app")).toBeNull();
+    const imgs = Array.from(document.querySelectorAll("img"));
+    expect(imgs.map((i) => i.getAttribute("src"))).toContain("/apps/1/notes-app/icon");
+    expect(screen.getByText("T")).toBeTruthy();
+  });
+
+  it("Test 3c: the button is busy while its un-archive is in flight, and the other rows' buttons wait (one at a time)", async () => {
+    listArchivedAppsMock.mockResolvedValue([
+      makeEntry({ hostId: 1, slug: "notes-app" }),
+      makeEntry({ hostId: 2, slug: "timer" }),
+    ]);
+    let resolveUnarchive!: () => void;
+    unarchiveAppMock.mockImplementation(
+      () => new Promise<{ ok: true }>((res) => { resolveUnarchive = () => res({ ok: true }); }),
+    );
+    render(<ArchivedAppsModal open={true} onOpenChange={() => {}} />);
+    await screen.findByText("notes-app");
+
+    fireEvent.click(unarchiveBtn(1, "notes-app"));
+    await waitFor(() => expect(unarchiveBtn(1, "notes-app").getAttribute("aria-busy")).toBe("true"));
+    expect(unarchiveBtn(1, "notes-app").disabled).toBe(true);
+    // The other row's button is not busy, but can't start a second one.
+    expect(unarchiveBtn(2, "timer").getAttribute("aria-busy")).not.toBe("true");
+    expect(unarchiveBtn(2, "timer").disabled).toBe(true);
+    fireEvent.click(unarchiveBtn(2, "timer"));
+    // Right-click on the other row can't start one either.
+    fireEvent.contextMenu(screen.getByText("timer"), { clientX: 10, clientY: 10 });
+    const item = screen.queryByRole("menuitem", { name: "Un-archive" });
+    if (item) fireEvent.click(item);
+    expect(unarchiveAppMock).toHaveBeenCalledTimes(1);
+    expect(unarchiveAppMock).toHaveBeenCalledWith(1, "notes-app");
+
+    await act(async () => {
+      resolveUnarchive();
+      await Promise.resolve();
+    });
+    await waitFor(() => expect(screen.queryByText("notes-app")).toBeNull());
+    // Free again.
+    await waitFor(() => expect(unarchiveBtn(2, "timer").disabled).toBe(false));
+  });
+
+  it("Test 3d: right-clicking a row still offers Un-archive, and it works like the button", async () => {
+    const user = userEvent.setup();
+    listArchivedAppsMock.mockResolvedValue([makeEntry({ hostId: 1, slug: "notes-app" })]);
+    unarchiveAppMock.mockResolvedValue({ ok: true });
+    render(<ArchivedAppsModal open={true} onOpenChange={() => {}} />);
+    const label = await screen.findByText("notes-app");
+    fireEvent.contextMenu(label, { clientX: 120, clientY: 80 });
+    await user.click(await screen.findByRole("menuitem", { name: "Un-archive" }));
+    await waitFor(() => expect(unarchiveAppMock).toHaveBeenCalledWith(1, "notes-app"));
+    await waitFor(() => expect(screen.queryByText("notes-app")).toBeNull());
+    expect(noticeTexts(alertSpy)[0]).toContain("Un-archiving notes-app");
   });
 
   // ─── Test 4: Row disappears ONLY after endpoint returns 200 ───────────────
@@ -199,13 +288,8 @@ describe("Phase 143 Plan 143-06 Task 1 — ArchivedAppsModal", () => {
     // Wait for rows to render.
     await screen.findByText("notes-app");
 
-    // Open the kebab menu on the notes-app row.
-    const kebabTrigger = screen.getByTestId("archived-apps-row-kebab-1-notes-app");
-    await user.click(kebabTrigger);
-
-    // Find and click the "Un-archive" item (rendered in a Radix portal).
-    const unarchiveItem = await screen.findByText("Un-archive");
-    await user.click(unarchiveItem);
+    // Click the row's own Un-archive button.
+    await user.click(unarchiveBtn(1, "notes-app"));
 
     // MID-FLIGHT: endpoint has not resolved yet.
     // Row MUST still be present.
@@ -254,11 +338,7 @@ describe("Phase 143 Plan 143-06 Task 1 — ArchivedAppsModal", () => {
 
     await screen.findByText("notes-app");
 
-    const kebabTrigger = screen.getByTestId("archived-apps-row-kebab-1-notes-app");
-    await user.click(kebabTrigger);
-
-    const unarchiveItem = await screen.findByText("Un-archive");
-    await user.click(unarchiveItem);
+    await user.click(unarchiveBtn(1, "notes-app"));
 
     // Wait for the promise to settle.
     await waitFor(() => {
@@ -267,6 +347,9 @@ describe("Phase 143 Plan 143-06 Task 1 — ArchivedAppsModal", () => {
 
     // Row MUST still be present (never removed on failure).
     expect(screen.queryByText("notes-app")).not.toBeNull();
+    // And its button is usable again for a retry.
+    await waitFor(() => expect(unarchiveBtn(1, "notes-app").disabled).toBe(false));
+    expect(unarchiveBtn(1, "notes-app").getAttribute("aria-busy")).not.toBe("true");
 
     // Alert copy must match D-17 generic fallback.
     expect(noticeTexts(alertSpy)[0]?.toLowerCase()).toContain(
@@ -301,11 +384,7 @@ describe("Phase 143 Plan 143-06 Task 1 — ArchivedAppsModal", () => {
 
     await screen.findByText("notes-app");
 
-    const kebabTrigger = screen.getByTestId("archived-apps-row-kebab-1-notes-app");
-    await user.click(kebabTrigger);
-
-    const unarchiveItem = await screen.findByText("Un-archive");
-    await user.click(unarchiveItem);
+    await user.click(unarchiveBtn(1, "notes-app"));
 
     await waitFor(() => {
       expect(noticeTexts(alertSpy).length).toBeGreaterThan(0);
@@ -335,8 +414,7 @@ describe("Phase 143 Plan 143-06 Task 1 — ArchivedAppsModal", () => {
 
     render(<ArchivedAppsModal open={true} onOpenChange={vi.fn()} />);
     await screen.findByText("notes-app");
-    await user.click(screen.getByTestId("archived-apps-row-kebab-1-notes-app"));
-    await user.click(await screen.findByText("Un-archive"));
+    await user.click(unarchiveBtn(1, "notes-app"));
     await waitFor(() => expect(noticeTexts(alertSpy).length).toBeGreaterThan(0));
 
     // Reconciler restored it; the next sweep's app-update must land.
@@ -375,11 +453,7 @@ describe("Phase 143 Plan 143-06 Task 1 — ArchivedAppsModal", () => {
 
     await screen.findByText("notes-app");
 
-    const kebabTrigger = screen.getByTestId("archived-apps-row-kebab-1-notes-app");
-    await user.click(kebabTrigger);
-
-    const unarchiveItem = await screen.findByText("Un-archive");
-    await user.click(unarchiveItem);
+    await user.click(unarchiveBtn(1, "notes-app"));
 
     // Wait for success alert to be called (confirms the full success path ran).
     await waitFor(() => {

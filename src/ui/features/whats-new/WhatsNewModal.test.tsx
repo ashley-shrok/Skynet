@@ -9,13 +9,17 @@ vi.mock("./whats-new-api", () => ({
 }));
 
 import { WhatsNewModal } from "./WhatsNewModal";
+import { publishBrandingConfig, __resetForTest as resetBranding } from "@/branding/branding-store";
 
 beforeEach(() => {
   localStorage.clear();
   getWhatsNew.mockReset();
   markWhatsNewSeen.mockReset().mockResolvedValue(undefined);
 });
-afterEach(() => cleanup());
+afterEach(() => {
+  cleanup();
+  resetBranding();
+});
 
 const notes = [
   { id: "c", text: "Newest change." },
@@ -27,17 +31,68 @@ describe("WhatsNewModal", () => {
     getWhatsNew.mockResolvedValue(notes);
     render(<WhatsNewModal username="ash" />);
     await screen.findByTestId("whats-new-modal");
-    expect(screen.getByText("What's new")).toBeTruthy();
+    expect(screen.getByRole("dialog", { name: "What's new" })).toBeTruthy();
     expect(screen.getAllByTestId("whats-new-note").map((li) => li.textContent)).toEqual([
       "Newest change.",
       "Older change.",
     ]);
+    // The notes are one grouped list.
+    const list = screen.getByTestId("whats-new-notes");
+    expect(list.tagName).toBe("UL");
+    expect(list.classList.contains("k-group")).toBe(true);
+    expect(screen.getAllByTestId("whats-new-note").every((li) => list.contains(li))).toBe(true);
   });
 
-  it("'Got it' closes and marks every listed note seen, once", async () => {
+  it("the title names the instance from its branding, not a hard-coded \"Skynet\"", async () => {
+    publishBrandingConfig({
+      appName: "Acme Hub",
+      shortName: "Acme",
+      iconPath: "/branding/icon.png",
+      wordmarkPath: "/branding/wordmark.png",
+      faviconPath: "/branding/favicon.svg",
+      wipIndicatorPath: "/branding/wip-cube.webp",
+      pwaIcons: [],
+      avatarDirectorSpec: "",
+      avatarGammaDefault: 0.7,
+    });
+    getWhatsNew.mockResolvedValue(notes);
+    render(<WhatsNewModal username="ash" />);
+    const modal = await screen.findByTestId("whats-new-modal");
+    expect(screen.getByTestId("whats-new-title").textContent).toBe("What's new in Acme Hub");
+    expect(modal.textContent).not.toMatch(/skynet/i);
+  });
+
+  it("the title follows the default branding when nothing is published", async () => {
+    getWhatsNew.mockResolvedValue(notes);
+    render(<WhatsNewModal username="ash" />);
+    await screen.findByTestId("whats-new-modal");
+    expect(screen.getByTestId("whats-new-title").textContent).toBe("What's new in SKYNET");
+  });
+
+  it("one full-width Continue at the foot — no \"Got it\"", async () => {
+    getWhatsNew.mockResolvedValue(notes);
+    render(<WhatsNewModal username="ash" />);
+    const btn = await screen.findByTestId("whats-new-dismiss");
+    expect(btn.textContent).toBe("Continue");
+    expect(btn.getAttribute("data-full")).toBe("true");
+    expect(screen.queryByText(/got it/i)).toBeNull();
+    expect(screen.getAllByRole("button", { name: /continue/i })).toHaveLength(1);
+  });
+
+  it("Continue closes and marks every listed note seen, once", async () => {
     getWhatsNew.mockResolvedValue(notes);
     render(<WhatsNewModal username="ash" />);
     fireEvent.click(await screen.findByTestId("whats-new-dismiss"));
+    await waitFor(() => expect(screen.queryByTestId("whats-new-modal")).toBeNull());
+    expect(markWhatsNewSeen).toHaveBeenCalledTimes(1);
+    expect(markWhatsNewSeen).toHaveBeenCalledWith(["c", "b"]);
+  });
+
+  it("the X also counts as closing", async () => {
+    getWhatsNew.mockResolvedValue(notes);
+    render(<WhatsNewModal username="ash" />);
+    await screen.findByTestId("whats-new-modal");
+    fireEvent.click(screen.getByRole("button", { name: /close/i }));
     await waitFor(() => expect(screen.queryByTestId("whats-new-modal")).toBeNull());
     expect(markWhatsNewSeen).toHaveBeenCalledTimes(1);
     expect(markWhatsNewSeen).toHaveBeenCalledWith(["c", "b"]);

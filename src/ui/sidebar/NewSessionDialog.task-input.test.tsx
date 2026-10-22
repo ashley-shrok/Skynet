@@ -11,6 +11,10 @@
 //      Roles dropdown lists every host's roles at open; Task 3c now pins
 //      that the roles group shows with no host picked, and Task 2e re-suggests
 //      on a host switch made by picking another host's role)
+//   7. apple-ux 2026-10-22: the Name field is always shown (the "Choose a
+//      custom agent name" tick-box is gone), pre-filled with the suggestion
+//      and helped by "Suggested — change it if you like."; the admin-only
+//      "Just a shell" tick-box became an Agent / Shell switch
 //
 // Mock scaffolding lifted from NewSessionDialog.role-dropdown.test.tsx so this
 // file is self-contained. Follows the sibling-test-file pattern (Landmine 10 —
@@ -80,7 +84,9 @@ import {
   pickedRoleValues,
   roleOptionValues,
   toggleRole,
-  closeRoleDropdown,
+  chooseShell,
+  nameInput,
+  typeName,
   NO_ROLES_VALUE,
 } from "./NewSessionDialog.roles-test-helpers";
 import type { Host, HostFolder } from "@/types/ui-types";
@@ -135,21 +141,10 @@ const twoHostTree: HostFolder = {
   ],
 };
 
-// Phase 88 (Plan 88-03 Task 5): single source of truth for the identity-
-// mode checkbox label regex. Phase 88 flipped the label from "Create with
-// new identity" to "Just a shell — no agent" (Plan 88-02 Edit C). Both
-// checkbox-click sites in this file (Task 1b + Task 3e) reference this
-// constant instead of an inline literal. The regex pattern is
-// /just a shell.*no agent/i — case-insensitive substring match covering
-// the em-dash-separated label text.
-const IDENTITY_MODE_CHECKBOX_RE = /just a shell.*no agent/i;
-
 // Phase 88 (Plan 88-03 Task 5): renderDialog helper accepts isAdmin
 // with a default of `true` to preserve existing coverage's admin-surface
-// assumptions (Path + shell-only checkbox were universal before Phase 88;
-// they are now admin-gated). Task 1b + Task 3e click the checkbox and
-// therefore rely on the checkbox being rendered — the helper's default
-// of isAdmin=true covers them without churn.
+// assumptions (Path + the Agent / Shell switch are admin-gated). Task 1b +
+// Task 3e switch to Shell and so rely on the switch being rendered.
 function renderDialog(overrides: {
   open?: boolean;
   onClose?: () => void;
@@ -172,11 +167,9 @@ function renderDialog(overrides: {
 }
 
 // Ensure `slug` is checked in the Roles group (clicking an already-checked
-// option would UNcheck it, so only click when it is not already picked), and
-// leave the dropdown closed so the dialog's buttons stay queryable.
+// row would UNcheck it, so only click when it is not already picked).
 function ensureRolePicked(slug: string) {
   if (!pickedRoleValues().includes(slug)) toggleRole(slug);
-  closeRoleDropdown();
 }
 
 // Helper that fills in a full identity form ready to submit, given a
@@ -191,14 +184,6 @@ async function fillFormForSubmit(opts: {
   await waitFor(() => expect(queryRolesGroup()).toBeTruthy());
   // Pick a role
   ensureRolePicked("box-maintainer");
-  // 2026-09-27: the manual name input is hidden by default now (auto-generate
-  // mode is default). Every helper caller here needs to either observe the
-  // input value or type into it, so reveal the input by opting into custom
-  // name. Guard against the pool-pick failure fallback having already flipped
-  // the checkbox to checked (this suite's default mock REJECTS) — clicking a
-  // checked checkbox would un-reveal the input.
-  const customNameCb = screen.getByLabelText(/choose a custom agent name/i) as HTMLInputElement;
-  if (!customNameCb.checked) fireEvent.click(customNameCb);
   if (waitForPrefill) {
     await waitFor(() => expect(mockPickPoolName).toHaveBeenCalled());
     // Wait for name field to acquire prefilled value
@@ -293,8 +278,8 @@ describe("NewSessionDialog task input: removed from the modal (2026-09-14)", () 
   });
 
   it("Task 1b: task textarea is absent in shell mode too", async () => {
-    const { getByRole } = renderDialog();
-    fireEvent.click(getByRole("checkbox", { name: IDENTITY_MODE_CHECKBOX_RE }));
+    renderDialog();
+    chooseShell();
     await waitFor(() => {
       expect(screen.queryByLabelText(/^task$/i)).toBeFalsy();
     });
@@ -376,10 +361,6 @@ describe("NewSessionDialog task input: pickPoolName auto-prefill", () => {
     ];
     expect(typeof hostId).toBe("number");
 
-    // 2026-09-27: reveal the manual name input so we can inspect its value.
-    // The pool-picked name still populates `name` state under the covers; the
-    // checkbox click just shows the input in the DOM.
-    fireEvent.click(screen.getByLabelText(/choose a custom agent name/i));
 
     // Name field populated with returned pool name
     await waitFor(() => {
@@ -411,8 +392,6 @@ describe("NewSessionDialog task input: pickPoolName auto-prefill", () => {
     ]);
     renderDialog();
     await waitFor(() => expect(queryRolesGroup()).toBeTruthy());
-    // 2026-09-27: reveal the manual input so the user can type into it.
-    fireEvent.click(screen.getByLabelText(/choose a custom agent name/i));
     // User types a custom name FIRST (before any prefill).
     const nameInput = screen.getByLabelText(/^name$/i) as HTMLInputElement;
     fireEvent.change(nameInput, { target: { value: "custom-name" } });
@@ -448,9 +427,6 @@ describe("NewSessionDialog task input: pickPoolName auto-prefill", () => {
 
     // Request is in flight, field still empty.
     await waitFor(() => expect(mockPickPoolName).toHaveBeenCalled());
-    // 2026-09-27: reveal the manual input so we can observe its value while
-    // the suggestion is in flight.
-    fireEvent.click(screen.getByLabelText(/choose a custom agent name/i));
     const nameInput = screen.getByLabelText(/^name$/i) as HTMLInputElement;
     expect(nameInput.value).toBe("");
 
@@ -491,9 +467,6 @@ describe("NewSessionDialog task input: pickPoolName auto-prefill", () => {
     // No host yet → no suggestion yet.
     expect(mockPickPoolName).not.toHaveBeenCalled();
     toggleRole("box-maintainer", "1");
-    closeRoleDropdown();
-    // 2026-09-27: reveal the manual input so we can observe its value.
-    fireEvent.click(screen.getByLabelText(/choose a custom agent name/i));
     await waitFor(() => {
       expect(
         (screen.getByLabelText(/^name$/i) as HTMLInputElement).value,
@@ -502,7 +475,6 @@ describe("NewSessionDialog task input: pickPoolName auto-prefill", () => {
     expect(mockPickPoolName.mock.calls[0][0]).toBe(1);
 
     toggleRole("box-maintainer", "2");
-    closeRoleDropdown();
     await waitFor(() => {
       expect(
         (screen.getByLabelText(/^name$/i) as HTMLInputElement).value,
@@ -540,8 +512,6 @@ describe("NewSessionDialog task input: pickPoolName auto-prefill", () => {
     mockPickPoolName.mockResolvedValue({ name: "willow" });
     renderDialog();
 
-    // 2026-09-27: reveal the manual input so we can observe the prefilled value.
-    fireEvent.click(screen.getByLabelText(/choose a custom agent name/i));
     await waitFor(() => {
       const nameInput = screen.getByLabelText(/^name$/i) as HTMLInputElement;
       expect(nameInput.value).toBe("willow");
@@ -617,7 +587,6 @@ describe("NewSessionDialog role-select bug fix: host-null affordance", () => {
     renderDialog({ hostTree: twoHostTree });
     await waitFor(() => expect(queryRolesGroup()).toBeTruthy());
     expect(roleOptionValues()).toEqual(["1/box-maintainer", "2/box-maintainer"]);
-    closeRoleDropdown();
     expect(pickedRoleValues()).toEqual([]);
     expect(screen.queryByText(/pick a host/i)).toBeFalsy();
   });
@@ -633,19 +602,81 @@ describe("NewSessionDialog role-select bug fix: host-null affordance", () => {
   });
 
   it("Task 3e: user opts into shell mode + no host picked → hint is NOT visible (hint is agent-mode-only)", async () => {
-    // Phase 88: click OPTS INTO shell mode (was: opted out of identity
-    // mode). The hint lives inside the agent-cluster (post-Phase-88
+    // Phase 88: choosing Shell (now the Agent / Shell switch; was a tick-box,
+    // and before that opting out of identity mode). The hint lived in the agent-cluster (post-Phase-88
     // {!shellOnly && (…)} gate), so opting into shell mode removes the hint.
-    const { getByRole } = renderDialog({ hostTree: twoHostTree });
-    const checkbox = getByRole("checkbox", {
-      name: IDENTITY_MODE_CHECKBOX_RE,
-    });
-    fireEvent.click(checkbox);
+    renderDialog({ hostTree: twoHostTree });
+    chooseShell();
     // Hint must NOT be visible in shell mode.
     await waitFor(() => {
       expect(
         screen.queryByText(/pick a host to see available roles/i),
       ).toBeFalsy();
     });
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// apple-ux 2026-10-22 — the Name is always shown and pre-filled
+// Shape §What would make it wrong: "A name field hidden behind a tick-box, or
+// a suggested name overwriting one the user typed."
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe("NewSessionDialog name: always shown, pre-filled with the suggestion", () => {
+  const SUGGESTED_HELP = "Suggested — change it if you like.";
+
+  it("the suggestion lands in the visible Name field with its help line, no tick-box needed", async () => {
+    mockPickPoolName.mockResolvedValue({ name: "willow" });
+    renderDialog();
+    // The field is there before the suggestion arrives.
+    expect(nameInput()).toBeTruthy();
+    expect(screen.queryByLabelText(/choose a custom agent name/i)).toBeNull();
+    expect(screen.queryByRole("checkbox")).toBeNull();
+    await waitFor(() => expect(nameInput().value).toBe("willow"));
+    expect(screen.getByText(SUGGESTED_HELP)).toBeTruthy();
+  });
+
+  it("typing replaces the suggestion and the help line goes; typing the suggestion back counts as the suggestion again", async () => {
+    mockPickPoolName.mockResolvedValue({ name: "willow" });
+    renderDialog();
+    await waitFor(() => expect(nameInput().value).toBe("willow"));
+    typeName("Alicia Smith");
+    expect(nameInput().value).toBe("Alicia Smith");
+    expect(screen.queryByText(SUGGESTED_HELP)).toBeNull();
+    typeName("willow");
+    expect(screen.getByText(SUGGESTED_HELP)).toBeTruthy();
+  });
+
+  it("a later suggestion (host switch) never overwrites a typed name", async () => {
+    mockPickPoolName
+      .mockResolvedValueOnce({ name: "willow" })
+      .mockResolvedValueOnce({ name: "aster" });
+    mockListRolesForHost.mockResolvedValue([{ name: "box-maintainer", description: "" }]);
+    renderDialog({ hostTree: twoHostTree });
+    await waitFor(() => expect(queryRolesGroup()).toBeTruthy());
+    toggleRole("box-maintainer", "1");
+    await waitFor(() => expect(nameInput().value).toBe("willow"));
+    typeName("my-own");
+    toggleRole("box-maintainer", "2");
+    await waitFor(() => expect(mockPickPoolName).toHaveBeenCalledTimes(2));
+    await new Promise((r) => setTimeout(r, 50));
+    expect(nameInput().value).toBe("my-own");
+    expect(screen.queryByText(SUGGESTED_HELP)).toBeNull();
+  });
+
+  it("no suggestion (pool down) → the field is empty and typable, with no help line and no error", async () => {
+    renderDialog();
+    await waitFor(() => expect(mockPickPoolName).toHaveBeenCalled());
+    await new Promise((r) => setTimeout(r, 20));
+    expect(nameInput().value).toBe("");
+    expect(nameInput().disabled).toBe(false);
+    expect(screen.queryByText(SUGGESTED_HELP)).toBeNull();
+    expect(screen.queryByRole("alert")).toBeNull();
+    typeName("alicia");
+    await waitFor(() =>
+      expect(
+        (screen.getByRole("button", { name: /^create$/i }) as HTMLButtonElement).disabled,
+      ).toBe(false),
+    );
   });
 });
