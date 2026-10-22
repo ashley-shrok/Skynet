@@ -24,6 +24,7 @@ import {
   extractText,
 } from "./session-file-parser.js";
 import { tailSessionFile, type TailHandle } from "./session-file-tail.js";
+import { isRepeatComposeMqid } from "./seen-input-mqids.js";
 import {
   InterruptCancelTracker,
   isPromptStart,
@@ -6528,6 +6529,17 @@ wss.on("connection", async (ws: WebSocket, req) => {
       // fuse into one prompt.
       const capturedData = String((msg as { data?: unknown }).data ?? "");
       const capturedMqid = String((msg as { messageQueueItemId?: unknown }).messageQueueItemId ?? "") || undefined;
+      // A compose send resent after a WS drop that had in fact got through
+      // already — typing it again would duplicate the message.
+      if (isRepeatComposeMqid(capturedMqid)) {
+        sshLogger.info(`[pv-input] drop_repeat_mqid mqid=${capturedMqid} hostId=${currentHostId} tmuxSession=${currentTmuxSession} dataLen=${capturedData.length}`, {
+          operation: "pv_input_drop_repeat_mqid",
+          mqid: capturedMqid,
+          hostId: currentHostId,
+          tmuxSession: currentTmuxSession,
+        });
+        return;
+      }
       inputChain = inputChain.then(async () => {
         try {
           await __applyInputMessageForTests({

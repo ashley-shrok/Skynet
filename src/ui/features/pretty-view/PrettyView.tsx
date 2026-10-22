@@ -1615,6 +1615,9 @@ export function PrettyView({
   // resent once the next connection is attached (see unsent-input-frames.ts).
   const inputFramesRef = useRef<Map<string, InputFrameRecord>>(new Map());
   const resendQueueRef = useRef<InputFrameRecord[]>([]);
+  // Newest message/image `ts` seen on this pane (host clock, same as replayed
+  // frames) — the replay cutoff stamped on resend-kept pendings.
+  const lastFrameTsRef = useRef<number>(0);
   const sendInput = useCallback((
     text: string,
     mqid?: string,
@@ -1660,7 +1663,9 @@ export function PrettyView({
           ...(mqid ? { messageQueueItemId: mqid } : {}),
         }),
       );
-      if (mqid) {
+      // The Enter-only half of a two-frame send can't be resent on its own —
+      // its body went out untagged — so it isn't recorded.
+      if (mqid && text.replace(/\r/g, "").trim().length > 0) {
         const frames = inputFramesRef.current;
         for (const [key, r] of frames) {
           if (r.ws !== ws) frames.delete(key);
@@ -1836,6 +1841,10 @@ export function PrettyView({
     sentAt: number;
     state: "sending" | "failed";
     timer: number | null;
+    // Set on a send kept for resend after a WS drop: the newest transcript
+    // timestamp seen before the drop. The reconnect replays the transcript, and
+    // replayed user turns (ts at or below this) must not settle the bubble.
+    replayCutoffTs?: number;
     // Phase 80 D-14: attachment metadata carried on the pending record so
     // ChatMessage renders caption + AttachmentChipStrip via the new
     // pending-with-attachments branch (Phase 80 D-15). Populated by the
@@ -2144,7 +2153,12 @@ export function PrettyView({
       console.info(`[diag-dormant-send] cleanup mqid=${p.mqid} matched_by=${reason} elapsedMs=${Date.now() - p.sentAt} replaced=false state=${p.state}`);
     }
     if (!keep) resendQueueRef.current = [];
-    setPendingSends((prev) => (keep ? prev.filter((p) => keep.has(p.mqid)) : []));
+    const replayCutoffTs = lastFrameTsRef.current;
+    setPendingSends((prev) =>
+      keep
+        ? prev.filter((p) => keep.has(p.mqid)).map((p) => ({ ...p, replayCutoffTs }))
+        : [],
+    );
     settledBubbleKeyRef.current.clear();
     clearOptimisticWip(`pending-cleanup ${reason}`);
     setComposeOverrideText(null);
@@ -2172,7 +2186,7 @@ export function PrettyView({
       const ok = sendInput(r.text, r.mqid, { skipTagNeutralize: r.skipTagNeutralize });
       console.info(`[pv-resend] resend mqid=${r.mqid} textLen=${r.text.length} ok=${ok} hostId=${hostId} tmuxSession=${tmuxSession ?? "null"}`);
       if (ok) {
-        armOptimisticWip(r.mqid, Math.max(0, pending.sentAt + 90_000 - Date.now()));
+        armOptimisticWip(r.mqid, 90_000);
       } else {
         flipToFailed(r.mqid, "resend-refused");
       }
@@ -2926,6 +2940,13 @@ export function PrettyView({
     // paneKey is now parameter-carried FOR LOGGING ONLY — the hook does not react to
     // paneKey changes per shape-file § Session re-entry. Reuse the same value here.
     if (paneKey !== paneKeyRef.current) {
+      // Sends queued for resend belong to the previous pane — never type them
+      // into this one.
+      if (resendQueueRef.current.length > 0) {
+        clearAllPendingSends("pane-change");
+      }
+      inputFramesRef.current.clear();
+      lastFrameTsRef.current = 0;
       // Fresh pane mount — full reset.
       setMessages([]);
       resetInterruptViewState();
@@ -3059,9 +3080,12 @@ export function PrettyView({
         incomingLine: unknown,
         incomingText: string,
         frameType: "message" | "image",
+        incomingTs: unknown,
       ) => {
         const list = pendingSendsRef.current;
-        const oldestSendingIdx = list.findIndex((p) => p.state === "sending");
+        const isReplayFor = (p: PendingSend) =>
+          p.replayCutoffTs !== undefined && typeof incomingTs === "number" && incomingTs <= p.replayCutoffTs;
+        const oldestSendingIdx = list.findIndex((p) => p.state === "sending" && !isReplayFor(p));
         const incomingPreview = incomingText.replace(/\s+/g, " ").trim().slice(0, 60);
         if (oldestSendingIdx !== -1) {
           const match = list[oldestSendingIdx]!;
@@ -3234,6 +3258,9 @@ export function PrettyView({
           break;
         }
         case "message": {
+          if (typeof parsed.ts === "number" && parsed.ts > lastFrameTsRef.current) {
+            lastFrameTsRef.current = parsed.ts;
+          }
           // Widget-submit envelope arrival (2026-09-28): the backend parser
           // now emits widget-envelope wrapper-only user turns as message
           // frames so the pv-send-watchdog can resolve envelope-arm delivery
@@ -3275,6 +3302,7 @@ export function PrettyView({
               parsed.line,
               typeof parsed.content === "string" ? parsed.content : "",
               "message",
+              parsed.ts,
             );
           }
           // Phase 43 Plan 43-07b — drop-oldest cap enforcement on live-append.
@@ -3301,6 +3329,9 @@ export function PrettyView({
           break;
         }
         case "image": {
+          if (typeof parsed.ts === "number" && parsed.ts > lastFrameTsRef.current) {
+            lastFrameTsRef.current = parsed.ts;
+          }
           // Patch #86: image bubbles interleave with text messages in strict
           // wire order — same state channel, same dedup on eventId. The
           // render branch below discriminates on `m.type`.
@@ -3316,6 +3347,7 @@ export function PrettyView({
               parsed.line,
               typeof parsed.text === "string" ? parsed.text : "",
               "image",
+              parsed.ts,
             );
           }
           // Phase 43 Plan 43-07b — drop-oldest cap enforcement on live-append.
@@ -3920,13 +3952,10 @@ export function PrettyView({
       // buffer never reached the server — keep their bubbles and resend them
       // once the next connection attaches (flushResendQueue).
       const bufferedAtClose = ws.bufferedAmount;
-      const unsent = selectUnsentFrames(
-        [...inputFramesRef.current.values()].filter((r) =>
-          pendingSendsRef.current.some((p) => p.mqid === r.mqid && p.state === "sending"),
-        ),
-        ws,
-        bufferedAtClose,
-      );
+      // Not filtered against pendingSendsRef: a send made just before the
+      // drop may not have committed its pending yet. flushResendQueue skips
+      // any whose pending is gone by then.
+      const unsent = selectUnsentFrames([...inputFramesRef.current.values()], ws, bufferedAtClose);
       inputFramesRef.current.clear();
       console.info(`[pv-resend] ws-close bufferedAmount=${bufferedAtClose} queuedBytes=${queuedOutboundBytes(ws)} sendingCount=${pendingSendsRef.current.filter((p) => p.state === "sending").length} unsentCount=${unsent.length} mqids=${unsent.map((r) => r.mqid).join(",")} hostId=${hostId} tmuxSession=${tmuxSession ?? "null"}`);
       if (unsent.length > 0) {
