@@ -98,8 +98,7 @@ describe("agent-phone service", () => {
     expect(call).toEqual({
       to: "+15555550100",
       openingLine: "Hi, this is Clipper the Box Maintainer. CI failed",
-      receiptLine:
-        "Your reply has been sent back to Clipper the Box Maintainer. Thank you.",
+      receiptLine: "Your reply has been delivered.",
     });
     expect(creds).toEqual({
       accountSid: "AC1",

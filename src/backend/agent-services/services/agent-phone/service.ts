@@ -104,7 +104,7 @@ export function createAgentPhoneService(deps: AgentPhoneDeps = productionDeps) {
       }
 
       const openingLine = buildOpeningLine(input.caller_name, input.message);
-      const receiptLine = buildReceiptLine(input.caller_name);
+      const receiptLine = buildReceiptLine();
       const twimlChars = buildCallTwiml(openingLine, receiptLine).length;
       if (twimlChars > TWIML_MAX_CHARS) {
         return fail(

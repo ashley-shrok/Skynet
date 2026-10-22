@@ -6,9 +6,8 @@
  * The call is scripted, not conversational: speak the opener + message,
  * record the callee's reply, speak the receipt line, hang up. The
  * bracketing lines — "Hi, this is X." on pickup and "Your reply has been
- * sent back to X. Thank you." before the call hangs itself up — are what
- * tell the callee her words landed with the right agent. They are NOT
- * optional.
+ * delivered." before the call hangs itself up — are what tell the callee
+ * which agent is calling and that her words landed. They are NOT optional.
  *
  * The reply window is a <Gather> used only to tell when she has finished:
  * its speech recognizer ends the turn after a pause in *speech*, so road
@@ -64,8 +63,8 @@ export function buildOpeningLine(callerName: string, message: string): string {
 }
 
 /** Spoken after the reply, right before hanging up. */
-export function buildReceiptLine(callerName: string): string {
-  return `Your reply has been sent back to ${flatten(callerName)}. Thank you.`;
+export function buildReceiptLine(): string {
+  return "Your reply has been delivered.";
 }
 
 /** The whole call as TwiML. */

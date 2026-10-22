@@ -7,13 +7,11 @@ import {
 } from "./call-script.js";
 
 describe("call script", () => {
-  it("builds the opener and receipt around the caller name", () => {
+  it("builds the opener around the caller name, and the receipt", () => {
     expect(buildOpeningLine("Clipper", "CI failed.")).toBe(
       "Hi, this is Clipper. CI failed.",
     );
-    expect(buildReceiptLine("Clipper")).toBe(
-      "Your reply has been sent back to Clipper. Thank you.",
-    );
+    expect(buildReceiptLine()).toBe("Your reply has been delivered.");
   });
 
   it("flattens newlines and runs of whitespace into single spaces", () => {
@@ -24,7 +22,7 @@ describe("call script", () => {
 
   it("escapes XML so a message cannot inject TwiML verbs", () => {
     const evil = 'x</Say><Dial>+15555550199</Dial><Say>"&\'';
-    const twiml = buildCallTwiml(buildOpeningLine("A", evil), buildReceiptLine("A"));
+    const twiml = buildCallTwiml(buildOpeningLine("A", evil), buildReceiptLine());
     expect(twiml).not.toContain("<Dial>");
     expect(twiml).toContain(escapeXml(evil));
     expect(twiml.match(/<Say /g)).toHaveLength(2);
