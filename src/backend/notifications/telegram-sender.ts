@@ -54,13 +54,13 @@ function escapeHtml(text: string): string {
 }
 
 /**
- * Message text in Telegram HTML parse mode: a header line — the agent's name
- * in bold, then its roles in italics — over the preview. Title-only hides the
- * preview body.
+ * Message text in Telegram HTML parse mode: a header line — the agent's roles
+ * in bold, then its name in italics (just the name, bold, when it has no
+ * roles) — over the preview. Title-only hides the preview body.
  */
 export function buildTelegramText(payload: PushPayload, titleOnly: boolean): string {
   const header = payload.subtitle
-    ? `<b>${escapeHtml(payload.title)}</b> · <i>${escapeHtml(payload.subtitle)}</i>`
+    ? `<b>${escapeHtml(payload.subtitle)}</b> · <i>${escapeHtml(payload.title)}</i>`
     : `<b>${escapeHtml(payload.title)}</b>`;
   return `${header}\n${titleOnly ? "New message" : escapeHtml(payload.body)}`;
 }

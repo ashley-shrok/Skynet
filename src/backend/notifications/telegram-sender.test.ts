@@ -64,9 +64,9 @@ beforeEach(() => {
 });
 
 describe("formatting", () => {
-  it("escapes HTML, bolds the name and italicizes the roles", () => {
+  it("escapes HTML, bolds the roles and italicizes the name", () => {
     expect(buildTelegramText(payload, false)).toBe(
-      "<b>Mitzi</b> · <i>General Assistant</i>\na &lt; b &amp; c",
+      "<b>General Assistant</b> · <i>Mitzi</i>\na &lt; b &amp; c",
     );
   });
 
@@ -78,7 +78,7 @@ describe("formatting", () => {
 
   it("title-only drops the body", () => {
     expect(buildTelegramText(payload, true)).toBe(
-      "<b>Mitzi</b> · <i>General Assistant</i>\nNew message",
+      "<b>General Assistant</b> · <i>Mitzi</i>\nNew message",
     );
   });
 
