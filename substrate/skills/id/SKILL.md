@@ -642,28 +642,38 @@ beside the gear (§ Sidebar footer); new projects are made from the
 **Projects** super-header (§ Sidebar content). There is no three-dots
 menu in the header and no "new group conversation" control in the app.
 
-- **✏️ Pencil-on-paper — new conversation.** Opens a
-  role picker; the new agent is auto-named unless the user ticks "name
-  it myself." Roles are optional. The role picker is a multi-select;
-  picking several writes them to the identity file as
-  `roles: [a, b, ...]` in the order they were picked. There is no host
-  step: the dropdown lists the roles of every machine the user has that
-  can host agents (machines set to run the fleet), in one section per
-  machine (alphabetical) when there are several and with no machine names
-  at all when there is one. Each list starts with a **No roles** entry:
-  at the top of the flat list, preselected, when the user has one such
-  machine; at the top of each machine's section when there
-  are several, with nothing preselected and **Create** disabled until
-  something is picked. "No roles" and roles are mutually exclusive —
-  picking one clears the other, and unticking the last role falls back to
-  "No roles" on that machine. A roleless agent is visible only to the
-  user who made it and is auto-named with just the word (e.g. "duet",
-  "duet-2"). The agent is born on the machine whose entry was picked;
-  picking from a different machine replaces the earlier picks. The first row of the roles dropdown is
-  **New role…**: it opens the roles window (drama masks) straight on its
-  new-role form (on the machine of the roles already picked, if any) and,
-  once the role is made, comes back with the earlier picks plus the new
-  role; backing out comes back as the user left it. A new conversation opens automatically.
+- **✏️ Pencil-on-paper — new conversation.** Opens the **New
+  conversation** dialog. Admins first see an **Agent / Shell** switch at
+  the top (anyone else never does, and has no way to open a plain shell);
+  Shell shows the machine list with a search box, an optional name and a
+  path, as before. For an agent:
+  - **Roles** is a list right in the dialog: each role's picture, name
+    ("· on every host" for a role kept on every host), its one-line
+    description and a check when picked. It's grouped by machine —
+    the machine's name as a heading only when the user has more than one
+    machine that can host agents (machines set to run the fleet); with
+    one there are no headings at all. Each machine's group starts with
+    **No roles** (preselected when there's only one machine). Several
+    roles can be picked; they're written to the identity file as
+    `roles: [a, b, ...]` in the order they were picked. "No roles" and
+    roles are mutually exclusive — picking one clears the other, and
+    unticking the last role falls back to "No roles" on that machine. The
+    agent is born on the machine whose entry was picked; picking from a
+    different machine replaces the earlier picks. A search box appears
+    once there are more than eight roles. **New role…** at the bottom
+    opens the roles window (drama masks) straight on its new-role form
+    (on the machine of the roles already picked, if any) and, once the
+    role is made, comes back with the earlier picks plus the new role;
+    backing out comes back as the user left it.
+  - **Name** is always shown, already filled with a suggested name
+    ("Suggested — change it if you like."); typing replaces it, and a
+    name that's taken on that machine or in Skynet says so. A roleless
+    agent is visible only to the user who made it and is suggested just
+    the word as its name (e.g. "duet", "duet-2").
+  - **Cancel** and **Create** at the foot; Create waits until roles or
+    **No roles** are picked, shows "Creating…" while the agent is made
+    (nothing closes meanwhile), and the new conversation opens
+    automatically.
   *Agent-side:* see § Spawning another agent — the same mechanism, but
   the agent-side lets you seed the newborn with an initial prompt, which
   the button cannot. User-gated.
@@ -701,7 +711,16 @@ with the current query already filled in. The full view reaches into
 things the sidebar doesn't hold: archived conversations, message content
 across every conversation.
 
-In the full search modal, archived conversations (matching the query but
+The full search window is titled **Search**, with one box ("Search every
+conversation"). **Return** searches — typing alone never does, and once
+something new is typed the window says "Press Return to search." Before
+any search it says what it covers (what you, your agents and their tools
+said — archived conversations too); while searching, that it can take a
+few seconds; with results, a count line ("12 conversations", "20+
+conversations" when there's more to load) over the results, **Load more**
+at the end. No results says "Try fewer or different words."
+
+In the full search window, archived conversations (matching the query but
 whose identity has been archived) render as rows with a three-dots menu on
 the right (shown on hover, always shown on a touch screen). Clicking the menu's **Un-archive** item
 requests the reconciler restore that identity's folder; the row is
@@ -752,11 +771,13 @@ not something agents drive.
   identity modal's **Apps** tab, and are archived with their conversation.
 
   The Apps section header itself carries a **kebab menu** with:
-  - **Archived apps** — opens the **Archived apps modal**, a list of
-    archived apps. Each archived row has its own three-dots menu with a
-    single **Un-archive** item; un-archiving triggers the supervisor's
-    reconciler on the app's home host and the app returns to the sidebar
-    within ~15 seconds.
+  - **Archived apps** — opens the **Archived apps** window ("Apps you've
+    archived. Un-archive one to put it back in the sidebar."): each app
+    with its picture or initial, its name and an **Un-archive** button
+    (right-clicking a row offers the same); un-archiving triggers the
+    supervisor's reconciler on the app's home host and the app returns to
+    the sidebar within ~15 seconds. Nothing archived says "No archived
+    apps".
 
 - **Pinned section (under Apps).** Conversations the user has pinned for
   quick access. To pin: the row's **kebab menu** → **Move to** → **Pinned**,
@@ -1208,9 +1229,10 @@ crown, then gear.
 
 - **What's new (pops up after an update).** When Skynet has been updated
   and the user hasn't yet seen the notes for what changed, a **What's new**
-  panel opens on its own when the app loads: a short flat list of plain
-  notes, newest first, covering every update they missed. **Got it** (or
-  the X / Esc) closes it and marks those notes seen on their account — it
+  window opens on its own when the app loads: a sparkle tile, "What's new
+  in <the instance's own name>", and the notes as a short grouped list,
+  newest first, covering every update they missed. **Continue** (or the
+  X / Esc) closes it and marks those notes seen on their account — it
   won't show again on any device until something new ships. Updates with
   nothing user-facing show nothing, and there is no place to reread old
   notes. If the user asks what changed recently, this is what they saw.
