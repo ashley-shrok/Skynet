@@ -59,7 +59,7 @@ describe("FileView — binary drafts", () => {
 });
 
 describe("EditableFileModal — PDF", () => {
-  it("opens without fetching, shows a disabled Save, and stages the edited bytes", async () => {
+  it("opens for reading without fetching; Edit shows a disabled Save that stages the edited bytes", async () => {
     const onStageEditedFile = vi.fn();
     const onOpenChange = vi.fn();
     render(
@@ -73,8 +73,13 @@ describe("EditableFileModal — PDF", () => {
         onStageEditedFile={onStageEditedFile}
       />,
     );
-    const save = (await screen.findByTestId("editable-file-modal-save")) as HTMLButtonElement;
+    // A PDF is a "read first" document: locked, with Edit and no Save.
+    fireEvent.click(await screen.findByTestId("file-window-edit"));
+    expect(screen.queryByTestId("file-window-edit")).toBeNull();
+    const save = screen.getByTestId("file-window-save") as HTMLButtonElement;
+    expect(save.textContent).toBe("Save");
     expect(save.disabled).toBe(true);
+    expect(screen.getByTestId("file-window-cancel")).toBeTruthy();
     expect(fetchHostFileUrl).not.toHaveBeenCalled();
 
     fireEvent.click(screen.getByTestId("fake-annotate"));

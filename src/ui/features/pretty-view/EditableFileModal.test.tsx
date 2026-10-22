@@ -28,6 +28,11 @@
  *  12. draft-guard: dirty + confirm → closes
  *  13. draft-guard: save-success close bypasses confirm
  *  14. draft-guard: clean close (no edits) does NOT prompt confirm
+ *
+ * File-window redesign (shape-file-modal 2026-10-22): notes.md is a "read
+ * first" file, so it opens locked and the save tests press Edit first; the
+ * save button is the head's "Save"; there is no foot, so closes
+ * go through the head X.
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
@@ -44,43 +49,11 @@ vi.mock("@/api/editable-file-api", () => ({
   fetchHostFileUrl: vi.fn(),
 }));
 
-// Stub MDXEditor with a controlled textarea so getByRole("textbox") + fireEvent.change
-// keep working after the .md filetype gate routes through the WYSIWYG branch (Phase 112
-// Plan 02a — filename threaded through GlobalFileTab → MarkdownEditor). The stub covers
-// every named export the impl imports; only MDXEditor renders anything.
-vi.mock("@mdxeditor/editor", () => ({
-  MDXEditor: (props: {
-    markdown: string;
-    onChange?: (v: string) => void;
-    readOnly?: boolean;
-  }) => (
-    <textarea
-      value={props.markdown}
-      onChange={(e) => props.onChange?.(e.target.value)}
-      disabled={props.readOnly}
-      data-testid="mdxeditor"
-    />
-  ),
-  headingsPlugin: () => ({}),
-  listsPlugin: () => ({}),
-  quotePlugin: () => ({}),
-  thematicBreakPlugin: () => ({}),
-  markdownShortcutPlugin: () => ({}),
-  linkPlugin: () => ({}),
-  linkDialogPlugin: () => ({}),
-  tablePlugin: () => ({}),
-  codeBlockPlugin: () => ({}),
-  codeMirrorPlugin: () => ({}),
-  frontmatterPlugin: () => ({}),
-  toolbarPlugin: () => ({}),
-  UndoRedo: () => null,
-  BoldItalicUnderlineToggles: () => null,
-  BlockTypeSelect: () => null,
-  CreateLink: () => null,
-  InsertTable: () => null,
-  ListsToggle: () => null,
-  InsertFrontmatter: () => null,
-}));
+// Stub MDXEditor with a textarea (inside a text-carrying [contenteditable], so
+// the empty-pane guard keeps it) and CodeEditorImpl with a textarea, so
+// getByRole("textbox") + fireEvent.change work on both markdown branches.
+vi.mock("@mdxeditor/editor", async () => (await import("./file-window.test-mocks")).mdxEditor());
+vi.mock("./CodeEditorImpl", async () => (await import("./file-window.test-mocks")).codeEditor());
 
 // ── Late imports (after mocks are registered) ────────────────────────────────
 
@@ -112,6 +85,23 @@ const successFetch = () =>
     filename: "notes.md",
     isTextByExt: true,
   });
+
+// Markdown opens for reading: Edit unlocks it (the editor remounts editable).
+async function startEditing(): Promise<HTMLTextAreaElement> {
+  fireEvent.click(await screen.findByTestId("file-window-edit"));
+  return waitFor(() => {
+    const ta = screen.getByRole("textbox") as HTMLTextAreaElement;
+    expect(ta.readOnly).toBe(false);
+    return ta;
+  });
+}
+
+// Saving in a chat sends an edited copy; the button sits in the head.
+const sendCopyButton = (): HTMLButtonElement =>
+  screen.getByRole("button", { name: "Save" }) as HTMLButtonElement;
+
+// No foot any more: the head X (or Esc) closes.
+const headClose = (): HTMLElement => screen.getByRole("button", { name: "Close" });
 
 const failFetch = (msg = "boom") =>
   (fetchTailnetUrl as ReturnType<typeof vi.fn>).mockRejectedValue(
@@ -151,6 +141,10 @@ describe("EditableFileModal — Phase 40 Plan 40-03 Task 2", () => {
     render(<EditableFileModal {...DEFAULT_PROPS} />);
     const ta = await waitFor(() => screen.getByRole("textbox"));
     expect((ta as HTMLTextAreaElement).value).toBe("hello");
+    // Markdown is a "read first" file: it opens locked, with Edit.
+    expect((ta as HTMLTextAreaElement).readOnly).toBe(true);
+    expect(screen.getByTestId("file-window-edit")).toBeTruthy();
+    expect(screen.queryByTestId("file-window-save")).toBeNull();
   });
 
   it("test 4: failure renders in-body error body (in-modal is the only visible-failure surface)", async () => {
@@ -193,11 +187,10 @@ describe("EditableFileModal — Phase 40 Plan 40-03 Task 2", () => {
         onOpenChange={onOpenChange}
       />,
     );
-    const ta = (await waitFor(() =>
-      screen.getByRole("textbox"),
-    )) as HTMLTextAreaElement;
+    const ta = await startEditing();
     fireEvent.change(ta, { target: { value: "hello world" } });
-    const saveBtn = screen.getByRole("button", { name: /^save$/i });
+    const saveBtn = sendCopyButton();
+    await waitFor(() => expect(saveBtn.disabled).toBe(false));
     await act(async () => {
       fireEvent.click(saveBtn);
     });
@@ -214,9 +207,7 @@ describe("EditableFileModal — Phase 40 Plan 40-03 Task 2", () => {
   it("test 7: mtime sentinel is stable — typed content survives re-renders (Pitfall 6)", async () => {
     successFetch();
     const { rerender } = render(<EditableFileModal {...DEFAULT_PROPS} />);
-    const ta = (await waitFor(() =>
-      screen.getByRole("textbox"),
-    )) as HTMLTextAreaElement;
+    const ta = await startEditing();
     fireEvent.change(ta, { target: { value: "typed content" } });
     expect(ta.value).toBe("typed content");
     // Force a re-render with the same props — if mtime were computed inline
@@ -279,22 +270,14 @@ describe("EditableFileModal — Phase 40 Plan 40-03 Task 2", () => {
     const dialogs = autoAnswerKitDialogs({ confirm: false });
     const onOpenChange = vi.fn();
     render(<EditableFileModal {...DEFAULT_PROPS} onOpenChange={onOpenChange} />);
-    const ta = (await waitFor(() =>
-      screen.getByRole("textbox"),
-    )) as HTMLTextAreaElement;
+    const ta = await startEditing();
     // Make draft dirty
     fireEvent.change(ta, { target: { value: "hello world" } });
     // Wait for GlobalFileTab's onDraftChange effect to mark the modal dirty
     // (Save enables on isDirty); a fixed sleep flakes under full-suite load.
-    await waitFor(() =>
-      expect(
-        (screen.getByRole("button", { name: /^save$/i }) as HTMLButtonElement)
-          .disabled,
-      ).toBe(false),
-    );
-    // Trigger a close via the foot Close button (canonical Modal foot; also
-    // routes through handleOpenChange the same as the head X).
-    fireEvent.click(screen.getByTestId("editable-file-modal-close-foot"));
+    await waitFor(() => expect(sendCopyButton().disabled).toBe(false));
+    // Trigger a close via the head X (routes through handleOpenChange).
+    fireEvent.click(headClose());
     // Kit confirm asked with the exact copy per UI-SPEC L168 (answered "cancel").
     await waitFor(() => expect(dialogs.calls.length).toBe(1));
     expect(dialogs.calls[0].opts.title).toBe("Discard unsaved changes?");
@@ -309,17 +292,10 @@ describe("EditableFileModal — Phase 40 Plan 40-03 Task 2", () => {
     const dialogs = autoAnswerKitDialogs({ confirm: true });
     const onOpenChange = vi.fn();
     render(<EditableFileModal {...DEFAULT_PROPS} onOpenChange={onOpenChange} />);
-    const ta = (await waitFor(() =>
-      screen.getByRole("textbox"),
-    )) as HTMLTextAreaElement;
+    const ta = await startEditing();
     fireEvent.change(ta, { target: { value: "hello world" } });
-    await waitFor(() =>
-      expect(
-        (screen.getByRole("button", { name: /^save$/i }) as HTMLButtonElement)
-          .disabled,
-      ).toBe(false),
-    );
-    fireEvent.click(screen.getByTestId("editable-file-modal-close-foot"));
+    await waitFor(() => expect(sendCopyButton().disabled).toBe(false));
+    fireEvent.click(headClose());
     await waitFor(() => expect(onOpenChange).toHaveBeenCalledWith(false));
     expect(dialogs.calls.length).toBe(1);
     expect(dialogs.calls[0].opts.title).toBe("Discard unsaved changes?");
@@ -337,17 +313,10 @@ describe("EditableFileModal — Phase 40 Plan 40-03 Task 2", () => {
         onStageEditedFile={onStageEditedFile}
       />,
     );
-    const ta = (await waitFor(() =>
-      screen.getByRole("textbox"),
-    )) as HTMLTextAreaElement;
+    const ta = await startEditing();
     fireEvent.change(ta, { target: { value: "hello world" } });
-    await waitFor(() =>
-      expect(
-        (screen.getByRole("button", { name: /^save$/i }) as HTMLButtonElement)
-          .disabled,
-      ).toBe(false),
-    );
-    const saveBtn = screen.getByRole("button", { name: /^save$/i });
+    await waitFor(() => expect(sendCopyButton().disabled).toBe(false));
+    const saveBtn = sendCopyButton();
     await act(async () => {
       fireEvent.click(saveBtn);
     });
@@ -366,7 +335,7 @@ describe("EditableFileModal — Phase 40 Plan 40-03 Task 2", () => {
     await waitFor(() => screen.getByRole("textbox"));
     // Give the initial onDraftChange(false) time to fire
     await new Promise((r) => setTimeout(r, 20));
-    fireEvent.click(screen.getByTestId("editable-file-modal-close-foot"));
+    fireEvent.click(headClose());
     await waitFor(() => expect(onOpenChange).toHaveBeenCalledWith(false));
     expect(dialogs.calls.length).toBe(0);
   });
@@ -413,8 +382,10 @@ describe("EditableFileModal — Phase 40 Plan 40-03 Task 2", () => {
     // (a) textarea shows the correct characters (proves decode)
     expect(ta.value).toBe(original);
     // (b) append + save surfaces the CORRECTLY-encoded string (not mojibake)
-    fireEvent.change(ta, { target: { value: appended } });
-    const saveBtn = screen.getByRole("button", { name: /^save$/i });
+    const editor = await startEditing();
+    fireEvent.change(editor, { target: { value: appended } });
+    const saveBtn = sendCopyButton();
+    await waitFor(() => expect(saveBtn.disabled).toBe(false));
     await act(async () => {
       fireEvent.click(saveBtn);
     });
@@ -442,26 +413,19 @@ describe("EditableFileModal — Phase 40 Plan 40-03 Task 2", () => {
         onOpenChange={onOpenChange}
       />,
     );
-    const ta = (await waitFor(() =>
-      screen.getByRole("textbox"),
-    )) as HTMLTextAreaElement;
+    const ta = await startEditing();
     fireEvent.change(ta, { target: { value: "dirty draft" } });
     // let onDraftChange(true) fire (Save enables on isDirty)
-    await waitFor(() =>
-      expect(
-        (screen.getByRole("button", { name: /^save$/i }) as HTMLButtonElement)
-          .disabled,
-      ).toBe(false),
-    );
-    const saveBtn = screen.getByRole("button", { name: /^save$/i });
+    await waitFor(() => expect(sendCopyButton().disabled).toBe(false));
+    const saveBtn = sendCopyButton();
     // Save throws — we don't care what surfaces, only that savingRef reset.
     await act(async () => {
       try { fireEvent.click(saveBtn); } catch { /* expected */ }
     });
     // The save handler threw so onOpenChange(false) was never called; the
-    // modal is still open. Now close via the foot Close — draft is dirty,
+    // modal is still open. Now close via the head X — draft is dirty,
     // savingRef must be false, so the discard confirm must open.
-    fireEvent.click(screen.getByTestId("editable-file-modal-close-foot"));
+    fireEvent.click(headClose());
     await waitFor(() => expect(dialogs.calls.length).toBe(1));
     expect(dialogs.calls[0].opts.title).toBe("Discard unsaved changes?");
   });

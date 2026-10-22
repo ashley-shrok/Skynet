@@ -385,6 +385,8 @@
   .k-seg > button[aria-pressed="true"] { background: var(--k-s3); color: var(--k-t1); box-shadow: 0 1px 3px rgba(0, 0, 0, 0.35); }
   .k-seg > button:disabled { opacity: 0.4; pointer-events: none; }
   .k-seg > button svg { width: 14px; height: 14px; opacity: 0.85; }
+  .k-seg[data-size="sm"] { padding: 2px; border-radius: 9px; }
+  .k-seg[data-size="sm"] > button { font-size: 12px; padding: 3px 10px; border-radius: 7px; }
 
   /* ── Chips ───────────────────────────────────────────────────────────── */
 

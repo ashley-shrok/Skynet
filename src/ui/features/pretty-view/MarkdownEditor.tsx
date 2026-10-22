@@ -24,9 +24,13 @@
  * with each caller's existing handler.
  */
 
-import { Component, lazy, Suspense, useCallback, useState, type ReactNode } from "react";
-import { cn } from "@/lib/utils";
-import { useMarkdownEditorMode, type MarkdownEditorMode } from "./markdown-editor-mode-preference";
+import { Component, lazy, Suspense, useCallback, useContext, useEffect, useState, type ReactNode } from "react";
+import { useMarkdownEditorMode } from "./markdown-editor-mode-preference";
+import {
+  FORMATTED_UNAVAILABLE_COPY,
+  MarkdownModeSwitch,
+  MarkdownSwitchHostContext,
+} from "./markdown-mode-switch";
 
 // Lazy-loaded: @mdxeditor/editor bundles Lexical + CodeMirror + Radix
 // Dialog + react-hook-form + js-yaml — ~1.5MB uncompressed. Only paid for
@@ -272,7 +276,8 @@ function MarkdownWithSilentFailureFallback({
   // reset wipes the flag right after it's set — the first open then sat on
   // a truncated formatted render (explain SKILL.md cut off at a bare
   // `<thing>`) until a mode switch remounted it.
-  const [hasFallenBack, setHasFallenBack] = useState(false);
+  const switchHost = useContext(MarkdownSwitchHostContext);
+  const [hasFallenBack, setHasFallenBack] = useState(() => switchHost?.formattedUnavailable?.() ?? false);
   const handleFallback = useCallback(() => {
     // eslint-disable-next-line no-console
     console.warn(`[MarkdownEditor] Formatted editor can't render filename=${filename}; showing plain text.`);
@@ -308,7 +313,8 @@ function MarkdownWithSilentFailureFallback({
 
   // Formatted (MDXEditor) or plain source (code editor), per the user's
   // remembered choice; files the formatted editor can't show stay plain.
-  const [mode, setMode] = useMarkdownEditorMode();
+  const [mode] = useMarkdownEditorMode();
+  const host = useContext(MarkdownSwitchHostContext);
   const plain = mode === "plain" || hasFallenBack;
 
   // Wrap MdxEditor in the error boundary so a thrown exception (YAMLException
@@ -336,66 +342,37 @@ function MarkdownWithSilentFailureFallback({
           disabled={disabled}
           readOnly={readOnly}
           onSilentParseFailure={handleFallback}
+          toolbarEnd={host ? null : <MarkdownModeSwitch size="sm" />}
         />
       </Suspense>
     </CodeEditorErrorBoundary>
   );
 
-  return (
-    <div className="flex h-full w-full min-h-0 flex-col gap-1" data-testid="markdown-editor">
-      <MarkdownModeSwitch mode={plain ? "plain" : "formatted"} onChange={setMode} formattedUnavailable={hasFallenBack} />
-      <div className="min-h-0 flex-1">{editor}</div>
-    </div>
-  );
-}
-
-const MODE_LABELS: Record<MarkdownEditorMode, string> = { formatted: "Formatted", plain: "Plain text" };
-
-/** Small "Formatted | Plain text" switch above a markdown editor. */
-function MarkdownModeSwitch({
-  mode,
-  onChange,
-  formattedUnavailable,
-}: {
-  mode: MarkdownEditorMode;
-  onChange: (mode: MarkdownEditorMode) => void;
-  formattedUnavailable: boolean;
-}): JSX.Element {
-  return (
-    <div className="flex shrink-0 items-center justify-end gap-2 text-[11.5px]">
-      {formattedUnavailable ? (
-        <span className="text-[#a89a80]" data-testid="markdown-formatted-unavailable">
-          This file has markup the formatted editor can't show, so it opens as plain text.
+  // The switch: in the host's header when it provides one (file window,
+  // file pane); otherwise at the end of the formatting toolbar, or — with
+  // no formatting toolbar (plain text, read-only) — in a toolbar row of its
+  // own kind above the editor.
+  useEffect(() => {
+    if (!host) return;
+    host.onFormattedUnavailable(hasFallenBack);
+    return () => host.onFormattedUnavailable(false);
+  }, [host, hasFallenBack]);
+  const inToolbar = !host && !plain && !readOnly;
+  const switchRow = host || inToolbar ? null : (
+    <div className="flex shrink-0 items-center justify-end gap-3 rounded-md bg-[var(--k-s1)] px-1.5 py-1" data-testid="markdown-editor-bar">
+      {hasFallenBack ? (
+        <span className="text-[12px] text-[var(--k-t3)]" data-testid="markdown-formatted-unavailable">
+          {FORMATTED_UNAVAILABLE_COPY}
         </span>
       ) : null}
-      <div role="radiogroup" aria-label="Markdown editing style" className="inline-flex rounded-md border border-white/10 bg-black/20 p-0.5">
-        {(["formatted", "plain"] as const).map((m) => {
-          const unavailable = m === "formatted" && formattedUnavailable;
-          return (
-            <button
-              key={m}
-              type="button"
-              role="radio"
-              aria-checked={mode === m}
-              disabled={unavailable}
-              title={
-                unavailable
-                  ? "Not available for this file"
-                  : m === "formatted"
-                    ? "Edit with formatting shown (headings, bold, lists)"
-                    : "Edit the markdown source text"
-              }
-              onClick={() => onChange(m)}
-              className={cn(
-                "rounded px-2 py-0.5 text-[#cfc8b8] hover:text-[#fbf5e8] disabled:cursor-not-allowed disabled:opacity-40",
-                mode === m && "bg-white/10 text-[#fbf5e8]",
-              )}
-            >
-              {MODE_LABELS[m]}
-            </button>
-          );
-        })}
-      </div>
+      <MarkdownModeSwitch size="sm" formattedUnavailable={hasFallenBack} />
+    </div>
+  );
+
+  return (
+    <div className="flex h-full w-full min-h-0 flex-col gap-1" data-testid="markdown-editor">
+      {switchRow}
+      <div className="min-h-0 flex-1">{editor}</div>
     </div>
   );
 }

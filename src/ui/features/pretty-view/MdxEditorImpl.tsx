@@ -13,7 +13,7 @@
  * Skynet's `--color-pv-*` tokens.
  */
 
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, type ReactNode } from "react";
 import {
   MDXEditor,
   type MDXEditorMethods,
@@ -55,6 +55,9 @@ interface MdxEditorImplProps {
    *  fall back to the code-editor branch so the user sees the full
    *  file source. */
   onSilentParseFailure?: () => void;
+  /** Pinned to the right end of the formatting toolbar (the Formatted /
+   *  Plain text switch). Read once, at mount. */
+  toolbarEnd?: ReactNode;
 }
 
 export function MdxEditorImpl({
@@ -63,6 +66,7 @@ export function MdxEditorImpl({
   disabled,
   readOnly,
   onSilentParseFailure,
+  toolbarEnd,
 }: MdxEditorImplProps): JSX.Element {
   // MDXEditor reads the `markdown` prop ONCE at mount and is uncontrolled
   // after — a later `content` change (async load landing after mount, 409
@@ -118,6 +122,9 @@ export function MdxEditorImpl({
   return (
     <div ref={rootRef} className="h-full w-full">
     <MDXEditor
+      // Plugins are read at mount: going read-only ↔ editable remounts so
+      // the formatting toolbar comes and goes.
+      key={readOnly ? "read" : "edit"}
       ref={editorRef}
       markdown={content}
       onChange={(md, initialMarkdownNormalize) => {
@@ -175,6 +182,7 @@ export function MdxEditorImpl({
                     <CreateLink />
                     <InsertTable />
                     <InsertFrontmatter />
+                    {toolbarEnd ? <div className="ml-auto flex items-center pl-2">{toolbarEnd}</div> : null}
                   </>
                 ),
               }),

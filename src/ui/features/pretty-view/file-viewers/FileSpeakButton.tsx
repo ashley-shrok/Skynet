@@ -48,6 +48,18 @@ function SpeakButton({
   speech: string;
   className?: string;
 }): JSX.Element {
+  const control = useSpeechControl(speech);
+  return <FileSpeakControlButton control={control} className={className} />;
+}
+
+export interface FileSpeakControl {
+  /** Nothing to speak (not prose, loading, empty) — show no control. */
+  available: boolean;
+  speakState: ReturnType<typeof useSpeakPlayback>["speakState"];
+  onSpeakClick: (e?: React.MouseEvent) => void;
+}
+
+function useSpeechControl(speech: string): FileSpeakControl {
   const speechRef = useRef(speech);
   speechRef.current = speech;
   const { speakState, onSpeakClick } = useSpeakPlayback({
@@ -56,7 +68,41 @@ function SpeakButton({
     voices: fileSpeakVoices,
     getText: () => splitForSpeech(speechRef.current),
   });
+  return { available: speech.length > 0, speakState, onSpeakClick };
+}
 
+/**
+ * One read-aloud player for a host that shows it in more than one place
+ * (the file window: a header button on desktop, a ⋯ item on a phone) —
+ * so both drive the same playback.
+ */
+export function useFileSpeakControl(filename: string, text: string | null | undefined): FileSpeakControl {
+  const speech = useMemo(
+    () => (isSpeakableFile(filename) && text ? fileSpeechText(filename, text) : ""),
+    [filename, text],
+  );
+  return useSpeechControl(speech);
+}
+
+/** The control's state as a menu item label. */
+export function fileSpeakMenuLabel(control: FileSpeakControl): string {
+  return control.speakState === "playing"
+    ? "Pause reading aloud"
+    : control.speakState === "paused"
+      ? "Resume reading aloud"
+      : control.speakState === "loading"
+        ? "Starting to read…"
+        : "Read aloud";
+}
+
+export function FileSpeakControlButton({
+  control,
+  className,
+}: {
+  control: FileSpeakControl;
+  className?: string;
+}): JSX.Element {
+  const { speakState, onSpeakClick } = control;
   const label =
     speakState === "playing"
       ? "Pause speaking"

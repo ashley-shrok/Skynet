@@ -670,3 +670,23 @@ export function fileViewIsEditable(
 export function fileViewNeverNeedsContent(filename: string): boolean {
   return resolveFileViewer(filename).modes.every((m) => m.needs !== "content");
 }
+
+/**
+ * How a file opens, the way a computer picks a default app for it:
+ *   - "view": something you look at, watch or listen to — its first view
+ *     can't be edited (pictures, video, slides, diffs, …).
+ *   - "read": a document you mostly read — opens locked, Edit unlocks it
+ *     (markdown, Word documents, PDFs, notebooks).
+ *   - "work": something you open to work on — opens ready to type (code,
+ *     plain text, tables, subtitles, text-written diagrams, drawings).
+ */
+export type FileOpenKind = "view" | "read" | "work";
+
+const READ_FIRST_ENTRIES: ReadonlySet<string> = new Set(["docx", "legacy-word", "pdf", "notebook"]);
+
+export function fileOpenKind(filename: string): FileOpenKind {
+  const entry = resolveFileViewer(filename);
+  if (entry === TEXT_ENTRY && /\.md$/i.test(filename)) return "read";
+  if (READ_FIRST_ENTRIES.has(entry.id)) return "read";
+  return entry.modes[0].editable ? "work" : "view";
+}

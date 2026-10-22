@@ -30,6 +30,7 @@ import {
   TEXT_ENTRY,
   VIDEO_ENTRY,
   extensionOf,
+  fileOpenKind,
   isTextByName,
   mimeFor,
   resolveFileViewer,
@@ -140,5 +141,30 @@ describe("mimeFor / isTextByName", () => {
     expect(isTextByName("notes.md")).toBe(true);
     expect(isTextByName("sub/dir/Dockerfile")).toBe(true);
     expect(isTextByName("x.weird")).toBe(false);
+  });
+});
+
+describe("fileOpenKind — how a file opens, by type", () => {
+  it.each([
+    // Look at / watch / listen: no Edit.
+    "photo.png", "logo.svg", "song.mp3", "clip.mp4", "Font.ttf", "book.epub", "deck.pptx",
+    "budget.xlsx", "old.xls", "part.stl", "app.sqlite", "data.parquet", "scan.tiff",
+    "mail.eml", "invite.ics", "people.vcf", "change.diff", "flow.drawio", "bundle.zip",
+  ])("%s is looked at", (name) => {
+    expect(fileOpenKind(name)).toBe("view");
+  });
+
+  it.each(["notes.md", "README.MD", "report.docx", "letter.doc", "spec.pdf", "analysis.ipynb"])(
+    "%s opens for reading first",
+    (name) => {
+      expect(fileOpenKind(name)).toBe("read");
+    },
+  );
+
+  it.each([
+    "main.ts", "notes.txt", "Dockerfile", "config.yaml", "table.csv", "table.tsv",
+    "captions.srt", "chart.mmd", "graph.dot", "sketch.excalidraw",
+  ])("%s opens ready to work on", (name) => {
+    expect(fileOpenKind(name)).toBe("work");
   });
 });

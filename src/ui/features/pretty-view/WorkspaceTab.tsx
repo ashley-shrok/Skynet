@@ -27,7 +27,6 @@ import {
   type ReactNode,
 } from "react";
 import {
-  Download,
   File,
   FilePlus,
   Folder,
@@ -91,10 +90,9 @@ import type { TabState } from "./IdentityFileTab";
 import {
   FileUnavailableNotice,
   FileView,
-  FileViewModeSwitcher,
   type FileViewData,
 } from "./file-viewers/FileView";
-import { Modal, ModalBody, ModalHead } from "@/components/modal";
+import { Modal, ModalBody } from "@/components/modal";
 import {
   fileViewIsEditable,
   fileViewNeverNeedsContent,
@@ -102,7 +100,17 @@ import {
   type BinaryDraft,
 } from "./file-viewers/registry";
 import { base64ToBytes, decodeUtf8, looksLikeText } from "./file-viewers/text-sniff";
-import { FileSpeakButton } from "./file-viewers/FileSpeakButton";
+import {
+  FileViewSwitch,
+  FileWindowActions,
+  FileWindowHead,
+  fileMenuItems,
+  useFileEditing,
+  useKeepScroll,
+  useMarkdownSwitchHost,
+} from "./file-viewers/FileWindowHead";
+import { isSpeakableFile } from "./file-viewers/file-speak";
+import { MarkdownSwitchHostContext } from "./markdown-mode-switch";
 
 // ---------------------------------------------------------------------------
 // Sorting — folders always above files (D-15)
@@ -332,10 +340,12 @@ function WorkspaceFileViewer({
           data: { content: newContent, mtime: ++workspaceFileVersion, isText: true },
         });
         setDirty(false);
+        return true;
       } catch (err) {
         const cls = err instanceof Error ? err.message : "generic";
         const copy = resolveWorkspaceErrorCopy(cls);
         setSaveError(copy.heading + ": " + copy.body);
+        return false;
       } finally {
         setSaving(false);
       }
@@ -361,10 +371,12 @@ function WorkspaceFileViewer({
           new globalThis.File([bytes as BlobPart], file.name, { type: "application/octet-stream" })
         );
         draftToSave.markSaved(bytes);
+        return true;
       } catch (err) {
         const cls = err instanceof Error ? err.message : "generic";
         const copy = resolveWorkspaceErrorCopy(cls);
         setSaveError(copy.heading + ": " + copy.body);
+        return false;
       } finally {
         setSaving(false);
       }
@@ -413,45 +425,59 @@ function WorkspaceFileViewer({
     inline: true,
   });
 
-  const headActions = (
-    <>
-      {!skipFetch &&
-        !isTooLarge &&
-        fileState.status === "ready" &&
-        fileState.data.isText !== false && (
-          <FileSpeakButton filename={file.name} text={draft} />
-        )}
-      <FileViewModeSwitcher
-        filename={file.name}
-        mode={viewMode}
-        onModeChange={setViewMode}
-      />
-      {/* A link styled as the kit's ordinary small button (downloads need <a>). */}
-      <a
-        href={downloadUrl}
-        target="_blank"
-        rel="noopener noreferrer"
-        className="k-btn no-underline"
-        data-variant="secondary"
-        data-size="sm"
-      >
-        <Download aria-hidden="true" />
-        Download
-      </a>
-      {canSave && (
-        <KitButton
-          variant="primary"
-          size="sm"
-          onClick={() => {
-            void (binaryDraft ? handleSaveBytes(binaryDraft) : handleSave(draft));
-          }}
-          busy={saving}
-          disabled={!dirty}
-        >
-          {saving ? "Saving…" : "Save"}
-        </KitButton>
-      )}
-    </>
+  const { host: markdownHost, formattedUnavailable } = useMarkdownSwitchHost();
+  const editing = useFileEditing({ filename: file.name, dirty });
+  const bodyRef = useKeepScroll(`${editing.locked}:${editing.draftKey}`);
+  const textReady =
+    !skipFetch && fileState.status === "ready" && fileState.data.isText !== false;
+  const folder = file.relativePath.split("/").slice(0, -1);
+  const subtitle = ["Files", ...folder].join(" › ");
+  const save = async (): Promise<void> => {
+    const ok = binaryDraft ? await handleSaveBytes(binaryDraft) : await handleSave(draft);
+    if (ok) editing.doneEditing();
+  };
+
+  const head = (
+    <FileWindowHead
+      filename={file.name}
+      subtitle={subtitle}
+      speakText={textReady && isSpeakableFile(file.name) ? draft : null}
+      switcher={
+        // Markdown's switch only once there's markdown to show.
+        !/\.md$/i.test(file.name) || textReady ? (
+          <FileViewSwitch
+            filename={file.name}
+            mode={viewMode}
+            onModeChange={setViewMode}
+            formattedUnavailable={formattedUnavailable}
+          />
+        ) : null
+      }
+      actions={
+        canSave ? (
+          <FileWindowActions
+            kind={editing.kind}
+            editing={editing.editing}
+            editable={canSave}
+            dirty={dirty}
+            saving={saving}
+            onEdit={() => {
+              setSaveError(null);
+              editing.startEditing();
+            }}
+            onCancel={() =>
+              void editing.cancelEditing().then((done) => {
+                if (!done) return;
+                setBinaryDraft(null);
+                setSaveError(null);
+              })
+            }
+            onSave={() => void save()}
+          />
+        ) : null
+      }
+      menuItems={fileMenuItems({ downloadUrl, filename: file.name })}
+    />
   );
 
   let body: ReactNode;
@@ -472,11 +498,12 @@ function WorkspaceFileViewer({
   } else {
     body = (
       <FileView
+        key={editing.draftKey}
         filename={file.name}
         state={fileState}
         mediaUrl={mediaUrl}
         downloadUrl={downloadUrl}
-        onSave={(content) => handleSave(content)}
+        onSave={async (content) => { await handleSave(content); }}
         hideSaveButton
         onDraftChange={setDirty}
         onDraftContentChange={setDraft}
@@ -485,7 +512,7 @@ function WorkspaceFileViewer({
         hideModeSwitcher
         hideSpeakButton
         onBinaryDraftChange={setBinaryDraft}
-        readOnly={readOnly}
+        readOnly={readOnly || editing.locked}
       />
     );
   }
@@ -500,9 +527,9 @@ function WorkspaceFileViewer({
       size="editor"
       data-testid="workspace-file-modal"
     >
-      <ModalHead title={file.name} actions={headActions} />
-      <ModalBody className="p-0 flex flex-col px-6 py-4">
-        {body}
+      {head}
+      <ModalBody ref={bodyRef} className="p-0 flex flex-col px-6 pt-1 pb-4">
+        <MarkdownSwitchHostContext.Provider value={markdownHost}>{body}</MarkdownSwitchHostContext.Provider>
         {saveError && (
           <KitBanner tone="danger" className="mt-2 shrink-0">
             {saveError}

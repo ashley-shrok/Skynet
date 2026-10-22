@@ -46,7 +46,8 @@ export function useSpeakPlayback(opts: {
   voices: readonly string[] | (() => readonly string[]);
 }): {
   speakState: SpeakState;
-  onSpeakClick: (e: React.MouseEvent) => void;
+  /** No event when started from a menu item. */
+  onSpeakClick: (e?: React.MouseEvent) => void;
 } {
   const ownerRef = useRef(Symbol(opts.ownerName));
   const [speakState, setSpeakStateRaw] = useState<SpeakState>("idle");
@@ -284,8 +285,8 @@ export function useSpeakPlayback(opts: {
   }, [playPiece, setSpeakState, tag]);
 
   const onSpeakClick = useCallback(
-    (e: React.MouseEvent) => {
-      e.stopPropagation();
+    (e?: React.MouseEvent) => {
+      e?.stopPropagation();
       const owns = getCurrentOwner() === ownerRef.current;
 
       // Same-button click while playing: pause. AudioContext.suspend() freezes

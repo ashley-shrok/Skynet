@@ -131,6 +131,8 @@ export interface KitSegmentOption<V extends string> {
   label: React.ReactNode;
   Icon?: React.ComponentType<{ size?: number; className?: string }>;
   disabled?: boolean;
+  /** Hover text, e.g. why a disabled segment is off. */
+  title?: string;
   testId?: string;
 }
 
@@ -140,6 +142,8 @@ export interface KitSegmentedProps<V extends string> {
   onValueChange: (next: V) => void;
   /** Stretch to full width with equal segments. */
   full?: boolean;
+  /** "sm" = a compact switch for toolbars. */
+  size?: "sm";
   "aria-label"?: string;
   className?: string;
   /** Each segment gets data-testid `<testIdPrefix>-<value>` unless it sets its own. */
@@ -153,6 +157,7 @@ export function KitSegmented<V extends string>({
   value,
   onValueChange,
   full,
+  size,
   className,
   testIdPrefix,
   "aria-label": ariaLabel,
@@ -164,6 +169,7 @@ export function KitSegmented<V extends string>({
       aria-label={ariaLabel}
       data-slot="kit-segmented"
       data-full={full ? "true" : undefined}
+      data-size={size}
       data-testid={testId}
       className={cn("k-seg", className)}
     >
@@ -174,6 +180,7 @@ export function KitSegmented<V extends string>({
           aria-pressed={o.value === value}
           disabled={o.disabled}
           data-testid={o.testId ?? (testIdPrefix ? `${testIdPrefix}-${o.value}` : undefined)}
+          title={o.title}
           onClick={() => onValueChange(o.value)}
         >
           {o.Icon ? <o.Icon size={14} /> : null}

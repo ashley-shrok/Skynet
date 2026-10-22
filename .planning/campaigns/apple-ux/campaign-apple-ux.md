@@ -38,7 +38,7 @@ Starting order: foundation, skills, then the remaining modals, then host targeti
 - **[declared] shape-preferences-modal** — account-first Preferences (account card, section headers, save-as-you-go, About you read → Edit, branded About), self-confirming feedback dialogs (see shape-preferences-modal.closed.md) — closed 2026-10-21
 - **[declared] shape-admin-modals** — Admin in the Preferences family; users and hosts one level deeper in the same window; hosts grouped by attention with reasons; instance file read → Edit (see shape-admin-modals.closed.md) — closed 2026-10-21
 - **[declared] shape-creation-and-search-dialogs** — new-conversation dialog (role list, name pre-filled, admin Agent/Shell), What's new, search, archived apps (see shape-creation-and-search-dialogs.closed.md) — closed 2026-10-22
-- **[declared] shape-file-modal** — the editable file modal — not started
+- **[declared] shape-file-modal** — one file window wherever a file opens (chat + Files tabs); opens by type (look at / read first with Edit / ready to work on); one header with view switches, Formatted / Plain text off its own row everywhere (see shape-file-modal.closed.md) — closed 2026-10-22
 - **[discovered] shape-modal-sizing** — once every modal is redesigned, Ashley walks through them all and says where each should size or expand (per tab where it helps, on screens with room), instead of tracking sizes shape by shape (Ashley, 2026-10-18) — not started
 - **[declared] shape-host-targeting** — admin-only: shared skills and roles target a chosen set of hosts or a permanent "every host"; sync machinery + the admin controls in both skills and roles modals — not started
 - **[declared] shape-sidebar** — the conversation list / sidebar, after all modals — not started
@@ -59,7 +59,7 @@ The foundation already moved every modal onto the kit, so each remaining modal s
 - Remove the dead session finder (command palette) — handed to sparrow-box-maintainer-2 (Ashley, 2026-10-17); copper rebases onto its deletion
 - Kit candidates raised during the foundation (pop-over panel for colour/voice pickers, link-styled button, usage meter, sortable column header) — pick up in the per-modal shapes that need them
 - Unused sidebar-era row styles in the conversation-list stylesheet — clean up in shape-sidebar
-- Markdown files show their Formatted / Plain text switch on its own row under the file toolbar (file viewer, everywhere) — look at it in shape-file-modal
+- Markdown files show their Formatted / Plain text switch on its own row under the file toolbar (file viewer, everywhere) — look at it in shape-file-modal — done in shape-file-modal
 - New-conversation roles dropdown (upstream's grouped multi-select, revived 2026-10-18 when the host step was dropped) is not on the kit yet — restyle in shape-creation-and-search-dialogs — done (now an in-dialog role list)
 - The unused "new group conversation" (relay room) dialog — left as is; Ashley plans to come back to it later — deferred
 - Role description field (frontmatter `description:`, replaces the `## Role`-derived text) plumbed through backend + API by anthem-box-maintainer-6 (spawned 2026-10-18 at Ashley's ask) — done, b1b842fb on origin
@@ -77,6 +77,7 @@ The foundation already moved every modal onto the kit, so each remaining modal s
 - Role skills read like skills (Ashley, 2026-10-22): rows show name + description, a role skill's header its description; the role-skills list route now returns descriptions (backend — shows only once deployed) — done
 - The role's facts line no longer names its machine (Ashley, 2026-10-22) — done
 - Upstream's skill + runbook rename (2150579c, b971345c) — carried into the skills window's ⋮ menu and the runbook view's ⋯ menu at the 2026-10-21 rebase, in-app dialogs instead of browser pop-ups — done
+- A Files-tab file window has no Copy path (it doesn't know the file's full path on its machine; chat files have it) — found in shape-file-modal (Ashley, 2026-10-22) — not started
 - Shared-skill hiding for non-admins goes by name and lets skills show if the sync engine is down (logged) — revisit in shape-host-targeting alongside the sync machinery
 
 ## Lingerers (explicitly approved)

@@ -4,7 +4,9 @@ import { Download, RotateCw } from "lucide-react";
 
 import type { RowKebabMenuItem } from "@/features/pretty-conversations/RowKebabMenu";
 import EditableFileModal from "@/features/pretty-view/EditableFileModal";
-import { FileView, FileViewModeSwitcher } from "@/features/pretty-view/file-viewers/FileView";
+import { FileView } from "@/features/pretty-view/file-viewers/FileView";
+import { FileViewSwitch, useMarkdownSwitchHost } from "@/features/pretty-view/file-viewers/FileWindowHead";
+import { MarkdownSwitchHostContext } from "@/features/pretty-view/markdown-mode-switch";
 import { FileSpeakButton } from "@/features/pretty-view/file-viewers/FileSpeakButton";
 import {
   fileViewNeedsContent,
@@ -244,6 +246,7 @@ export function FilePane({
     };
   }, []);
 
+  const markdownSwitch = useMarkdownSwitchHost();
   const errorCopy = errorClass !== null ? describeFileUrlError(errorClass, url) : null;
   const subtitle = `${host} · ${folderOfPath(path)}`;
   // Read aloud, as in the file modal's head. FileSpeakButton renders nothing
@@ -252,9 +255,16 @@ export function FilePane({
     errorClass === null && content.status === "ready" && content.data.isText !== false
       ? content.data.content
       : null;
+  // Markdown's Formatted / Plain text switch sits here with the other view
+  // switches, not on a row of its own inside the viewer.
   const switcher =
-    entry.modes.length > 1 ? (
-      <FileViewModeSwitcher filename={filename} mode={viewMode} onModeChange={setViewMode} />
+    entry.modes.length > 1 || (/\.md$/i.test(filename) && speakText !== null) ? (
+      <FileViewSwitch
+        filename={filename}
+        mode={viewMode}
+        onModeChange={setViewMode}
+        formattedUnavailable={markdownSwitch.formattedUnavailable}
+      />
     ) : null;
   const rightControls =
     speakText !== null || switcher !== null ? (
@@ -334,6 +344,7 @@ export function FilePane({
             </button>
           </div>
         ) : (
+          <MarkdownSwitchHostContext.Provider value={markdownSwitch.host}>
           <FileView
             key={reloadToken}
             filename={filename}
@@ -346,6 +357,7 @@ export function FilePane({
             hideSpeakButton={true}
             readOnly={true}
           />
+          </MarkdownSwitchHostContext.Provider>
         )}
       </div>
       {localModalOpen && (

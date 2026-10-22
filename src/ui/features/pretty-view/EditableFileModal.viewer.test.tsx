@@ -245,8 +245,8 @@ describe("EditableFileModal — binary fallback", () => {
     expect(download.getAttribute("href")).toBe(
       "https://term.example.com/file/t1000/home/ubuntu/bundle.zip",
     );
-    // Nothing to edit → no Save foot.
-    expect(screen.queryByTestId("editable-file-modal-save")).toBeNull();
+    // Nothing to edit → no save button.
+    expect(screen.queryByTestId("file-window-save")).toBeNull();
   });
 
   it("unknown extension whose bytes sniff as binary shows the notice, not decoded garbage", async () => {
@@ -269,7 +269,7 @@ describe("EditableFileModal — binary fallback", () => {
     );
     expect(await screen.findByText(/can't preview this file/i)).toBeTruthy();
     expect(screen.queryByRole("textbox")).toBeNull();
-    expect(screen.queryByTestId("editable-file-modal-save")).toBeNull();
+    expect(screen.queryByTestId("file-window-save")).toBeNull();
   });
 
   it("unknown extension whose bytes sniff as text opens in the editor", async () => {
@@ -292,7 +292,9 @@ describe("EditableFileModal — binary fallback", () => {
     );
     await waitFor(() => {
       expect(screen.queryByText(/can't preview this file/i)).toBeNull();
-      expect(screen.getByTestId("editable-file-modal-save")).toBeTruthy();
+      // Sniffed text is something you work on: Save straight away, no Edit.
+      expect(screen.getByTestId("file-window-save")).toBeTruthy();
     });
+    expect(screen.queryByTestId("file-window-edit")).toBeNull();
   });
 });

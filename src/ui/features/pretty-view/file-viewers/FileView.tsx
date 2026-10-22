@@ -343,7 +343,8 @@ export function FileView({
         {toolbar}
         <div className="flex-1 min-h-0">
           <View
-            key={filename}
+            // Read-only ↔ editable remounts: views set their tools up at mount.
+            key={readOnly ? `${filename}:read` : filename}
             filename={filename}
             src={src}
             content=""
@@ -378,7 +379,7 @@ export function FileView({
       {toolbar}
       <div className="flex-1 min-h-0">
         <View
-          key={filename}
+          key={readOnly ? `${filename}:read` : filename}
           filename={filename}
           src={src}
           content={mode.needs === "content" ? draft : ""}

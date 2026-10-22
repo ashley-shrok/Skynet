@@ -223,6 +223,29 @@ describe("kit rows and choices", () => {
     expect(onRow).toHaveBeenCalled();
   });
 
+  it("segmented control: compact size and per-option hover text (why a segment is off)", () => {
+    const onSeg = vi.fn();
+    render(
+      <KitSegmented
+        size="sm"
+        aria-label="View"
+        options={[
+          { value: "a", label: "A", disabled: true, title: "Not for this file" },
+          { value: "b", label: "B" },
+        ]}
+        value="b"
+        onValueChange={onSeg}
+        testIdPrefix="v"
+      />,
+    );
+    expect(screen.getByRole("group", { name: "View" })).toHaveAttribute("data-size", "sm");
+    expect(screen.getByTestId("v-a")).toHaveAttribute("title", "Not for this file");
+    expect(screen.getByTestId("v-a")).toBeDisabled();
+    expect(screen.getByTestId("v-b")).not.toHaveAttribute("title");
+    fireEvent.click(screen.getByTestId("v-a"));
+    expect(onSeg).not.toHaveBeenCalled();
+  });
+
   it("a settings row announces pressed on its button, in both layouts", () => {
     render(
       <>

@@ -1,17 +1,25 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Modal, ModalHead, ModalBody, ModalFoot } from "@/components/modal";
+import { Modal, ModalBody } from "@/components/modal";
 import { KitButton, KitEmpty, kitConfirm } from "@/components/kit";
-import {
-  FileView,
-  FileViewModeSwitcher,
-} from "./file-viewers/FileView";
+import { FileView } from "./file-viewers/FileView";
 import {
   fileViewNeedsContent,
   resolveFileViewer,
   resolveMode,
   type BinaryDraft,
 } from "./file-viewers/registry";
-import { FileSpeakButton } from "./file-viewers/FileSpeakButton";
+import {
+  FileViewSwitch,
+  FileWindowActions,
+  FileWindowHead,
+  fileMenuItems,
+  useFileEditing,
+  useKeepScroll,
+  useMarkdownSwitchHost,
+} from "./file-viewers/FileWindowHead";
+import { isSpeakableFile } from "./file-viewers/file-speak";
+import { MarkdownSwitchHostContext } from "./markdown-mode-switch";
+import { folderOfPath, parseSkynetFileUrl } from "./file-url";
 import { describeFileUrlError, useFileUrlContent } from "./file-url-content";
 
 /**
@@ -26,10 +34,13 @@ import { describeFileUrlError, useFileUrlContent } from "./file-url-content";
  * matters here, the user opens the file, remembers what they wanted to
  * write, closes the modal, then types.
  *
- * Head: title = filename. No meta, no subtitle, no "from <agentIdentityName>"
- * attribution (user 2026-09-29 — those were removed). For file types with
- * several view modes (e.g. SVG Rendered ↔ Source) the head renders the
- * shared <FileViewModeSwitcher> in the actions slot next to the close X.
+ * Head: the shared file-window head (FileWindowHead) — type tile, name,
+ * "machine · folder", read aloud for prose, the view switch (markdown's
+ * Formatted / Plain text included), then Edit or Save, then ⋯ (Download,
+ * Copy path). How the file opens follows its type (fileOpenKind): pictures
+ * and media just show; documents open for reading with Edit; code, text and
+ * tables open ready to type. Save here attaches the edited copy to the next
+ * message (the chip in the compose box shows it went there).
  *
  * Body: the shared <FileView> (file-viewers/registry decides the viewer).
  *   - URL-sourced modes (image / audio / video / rendered SVG) render
@@ -38,13 +49,6 @@ import { describeFileUrlError, useFileUrlContent } from "./file-url-content";
  *   - Content modes fetch the bytes; non-text bytes (server sniff, else
  *     client sniff) show the notice instead of decoding garbage.
  *   - Error: rich per-class copy (describeFileUrlError) with a close button.
- *
- * Foot: rendered ONLY for editable content (fetched text). Viewers and
- * the binary notice get no foot — the head X is the only close path (user
- * 2026-09-29: "it should not show at all on file types that can't be
- * edited"). Foot has Close (secondary) + Save (primary). Save calls the
- * existing stage-and-close flow; Save is gated on `isDirty` (nothing to
- * stage if the draft matches the fetched content).
  *
  * Locked D-XX behaviors:
  *   D-03: additive edit affordance opens THIS modal; the modal never wraps
@@ -85,7 +89,7 @@ export default function EditableFileModal({
 }: EditableFileModalProps): JSX.Element {
   const [isDirty, setIsDirty] = useState(false);
   // Local draft mirror — FileView exposes it via `onDraftContentChange`
-  // so the modal's own foot Save button can hand it back to `handleSave`.
+  // so the head's Save button can hand it back to `handleSave`.
   const [draft, setDraft] = useState<string>("");
 
   // The registry decides per view mode whether the file's content is needed.
@@ -94,6 +98,9 @@ export default function EditableFileModal({
   const [viewMode, setViewMode] = useState<string | null>(null);
   // Unsaved binary edits (PDF annotations) — saved as the edited file's bytes.
   const [binaryDraft, setBinaryDraft] = useState<BinaryDraft | null>(null);
+  const { host: markdownHost, formattedUnavailable } = useMarkdownSwitchHost();
+  const editing = useFileEditing({ filename, dirty: isDirty });
+  const bodyRef = useKeepScroll(`${editing.locked}:${editing.draftKey}`);
   const usesEditorFetch = useMemo(
     () => fileViewNeedsContent(filename, viewMode, true),
     [filename, viewMode],
@@ -177,19 +184,19 @@ export default function EditableFileModal({
     [handleSave],
   );
 
-  // Foot Save button — fires with the current draft, uses the same
+  // Head save button — fires with the current draft, uses the same
   // handleSave path as FileView's internal save would.
   // Catch here (rather than let it become an unhandled rejection) since
-  // there's no in-modal error surface for foot-save failures today —
+  // there's no in-modal error surface for save failures today —
   // handleSave already resets savingRef on throw so the next close will
   // fire the draft-guard confirm correctly.
-  const onFootSave = useCallback(() => {
+  const onHeadSave = useCallback(() => {
     const save = binaryDraft
       ? binaryDraft.getBytes().then((bytes) => handleSave(bytes))
       : handleSave(draft);
     save.catch((err) => {
       // eslint-disable-next-line no-console
-      console.warn("EditableFileModal foot save failed:", err);
+      console.warn("EditableFileModal save failed:", err);
     });
   }, [handleSave, draft, binaryDraft]);
 
@@ -198,35 +205,39 @@ export default function EditableFileModal({
   const errorHeading = errorCopy?.heading ?? "";
   const errorBody = errorCopy?.body ?? "";
 
-  // Foot (Close + Save) for editable content: fetched text, or a mode that
-  // edits in place from the URL (PDF annotations → binary draft).
-  const urlModeEditable =
-    !usesEditorFetch && resolveMode(resolveFileViewer(filename), viewMode).editable;
+  // Editable here: a conversation to send the copy to, and either a mode
+  // that edits in place from the URL (PDF annotations → binary draft) or
+  // fetched text in an editable view (or one already holding edits).
   const canSave = !!onStageEditedFile;
-  const showFoot =
-    canSave &&
-    (urlModeEditable ||
-      (usesEditorFetch &&
-        fetchState.status !== "error" &&
-        !(fetchState.status === "ready" && fetchState.data.isText === false)));
+  const currentMode = resolveMode(resolveFileViewer(filename), viewMode);
+  const urlModeEditable = !usesEditorFetch && currentMode.editable;
+  const textReady =
+    usesEditorFetch && fetchState.status === "ready" && fetchState.data.isText !== false;
+  const editable = canSave && (urlModeEditable || (textReady && (currentMode.editable || isDirty)));
+
+  const parsed = parseSkynetFileUrl(url);
+  const subtitle = parsed ? `${parsed.host} · ${folderOfPath(parsed.path)}` : undefined;
 
   const fileView = (
-    <FileView
-      filename={filename}
-      state={fetchState}
-      mediaUrl={url}
-      downloadUrl={url}
-      onSave={onFileViewSave}
-      onDraftChange={setIsDirty}
-      onDraftContentChange={setDraft}
-      hideSaveButton={true}
-      mode={viewMode ?? undefined}
-      onModeChange={setViewMode}
-      hideModeSwitcher={true}
-      hideSpeakButton={true}
-      onBinaryDraftChange={setBinaryDraft}
-      readOnly={!canSave}
-    />
+    <MarkdownSwitchHostContext.Provider value={markdownHost}>
+      <FileView
+        key={editing.draftKey}
+        filename={filename}
+        state={fetchState}
+        mediaUrl={url}
+        downloadUrl={url}
+        onSave={onFileViewSave}
+        onDraftChange={setIsDirty}
+        onDraftContentChange={setDraft}
+        hideSaveButton={true}
+        mode={viewMode ?? undefined}
+        onModeChange={setViewMode}
+        hideModeSwitcher={true}
+        hideSpeakButton={true}
+        onBinaryDraftChange={setBinaryDraft}
+        readOnly={!canSave || editing.locked}
+      />
+    </MarkdownSwitchHostContext.Provider>
   );
   const viewOnlyNote = canSave ? null : (
     <div
@@ -244,26 +255,40 @@ export default function EditableFileModal({
       size="editor"
       data-testid="editable-file-modal"
     >
-      <ModalHead
-        title={filename}
-        actions={
-          <>
-            {usesEditorFetch &&
-              fetchState.status === "ready" &&
-              fetchState.data.isText !== false && (
-                <FileSpeakButton filename={filename} text={draft} />
-              )}
-            <FileViewModeSwitcher
+      <FileWindowHead
+        filename={filename}
+        subtitle={subtitle}
+        speakText={textReady && isSpeakableFile(filename) ? draft : null}
+        switcher={
+          // Markdown's switch only once there's markdown to show.
+          !/\.md$/i.test(filename) || textReady ? (
+            <FileViewSwitch
               filename={filename}
               mode={viewMode}
               onModeChange={setViewMode}
+              formattedUnavailable={formattedUnavailable}
             />
-          </>
+          ) : null
         }
+        actions={
+          editable ? (
+            <FileWindowActions
+              kind={editing.kind}
+              editing={editing.editing}
+              editable={editable}
+              dirty={isDirty}
+              saving={false}
+              onEdit={editing.startEditing}
+              onCancel={() => void editing.cancelEditing().then((done) => { if (done) setBinaryDraft(null); })}
+              onSave={onHeadSave}
+            />
+          ) : null
+        }
+        menuItems={fileMenuItems({ downloadUrl: url, filename, path: parsed?.path })}
       />
 
       {!usesEditorFetch ? (
-        <div className="flex-1 min-h-0 flex flex-col">
+        <div className="flex-1 min-h-0 flex flex-col px-6 pb-4 max-sm:px-5">
           {viewOnlyNote}
           {fileView}
         </div>
@@ -283,31 +308,11 @@ export default function EditableFileModal({
           />
         </div>
       ) : (
-        <ModalBody className="p-0 overflow-y-auto flex flex-col px-6 py-4">
+        <ModalBody ref={bodyRef} className="p-0 overflow-y-auto flex flex-col px-6 pt-1 pb-4">
           {viewOnlyNote}
           {fileView}
         </ModalBody>
       )}
-
-      {showFoot && (
-        <ModalFoot>
-          <KitButton
-            onClick={() => void handleOpenChange(false)}
-            data-testid="editable-file-modal-close-foot"
-          >
-            Close
-          </KitButton>
-          <KitButton
-            variant="primary"
-            onClick={onFootSave}
-            disabled={!isDirty || (!binaryDraft && fetchState.status !== "ready")}
-            data-testid="editable-file-modal-save"
-          >
-            Save
-          </KitButton>
-        </ModalFoot>
-      )}
     </Modal>
   );
 }
-

@@ -5,6 +5,7 @@
 
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, screen, fireEvent, waitFor, cleanup } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 
 vi.mock("@/api/workspace-api", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/api/workspace-api")>();
@@ -36,7 +37,11 @@ describe("WorkspaceTab file modal", () => {
 
     const modal = await screen.findByTestId("workspace-file-modal");
     expect(modal.textContent).toContain("photo.png");
-    expect(modal.textContent).toContain("Download");
+    // Download lives in the ⋯ menu now.
+    await userEvent.setup().click(screen.getByTestId("file-window-menu"));
+    expect(await screen.findByTestId("file-window-download")).toBeTruthy();
+    fireEvent.keyDown(screen.getByRole("menu"), { key: "Escape" });
+    await waitFor(() => expect(screen.queryByRole("menu")).toBeNull());
     // The list stays mounted underneath.
     expect(listWorkspace).toHaveBeenCalledTimes(1);
 

@@ -31,6 +31,10 @@ vi.mock("@/features/pretty-view/CodeEditorImpl", () => ({
   ),
 }));
 
+vi.mock("@mdxeditor/editor", async () =>
+  (await import("@/features/pretty-view/file-window.test-mocks")).mdxEditor(),
+);
+
 import { FilePane } from "./FilePane";
 import { fetchHostFileUrl } from "@/api/editable-file-api";
 import {
@@ -106,6 +110,24 @@ describe("FilePane — bar and read-only body", () => {
     const slot = screen.getByTestId("file-pane-kebab-slot");
     expect(slot.querySelector('[data-testid="file-view-mode-rendered"]')).not.toBeNull();
     expect(slot.querySelector('[data-testid="file-view-mode-source"]')).not.toBeNull();
+  });
+
+  it("puts markdown's Formatted / Plain text switch in the bar, not on a row of its own", async () => {
+    window.localStorage.clear();
+    mockedFetch.mockResolvedValue(ok("# Plan\n\nShip it."));
+    renderPane({ path: "/home/ubuntu/notes/plan.md" });
+    const editor = (await screen.findByTestId("mdxeditor")) as HTMLTextAreaElement;
+    // View-only: locked, no formatting toolbar.
+    expect(editor.readOnly).toBe(true);
+    const slot = screen.getByTestId("file-pane-kebab-slot");
+    expect(slot.querySelector('[data-testid="markdown-mode-formatted"]')).not.toBeNull();
+    expect(screen.getAllByTestId("markdown-mode-formatted")).toHaveLength(1);
+    expect(screen.queryByTestId("markdown-editor-bar")).toBeNull();
+    // The bar's switch flips the body.
+    fireEvent.click(slot.querySelector('[data-testid="markdown-mode-plain"]') as HTMLElement);
+    expect(await screen.findByTestId("code-editor")).toBeTruthy();
+    expect(screen.queryByTestId("markdown-editor-bar")).toBeNull();
+    window.localStorage.clear();
   });
 
   it("has no switcher for single-view types", () => {

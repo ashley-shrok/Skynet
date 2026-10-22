@@ -425,7 +425,7 @@ serve URL for an app; the skill has the details.
 ### File URL — passive bytes on disk
 
 Cite the file as a **Markdown-formatted file URL** so it's clickable in
-their chat (and openable in the editable-file modal the user's client
+their chat (and openable in the file window the user's client
 renders around it). If the payload is trivially small (< ~5 KB — a short
 diff, a config snippet, a stack trace, a JSON blob) skip the URL and
 paste it inline in a code block instead; they can copy from the chat
@@ -465,8 +465,8 @@ Construct one like so — read the app's parent domain from
     printf '[%s](%s/file/%s%s)\n' "$(basename "$FILE")" "$APP_PARENT" "$HOST" "$FILE"
 
 **What the user sees.** The frontend renders your file URL as a **chip**
-showing the filename. Clicking the chip opens the file (or its inline
-editor, depending on type). A small **download button** sits next to the
+showing the filename. Clicking the chip opens the file in the **file
+window** (§ File window). A small **download button** sits next to the
 filename for direct download. Supported inline media — images, video, and
 other renderable types — auto-display **inline in the message body**,
 with the chip beneath as the downloadable handle. So if you link a
@@ -477,9 +477,9 @@ inline picture) into the content area to open the file in its own
 and § File bar. A file pane is view-only; it never changes the file.
 
 **Round-trip semantics — the app is READ-ONLY on your files.** When they
-click the link, the app's editable-file modal fetches the file's current
+click the link, the app's file window fetches the file's current
 bytes over its existing SSH machinery and shows them. If they edit and
-hit Save, the app does NOT overwrite the original file — the edit lands
+press **Save**, the app does NOT overwrite the original file — the edit lands
 as an attachment on their NEXT message to you; treat it like any
 freshly-uploaded file when you receive it (read it, diff against the
 original, decide what to do). The file on disk at the original path is
@@ -988,17 +988,47 @@ not something agents drive.
   session rather than opening a second one.
   *Agent-side: none.*
 
+- **File window (click a file chip in a chat, or a file in any Files tab).**
+  One window, the same wherever a file opens. Header: the file type's icon,
+  the name, and beneath it in faint text where it lives (machine · folder
+  for a chat file; Files › folder for a Files-tab file). Right: read aloud
+  (prose files), the view switch (e.g. Table / Raw, Rendered / Source, and
+  **Formatted / Plain text** for markdown), the main button, **⋯**
+  (Download; Copy path for chat files), close. How it opens follows the
+  file's type: things you look at, watch or listen to (pictures, video,
+  audio, slides, Excel, fonts, ebooks, emails, …) just show — no Edit;
+  documents (markdown, Word, PDF, notebooks) open for reading with
+  **Edit**, which brings in the editing tools plus **Cancel** and **Save**
+  (Cancel asks first when there are unsaved changes; after saving in a
+  Files tab it goes back to reading); things you work on (code, plain text, CSV tables,
+  subtitles, diagrams written as text, drawings) open ready to type with
+  Save. Save stays dimmed until something changes. Types that show a
+  picture-like view but also have a text view (diff Raw, calendar or
+  contacts Source) can be edited in the text view. In a chat, **Save**
+  attaches the edit to the user's next message (it shows as an attachment
+  in the compose box) and closes the window — the file itself is never
+  written over; in a Files tab **Save** writes the file in place. Closing
+  with unsaved changes asks first. On a
+  phone it fills the screen; the name keeps the top row with ⋯ and close,
+  the view switch and the main buttons sit on a row under it, and read
+  aloud is in ⋯. The Formatted / Plain text switch is one
+  choice for every markdown editor in the browser; in editors inside other
+  windows (agent file, role file, About you, …) it sits at the right end of
+  the formatting toolbar, and when a file has markup the formatted view
+  can't show, Formatted is greyed out and the file opens as plain text.
+  *Agent-side:* see § Sending files to the user (Round-trip semantics).
+
 - **File bar (top of every open file pane).** A file dragged out of a
-  conversation, shown **view-only** with the same viewers the file modal
+  conversation, shown **view-only** with the same viewers the file window
   uses (nothing can be typed, edited or annotated, and there's no Save).
   The same glassy bar as an app's. Left: **reload** (circular-arrow —
   re-reads the file from its machine, e.g. after you've changed it) and
   **download**. Center: the file type's icon, the file name, and beneath
   it in faint text the machine and folder. Right: a **read aloud** button
-  for prose files (.md / .txt — same as the file modal's), the view
-  switcher for types with more than one view (e.g. Rendered / Source),
-  then the **⋮**
-  menu — **Open in modal** (the usual file modal, opened in the
+  for prose files (.md / .txt — same as the file window's), the view
+  switcher for types with more than one view (e.g. Rendered / Source, and
+  Formatted / Plain text for markdown), then the **⋮**
+  menu — **Open in modal** (the file window, opened in the
   conversation the file came from so Save attaches the edited copy there;
   when that conversation isn't open in this Skynet tab the modal opens
   view-only), **Copy path**, **Download**, **Move to new tab** and
@@ -1338,8 +1368,7 @@ crown, then gear.
     (`sensor-development` skill).
   - **Files** — full workspace explorer for the identity's `workspace/`
     folder: browse, download, upload, create files and folders, and
-    edit files inline in the modal for supported types (text, code,
-    etc.). Each file/folder row has a **three-dots menu** — Rename,
+    open any file in the file window (§ File window) to read or edit it. Each file/folder row has a **three-dots menu** — Rename,
     Download (files only), Delete — also opened by right-clicking the row.
     A **search box** (magnifier, with a ✕ to clear) on its own row under the toolbar
     finds files and folders by name in the folder being viewed and every
