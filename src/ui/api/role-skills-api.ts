@@ -4,7 +4,7 @@ import { RenamedButEditsNotSavedError } from "./skills-api";
 export { RenamedButEditsNotSavedError };
 
 // Frontend API helpers for the role-skills-editor endpoints
-// (`src/backend/database/routes/role-skills-editor.ts`; Phase 89's runbooks API). Mirrors
+// (`src/backend/database/routes/role-skills-editor.ts`; Phase 89). Mirrors
 // `skills-api.ts` byte-shape (authApi + handleApiError pattern; typed 409 error
 // classes for mtime-conflict + already-exists branches).
 //

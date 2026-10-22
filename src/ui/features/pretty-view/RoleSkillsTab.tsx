@@ -1,5 +1,4 @@
-// Skills tab body for the role modal — the role's role skills (Phase 89's
-// Runbooks tab, renamed with runbooks → role skills).
+// Skills tab body for the role modal — the role's role skills (Phase 89).
 //
 // Lists role skill slugs for the role. Clicking a row fires onOpenRoleSkill(slug)
 // up to the caller (PrettyView / the sidebar panel own the swap-not-stack

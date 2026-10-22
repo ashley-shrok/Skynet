@@ -76,7 +76,7 @@ function getManualChunk(id: string): string | undefined {
 // Phase 111 SKEW-01: compute a byte-stable build-id at Vite config eval time
 // and bake it into every bundle via the `define` block below. Priority chain:
 //   1. `VITE_BUILD_ID` env — Dockerfile sets this from the `SKYNET_BUILD_SHA`
-//      ARG (docker/Dockerfile frontend-builder stage). Ship-runbook motion.
+//      ARG (docker/Dockerfile frontend-builder stage). skynet-ship role skill motion.
 //   2. `git rev-parse --short=12 HEAD` — local dev path when running
 //      `npm run build` or `npm run dev` from a checkout with `.git/` reachable.
 //   3. `dev-<epoch-base36>` — last-resort fallback (no git, no env). Produces

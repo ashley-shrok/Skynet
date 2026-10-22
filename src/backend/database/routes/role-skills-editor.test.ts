@@ -1,5 +1,5 @@
 /**
- * Vitest coverage for the /role-skills-editor router (Phase 89's /runbooks-editor).
+ * Vitest coverage for the /role-skills-editor router (Phase 89).
  *
  * Byte-shape mirror of `skills-editor.test.ts` (Phase 44) with:
  *   - role dimension added (role + role skill query params / body fields)

@@ -131,8 +131,8 @@ export async function isHostMultiUser(hostId: number): Promise<boolean> {
   // (ip, port, username) tuple resolve to the same OS user on the same
   // physical box, i.e. the same `~/fleet/` filesystem — the visibility gate's
   // unit of concern. `host_access` is retained above as a defensive fallback
-  // for the day Skynet's credential-shared-hosts flow ships (admin runbook
-  // notes it as "Not yet documented — build if needed"), but the collision
+  // for the day Skynet's credential-shared-hosts flow ships (the skynet-admin role
+  // skill notes it as "Not yet documented — build if needed"), but the collision
   // check is what matches today's reality.
   const { ip, port, username } = ownerRows[0];
   const sameConnRows = await db

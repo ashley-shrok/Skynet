@@ -18,8 +18,7 @@ editing it directly (cosmetic frontmatter changes, an identity-scope `remember`)
 (user-wide, distributed by fleet-substrate), the driver was the 2026-09-29
 incident where a workstation agent grepped the current on-disk SKILL.md but
 mis-read it against its in-context copy from a pre-rename version, spending
-turns chasing a mismatch that was purely stale-memory. For role skills (then
-called runbooks), the driver
+turns chasing a mismatch that was purely stale-memory. For role skills, the driver
 was the 2026-09-19 canonical-deploy-command update: an identity edited the deploy
 role skill to include a load-bearing `-f` flag, and a peer identity deployed with
 the OLD command minutes later because the role skill edit fired no ambient event
@@ -1335,7 +1334,7 @@ def _diff_and_emit_all(targets, baseline_dir, spill_dir):
 
 
 # ---------------------------------------------------------------------------
-# Role-skill helpers (added 2026-09-19 as runbook coverage).
+# Role-skill helpers (added 2026-09-19).
 # ---------------------------------------------------------------------------
 
 # Slug regex — kebab-case per the id skill's slug rule (shared with bounties +

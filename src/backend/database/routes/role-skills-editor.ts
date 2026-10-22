@@ -1,6 +1,6 @@
 /**
- * /role-skills-editor Express router — role skills (`~/fleet/roles/<role>/skills/<name>/`;
- * runbooks until 2026-10). Started as Phase 89's /runbooks-editor.
+ * /role-skills-editor Express router — role skills (`~/fleet/roles/<role>/skills/<name>/`).
+ * Started in Phase 89.
  *
  * Byte-shape mirror of Phase 44's `skills-editor.ts` with three structural
  * adaptations:

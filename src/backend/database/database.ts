@@ -140,7 +140,7 @@ import instanceWideRoutes from "./routes/instance-wide.js";
 import instanceFileRoutes from "./routes/instance-file.js";
 // /document-convert: LibreOffice converter sidecar front door (file viewers).
 import documentConvertRoutes from "./routes/document-convert.js";
-// /role-skills-editor router (Phase 89's /runbooks-editor, renamed with runbooks → role skills) — list / create / rename / delete role skills and read / write / create / delete their files on managed hosts. Mount + nginx block sit alongside the /skills-editor pair.
+// /role-skills-editor router (Phase 89) — list / create / rename / delete role skills and read / write / create / delete their files on managed hosts. Mount + nginx block sit alongside the /skills-editor pair.
 import roleSkillsEditorRoutes from "./routes/role-skills-editor.js";
 // Phase 118 Plan 118-01 (D-04, D-16, D-17, D-19, D-20, D-21, D-22): /workspace CRUD router — 9 endpoints (list, read-file, write-file, delete, rename, mkdir, create-file, upload, download) for browsing the identity workspace on any user-accessible host via SFTP. Matching nginx location blocks in BOTH docker/nginx.conf AND docker/nginx-https.conf per CLAUDE.md nginx caveat (missing in HTTPS conf → /workspace returns index.html and crashes the frontend).
 import workspaceRoutes from "./routes/workspace-routes.js";

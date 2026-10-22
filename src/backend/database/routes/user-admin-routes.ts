@@ -284,7 +284,7 @@ export function registerUserAdminRoutes(
    *       Phase 75 Plan 03 (MXA-04). Admin-gated endpoint that maps a Skynet
    *       user row to an externally-created Matrix relay account by writing
    *       the mxid to `users.mxid`. Serves both the new-user provisioning
-   *       runbook (one POST per new user) and the one-shot import for the
+   *       role skill (one POST per new user) and the one-shot import for the
    *       three pre-existing hand-made accounts (user, Zoe, Laura).
    *
    *       The mxid is validated against `MXID_RE` (Matrix spec-compliant:
