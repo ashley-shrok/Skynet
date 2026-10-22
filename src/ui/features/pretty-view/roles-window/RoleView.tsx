@@ -111,8 +111,9 @@ export interface RoleViewProps {
   tab: RoleTab;
   onTabChange: (tab: RoleTab) => void;
   onBack: () => void;
-  /** Opens one of the role's skills one level deeper. */
-  onOpenSkill: (skill: string) => void;
+  /** Opens one of the role's skills one level deeper (its description goes
+   *  along for the skill's header). */
+  onOpenSkill: (skill: string, description?: string) => void;
   onRoleChanged: (patch: Partial<RoleSummary>) => void;
   onHueDraft: (hue: number | null) => void;
   onSharingChanged: () => void;
@@ -455,7 +456,7 @@ export function RoleView({
       return;
     }
     console.info({ operation: "role_skill_created", hostId, roleName: name, skill: created.slug });
-    onOpenSkill(created.slug);
+    onOpenSkill(created.slug, rawDesc.trim());
   };
 
   // ── Menu actions ─────────────────────────────────────────────────────────
@@ -803,15 +804,14 @@ export function RoleView({
       <>
         <KitSettingsGroup note="How to do things this role does again and again. Every agent holding the role is told about them when it loads.">
           {skills.data.map((r) => (
+            // Same row as the Skills window: the name as written, its
+            // one-line description under it.
             <KitSettingsRow
               key={r.name}
-              leading={
-                <span className="size-8 rounded-[9px] bg-[var(--k-s2)] text-[var(--k-t2)] grid place-items-center shrink-0">
-                  <Zap className="size-4" aria-hidden="true" />
-                </span>
-              }
-              label={<span className="font-semibold">{roleDisplayName(r.name)}</span>}
-              onClick={() => onOpenSkill(r.name)}
+              label={r.name}
+              description={r.description}
+              truncate
+              onClick={() => onOpenSkill(r.name, r.description)}
               data-testid={`role-view-skill-${r.name}`}
             />
           ))}

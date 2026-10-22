@@ -14,7 +14,9 @@ export { RenamedButEditsNotSavedError };
 // execWithTimeout / shellEscape (fifth intentional instance in the codebase;
 // skills-api was the fourth).
 
-export type RoleSkillEntry = { name: string };
+/** A role skill: its folder name and the one-line description from its
+ *  SKILL.md frontmatter (absent when it has none or it can't be read). */
+export type RoleSkillEntry = { name: string; description?: string };
 
 export type RoleSkillFileEntry = { path: string };
 

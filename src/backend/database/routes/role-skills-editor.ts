@@ -81,6 +81,7 @@ import { resolveHostById } from "../../ssh/host-resolver.js";
 import { connectOneShot } from "../../ssh/ssh-one-shot.js";
 import { execCommand } from "../../ssh/tmux-helper.js";
 import { writeMarkdownFileAtomic } from "../../claude-session/identity-artifact-reader.js";
+import { parseSkillListOutput } from "./skills-editor.js";
 import { sshLogger } from "../../utils/logger.js";
 import { sendRemoteFileUnderRoot, writeRemoteFileUnderRoot } from "../../utils/sftp-root-files.js";
 import {
@@ -391,15 +392,30 @@ router.get(
         hostId,
         role,
       });
-      const listCmd = `find ${escapedSkillsRoot} -mindepth 1 -maxdepth 1 -type d -printf '%f\\n' 2>/dev/null | sort`;
+      // Same record shape as the regular skills list (\x1e + name, then the
+      // SKILL.md frontmatter) so each role skill comes back with its
+      // one-line description, read the same way.
+      const listCmd =
+        `find ${escapedSkillsRoot} -mindepth 1 -maxdepth 1 -type d 2>/dev/null | sort | ` +
+        `while read -r dir; do ` +
+        `  fm=$(awk '{sub(/\\r$/, "")} /^---$/{n++; if(n==2) exit} n==1' "$dir/SKILL.md" 2>/dev/null); ` +
+        `  printf '\\036%s\\n%s\\n' "$(basename "$dir")" "$fm"; ` +
+        `done`;
       const output = await execWithTimeout(conn, listCmd);
 
-      // 10. Parse, filter, map.
-      const skills = output
-        .split("\n")
-        .map((line) => line.trim())
-        .filter((line) => line.length > 0)
-        .map((name) => ({ name }));
+      // 10. Parse: name + description (no invocation flags — role skills
+      //     aren't run by name).
+      const skills = parseSkillListOutput(output).map((s) => ({
+        name: s.name,
+        ...(s.description === undefined ? {} : { description: s.description }),
+      }));
+      sshLogger.info("role-skills-editor skills: listed", {
+        operation: "role_skills_editor_skills_listed",
+        hostId,
+        role,
+        count: skills.length,
+        withDescription: skills.filter((x) => "description" in x).length,
+      });
 
       res.json({ skills });
     } catch (err) {

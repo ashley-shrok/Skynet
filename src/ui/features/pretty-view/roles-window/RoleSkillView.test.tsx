@@ -58,7 +58,7 @@ async function openSkill(role: RoleSummary = BOX): Promise<{ onOpenChange: Retur
   const r = renderWindow({ start: { view: "role", hostId: HOST_ID, role } });
   fireEvent.click(await screen.findByTestId("role-view-tab-skills"));
   fireEvent.click(await screen.findByTestId(`role-view-skill-${RB}`));
-  await screen.findByText("Weekly Report");
+  await screen.findByText("weekly-report");
   return r;
 }
 
@@ -126,7 +126,7 @@ describe("role skill view", () => {
     const listCalls = m.listRoleSkills.mock.calls.length;
     fireEvent.click(within(await openMenu("skill-view-menu")).getByTestId("skill-view-delete"));
     await waitFor(() => expect(m.deleteRoleSkill).toHaveBeenCalledWith(HOST_ID, "box-maintainer", RB));
-    expect(dialogs.calls[0].opts.title).toBe("Delete the Weekly Report skill?");
+    expect(dialogs.calls[0].opts.title).toBe('Delete skill "weekly-report"?');
     await waitFor(() => expect(screen.getByTestId("role-view-tab-skills").getAttribute("aria-pressed")).toBe("true"));
     expect(m.listRoleSkills.mock.calls.length).toBeGreaterThan(listCalls);
   });
@@ -148,7 +148,7 @@ describe("role skill view", () => {
       expect(m.renameRoleSkill).toHaveBeenCalledWith(HOST_ID, "box-maintainer", RB, "monthly-report", undefined),
     );
     expect(dialogs.calls[0].kind).toBe("prompt");
-    expect(await screen.findByText("Monthly Report")).toBeTruthy();
+    expect(await screen.findByText("monthly-report")).toBeTruthy();
     await waitFor(() => expect(m.enumerateRoleSkillFiles).toHaveBeenLastCalledWith(HOST_ID, "box-maintainer", "monthly-report"));
   });
 
@@ -160,7 +160,7 @@ describe("role skill view", () => {
     fireEvent.click(within(await openMenu("skill-view-menu")).getByTestId("skill-view-rename"));
     await waitFor(() => expect(dialogs.calls.some((c) => c.kind === "alert")).toBe(true));
     expect(dialogs.calls[1].opts.body).toBe('A skill named "taken" already exists in this role.');
-    expect(screen.getByText("Weekly Report")).toBeTruthy();
+    expect(screen.getByText("weekly-report")).toBeTruthy();
   });
 
   it("saving SKILL.md with a changed name offers the rename, and the draft rides along", async () => {
@@ -180,7 +180,7 @@ describe("role skill view", () => {
     );
     expect(dialogs.calls[0].kind).toBe("confirm");
     expect(m.writeRoleSkillFile).not.toHaveBeenCalled();
-    expect(await screen.findByText("Deploy")).toBeTruthy();
+    expect(await screen.findByText("deploy")).toBeTruthy();
   });
 
   it("a changed name: Cancel saves nothing and keeps the edits", async () => {

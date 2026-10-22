@@ -249,17 +249,31 @@ afterEach(() => {
 // ===========================================================================
 
 describe("GET /role-skills-editor/skills", () => {
-  it("200 with { skills: [{name}...] } sorted alphabetically", async () => {
+  it("200 with { skills: [{name, description}...] } — each skill's one-line description from its SKILL.md", async () => {
+    (execCommand as Mock).mockImplementation(async (_conn: unknown, cmd: string) => {
+      if (cmd.startsWith("find") && cmd.includes("-maxdepth 1") && cmd.includes("while read")) {
+        return (
+          "\x1eavatar-flow\nname: avatar-flow\ndescription: >-\n  Generate and pick\n  a role picture.\n" +
+          "\x1ecss-fast-path\n\n" +
+          "\x1ebroken\nname: [unclosed\n"
+        );
+      }
+      return defaultExecImpl(cmd);
+    });
     const res = await httpRequest(server, {
       method: "GET",
       path: "/role-skills-editor/skills?hostId=1&role=box-maintainer",
     });
     expect(res.status).toBe(200);
-    const body = res.body as { skills: { name: string }[] };
+    const body = res.body as { skills: { name: string; description?: string }[] };
     expect(body.skills).toEqual([
-      { name: "avatar-flow" },
+      { name: "avatar-flow", description: "Generate and pick a role picture." },
       { name: "css-fast-path" },
+      { name: "broken" },
     ]);
+    const calls = (execCommand as Mock).mock.calls as [unknown, string][];
+    const list = calls.find(([, c]) => c.startsWith("find") && c.includes("while read"));
+    expect(list![1]).toContain("'/home/testuser/fleet/roles/box-maintainer/skills'");
   });
 
   it("200 with { skills: [] } when the role skills directory is missing (empty state)", async () => {

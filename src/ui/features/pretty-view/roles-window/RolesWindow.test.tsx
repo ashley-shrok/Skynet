@@ -206,7 +206,7 @@ describe("roles window — moving between views", () => {
     fireEvent.click(screen.getByTestId("role-view-tab-skills"));
     fireEvent.click(await screen.findByTestId("role-view-skill-weekly-report"));
     // The skill view: its title, and back names the role.
-    expect(await screen.findByText("Weekly Report")).toBeTruthy();
+    expect(await screen.findByText("weekly-report")).toBeTruthy();
     expect(backButton().textContent).toContain("Box Maintainer");
     expect(m.enumerateRoleSkillFiles).toHaveBeenCalledWith(HOST_ID, "box-maintainer", "weekly-report");
     fireEvent.click(backButton());
@@ -230,7 +230,7 @@ describe("roles window — moving between views", () => {
     await openRoleFromLibrary("box-maintainer");
     fireEvent.click(screen.getByTestId("role-view-tab-skills"));
     fireEvent.click(await screen.findByTestId("role-view-skill-weekly-report"));
-    await screen.findByText("Weekly Report");
+    await screen.findByText("weekly-report");
 
     pressEscape();
     expect(await screen.findByTestId("role-view-skill-weekly-report")).toBeTruthy();
@@ -323,7 +323,7 @@ describe("roles window — moving between views", () => {
     expect(await screen.findByTestId("role-view-readonly-note")).toBeTruthy();
     fireEvent.click(screen.getByTestId("role-view-tab-skills"));
     fireEvent.click(await screen.findByTestId("role-view-skill-weekly-report"));
-    await screen.findByText("Weekly Report");
+    await screen.findByText("weekly-report");
     expect(screen.queryByTestId("skill-view-save")).toBeNull();
     expect(screen.queryByTestId("skill-view-add-file")).toBeNull();
   });

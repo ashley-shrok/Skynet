@@ -1043,16 +1043,19 @@ crown, then gear.
     scheduled tasks window on just that role's tasks; then **Colour** and
     **Voice** buttons. Tabs: **Role file** (formatted; **Edit** at the
     bottom switches to editing with Cancel / Save), **Skills** (the
-    role's skills — § Role skills — plus **New skill**, which asks for a
-    name and then a required one-line description, and opens the new
-    skill), **Files** (everything in the role folder
+    role's skills — § Role skills — each row its name and one-line
+    description, the same as a row in the Skills window; plus **New
+    skill**, which asks for a name and then a required one-line
+    description, and opens the new skill), **Files** (everything in the role folder
     `~/fleet/roles/<slug>/` except the role file itself, which has its own
     tab) and **Git** when the folder holds a repo. The **⋯** menu has
     **Start a conversation** (opens the new-conversation dialog with this
     role picked) and **Archive role…** — one confirm naming the agents
     that hold it, which are archived with it; greyed out for a shared role.
   - **A role skill** (click one under Skills): one level deeper; back
-    reads the role's name. It opens on its `SKILL.md`, filling the window;
+    reads the role's name; its name heads it with its description under
+    it, as a skill does in the Skills window. It opens on its `SKILL.md`,
+    filling the window;
     an **N files** button shows the file list (**Add file** at its bottom;
     on a phone the list swaps in for the editor). Close / Save at the
     bottom; **⋯** has **Add file…**, **Rename…** and **Delete skill…**.

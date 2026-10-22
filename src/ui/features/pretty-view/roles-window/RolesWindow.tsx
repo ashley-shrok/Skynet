@@ -71,7 +71,7 @@ export interface NewRoleHop {
 type Nav =
   | { view: "library" }
   | { view: "role"; role: RoleSummary }
-  | { view: "skill"; role: RoleSummary; skill: string }
+  | { view: "skill"; role: RoleSummary; skill: string; description?: string }
   | { view: "new" }
   | { view: "archived" };
 
@@ -360,7 +360,7 @@ export function RolesWindow({
         tab={roleTab}
         onTabChange={setRoleTab}
         onBack={() => void goBack()}
-        onOpenSkill={(skill) => void go({ view: "skill", role: nav.role, skill })}
+        onOpenSkill={(skill, description) => void go({ view: "skill", role: nav.role, skill, description })}
         onRoleChanged={(patch) => patchRole(nav.role.name, patch)}
         onHueDraft={setHueOverride}
         onSharingChanged={() => {
@@ -395,6 +395,7 @@ export function RolesWindow({
         hostId={hostId}
         role={nav.role}
         skill={nav.skill}
+        description={nav.description}
         readOnly={isShared(nav.role) && !isAdmin}
         onBack={() => void goBack()}
         onClose={() => void handleOpenChange(false)}
@@ -407,7 +408,7 @@ export function RolesWindow({
           // Nothing unsaved is left behind: a rename only starts from a clean
           // view, or saves the edited main file along with it.
           guardRef.current = null;
-          setNav({ view: "skill", role: nav.role, skill: newName });
+          setNav({ view: "skill", role: nav.role, skill: newName, description: nav.description });
         }}
         registerGuard={registerGuard}
         registerEscape={registerEscape}

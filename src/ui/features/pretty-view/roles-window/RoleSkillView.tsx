@@ -43,6 +43,7 @@ export function RoleSkillView({
   hostId,
   role,
   skill,
+  description,
   readOnly,
   onBack,
   onClose,
@@ -54,6 +55,8 @@ export function RoleSkillView({
   hostId: number;
   role: RoleSummary;
   skill: string;
+  /** Its one-line description, shown under the name (as in the Skills window). */
+  description?: string;
   readOnly: boolean;
   onBack: () => void;
   onClose: () => void;
@@ -379,7 +382,7 @@ export function RoleSkillView({
   const handleDeleteSkill = async (): Promise<void> => {
     if (
       !(await kitConfirm({
-        title: `Delete the ${roleDisplayName(skill)} skill?`,
+        title: `Delete skill "${skill}"?`,
         body: "This removes the skill and every file inside it. This can't be undone.",
         confirmLabel: "Delete skill",
         destructive: true,
@@ -493,8 +496,8 @@ export function RoleSkillView({
   return (
     <>
       <ModalHead
-        title={roleDisplayName(skill)}
-        subtitle="Role skill"
+        title={skill}
+        subtitle={description ? <span className="line-clamp-2">{description}</span> : "Role skill"}
         closeTestId="roles-window-close"
         leading={
           <KitButton variant="plain" size="sm" onClick={onBack} className="max-w-[40vw]" data-testid="roles-window-back">

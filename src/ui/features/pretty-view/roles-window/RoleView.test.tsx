@@ -582,18 +582,27 @@ describe("role view — scheduled tasks shortcut", () => {
 // ─── Skills tab ─────────────────────────────────────────────────────────────
 
 describe("role view — skills", () => {
-  it("lists the role's skills title-cased; a row opens the skill", async () => {
-    m.listRoleSkills.mockResolvedValue([{ name: "weekly-report" }, { name: "avatar-flow" }]);
+  it("lists the role's skills by name, each with its description; a row opens the skill under its description", async () => {
+    m.listRoleSkills.mockResolvedValue([
+      { name: "weekly-report", description: "Writes the Friday report." },
+      { name: "avatar-flow" },
+    ]);
     m.enumerateRoleSkillFiles.mockResolvedValue([{ path: "SKILL.md" }]);
     await openRole();
     fireEvent.click(screen.getByTestId("role-view-tab-skills"));
     await screen.findByTestId("role-view-skill-weekly-report");
     expect(m.listRoleSkills).toHaveBeenCalledWith(HOST_ID, "box-maintainer");
     const rows = screen.getAllByTestId(/^role-view-skill-/).map((r) => r.textContent);
-    expect(rows).toEqual(["Avatar Flow", "Weekly Report"]);
+    expect(rows).toEqual(["avatar-flow", "weekly-reportWrites the Friday report."]);
     expect(screen.getByTestId("role-view-new-skill")).toBeTruthy();
-    fireEvent.click(screen.getByTestId("role-view-skill-avatar-flow"));
-    expect(await screen.findByText("Avatar Flow")).toBeTruthy();
+    fireEvent.click(screen.getByTestId("role-view-skill-weekly-report"));
+    expect(await screen.findByText("weekly-report")).toBeTruthy();
+    // Its header carries the description, as in the Skills window.
+    expect(screen.getByText("Writes the Friday report.")).toBeTruthy();
+    fireEvent.click(screen.getByTestId("roles-window-back"));
+    fireEvent.click(await screen.findByTestId("role-view-skill-avatar-flow"));
+    expect(await screen.findByText("avatar-flow")).toBeTruthy();
+    expect(screen.getByText("Role skill")).toBeTruthy();
     expect(m.enumerateRoleSkillFiles).toHaveBeenCalledWith(HOST_ID, "box-maintainer", "avatar-flow");
   });
 
@@ -616,7 +625,7 @@ describe("role view — skills", () => {
     expect(dialogs.calls[0].opts.title).toBe("New skill");
     expect(dialogs.calls[1].opts.title).toBe('Describe "Weekly report"');
     // The skill view opened.
-    expect(await screen.findByText("Weekly Report")).toBeTruthy();
+    expect(await screen.findByText("weekly-report")).toBeTruthy();
     expect(m.enumerateRoleSkillFiles).toHaveBeenCalledWith(HOST_ID, "box-maintainer", "weekly-report");
   });
 
