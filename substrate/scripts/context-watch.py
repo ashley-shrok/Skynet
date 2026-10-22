@@ -11,30 +11,25 @@ NOT reliably reset instruction/persona drift. The authoritative identity lives o
 the running context is just a cache of it. So rather than preserve a degrading cache,
 we recycle it at a controlled moment — a fresh `/id <name>` load is perfectly faithful.
 
-How it measures (2026-09-01 rewrite — Tanya-informed): reads the harness's own context
-number from the statusline bridge file at `/tmp/claude-ctx-<CLAUDE_CODE_SESSION_ID>.json`.
-The gsd-statusline hook writes this file on every statusline invocation with
-`{session_id, remaining_percentage, used_pct, timestamp}`; `used_pct` is pre-normalized
-against the 16.5% autocompact buffer, so we consume it verbatim.
-
-The previous approach scraped the pct from tmux `capture-pane -p` output (the hook wrote
-the pct as the first 2 chars of the visible statusline). That worked but coupled us to
-pane width, ANSI rendering, and the leading-digits convention. The bridge file is the
-harness's authoritative value with none of those hops.
+How it measures: runs `~/.local/bin/pv-context-pct-sweep --identities <name>` — the
+same distributor-shipped script the app's context meter uses — and reads its
+`context_pct`. That script finds this identity's session JSONL (the newest one whose
+first turn is `/id <name>`, so a recycled or resumed session is picked up on the next
+poll) and divides the last assistant turn's input + cache tokens by the 1M window. The
+fleet runs with DISABLE_AUTO_COMPACT=1, so no autocompact buffer is subtracted. One
+formula, one place: the nudge fires at exactly the % the user sees on the meter.
 
 Load-bearing rules from earlier experience running this:
-  - Re-resolve `CLAUDE_CODE_SESSION_ID` from env EVERY poll — a `--resume` produces a
-    fresh session id + fresh bridge file, and caching the path silently reads the stale
-    file forever after resume.
-  - Skip-tick on bridge-file ENOENT — first-boot before the hook has fired once is a
-    normal state that resolves within a turn; do not treat as error.
-  - Do NOT gate on bridge-file mtime — an idle claude has an old mtime but the value
-    is still accurate (context doesn't move without turns).
-  - If the statusline hook isn't installed at all, no bridge file will ever appear —
-    log that once on startup so the operator sees why the watch is silent.
+  - Re-run discovery EVERY poll — a recycle or `--resume` writes a fresh JSONL, and
+    caching the path silently reads the stale file forever after.
+  - Skip-tick when there is no pct yet (no JSONL, or no assistant turn yet) — first
+    boot is a normal state that resolves within a turn; do not treat as error.
+  - Do NOT gate on JSONL mtime — an idle claude has an old mtime but the value is
+    still accurate (context doesn't move without turns).
 
 The loop (thresholds are % of the context window USED; higher = fuller):
-  - can't read a pct (bridge file missing or malformed) -> skip this poll, try next.
+  - can't read a pct (no session JSONL / no usage turn yet / sweep failed) -> skip
+    this poll, try next.
   - below the nudge threshold -> clear the fired-flags (RE-ARM). A fresh recycled
     session starts here, so this is how the flags reset with zero coupling to the
     recycle mechanism.
@@ -56,78 +51,47 @@ Usage:  python3 context-watch.py <identity_dir>
 Env:    CTXWATCH_POLL_SEC   (default 180)  loop granularity; context climbs slowly.
         CTXWATCH_NUDGE_PCT  (default 90)   soft "save + sentinel at next stop" threshold.
         CTXWATCH_PING_PCT   (default 95)   loud "recycle overdue, ping user" threshold.
-        CTXWATCH_BRIDGE_DIR (override)     dir to look for bridge files; default = tempdir.
+        CTXWATCH_SWEEP      (override)     pct script; default ~/.local/bin/pv-context-pct-sweep.
 """
 
-import glob
 import json
 import os
+import subprocess
 import sys
-import tempfile
 import time
 
 POLL = int(os.environ.get("CTXWATCH_POLL_SEC", "180"))
 NUDGE = int(os.environ.get("CTXWATCH_NUDGE_PCT", "90"))
 PING = int(os.environ.get("CTXWATCH_PING_PCT", "95"))
-BRIDGE_DIR = os.environ.get("CTXWATCH_BRIDGE_DIR") or tempfile.gettempdir()
+SWEEP = os.environ.get("CTXWATCH_SWEEP") or os.path.expanduser(
+    "~/.local/bin/pv-context-pct-sweep")
+SWEEP_TIMEOUT_SEC = 30
 
 
-def _bridge_path():
-    """Resolve the bridge file path FRESH from env each call — never cache.
-
-    Rationale: `claude --resume` produces a fresh CLAUDE_CODE_SESSION_ID and a fresh
-    bridge file. If we cached the path at startup we would silently read the stale
-    pre-resume file forever. Env is dirt-cheap to re-read; do it every tick.
-    """
-    sid = os.environ.get("CLAUDE_CODE_SESSION_ID")
-    if not sid:
-        return None
-    return os.path.join(BRIDGE_DIR, f"claude-ctx-{sid}.json")
-
-
-def _read_pct():
-    """Return the context-usage % (int 0-100) from the bridge file, or None if the
-    file doesn't exist yet, or if it's malformed. mtime is intentionally NOT checked —
-    an idle claude has an old mtime but the value is still accurate."""
-    path = _bridge_path()
-    if not path:
-        return None
+def _read_pct(name):
+    """Return the context-usage % (int 0-100) for identity `name`, or None if there is
+    no pct yet or the sweep script failed. Diagnostics go to STDERR: ambient-monitor
+    treats every stdout line as a wake to the agent."""
     try:
-        with open(path) as f:
-            data = json.load(f)
-    except FileNotFoundError:
+        out = subprocess.run(
+            [SWEEP, "--identities", name],
+            stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+            timeout=SWEEP_TIMEOUT_SEC, check=False,
+        ).stdout.decode("utf-8", errors="replace")
+    except (OSError, subprocess.SubprocessError) as e:
+        print("context-watch: sweep failed (%s): %s" % (SWEEP, e),
+              file=sys.stderr, flush=True)
         return None
-    except (OSError, json.JSONDecodeError):
-        return None
-    try:
-        pct = int(data["used_pct"])
-    except (KeyError, TypeError, ValueError):
-        return None
-    return max(0, min(100, pct))
-
-
-def _hook_installed_check():
-    """Startup defensive check: is the statusline hook writing bridge files at all?
-    If BRIDGE_DIR has never seen a `claude-ctx-*.json`, the hook isn't installed
-    on this box and this watch will be silent forever. Log once so the operator sees
-    why. Does NOT gate startup — the hook may be installed and just haven't fired
-    yet on a fresh box.
-
-    Goes to STDERR, not stdout: ambient-monitor treats every stdout line as a wake
-    to the agent, and this is a diagnostic for the operator, not an event worth an
-    agent turn. On a brand-new box no agent turn has happened yet, so no bridge file
-    CAN exist — on stdout this fired on the very first wake of the very first agent
-    on every new VM, which is the first thing a new user ever sees."""
-    any_bridge = glob.glob(os.path.join(BRIDGE_DIR, "claude-ctx-*.json"))
-    if not any_bridge:
-        print(
-            "ℹ️ [context-watch startup] no bridge files in %s — "
-            "statusline hook may not be installed. Watch will remain silent "
-            "until the hook writes its first bridge file. This is fine on a "
-            "brand-new box before the first agent turn." % BRIDGE_DIR,
-            file=sys.stderr,
-            flush=True,
-        )
+    for line in out.splitlines():
+        try:
+            rec = json.loads(line)
+        except ValueError:
+            continue
+        if isinstance(rec, dict) and rec.get("identity") == name:
+            pct = rec.get("context_pct")
+            if isinstance(pct, (int, float)):
+                return max(0, min(100, int(pct)))
+    return None
 
 
 def _single_instance(state_dir, ident_dir):
@@ -156,7 +120,6 @@ def main():
     state_dir = os.path.join(ident_dir, "ctxwatch", ".state")
     os.makedirs(state_dir, exist_ok=True)
     _single_instance(state_dir, ident_dir)
-    _hook_installed_check()
 
     nudged_f = os.path.join(state_dir, "nudged")
     pinged_f = os.path.join(state_dir, "pinged")
@@ -209,7 +172,7 @@ def main():
                 os.kill(harness_pid, 0)  # signal 0: existence check only, sends nothing
             except OSError:
                 sys.exit(0)              # harness gone — self-exit before any nudge
-        pct = _read_pct()
+        pct = _read_pct(name)
         if pct is None:
             time.sleep(POLL)
             continue
