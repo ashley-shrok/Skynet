@@ -23,8 +23,8 @@ Runbooks were only ever called that to keep them from being confused with regula
 
 ## Other work
 
-- Write the 43 drafted descriptions (workspace/role-skill-descriptions.json) into the converted role skills on t1000, workstation, thenasty and zoeybattlestation at deploy, right after each box's sweep converts (workspace/apply-role-skill-descriptions.py, JSON lines on stdin) — pending (deploy)
-- What's-new note text — awaiting the user's approval
+- Write the 43 drafted descriptions (workspace/role-skill-descriptions.json) into the converted role skills on t1000, workstation, thenasty and zoeybattlestation at deploy, right after each box's sweep converts (workspace/apply-role-skill-descriptions.py, JSON lines on stdin) — done (2026-10-22, all 43)
+- What's-new note — dropped (the user: not needed)
 - Box-maintainer role-file wording that points at runbooks — folded into shape-runbook-terminology-sweep
 
 ## Lingerers (explicitly approved)
