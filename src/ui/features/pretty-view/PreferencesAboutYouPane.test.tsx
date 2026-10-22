@@ -57,7 +57,7 @@ import {
 
 // ── Fixtures ──────────────────────────────────────────────────────────────────
 
-function host(id: string, name: string, runsFleetSubstrate = true): Host {
+function host(id: string, name: string, canHostAgents = true): Host {
   return {
     id,
     name,
@@ -84,7 +84,7 @@ function host(id: string, name: string, runsFleetSubstrate = true): Host {
     rdpPort: 3389,
     vncPort: 5900,
     telnetPort: 23,
-    runsFleetSubstrate,
+    canHostAgents,
   } as Host;
 }
 
@@ -217,7 +217,7 @@ describe("PreferencesAboutYouPane", () => {
       name: "root",
       children: [
         host("1", "nas", false),
-        { name: "lab", children: [host("2", "agent-a"), { ...host("3", "printer"), runsFleetSubstrate: undefined }] },
+        { name: "lab", children: [host("2", "agent-a"), { ...host("3", "printer"), canHostAgents: undefined }] },
         host("4", "agent-b"),
       ],
     };

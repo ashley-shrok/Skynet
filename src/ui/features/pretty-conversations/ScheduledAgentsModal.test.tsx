@@ -123,7 +123,7 @@ const HOST_A = {
   enableSsh: true,
   enableRdp: false,
   // Can run agents — a new task only offers such machines.
-  runsFleetSubstrate: true,
+  canHostAgents: true,
   enableVnc: false,
   enableTelnet: false,
   sshPort: 22,
@@ -904,7 +904,7 @@ describe("ScheduledAgentsModal: creating", () => {
       name: "root",
       children: [
         host({}),
-        host({ id: "2", name: "winbox", runsFleetSubstrate: false }),
+        host({ id: "2", name: "winbox", canHostAgents: false }),
         host({ id: "3", name: "fleet-b" }),
         host({ id: "4", name: "rdp-box", enableRdp: true }),
       ],
@@ -942,7 +942,7 @@ describe("ScheduledAgentsModal: creating", () => {
   });
 
   it("no machine can run agents → the new task says so and can't be created", async () => {
-    const tree: HostFolder = { name: "root", children: [host({ id: "2", name: "winbox", runsFleetSubstrate: false })] };
+    const tree: HostFolder = { name: "root", children: [host({ id: "2", name: "winbox", canHostAgents: false })] };
     renderModal(tree);
     await openNew();
     expect(screen.getByTestId("scheduled-task-no-machines")).toHaveTextContent("None of your machines can run agents");
@@ -955,7 +955,7 @@ describe("ScheduledAgentsModal: creating", () => {
   it("one machine that can run agents (plus one that can't) → it's picked, no machine list", async () => {
     const tree: HostFolder = {
       name: "root",
-      children: [host({}), host({ id: "2", name: "winbox", runsFleetSubstrate: false })],
+      children: [host({}), host({ id: "2", name: "winbox", canHostAgents: false })],
     };
     renderModal(tree);
     await openNew();

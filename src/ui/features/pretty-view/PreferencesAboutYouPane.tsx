@@ -105,7 +105,7 @@ export function PreferencesAboutYouPane({
 
   const agentHosts = useMemo(
     () =>
-      collectAllHosts(hostTree?.children ?? []).filter((h) => h.runsFleetSubstrate === true),
+      collectAllHosts(hostTree?.children ?? []).filter((h) => h.canHostAgents === true),
     [hostTree],
   );
 

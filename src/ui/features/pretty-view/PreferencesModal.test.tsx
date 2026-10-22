@@ -154,7 +154,7 @@ const AGENT_HOST_TREE: HostFolder = {
       rdpPort: 3389,
       vncPort: 5900,
       telnetPort: 23,
-      runsFleetSubstrate: true,
+      canHostAgents: true,
     } as Host,
   ],
 };

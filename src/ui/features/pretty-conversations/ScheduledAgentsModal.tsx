@@ -230,7 +230,7 @@ export function ScheduledAgentsModal({
     [hostTree],
   );
   // A new task can only go to a machine that can run agents.
-  const agentHosts = useMemo(() => flatHosts.filter((h) => h.runsFleetSubstrate === true), [flatHosts]);
+  const agentHosts = useMemo(() => flatHosts.filter((h) => h.canHostAgents === true), [flatHosts]);
 
   // The open task, read live from the list so a background refresh updates
   // its status. If a refresh leaves it out because its machine didn't
