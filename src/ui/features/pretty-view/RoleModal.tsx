@@ -36,8 +36,10 @@ import { listInstanceWide, type InstanceWideList } from "@/api/instance-wide-api
 import { InstanceWideChip, InstanceWideSyncStatus } from "./InstanceWideStatus";
 import type React from "react";
 import {
+  ArrowRight,
   BookOpen,
   ChevronDown,
+  Clock,
   Folder,
   GitBranch,
   Mic,
@@ -50,6 +52,8 @@ import { Tabs, TabsContent } from "@/components/tabs";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 import { roleAvatarUrl, updateRoleAvatarByName } from "@/api/identities-api";
+import { listScheduledAgents } from "@/api/scheduled-agents-api";
+import { requestOpenScheduledTasks } from "@/features/pretty-conversations/open-scheduled-tasks";
 import {
   updateRoleFileByName,
   getRoleFileByName,
@@ -271,6 +275,40 @@ export function RoleModal({
     };
   }, [open, roleName, hostId]);
 
+  // How many scheduled tasks run with this role — shown on the header
+  // shortcut into the Scheduled Tasks modal. null = not known (loading or
+  // the list failed); the shortcut still works without a count.
+  const [scheduledTaskCount, setScheduledTaskCount] = useState<number | null>(null);
+  useEffect(() => {
+    if (!open) return;
+    let cancelled = false;
+    setScheduledTaskCount(null);
+    listScheduledAgents()
+      .then((items) => {
+        if (cancelled) return;
+        setScheduledTaskCount(
+          items.filter((i) => i.hostId === hostId && i.roles.includes(roleName)).length,
+        );
+      })
+      .catch((e) => {
+        console.warn("[RoleModal] scheduled-task count failed", {
+          roleName,
+          hostId,
+          error: e instanceof Error ? e.message : String(e),
+        });
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [open, roleName, hostId]);
+
+  const scheduledTasksLabel =
+    scheduledTaskCount === null
+      ? "Scheduled tasks"
+      : scheduledTaskCount === 0
+        ? "No scheduled tasks"
+        : `${scheduledTaskCount} scheduled task${scheduledTaskCount === 1 ? "" : "s"}`;
+
   // Click-outside for voice popover.
   useEffect(() => {
     if (!voicePickerOpen) return;
@@ -482,6 +520,25 @@ export function RoleModal({
               </span>
             </div>
           )}
+          {/* Shortcut, not a second home: scheduled tasks live only in the
+              Scheduled Tasks modal, so this opens it filtered to the role. */}
+          <button
+            type="button"
+            title="Open Scheduled Tasks for this role"
+            onClick={() => {
+              onOpenChange(false);
+              requestOpenScheduledTasks({ role: roleName, hostId });
+            }}
+            data-testid="role-modal-scheduled-tasks-link"
+            className={cn(
+              "self-start inline-flex items-center gap-1.5 text-[12px] cursor-pointer",
+              "text-[hsla(var(--pv-id-hue),35%,85%,0.72)] hover:text-[#fbf5e8] transition-colors",
+            )}
+          >
+            <Clock size={12} />
+            <span>{scheduledTasksLabel}</span>
+            <ArrowRight size={12} />
+          </button>
         </div>
         {/* Chips + close X — pinned to top-right. */}
         <div className="flex items-start gap-1 shrink-0">

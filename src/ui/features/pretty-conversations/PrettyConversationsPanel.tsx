@@ -193,6 +193,10 @@ import { ConversationSearchModal } from "./ConversationSearchModal";
 // modals). Consumes the fleet-wide LIST + CRUD helpers from
 // src/ui/api/scheduled-agents-api.ts, which layer over shape 2's REST endpoints.
 import { ScheduledAgentsModal } from "./ScheduledAgentsModal";
+import {
+  OPEN_SCHEDULED_TASKS_EVENT,
+  type ScheduledTasksFilter,
+} from "./open-scheduled-tasks";
 // Phase 143 D-09: ArchivedAppsModal — opened from the Apps section header's
 // RowKebabMenu "Archived apps" item (see mount below at <RolesListModal>
 // sibling block). shape-sidebar-header-affordances migrated the trigger from
@@ -1209,6 +1213,19 @@ export function PrettyConversationsPanel({
   // state — modal refetches every open (D-03) and resets filter state on
   // close (D-17). Sibling of ConversationSearchModal's controlled state.
   const [scheduledAgentsModalOpen, setScheduledAgentsModalOpen] = useState(false);
+  // Filter the modal opens with — set by a role modal's "N scheduled tasks"
+  // shortcut (via OPEN_SCHEDULED_TASKS_EVENT); the footer clock opens it bare.
+  const [scheduledAgentsFilter, setScheduledAgentsFilter] =
+    useState<ScheduledTasksFilter | null>(null);
+  useEffect(() => {
+    const handle = (e: Event) => {
+      const filter = (e as CustomEvent<ScheduledTasksFilter | null>).detail ?? null;
+      setScheduledAgentsFilter(filter);
+      setScheduledAgentsModalOpen(true);
+    };
+    window.addEventListener(OPEN_SCHEDULED_TASKS_EVENT, handle);
+    return () => window.removeEventListener(OPEN_SCHEDULED_TASKS_EVENT, handle);
+  }, []);
   // Phase 90 Plan 90-06 (D-04): role modal swap-not-stack coordination. Set by
   // RolesListModal's onSelectRole (row click closes list + opens role modal).
   // Also used by the nested RoleModal → RoleSkillEditorModal swap through
@@ -3991,7 +4008,10 @@ export function PrettyConversationsPanel({
                 aria-label="Scheduled Tasks"
                 title="Scheduled Tasks"
                 data-testid="pv-footer-scheduled-agents-button"
-                onClick={() => setScheduledAgentsModalOpen(true)}
+                onClick={() => {
+                  setScheduledAgentsFilter(null);
+                  setScheduledAgentsModalOpen(true);
+                }}
               >
                 <Clock size={18} />
               </button>
@@ -4260,6 +4280,7 @@ export function PrettyConversationsPanel({
         open={scheduledAgentsModalOpen}
         onOpenChange={setScheduledAgentsModalOpen}
         hostTree={hostTree ?? null}
+        initialFilter={scheduledAgentsFilter}
       />
       {/* Phase 143 D-09: ArchivedAppsModal — portal-mounted sibling of
           RolesListModal. Opened via the archived-box icon-button on the Apps

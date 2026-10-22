@@ -317,6 +317,58 @@ describe("ScheduledAgentsModal: filter bar", () => {
     expect(screen.getByText("Alpha")).toBeInTheDocument();
     expect(screen.queryByText("Beta")).toBeNull();
   });
+
+  it("T-06b: initialFilter (role modal shortcut) opens narrowed to that role on that host", async () => {
+    listScheduledAgentsMock.mockResolvedValueOnce([
+      makeRow({ slug: "a", name: "Alpha", roles: ["writer"], host: "host-a", hostId: 1 }),
+      makeRow({ slug: "b", name: "Beta", roles: ["reader"], host: "host-a", hostId: 1 }),
+      makeRow({ slug: "c", name: "Gamma", roles: ["writer"], host: "host-b", hostId: 2 }),
+    ]);
+    const TWO_HOST_TREE: HostFolder = {
+      name: "root",
+      children: [
+        (ONE_HOST_TREE.children[0] as never),
+        { ...(ONE_HOST_TREE.children[0] as unknown as Record<string, unknown>), id: "2", name: "host-b" } as never,
+      ],
+    };
+    render(
+      <ScheduledAgentsModal
+        open={true}
+        onOpenChange={vi.fn()}
+        hostTree={TWO_HOST_TREE}
+        initialFilter={{ role: "writer", hostId: 1 }}
+      />,
+    );
+    await screen.findByText("Alpha");
+    expect(screen.queryByText("Beta")).toBeNull();
+    expect(screen.queryByText("Gamma")).toBeNull();
+    expect(
+      (screen.getByTestId("scheduled-agents-modal-filter-role") as HTMLSelectElement).value,
+    ).toBe("writer");
+    expect(
+      (screen.getByTestId("scheduled-agents-modal-filter-host") as HTMLSelectElement).value,
+    ).toBe("1");
+  });
+
+  it("T-06c: initialFilter for a role with no tasks keeps the filter and says none match", async () => {
+    listScheduledAgentsMock.mockResolvedValueOnce([
+      makeRow({ slug: "a", name: "Alpha", roles: ["writer"] }),
+    ]);
+    render(
+      <ScheduledAgentsModal
+        open={true}
+        onOpenChange={vi.fn()}
+        hostTree={ONE_HOST_TREE}
+        initialFilter={{ role: "gardener", hostId: 1 }}
+      />,
+    );
+    const empty = await screen.findByTestId("scheduled-agents-modal-empty-state");
+    expect(empty.textContent).toContain("No scheduled tasks match this filter.");
+    expect(screen.queryByText("Alpha")).toBeNull();
+    expect(
+      (screen.getByTestId("scheduled-agents-modal-filter-role") as HTMLSelectElement).value,
+    ).toBe("gardener");
+  });
 });
 
 describe("ScheduledAgentsModal: form-view entry points", () => {

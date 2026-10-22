@@ -25,6 +25,8 @@
  *      updateRoleAvatarByName BEFORE calling updateRoleFileByName
  *   L. Plan 90-10 title-clear flow — clearing a set title deletes the
  *      frontmatter `title:` line from the merged markdown
+ *   M. scheduled-tasks shortcut — counts this role's tasks on this host;
+ *      click closes the modal and asks for the filtered Scheduled Tasks modal
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
@@ -140,7 +142,14 @@ vi.mock("@/api/role-skills-api", () => ({
   listRoleSkills: vi.fn().mockResolvedValue([]),
 }));
 
+// Scheduled-tasks shortcut count — controlled per test.
+const mockListScheduledAgents = vi.fn();
+vi.mock("@/api/scheduled-agents-api", () => ({
+  listScheduledAgents: (...args: unknown[]) => mockListScheduledAgents(...args),
+}));
+
 import { RoleModal } from "./RoleModal";
+import { OPEN_SCHEDULED_TASKS_EVENT } from "@/features/pretty-conversations/open-scheduled-tasks";
 
 function renderModal(overrides: Partial<Parameters<typeof RoleModal>[0]> = {}) {
   const defaultProps = {
@@ -165,6 +174,7 @@ beforeEach(() => {
   // Restore default resolutions after each test's clearAllMocks.
   mockUpdateRoleFileByName.mockResolvedValue({ markdown: "" });
   mockGetRoleFileByName.mockResolvedValue({ markdown: "" });
+  mockListScheduledAgents.mockResolvedValue([]);
   mockUpdateRoleAvatarByName.mockResolvedValue({
     filename: "box-maintainer.png",
     avatarUrl: "/x",
@@ -470,5 +480,56 @@ describe("RoleModal — Phase 90 Plan 90-04 Task 3", () => {
     // modal functions with those props alone.
     renderModal();
     expect(document.querySelector('[data-testid="role-modal"]')).toBeTruthy();
+  });
+});
+
+describe("RoleModal — scheduled-tasks shortcut", () => {
+  it("Test M1: counts tasks holding this role on this host only", async () => {
+    mockListScheduledAgents.mockResolvedValue([
+      { hostId: 3, roles: ["box-maintainer"] },
+      { hostId: 3, roles: ["other", "box-maintainer"] },
+      { hostId: 3, roles: ["other"] },
+      { hostId: 9, roles: ["box-maintainer"] },
+    ]);
+    renderModal();
+    const link = screen.getByTestId("role-modal-scheduled-tasks-link");
+    await waitFor(() => expect(link.textContent).toContain("2 scheduled tasks"));
+  });
+
+  it("Test M2: zero reads 'No scheduled tasks'", async () => {
+    renderModal();
+    const link = screen.getByTestId("role-modal-scheduled-tasks-link");
+    await waitFor(() => expect(link.textContent).toContain("No scheduled tasks"));
+  });
+
+  it("Test M3: singular count", async () => {
+    mockListScheduledAgents.mockResolvedValue([{ hostId: 3, roles: ["box-maintainer"] }]);
+    renderModal();
+    const link = screen.getByTestId("role-modal-scheduled-tasks-link");
+    await waitFor(() => expect(link.textContent).toContain("1 scheduled task"));
+    expect(link.textContent).not.toContain("tasks");
+  });
+
+  it("Test M4: list failure still leaves a working shortcut", async () => {
+    mockListScheduledAgents.mockRejectedValue(new Error("boom"));
+    renderModal();
+    const link = screen.getByTestId("role-modal-scheduled-tasks-link");
+    await waitFor(() => expect(mockListScheduledAgents).toHaveBeenCalled());
+    expect(link.textContent).toContain("Scheduled tasks");
+  });
+
+  it("Test M5: click closes the modal and requests the filtered Scheduled Tasks modal", () => {
+    const onOpenChange = vi.fn();
+    const heard: unknown[] = [];
+    const listener = (e: Event) => heard.push((e as CustomEvent).detail);
+    window.addEventListener(OPEN_SCHEDULED_TASKS_EVENT, listener);
+    try {
+      renderModal({ onOpenChange });
+      fireEvent.click(screen.getByTestId("role-modal-scheduled-tasks-link"));
+      expect(onOpenChange).toHaveBeenCalledWith(false);
+      expect(heard).toEqual([{ role: "box-maintainer", hostId: 3 }]);
+    } finally {
+      window.removeEventListener(OPEN_SCHEDULED_TASKS_EVENT, listener);
+    }
   });
 });

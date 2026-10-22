@@ -984,7 +984,8 @@ crown, then gear.
   interval time window and start, and an end date or run count).
   Sensor-fired tasks show their sensor's status instead of a Next time
   (see § Scheduled tasks — User-side counterpart). The list re-reads
-  itself every ~30s while open.
+  itself every ~30s while open. A role modal's scheduled-tasks line opens
+  this same modal filtered to that role.
   *Agent-side:* see § Scheduled tasks. **User-gated.**
 
 - **🎭 Drama masks — roles.** Opens a modal listing every role the
@@ -1180,7 +1181,12 @@ crown, then gear.
     *Agent-side:* see the `desktop` skill (§ If the user takes control).
 
 - **Role modal (jump to via the identity modal header, or from the
-  drama-masks icon in the footer → click a role).** Three tabs:
+  drama-masks icon in the footer → click a role).** Under the role's
+  name, a small clock line reads how many scheduled tasks run with the
+  role ("2 scheduled tasks →", or "No scheduled tasks →"). Clicking it
+  closes the role modal and opens the clock icon's Scheduled Tasks modal
+  already filtered to that role — a shortcut; scheduled tasks live only
+  in that one modal. Three tabs:
   - **Role file** — view and edit the role's own `<role>.md`.
   - **Skills** — list the role's skills (§ Role skills); click one to
     open the role skill editor, which opens on its `SKILL.md`. A **+ New

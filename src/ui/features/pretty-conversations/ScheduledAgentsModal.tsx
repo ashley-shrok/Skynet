@@ -57,6 +57,7 @@ import {
 import { sensorStatusUnreachable } from "@/api/sensor-status-types";
 import { ScheduledAgentsModalRow, prettifyScheduledAgentName } from "./ScheduledAgentsModalRow";
 import { ScheduledAgentsModalForm } from "./ScheduledAgentsModalForm";
+import type { ScheduledTasksFilter } from "./open-scheduled-tasks";
 
 // Host-tree flatten helpers — inlined from CreateProjectModal (small
 // enough that a shared util isn't worth the migration cost).
@@ -79,6 +80,9 @@ export interface ScheduledAgentsModalProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   hostTree: HostFolder | null;
+  /** Filter applied each time the modal opens (e.g. from a role modal's
+   *  shortcut). Null = open unfiltered. */
+  initialFilter?: ScheduledTasksFilter | null;
 }
 
 // "No filter" sentinel — double-underscore-bracketed so it can never
@@ -92,6 +96,7 @@ export function ScheduledAgentsModal({
   open,
   onOpenChange,
   hostTree,
+  initialFilter = null,
 }: ScheduledAgentsModalProps): JSX.Element {
   // items === null → loading; items === [] → empty (fleet-wide zero OR
   // load error); items non-empty → rendered by ScheduledAgentsModalRow.
@@ -122,6 +127,13 @@ export function ScheduledAgentsModal({
   // (not a ref) so the row's menu item re-renders as "Starting…" + disabled,
   // which is also the double-click guard against spawning two agents.
   const [runNowPending, setRunNowPending] = useState<Set<string>>(() => new Set<string>());
+
+  // Opened with a filter (role modal shortcut) — apply it on each open.
+  useEffect(() => {
+    if (!open || initialFilter === null) return;
+    setRoleFilter(initialFilter.role);
+    setHostFilter(initialFilter.hostId);
+  }, [open, initialFilter]);
 
   // Fetch-on-open + reset-on-close (D-03, D-17).
   useEffect(() => {
@@ -245,11 +257,14 @@ export function ScheduledAgentsModal({
   const availableRoles = useMemo<string[]>(() => {
     if (items === null) return [];
     const set = new Set<string>();
+    // A role opened from its role modal stays pickable even with no tasks,
+    // so the list reads "none match" instead of silently showing everything.
+    if (initialFilter !== null) set.add(initialFilter.role);
     for (const item of items) {
       for (const r of item.roles) set.add(r);
     }
     return Array.from(set).sort((a, b) => a.localeCompare(b));
-  }, [items]);
+  }, [items, initialFilter]);
 
   // Filter reconciliation — reset filter when option disappears.
   useEffect(() => {
@@ -262,7 +277,8 @@ export function ScheduledAgentsModal({
     }
   }, [availableRoles, roleFilter]);
   useEffect(() => {
-    if (hostFilter === ALL_SENTINEL) return;
+    // Host tree not loaded yet — nothing to reconcile against.
+    if (hostFilter === ALL_SENTINEL || flatHosts.length === 0) return;
     const hostIds = new Set<number>();
     for (const h of flatHosts) {
       const idNum = parseInt(String(h.id), 10);
