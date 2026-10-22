@@ -12,6 +12,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import {
   createWebAudioStreamPlayer,
+  NEVER_STARTED_MS,
   getTtsPlaybackRate,
   setTtsPlaybackRate,
 } from "./webAudioStreamPlayer";
@@ -734,5 +735,59 @@ describe("per-user playback rate", () => {
     const pcm = new Uint8Array([0x00, 0x00, 0xff, 0x7f]);
     await player.play(makeMockResponse([makeWavChunk(pcm)]));
     expect(ctxInstances[0].sources[0].playbackRate.value).toBe(1.25);
+  });
+});
+
+describe("createWebAudioStreamPlayer — lent context and never-started guard", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("plays through a lent context and never closes it", async () => {
+    const lent = makeMockContext();
+    const onEnded = vi.fn();
+    const player = createWebAudioStreamPlayer({ context: lent as unknown as AudioContext, onEnded });
+    await player.play(makeMockResponse([makeWavChunk(new Uint8Array([0x00, 0x00, 0xff, 0x7f]))]));
+    expect(ctxInstances).toHaveLength(0);
+    expect(lent.sources).toHaveLength(1);
+    lent.sources[0].onended?.();
+    expect(onEnded).toHaveBeenCalledTimes(1);
+    expect(lent._closed).toBe(false);
+  });
+
+  it("gives up with onError when the context stays suspended", async () => {
+    vi.useFakeTimers();
+    const lent = makeMockContext();
+    lent.state = "suspended";
+    lent._resumeRejects = true;
+    const onError = vi.fn();
+    const onEnded = vi.fn();
+    const player = createWebAudioStreamPlayer({ context: lent as unknown as AudioContext, onError, onEnded });
+    await player.play(makeMockResponse([makeWavChunk(new Uint8Array([0x00, 0x00, 0xff, 0x7f]))]));
+    expect(lent._resumeCalls).toBe(1); // nudged once
+    await vi.advanceTimersByTimeAsync(NEVER_STARTED_MS + 10);
+    expect(onError).toHaveBeenCalledTimes(1);
+    expect(onEnded).not.toHaveBeenCalled();
+    expect(lent.sources[0]._stopped).toBe(true);
+  });
+
+  it("does not give up while the audio is playing", async () => {
+    vi.useFakeTimers();
+    const onError = vi.fn();
+    const player = createWebAudioStreamPlayer({ onError });
+    await player.play(makeMockResponse([makeWavChunk(new Uint8Array([0x00, 0x00, 0xff, 0x7f]))]));
+    ctxInstances[0].currentTime = 1;
+    await vi.advanceTimersByTimeAsync(NEVER_STARTED_MS + 10);
+    expect(onError).not.toHaveBeenCalled();
+  });
+
+  it("does not give up while the user has it paused", async () => {
+    vi.useFakeTimers();
+    const onError = vi.fn();
+    const player = createWebAudioStreamPlayer({ onError });
+    await player.play(makeMockResponse([makeWavChunk(new Uint8Array([0x00, 0x00, 0xff, 0x7f]))]));
+    await player.pause();
+    await vi.advanceTimersByTimeAsync(NEVER_STARTED_MS + 10);
+    expect(onError).not.toHaveBeenCalled();
   });
 });

@@ -16,7 +16,7 @@ vi.mock("../../api/voice-api", () => ({ postSpeakStream: (...a: unknown[]) => po
 
 vi.mock("../../audio/auto-speak-cue", () => ({ playAutoSpeakOn: vi.fn(), playAutoSpeakOff: vi.fn() }));
 
-type PlayerOpts = { onEnded?: () => void; onError?: (e: Error) => void };
+type PlayerOpts = { context?: unknown; onEnded?: () => void; onError?: (e: Error) => void };
 const players: Array<{ opts: PlayerOpts; play: ReturnType<typeof vi.fn>; stop: ReturnType<typeof vi.fn> }> = [];
 vi.mock("./webAudioStreamPlayer", () => ({
   createWebAudioStreamPlayer: (opts: PlayerOpts) => {
@@ -1127,6 +1127,8 @@ describe("useVoiceMode — press to talk", () => {
     await flush();
     expect(postSpeakStream).toHaveBeenCalledWith("the build is green", ["Ruth"]);
     expect(result.current.phase).toBe("speaking");
+    // Played through the context unlocked in the start tap (iOS keeps a fresh one suspended).
+    expect(players[0].opts.context).toBe(MockAudioContext.instances[0]);
     act(() => remote.onSkip?.());
     await flush();
     expect(players[0].stop).toHaveBeenCalled();
@@ -1258,5 +1260,15 @@ describe("useVoiceMode — press to talk", () => {
     expect(result.current.phase).toBe("listening");
     expect(remote.onPress).toBeNull();
     expect(sessionTypes).toEqual([]);
+  });
+
+  it("always-listening mode still gives each reply a fresh context", async () => {
+    setVoiceModeSettings({ endOfTurn: null, sendPhrase: null, listen: null });
+    const { rerender } = await startVoiceMode();
+    rerender(baseArgs({
+      messages: [{ type: "message", role: "assistant", content: "hello", eventId: "r1", ts: Date.now() }],
+    }));
+    await flush();
+    expect(players[0].opts.context).toBeUndefined();
   });
 });

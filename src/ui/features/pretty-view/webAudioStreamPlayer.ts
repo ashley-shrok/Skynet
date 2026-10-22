@@ -13,7 +13,13 @@
  *
  * A fresh AudioContext is created per play() invocation — locked by
  * 19-CONTEXT.md § Frontend player to avoid sample-rate-mismatch bugs across
- * calls (Chatterbox voices may have different sample rates).
+ * calls (Chatterbox voices may have different sample rates). A caller can
+ * pass `context` instead (buffers carry their own sample rate, so any context
+ * plays them): press-to-talk voice mode does, because iOS keeps a context
+ * made outside a tap suspended unless the page is capturing the mic.
+ *
+ * If the audio never starts (context stuck suspended, nobody paused it),
+ * onError fires after NEVER_STARTED_MS rather than waiting forever.
  *
  * Patch #237 (Phase 19 Plan 04).
  */
@@ -86,9 +92,18 @@ const SCHEDULE_HORIZON_SECONDS = 15;
 // sub-source sequence too.
 const MAX_BUFFER_AUDIBLE_SECONDS = 10;
 
+/** Audio scheduled but the clock never moved for this long (and no pause) → give up. */
+export const NEVER_STARTED_MS = 8000;
+
 // ─── Public API ───────────────────────────────────────────────────────────────
 
 export interface WebAudioStreamPlayerOptions {
+  /**
+   * Play through this (already unlocked) context instead of a fresh one. It is
+   * borrowed: never closed by the player, though pause()/resume() still
+   * suspend/resume it.
+   */
+  context?: AudioContext;
   onEnded?: () => void;
   onError?: (err: Error) => void;
   // Phase 31 instrumentation hooks — fired at observable Web Audio lifecycle
@@ -159,6 +174,9 @@ export function createWebAudioStreamPlayer(
   // scheduleWakeup is set by the reader loop when it's waiting for horizon
   // room, cleared+invoked by onSourceEnded when a source finishes.
   let scheduleWakeup: (() => void) | null = null;
+  /** pause() succeeded and resume() hasn't run — a frozen clock is expected. */
+  let userPaused = false;
+  let neverStartedTimer: ReturnType<typeof setTimeout> | null = null;
 
   // ─── Private helpers ─────────────────────────────────────────────────────────
 
@@ -198,10 +216,28 @@ export function createWebAudioStreamPlayer(
       }
     }
     sources.length = 0;
-    if (audioContext && audioContext.state !== "closed") {
+    if (neverStartedTimer !== null) clearTimeout(neverStartedTimer);
+    neverStartedTimer = null;
+    if (audioContext && audioContext !== opts.context && audioContext.state !== "closed") {
       audioContext.close().catch(() => {});
     }
     audioContext = null;
+  }
+
+  /** First chunk scheduled: nudge a suspended context, and watch that the clock starts. */
+  function watchStart(ctx: AudioContext): void {
+    if (ctx.state === "suspended" && !userPaused) void ctx.resume().catch(() => {});
+    neverStartedTimer = setTimeout(() => {
+      neverStartedTimer = null;
+      if (stopped || onEndedFired || onErrorFired || userPaused || audioContext !== ctx) return;
+      if (endedSources > 0 || (ctx.state === "running" && ctx.currentTime > 0.05)) return;
+      console.error(
+        `[tts-player] never-started afterMs=${NEVER_STARTED_MS} ctxState=${ctx.state} ctxTime=${ctx.currentTime.toFixed(3)} sources=${sources.length} borrowed=${ctx === opts.context}`,
+      );
+      onErrorFired = true;
+      teardown();
+      opts.onError?.(new Error("Audio never started (AudioContext stayed suspended)"));
+    }, NEVER_STARTED_MS);
   }
 
   /**
@@ -312,8 +348,9 @@ export function createWebAudioStreamPlayer(
     }
 
     // Fresh AudioContext per invocation — avoids sample-rate mismatch across calls
-    // (19-CONTEXT.md § Frontend player, locked decision).
-    audioContext = new AudioContext();
+    // (19-CONTEXT.md § Frontend player, locked decision) — unless the caller
+    // lent one (see file header).
+    audioContext = opts.context && opts.context.state !== "closed" ? opts.context : new AudioContext();
     reader = response.body.getReader();
 
     let headerBytes: Uint8Array | null = null;
@@ -451,6 +488,7 @@ export function createWebAudioStreamPlayer(
           // to HTMLAudioElement's canplay event (enough data to start playback).
           if (!firstChunkScheduled) {
             firstChunkScheduled = true;
+            watchStart(audioContext);
             opts.onCanPlay?.();
           }
         }
@@ -498,6 +536,7 @@ export function createWebAudioStreamPlayer(
     const pending = sources.length - endedSources;
     try {
       await audioContext.suspend();
+      userPaused = true;
       console.info(
         `[tts-player] pause stateBefore=${stateBefore} stateAfter=${audioContext.state} ctxTime=${ctxTimeBefore.toFixed(3)} pending=${pending}`,
       );
@@ -541,6 +580,7 @@ export function createWebAudioStreamPlayer(
     const ctxTimeBefore = audioContext.currentTime;
     const pending = sources.length - endedSources;
     try {
+      userPaused = false;
       await audioContext.resume();
       console.info(
         `[tts-player] resume stateBefore=${stateBefore} stateAfter=${audioContext.state} ctxTime=${ctxTimeBefore.toFixed(3)} pending=${pending}`,

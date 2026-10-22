@@ -1021,7 +1021,11 @@ export function useVoiceMode(args: UseVoiceModeArgs): UseVoiceModeReturn {
       playCue("error");
       setErrorMessage("Voice mode: couldn't speak that reply");
     };
+    // Press to talk: play through voice mode's own context (unlocked in the
+    // start tap). With the mic off between turns, iOS keeps a fresh context
+    // made here suspended, and the reply never sounds.
     const player = createWebAudioStreamPlayer({
+      context: pressModeRef.current ? (ctxRef.current ?? undefined) : undefined,
       onEnded: finish,
       onError: () => {
         reportFailure();
