@@ -26,7 +26,6 @@ import {
   VOICE_MODE_SEND_PHRASE_DEFAULT,
   VOICE_MODE_SEND_PHRASE_MAX_LEN,
   type VoiceModeEndOfTurn,
-  type VoiceModeListen,
 } from "./voice-mode-settings";
 
 // Speed slider: 0.05 steps across the full allowed range. Saves are debounced
@@ -138,33 +137,6 @@ export function PreferencesVoicePane({
       }
     },
     [endOfTurn, onUserPrefsChanged],
-  );
-
-  // ---- Voice mode: when to listen ----------------------------------------
-  const [listen, setListen] = useState<VoiceModeListen>(
-    userPrefs.voiceModeListen === "press" ? "press" : "always",
-  );
-  const [listenError, setListenError] = useState<string | null>(null);
-  useEffect(() => {
-    setListen(userPrefs.voiceModeListen === "press" ? "press" : "always");
-  }, [userPrefs.voiceModeListen]);
-
-  // "always" is the default, so it is stored as null.
-  const handleListenChange = useCallback(
-    async (next: VoiceModeListen) => {
-      const prev = listen;
-      setListen(next);
-      setListenError(null);
-      const wire = next === "always" ? null : next;
-      try {
-        await saveUserPreferences({ voiceModeListen: wire });
-        onUserPrefsChanged?.({ voiceModeListen: wire });
-      } catch {
-        setListen(prev);
-        setListenError("Couldn't save when voice mode listens — please try again.");
-      }
-    },
-    [listen, onUserPrefsChanged],
   );
 
   // Saved on blur / Enter. Blank or default text goes back to the default.
@@ -374,49 +346,6 @@ export function PreferencesVoicePane({
         {turnError !== null && (
           <div className="text-sm text-red-400" data-testid="preferences-voice-mode-turn-error">
             {turnError}
-          </div>
-        )}
-      </fieldset>
-
-      <fieldset className="flex flex-col gap-2 mt-2" data-testid="preferences-voice-mode-listen">
-        <legend className="mb-2">When voice mode listens to you.</legend>
-        <label className="flex items-start gap-2 cursor-pointer">
-          <input
-            type="radio"
-            name="preferences-voice-mode-listen"
-            value="always"
-            checked={listen === "always"}
-            onChange={() => void handleListenChange("always")}
-            className="mt-[3px] accent-[var(--accent-brand)]"
-            data-testid="preferences-voice-mode-listen-always"
-          />
-          <span>
-            All the time
-            <span className="block text-[11px] text-[#8a8678]">
-              The mic stays on while voice mode is on.
-            </span>
-          </span>
-        </label>
-        <label className="flex items-start gap-2 cursor-pointer">
-          <input
-            type="radio"
-            name="preferences-voice-mode-listen"
-            value="press"
-            checked={listen === "press"}
-            onChange={() => void handleListenChange("press")}
-            className="mt-[3px] accent-[var(--accent-brand)]"
-            data-testid="preferences-voice-mode-listen-press"
-          />
-          <span>
-            When I press my headphones
-            <span className="block text-[11px] text-[#8a8678]">
-              The mic stays off and agents can still talk. Press play/pause on your headphones (or tap Muted) to answer; the mic turns off again once your message is sent. Double-press skips what's being read.
-            </span>
-          </span>
-        </label>
-        {listenError !== null && (
-          <div className="text-sm text-red-400" data-testid="preferences-voice-mode-listen-error">
-            {listenError}
           </div>
         )}
       </fieldset>

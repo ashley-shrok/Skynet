@@ -48,26 +48,6 @@ vi.mock("./voice-mode-cues", () => ({
   }),
 }));
 
-// Headphone buttons: capture the press / skip callbacks so tests can "press".
-const remote = {
-  onPress: null as null | (() => void),
-  onSkip: null as null | (() => void),
-  reclaim: vi.fn(),
-  dispose: vi.fn(),
-};
-const sessionTypes: string[] = [];
-vi.mock("./headphone-remote", () => ({
-  RECLAIM_DELAY_MS: 400,
-  setAudioSessionType: (t: string) => {
-    sessionTypes.push(t);
-  },
-  createHeadphoneRemote: (opts: { onPress: () => void; onSkip: () => void }) => {
-    remote.onPress = opts.onPress;
-    remote.onSkip = opts.onSkip;
-    return { reclaim: remote.reclaim, dispose: remote.dispose };
-  },
-}));
-
 import {
   useVoiceMode,
   endsWithExitPhrase,
@@ -78,7 +58,6 @@ import {
   TIMED_END_MS,
   TRANSCRIBE_RETRY_WINDOW_MS,
   AWAIT_REPLY_MAX_MS,
-  PRESS_IDLE_MS,
   type UseVoiceModeArgs,
   type VoiceModeMessage,
 } from "./useVoiceMode";
@@ -111,10 +90,6 @@ class MockAnalyser {
 }
 
 class MockAudioContext {
-  static instances: MockAudioContext[] = [];
-  constructor() {
-    MockAudioContext.instances.push(this);
-  }
   state = "running";
   resume = vi.fn().mockResolvedValue(undefined);
   close = vi.fn().mockResolvedValue(undefined);
@@ -210,13 +185,6 @@ beforeEach(() => {
   cuesPlayed.length = 0;
   ticking = false;
   MockMediaRecorder.instances = [];
-  MockAudioContext.instances = [];
-  remote.onPress = null;
-  remote.onSkip = null;
-  remote.reclaim.mockReset();
-  remote.dispose.mockReset();
-  sessionTypes.length = 0;
-  track.stop.mockReset();
   stampedFetch.mockReset();
   postSpeakStream.mockReset();
   postSpeakStream.mockResolvedValue({ ok: true, status: 200 });
@@ -1039,224 +1007,5 @@ describe("useVoiceMode", () => {
       expect(track.stop).toHaveBeenCalled();
       expect(wakeLockRelease).toHaveBeenCalled();
     });
-  });
-});
-
-// ---------------------------------------------------------------------------
-// Press to talk (voiceModeListen = "press")
-// ---------------------------------------------------------------------------
-
-describe("useVoiceMode — press to talk", () => {
-  beforeEach(() => setVoiceModeSettings({ endOfTurn: null, sendPhrase: null, listen: "press" }));
-
-  async function press() {
-    act(() => remote.onPress?.());
-    await flush();
-  }
-
-  it("takes the mic only to secure permission, then sits muted with the mic off", async () => {
-    const { result } = await startVoiceMode();
-    expect(getUserMedia).toHaveBeenCalledTimes(1);
-    expect(track.stop).toHaveBeenCalled();
-    expect(result.current.phase).toBe("muted");
-    expect(MockMediaRecorder.instances.length).toBe(0);
-    expect(sessionTypes).toEqual(["playback"]);
-    await flush(400);
-    expect(remote.reclaim).toHaveBeenCalledTimes(1);
-  });
-
-  it("a press opens the mic, chimes when ready, and the mic closes again once the message is sent", async () => {
-    const send = vi.fn(() => true);
-    const { result } = await startVoiceMode(baseArgs({ send }));
-    track.stop.mockReset();
-    remote.reclaim.mockReset();
-    act(() => remote.onPress?.());
-    expect(result.current.phase).toBe("starting");
-    expect(sessionTypes.at(-1)).toBe("play-and-record");
-    await flush();
-    expect(getUserMedia).toHaveBeenCalledTimes(2);
-    expect(result.current.phase).toBe("listening");
-    expect(cuesPlayed).toEqual(["yourTurn"]);
-    // The mic's analyser has its own context, separate from the cue context.
-    const micCtx = MockAudioContext.instances.at(-1)!;
-    expect(MockAudioContext.instances.length).toBe(2);
-
-    transcribeReturns("check the deploy");
-    await sayUtterance();
-    expect(send).toHaveBeenCalledWith("check the deploy");
-    expect(cuesPlayed).toEqual(["yourTurn", "sent"]);
-    expect(track.stop).toHaveBeenCalled();
-    expect(micCtx.close).toHaveBeenCalled();
-    expect(sessionTypes.at(-1)).toBe("playback");
-    expect(result.current.phase).toBe("muted");
-    await flush(400);
-    expect(remote.reclaim).toHaveBeenCalledTimes(1);
-  });
-
-  it("works turn after turn", async () => {
-    const send = vi.fn(() => true);
-    const { result } = await startVoiceMode(baseArgs({ send }));
-    await flush(400);
-    for (const words of ["first thing", "second thing"]) {
-      await press();
-      transcribeReturns(words);
-      await sayUtterance();
-      await flush(400);
-      expect(result.current.phase).toBe("muted");
-    }
-    expect(send.mock.calls).toEqual([["first thing"], ["second thing"]]);
-    expect(remote.reclaim).toHaveBeenCalledTimes(3);
-  });
-
-  it("closes the mic with the muted cue when nothing is said", async () => {
-    const send = vi.fn(() => true);
-    const { result } = await startVoiceMode(baseArgs({ send }));
-    await press();
-    await flush(PRESS_IDLE_MS + 100);
-    expect(result.current.phase).toBe("muted");
-    expect(cuesPlayed).toEqual(["yourTurn", "muted"]);
-    expect(send).not.toHaveBeenCalled();
-    expect(stampedFetch).not.toHaveBeenCalled();
-  });
-
-  it("speaks replies while muted, and a double press skips them", async () => {
-    const { result, rerender } = await startVoiceMode();
-    rerender(baseArgs({
-      messages: [{ type: "message", role: "assistant", content: "the build is green", eventId: "r1", ts: Date.now() }],
-    }));
-    await flush();
-    expect(postSpeakStream).toHaveBeenCalledWith("the build is green", ["Ruth"]);
-    expect(result.current.phase).toBe("speaking");
-    act(() => remote.onSkip?.());
-    await flush();
-    expect(players[0].stop).toHaveBeenCalled();
-    expect(result.current.phase).toBe("muted");
-    expect(getUserMedia).toHaveBeenCalledTimes(1); // the mic stayed off
-  });
-
-  it("a single press while a reply is read cuts it off and opens the mic (one chime, when it's ready)", async () => {
-    const { result, rerender } = await startVoiceMode();
-    rerender(baseArgs({
-      messages: [{ type: "message", role: "assistant", content: "long status report", eventId: "r1", ts: Date.now() }],
-    }));
-    await flush();
-    expect(result.current.phase).toBe("speaking");
-    await press();
-    expect(players[0].stop).toHaveBeenCalled();
-    expect(result.current.phase).toBe("listening");
-    expect(cuesPlayed).toEqual(["yourTurn"]);
-  });
-
-  it("a reply that lands after the press waits until the message is sent", async () => {
-    const send = vi.fn(() => true);
-    const { result, rerender } = await startVoiceMode(baseArgs({ send }));
-    await press();
-    rerender(baseArgs({
-      send,
-      messages: [{ type: "message", role: "assistant", content: "meanwhile", eventId: "r1", ts: Date.now() }],
-    }));
-    await flush(1000);
-    expect(postSpeakStream).not.toHaveBeenCalled();
-    expect(result.current.phase).toBe("listening");
-    transcribeReturns("go ahead");
-    await sayUtterance();
-    expect(send).toHaveBeenCalledWith("go ahead");
-    expect(postSpeakStream).toHaveBeenCalledWith("meanwhile", ["Ruth"]);
-  });
-
-  it("send-phrase mode: the mic closes once the phrase is heard", async () => {
-    setVoiceModeSettings({ endOfTurn: "phrase", sendPhrase: "send it", listen: "press" });
-    const send = vi.fn(() => true);
-    const { result } = await startVoiceMode(baseArgs({ send }));
-    await press();
-    track.stop.mockReset();
-    transcribeReturns("restart the relay. Send it.");
-    await sayPiece();
-    expect(send).toHaveBeenCalledWith("restart the relay.");
-    expect(track.stop).toHaveBeenCalled();
-    expect(result.current.phase).toBe("muted");
-  });
-
-  it("ticks while muted when the agent is working", async () => {
-    const { rerender } = await startVoiceMode();
-    expect(ticking).toBe(false);
-    rerender(baseArgs({ isWorking: true }));
-    await flush();
-    expect(ticking).toBe(true);
-  });
-
-  it("talk() (the Muted chip's tap) does what a press does", async () => {
-    const { result } = await startVoiceMode();
-    act(() => result.current.talk());
-    await flush();
-    expect(result.current.phase).toBe("listening");
-  });
-
-  it("stop() releases the headphone buttons and resets the audio session", async () => {
-    const { result } = await startVoiceMode();
-    act(() => result.current.stop());
-    expect(remote.dispose).toHaveBeenCalled();
-    expect(sessionTypes.at(-1)).toBe("auto");
-    expect(result.current.phase).toBe("off");
-  });
-
-  it("losing the mic mid-turn still sends what was already said", async () => {
-    const send = vi.fn(() => true);
-    const { result } = await startVoiceMode(baseArgs({ send }));
-    await press();
-    transcribeReturns("half a thought");
-    await sayPiece();
-    act(() => track.onended?.());
-    await flush();
-    expect(send).toHaveBeenCalledWith("half a thought");
-    expect(result.current.phase).toBe("muted");
-  });
-
-  it("pressing again while the last message is still transcribing keeps the two messages separate", async () => {
-    const send = vi.fn(() => true);
-    await startVoiceMode(baseArgs({ send }));
-    await press();
-    const first = transcribeDeferred();
-    await sayUtterance(); // turn ends, mic closes, transcription still out
-    expect(send).not.toHaveBeenCalled();
-    await press();
-    transcribeReturns("second message");
-    await sayPiece();
-    first("first message");
-    await flush(TIMED_END_MS);
-    expect(send.mock.calls).toEqual([["first message"], ["second message"]]);
-  });
-
-  it("talk() with the mic open ends the turn now — the way out of send-phrase mode without the phrase", async () => {
-    setVoiceModeSettings({ endOfTurn: "phrase", sendPhrase: "send it", listen: "press" });
-    const send = vi.fn(() => true);
-    const { result } = await startVoiceMode(baseArgs({ send }));
-    expect(result.current.pressToTalk).toBe(true);
-    await press();
-    transcribeReturns("no phrase here");
-    await sayPiece();
-    expect(send).not.toHaveBeenCalled();
-    act(() => result.current.talk());
-    await flush();
-    expect(send).toHaveBeenCalledWith("no phrase here");
-    expect(result.current.phase).toBe("muted");
-  });
-
-  it("a mic that won't open costs the turn, not voice mode", async () => {
-    const { result } = await startVoiceMode();
-    getUserMedia.mockRejectedValueOnce(new Error("busy"));
-    await press();
-    expect(result.current.phase).toBe("muted");
-    expect(result.current.active).toBe(true);
-    expect(cuesPlayed).toContain("error");
-    expect(result.current.errorMessage).toMatch(/press again/);
-  });
-
-  it("always-listening mode never touches the headphone buttons", async () => {
-    setVoiceModeSettings({ endOfTurn: null, sendPhrase: null, listen: null });
-    const { result } = await startVoiceMode();
-    expect(result.current.phase).toBe("listening");
-    expect(remote.onPress).toBeNull();
-    expect(sessionTypes).toEqual([]);
   });
 });

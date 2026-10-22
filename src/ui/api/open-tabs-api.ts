@@ -101,7 +101,6 @@ export interface UserPreferences {
   ttsPlaybackRate?: number | null; // per-user speak playback speed (0.25-4); null resolves to 1.0
   voiceModeEndOfTurn?: "timed" | "phrase" | null; // hands-free voice mode turn end; null resolves to "timed"
   voiceModeSendPhrase?: string | null; // spoken send phrase for "phrase" mode; null resolves to "send it"
-  voiceModeListen?: "always" | "press" | null; // when voice mode listens: always, or after a headphone press each turn; null resolves to "always"
 }
 
 export async function getUserPreferences(): Promise<UserPreferences> {

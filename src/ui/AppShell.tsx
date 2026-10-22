@@ -1557,9 +1557,8 @@ export function AppShell({
     setVoiceModeSettings({
       endOfTurn: userPrefs.voiceModeEndOfTurn,
       sendPhrase: userPrefs.voiceModeSendPhrase,
-      listen: userPrefs.voiceModeListen,
     });
-  }, [userPrefs.voiceModeEndOfTurn, userPrefs.voiceModeSendPhrase, userPrefs.voiceModeListen]);
+  }, [userPrefs.voiceModeEndOfTurn, userPrefs.voiceModeSendPhrase]);
 
   // Load real hosts from API
   const loadHosts = useCallback(async () => {

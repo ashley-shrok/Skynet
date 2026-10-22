@@ -314,33 +314,3 @@ describe("PreferencesVoicePane — voice mode: when to send", () => {
     expect((screen.getByTestId("preferences-voice-mode-turn-timed") as HTMLInputElement).checked).toBe(true);
   });
 });
-
-describe("PreferencesVoicePane — when voice mode listens", () => {
-  it("defaults to all the time", () => {
-    render(<PreferencesVoicePane userId="user1" userPrefs={makePrefs()} />);
-    expect((screen.getByTestId("preferences-voice-mode-listen-always") as HTMLInputElement).checked).toBe(true);
-  });
-
-  it("choosing headphone presses saves 'press'", async () => {
-    const onUserPrefsChanged = vi.fn();
-    render(<PreferencesVoicePane userId="user1" userPrefs={makePrefs()} onUserPrefsChanged={onUserPrefsChanged} />);
-    fireEvent.click(screen.getByTestId("preferences-voice-mode-listen-press"));
-    await waitFor(() => expect(mockSave).toHaveBeenCalledWith({ voiceModeListen: "press" }));
-    expect(onUserPrefsChanged).toHaveBeenCalledWith({ voiceModeListen: "press" });
-  });
-
-  it("switching back to all the time stores null (the default)", async () => {
-    render(<PreferencesVoicePane userId="user1" userPrefs={makePrefs({ voiceModeListen: "press" })} />);
-    expect((screen.getByTestId("preferences-voice-mode-listen-press") as HTMLInputElement).checked).toBe(true);
-    fireEvent.click(screen.getByTestId("preferences-voice-mode-listen-always"));
-    await waitFor(() => expect(mockSave).toHaveBeenCalledWith({ voiceModeListen: null }));
-  });
-
-  it("reverts and shows an error when the save fails", async () => {
-    mockSave.mockRejectedValueOnce(new Error("nope"));
-    render(<PreferencesVoicePane userId="user1" userPrefs={makePrefs()} />);
-    fireEvent.click(screen.getByTestId("preferences-voice-mode-listen-press"));
-    await waitFor(() => expect(screen.getByTestId("preferences-voice-mode-listen-error")).toBeTruthy());
-    expect((screen.getByTestId("preferences-voice-mode-listen-always") as HTMLInputElement).checked).toBe(true);
-  });
-});
