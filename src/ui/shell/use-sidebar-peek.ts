@@ -6,12 +6,17 @@
 //   closed ──(mouse at left edge for OPEN_DELAY)──▶ open
 //   open ──(mouse away for CLOSE_DELAY, nothing holding it)──▶ closing ──(SLIDE)──▶ closed
 //   open ──(close(): a conversation/app opened from it)──▶ closing
-//   open ──(a conversation row / app tile drag starts in it)──▶ dragging ──(drag over)──▶ closed
+//   open ──(a conversation row / app tile drag starts in it)──▶ drag-open
+//   drag-open ──(drag leaves the panel)──▶ dragging ──(drag rests at the left edge)──▶ drag-open
+//   drag-open ──(drag over)──▶ open          dragging ──(drag over)──▶ closed
 //
-// "dragging" slides the panel off-screen but keeps it mounted — removing a
-// drag source inside dragstart cancels the drag. A drop can re-render the
-// source row so its dragend never reaches the document; since no mousemove
-// fires during an HTML5 drag, the first mousemove afterwards also ends it.
+// "drag-open" keeps the panel showing so a row can be dropped inside the
+// sidebar (e.g. moved to another project). "dragging" slides it off-screen so
+// the drag can reach the panes, but keeps it mounted — removing a drag source
+// mid-drag cancels the drag. No mousemove fires during an HTML5 drag, so the
+// pointer is tracked from dragover. A drop can re-render the source row so its
+// dragend never reaches the document; the first mousemove afterwards also
+// ends the drag.
 //
 // Mouse motion over an embedded frame (app panes, viewers) never reaches this
 // document; entering one shows up as a mouseover on the <iframe> element,
@@ -33,7 +38,7 @@ export const EDGE_STRIP_ATTR = "data-sidebar-peek-edge";
 // they keep the peek open.
 const PANE_DRAG_MIMES = ["application/x-skynet-row", "application/x-skynet-app-tile"];
 
-export type SidebarPeekState = "closed" | "open" | "closing" | "dragging";
+export type SidebarPeekState = "closed" | "open" | "closing" | "drag-open" | "dragging";
 
 export interface UseSidebarPeekOptions {
   /** Desktop, non-touch, sidebar collapsed. Off = no listeners, state "closed". */
@@ -168,6 +173,7 @@ export function useSidebarPeek({ enabled, width, panelRef, toggleRef }: UseSideb
       x = e.clientX;
       y = e.clientY;
       if (stateRef.current === "dragging") go("closed", "drag-over-mousemove");
+      else if (stateRef.current === "drag-open") go("open", "drag-over-mousemove");
       evaluate();
     };
     const onLeaveWindow = () => {
@@ -197,16 +203,43 @@ export function useSidebarPeek({ enabled, width, panelRef, toggleRef }: UseSideb
       const types = Array.from(e.dataTransfer?.types ?? []);
       if (!PANE_DRAG_MIMES.some((m) => types.includes(m))) return;
       requestAnimationFrame(() => {
-        if (stateRef.current === "open") go("dragging", "pane-drag-start");
+        if (stateRef.current === "open") go("drag-open", "pane-drag-start");
       });
     };
+    const onDragOver = (e: DragEvent) => {
+      const s = stateRef.current;
+      if (s !== "drag-open" && s !== "dragging") return;
+      x = e.clientX;
+      y = e.clientY;
+      if (s === "drag-open") {
+        if (x > widthRef.current) go("dragging", "drag-left-panel");
+      } else if (x <= PEEK_EDGE_PX) {
+        // dragover repeats while the pointer rests, so the timer starts on time.
+        if (openTimer.current === null) {
+          openTimer.current = setTimeout(() => go("drag-open", "drag-edge-hover"), PEEK_OPEN_DELAY_MS);
+        }
+      } else if (openTimer.current !== null) {
+        clearTimeout(openTimer.current);
+        openTimer.current = null;
+      }
+    };
     const onDropOrEnd = (e: DragEvent) => {
-      if (stateRef.current !== "dragging") return;
-      x = Number.POSITIVE_INFINITY;
+      const s = stateRef.current;
+      if (s !== "drag-open" && s !== "dragging") return;
+      const reason = e.type === "drop" ? "drop" : "dragend";
       // After the drop target's own handlers have run.
-      setTimeout(() => {
-        if (stateRef.current === "dragging") go("closed", e.type === "drop" ? "drop" : "dragend");
-      }, 0);
+      if (s === "dragging") {
+        x = Number.POSITIVE_INFINITY;
+        setTimeout(() => {
+          if (stateRef.current === "dragging") go("closed", reason);
+        }, 0);
+      } else {
+        setTimeout(() => {
+          if (stateRef.current !== "drag-open") return;
+          go("open", reason);
+          evaluate();
+        }, 0);
+      }
     };
 
     const root = document.documentElement;
@@ -216,6 +249,7 @@ export function useSidebarPeek({ enabled, width, panelRef, toggleRef }: UseSideb
     document.addEventListener("focusout", onFocusOut, true);
     document.addEventListener("keydown", onKeyDown);
     document.addEventListener("dragstart", onDragStart);
+    document.addEventListener("dragover", onDragOver, true);
     document.addEventListener("dragend", onDropOrEnd, true);
     document.addEventListener("drop", onDropOrEnd, true);
     return () => {
@@ -225,6 +259,7 @@ export function useSidebarPeek({ enabled, width, panelRef, toggleRef }: UseSideb
       document.removeEventListener("focusout", onFocusOut, true);
       document.removeEventListener("keydown", onKeyDown);
       document.removeEventListener("dragstart", onDragStart);
+      document.removeEventListener("dragover", onDragOver, true);
       document.removeEventListener("dragend", onDropOrEnd, true);
       document.removeEventListener("drop", onDropOrEnd, true);
       evaluateRef.current = () => {};

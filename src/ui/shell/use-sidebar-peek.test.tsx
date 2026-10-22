@@ -42,8 +42,8 @@ function advance(ms: number) {
   });
 }
 
-function dragEvent(type: string, target: Element, types: string[] = []) {
-  const evt = new Event(type, { bubbles: true });
+function dragEvent(type: string, target: Element, types: string[] = [], clientX = 0) {
+  const evt = new MouseEvent(type, { bubbles: true, clientX, clientY: 100 });
   Object.defineProperty(evt, "dataTransfer", { value: { types }, configurable: true });
   act(() => {
     target.dispatchEvent(evt);
@@ -137,11 +137,66 @@ describe("useSidebarPeek", () => {
     expect(peek.state).toBe("closed");
   });
 
-  it("a conversation-row drag slides it off; the first mousemove after the drop ends the drag", () => {
+  it("a conversation-row drag keeps it showing while over the panel", () => {
     const { getByTestId } = render(<Harness />);
     openPeek();
     dragEvent("dragstart", getByTestId("row"), ["text/plain", "application/x-skynet-row"]);
     advance(20);
+    expect(peek.state).toBe("drag-open");
+    dragEvent("dragover", getByTestId("project"), [], WIDTH - 40);
+    advance(PEEK_CLOSE_DELAY_MS + PEEK_SLIDE_MS);
+    expect(peek.state).toBe("drag-open");
+    // Dropped inside the sidebar (moved to another project): still open.
+    dragEvent("drop", getByTestId("project"), [], WIDTH - 40);
+    advance(1);
+    expect(peek.state).toBe("open");
+  });
+
+  it("a drag that ends without a drop over the panel leaves it open (dragend)", () => {
+    const { getByTestId } = render(<Harness />);
+    openPeek();
+    dragEvent("dragstart", getByTestId("row"), ["application/x-skynet-row"]);
+    advance(20);
+    dragEvent("dragover", getByTestId("panel"), [], 100);
+    dragEvent("dragend", getByTestId("row"));
+    advance(1);
+    expect(peek.state).toBe("open");
+  });
+
+  it("dragging back to the left edge slides it out again", () => {
+    const { getByTestId } = render(<Harness />);
+    openPeek();
+    dragEvent("dragstart", getByTestId("row"), ["application/x-skynet-row"]);
+    advance(20);
+    dragEvent("dragover", document.body, [], WIDTH + 50);
+    expect(peek.state).toBe("dragging");
+    dragEvent("dragover", document.body, [], 2);
+    advance(PEEK_OPEN_DELAY_MS - 10);
+    expect(peek.state).toBe("dragging");
+    dragEvent("dragover", document.body, [], 2);
+    advance(10);
+    expect(peek.state).toBe("drag-open");
+  });
+
+  it("leaving the edge before the delay doesn't bring it back mid-drag", () => {
+    const { getByTestId } = render(<Harness />);
+    openPeek();
+    dragEvent("dragstart", getByTestId("row"), ["application/x-skynet-row"]);
+    advance(20);
+    dragEvent("dragover", document.body, [], WIDTH + 50);
+    dragEvent("dragover", document.body, [], 2);
+    advance(PEEK_OPEN_DELAY_MS / 2);
+    dragEvent("dragover", document.body, [], 300);
+    advance(PEEK_OPEN_DELAY_MS);
+    expect(peek.state).toBe("dragging");
+  });
+
+  it("a conversation-row drag leaving the panel slides it off; the first mousemove after the drop ends the drag", () => {
+    const { getByTestId } = render(<Harness />);
+    openPeek();
+    dragEvent("dragstart", getByTestId("row"), ["text/plain", "application/x-skynet-row"]);
+    advance(20);
+    dragEvent("dragover", document.body, [], WIDTH + 1);
     expect(peek.state).toBe("dragging");
     // No dragend reaches the document (source row re-rendered); a mousemove ends it.
     move(600);
@@ -155,6 +210,7 @@ describe("useSidebarPeek", () => {
     openPeek();
     dragEvent("dragstart", getByTestId("row"), ["application/x-skynet-app-tile"]);
     advance(20);
+    dragEvent("dragover", document.body, [], 600);
     expect(peek.state).toBe("dragging");
     dragEvent("drop", document.body);
     advance(1);

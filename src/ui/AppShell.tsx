@@ -486,7 +486,8 @@ export function AppShell({
     panelRef: sidebarPanelRef,
     toggleRef: sidebarToggleRef,
   });
-  const sidebarPeekOpen = sidebarPeek.state === "open";
+  // "drag-open": a row drag started in the peek and is still over it.
+  const sidebarPeekOpen = sidebarPeek.state === "open" || sidebarPeek.state === "drag-open";
   // When a peek ends, the column drops back in flow (width 0 when it slid
   // away, full width when pinned from the toggle) without the width
   // transition — otherwise it would visibly re-enter the layout and resize.
