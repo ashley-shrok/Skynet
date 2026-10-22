@@ -1156,3 +1156,58 @@ describe("POST /batch three-prompt wiring", () => {
     }
   });
 });
+
+// ---------------------------------------------------------------------------
+// Background hex + opaque image request
+// ---------------------------------------------------------------------------
+
+describe("background hex and opaque renders", () => {
+  it("backgroundHex matches colorsys.hls_to_rgb(hue/360, 0.38, 0.62)", async () => {
+    const { backgroundHex } = await import("./identity-avatar-batch.js");
+    // Reference values computed with Python's colorsys.
+    expect(backgroundHex(97)).toBe("#539d25");
+    expect(backgroundHex(196)).toBe("#257d9d");
+    expect(backgroundHex(0)).toBe("#9d2525");
+    expect(backgroundHex(315)).toBe("#9d257f");
+  });
+
+  it("passes the background hex to the drafter and asks for opaque images", async () => {
+    let userMessage = "";
+    const imageBodies: Array<{ background?: string }> = [];
+    vi.stubGlobal(
+      "fetch",
+      buildMockFetch(
+        async (_url, opts) => {
+          const body = JSON.parse(opts.body as string) as {
+            messages: Array<{ role: string; content: string }>;
+          };
+          userMessage = body.messages.find((m) => m.role === "user")?.content ?? "";
+          return {
+            ok: true,
+            status: 200,
+            json: async () => ({ choices: [{ message: { content: CANNED_ARCHETYPE } }] }),
+          } as unknown as Response;
+        },
+        async (_url, opts) => {
+          imageBodies.push(JSON.parse(opts.body as string) as { background?: string });
+          return {
+            ok: true,
+            status: 200,
+            json: async () => ({ data: [{ b64_json: WHITE_1X1_PNG_B64 }] }),
+          } as unknown as Response;
+        },
+      ),
+    );
+
+    const res = await httpRequest(server, {
+      method: "POST",
+      path: "/identities/avatar/batch",
+      body: { name: "hextest", title: "Hex Test", brief: "hex", colorHue: 196 },
+    });
+
+    expect(res.status).toBe(200);
+    expect(userMessage).toContain("Background color: #257d9d.");
+    expect(imageBodies).toHaveLength(3);
+    for (const b of imageBodies) expect(b.background).toBe("opaque");
+  });
+});

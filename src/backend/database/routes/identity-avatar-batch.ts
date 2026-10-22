@@ -190,9 +190,41 @@ function hueName(hue: number): string {
   return "red-pink";
 }
 
+/**
+ * The identity's hue as a concrete hex: HSL at lightness 38%, saturation 62%
+ * (same math as Python's colorsys.hls_to_rgb(hue/360, 0.38, 0.62)). Handed to
+ * the drafter alongside the hue so a spec that wants an exact flat background
+ * can name it verbatim rather than have the drafter guess color math. Specs
+ * that don't mention it simply ignore the line.
+ */
+export function backgroundHex(hue: number): string {
+  const l = 0.38;
+  const s = 0.62;
+  const h = (((hue % 360) + 360) % 360) / 360;
+  const q = l < 0.5 ? l * (1 + s) : l + s - l * s;
+  const p = 2 * l - q;
+  const channel = (t: number): number => {
+    if (t < 0) t += 1;
+    if (t > 1) t -= 1;
+    if (t < 1 / 6) return p + (q - p) * 6 * t;
+    if (t < 1 / 2) return q;
+    if (t < 2 / 3) return p + (q - p) * (2 / 3 - t) * 6;
+    return p;
+  };
+  return (
+    "#" +
+    [h + 1 / 3, h, h - 1 / 3]
+      .map((t) => Math.round(channel(t) * 255).toString(16).padStart(2, "0"))
+      .join("")
+  );
+}
+
 function paletteHueLine(hue: number | null): string {
   if (hue === null) return "";
-  return `\n\nIdentity color hue: ${hue}° (reads as ${hueName(hue)}).`;
+  return (
+    `\n\nIdentity color hue: ${hue}° (reads as ${hueName(hue)}).` +
+    `\nBackground color: ${backgroundHex(hue)}.`
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -221,7 +253,7 @@ function distinctPromptsInstruction(count: number): string {
     `Produce ${count} DISTINCT image-generation prompts — not variations on ` +
     `one description. Each should be a different plausible take on this role, so ` +
     `a viewer picking between them is choosing between genuinely different ` +
-    `characters rather than ${count} renders of the same one. Every prompt must ` +
+    `designs rather than ${count} renders of the same one. Every prompt must ` +
     `independently satisfy every requirement above, including the palette. ` +
     `Return JSON of the form {"prompts": ["...", "...", "..."]} and nothing else.`
   );
@@ -385,6 +417,9 @@ export async function generateAvatarImages(
             n: 1,
             size: "1024x1024",
             quality: "high",
+            // Avatars are always shown on a solid fill; left on "auto" the
+            // model can return a mostly-transparent image for flat-icon specs.
+            background: "opaque",
           }),
           signal: imgController.signal,
         });
