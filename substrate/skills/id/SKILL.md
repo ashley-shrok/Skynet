@@ -1327,9 +1327,9 @@ crown, then gear.
   nothing for 15 seconds closes it with a soft falling tone. A double press
   skips what's being read; a single press while a reply is being read cuts
   it off and opens the mic. Headphone buttons work in a desktop browser
-  (AirPods or a headset connected to the computer); on iPhone they don't
-  reach Skynet, so there the Muted chip's tap is the way to talk (the
-  Preferences option says so). Presses only reach Skynet while it's the
+  and on iPhone; an iPhone can get into a state where presses stop
+  arriving, and restarting the phone fixes it (the Preferences option says
+  so). Until then the Muted chip's tap still works. Presses only reach Skynet while it's the
   device's "now playing" source — music or a video started elsewhere takes
   the buttons until it stops.
   *Agent-side: none.*

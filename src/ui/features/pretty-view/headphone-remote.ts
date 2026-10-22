@@ -4,10 +4,10 @@
  *
  * Where it works (2026-10-22): a desktop browser with Bluetooth headphones
  * (AirPods or a headset's play button on a PC) — presses arrive as play/pause,
- * turn after turn. NOT on iPhone: in the installed home-screen app no stem
- * press ever arrived, and a prototype that once received them in Safari's
- * sheet stopped receiving them later the same day. The notes below are from
- * the iPhone prototype, kept because the mic-close steps still apply.
+ * turn after turn — and on iPhone. An iPhone can get into a state where no
+ * press reaches any page (seen after a day of testing: both the home-screen
+ * app and a prototype that had worked earlier stopped receiving them);
+ * restarting the phone fixed it.
  *
  * What iOS allowed in the prototype (iPhone + AirPods, 2026-10-22):
  *   - While the page holds an open mic, iOS treats the AirPods like a phone

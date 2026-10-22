@@ -412,7 +412,7 @@ export function PreferencesVoicePane({
             <span className="block text-[11px] text-[#8a8678]">
               The mic stays off and agents can still talk. Press play/pause on your headphones (or tap Muted) to answer; the mic turns off again once your message is sent. Double-press skips what's being read.
               <span className="block mt-1">
-                Headphone buttons work on a computer. On iPhone they don't reach Skynet — tap Muted instead.
+                If headphone presses stop working on iPhone, restarting the phone fixes it.
               </span>
             </span>
           </span>
