@@ -29,12 +29,12 @@ Runbooks were only ever called that to keep them from being confused with regula
 - Box-maintainer role-file wording that points at runbooks — folded into shape-runbook-terminology-sweep
 - Running machinery off old locations / "runbook" wording: reminders apps and wake-up procedure files (Jarvis, Mitzi), secretary scripts (Aqua), WorkSpaces scripts (mustang-workspaces-maintainer) — done (2026-10-22)
 - Remove the forwarding links at the old runbooks/ locations now that nothing runs from them — lingering (approved)
-- ashley-beelink and ashley-laptop: unreachable; their runbooks convert on their next sweep without descriptions — lingering (approved)
+- The beelink and laptop boxes: unreachable; their runbooks convert on their next sweep without descriptions — lingering (approved)
 - Two procedures named "runbook" that were never role skills (aither-infra daily infra check in scratch, compliance control runbooks) could become real role skills — noted-only
 
 ## Lingerers (explicitly approved)
 
 - Forwarding links at the old runbooks/ locations — the id skill still promises old paths resolve, and two boxes have not converted yet; remove in a later small fix (id-skill line + link cleanup) once they have
-- ashley-beelink and ashley-laptop runbook conversion — unreachable at close (2026-10-22); their next sweep converts them, then write descriptions with workspace/apply-role-skill-descriptions.py
+- The beelink and laptop boxes runbook conversion — unreachable at close (2026-10-22); their next sweep converts them, then write descriptions with workspace/apply-role-skill-descriptions.py
 
 ## Open questions

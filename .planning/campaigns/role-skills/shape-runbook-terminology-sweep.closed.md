@@ -36,7 +36,7 @@ The first shape converted every runbook on the four reachable boxes into a role 
 
 - **In:** everything above, on the four reachable boxes, including archives.
 - **Out:** the old planning documents in the app's repository (the one place the user is fine with "runbook" staying); places in the code that handle the old thing; ordinary English uses; the two pipeline guides that use the word loosely to mean "instructions".
-- **Deferred:** ashley-beelink and ashley-laptop, which are unreachable and whose runbooks have not been converted yet; what to do about running machinery on old locations (the user decides from the list).
+- **Deferred:** the beelink and laptop boxes, which are unreachable and whose runbooks have not been converted yet; what to do about running machinery on old locations (the user decides from the list).
 - **Tempting but no:** removing the forwarding links — that depends on the machinery decision.
 
 ## Handoff notes
