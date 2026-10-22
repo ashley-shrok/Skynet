@@ -156,7 +156,7 @@ import type { TabSpec } from "@/lib/tab-url";
 // is scoped to the Phase 120 additions per the review's LOW-15 finding.
 import { systemLogger } from "@/lib/frontend-logger";
 import { moveNodeInto } from "@/shell/move-node";
-import { useSidebarPeek, PEEK_SLIDE_MS } from "@/shell/use-sidebar-peek";
+import { useSidebarPeek, PEEK_SLIDE_MS, PEEK_EDGE_PX, EDGE_STRIP_ATTR } from "@/shell/use-sidebar-peek";
 import { useSwipeToList } from "@/shell/use-swipe-to-list";
 import { isSplittableActiveTab, resolveOuterDrop } from "@/shell/outer-drop-resolve";
 // Phase 56 Plan 02 — split-tree state (retires the prior mode-enum + slot-
@@ -3982,6 +3982,15 @@ export function AppShell({
         {/* Desktop (non-touch): inline resizable sidebar. Plan 06-03: also
             gated on `!isTouchDevice` so touchscreens don't get the inline
             column even when the viewport is wide (an iPad in landscape). */}
+        {/* Hover-peek edge strip: only while the pointer is in an embedded
+            frame, whose mouse motion never reaches the peek hook. */}
+        {sidebarPeek.edgeStrip && (
+          <div
+            {...{ [EDGE_STRIP_ATTR]: "" }}
+            aria-hidden
+            style={{ position: "fixed", left: 0, top: 0, bottom: 0, width: PEEK_EDGE_PX, zIndex: 44 }}
+          />
+        )}
         {!isMobile && !isTouchDevice && (
           <div
             ref={sidebarPanelRef}

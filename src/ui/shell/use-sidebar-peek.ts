@@ -15,8 +15,10 @@
 //
 // Mouse motion over an embedded frame (app panes, viewers) never reaches this
 // document; entering one shows up as a mouseover on the <iframe> element,
-// which is taken as the pointer's last position. Resting on the window edge
-// directly over a frame therefore doesn't open the peek.
+// which is taken as the pointer's last position. While the pointer is in a
+// frame, `edgeStrip` asks the shell to lay an invisible strip over the left
+// edge (EDGE_STRIP_ATTR) so resting there still reaches us; any mousemove
+// outside a frame takes it away again, so it never eats clicks elsewhere.
 
 import { useCallback, useEffect, useRef, useState, type RefObject } from "react";
 import { systemLogger } from "@/lib/frontend-logger";
@@ -25,6 +27,7 @@ export const PEEK_EDGE_PX = 6;
 export const PEEK_OPEN_DELAY_MS = 200;
 export const PEEK_CLOSE_DELAY_MS = 350;
 export const PEEK_SLIDE_MS = 180;
+export const EDGE_STRIP_ATTR = "data-sidebar-peek-edge";
 
 // Drags that open into a pane. Project-header drags stay in the sidebar, so
 // they keep the peek open.
@@ -45,6 +48,8 @@ export interface SidebarPeek {
   state: SidebarPeekState;
   /** Slide the peek away (e.g. after a conversation or app is opened from it). */
   close: (reason: string) => void;
+  /** Render the edge strip: closed, and the pointer is over an embedded frame. */
+  edgeStrip: boolean;
 }
 
 // An open menu or dialog (often portaled outside the panel), or a text field
@@ -66,6 +71,7 @@ function holdOpen(panel: HTMLElement | null): boolean {
 
 export function useSidebarPeek({ enabled, width, panelRef, toggleRef }: UseSidebarPeekOptions): SidebarPeek {
   const [state, setState] = useState<SidebarPeekState>("closed");
+  const [overFrame, setOverFrame] = useState(false);
   const stateRef = useRef<SidebarPeekState>("closed");
   const openTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const closeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -117,6 +123,7 @@ export function useSidebarPeek({ enabled, width, panelRef, toggleRef }: UseSideb
     if (!enabled) {
       clearTimers();
       if (stateRef.current !== "closed") go("closed", "disabled");
+      setOverFrame(false);
       return;
     }
 
@@ -157,6 +164,7 @@ export function useSidebarPeek({ enabled, width, panelRef, toggleRef }: UseSideb
     evaluateRef.current = evaluate;
 
     const onMove = (e: MouseEvent) => {
+      if (!(e.target instanceof Element && e.target.hasAttribute(EDGE_STRIP_ATTR))) setOverFrame(false);
       x = e.clientX;
       y = e.clientY;
       if (stateRef.current === "dragging") go("closed", "drag-over-mousemove");
@@ -168,6 +176,7 @@ export function useSidebarPeek({ enabled, width, panelRef, toggleRef }: UseSideb
     };
     const onOver = (e: MouseEvent) => {
       if (!(e.target instanceof HTMLIFrameElement)) return;
+      setOverFrame(true);
       x = e.clientX;
       y = e.clientY;
       evaluate();
@@ -223,5 +232,5 @@ export function useSidebarPeek({ enabled, width, panelRef, toggleRef }: UseSideb
     };
   }, [enabled, go, clearTimers, panelRef, toggleRef]);
 
-  return { state, close };
+  return { state, close, edgeStrip: enabled && state === "closed" && overFrame };
 }

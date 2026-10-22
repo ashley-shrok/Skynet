@@ -7,6 +7,7 @@ import {
   PEEK_CLOSE_DELAY_MS,
   PEEK_OPEN_DELAY_MS,
   PEEK_SLIDE_MS,
+  EDGE_STRIP_ATTR,
   type SidebarPeek,
 } from "./use-sidebar-peek";
 
@@ -179,6 +180,37 @@ describe("useSidebarPeek", () => {
     });
     advance(PEEK_CLOSE_DELAY_MS);
     expect(peek.state).toBe("closing");
+    frame.remove();
+  });
+
+  it("over an embedded frame, the edge strip carries the edge hover; moving off the frame removes it", () => {
+    render(<Harness />);
+    const frame = document.createElement("iframe");
+    document.body.appendChild(frame);
+    expect(peek.edgeStrip).toBe(false);
+    act(() => {
+      frame.dispatchEvent(new MouseEvent("mouseover", { clientX: 40, clientY: 100, bubbles: true }));
+    });
+    expect(peek.edgeStrip).toBe(true);
+    const strip = document.createElement("div");
+    strip.setAttribute(EDGE_STRIP_ATTR, "");
+    document.body.appendChild(strip);
+    act(() => {
+      strip.dispatchEvent(new MouseEvent("mousemove", { clientX: 2, clientY: 100, bubbles: true }));
+    });
+    expect(peek.edgeStrip).toBe(true);
+    advance(PEEK_OPEN_DELAY_MS);
+    expect(peek.state).toBe("open");
+    expect(peek.edgeStrip).toBe(false);
+    move(WIDTH - 20);
+    act(() => {
+      frame.dispatchEvent(new MouseEvent("mouseover", { clientX: 40, clientY: 100, bubbles: true }));
+    });
+    move(WIDTH + 100);
+    advance(PEEK_CLOSE_DELAY_MS + PEEK_SLIDE_MS);
+    expect(peek.state).toBe("closed");
+    expect(peek.edgeStrip).toBe(false);
+    strip.remove();
     frame.remove();
   });
 
