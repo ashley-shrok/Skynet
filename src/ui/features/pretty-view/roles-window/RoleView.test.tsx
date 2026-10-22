@@ -3,7 +3,7 @@
 // view-only treatment of shared roles for non-admins.
 
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { fireEvent, screen, waitFor, within } from "@testing-library/react";
+import { cleanup, fireEvent, screen, waitFor, within } from "@testing-library/react";
 
 vi.mock("@/api/identities-api", async (o) => (await import("./roles-window.test-mocks")).identitiesApi(o));
 vi.mock("@/api/instance-wide-api", async (o) => (await import("./roles-window.test-mocks")).instanceWideApi(o));
@@ -11,7 +11,8 @@ vi.mock("@/api/roles-archive-list-api", async () => (await import("./roles-windo
 vi.mock("@/api/role-unarchive-api", async (o) => (await import("./roles-window.test-mocks")).roleUnarchiveApi(o));
 vi.mock("@/api/role-archive-api", async () => (await import("./roles-window.test-mocks")).roleArchiveApi());
 vi.mock("@/api/claude-session-api", async (o) => (await import("./roles-window.test-mocks")).claudeSessionApi(o));
-vi.mock("@/api/runbooks-api", async (o) => (await import("./roles-window.test-mocks")).runbooksApi(o));
+vi.mock("@/api/role-skills-api", async (o) => (await import("./roles-window.test-mocks")).roleSkillsApi(o));
+vi.mock("@/api/scheduled-agents-api", async (o) => (await import("./roles-window.test-mocks")).scheduledAgentsApi(o));
 vi.mock("@/api/workspace-api", async (o) => (await import("./roles-window.test-mocks")).workspaceApi(o));
 vi.mock("@/api/workspace-git-api", async (o) => (await import("./roles-window.test-mocks")).workspaceGitApi(o));
 vi.mock("@/api/voice-api", async (o) => (await import("./roles-window.test-mocks")).voiceApi(o));
@@ -19,7 +20,7 @@ vi.mock("@/state/identities-store", async (o) => (await import("./roles-window.t
 vi.mock("@mdxeditor/editor", async () => (await import("./roles-window.test-mocks")).mdxEditor());
 
 import { autoAnswerKitDialogs, __resetKitDialogsForTests } from "@/components/kit";
-import { RunbookAlreadyExistsError } from "@/api/runbooks-api";
+import { RoleSkillAlreadyExistsError } from "@/api/role-skills-api";
 import { NEW_CONVERSATION_REQUEST_EVENT, type NewConversationRequest } from "@/lib/new-conversation-request";
 import { DEFAULT_ROLE_FILE, m, resetRolesWindowMocks, store } from "./roles-window.test-mocks";
 import {
@@ -181,36 +182,36 @@ describe("role view — facts line and tabs", () => {
   it("one agent: '1 agent holds this role · on <host>'", async () => {
     store.identities = [agent("tabitha", ["box-maintainer"])];
     await openRole();
-    expect(screen.getByTestId("role-view-facts").textContent).toBe("1 agent holds this role · on thenasty");
+    expect(screen.getByTestId("role-view-facts").textContent).toMatch(new RegExp("^" + "1 agent holds this role · on thenasty"));
   });
 
   it("several agents: plural; none: 'No agents hold this role'", async () => {
     store.identities = [agent("tabitha", ["box-maintainer"]), agent("rex", ["box-maintainer"])];
     await openRole();
-    expect(screen.getByTestId("role-view-facts").textContent).toBe("2 agents hold this role · on thenasty");
+    expect(screen.getByTestId("role-view-facts").textContent).toMatch(new RegExp("^" + "2 agents hold this role · on thenasty"));
     fireEvent.click(backButton());
     await openRoleFromLibrary("ally-role");
-    expect(screen.getByTestId("role-view-facts").textContent).toBe("No agents hold this role · on thenasty");
+    expect(screen.getByTestId("role-view-facts").textContent).toMatch(new RegExp("^" + "No agents hold this role · on thenasty"));
   });
 
   it("a shared role lives 'on every host' and counts its agents everywhere", async () => {
     store.identities = [agent("sam", ["support-bot"], 9)];
     await openRole("support-bot");
-    expect(screen.getByTestId("role-view-facts").textContent).toBe("1 agent holds this role · on every host");
+    expect(screen.getByTestId("role-view-facts").textContent).toMatch(new RegExp("^" + "1 agent holds this role · on every host"));
   });
 
-  it("tabs are Role file / Runbooks / Files — no runbook count; Git only when the folder has a repo", async () => {
-    m.listRunbooks.mockResolvedValue([{ name: "a" }, { name: "b" }]);
+  it("tabs are Role file / Skills / Files — no skill count; Git only when the folder has a repo", async () => {
+    m.listRoleSkills.mockResolvedValue([{ name: "a" }, { name: "b" }]);
     await openRole();
     const tabs = screen.getByTestId("role-view-tabs");
     expect(Array.from(tabs.querySelectorAll("button")).map((b) => b.textContent)).toEqual([
       "Role file",
-      "Runbooks",
+      "Skills",
       "Files",
     ]);
-    fireEvent.click(screen.getByTestId("role-view-tab-runbooks"));
-    await screen.findByTestId("role-view-runbook-a");
-    expect(screen.getByTestId("role-view-tab-runbooks").textContent).toBe("Runbooks");
+    fireEvent.click(screen.getByTestId("role-view-tab-skills"));
+    await screen.findByTestId("role-view-skill-a");
+    expect(screen.getByTestId("role-view-tab-skills").textContent).toBe("Skills");
     expect(screen.queryByTestId("role-view-tab-git")).toBeNull();
   });
 
@@ -501,19 +502,19 @@ describe("role view — a shared role for a non-admin is view-only", () => {
     expect(within(menu).getByTestId("role-view-archive").textContent).toContain("Only an admin can change a shared role");
   });
 
-  it("runbooks: listed but no New runbook (also not on the empty state)", async () => {
-    m.listRunbooks.mockResolvedValue([{ name: "triage" }]);
+  it("skills: listed but no New skill (also not on the empty state)", async () => {
+    m.listRoleSkills.mockResolvedValue([{ name: "triage" }]);
     await openRole("support-bot");
-    fireEvent.click(screen.getByTestId("role-view-tab-runbooks"));
-    expect(await screen.findByTestId("role-view-runbook-triage")).toBeTruthy();
-    expect(screen.queryByTestId("role-view-new-runbook")).toBeNull();
+    fireEvent.click(screen.getByTestId("role-view-tab-skills"));
+    expect(await screen.findByTestId("role-view-skill-triage")).toBeTruthy();
+    expect(screen.queryByTestId("role-view-new-skill")).toBeNull();
   });
 
-  it("runbooks empty state has no New runbook either", async () => {
+  it("skills empty state has no New skill either", async () => {
     await openRole("support-bot");
-    fireEvent.click(screen.getByTestId("role-view-tab-runbooks"));
-    expect(await screen.findByText("No runbooks yet")).toBeTruthy();
-    expect(screen.queryByTestId("role-view-new-runbook")).toBeNull();
+    fireEvent.click(screen.getByTestId("role-view-tab-skills"));
+    expect(await screen.findByText("No skills yet")).toBeTruthy();
+    expect(screen.queryByTestId("role-view-new-skill")).toBeNull();
   });
 
   it("Files tab is read-only: no Upload, New folder or New file", async () => {
@@ -540,93 +541,116 @@ describe("role view — a shared role for a non-admin is view-only", () => {
   });
 });
 
-// ─── Runbooks tab ───────────────────────────────────────────────────────────
+// ─── Scheduled tasks shortcut ───────────────────────────────────────────────
 
-describe("role view — runbooks", () => {
-  it("lists runbooks title-cased; a row opens the runbook", async () => {
-    m.listRunbooks.mockResolvedValue([{ name: "weekly-report" }, { name: "avatar-flow" }]);
-    m.enumerateRunbookFiles.mockResolvedValue([{ path: "runbook.md" }]);
+describe("role view — scheduled tasks shortcut", () => {
+  const task = (role: string, hostId: number) => ({ hostId, roles: [role] });
+
+  it("counts the role's tasks on its machine; clicking closes the window and asks for the filtered list", async () => {
+    m.listScheduledAgents.mockResolvedValue([
+      task("box-maintainer", HOST_ID),
+      task("box-maintainer", HOST_ID),
+      task("box-maintainer", HOST_ID + 100),
+      task("support-bot", HOST_ID),
+    ]);
+    const heard: unknown[] = [];
+    const listen = (e: Event) => heard.push((e as CustomEvent).detail);
+    window.addEventListener("skynet:open-scheduled-tasks", listen);
+    try {
+      const { onOpenChange } = await openRole();
+      const link = await screen.findByTestId("role-view-scheduled-tasks");
+      await waitFor(() => expect(link.textContent).toBe("2 scheduled tasks"));
+      fireEvent.click(link);
+      await waitFor(() => expect(onOpenChange).toHaveBeenCalledWith(false, "open-scheduled-tasks"));
+      expect(heard).toEqual([{ role: "box-maintainer", hostId: HOST_ID }]);
+    } finally {
+      window.removeEventListener("skynet:open-scheduled-tasks", listen);
+    }
+  });
+
+  it("no tasks reads 'No scheduled tasks'; a failed count still offers the shortcut", async () => {
     await openRole();
-    fireEvent.click(screen.getByTestId("role-view-tab-runbooks"));
-    await screen.findByTestId("role-view-runbook-weekly-report");
-    expect(m.listRunbooks).toHaveBeenCalledWith(HOST_ID, "box-maintainer");
-    const rows = screen.getAllByTestId(/^role-view-runbook-/).map((r) => r.textContent);
+    await waitFor(() => expect(screen.getByTestId("role-view-scheduled-tasks").textContent).toBe("No scheduled tasks"));
+    cleanup();
+    m.listScheduledAgents.mockRejectedValue(new Error("down"));
+    await openRole();
+    expect(screen.getByTestId("role-view-scheduled-tasks").textContent).toBe("Scheduled tasks");
+  });
+});
+
+// ─── Skills tab ─────────────────────────────────────────────────────────────
+
+describe("role view — skills", () => {
+  it("lists the role's skills title-cased; a row opens the skill", async () => {
+    m.listRoleSkills.mockResolvedValue([{ name: "weekly-report" }, { name: "avatar-flow" }]);
+    m.enumerateRoleSkillFiles.mockResolvedValue([{ path: "SKILL.md" }]);
+    await openRole();
+    fireEvent.click(screen.getByTestId("role-view-tab-skills"));
+    await screen.findByTestId("role-view-skill-weekly-report");
+    expect(m.listRoleSkills).toHaveBeenCalledWith(HOST_ID, "box-maintainer");
+    const rows = screen.getAllByTestId(/^role-view-skill-/).map((r) => r.textContent);
     expect(rows).toEqual(["Avatar Flow", "Weekly Report"]);
-    expect(screen.getByTestId("role-view-new-runbook")).toBeTruthy();
-    fireEvent.click(screen.getByTestId("role-view-runbook-avatar-flow"));
+    expect(screen.getByTestId("role-view-new-skill")).toBeTruthy();
+    fireEvent.click(screen.getByTestId("role-view-skill-avatar-flow"));
     expect(await screen.findByText("Avatar Flow")).toBeTruthy();
-    expect(m.enumerateRunbookFiles).toHaveBeenCalledWith(HOST_ID, "box-maintainer", "avatar-flow");
+    expect(m.enumerateRoleSkillFiles).toHaveBeenCalledWith(HOST_ID, "box-maintainer", "avatar-flow");
   });
 
-  it("New runbook asks for a name, creates it with a starter runbook.md and opens it", async () => {
-    const dialogs = autoAnswerKitDialogs({ prompt: "Weekly report" });
-    m.enumerateRunbookFiles.mockResolvedValue([{ path: "runbook.md" }]);
+  it("New skill asks for a name, then a description, creates it and opens it", async () => {
+    const answers = ["Weekly report", "Writes the weekly status report every Friday."];
+    const dialogs = autoAnswerKitDialogs({ prompt: () => answers.shift() ?? null });
+    m.createRoleSkill.mockResolvedValue({ slug: "weekly-report", mtime: 5 });
+    m.enumerateRoleSkillFiles.mockResolvedValue([{ path: "SKILL.md" }]);
     await openRole();
-    fireEvent.click(screen.getByTestId("role-view-tab-runbooks"));
-    fireEvent.click(await screen.findByTestId("role-view-new-runbook"));
+    fireEvent.click(screen.getByTestId("role-view-tab-skills"));
+    fireEvent.click(await screen.findByTestId("role-view-new-skill"));
     await waitFor(() =>
-      expect(m.createRunbook).toHaveBeenCalledWith(HOST_ID, "box-maintainer", "weekly-report", "runbook.md"),
+      expect(m.createRoleSkill).toHaveBeenCalledWith(
+        HOST_ID,
+        "box-maintainer",
+        "weekly-report",
+        "Writes the weekly status report every Friday.",
+      ),
     );
-    expect(dialogs.calls[0].kind).toBe("prompt");
-    expect(dialogs.calls[0].opts.title).toBe("New runbook");
-    await waitFor(() => expect(m.writeRunbookFile).toHaveBeenCalledTimes(1));
-    expect(m.writeRunbookFile).toHaveBeenCalledWith({
-      hostId: HOST_ID,
-      role: "box-maintainer",
-      runbook: "weekly-report",
-      path: "runbook.md",
-      content: "# Weekly report\n\nWhen to use this:\n\nSteps:\n\n1. \n",
-      expectedMtime: 5,
-    });
-    // createRunbook ran before the starter content was written.
-    expect(m.createRunbook.mock.invocationCallOrder[0]).toBeLessThan(m.writeRunbookFile.mock.invocationCallOrder[0]);
-    // The runbook view opened.
+    expect(dialogs.calls[0].opts.title).toBe("New skill");
+    expect(dialogs.calls[1].opts.title).toBe('Describe "Weekly report"');
+    // The skill view opened.
     expect(await screen.findByText("Weekly Report")).toBeTruthy();
-    expect(m.enumerateRunbookFiles).toHaveBeenCalledWith(HOST_ID, "box-maintainer", "weekly-report");
+    expect(m.enumerateRoleSkillFiles).toHaveBeenCalledWith(HOST_ID, "box-maintainer", "weekly-report");
   });
 
-  it("a failed starter write still opens the new runbook, with an alert saying its first file is empty", async () => {
-    const dialogs = autoAnswerKitDialogs({ prompt: "Weekly report" });
-    m.enumerateRunbookFiles.mockResolvedValue([{ path: "runbook.md" }]);
-    m.writeRunbookFile.mockRejectedValueOnce(new Error("disk full"));
+  it("the description is required and a name needs a letter or number — both refused in place", async () => {
+    const dialogs = autoAnswerKitDialogs({ prompt: null });
     await openRole();
-    fireEvent.click(screen.getByTestId("role-view-tab-runbooks"));
-    fireEvent.click(await screen.findByTestId("role-view-new-runbook"));
-    expect(await screen.findByText("Weekly Report")).toBeTruthy();
-    const alert = dialogs.calls.find((c) => c.kind === "alert");
-    expect(alert?.opts.title).toBe("The runbook was made, but its starter text wasn't written");
+    fireEvent.click(screen.getByTestId("role-view-tab-skills"));
+    fireEvent.click(await screen.findByTestId("role-view-new-skill"));
+    await waitFor(() => expect(dialogs.calls).toHaveLength(1));
+    const nameOpts = dialogs.calls[0].opts as { validate?: (v: string) => string | null | undefined };
+    expect(nameOpts.validate?.("!!!")).toBeTruthy();
+    expect(nameOpts.validate?.("Weekly")).toBeFalsy();
+    expect(m.createRoleSkill).not.toHaveBeenCalled();
   });
 
-  it("an existing name shows the kit alert and stays on the runbooks tab", async () => {
-    const dialogs = autoAnswerKitDialogs({ prompt: "Weekly report" });
-    m.createRunbook.mockRejectedValue(new RunbookAlreadyExistsError());
+  it("an existing name shows the kit alert and stays on the skills tab", async () => {
+    const answers = ["Weekly report", "x"];
+    const dialogs = autoAnswerKitDialogs({ prompt: () => answers.shift() ?? null });
+    m.createRoleSkill.mockRejectedValue(new RoleSkillAlreadyExistsError());
     await openRole();
-    fireEvent.click(screen.getByTestId("role-view-tab-runbooks"));
-    fireEvent.click(await screen.findByTestId("role-view-new-runbook"));
+    fireEvent.click(screen.getByTestId("role-view-tab-skills"));
+    fireEvent.click(await screen.findByTestId("role-view-new-skill"));
     await waitFor(() => expect(dialogs.calls.some((c) => c.kind === "alert")).toBe(true));
     const alert = dialogs.calls.find((c) => c.kind === "alert")!;
-    expect(alert.opts.title).toBe("Couldn't create the runbook");
-    expect(alert.opts.body).toBe('This role already has a runbook called "weekly-report".');
-    expect(m.writeRunbookFile).not.toHaveBeenCalled();
-    expect(screen.getByTestId("role-view-new-runbook")).toBeTruthy();
-  });
-
-  it("a name with nothing sluggable is refused before anything is created", async () => {
-    const dialogs = autoAnswerKitDialogs({ prompt: "!!!" });
-    await openRole();
-    fireEvent.click(screen.getByTestId("role-view-tab-runbooks"));
-    fireEvent.click(await screen.findByTestId("role-view-new-runbook"));
-    await waitFor(() => expect(dialogs.calls).toHaveLength(2));
-    expect(dialogs.calls[1].opts.title).toBe("That name won't work");
-    expect(m.createRunbook).not.toHaveBeenCalled();
+    expect(alert.opts.title).toBe("Couldn't create the skill");
+    expect(alert.opts.body).toBe('This role already has a skill called "weekly-report".');
+    expect(screen.getByTestId("role-view-new-skill")).toBeTruthy();
   });
 
   it("cancelling the name prompt creates nothing", async () => {
     const dialogs = autoAnswerKitDialogs({ prompt: null });
     await openRole();
-    fireEvent.click(screen.getByTestId("role-view-tab-runbooks"));
-    fireEvent.click(await screen.findByTestId("role-view-new-runbook"));
+    fireEvent.click(screen.getByTestId("role-view-tab-skills"));
+    fireEvent.click(await screen.findByTestId("role-view-new-skill"));
     await waitFor(() => expect(dialogs.calls).toHaveLength(1));
-    expect(m.createRunbook).not.toHaveBeenCalled();
+    expect(m.createRoleSkill).not.toHaveBeenCalled();
   });
 });

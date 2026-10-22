@@ -49,6 +49,7 @@ import { listRolesForHost } from "@/api/identities-api";
 import type { EscapeHandler, LeaveGuard } from "@/features/pretty-view/roles-window/RolesWindow";
 import { ScheduledAgentsModalRow, prettifyScheduledAgentName } from "./ScheduledAgentsModalRow";
 import { ScheduledTaskView, type ProjectRowFields } from "./ScheduledTaskView";
+import type { ScheduledTasksFilter } from "./open-scheduled-tasks";
 
 function isFolder(item: Host | HostFolder): item is HostFolder {
   return "children" in item;
@@ -66,6 +67,9 @@ export interface ScheduledAgentsModalProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   hostTree: HostFolder | null;
+  /** Opened from a role's "N scheduled tasks" shortcut: start on that role's
+   *  tasks on its machine. Null = everything. */
+  initialFilter?: ScheduledTasksFilter | null;
 }
 
 /** How often an open scheduled-tasks window re-reads the list. */
@@ -107,13 +111,23 @@ function byNextRun(a: ScheduledAgentListItem, b: ScheduledAgentListItem): number
   return prettifyScheduledAgentName(a.name).localeCompare(prettifyScheduledAgentName(b.name));
 }
 
-export function ScheduledAgentsModal({ open, onOpenChange, hostTree }: ScheduledAgentsModalProps): JSX.Element {
+export function ScheduledAgentsModal({
+  open,
+  onOpenChange,
+  hostTree,
+  initialFilter = null,
+}: ScheduledAgentsModalProps): JSX.Element {
   // items === null → loading; [] → none (or the load failed).
   const [items, setItems] = useState<ScheduledAgentListItem[] | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [writeError, setWriteError] = useState<string | null>(null);
   const [search, setSearch] = useState("");
   const [deep, setDeep] = useState<Deep | null>(null);
+  // One role on one machine (the role shortcut); "Show all" clears it.
+  const [roleFilter, setRoleFilter] = useState<ScheduledTasksFilter | null>(null);
+  useEffect(() => {
+    if (open) setRoleFilter(initialFilter);
+  }, [open, initialFilter]);
 
   const [toggling, setToggling] = useState<Set<string>>(() => new Set<string>());
   // Rows with a run-now request in flight — also the guard against starting two.
@@ -127,6 +141,7 @@ export function ScheduledAgentsModal({ open, onOpenChange, hostTree }: Scheduled
       setWriteError(null);
       setSearch("");
       setDeep(null);
+      setRoleFilter(null);
       return;
     }
     const controller = new AbortController();
@@ -441,10 +456,17 @@ export function ScheduledAgentsModal({ open, onOpenChange, hostTree }: Scheduled
     const byHost = new Map<number, { hostId: number; host: string; rows: ScheduledAgentListItem[] }>();
     for (const row of items) {
       if (!byHost.has(row.hostId)) byHost.set(row.hostId, { hostId: row.hostId, host: row.host, rows: [] });
-      if (matches(row, words, roleNames)) byHost.get(row.hostId)!.rows.push(row);
+      const inFilter = roleFilter === null || (row.hostId === roleFilter.hostId && row.roles.includes(roleFilter.role));
+      if (inFilter && matches(row, words, roleNames)) byHost.get(row.hostId)!.rows.push(row);
     }
     return [...byHost.values()].map((g) => ({ ...g, rows: g.rows.sort(byNextRun) }));
-  }, [items, search, roleNames]);
+  }, [items, search, roleNames, roleFilter]);
+  const filterRoleLabel = roleFilter
+    ? (roleNames.get(roleFilter.hostId)?.get(roleFilter.role) ?? roleDisplayName(roleFilter.role))
+    : "";
+  const filterHostLabel = roleFilter
+    ? (flatHosts.find((h) => parseInt(String(h.id), 10) === roleFilter.hostId)?.name ?? "")
+    : "";
   const multiMachine = groups.length > 1;
   const visibleGroups = groups.filter((g) => g.rows.length > 0);
   // What the user just did failing matters more than a background refresh.
@@ -485,6 +507,20 @@ export function ScheduledAgentsModal({ open, onOpenChange, hostTree }: Scheduled
           />
         </div>
       )}
+      {roleFilter !== null && (
+        <div
+          className="px-6 max-sm:px-4 pb-3 flex-shrink-0 flex items-center gap-2 text-[13px] text-[var(--k-t2)]"
+          data-testid="scheduled-agents-modal-role-filter"
+        >
+          <span className="min-w-0 truncate">
+            With <span className="font-semibold text-[var(--k-t1)]">{filterRoleLabel}</span>
+            {filterHostLabel ? <> on {filterHostLabel}</> : null}
+          </span>
+          <KitButton variant="plain" size="sm" onClick={() => setRoleFilter(null)} data-testid="scheduled-agents-modal-role-filter-clear">
+            Show all
+          </KitButton>
+        </div>
+      )}
       <div className="flex-1 min-h-0 overflow-y-auto px-6 max-sm:px-4 pb-6 flex flex-col gap-4" data-testid="scheduled-agents-modal-list">
         {bannerError !== null && (
           <KitBanner
@@ -506,6 +542,14 @@ export function ScheduledAgentsModal({ open, onOpenChange, hostTree }: Scheduled
             data-testid="scheduled-agents-modal-empty-state"
             title="No scheduled tasks"
             body="A scheduled task starts a new conversation on a schedule to carry out instructions you write now."
+            action={newButton}
+          />
+        ) : visibleGroups.length === 0 && roleFilter !== null && search.trim() === "" ? (
+          <KitEmpty
+            className="flex-1"
+            data-testid="scheduled-agents-modal-role-filter-empty"
+            title={`No scheduled tasks with ${filterRoleLabel}`}
+            body="None of your scheduled tasks take this role on this machine yet."
             action={newButton}
           />
         ) : visibleGroups.length === 0 ? (

@@ -31,17 +31,19 @@ export const m = {
   // role file
   getRoleFileByName: vi.fn(),
   updateRoleFileByName: vi.fn(),
-  // runbooks-api
-  listRunbooks: vi.fn(),
-  enumerateRunbookFiles: vi.fn(),
-  readRunbookFile: vi.fn(),
-  writeRunbookFile: vi.fn(),
-  writeRunbookFileBinary: vi.fn(),
-  createRunbookFile: vi.fn(),
-  deleteRunbookFile: vi.fn(),
-  deleteRunbook: vi.fn(),
-  createRunbook: vi.fn(),
-  renameRunbook: vi.fn(),
+  // scheduled-agents-api (the role's "N scheduled tasks" count)
+  listScheduledAgents: vi.fn(),
+  // role-skills-api
+  listRoleSkills: vi.fn(),
+  enumerateRoleSkillFiles: vi.fn(),
+  readRoleSkillFile: vi.fn(),
+  writeRoleSkillFile: vi.fn(),
+  writeRoleSkillFileBinary: vi.fn(),
+  createRoleSkillFile: vi.fn(),
+  deleteRoleSkillFile: vi.fn(),
+  deleteRoleSkill: vi.fn(),
+  createRoleSkill: vi.fn(),
+  renameRoleSkill: vi.fn(),
   // files / git / voice
   listWorkspace: vi.fn(),
   hasGitRepos: vi.fn(),
@@ -83,16 +85,17 @@ export function resetRolesWindowMocks(): void {
   m.archiveRole.mockResolvedValue({ ok: true });
   m.getRoleFileByName.mockResolvedValue({ markdown: DEFAULT_ROLE_FILE });
   m.updateRoleFileByName.mockImplementation(async (_name: string, _hostId: number, markdown: string) => ({ markdown }));
-  m.listRunbooks.mockResolvedValue([]);
-  m.enumerateRunbookFiles.mockResolvedValue([]);
-  m.readRunbookFile.mockResolvedValue({ content: "", mtime: 1, size: 0, isText: true });
-  m.writeRunbookFile.mockResolvedValue({ mtime: 2 });
-  m.writeRunbookFileBinary.mockResolvedValue({ mtime: 2 });
-  m.createRunbookFile.mockResolvedValue({ path: "new.md", mtime: 1 });
-  m.deleteRunbookFile.mockResolvedValue(undefined);
-  m.deleteRunbook.mockResolvedValue(undefined);
-  m.createRunbook.mockResolvedValue({ path: "runbook.md", mtime: 5 });
-  m.renameRunbook.mockImplementation(async (_h: number, _r: string, _rb: string, newName: string) => ({ name: newName }));
+  m.listRoleSkills.mockResolvedValue([]);
+  m.listScheduledAgents.mockResolvedValue([]);
+  m.enumerateRoleSkillFiles.mockResolvedValue([]);
+  m.readRoleSkillFile.mockResolvedValue({ content: "", mtime: 1, size: 0, isText: true });
+  m.writeRoleSkillFile.mockResolvedValue({ mtime: 2 });
+  m.writeRoleSkillFileBinary.mockResolvedValue({ mtime: 2 });
+  m.createRoleSkillFile.mockResolvedValue({ path: "new.md", mtime: 1 });
+  m.deleteRoleSkillFile.mockResolvedValue(undefined);
+  m.deleteRoleSkill.mockResolvedValue(undefined);
+  m.createRoleSkill.mockResolvedValue({ path: "SKILL.md", mtime: 5 });
+  m.renameRoleSkill.mockImplementation(async (_h: number, _r: string, _rb: string, newName: string) => ({ name: newName }));
   m.listWorkspace.mockResolvedValue({ entries: [], path: "" });
   m.hasGitRepos.mockResolvedValue(false);
   m.fetchVoiceCatalog.mockResolvedValue({
@@ -147,19 +150,26 @@ export async function claudeSessionApi(orig: Orig): Promise<Record<string, unkno
   };
 }
 
-export async function runbooksApi(orig: Orig): Promise<Record<string, unknown>> {
+export async function scheduledAgentsApi(orig: Orig): Promise<Record<string, unknown>> {
   return {
     ...(await spread(orig)),
-    listRunbooks: (...a: unknown[]) => m.listRunbooks(...a),
-    enumerateRunbookFiles: (...a: unknown[]) => m.enumerateRunbookFiles(...a),
-    readRunbookFile: (...a: unknown[]) => m.readRunbookFile(...a),
-    writeRunbookFile: (...a: unknown[]) => m.writeRunbookFile(...a),
-    writeRunbookFileBinary: (...a: unknown[]) => m.writeRunbookFileBinary(...a),
-    createRunbookFile: (...a: unknown[]) => m.createRunbookFile(...a),
-    deleteRunbookFile: (...a: unknown[]) => m.deleteRunbookFile(...a),
-    deleteRunbook: (...a: unknown[]) => m.deleteRunbook(...a),
-    createRunbook: (...a: unknown[]) => m.createRunbook(...a),
-    renameRunbook: (...a: unknown[]) => m.renameRunbook(...a),
+    listScheduledAgents: (...a: unknown[]) => m.listScheduledAgents(...a),
+  };
+}
+
+export async function roleSkillsApi(orig: Orig): Promise<Record<string, unknown>> {
+  return {
+    ...(await spread(orig)),
+    listRoleSkills: (...a: unknown[]) => m.listRoleSkills(...a),
+    enumerateRoleSkillFiles: (...a: unknown[]) => m.enumerateRoleSkillFiles(...a),
+    readRoleSkillFile: (...a: unknown[]) => m.readRoleSkillFile(...a),
+    writeRoleSkillFile: (...a: unknown[]) => m.writeRoleSkillFile(...a),
+    writeRoleSkillFileBinary: (...a: unknown[]) => m.writeRoleSkillFileBinary(...a),
+    createRoleSkillFile: (...a: unknown[]) => m.createRoleSkillFile(...a),
+    deleteRoleSkillFile: (...a: unknown[]) => m.deleteRoleSkillFile(...a),
+    deleteRoleSkill: (...a: unknown[]) => m.deleteRoleSkill(...a),
+    createRoleSkill: (...a: unknown[]) => m.createRoleSkill(...a),
+    renameRoleSkill: (...a: unknown[]) => m.renameRoleSkill(...a),
   };
 }
 
@@ -197,13 +207,18 @@ export function mdxEditor(): Record<string, unknown> {
   const none = (): null => null;
   const plugin = (): Record<string, never> => ({});
   return {
+    // Wrapped like the real editor's editable area, carrying the text, so the
+    // "formatted editor rendered nothing" check doesn't swap it for plain text.
     MDXEditor: (props: { markdown: string; onChange?: (v: string) => void; readOnly?: boolean }) => (
-      <textarea
-        data-testid="mdxeditor"
-        value={props.markdown}
-        onChange={(e) => props.onChange?.(e.target.value)}
-        readOnly={props.readOnly}
-      />
+      <div contentEditable={false} suppressContentEditableWarning>
+        <span hidden>{props.markdown || " "}</span>
+        <textarea
+          data-testid="mdxeditor"
+          value={props.markdown}
+          onChange={(e) => props.onChange?.(e.target.value)}
+          readOnly={props.readOnly}
+        />
+      </div>
     ),
     headingsPlugin: plugin,
     listsPlugin: plugin,

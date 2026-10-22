@@ -2,7 +2,7 @@
 //
 // One window that moves between views instead of a stack of modals that
 // close each other: the library of roles, one role (picture, name,
-// description; role file / runbooks / files / git tabs), one runbook (one
+// description; role file / skills / files / git tabs), one skill (one
 // level deeper), a new-role form and archived roles. The back control — and
 // Esc — always goes up exactly one level; the X closes. Leaving a view with
 // unsaved edits asks first (each view registers a guard).
@@ -25,7 +25,8 @@ import { requestNewConversation } from "@/lib/new-conversation-request";
 import type { TabState } from "../IdentityFileTab";
 import { RolesLibraryView } from "./RolesLibraryView";
 import { RoleView, type RoleTab } from "./RoleView";
-import { RunbookView } from "./RunbookView";
+import { RoleSkillView } from "./RoleSkillView";
+import { requestOpenScheduledTasks } from "@/features/pretty-conversations/open-scheduled-tasks";
 import { NewRoleView } from "./NewRoleView";
 import { ArchivedRolesView } from "./ArchivedRolesView";
 
@@ -70,12 +71,14 @@ export interface NewRoleHop {
 type Nav =
   | { view: "library" }
   | { view: "role"; role: RoleSummary }
-  | { view: "runbook"; role: RoleSummary; runbook: string }
+  | { view: "skill"; role: RoleSummary; skill: string }
   | { view: "new" }
   | { view: "archived" };
 
 /** Why the window closed, when it wasn't simply dismissed. */
-export type RolesWindowCloseReason = "start-conversation";
+/** Why the window closed itself — either way it went somewhere else, so an
+ *  agent window it was opened from doesn't come back. */
+export type RolesWindowCloseReason = "start-conversation" | "open-scheduled-tasks";
 
 export interface RolesWindowProps {
   open: boolean;
@@ -248,8 +251,8 @@ export function RolesWindow({
   const go = useCallback(
     async (next: Nav): Promise<void> => {
       if (!(await leave())) return;
-      if (next.view !== "role" && next.view !== "runbook") setHueOverride(null);
-      if (next.view === "role" && nav.view !== "runbook") setRoleTab("role");
+      if (next.view !== "role" && next.view !== "skill") setHueOverride(null);
+      if (next.view === "role" && nav.view !== "skill") setRoleTab("role");
       console.debug("[RolesWindow] nav", { from: nav.view, to: next.view });
       setNav(next);
     },
@@ -257,7 +260,7 @@ export function RolesWindow({
   );
 
   const goBack = useCallback(async (): Promise<void> => {
-    if (nav.view === "runbook") return go({ view: "role", role: nav.role });
+    if (nav.view === "skill") return go({ view: "role", role: nav.role });
     if (nav.view === "new" && newRoleHop) {
       if (!(await leave())) return;
       newRoleHop.onBack();
@@ -307,7 +310,7 @@ export function RolesWindow({
         : prev,
     );
     setNav((prev) =>
-      (prev.view === "role" || prev.view === "runbook") && prev.role.name === name
+      (prev.view === "role" || prev.view === "skill") && prev.role.name === name
         ? { ...prev, role: { ...prev.role, ...patch } }
         : prev,
     );
@@ -318,12 +321,12 @@ export function RolesWindow({
 
   // ── Render ───────────────────────────────────────────────────────────────
   const hue =
-    nav.view === "role" || nav.view === "runbook"
+    nav.view === "role" || nav.view === "skill"
       ? (hueOverride ?? roleHue(nav.role))
       : nav.view === "new"
         ? (hueOverride ?? undefined)
         : undefined;
-  const size = nav.view === "role" || nav.view === "runbook" ? "editor" : "list";
+  const size = nav.view === "role" || nav.view === "skill" ? "editor" : "list";
 
   let body: JSX.Element | null = null;
   if (nav.view === "library") {
@@ -357,7 +360,7 @@ export function RolesWindow({
         tab={roleTab}
         onTabChange={setRoleTab}
         onBack={() => void goBack()}
-        onOpenRunbook={(runbook) => void go({ view: "runbook", role: nav.role, runbook })}
+        onOpenSkill={(skill) => void go({ view: "skill", role: nav.role, skill })}
         onRoleChanged={(patch) => patchRole(nav.role.name, patch)}
         onHueDraft={setHueOverride}
         onSharingChanged={() => {
@@ -371,6 +374,11 @@ export function RolesWindow({
           setArchivedKey((k) => k + 1);
           void go({ view: "library" });
         }}
+        onOpenScheduledTasks={async () => {
+          if (!(await leave())) return;
+          onOpenChange(false, "open-scheduled-tasks");
+          requestOpenScheduledTasks({ role: nav.role.name, hostId });
+        }}
         onStartConversation={async () => {
           if (!(await leave())) return;
           requestNewConversation({ hostId, role: nav.role.name });
@@ -380,26 +388,26 @@ export function RolesWindow({
         registerEscape={registerEscape}
       />
     );
-  } else if (nav.view === "runbook" && hostId != null) {
+  } else if (nav.view === "skill" && hostId != null) {
     body = (
-      <RunbookView
-        key={`${session}:${hostId}:${nav.role.name}:${nav.runbook}`}
+      <RoleSkillView
+        key={`${session}:${hostId}:${nav.role.name}:${nav.skill}`}
         hostId={hostId}
         role={nav.role}
-        runbook={nav.runbook}
+        skill={nav.skill}
         readOnly={isShared(nav.role) && !isAdmin}
         onBack={() => void goBack()}
         onClose={() => void handleOpenChange(false)}
         onDeleted={() => {
           guardRef.current = null;
-          setRoleTab("runbooks");
+          setRoleTab("skills");
           setNav({ view: "role", role: nav.role });
         }}
         onRenamed={(newName) => {
           // Nothing unsaved is left behind: a rename only starts from a clean
           // view, or saves the edited main file along with it.
           guardRef.current = null;
-          setNav({ view: "runbook", role: nav.role, runbook: newName });
+          setNav({ view: "skill", role: nav.role, skill: newName });
         }}
         registerGuard={registerGuard}
         registerEscape={registerEscape}

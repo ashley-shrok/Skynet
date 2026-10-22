@@ -1226,6 +1226,19 @@ export function PrettyConversationsPanel({
   // state — modal refetches every open (D-03) and resets filter state on
   // close (D-17). Sibling of ConversationSearchModal's controlled state.
   const [scheduledAgentsModalOpen, setScheduledAgentsModalOpen] = useState(false);
+  // Filter the window opens with — set by a role's "N scheduled tasks"
+  // shortcut (via OPEN_SCHEDULED_TASKS_EVENT); the footer clock opens it bare.
+  const [scheduledAgentsFilter, setScheduledAgentsFilter] =
+    useState<ScheduledTasksFilter | null>(null);
+  useEffect(() => {
+    const handle = (e: Event) => {
+      const filter = (e as CustomEvent<ScheduledTasksFilter | null>).detail ?? null;
+      setScheduledAgentsFilter(filter);
+      setScheduledAgentsModalOpen(true);
+    };
+    window.addEventListener(OPEN_SCHEDULED_TASKS_EVENT, handle);
+    return () => window.removeEventListener(OPEN_SCHEDULED_TASKS_EVENT, handle);
+  }, []);
 
   // Phase 119 Plan 04 (D-03): Apps section collapsed by default on every
   // mount. Content is lazy-rendered via `{appsExpanded && ...}` in the JSX

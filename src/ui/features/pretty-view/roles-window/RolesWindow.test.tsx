@@ -1,6 +1,6 @@
 // The roles window — library, moving between views, archived roles.
 //
-// One window, five views (library → role → runbook; new role and archived
+// One window, five views (library → role → skill; new role and archived
 // off the library). Back and Esc go up exactly one level; the library's Esc
 // closes; leaving unsaved edits asks first.
 
@@ -13,7 +13,8 @@ vi.mock("@/api/roles-archive-list-api", async () => (await import("./roles-windo
 vi.mock("@/api/role-unarchive-api", async (o) => (await import("./roles-window.test-mocks")).roleUnarchiveApi(o));
 vi.mock("@/api/role-archive-api", async () => (await import("./roles-window.test-mocks")).roleArchiveApi());
 vi.mock("@/api/claude-session-api", async (o) => (await import("./roles-window.test-mocks")).claudeSessionApi(o));
-vi.mock("@/api/runbooks-api", async (o) => (await import("./roles-window.test-mocks")).runbooksApi(o));
+vi.mock("@/api/role-skills-api", async (o) => (await import("./roles-window.test-mocks")).roleSkillsApi(o));
+vi.mock("@/api/scheduled-agents-api", async (o) => (await import("./roles-window.test-mocks")).scheduledAgentsApi(o));
 vi.mock("@/api/workspace-api", async (o) => (await import("./roles-window.test-mocks")).workspaceApi(o));
 vi.mock("@/api/workspace-git-api", async (o) => (await import("./roles-window.test-mocks")).workspaceGitApi(o));
 vi.mock("@/api/voice-api", async (o) => (await import("./roles-window.test-mocks")).voiceApi(o));
@@ -197,42 +198,42 @@ describe("roles window — moving between views", () => {
     expect(screen.getByTestId("roles-window-row-box-maintainer")).toBeTruthy();
   });
 
-  it("runbook → back lands on the role's Runbooks tab", async () => {
-    m.listRunbooks.mockResolvedValue([{ name: "weekly-report" }]);
-    m.enumerateRunbookFiles.mockResolvedValue([{ path: "runbook.md" }]);
+  it("skill → back lands on the role's Skills tab", async () => {
+    m.listRoleSkills.mockResolvedValue([{ name: "weekly-report" }]);
+    m.enumerateRoleSkillFiles.mockResolvedValue([{ path: "SKILL.md" }]);
     renderWindow();
     await openRoleFromLibrary("box-maintainer");
-    fireEvent.click(screen.getByTestId("role-view-tab-runbooks"));
-    fireEvent.click(await screen.findByTestId("role-view-runbook-weekly-report"));
-    // The runbook view: its title, and back names the role.
+    fireEvent.click(screen.getByTestId("role-view-tab-skills"));
+    fireEvent.click(await screen.findByTestId("role-view-skill-weekly-report"));
+    // The skill view: its title, and back names the role.
     expect(await screen.findByText("Weekly Report")).toBeTruthy();
     expect(backButton().textContent).toContain("Box Maintainer");
-    expect(m.enumerateRunbookFiles).toHaveBeenCalledWith(HOST_ID, "box-maintainer", "weekly-report");
+    expect(m.enumerateRoleSkillFiles).toHaveBeenCalledWith(HOST_ID, "box-maintainer", "weekly-report");
     fireEvent.click(backButton());
-    expect(await screen.findByTestId("role-view-runbook-weekly-report")).toBeTruthy();
-    expect(screen.getByTestId("role-view-tab-runbooks").getAttribute("aria-pressed")).toBe("true");
+    expect(await screen.findByTestId("role-view-skill-weekly-report")).toBeTruthy();
+    expect(screen.getByTestId("role-view-tab-skills").getAttribute("aria-pressed")).toBe("true");
   });
 
   it("re-opening a role from the library starts on the Role file tab", async () => {
     renderWindow();
     await openRoleFromLibrary("box-maintainer");
-    fireEvent.click(screen.getByTestId("role-view-tab-runbooks"));
+    fireEvent.click(screen.getByTestId("role-view-tab-skills"));
     fireEvent.click(backButton());
     await openRoleFromLibrary("box-maintainer");
     expect(screen.getByTestId("role-view-tab-role").getAttribute("aria-pressed")).toBe("true");
   });
 
   it("Esc steps back one level at a time, and closes from the library", async () => {
-    m.listRunbooks.mockResolvedValue([{ name: "weekly-report" }]);
-    m.enumerateRunbookFiles.mockResolvedValue([{ path: "runbook.md" }]);
+    m.listRoleSkills.mockResolvedValue([{ name: "weekly-report" }]);
+    m.enumerateRoleSkillFiles.mockResolvedValue([{ path: "SKILL.md" }]);
     const { onOpenChange } = renderWindow();
     await openRoleFromLibrary("box-maintainer");
-    fireEvent.click(screen.getByTestId("role-view-tab-runbooks"));
-    fireEvent.click(await screen.findByTestId("role-view-runbook-weekly-report"));
+    fireEvent.click(screen.getByTestId("role-view-tab-skills"));
+    fireEvent.click(await screen.findByTestId("role-view-skill-weekly-report"));
     await screen.findByText("Weekly Report");
 
     pressEscape();
-    expect(await screen.findByTestId("role-view-runbook-weekly-report")).toBeTruthy();
+    expect(await screen.findByTestId("role-view-skill-weekly-report")).toBeTruthy();
     expect(onOpenChange).not.toHaveBeenCalled();
 
     pressEscape();
@@ -314,17 +315,17 @@ describe("roles window — moving between views", () => {
     expect(dialogs.calls[0].opts.title).toBe("Discard this new role?");
   });
 
-  it("a shared role opened without its shared flag (an agent's window) is still view-only down into its runbooks", async () => {
-    m.listRunbooks.mockResolvedValue([{ name: "weekly-report" }]);
-    m.enumerateRunbookFiles.mockResolvedValue([{ path: "runbook.md" }]);
+  it("a shared role opened without its shared flag (an agent's window) is still view-only down into its skills", async () => {
+    m.listRoleSkills.mockResolvedValue([{ name: "weekly-report" }]);
+    m.enumerateRoleSkillFiles.mockResolvedValue([{ path: "SKILL.md" }]);
     const { instanceWide: _drop, ...bare } = SUPPORT;
     renderWindow({ start: { view: "role", hostId: HOST_ID, role: bare } });
     expect(await screen.findByTestId("role-view-readonly-note")).toBeTruthy();
-    fireEvent.click(screen.getByTestId("role-view-tab-runbooks"));
-    fireEvent.click(await screen.findByTestId("role-view-runbook-weekly-report"));
+    fireEvent.click(screen.getByTestId("role-view-tab-skills"));
+    fireEvent.click(await screen.findByTestId("role-view-skill-weekly-report"));
     await screen.findByText("Weekly Report");
-    expect(screen.queryByTestId("runbook-view-save")).toBeNull();
-    expect(screen.queryByTestId("runbook-view-add-file")).toBeNull();
+    expect(screen.queryByTestId("skill-view-save")).toBeNull();
+    expect(screen.queryByTestId("skill-view-add-file")).toBeNull();
   });
 });
 

@@ -1620,3 +1620,59 @@ describe("ScheduledAgentsModal: project", () => {
     expect(screen.queryByTestId(ROW("plain"))).toBeNull();
   });
 });
+
+describe("ScheduledAgentsModal: opened on one role (the role's shortcut)", () => {
+  const rows = () => [
+    makeRow({ slug: "a", name: "a", roles: ["assistant"] }),
+    makeRow({ slug: "b", name: "b", roles: ["box-maintainer"] }),
+    makeRow({ slug: "c", name: "c", roles: ["box-maintainer"], hostId: 2, host: "host-b" }),
+  ];
+
+  it("shows only that role's tasks on its machine, says so, and Show all brings back the rest", async () => {
+    listScheduledAgentsMock.mockResolvedValue(rows());
+    render(
+      <ScheduledAgentsModal
+        open={true}
+        onOpenChange={vi.fn()}
+        hostTree={TWO_HOST_TREE}
+        initialFilter={{ role: "box-maintainer", hostId: 1 }}
+      />,
+    );
+    expect(await screen.findByTestId(ROW("b"))).toBeInTheDocument();
+    expect(screen.queryByTestId(ROW("a"))).toBeNull();
+    expect(screen.queryByTestId(ROW("c"))).toBeNull();
+    expect(screen.getByTestId("scheduled-agents-modal-role-filter")).toHaveTextContent("With Box Maintainer on host-a");
+    fireEvent.click(screen.getByTestId("scheduled-agents-modal-role-filter-clear"));
+    expect(screen.queryByTestId("scheduled-agents-modal-role-filter")).toBeNull();
+    expect(screen.getByTestId(ROW("a"))).toBeInTheDocument();
+    expect(screen.getByTestId(ROW("c"))).toBeInTheDocument();
+  });
+
+  it("a role with no tasks says so (with New), instead of showing everything", async () => {
+    listScheduledAgentsMock.mockResolvedValue(rows());
+    render(
+      <ScheduledAgentsModal
+        open={true}
+        onOpenChange={vi.fn()}
+        hostTree={ONE_HOST_TREE}
+        initialFilter={{ role: "support-bot", hostId: 1 }}
+      />,
+    );
+    expect(await screen.findByTestId("scheduled-agents-modal-role-filter-empty")).toHaveTextContent(
+      "No scheduled tasks with Support Bot",
+    );
+    expect(screen.queryByTestId(ROW("a"))).toBeNull();
+  });
+
+  it("opened again without a filter shows everything", async () => {
+    listScheduledAgentsMock.mockResolvedValue(rows());
+    const { rerender } = render(
+      <ScheduledAgentsModal open={true} onOpenChange={vi.fn()} hostTree={TWO_HOST_TREE} initialFilter={{ role: "box-maintainer", hostId: 1 }} />,
+    );
+    await screen.findByTestId(ROW("b"));
+    rerender(<ScheduledAgentsModal open={false} onOpenChange={vi.fn()} hostTree={TWO_HOST_TREE} initialFilter={null} />);
+    rerender(<ScheduledAgentsModal open={true} onOpenChange={vi.fn()} hostTree={TWO_HOST_TREE} initialFilter={null} />);
+    expect(await screen.findByTestId(ROW("a"))).toBeInTheDocument();
+    expect(screen.queryByTestId("scheduled-agents-modal-role-filter")).toBeNull();
+  });
+});

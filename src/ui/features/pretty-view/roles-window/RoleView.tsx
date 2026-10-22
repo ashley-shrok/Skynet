@@ -1,7 +1,7 @@
 // The roles window's role view. What the role IS sits at the top — picture
 // (tap to upload a new one), name, its one-line description (edited in
 // place), a quiet line of facts, and the two cosmetic buttons (colour,
-// voice). What it's made of sits underneath in tabs: role file, runbooks,
+// voice). What it's made of sits underneath in tabs: role file, skills,
 // files, and git when the folder holds a repo. Actions (start a
 // conversation, sharing, archive) are in the ⋯ menu.
 //
@@ -13,7 +13,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-import { BookOpen, ChevronLeft, Folder, GitBranch, Mic, Pencil, Plus, Users } from "lucide-react";
+import { ChevronLeft, ChevronRight, Clock, Folder, GitBranch, Mic, Pencil, Plus, Users, Zap } from "lucide-react";
+import { listScheduledAgents } from "@/api/scheduled-agents-api";
 import { ModalFoot, ModalHead, ModalTabs } from "@/components/modal";
 import { Tabs, TabsContent } from "@/components/tabs";
 import {
@@ -40,12 +41,11 @@ import {
 } from "@/api/instance-wide-api";
 import { archiveRole } from "@/api/role-archive-api";
 import {
-  createRunbook,
-  listRunbooks,
-  writeRunbookFile,
-  RunbookAlreadyExistsError,
-  type RunbookEntry,
-} from "@/api/runbooks-api";
+  createRoleSkill,
+  listRoleSkills,
+  RoleSkillAlreadyExistsError,
+  type RoleSkillEntry,
+} from "@/api/role-skills-api";
 import { roleDisplayName } from "@/lib/role-display-name";
 import { stripFrontmatter } from "@/lib/strip-frontmatter";
 import { slugifyRoleName } from "@/lib/slugify-role-name";
@@ -68,11 +68,11 @@ import {
 } from "./role-frontmatter";
 import { roleAvatarColor, roleHue, type EscapeHandler, type LeaveGuard } from "./RolesWindow";
 
-export type RoleTab = "role" | "runbooks" | "files" | "git";
+export type RoleTab = "role" | "skills" | "files" | "git";
 
 const TABS = [
   { value: "role", label: "Role file", Icon: Users },
-  { value: "runbooks", label: "Runbooks", Icon: BookOpen },
+  { value: "skills", label: "Skills", Icon: Zap },
   { value: "files", label: "Files", Icon: Folder },
 ] as const;
 const GIT_TAB = { value: "git", label: "Git", Icon: GitBranch } as const;
@@ -90,7 +90,6 @@ const PROSE = [
   "prose-code:border prose-code:border-white/[0.06]",
 ].join(" ");
 
-const RUNBOOK_STARTER_FILE = "runbook.md";
 
 function plural(n: number, word: string): string {
   return `${n} ${word}${n === 1 ? "" : "s"}`;
@@ -112,12 +111,16 @@ export interface RoleViewProps {
   tab: RoleTab;
   onTabChange: (tab: RoleTab) => void;
   onBack: () => void;
-  onOpenRunbook: (runbook: string) => void;
+  /** Opens one of the role's skills one level deeper. */
+  onOpenSkill: (skill: string) => void;
   onRoleChanged: (patch: Partial<RoleSummary>) => void;
   onHueDraft: (hue: number | null) => void;
   onSharingChanged: () => void;
   onArchived: () => void;
   onStartConversation: () => void | Promise<void>;
+  /** The "N scheduled tasks" shortcut: the window closes and the scheduled
+   *  tasks window opens on this role's tasks. */
+  onOpenScheduledTasks: () => void | Promise<void>;
   registerGuard: (g: LeaveGuard | null) => void;
   registerEscape: (h: EscapeHandler | null) => void;
 }
@@ -133,12 +136,13 @@ export function RoleView({
   tab,
   onTabChange,
   onBack,
-  onOpenRunbook,
+  onOpenSkill,
   onRoleChanged,
   onHueDraft,
   onSharingChanged,
   onArchived,
   onStartConversation,
+  onOpenScheduledTasks,
   registerGuard,
   registerEscape,
 }: RoleViewProps): JSX.Element {
@@ -368,81 +372,91 @@ export function RoleView({
     return () => registerEscape(null);
   }, [registerEscape]);
 
-  // ── Runbooks ─────────────────────────────────────────────────────────────
-  const [runbooks, setRunbooks] = useState<TabState<RunbookEntry[]>>({ status: "loading" });
-  const [runbooksKey, setRunbooksKey] = useState(0);
+  // ── Scheduled tasks (count for the shortcut) ─────────────────────────────
+  // null = not known (loading, or the list failed); the shortcut still works.
+  const [taskCount, setTaskCount] = useState<number | null>(null);
   useEffect(() => {
-    if (tab !== "runbooks") return;
     let cancelled = false;
-    setRunbooks({ status: "loading" });
-    listRunbooks(hostId, name)
-      .then((entries) => {
-        if (!cancelled) setRunbooks({ status: "ready", data: [...entries].sort((a, b) => a.name.localeCompare(b.name)) });
+    setTaskCount(null);
+    listScheduledAgents()
+      .then((items) => {
+        if (!cancelled) setTaskCount(items.filter((i) => i.hostId === hostId && i.roles.includes(name)).length);
       })
-      .catch((err: unknown) => {
-        if (!cancelled) setRunbooks({ status: "error", error: err instanceof Error ? err.message : "Failed to load runbooks" });
+      .catch((e: unknown) => {
+        console.warn("[RoleView] scheduled-task count failed", {
+          roleName: name,
+          hostId,
+          error: e instanceof Error ? e.message : String(e),
+        });
       });
     return () => {
       cancelled = true;
     };
-  }, [tab, hostId, name, runbooksKey]);
+  }, [hostId, name]);
+  const scheduledTasksLabel =
+    taskCount === null
+      ? "Scheduled tasks"
+      : taskCount === 0
+        ? "No scheduled tasks"
+        : `${taskCount} scheduled task${taskCount === 1 ? "" : "s"}`;
 
-  const newRunbook = async (): Promise<void> => {
-    const raw = await kitPrompt({
-      title: "New runbook",
+  // ── Skills ───────────────────────────────────────────────────────────────
+  const [skills, setSkills] = useState<TabState<RoleSkillEntry[]>>({ status: "loading" });
+  useEffect(() => {
+    if (tab !== "skills") return;
+    let cancelled = false;
+    setSkills({ status: "loading" });
+    listRoleSkills(hostId, name)
+      .then((entries) => {
+        if (!cancelled) setSkills({ status: "ready", data: [...entries].sort((a, b) => a.name.localeCompare(b.name)) });
+      })
+      .catch((err: unknown) => {
+        if (!cancelled) setSkills({ status: "error", error: err instanceof Error ? err.message : "Failed to load skills" });
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [tab, hostId, name]);
+
+  // Same two steps as the Skills window's New skill: a name, then the
+  // description agents read when they load the role (required).
+  const newSkill = async (): Promise<void> => {
+    const rawName = await kitPrompt({
+      title: "New skill",
       label: "Name",
-      body: "A step-by-step playbook for work this role does again and again.",
+      body: "Something this role does again and again, written down once.",
       placeholder: "Weekly report",
-      confirmLabel: "Create",
+      confirmLabel: "Next",
+      validate: (v) => (slugifyRoleName(v.trim()).length === 0 ? "Use at least one letter or number." : null),
     });
-    if (raw == null) return;
-    const slug = slugifyRoleName(raw);
-    if (!slug) {
-      void kitAlert({ title: "That name won't work", body: "Use at least one letter or number." });
-      return;
-    }
-    let created: { mtime: number };
+    if (rawName == null) return;
+    const displayName = rawName.trim();
+    const slug = slugifyRoleName(displayName);
+    const rawDesc = await kitPrompt({
+      title: `Describe "${displayName}"`,
+      body: "What it does and when an agent should use it — agents holding the role read this when they load.",
+      label: "Description",
+      confirmLabel: "Create skill",
+      validate: (v) => (v.trim().length === 0 ? "A description is required." : null),
+    });
+    if (rawDesc == null) return;
+    let created: { slug: string };
     try {
-      created = await createRunbook(hostId, name, slug, RUNBOOK_STARTER_FILE);
+      created = await createRoleSkill(hostId, name, slug, rawDesc.trim());
     } catch (err) {
       void kitAlert({
-        title: "Couldn't create the runbook",
+        title: "Couldn't create the skill",
         body:
-          err instanceof RunbookAlreadyExistsError
-            ? `This role already has a runbook called "${slug}".`
+          err instanceof RoleSkillAlreadyExistsError
+            ? `This role already has a skill called "${slug}".`
             : err instanceof Error
               ? err.message
               : undefined,
       });
       return;
     }
-    console.info({ operation: "runbook_created", hostId, roleName: name, runbook: slug });
-    setRunbooksKey((k) => k + 1);
-    // The runbook exists from here on; a failed starter text only leaves its
-    // first file empty, so open it either way.
-    try {
-      await writeRunbookFile({
-        hostId,
-        role: name,
-        runbook: slug,
-        path: RUNBOOK_STARTER_FILE,
-        content: `# ${raw.trim()}\n\nWhen to use this:\n\nSteps:\n\n1. \n`,
-        expectedMtime: created.mtime,
-      });
-    } catch (err) {
-      console.warn({
-        operation: "runbook_starter_write_failed",
-        hostId,
-        roleName: name,
-        runbook: slug,
-        errMessage: err instanceof Error ? err.message : String(err),
-      });
-      void kitAlert({
-        title: "The runbook was made, but its starter text wasn't written",
-        body: "Its runbook.md is empty — fill it in when it opens.",
-      });
-    }
-    onOpenRunbook(slug);
+    console.info({ operation: "role_skill_created", hostId, roleName: name, skill: created.slug });
+    onOpenSkill(created.slug);
   };
 
   // ── Menu actions ─────────────────────────────────────────────────────────
@@ -652,6 +666,19 @@ export function RoleView({
         )}
         <div className="text-[12.5px] text-[var(--k-t3)] flex flex-wrap items-center gap-x-2 gap-y-1" data-testid="role-view-facts">
           <span>{facts}</span>
+          {/* A shortcut, not a second home: scheduled tasks live in the
+              scheduled tasks window, which this opens on the role's tasks. */}
+          <button
+            type="button"
+            onClick={() => void onOpenScheduledTasks()}
+            className="inline-flex items-center gap-1 text-[var(--k-acc-text)] hover:underline cursor-pointer"
+            title="Open Scheduled Tasks for this role"
+            data-testid="role-view-scheduled-tasks"
+          >
+            <Clock className="size-3" aria-hidden="true" />
+            {scheduledTasksLabel}
+            <ChevronRight className="size-3" aria-hidden="true" />
+          </button>
           {shared && isAdmin && instanceWideItem ? <InstanceWideSyncStatus item={instanceWideItem} /> : null}
         </div>
         {readOnly ? (
@@ -751,45 +778,45 @@ export function RoleView({
       </div>
     );
 
-  const runbooksPane =
-    runbooks.status === "loading" ? (
+  const skillsPane =
+    skills.status === "loading" ? (
       <KitLoading lines={3} />
-    ) : runbooks.status === "error" ? (
-      <KitBanner tone="danger">Couldn&apos;t load runbooks: {runbooks.error}</KitBanner>
-    ) : runbooks.data.length === 0 ? (
+    ) : skills.status === "error" ? (
+      <KitBanner tone="danger">Couldn&apos;t load skills: {skills.error}</KitBanner>
+    ) : skills.data.length === 0 ? (
       <KitEmpty
-        icon={<BookOpen />}
-        title="No runbooks yet"
-        body="A runbook is a step-by-step playbook for work this role does again and again. Every agent holding the role can use it."
+        icon={<Zap />}
+        title="No skills yet"
+        body="A role skill writes down how to do something this role does again and again. Every agent holding the role is told about it when it loads."
         action={
           readOnly ? undefined : (
-            <KitButton variant="primary" size="sm" onClick={() => void newRunbook()} data-testid="role-view-new-runbook">
-              <Plus /> New runbook
+            <KitButton variant="primary" size="sm" onClick={() => void newSkill()} data-testid="role-view-new-skill">
+              <Plus /> New skill
             </KitButton>
           )
         }
       />
     ) : (
       <>
-        <KitSettingsGroup note="Step-by-step playbooks for work this role does again and again. Every agent holding the role can use them.">
-          {runbooks.data.map((r) => (
+        <KitSettingsGroup note="How to do things this role does again and again. Every agent holding the role is told about them when it loads.">
+          {skills.data.map((r) => (
             <KitSettingsRow
               key={r.name}
               leading={
                 <span className="size-8 rounded-[9px] bg-[var(--k-s2)] text-[var(--k-t2)] grid place-items-center shrink-0">
-                  <BookOpen className="size-4" aria-hidden="true" />
+                  <Zap className="size-4" aria-hidden="true" />
                 </span>
               }
               label={<span className="font-semibold">{roleDisplayName(r.name)}</span>}
-              onClick={() => onOpenRunbook(r.name)}
-              data-testid={`role-view-runbook-${r.name}`}
+              onClick={() => onOpenSkill(r.name)}
+              data-testid={`role-view-skill-${r.name}`}
             />
           ))}
         </KitSettingsGroup>
         {readOnly ? null : (
           <div className="mt-3.5">
-            <KitButton variant="plain" size="sm" onClick={() => void newRunbook()} data-testid="role-view-new-runbook">
-              <Plus /> New runbook
+            <KitButton variant="plain" size="sm" onClick={() => void newSkill()} data-testid="role-view-new-skill">
+              <Plus /> New skill
             </KitButton>
           </div>
         )}
@@ -822,8 +849,8 @@ export function RoleView({
         <TabsContent value="role" className="flex-1 min-h-0 overflow-y-auto px-6 max-sm:px-5 py-4 border-t border-[var(--k-hair)]">
           {roleFilePane}
         </TabsContent>
-        <TabsContent value="runbooks" className="flex-1 min-h-0 overflow-y-auto px-6 max-sm:px-5 py-4 border-t border-[var(--k-hair)]">
-          {runbooksPane}
+        <TabsContent value="skills" className="flex-1 min-h-0 overflow-y-auto px-6 max-sm:px-5 py-4 border-t border-[var(--k-hair)]">
+          {skillsPane}
         </TabsContent>
         <TabsContent value="files" className="flex-1 min-h-0 overflow-hidden flex flex-col border-t border-[var(--k-hair)]">
           <WorkspaceTab
