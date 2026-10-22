@@ -76,3 +76,42 @@ Four small windows get the same pass as the rest of the app. The new-conversatio
 - Tests for all four windows rewritten around the new flows; id skill describes each change.
 - The unused "new group conversation" (relay room) dialog is not opened anywhere — Ashley to say whether to delete it here.
 - Local only — campaign shipping rule.
+
+---
+
+## Close-Out
+
+**Closed:** 2026-10-22
+**Overall verdict:** closed-hit (two small additions endorsed by Ashley)
+
+### Shape features (conformance)
+
+- **What this is** — present · all four windows redone as agreed.
+- **New conversation** — present · title/description lines; admin-only Agent / Shell switch replacing the tick-box; roles as an in-dialog list grouped by machine, headings only with several machines; No roles first with its line; picture, name, "· on every host", description, check; several picks, No roles exclusive, other-machine move; search past eight roles; New role… at the bottom and back; name always shown and pre-filled ("Suggested — change it if you like."), typing wins, name checks kept, "Pick a role first"; shell mode as before; Cancel + Create, Create gating, locked Creating…; phone sheet with stacked buttons.
+- **What's new** — present · sparkle tile, "What's new in <instance name>", grouped notes, full-width Continue; closing marks seen.
+- **Search** — present · "Search", "Search every conversation", before-search text, "Press Return to search." hint, searching line, count line (N / N+), rows as today, Load more, no-results line, error banner at the top.
+- **Archived apps** — present · subtitle, picture/initial, name, Un-archive button (busy, one at a time), right-click kept, no ⋮, empty state.
+- **Philosophy** — present.
+- **Prior context** — present · id skill describes all four windows; the campaign's single what's-new note waits for campaign close.
+- **What would make it wrong: non-admin sees the switch or can open a shell** — present (not violated).
+- **What would make it wrong: machine heading with one machine** — present (not violated).
+- **What would make it wrong: name behind a tick-box / suggestion overwriting a typed name** — present (not violated).
+- **What would make it wrong: losing anything the dialog does today** — present (not violated).
+- **What would make it wrong: search on every keystroke** — present (not violated).
+- **What would make it wrong: Un-archive only through a hidden menu** — present (not violated).
+- **What would make it wrong: "Skynet" hard-coded in What's new** — present (not violated).
+- **Scope edges** — present.
+
+### Additions (in the result, not in the shape)
+
+- The new-conversation window got bigger (room for the role list) and What's new smaller (a short sheet) ahead of the sizing pass — endorsed-as-drift
+- Searching the role list hides the No roles rows, matches machine names too, and says "No matching roles" when nothing matches — endorsed-as-drift
+- Roles-window changes alongside (role skills shown like skills, no machine on the facts line, the scheduled-tasks link) — asked for by Ashley during this session; logged in the campaign artifact
+
+### Follow-ups
+
+- The unused "new group conversation" dialog stays as is, not restyled and not removed — Ashley plans to come back to it later — deferred
+
+### Notes
+
+Settled by reading only.

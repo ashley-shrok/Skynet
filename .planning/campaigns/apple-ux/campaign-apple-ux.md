@@ -37,7 +37,7 @@ Starting order: foundation, skills, then the remaining modals, then host targeti
 - **[declared] shape-scheduled-tasks-modal** — scheduled tasks list by machine, each task one level deeper, Run now a button; shared "When" section (see shape-scheduled-tasks-modal.closed.md) — closed 2026-10-21
 - **[declared] shape-preferences-modal** — account-first Preferences (account card, section headers, save-as-you-go, About you read → Edit, branded About), self-confirming feedback dialogs (see shape-preferences-modal.closed.md) — closed 2026-10-21
 - **[declared] shape-admin-modals** — Admin in the Preferences family; users and hosts one level deeper in the same window; hosts grouped by attention with reasons; instance file read → Edit (see shape-admin-modals.closed.md) — closed 2026-10-21
-- **[declared] shape-creation-and-search-dialogs** — new conversation, new session, conversation search, archived apps — not started
+- **[declared] shape-creation-and-search-dialogs** — new-conversation dialog (role list, name pre-filled, admin Agent/Shell), What's new, search, archived apps (see shape-creation-and-search-dialogs.closed.md) — closed 2026-10-22
 - **[declared] shape-file-modal** — the editable file modal — not started
 - **[discovered] shape-modal-sizing** — once every modal is redesigned, Ashley walks through them all and says where each should size or expand (per tab where it helps, on screens with room), instead of tracking sizes shape by shape (Ashley, 2026-10-18) — not started
 - **[declared] shape-host-targeting** — admin-only: shared skills and roles target a chosen set of hosts or a permanent "every host"; sync machinery + the admin controls in both skills and roles modals — not started
@@ -60,7 +60,8 @@ The foundation already moved every modal onto the kit, so each remaining modal s
 - Kit candidates raised during the foundation (pop-over panel for colour/voice pickers, link-styled button, usage meter, sortable column header) — pick up in the per-modal shapes that need them
 - Unused sidebar-era row styles in the conversation-list stylesheet — clean up in shape-sidebar
 - Markdown files show their Formatted / Plain text switch on its own row under the file toolbar (file viewer, everywhere) — look at it in shape-file-modal
-- New-conversation roles dropdown (upstream's grouped multi-select, revived 2026-10-18 when the host step was dropped) is not on the kit yet — restyle in shape-creation-and-search-dialogs
+- New-conversation roles dropdown (upstream's grouped multi-select, revived 2026-10-18 when the host step was dropped) is not on the kit yet — restyle in shape-creation-and-search-dialogs — done (now an in-dialog role list)
+- The unused "new group conversation" (relay room) dialog — left as is; Ashley plans to come back to it later — deferred
 - Role description field (frontmatter `description:`, replaces the `## Role`-derived text) plumbed through backend + API by anthem-box-maintainer-6 (spawned 2026-10-18 at Ashley's ask) — done, b1b842fb on origin
 - Draft a one-line description for every existing role from its role file — after the roles-modals deploy (Ashley, 2026-10-18)
 - Wake-up "Next: …" fire time — the agent window's wake-up view shows schedule + last fired only; showing the next fire needs the server to work it out the scheduler's way (Ashley, 2026-10-18) — not started
@@ -70,7 +71,7 @@ The foundation already moved every modal onto the kit, so each remaining modal s
 - Long project lineages ("In A › B › C") cut off from the end, losing the nearest parent — consider trimming from the start (agent window, project window, new sub-project dialog) — not started
 - The app's host list dropped the "can run agents" flag, so new scheduled tasks (and anything else filtering on it) saw no machines — found and fixed during shape-scheduled-tasks-modal
 - What's-new note for the whole redesign — the role now asks for one per user-visible change; this campaign writes ONE note at campaign close (Ashley approves the exact text before it's committed) — not started
-- Upstream's new "What's new" pop-up (a9261d84, 2026-10-21) is another window to bring onto the kit/family — fold into shape-creation-and-search-dialogs — not started
+- Upstream's new "What's new" pop-up (a9261d84, 2026-10-21) is another window to bring onto the kit/family — fold into shape-creation-and-search-dialogs — done in shape-creation-and-search-dialogs
 - Upstream gave the scheduled-task form a Project picker (146599d2) — carry it into the redesigned scheduled-tasks window at the next rebase — done at the 2026-10-21 rebase (Project dropdown in the task view, project line on the row, search matches it)
 - Upstream's runbooks → role skills (f0452a0c) and the role → scheduled-tasks shortcut (7ff647c0) — carried into the roles window at the 2026-10-22 rebase (Skills tab, role-skill view on SKILL.md, "N scheduled tasks ›" opening the scheduled tasks window on that role) — done
 - Role skills read like skills (Ashley, 2026-10-22): rows show name + description, a role skill's header its description; the role-skills list route now returns descriptions (backend — shows only once deployed) — done
