@@ -445,7 +445,8 @@ describe("WakeupView — editing an existing wake-up", () => {
         run: "cadence",
         cadenceHuman: "Every 5m",
         lastRanAt: NOW - 60,
-        waitingFires: 0,
+        trippedReason: null,
+        trippedAt: null,
         error: "Traceback: boom",
       },
     });

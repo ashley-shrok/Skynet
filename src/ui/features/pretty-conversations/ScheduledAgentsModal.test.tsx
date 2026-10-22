@@ -1269,7 +1269,7 @@ describe("ScheduledAgentsModal: sensor-fired tasks", () => {
   beforeEach(() => {
     NOW = Math.floor(Date.now() / 1000);
   });
-  const sensorRow = (state: "healthy" | "broken" | "off" | "unknown", extra: Partial<ScheduledAgentListItem> = {}) =>
+  const sensorRow = (state: "healthy" | "broken" | "off" | "tripped" | "unknown", extra: Partial<ScheduledAgentListItem> = {}) =>
     makeRow({
       slug: "deliveries",
       name: "Deliveries",
@@ -1282,7 +1282,8 @@ describe("ScheduledAgentsModal: sensor-fired tasks", () => {
         run: "always",
         cadenceHuman: null,
         lastRanAt: NOW - 30,
-        waitingFires: state === "off" ? 2 : 0,
+        trippedReason: state === "tripped" ? "fired more than its limit of 10 times in an hour" : null,
+        trippedAt: state === "tripped" ? NOW - 2 * 3600 : null,
         error: state === "broken" ? "Traceback\nKeyError: x" : null,
       },
       ...extra,
@@ -1309,11 +1310,24 @@ describe("ScheduledAgentsModal: sensor-fired tasks", () => {
     expect(screen.getByTestId(`${ROW("payday")}-sensor`)).not.toHaveTextContent("once");
   });
 
-  it("switched off with held fires shows Off and the waiting count", async () => {
+  it("switched off shows Off, with no waiting count", async () => {
     listScheduledAgentsMock.mockResolvedValue([sensorRow("off", { enabled: false })]);
     renderModal();
-    expect(await screen.findByTestId(`${ROW("deliveries")}-sensor`)).toHaveTextContent("Off");
-    expect(screen.getByTestId(`${ROW("deliveries")}-sensor-waiting`)).toHaveTextContent("2 waiting");
+    const line = await screen.findByTestId(`${ROW("deliveries")}-sensor`);
+    expect(line).toHaveTextContent("Off");
+    expect(line).not.toHaveTextContent("waiting");
+    expect(screen.queryByTestId(`${ROW("deliveries")}-sensor-tripped`)).toBeNull();
+  });
+
+  it("a tripped sensor shows Tripped and why, on the row and in the task", async () => {
+    listScheduledAgentsMock.mockResolvedValue([sensorRow("tripped", { enabled: false })]);
+    renderModal();
+    const line = await screen.findByTestId(`${ROW("deliveries")}-sensor`);
+    expect(screen.getByTestId(`${ROW("deliveries")}-sensor-state`)).toHaveTextContent("Tripped");
+    expect(screen.getByTestId(`${ROW("deliveries")}-sensor-state`)).toHaveAttribute("data-state", "tripped");
+    expect(line).toHaveTextContent("Fired more than its limit of 10 times in an hour");
+    await openTask("deliveries");
+    expect(screen.getByTestId("scheduled-task-sensor-details")).toHaveTextContent("Fired more than its limit of 10 times in an hour");
   });
 
   it("never fired reads 'Never fired'; unknown reads Unknown", async () => {

@@ -26,7 +26,7 @@ import {
   formatRelativePast,
 } from "@/features/pretty-conversations/scheduled-agents-time-fmt";
 import type { TabState } from "./IdentityFileTab";
-import { SENSOR_MARK, SensorStateChip, lastFiredLabel } from "./SensorStatusView";
+import { SENSOR_MARK, SensorStateChip, lastFiredLabel, trippedReasonText } from "./SensorStatusView";
 import { isOnceSensorSchedule, isSensorSchedule } from "./WakeupFormShared";
 
 export const WAKEUPS_NOTE =
@@ -57,8 +57,8 @@ function WakeupSensorSummary({
           ? `Last fired ${formatRelativePast(lastFiredAt, now)}`
           : "Never fired"}
       </span>
-      {sensor.waitingFires > 0 && (
-        <span data-testid={`${testId}-waiting`}>· {sensor.waitingFires} waiting</span>
+      {trippedReasonText(sensor) && (
+        <span data-testid={`${testId}-tripped`}>· {trippedReasonText(sensor)}</span>
       )}
     </span>
   );

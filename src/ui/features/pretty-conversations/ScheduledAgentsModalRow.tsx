@@ -20,7 +20,7 @@ import { KitAvatar, KitSettingsRow, KitSwitch } from "@/components/kit";
 import { cn } from "@/lib/utils";
 import { useRowKebabContextMenu, type RowKebabMenuItem } from "./RowKebabMenu";
 import { formatAbsolute, formatRelativeFuture, formatRelativePast } from "./scheduled-agents-time-fmt";
-import { SENSOR_MARK, SensorStateChip } from "@/features/pretty-view/SensorStatusView";
+import { SENSOR_MARK, SensorStateChip, trippedReasonText } from "@/features/pretty-view/SensorStatusView";
 import { isOnceSensorSchedule } from "@/features/pretty-view/WakeupFormShared";
 import { formatProjectPath } from "./scheduled-agents-projects";
 
@@ -99,8 +99,8 @@ export interface ScheduledAgentsModalRowProps {
 
 const Dot = () => <span className="mx-1.5 opacity-55">·</span>;
 
-/** "📡 Sensor · <status chip> · Last fired … · N waiting" — the row line for
- *  a sensor-triggered task (sensors have no Next). */
+/** "📡 Sensor · <status chip> · Last fired …" (plus why, when tripped) — the
+ *  row line for a sensor-triggered task (sensors have no Next). */
 function SensorLine({
   row,
   testId,
@@ -120,10 +120,10 @@ function SensorLine({
       <span title={typeof lastFiredAt === "number" ? formatAbsolute(lastFiredAt, nowSecs) : undefined}>
         {typeof lastFiredAt === "number" ? `Last fired ${formatRelativePast(lastFiredAt, nowSecs)}` : "Never fired"}
       </span>
-      {sensor.waitingFires > 0 && (
+      {trippedReasonText(sensor) && (
         <>
           <Dot />
-          <span data-testid={`${testId}-waiting`}>{`${sensor.waitingFires} waiting`}</span>
+          <span data-testid={`${testId}-tripped`}>{trippedReasonText(sensor)}</span>
         </>
       )}
     </span>

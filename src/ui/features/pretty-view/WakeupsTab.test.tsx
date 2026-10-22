@@ -38,7 +38,8 @@ const SENSOR_WAKEUP: Wakeup = {
     run: "cadence",
     cadenceHuman: "Every 5m",
     lastRanAt: NOW - 60,
-    waitingFires: 2,
+    trippedReason: null,
+    trippedAt: null,
     error: null,
   },
 };
@@ -134,14 +135,14 @@ describe("WakeupsTab — list", () => {
     expect(onOpen).not.toHaveBeenCalled();
   });
 
-  it("a sensor wake-up's row shows the sensor summary (state, last fired, waiting) instead of a schedule", () => {
+  it("a sensor wake-up's row shows the sensor summary (state, last fired) instead of a schedule", () => {
     renderTab([SENSOR_WAKEUP]);
     const summary = screen.getByTestId("wakeup-sensor-summary");
     expect(summary.textContent).toContain("Sensor");
     expect(summary.textContent).toContain("Healthy");
     expect(summary.textContent).toContain("Last fired 2h ago");
     expect(screen.getByTestId("wakeup-sensor-summary-state").getAttribute("data-state")).toBe("healthy");
-    expect(screen.getByTestId("wakeup-sensor-summary-waiting").textContent).toContain("2 waiting");
+    expect(summary.textContent).not.toContain("waiting");
     expect(screen.queryByTestId("wakeup-last-fired")).toBeNull();
     // Details stay off the list.
     expect(screen.queryByTestId("wakeup-sensor-details")).toBeNull();
@@ -153,13 +154,25 @@ describe("WakeupsTab — list", () => {
         ...SENSOR_WAKEUP,
         schedule: { type: "sensor", once: true },
         lastFiredAt: null,
-        sensor: { ...SENSOR_WAKEUP.sensor!, waitingFires: 0 },
+        sensor: { ...SENSOR_WAKEUP.sensor! },
       },
     ]);
     const summary = screen.getByTestId("wakeup-sensor-summary");
     expect(summary.textContent).toContain("Sensor · once");
     expect(summary.textContent).toContain("Never fired");
-    expect(screen.queryByTestId("wakeup-sensor-summary-waiting")).toBeNull();
+    expect(screen.queryByTestId("wakeup-sensor-summary-tripped")).toBeNull();
+  });
+
+  it("a tripped sensor wake-up says Tripped and why", () => {
+    renderTab([
+      {
+        ...SENSOR_WAKEUP,
+        enabled: false,
+        sensor: { ...SENSOR_WAKEUP.sensor!, state: "tripped", trippedReason: "fired more than its limit of 10 times in an hour", trippedAt: NOW - 60 },
+      },
+    ]);
+    expect(screen.getByTestId("wakeup-sensor-summary-state").getAttribute("data-state")).toBe("tripped");
+    expect(screen.getByTestId("wakeup-sensor-summary-tripped").textContent).toContain("Fired more than its limit of 10 times in an hour");
   });
 
   it("empty list shows the empty state with a New wake-up button", () => {

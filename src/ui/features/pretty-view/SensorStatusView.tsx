@@ -40,6 +40,7 @@ const STATE_TONE: Record<SensorState, KitChipTone> = {
   broken: "danger",
   running_long: "warn",
   off: "neutral",
+  tripped: "warn",
   not_live: "neutral",
   unknown: "neutral",
 };
@@ -50,7 +51,7 @@ const STATE_CLASS: Record<SensorState, string> = {
   broken: "text-[var(--k-danger-text)] font-semibold",
   running_long: "text-[#e8bf72]",
   off: "",
-  tripped: "text-amber-400 font-semibold",
+  tripped: "text-[var(--k-warn)] font-semibold",
   not_live: "",
   unknown: "text-[var(--k-t3)]",
 };
@@ -72,6 +73,12 @@ export function sensorStateLabel(state: SensorState): string {
 
 export function sensorStateHint(state: SensorState): string {
   return STATE_HINT[state] ?? STATE_HINT.unknown;
+}
+
+/** "Fired more than its limit…" — a tripped sensor's reason, capitalised. */
+export function trippedReasonText(sensor: SensorStatus): string | null {
+  if (sensor.state !== "tripped" || !sensor.trippedReason) return null;
+  return sensor.trippedReason[0].toUpperCase() + sensor.trippedReason.slice(1);
 }
 
 /** The sensor's state as a kit status chip (with its hover hint). */
