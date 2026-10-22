@@ -93,6 +93,7 @@ import {
   type ButtonSpeechState,
 } from "./speak-singleton";
 import { setVoiceModeSettings } from "./voice-mode-settings";
+import { __resetPreferredMicForTests } from "./preferred-mic";
 
 // ---------------------------------------------------------------------------
 // Browser audio stubs
@@ -145,9 +146,10 @@ class MockMediaRecorder {
   });
 }
 
-const track = { stop: vi.fn(), onended: null as null | (() => void) };
+const track = { stop: vi.fn(), onended: null as null | (() => void), label: "" };
 const stream = { getTracks: () => [track], getAudioTracks: () => [track] };
 const getUserMedia = vi.fn();
+const enumerateDevices = vi.fn();
 const wakeLockRelease = vi.fn().mockResolvedValue(undefined);
 const wakeLockRequest = vi.fn();
 
@@ -217,6 +219,10 @@ beforeEach(() => {
   remote.dispose.mockReset();
   sessionTypes.length = 0;
   track.stop.mockReset();
+  track.label = "";
+  __resetPreferredMicForTests();
+  enumerateDevices.mockReset();
+  enumerateDevices.mockResolvedValue([]);
   stampedFetch.mockReset();
   postSpeakStream.mockReset();
   postSpeakStream.mockResolvedValue({ ok: true, status: 200 });
@@ -228,7 +234,7 @@ beforeEach(() => {
   vi.stubGlobal("MediaRecorder", MockMediaRecorder);
   Object.defineProperty(navigator, "mediaDevices", {
     configurable: true,
-    value: { getUserMedia },
+    value: { getUserMedia, enumerateDevices },
   });
   Object.defineProperty(navigator, "wakeLock", {
     configurable: true,
@@ -1270,5 +1276,34 @@ describe("useVoiceMode — press to talk", () => {
     }));
     await flush();
     expect(players[0].opts.context).toBeUndefined();
+  });
+});
+
+describe("useVoiceMode — headset mic over the phone's own", () => {
+  const dev = (deviceId: string, label: string) =>
+    ({ deviceId, label, kind: "audioinput", groupId: "", toJSON: () => ({}) }) as MediaDeviceInfo;
+
+  it("switches to the AirPods mic when iOS hands out the iPhone mic", async () => {
+    track.label = "iPhone Microphone";
+    enumerateDevices.mockResolvedValue([dev("b1", "iPhone Microphone"), dev("h1", "AirPods")]);
+    const airpodsTrack = { stop: vi.fn(), onended: null, label: "AirPods" };
+    getUserMedia
+      .mockResolvedValueOnce(stream)
+      .mockResolvedValueOnce({ getTracks: () => [airpodsTrack], getAudioTracks: () => [airpodsTrack] });
+    const { result } = await startVoiceMode();
+    await flush();
+    expect(track.stop).toHaveBeenCalled();
+    expect(getUserMedia).toHaveBeenCalledTimes(2);
+    expect(getUserMedia.mock.calls[1][0].audio).toMatchObject({ deviceId: { ideal: "h1" } });
+    expect(result.current.phase).toBe("listening");
+  });
+
+  it("leaves a headset mic alone", async () => {
+    track.label = "AirPods";
+    enumerateDevices.mockResolvedValue([dev("b1", "iPhone Microphone"), dev("h1", "AirPods")]);
+    await startVoiceMode();
+    await flush();
+    expect(getUserMedia).toHaveBeenCalledTimes(1);
+    expect(enumerateDevices).not.toHaveBeenCalled();
   });
 });

@@ -87,6 +87,7 @@ import { registerVoiceModeActive } from "./voice-mode-registry";
 import { createVoiceModeCues, type VoiceModeCue, type VoiceModeCues } from "./voice-mode-cues";
 import { getVoiceModeSettings } from "./voice-mode-settings";
 import { describeMicTrack } from "./mic-level-monitor";
+import { learnHeadsetMic, micAudioConstraints } from "./preferred-mic";
 import { createHeadphoneRemote, RECLAIM_DELAY_MS, setAudioSessionType, type HeadphoneRemote } from "./headphone-remote";
 
 // ---------------------------------------------------------------------------
@@ -1180,6 +1181,24 @@ export function useVoiceMode(args: UseVoiceModeArgs): UseVoiceModeReturn {
     pumpRef.current();
   };
 
+  // Plus the remembered headset mic, if iOS handed out the phone's own (preferred-mic.ts).
+  const micConstraints = () =>
+    micAudioConstraints({ echoCancellation: true, noiseSuppression: true, autoGainControl: true });
+
+  /**
+   * Got the phone's built-in mic while a headset mic exists → switch to the
+   * headset (the pump re-acquires with it), or, for the press-to-talk
+   * permission stream, just remember it for the first turn.
+   */
+  const preferHeadsetMic = (stream: MediaStream) => {
+    void learnHeadsetMic(stream, log).then((learned) => {
+      if (!learned || !activeRef.current || streamRef.current !== stream) return;
+      log("mic-switch-to-headset");
+      dropStream();
+      pumpRef.current();
+    });
+  };
+
   const attachStreamRef = useRef<(stream: MediaStream) => void>(() => {});
   attachStreamRef.current = (stream: MediaStream) => {
     acquiringRef.current = false;
@@ -1191,6 +1210,7 @@ export function useVoiceMode(args: UseVoiceModeArgs): UseVoiceModeReturn {
     // permission — release it and wait for a press.
     if (pressModeRef.current && !turnOpenRef.current) {
       console.info(`[voice-mode] press-permission-ok ${describeMicTrack(stream)} ${tagRef.current}`);
+      preferHeadsetMic(stream); // so the first turn opens the headset mic
       stream.getTracks().forEach((t) => t.stop());
       setAudioSessionType("playback", log);
       if (reclaimTimerRef.current !== null) clearTimeout(reclaimTimerRef.current);
@@ -1204,6 +1224,7 @@ export function useVoiceMode(args: UseVoiceModeArgs): UseVoiceModeReturn {
     }
     streamRef.current = stream;
     console.info(`[voice-mode] stream-attached ${describeMicTrack(stream)} ${tagRef.current}`);
+    preferHeadsetMic(stream);
     for (const track of stream.getAudioTracks()) {
       // The phone muting the mic (call, Siri, another app taking audio) leaves
       // the track live but silent — log it; recorders may stall without onstop.
@@ -1251,7 +1272,7 @@ export function useVoiceMode(args: UseVoiceModeArgs): UseVoiceModeReturn {
     log("reacquire-mic");
     if (pressModeRef.current) setAudioSessionType("play-and-record", log);
     navigator.mediaDevices
-      .getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true } })
+      .getUserMedia({ audio: micConstraints() })
       .then(attachStreamRef.current, failAcquireRef.current);
   };
 
@@ -1261,9 +1282,7 @@ export function useVoiceMode(args: UseVoiceModeArgs): UseVoiceModeReturn {
       setErrorMessage("Voice mode needs microphone access");
       return;
     }
-    const streamPromise = navigator.mediaDevices.getUserMedia({
-      audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
-    });
+    const streamPromise = navigator.mediaDevices.getUserMedia({ audio: micConstraints() });
     activeRef.current = true;
     sessionRef.current += 1;
     piecesRef.current = [];
