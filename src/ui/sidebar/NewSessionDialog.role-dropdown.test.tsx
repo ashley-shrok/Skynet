@@ -139,7 +139,7 @@ function makeHost(id: string, name: string, overrides: Partial<Host> = {}): Host
     enableSsh: true,
     enableRdp: false,
     // Can host agents — agent mode only offers such machines.
-    runsFleetSubstrate: true,
+    canHostAgents: true,
     enableVnc: false,
     enableTelnet: false,
     sshPort: 22,
@@ -636,10 +636,10 @@ describe("NewSessionDialog roles: \"No roles\" entry", () => {
   });
 });
 
-// Agent mode only offers machines that can host agents (runsFleetSubstrate).
+// Agent mode only offers machines that can host agents (canHostAgents).
 describe("NewSessionDialog roles: only machines that can host agents", () => {
-  const notFleet = makeHost("2", "winbox", { runsFleetSubstrate: false, enableSsh: false });
-  const noFlag = makeHost("3", "legacy", { runsFleetSubstrate: undefined });
+  const notFleet = makeHost("2", "winbox", { canHostAgents: false, enableSsh: false });
+  const noFlag = makeHost("3", "legacy", { canHostAgents: undefined });
 
   it("ineligible hosts get no section, no \"No roles\" entry and no roles request", async () => {
     mockListRolesForHost.mockImplementation(

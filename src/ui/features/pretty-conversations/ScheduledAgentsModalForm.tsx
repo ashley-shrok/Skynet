@@ -15,7 +15,7 @@
 //   4) Host (single-select chip-picker) — disabled on edit-mode per D-21
 //      (cross-host management is delete-and-recreate). Auto-selects the
 //      single available host per Phase 84 CreateProjectModal pattern. Only
-//      machines that can host agents (runsFleetSubstrate) are offered.
+//      machines that can host agents (canHostAgents) are offered.
 //   4b) Project (single select) — "No project" or any project on the
 //      selected host, sub-projects indented in sidebar order. Picking a
 //      different host clears it. A task whose project is gone opens with
@@ -236,7 +236,7 @@ export function ScheduledAgentsModalForm({
   // dialog offers in agent mode. Edit mode resolves its locked host from the
   // full list below.
   const agentHosts = useMemo(
-    () => flatHosts.filter((h) => h.runsFleetSubstrate === true),
+    () => flatHosts.filter((h) => h.canHostAgents === true),
     [flatHosts],
   );
 

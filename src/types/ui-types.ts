@@ -134,6 +134,9 @@ export type Host = {
   // POST /db/host + PUT /db/host/:id — no UI toggle yet (operator flips via
   // curl or admin console for now).
   runsFleetSubstrate?: boolean;
+  // The machine runs the fleet substrate (through this row or another user's
+  // copy of it). Gates the new-conversation and scheduled-task pickers.
+  canHostAgents?: boolean;
 };
 
 export type Credential = {

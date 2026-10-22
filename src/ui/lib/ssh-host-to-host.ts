@@ -33,8 +33,9 @@ export function sshHostToHost(h: SSHHostWithStatus): Host {
     enableRdp: h.enableRdp ?? h.connectionType === "rdp",
     enableVnc: h.enableVnc ?? h.connectionType === "vnc",
     enableTelnet: h.enableTelnet ?? h.connectionType === "telnet",
-    // Gates which hosts the new-conversation and scheduled-task pickers offer.
     runsFleetSubstrate: h.runsFleetSubstrate === true,
+    // Gates which hosts the new-conversation and scheduled-task pickers offer.
+    canHostAgents: h.canHostAgents === true || h.runsFleetSubstrate === true,
     sshPort: h.port,
     rdpPort: 3389,
     vncPort: 5900,

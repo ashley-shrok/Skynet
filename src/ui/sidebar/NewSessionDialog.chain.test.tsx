@@ -139,7 +139,7 @@ function makeHost(id: string, name: string, overrides: Partial<Host> = {}): Host
     enableSsh: true,
     enableRdp: false,
     // Can host agents — agent mode only offers such machines.
-    runsFleetSubstrate: true,
+    canHostAgents: true,
     enableVnc: false,
     enableTelnet: false,
     sshPort: 22,

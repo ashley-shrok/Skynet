@@ -95,6 +95,9 @@ export interface Host {
   enableVnc?: boolean;
   enableTelnet?: boolean;
   runsFleetSubstrate?: boolean;
+  // Read-only, from GET /db/host: this row, or another row for the same
+  // machine, runs the fleet substrate — so agents can live here.
+  canHostAgents?: boolean;
   sshPort?: number;
   rdpPort?: number;
   vncPort?: number;

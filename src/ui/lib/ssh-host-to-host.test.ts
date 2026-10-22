@@ -23,3 +23,16 @@ describe("sshHostToHost", () => {
     expect(sshHostToHost(base).runsFleetSubstrate).toBe(false);
   });
 });
+
+describe("sshHostToHost canHostAgents", () => {
+  // Another user's copy of a fleet machine has runsFleetSubstrate off but
+  // canHostAgents on; the pickers must still offer it.
+  it("carries canHostAgents through", () => {
+    expect(sshHostToHost({ ...base, canHostAgents: true }).canHostAgents).toBe(true);
+    expect(sshHostToHost({ ...base, canHostAgents: false }).canHostAgents).toBe(false);
+  });
+
+  it("is true when the row itself runs the fleet substrate", () => {
+    expect(sshHostToHost({ ...base, runsFleetSubstrate: true }).canHostAgents).toBe(true);
+  });
+});

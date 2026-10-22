@@ -119,7 +119,7 @@ const ONE_HOST_TREE: HostFolder = {
       enableSsh: true,
       enableRdp: false,
       // Can host agents — the form only offers such machines.
-      runsFleetSubstrate: true,
+      canHostAgents: true,
       enableVnc: false,
       enableTelnet: false,
       sshPort: 22,
@@ -1025,7 +1025,7 @@ describe("ScheduledAgentsModal: UAT 2026-10-01", () => {
       name: "root",
       children: [
         ONE_HOST_TREE.children[0] as never,
-        { ...(ONE_HOST_TREE.children[0] as unknown as Record<string, unknown>), id: "2", name: "winbox", runsFleetSubstrate: false } as never,
+        { ...(ONE_HOST_TREE.children[0] as unknown as Record<string, unknown>), id: "2", name: "winbox", canHostAgents: false } as never,
         { ...(ONE_HOST_TREE.children[0] as unknown as Record<string, unknown>), id: "3", name: "fleet-b" } as never,
       ],
     };
@@ -1043,7 +1043,7 @@ describe("ScheduledAgentsModal: UAT 2026-10-01", () => {
       name: "root",
       children: [
         ONE_HOST_TREE.children[0] as never,
-        { ...(ONE_HOST_TREE.children[0] as unknown as Record<string, unknown>), id: "2", name: "winbox", runsFleetSubstrate: false } as never,
+        { ...(ONE_HOST_TREE.children[0] as unknown as Record<string, unknown>), id: "2", name: "winbox", canHostAgents: false } as never,
       ],
     };
     render(<ScheduledAgentsModal open={true} onOpenChange={vi.fn()} hostTree={tree} />);

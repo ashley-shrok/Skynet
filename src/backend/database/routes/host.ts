@@ -38,6 +38,7 @@ import {
   stripSensitiveFields,
   transformHostResponse,
 } from "./host-normalizers.js";
+import { canHostAgents } from "./host-agent-capable.js";
 import { registerHostOpksshRoutes } from "./host-opkssh-routes.js";
 import { registerHostFolderRoutes } from "./host-folder-routes.js";
 import { registerHostFileManagerBookmarkRoutes } from "./host-file-manager-bookmark-routes.js";
@@ -1660,10 +1661,36 @@ router.get(
 
       const data = [...decryptedOwnHosts, ...sanitizedSharedHosts];
 
+      // A copy of a machine that runs the fleet substrate under another row
+      // (another user's) can host agents too; the flag itself stays per-row.
+      const substrateRows = await db
+        .select({
+          ip: hosts.ip,
+          port: hosts.port,
+          username: hosts.username,
+          credentialId: hosts.credentialId,
+        })
+        .from(hosts)
+        .where(and(eq(hosts.enableSsh, true), eq(hosts.runsFleetSubstrate, true)));
+      const agentCapableIds = new Set(
+        rawData.filter((row) => canHostAgents(row, substrateRows)).map((row) => row.id),
+      );
+      const borrowed = rawData.filter(
+        (row) => agentCapableIds.has(row.id) && !row.runsFleetSubstrate,
+      );
+      if (borrowed.length > 0) {
+        sshLogger.info("[host-db] agent-capable-via-peer-row", {
+          operation: "host_fetch_agent_capable_peer",
+          userId,
+          hostIds: borrowed.map((row) => row.id).join(","),
+        });
+      }
+
       const result = await Promise.all(
         data.map(async (row: Record<string, unknown>) => {
           const baseHost = {
             ...transformHostResponse(row),
+            canHostAgents: agentCapableIds.has(row.id as number),
             isShared: !!row.isShared,
             permissionLevel: row.permissionLevel || undefined,
             sharedExpiresAt: row.expiresAt || undefined,

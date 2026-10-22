@@ -444,7 +444,7 @@ export function NewSessionDialog({
   // don't count towards "one machine" vs "several". The admin-only "Just a
   // shell" picker keeps the full `flatHosts` list.
   const agentHosts = useMemo(
-    () => flatHosts.filter((h) => h.runsFleetSubstrate === true),
+    () => flatHosts.filter((h) => h.canHostAgents === true),
     [flatHosts],
   );
   // A chain pre-fill host that can't host agents is no pre-fill in agent mode.
