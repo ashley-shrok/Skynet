@@ -72,6 +72,9 @@ The foundation already moved every modal onto the kit, so each remaining modal s
 - What's-new note for the whole redesign — the role now asks for one per user-visible change; this campaign writes ONE note at campaign close (Ashley approves the exact text before it's committed) — not started
 - Upstream's new "What's new" pop-up (a9261d84, 2026-10-21) is another window to bring onto the kit/family — fold into shape-creation-and-search-dialogs — not started
 - Upstream gave the scheduled-task form a Project picker (146599d2) — carry it into the redesigned scheduled-tasks window at the next rebase — done at the 2026-10-21 rebase (Project dropdown in the task view, project line on the row, search matches it)
+- Upstream's runbooks → role skills (f0452a0c) and the role → scheduled-tasks shortcut (7ff647c0) — carried into the roles window at the 2026-10-22 rebase (Skills tab, role-skill view on SKILL.md, "N scheduled tasks ›" opening the scheduled tasks window on that role) — done
+- Role skills read like skills (Ashley, 2026-10-22): rows show name + description, a role skill's header its description; the role-skills list route now returns descriptions (backend — shows only once deployed) — done
+- The role's facts line no longer names its machine (Ashley, 2026-10-22) — done
 - Upstream's skill + runbook rename (2150579c, b971345c) — carried into the skills window's ⋮ menu and the runbook view's ⋯ menu at the 2026-10-21 rebase, in-app dialogs instead of browser pop-ups — done
 - Shared-skill hiding for non-admins goes by name and lets skills show if the sync engine is down (logged) — revisit in shape-host-targeting alongside the sync machinery
 
