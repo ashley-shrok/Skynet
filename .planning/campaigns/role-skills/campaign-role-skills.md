@@ -19,13 +19,17 @@ Runbooks were only ever called that to keep them from being confused with regula
 ## Shapes
 
 - **[declared] shape-role-skills** — rename + standard shape + fleet-wide conversion + load listing + create from the app — closed
-- **[discovered] shape-runbook-terminology-sweep** — after shape 1 closes, a fresh-session focused pass replacing the word "runbook" with "role skill" wherever it means the concept (fleet files, instructions, role files, notes) — in_progress
+- **[discovered] shape-runbook-terminology-sweep** — after shape 1 closes, a fresh-session focused pass replacing the word "runbook" with "role skill" wherever it means the concept (fleet files, instructions, role files, notes) — closed
 
 ## Other work
 
 - Write the 43 drafted descriptions (workspace/role-skill-descriptions.json) into the converted role skills on t1000, workstation, thenasty and zoeybattlestation at deploy, right after each box's sweep converts (workspace/apply-role-skill-descriptions.py, JSON lines on stdin) — done (2026-10-22, all 43)
 - What's-new note — dropped (the user: not needed)
 - Box-maintainer role-file wording that points at runbooks — folded into shape-runbook-terminology-sweep
+- Running machinery off old locations / "runbook" wording: reminders apps and wake-up procedure files (Jarvis, Mitzi), secretary scripts (Aqua), WorkSpaces scripts (mustang-workspaces-maintainer) — done (2026-10-22)
+- Remove the forwarding links at the old runbooks/ locations now that nothing runs from them — open
+- ashley-beelink and ashley-laptop: unreachable; their runbooks convert on their next sweep without descriptions — open
+- Two procedures named "runbook" that were never role skills (aither-infra daily infra check in scratch, compliance control runbooks) could become real role skills — noted-only
 
 ## Lingerers (explicitly approved)
 
