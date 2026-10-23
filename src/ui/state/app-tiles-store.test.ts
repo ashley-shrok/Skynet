@@ -929,3 +929,76 @@ describe("app-tiles-store: identical frames are a no-op", () => {
     dispose();
   });
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// convo-scoped apps: the owner survives the cache and is never dropped as a
+// "no-op" field. Regression: a tile cached before (or without) its owner
+// stayed ownerless forever because live frames compared equal, so a
+// conversation app rendered in the sidebar grid.
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe("app-tiles-store: conversation app owner", () => {
+  const convo: AppState = {
+    hostId: "3",
+    slug: "sticky-notes-demo",
+    title: "Sticky Notes",
+    description: "",
+    port: 9516,
+    hasIcon: false,
+    createdAtMs: 1_726_000_000_000,
+    isHealthy: true,
+    healthMessage: null,
+    owner: "sigma",
+  };
+
+  it("an ownerless cached tile picks up its owner from the live snapshot", () => {
+    const { owner: _o, ...legacy } = convo;
+    localStorage.setItem(APP_TILES_CACHE_KEY, wrap([legacy]));
+    const { result, rerender } = renderHook(() => useAppTiles());
+    act(() => {
+      __seedFromCacheForTest();
+    });
+    rerender();
+    expect(result.current[0].owner ?? null).toBeNull();
+    act(() => {
+      publishAppSnapshot([convo]);
+    });
+    rerender();
+    expect(result.current[0].owner).toBe("sigma");
+  });
+
+  it("an ownerless cached tile picks up its owner from a live update", () => {
+    const { owner: _o, ...legacy } = convo;
+    localStorage.setItem(APP_TILES_CACHE_KEY, wrap([legacy]));
+    const { result, rerender } = renderHook(() => useAppTiles());
+    act(() => {
+      __seedFromCacheForTest();
+    });
+    act(() => {
+      publishAppUpdate(convo);
+    });
+    rerender();
+    expect(result.current[0].owner).toBe("sigma");
+  });
+
+  it("the cache keeps the owner across a reload", () => {
+    act(() => {
+      publishAppSnapshot([convo, { ...convo, slug: "groceries", title: "Groceries", owner: null }]);
+    });
+    const cached = readAppTilesCache();
+    expect(cached.find((a) => a.slug === "sticky-notes-demo")?.owner).toBe("sigma");
+    expect(cached.find((a) => a.slug === "groceries")?.owner).toBeNull();
+  });
+
+  it("a frame that only changes the owner (promotion) is not a no-op", () => {
+    const { result, rerender } = renderHook(() => useAppTiles());
+    act(() => {
+      publishAppSnapshot([convo]);
+    });
+    act(() => {
+      publishAppUpdate({ ...convo, owner: null });
+    });
+    rerender();
+    expect(result.current[0].owner).toBeNull();
+  });
+});

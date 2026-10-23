@@ -1,7 +1,7 @@
 /**
  * avatar-normalize.ts — shrink avatar bytes to a sane on-disk / on-wire size.
  *
- * Avatars arrive as 1024px gpt-image-1 PNGs or arbitrary user uploads
+ * Avatars arrive as 1024px gpt-image PNGs or arbitrary user uploads
  * (hundreds of KB to MBs) but render in UI slots from a ~30px sidebar disc
  * up to the identity modal's large preview. 512px fits every slot at 2x DPR
  * while landing in the tens of KB as WebP.

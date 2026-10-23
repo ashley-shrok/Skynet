@@ -226,7 +226,7 @@ export async function postGenerateAvatarBatch(input: {
   try {
     // Patch #314: per-call timeout override. Default authApi timeout is
     // 30s but this endpoint runs an LLM archetype draft (up to 30s) THEN
-    // 3 parallel gpt-image-1 renders (up to 60s each). Wall time can
+    // 3 parallel gpt-image-2 renders (up to 60s each). Wall time can
     // legitimately reach ~90s; matching the nginx location's
     // proxy_read_timeout 120s gives headroom without changing the
     // global default. Do NOT bump the global timeout — every other

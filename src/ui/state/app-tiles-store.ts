@@ -304,7 +304,12 @@ function appStateEqual(a: AppState, b: AppState): boolean {
     (a.iconVersion ?? null) === (b.iconVersion ?? null) &&
     a.createdAtMs === b.createdAtMs &&
     a.isHealthy === b.isHealthy &&
-    a.healthMessage === b.healthMessage
+    a.healthMessage === b.healthMessage &&
+    // convo-scoped apps: owner decides sidebar vs conversation, so a frame
+    // that changes it (or fills it in over a cached tile) must not be
+    // dropped as a no-op. Absent and null are the same (sidebar app).
+    (a.owner ?? null) === (b.owner ?? null) &&
+    (a.asleep ?? null) === (b.asleep ?? null)
   );
 }
 
@@ -423,6 +428,7 @@ function isCachedAppState(x: unknown): x is AppState {
   if (typeof r.isHealthy !== "boolean") return false;
   if (r.healthMessage !== null && typeof r.healthMessage !== "string")
     return false;
+  if (r.owner != null && typeof r.owner !== "string") return false;
   return true;
 }
 
@@ -450,6 +456,9 @@ export function readAppTilesCache(): AppState[] {
           createdAtMs: item.createdAtMs,
           isHealthy: item.isHealthy,
           healthMessage: item.healthMessage,
+          // convo-scoped apps: without the owner a cached conversation app
+          // would render as a sidebar tile until the next live frame.
+          owner: item.owner ?? null,
         });
       }
     }
@@ -473,6 +482,7 @@ export function writeAppTilesCache(list: AppState[]): void {
       createdAtMs: a.createdAtMs,
       isHealthy: a.isHealthy,
       healthMessage: a.healthMessage,
+      owner: a.owner ?? null,
     }));
     writeUserScopedCache(APP_TILES_CACHE_KEY, canonical);
   } catch {

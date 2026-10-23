@@ -1,6 +1,6 @@
 /**
  * image-gen — generate images from a prompt (optionally editing a reference
- * image) with OpenAI gpt-image-1, and hand the PNGs back to the agent.
+ * image) with OpenAI gpt-image-2, and hand the PNGs back to the agent.
  *
  * Agent side: substrate/scripts/image-gen (wrapper over fleet-service) and
  * substrate/skills/image-gen/SKILL.md.
@@ -12,15 +12,16 @@
 
 import { z } from "zod";
 import { defineService, fail, ok } from "../../engine/types.js";
-import { callOpenAiImageGen } from "./adapter.js";
+import { callOpenAiImageGen, IMAGE_GEN_MODEL } from "./adapter.js";
 
-/** OpenAI's own prompt cap for gpt-image-1. */
+/** OpenAI's own prompt cap for the gpt-image models. */
 export const PROMPT_MAX_LENGTH = 4000;
 
 /** OpenAI's per-image limit on /images/edits. */
 export const MAX_REF_BYTES = 20 * 1024 * 1024;
 
-export const IMAGE_GEN_MODEL = "gpt-image-1";
+// The model lives with the HTTP adapter (single source); re-exported here.
+export { IMAGE_GEN_MODEL } from "./adapter.js";
 const DEFAULT_SIZE = "1024x1024";
 
 export const imageGenInput = z.strictObject({
@@ -46,7 +47,7 @@ export function createImageGenService(
 ) {
   return defineService({
     name: "image-gen",
-    description: "Generate images from a prompt with OpenAI gpt-image-1",
+    description: "Generate images from a prompt with OpenAI gpt-image-2",
     input: imageGenInput,
     attachments: {
       ref: {

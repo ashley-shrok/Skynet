@@ -185,7 +185,9 @@ everything else.
   with `app.json.pending` (invisible until you publish), always-on. With
   `--conversation`: a conversation app in
   `~/fleet/identities/$FLEET_IDENTITY/apps/<slug>/` with `app.json` and the
-  `.may-sleep` marker. Slug must be kebab-case. Title is optional; defaults to
+  `.may-sleep` marker. `FLEET_IDENTITY` is already set to your identity name
+  in every agent session (the supervisor launches you with it) — no need to
+  export it. Slug must be kebab-case. Title is optional; defaults to
   a title-cased slug if omitted. Prints the app's link when done.
 
 - **`promote-app.sh <slug>`** — moves one of your conversation apps to the
@@ -527,7 +529,10 @@ Common commands:
 
 - **Restart after code changes:** `systemctl --user restart app-<slug>`
 - **Stop:** `systemctl --user stop app-<slug>` (the next request through the
-  public port starts it again — the socket is still holding the address)
+  public port starts it again — the socket is still holding the address).
+  systemd prints "Stopping 'app-<slug>.service', but its triggering units are
+  still active: app-<slug>-marker.path" — that's expected and harmless; the
+  marker watch only restarts the app when the marker changes.
 - **Status:** `systemctl --user status app-<slug>` (`inactive` = asleep or
   stopped; `failed` = crash loop, look at the logs)
 - **Tail logs:** `journalctl --user -u app-<slug> -f`

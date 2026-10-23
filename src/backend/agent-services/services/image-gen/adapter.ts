@@ -1,7 +1,7 @@
 /**
  * agent-services/services/image-gen/adapter.ts
  *
- * OpenAI gpt-image-1 HTTP adapter for the image-gen file-drop broker
+ * OpenAI gpt-image-2 HTTP adapter for the image-gen file-drop broker
  * (D-25, D-26). Wraps a raw `fetch` call — no `openai` npm SDK dep, matching
  * the existing avatar-batch route convention
  * (src/backend/database/routes/identity-avatar-batch.ts:378-410).
@@ -32,7 +32,7 @@
  *   - NEVER logs the Authorization header or the OPENAI_API_KEY value in any
  *     code path (T-116-01-01 mitigation, V13).
  *
- * Model: locked to `gpt-image-1` per D-26. Not exposed to the caller — the
+ * Model: locked to `gpt-image-2` (IMAGE_GEN_MODEL) per D-26. Not exposed to the caller — the
  * request parser has no `model` key in KNOWN_KEYS so no smuggle path exists.
  */
 
@@ -53,10 +53,14 @@ const OPENAI_GENERATIONS_URL = "https://api.openai.com/v1/images/generations";
 const OPENAI_EDITS_URL = "https://api.openai.com/v1/images/edits";
 
 /**
- * OpenAI model. Locked to gpt-image-1 per D-26 — do NOT accept a
+ * OpenAI model. Locked to IMAGE_GEN_MODEL per D-26 — do NOT accept a
  * caller-supplied model.
  */
-const OPENAI_MODEL = "gpt-image-1";
+// gpt-image-1 was retired for image requests by OpenAI (Oct 2026: 400
+// "The model 'gpt-image-1' does not exist."); gpt-image-2 accepts the same
+// generations + edits parameters this adapter sends.
+export const IMAGE_GEN_MODEL = "gpt-image-2";
+const OPENAI_MODEL = IMAGE_GEN_MODEL;
 
 /**
  * Parse an RFC 7231 §7.1.3 Retry-After header value. The header may carry

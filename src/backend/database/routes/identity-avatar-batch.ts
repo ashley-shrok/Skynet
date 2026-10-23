@@ -4,7 +4,7 @@
  *
  * Mounts on /identities/avatar (in database.ts) and provides:
  *   POST /batch   — LLM archetype draft of 3 DISTINCT prompts + 3 parallel
- *                   gpt-image-1 calls (one per prompt) + gamma correction
+ *                   gpt-image-2 calls (one per prompt) + gamma correction
  *                   + in-memory candidate cache
  *   GET  /candidate/:id — serves cached candidate PNG bytes
  *
@@ -38,6 +38,7 @@ import { AuthManager } from "../../utils/auth-manager.js";
 import { multipartOriginGuard } from "../../utils/multipart-origin-guard.js";
 import { loadBrandingConfig } from "../../branding/branding-config-loader.js";
 import type { AuthenticatedRequest } from "../../../types/index.js";
+import { IMAGE_GEN_MODEL } from "../../agent-services/services/image-gen/adapter.js";
 
 const router = express.Router();
 
@@ -396,7 +397,7 @@ export async function generateAvatarImages(
   }
 
   // ------------------------------------------------------------------
-  // Step 2: one parallel gpt-image-1 call per drafted prompt
+  // Step 2: one parallel image call per drafted prompt
   // ------------------------------------------------------------------
   let b64Results: string[];
   try {
@@ -412,7 +413,7 @@ export async function generateAvatarImages(
             Authorization: `Bearer ${apiKey}`,
           },
           body: JSON.stringify({
-            model: "gpt-image-1",
+            model: IMAGE_GEN_MODEL,
             prompt: draftedPrompt,
             n: 1,
             size: "1024x1024",
