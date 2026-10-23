@@ -46,8 +46,8 @@ Today only the front-end button can un-archive an identity, because bringing the
 - The 2026-10-01 declared plan proposed a new backend address that supervisors would call, guarded by a shared secret. This shape uses the existing agent request-file mechanism instead, which already knows which box a request came from, so no new secret has to be distributed.
 - Checked on the live chat server, 2026-10-23: archiving takes an agent out of the agents directory room, but the server keeps the record that it used to be a member. 591 of 596 archived agents on t1000 still show up that way. The 5 that don't (tabitha, tanya, taylor, tiffany, tina) are very old, predate the directory, and are out of scope.
 - Checked in the chat server's own data, 2026-10-23: archiving erases the account's password (all 1,318 switched-off accounts have none), so reactivation always means setting a new password. That's why the backend generates the password and hands it back, rather than trusting one from the box.
-- Accepted gap (Ashley, 2026-10-23): there is no check that the account belongs to the box that asks. Someone on any box could get any switched-off agent account (never a human's, never a live one, never an admin) reactivated with a password only their box receives. Today's button path has a similar exposure. Ashley approved shipping with this gap because host-tagged account names, a separate shape planned to follow quickly, close it properly. Folder-name checks were considered and dropped: 108 of 597 archived agents on t1000 have accounts not named after their folders (pre-current naming), and the check adds no real protection on its own.
-- Also found: Ashley's own account has joined the agents directory room. That's why being in the agents directory alone isn't enough, and the "never in the humans directory" and "currently switched off" checks matter.
+- Accepted gap (owner, 2026-10-23): there is no check that the account belongs to the box that asks. Someone on any box could get any switched-off agent account (never a human's, never a live one, never an admin) reactivated with a password only their box receives. Today's button path has a similar exposure. The owner approved shipping with this gap because host-tagged account names, a separate shape planned to follow quickly, close it properly. Folder-name checks were considered and dropped: 108 of 597 archived agents on t1000 have accounts not named after their folders (pre-current naming), and the check adds no real protection on its own.
+- Also found: the owner's own account has joined the agents directory room. That's why being in the agents directory alone isn't enough, and the "never in the humans directory" and "currently switched off" checks matter.
 - Today's un-archive never puts a returned identity back in the agents directory, so a returned identity stays marked as having left, and the app can mistake its chats for a human or unknown account. This shape fixes that as part of reactivation.
 - The new-conversation flow is the precedent for the front end's long wait. Its request stays open, checks the box every 2 seconds, and alerts on failure or timeout (5 minutes there; 2 minutes here).
 
@@ -81,11 +81,11 @@ Today only the front-end button can un-archive an identity, because bringing the
 
 **Tempting but no:**
 - Having the supervisor react to the flag instantly instead of on its next pass. Normal latency is fine.
-- Pinging Ashley when an agent-initiated un-archive is refused.
+- Pinging the owner when an agent-initiated un-archive is refused.
 
 ## Handoff notes
 
-- Implementer: halo-box-maintainer-5. Shipping only on Ashley's go, via the box-maintainer ship skill.
+- Implementer: halo-box-maintainer-5. Shipping only on the owner's go, via the box-maintainer ship skill.
 - Where things live today:
   - The button's server-side route: `src/backend/database/routes/identity-unarchive.ts`.
   - The supervisor's un-archive scanner: `substrate/scripts/agent-supervisor.sh`.
