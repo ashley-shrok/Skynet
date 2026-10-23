@@ -417,6 +417,11 @@ user to have the right experience?"** Yes → serve URL. No → file URL.
 Never rewrite one flavor into the other. If you handed them a file URL,
 it stays a file URL; if a serve URL, it stays a serve URL.
 
+**Apps are neither.** An app built with the `app-development` skill is
+handed over by linking its pane address — `<app-parent>/apps/<host-id>/<slug>/pane/`
+— which renders as an **app chip** (§ Conversation view). Never hand out a
+serve URL for an app; the skill has the details.
+
 ### File URL — passive bytes on disk
 
 Cite the file as a **Markdown-formatted file URL** so it's clickable in
@@ -742,6 +747,9 @@ not something agents drive.
   asks to edit an app, reach for that skill rather than re-deriving the
   mechanics. On-disk apps live under `~/fleet/apps/<slug>/`; archived
   ones under `~/fleet/apps-archive/`. **User-gated** (via the skill).
+  **Conversation apps** — apps an agent made for one conversation — never
+  appear in this grid; they're reached through their chip in the chat and the
+  identity modal's **Apps** tab, and are archived with their conversation.
 
   The Apps section header itself carries a **kebab menu** with:
   - **Archived apps** — opens the **Archived apps modal**, a list of
@@ -919,14 +927,21 @@ not something agents drive.
   **Move to new tab** (desktop only — opens it in a new Skynet tab
   and closes this pane), **Open standalone**, **Rename…**,
   **Close** (desktop only), **Archive** (the same double-confirm as the
-  sidebar app tile's; closes every open pane of that app). The **whole bar is the drag handle**, same as a
+  sidebar app tile's; closes every open pane of that app). A **conversation
+  app's** menu has **Move to sidebar** in place of Rename… and Archive: it
+  asks the agent that made the app to move it to the sidebar (the item then
+  reads "Move to sidebar requested" until the page reloads); the agent does
+  the move and confirms in its conversation. The **whole bar is the drag handle**, same as a
   conversation's task pill: drag it to the drop lane's Close to close the app,
   onto another pane to rearrange, or into another Skynet window. On a phone the
   bar shows but isn't draggable.
   *Agent-side:* the navigation buttons and window actions: none — the app
   never knows it's being navigated from the bar. Rename and Archive are the
   same actions as the sidebar tile's, handled by the `app-development`
-  skill; **user-gated**.
+  skill; **user-gated**. Move to sidebar reaches you as a
+  `<task-notification>` event ("Move to sidebar — delivered by the app") —
+  follow the `app-development` skill's § Moving a conversation app to the
+  sidebar.
 
 - **Remote-desktop bar (top of every open RDP / VNC / telnet session).**
   The same glassy bar as an app's, across the top of a remote-desktop
@@ -1102,6 +1117,17 @@ crown, then gear.
   gets the touch; swipe on its bar instead.
   *Agent-side: none.*
 
+- **App chip (in a message).** A link an agent writes to an app's pane
+  address shows as a chip with the app's icon and title — for conversation
+  apps and sidebar apps alike. Clicking it opens the app (same as a sidebar
+  tile click); on desktop, dragging it into the content area splits the view,
+  e.g. the app on one side and the conversation it came from on the other.
+  A link to an app the client doesn't know (its conversation was archived)
+  still shows as a chip, with a generic app glyph and the app's name from
+  the link.
+  *Agent-side:* hand an app over by linking its pane address (§ Sending
+  files to the user); the `app-development` skill has the details.
+
 - **Task pill (top-center of the open conversation).** The conversation's
   handle, and the only thing at the top of an agent conversation — the same
   in chat view and terminal view. It looks and behaves like that
@@ -1129,7 +1155,7 @@ crown, then gear.
   *Agent-side:* starting your desktop (`desktop` skill) makes the green
   button appear for the user within a few seconds; stopping it removes it.
 
-- **Identity modal (click the task pill).** Three tabs, plus two that appear
+- **Identity modal (click the task pill).** Three tabs, plus three that appear
   only when there's something to show:
   - **Agent file** — view and edit the identity's own `<name>.md`.
   - **Wake-ups** — view the identity's scheduled wake-ups (§ Scheduled
@@ -1168,6 +1194,10 @@ crown, then gear.
     (`node_modules`, `.venv`/`venv`) and `.git` are never searched; it
     stops at 200 results or about 5 seconds and says so when it does. The
     role and project Files tabs have the same search box.
+  - **Apps** (only when the conversation has apps of its own) — the
+    agent's conversation apps, each with its icon, title and description.
+    Clicking a row closes the modal and opens the app; each row's ⋮ holds
+    one item, **Move to sidebar** (same as in the app's own bar menu).
   - **Git** (only when the workspace holds a git repo) — read-only view
     of each repo: branch, sync state, changed files, history, diffs.
     Nothing in it changes a repo.
