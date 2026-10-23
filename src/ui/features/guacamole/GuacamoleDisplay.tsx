@@ -657,7 +657,10 @@ export const GuacamoleDisplay = forwardRef<
     >
       <div
         ref={displayRef}
-        className="relative w-full h-full flex items-start justify-center"
+        // A fixed-size remote (an agent's desktop) is letterboxed when its
+        // aspect differs from the box, so center it both ways; a resizing
+        // remote fills the box and stays top-aligned.
+        className={`relative w-full h-full flex ${fixedRemoteSize ? "items-center" : "items-start"} justify-center`}
         style={{
           cursor: isReady && !viewOnly ? "none" : "default",
           visibility: isReady ? "visible" : "hidden",

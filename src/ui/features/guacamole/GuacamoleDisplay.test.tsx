@@ -178,6 +178,30 @@ describe("GuacamoleDisplay — remote screen size", () => {
     expect(c.sendSize).not.toHaveBeenCalled();
   });
 
+  it("centers a fixed-size picture vertically; a resizing one stays top-aligned", async () => {
+    const { container } = render(
+      <GuacamoleDisplay
+        isVisible
+        fixedRemoteSize
+        connectionConfig={{ token: "tok", protocol: "vnc", width: 1280, height: 800 }}
+      />,
+    );
+    await waitFor(() => expect(clients).toHaveLength(1));
+    const inner = container.firstElementChild!.firstElementChild as HTMLElement;
+    expect(inner.className).toContain("items-center");
+    expect(inner.className).toContain("justify-center");
+    cleanup();
+    const resizing = render(
+      <GuacamoleDisplay
+        isVisible
+        connectionConfig={{ token: "tok", protocol: "vnc", width: 1280, height: 800 }}
+      />,
+    );
+    await waitFor(() => expect(clients).toHaveLength(2));
+    const inner2 = resizing.container.firstElementChild!.firstElementChild as HTMLElement;
+    expect(inner2.className).toContain("items-start");
+  });
+
   it("maps the pointer from where the picture actually is on screen, not from offset positions", async () => {
     const c = await mount({ fixedRemoteSize: true, viewOnly: false });
     const display = c.getDisplay();
