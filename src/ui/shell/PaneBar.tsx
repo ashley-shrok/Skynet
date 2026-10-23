@@ -14,6 +14,7 @@ import { useIsTouchDevice } from "@/hooks/use-is-touch-device";
 import { navigateToList } from "@/lib/mobile-flow";
 import { systemLogger } from "@/lib/frontend-logger";
 import { armOutboundDrag, mintDragId } from "./cross-window-drag";
+import "@/components/kit/kit.css";
 import "./pane-bar.css";
 
 // ─── PaneBar — the bar across the top of a non-conversation pane ───────────
@@ -52,19 +53,15 @@ export function sidebarToggleClearance(
   return Math.ceil(toggleRect.right - barRect.left) + 6;
 }
 
-// Width of the left button group (sized for the app bar's 3 × 30px buttons,
-// 2 × 2px gaps and reload's 4px step apart). The title column is centred
-// between two columns of this width so it can never overlap the buttons,
-// however narrow the pane.
-const NAV_GROUP_WIDTH = 98;
+// Columns: the two sides share the spare width equally (so the title sits
+// centred) but never shrink below their buttons; the title takes what's left
+// and truncates — it can never overlap the buttons, and on a phone it isn't
+// squeezed by a right side padded out to match the wider left one.
+const GRID_COLUMNS = "minmax(max-content, 1fr) minmax(0, max-content) minmax(max-content, 1fr)";
 // Touch devices: the bar is taller and holds the back-to-conversations
 // button at its left, in place of the floating one AppShell shows over
 // conversations (which would otherwise sit over the pane's top-left corner).
-// Its buttons are 32px wide there.
-const TOUCH_NAV_GROUP_WIDTH = 104;
-const BACK_TO_LIST_SIZE = 36;
 const BACK_TO_LIST_GAP = 6;
-const TOUCH_LEFT_GROUP_WIDTH = BACK_TO_LIST_SIZE + BACK_TO_LIST_GAP + TOUCH_NAV_GROUP_WIDTH;
 
 // The bar's ⋯ menu takes the kit look, like the sidebar's menus.
 const PANE_BAR_KIT_SCOPE: KitScopeValue = { hue: 220 };
@@ -76,7 +73,7 @@ export const PANE_BAR_BUTTON_CLASS = "pane-bar-btn";
 /** Utilities that bring the read-aloud button (its own component, styled with
  *  utilities) into line with the bar's quiet buttons. */
 export const PANE_BAR_SPEAK_CLASS =
-  "size-[30px] rounded-lg border-0 bg-transparent hover:bg-[var(--k-s2)] text-[var(--k-t2)] hover:text-[var(--k-t1)]";
+  "size-[30px] rounded-lg border-0 bg-transparent hover:bg-[var(--k-s2)] text-[var(--k-t2)] hover:text-[var(--k-t1)] focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[var(--k-acc)]";
 
 export interface PaneBarProps {
   tabId: string;
@@ -95,7 +92,7 @@ export interface PaneBarProps {
   /** The glyph is a picture filling the tile (an app's icon): no grey tile. */
   titleIconIsPicture?: boolean;
   title: string;
-  /** Controls left of the ⋯ (e.g. a view switcher); the column then sizes to fit. */
+  /** Controls left of the ⋯ (e.g. a view switcher). */
   rightControls?: ReactNode;
   menuItems: RowKebabMenuItem[];
   onSelectPane?: (tabId: string) => void;
@@ -177,7 +174,6 @@ export function PaneBar({
     });
   };
 
-  const sideColumnWidth = isTouchDevice ? TOUCH_LEFT_GROUP_WIDTH : NAV_GROUP_WIDTH;
   return (
     <KitScopeContext.Provider value={PANE_BAR_KIT_SCOPE}>
       <div
@@ -191,13 +187,11 @@ export function PaneBar({
         onDragStart={isDragSource ? onBarDragStart : undefined}
         onClick={() => onSelectPane?.(tabId)}
         onContextMenu={barContextMenu.onContextMenu}
-        className={`pane-bar k-hued relative z-[1] grid flex-none items-center gap-2.5 px-2 select-none [-webkit-touch-callout:none] ${
+        className={`pane-bar relative z-[1] grid flex-none items-center gap-2.5 px-2 select-none [-webkit-touch-callout:none] ${
           isDragSource ? "cursor-grab active:cursor-grabbing" : ""
         }`}
         style={{
-          gridTemplateColumns: rightControls
-            ? `${sideColumnWidth}px minmax(0, 1fr) auto`
-            : `${sideColumnWidth}px minmax(0, 1fr) ${sideColumnWidth}px`,
+          gridTemplateColumns: GRID_COLUMNS,
           paddingLeft: clearance > 0 ? clearance : undefined,
         }}
       >

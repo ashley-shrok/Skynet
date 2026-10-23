@@ -88,12 +88,6 @@ export function fileNameOfPath(path: string): string {
   return segs.length > 0 ? segs[segs.length - 1] : "file";
 }
 
-/** Folder part of an absolute path ("/" for a top-level file). */
-export function folderOfPath(path: string): string {
-  const i = path.lastIndexOf("/");
-  return i <= 0 ? "/" : path.slice(0, i);
-}
-
 /**
  * Drag payload a FileChip writes: JSON `{ host, path, filename, origin? }`.
  * `origin` is the encoded tab spec of the conversation the chip sits in.

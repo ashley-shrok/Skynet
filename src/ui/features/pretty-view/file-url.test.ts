@@ -6,7 +6,6 @@ import { describe, it, expect } from "vitest";
 import {
   buildSkynetFileUrl,
   fileNameOfPath,
-  folderOfPath,
   isValidFileAddress,
   parseFileChipPayload,
   parseSkynetFileUrl,
@@ -47,10 +46,8 @@ describe("isValidFileAddress", () => {
 });
 
 describe("path helpers", () => {
-  it("names the file and its folder", () => {
+  it("names the file", () => {
     expect(fileNameOfPath("/home/ubuntu/report.pdf")).toBe("report.pdf");
-    expect(folderOfPath("/home/ubuntu/report.pdf")).toBe("/home/ubuntu");
-    expect(folderOfPath("/top.txt")).toBe("/");
   });
 });
 

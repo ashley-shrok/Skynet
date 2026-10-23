@@ -34,9 +34,9 @@ import { describeFileUrlError, useFileUrlContent } from "./file-url-content";
  * matters here, the user opens the file, remembers what they wanted to
  * write, closes the modal, then types.
  *
- * Head: the shared file-window head (FileWindowHead) — type tile, name
- * (name only — where it lives is one step away in Copy path), read aloud for prose, the view switch (markdown's
- * Formatted / Plain text included), then Edit or Save, then ⋯ (Download,
+ * Head: the shared file-window head (FileWindowHead) — type tile, the name
+ * only (where it lives is one step away in Copy path), read aloud for prose,
+ * the view switch (markdown's Formatted / Plain text included), then Edit or Save, then ⋯ (Download,
  * Copy path). How the file opens follows its type (fileOpenKind): pictures
  * and media just show; documents open for reading with Edit; code, text and
  * tables open ready to type. Save here attaches the edited copy to the next
@@ -214,7 +214,6 @@ export default function EditableFileModal({
   const textReady =
     usesEditorFetch && fetchState.status === "ready" && fetchState.data.isText !== false;
   const editable = canSave && (urlModeEditable || (textReady && (currentMode.editable || isDirty)));
-
 
   // Copy path in the ⋯ menu — the head shows the name only.
   const parsed = parseSkynetFileUrl(url);
