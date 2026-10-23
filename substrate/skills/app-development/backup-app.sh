@@ -29,7 +29,9 @@ if ! [[ "$SLUG" =~ ^[a-z][a-z0-9-]*$ ]]; then
     die "invalid slug: '$SLUG'"
 fi
 
-APP_DIR="$HOME/fleet/apps/$SLUG"
+UNITS="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/app-units.sh"
+# Sidebar app (~/fleet/apps/<slug>) or conversation app (its identity's apps/).
+APP_DIR=$(bash "$UNITS" find "$SLUG" 2>/dev/null || printf '%s' "$HOME/fleet/apps/$SLUG")
 UNIT_FILE="$HOME/.config/systemd/user/app-$SLUG.service"
 
 [ -d "$APP_DIR" ]           || die "app not found at $APP_DIR"

@@ -1,0 +1,12 @@
+# Starts the app whenever the .may-sleep marker is added or removed (a no-op
+# if it is already running). Removing the marker therefore wakes a sleeping
+# app, which then stays up. Rendered by app-units.sh.
+[Unit]
+Description=App: __SLUG__ (sleep marker watch)
+
+[Path]
+PathChanged=__APP_DIR__/.may-sleep
+Unit=app-__SLUG__.service
+
+[Install]
+WantedBy=default.target

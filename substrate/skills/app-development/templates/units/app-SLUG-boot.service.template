@@ -1,0 +1,13 @@
+# At boot, starts the app only if it may NOT sleep. An app with the
+# .may-sleep marker stays asleep until its first request. Rendered by
+# app-units.sh.
+[Unit]
+Description=App: __SLUG__ (boot check)
+ConditionPathExists=!__APP_DIR__/.may-sleep
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/systemctl --user start --no-block app-__SLUG__.service
+
+[Install]
+WantedBy=default.target

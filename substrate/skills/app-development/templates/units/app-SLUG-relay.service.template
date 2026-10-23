@@ -1,0 +1,12 @@
+# Forwards the app's public address to its private port. Tied to the app:
+# starting the relay starts the app, and when the app stops (asleep or
+# stopped by hand) the relay stops too and the socket listens again.
+# Rendered by app-units.sh.
+[Unit]
+Description=App: __SLUG__ (relay)
+BindsTo=app-__SLUG__.service
+After=app-__SLUG__.service
+
+[Service]
+ExecStart=/usr/lib/systemd/systemd-socket-proxyd 127.0.0.1:__PRIVATE_PORT__
+SyslogIdentifier=app-__SLUG__-relay

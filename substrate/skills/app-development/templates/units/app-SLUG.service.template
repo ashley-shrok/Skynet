@@ -1,0 +1,42 @@
+# The app itself. It answers on a PRIVATE port; the public port is held by
+# app-__SLUG__.socket and forwarded by app-__SLUG__-relay.service. Rendered by
+# app-units.sh — do not edit the installed copy by hand.
+#
+# Not enabled directly: app-__SLUG__-boot.service starts it at boot unless the
+# app may sleep, the relay starts it on a request, and app-__SLUG__-marker.path
+# starts it whenever the .may-sleep marker is added or removed.
+[Unit]
+Description=App: __SLUG__
+
+[Service]
+Type=simple
+WorkingDirectory=__APP_DIR__
+Environment=HOST=127.0.0.1
+Environment=PORT=__PRIVATE_PORT__
+Environment=NODE_ENV=production
+Environment=PATH=%h/.bun/bin:%h/.local/bin:/usr/local/bin:/usr/bin:/bin
+ExecStart=%h/.bun/bin/bun ./server.js
+# Ready only once the app answers on its private port, so the relay never
+# forwards the first request after a wake to a port nobody is listening on.
+ExecStartPost=/bin/bash -c 'for i in $(seq 600); do (exec 3<>/dev/tcp/127.0.0.1/__PRIVATE_PORT__) 2>/dev/null && exit 0; sleep 0.05; done; echo "app-__SLUG__: not listening on __PRIVATE_PORT__ after 30s" >&2; exit 1'
+TimeoutStartSec=45
+# A crash restarts; a clean exit (the app going to sleep) stays stopped.
+Restart=on-failure
+RestartSec=2
+KillMode=control-group
+KillSignal=SIGTERM
+TimeoutStopSec=10
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=app-__SLUG__
+
+# Process-hardening — cheap defense-in-depth against a compromised app or
+# dependency. NoNewPrivileges blocks setuid escalation. PrivateTmp isolates
+# /tmp per unit. ProtectSystem=strict makes the filesystem read-only except
+# the app's own folder (via ReadWritePaths). RestrictAddressFamilies drops
+# obscure socket families the app never legitimately needs.
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ReadWritePaths=__APP_DIR__
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX

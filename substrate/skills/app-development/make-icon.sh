@@ -26,6 +26,12 @@ log() { printf '[make-icon] %s\n' "$*"; }
 die() { printf '[make-icon] ERROR: %s\n' "$*" >&2; exit 1; }
 
 APPS_DIR="$HOME/fleet/apps"
+UNITS="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/app-units.sh"
+
+# The app's folder — a sidebar app under ~/fleet/apps/, or a conversation app
+# under its identity's apps/ folder. Falls back to the sidebar path so error
+# messages name a sensible location for an app that doesn't exist yet.
+app_dir() { bash "$UNITS" find "$1" 2>/dev/null || printf '%s\n' "$APPS_DIR/$1"; }
 DRAFTS_ROOT="$HOME/fleet/image-gen-outputs/app-icons"
 
 # Icon geometry: 512px canvas, symbol fit inside a 300px box (~58%).
@@ -72,9 +78,10 @@ icon_palette_color() {
 }
 
 cmd_colors() {
-    local slug="$1" name dir other c own=""
+    local slug="$1" name dir other c own="" mine
     declare -A used=()
-    [ -f "$APPS_DIR/$slug/icon.webp" ] && own=$(icon_palette_color "$APPS_DIR/$slug/icon.webp")
+    mine=$(app_dir "$slug")
+    [ -f "$mine/icon.webp" ] && own=$(icon_palette_color "$mine/icon.webp")
     for dir in "$APPS_DIR"/*/; do
         other=$(basename "$dir")
         [ "$other" = "$slug" ] && continue
@@ -157,7 +164,8 @@ cmd_draft() {
 }
 
 cmd_accept() {
-    local slug="$1" app="$APPS_DIR/$1" draft="$DRAFTS_ROOT/$1/draft.webp"
+    local slug="$1" app draft="$DRAFTS_ROOT/$1/draft.webp"
+    app=$(app_dir "$slug")
     [ -d "$app" ] || die "no app at $app"
     [ -f "$draft" ] || die "no draft for '$slug' — run: make-icon.sh draft $slug <color> \"<symbol>\""
     rm -f "$app/icon.webp"

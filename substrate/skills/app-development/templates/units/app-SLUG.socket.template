@@ -1,0 +1,12 @@
+# Holds the app's public address open at all times, whether the app is
+# running or asleep. The first connection starts app-__SLUG__-relay.service.
+# Rendered by app-units.sh.
+[Unit]
+Description=App: __SLUG__ (public address)
+
+[Socket]
+ListenStream=127.0.0.1:__PORT__
+Service=app-__SLUG__-relay.service
+
+[Install]
+WantedBy=sockets.target

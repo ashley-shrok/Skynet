@@ -2,14 +2,16 @@
 # archive-app.sh <slug> — retire an app by moving it to ~/fleet/apps-archive/.
 #
 # Steps:
-#   1. Stash the systemd unit file INSIDE the app folder as
-#      app-<slug>.service.archived so the un-archive path (agent-supervisor's
-#      scan_app_unarchive_requested_sentinels — folded in from the retired
-#      restore-app.sh) can reinstall it later with the same port. This is
-#      what makes restore stable across archive/restore cycles.
-#   2. Stop + disable the systemd unit and remove the installed unit file
-#      from ~/.config/systemd/user/. daemon-reload.
+#   1. Stash the app's systemd units INSIDE the app folder as
+#      <unit>.archived (app-units.sh stash) so the un-archive path
+#      (agent-supervisor's scan_app_unarchive_requested_sentinels) can
+#      reinstall them later with the same port. This is what makes restore
+#      stable across archive/restore cycles.
+#   2. Stop, disable and remove the units (app-units.sh uninstall).
 #   3. Move ~/fleet/apps/<slug>/ to ~/fleet/apps-archive/<slug>/.
+#
+# Sidebar apps only. Conversation apps are archived together with their
+# conversation (the agent-supervisor's identity retire path).
 #
 # Refuses if there's already an archived copy at the same slug — that would
 # either indicate a name collision or a botched previous archive. In either
@@ -35,52 +37,38 @@ fi
 
 APP_DIR="$HOME/fleet/apps/$SLUG"
 ARCHIVE_DIR="$HOME/fleet/apps-archive/$SLUG"
-UNIT_FILE="$HOME/.config/systemd/user/app-$SLUG.service"
+UNITS="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/app-units.sh"
 
 # --- Pre-flight -------------------------------------------------------------
 
+if [ ! -d "$APP_DIR" ] && OWNED_DIR=$(bash "$UNITS" find "$SLUG" 2>/dev/null); then
+    die "'$SLUG' is a conversation app ($OWNED_DIR). Conversation apps are archived together with their conversation — there is no separate archive for them."
+fi
 [ -d "$APP_DIR" ]     || die "app not found at $APP_DIR"
 [ ! -e "$ARCHIVE_DIR" ] || die "archive slot already occupied at $ARCHIVE_DIR — rename or remove that first"
 
-# --- Stash the unit file inside the folder (before anything moves) ---------
+# --- Stash the units inside the folder (before anything moves) -------------
+# Copies every unit the app has (one for old-style apps, five for current
+# ones) as <unit>.archived, so un-archiving reinstalls them on the same port.
 
-if [ -f "$UNIT_FILE" ]; then
-    cp "$UNIT_FILE" "$APP_DIR/app-$SLUG.service.archived"
-    log "stashed unit file inside $APP_DIR/ for future restore"
-else
-    log "no installed unit file at $UNIT_FILE — proceeding without stash"
-fi
+bash "$UNITS" stash "$SLUG" "$APP_DIR"
 
-# --- Stop + disable BEFORE the folder move ---------------------------------
+# --- Stop + remove the units BEFORE the folder move ------------------------
 # Stopping first means when we move the folder the process has already
 # released any open handles under it (SQLite in particular).
 
-if systemctl --user list-unit-files 2>/dev/null | grep -q "^app-$SLUG.service"; then
-    systemctl --user disable --now "app-$SLUG.service" 2>/dev/null || true
-    log "stopped and disabled app-$SLUG.service"
-else
-    log "no active systemd unit for app-$SLUG (nothing to stop)"
-fi
+bash "$UNITS" uninstall "$SLUG"
 
 # --- Move to archive — the destructive commit step -------------------------
 # If mv fails (cross-filesystem, permissions, disk-full, name-collision race),
-# re-enable + re-start the unit so the app is left running rather than dead
-# under a torn-down archive.
+# reinstall the units from the stash so the app is left running rather than
+# dead under a torn-down archive.
 
 if ! mv "$APP_DIR" "$ARCHIVE_DIR"; then
-    log "ERROR: mv failed. Re-enabling app-$SLUG.service so the app keeps running..."
-    systemctl --user enable --now "app-$SLUG.service" 2>/dev/null || true
+    log "ERROR: mv failed. Reinstalling app-$SLUG so the app keeps running..."
+    bash "$UNITS" restore "$SLUG" "$APP_DIR" || true
     die "archive failed: could not move $APP_DIR to $ARCHIVE_DIR. App restored to running state."
 fi
 log "moved $APP_DIR -> $ARCHIVE_DIR"
-
-# --- Remove the installed unit file + daemon-reload -----------------------
-# Folder is now safely at ARCHIVE_DIR, so removing the unit is safe.
-
-if [ -f "$UNIT_FILE" ]; then
-    rm -f "$UNIT_FILE"
-    log "removed installed unit file $UNIT_FILE"
-fi
-systemctl --user daemon-reload
 
 log "done — $SLUG is archived. Recover by dropping .unarchive-requested inside ~/fleet/apps-archive/$SLUG/ if the user changes her mind."

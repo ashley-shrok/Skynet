@@ -55,6 +55,11 @@ APPS_ARCHIVE_DIR="${AGENT_APPS_ARCHIVE_DIR:-$HOME/fleet/apps-archive}"
 # to every managed host by the fleet substrate distributor. Env-overridable
 # for test hermeticity (tests stub the script).
 APP_ARCHIVE_SCRIPT="${AGENT_APP_ARCHIVE_SCRIPT:-$HOME/.claude/skills/app-development/archive-app.sh}"
+# convo-scoped apps: app-units.sh owns how an app is run under systemd (install /
+# uninstall / stash / restore). Used to stop + stash a conversation's apps when the
+# identity retires, restore them when it is un-archived, and restore current-style
+# (socket + relay + marker) sidebar apps on un-archive.
+APP_UNITS_SCRIPT="${AGENT_APP_UNITS_SCRIPT:-$HOME/.claude/skills/app-development/app-units.sh}"
 # un-archive host-side shape: systemctl binary + user-systemd unit dir + the
 # lock file shared with create-app.sh so port-collision checks are safe
 # against concurrent creates. Used by scan_app_unarchive_requested_sentinels
@@ -1118,6 +1123,50 @@ wait_ambient_monitor_exit() {
   return 0
 }
 
+# retire_identity_apps <name> <iddir> — convo-scoped apps: stop every app under
+# <iddir>/apps/ and stash its systemd units inside the app folder (app-units.sh stash +
+# uninstall). The stash keeps the app's port reserved while the identity is archived and
+# lets restore_identity_apps put it back on the same port. Logs, never fails.
+retire_identity_apps() {
+  local name="$1" iddir="$2" d slug
+  [ -d "$iddir/apps" ] || return 0
+  if [ ! -f "$APP_UNITS_SCRIPT" ]; then
+    log "WARN: '$name' retire: $APP_UNITS_SCRIPT missing — conversation apps under $iddir/apps left with their units installed"
+    return 0
+  fi
+  for d in "$iddir"/apps/*/; do
+    [ -d "$d" ] || continue
+    slug="$(basename "$d")"
+    [[ "$slug" =~ ^[a-z][a-z0-9-]*$ ]] || continue
+    if bash "$APP_UNITS_SCRIPT" stash "$slug" "${d%/}" >/dev/null 2>&1 \
+       && bash "$APP_UNITS_SCRIPT" uninstall "$slug" >/dev/null 2>&1; then
+      log "'$name' retire: conversation app '$slug' stopped, units stashed"
+    else
+      log "WARN: '$name' retire: could not stop/stash conversation app '$slug' — check app-units.sh by hand"
+    fi
+  done
+}
+
+# restore_identity_apps <name> <iddir> — inverse of retire_identity_apps, run after an
+# identity folder is moved back to the live tree: reinstall each stashed conversation app
+# on its old port (app-units.sh restore). Logs, never fails.
+restore_identity_apps() {
+  local name="$1" iddir="$2" d slug
+  [ -d "$iddir/apps" ] || return 0
+  [ -f "$APP_UNITS_SCRIPT" ] || { log "WARN: '$name' un-archive: $APP_UNITS_SCRIPT missing — conversation apps not restored"; return 0; }
+  for d in "$iddir"/apps/*/; do
+    [ -d "$d" ] || continue
+    slug="$(basename "$d")"
+    [[ "$slug" =~ ^[a-z][a-z0-9-]*$ ]] || continue
+    ls "$d"app-"$slug"*.archived >/dev/null 2>&1 || continue
+    if bash "$APP_UNITS_SCRIPT" restore "$slug" "${d%/}" >/dev/null 2>&1; then
+      log "'$name' un-archive: conversation app '$slug' restored"
+    else
+      log "WARN: '$name' un-archive: conversation app '$slug' could not be restored — run app-units.sh restore $slug ${d%/} by hand"
+    fi
+  done
+}
+
 retire_identity() {
   local name="$1"
   local iddir="$IDENTITIES_DIR/$name"
@@ -1321,6 +1370,12 @@ retire_identity() {
   # STEP 4a¼: stop the identity's virtual desktop while its folder (state dir, serve.pid) is still
   # in place. Never blocks retire; reap_desktops catches a failed stop on a later tick.
   stop_identity_desktop "$name" "retire"
+
+  # STEP 4a¼b: stop the identity's conversation apps and stash their units inside each app
+  # folder, so they leave with the folder and come back on un-archive. Before 4a⅓ — the app
+  # processes work inside the identity folder and would otherwise be SIGTERM'd (and restarted
+  # by systemd). Never blocks retire.
+  retire_identity_apps "$name" "$iddir"
 
   # STEP 4a⅓: kill anything the agent left running outside its tmux session (a backgrounded dev
   # server, a setsid'd watcher) before the folder moves out from under it.
@@ -2098,6 +2153,7 @@ scan_identity_unarchive_requested_sentinels() {
       continue
     fi
     log "'$name' un-archive COMPLETE: folder moved to live tree (matrix reactivate + token mint + relay.json rewrite done by backend route before sentinel)"
+    restore_identity_apps "$name" "$IDENTITIES_DIR/$name"
 
     # -----------------------------------------------------------------------
     # Step 7: Prepend un-archive banner to the identity file body.
@@ -2198,6 +2254,54 @@ scan_role_unarchive_requested_sentinels() {
 #     failure. Sentinel is already gone by this point (deleted inside the
 #     lock, before the mv, mirroring the identity + role un-archive scanner
 #     discipline).
+# unarchive_current_style_app <slug> <archive-dir> — un-archive a sidebar app whose stash
+# holds the current five-unit layout. Same discipline as the old-style path below:
+# pre-flight refusals delete the sentinel; under the create lock, refuse a port another
+# installed app now holds, delete the sentinel, move the folder back, then let
+# app-units.sh reinstall + start every unit on the stashed port.
+unarchive_current_style_app() {
+  local slug="$1" d="$2" live_dir="$APPS_DIR/$1" port
+  if [ -e "$live_dir" ]; then
+    log "ERROR: app '$slug' un-archive REFUSED: live folder already exists at $live_dir. Sentinel deleted."
+    rm -f "$d/.unarchive-requested"; return 0
+  fi
+  if [ -e "$SYSTEMD_UNIT_DIR/app-$slug.socket" ] || [ -e "$SYSTEMD_UNIT_DIR/app-$slug.service" ]; then
+    log "ERROR: app '$slug' un-archive REFUSED: units for app-$slug are already installed. Sentinel deleted."
+    rm -f "$d/.unarchive-requested"; return 0
+  fi
+  port=$(sed -n 's/^ListenStream=127\.0\.0\.1:\([0-9][0-9]*\)$/\1/p' "$d/app-$slug.socket.archived" | head -1)
+  if [ -z "$port" ]; then
+    log "ERROR: app '$slug' un-archive REFUSED: could not read the port from $d/app-$slug.socket.archived. Sentinel deleted."
+    rm -f "$d/.unarchive-requested"; return 0
+  fi
+  local rc=0
+  (
+    exec 200>"$APP_CREATE_LOCK"
+    flock -x -w 30 200 || exit 42
+    if cat "$SYSTEMD_UNIT_DIR"/app-*.socket 2>/dev/null | grep -Fxq -- "ListenStream=127.0.0.1:$port" \
+       || cat "$SYSTEMD_UNIT_DIR"/app-*.service 2>/dev/null | grep -Fxq -- "Environment=PORT=$port"; then
+      exit 43
+    fi
+    rm -f "$d/.unarchive-requested"
+    mkdir -p "$APPS_DIR" 2>/dev/null || true
+    mv "$d" "$live_dir" || exit 44
+    exit 0
+  )
+  rc=$?
+  case "$rc" in
+    0) ;;
+    42) log "ERROR: app '$slug' un-archive: could not acquire $APP_CREATE_LOCK within 30s. Sentinel retained; next tick will retry."; return 0 ;;
+    43) log "ERROR: app '$slug' un-archive REFUSED: port $port is now in use by another app on this box. Sentinel deleted."; rm -f "$d/.unarchive-requested"; return 0 ;;
+    44) log "ERROR: app '$slug' un-archive: mv archive→live FAILED — sentinel already deleted; folder retained in archive tree."; return 0 ;;
+    *)  log "ERROR: app '$slug' un-archive: locked sequence rc=$rc (unexpected) — investigate."; return 0 ;;
+  esac
+  if bash "$APP_UNITS_SCRIPT" restore "$slug" "$live_dir" >/dev/null 2>&1; then
+    log "app '$slug' un-archive COMPLETE: folder moved back, units restored on port $port"
+  else
+    log "WARN: app '$slug' un-archive: folder moved back but app-units.sh restore failed — run it by hand: app-units.sh restore $slug $live_dir"
+  fi
+}
+
 scan_app_unarchive_requested_sentinels() {
   local d slug
   for d in "$APPS_ARCHIVE_DIR"/*/; do
@@ -2210,6 +2314,13 @@ scan_app_unarchive_requested_sentinels() {
     local live_dir="$APPS_DIR/$slug"
     local unit_file="$SYSTEMD_UNIT_DIR/app-$slug.service"
     local stashed_unit="$d/app-$slug.service.archived"
+
+    # Current-style apps (socket + relay + marker watch + boot check) stash a .socket;
+    # app-units.sh restores all of their units. Old-style apps continue below.
+    if [ -f "$d/app-$slug.socket.archived" ]; then
+      unarchive_current_style_app "$slug" "${d%/}"
+      continue
+    fi
 
     # -----------------------------------------------------------------------
     # Pre-flight — every failure is permanent-refuse (sentinel deleted).

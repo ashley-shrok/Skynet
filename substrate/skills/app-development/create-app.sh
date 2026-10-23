@@ -1,20 +1,29 @@
 #!/usr/bin/env bash
-# create-app.sh <slug> [title] — scaffold a new app under ~/fleet/apps/<slug>.
+# create-app.sh [--conversation] <slug> [title] — scaffold a new app.
+#
+#   create-app.sh <slug> [title]                  sidebar app, ~/fleet/apps/<slug>/
+#   create-app.sh --conversation <slug> [title]   conversation app, owned by the
+#                                                 calling agent ($FLEET_IDENTITY):
+#                                                 ~/fleet/identities/<name>/apps/<slug>/
 #
 # Steps:
-#   1. Validate the slug and pre-flight the target paths (must not exist).
-#   2. Under an exclusive flock, pick the next free port in 9501-9599 and
-#      atomically claim it by writing the rendered systemd unit file. The
-#      unit file's presence in ~/.config/systemd/user/app-*.service is what
-#      future create-app scans see, so writing it under the lock closes the
-#      "two agents pick the same port" race.
-#   3. Copy the starter template into ~/fleet/apps/<slug>/ and substitute
-#      slug + title in app.json + package.json.
-#   4. bun install → drizzle-kit generate → bun run build.
-#   5. daemon-reload + enable --now the systemd unit; verify active.
+#   1. Validate the slug (unique across the whole box — sidebar, conversation
+#      and archived apps all share one namespace) and pre-flight the paths.
+#   2. Under an exclusive flock, pick the next free public port in 9501-9599
+#      and atomically claim it by writing the app's systemd units
+#      (app-units.sh write). Future scans see the units, so writing them under
+#      the lock closes the "two agents pick the same port" race.
+#   3. Copy the starter template into the app folder and substitute slug +
+#      title in app.json + package.json.
+#   4. bun install → bun run build.
+#   5. Enable + start the units (app-units.sh install); verify it answers.
 #
-# On any failure after the port claim, a trap removes the partial unit file
-# and app folder so the port is released.
+# Sidebar apps get app.json.pending (hidden until published) and are
+# always-on. Conversation apps get app.json straight away (they never appear
+# in the sidebar) and the .may-sleep marker (they sleep when idle).
+#
+# On any failure after the port claim, a trap removes the partial units and
+# app folder so the port is released.
 
 set -euo pipefail
 
@@ -27,8 +36,13 @@ die()  { printf '[create-app] ERROR: %s\n' "$*" >&2; exit 1; }
 
 # --- Args -------------------------------------------------------------------
 
+KIND=sidebar
+if [ "${1:-}" = "--conversation" ]; then
+    KIND=conversation
+    shift
+fi
 if [ $# -lt 1 ] || [ $# -gt 2 ]; then
-    die "usage: create-app.sh <slug> [title]"
+    die "usage: create-app.sh [--conversation] <slug> [title]"
 fi
 SLUG="$1"
 TITLE="${2:-}"
@@ -48,12 +62,21 @@ fi
 
 # --- Paths ------------------------------------------------------------------
 
-APP_DIR="$HOME/fleet/apps/$SLUG"
-UNIT_FILE="$HOME/.config/systemd/user/app-$SLUG.service"
-LOCK_FILE="$HOME/fleet/.create-lock"
-
 SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 TEMPLATE_DIR="$SCRIPT_DIR/templates/app-starter"
+UNITS="$SCRIPT_DIR/app-units.sh"
+LOCK_FILE="$HOME/fleet/.create-lock"
+
+if [ "$KIND" = conversation ]; then
+    OWNER="${FLEET_IDENTITY:-}"
+    [ -n "$OWNER" ] || die "--conversation needs FLEET_IDENTITY (your identity name) in the environment"
+    [[ "$OWNER" =~ ^[a-z0-9][a-z0-9-]*$ ]] || die "FLEET_IDENTITY is not a valid identity name: '$OWNER'"
+    [ -d "$HOME/fleet/identities/$OWNER" ] || die "identity folder not found: ~/fleet/identities/$OWNER"
+    mkdir -p "$HOME/fleet/identities/$OWNER/apps"
+    APP_DIR="$HOME/fleet/identities/$OWNER/apps/$SLUG"
+else
+    APP_DIR="$HOME/fleet/apps/$SLUG"
+fi
 
 # --- Pre-flight -------------------------------------------------------------
 
@@ -62,6 +85,9 @@ TEMPLATE_DIR="$SCRIPT_DIR/templates/app-starter"
 [ -d "$HOME/fleet/apps-backups" ] || die "~/fleet/apps-backups does not exist — run bootstrap.sh first"
 [ -d "$TEMPLATE_DIR" ]            || die "starter template not found at $TEMPLATE_DIR"
 [ ! -e "$APP_DIR" ]               || die "app already exists at $APP_DIR"
+if bash "$UNITS" slug-taken "$SLUG"; then
+    die "the name '$SLUG' is already used by another app on this box (live, archived, or in a conversation) — pick another slug"
+fi
 
 # Read the numeric fleet-DB hostId from the distributor-written file so we
 # can bake PANE_BASE = '/apps/<HOSTID>/<SLUG>/pane' into scaffolded pane.ts
@@ -77,7 +103,6 @@ HOSTID=$(cat "$HOSTID_FILE" | tr -d '[:space:]')
 if ! [[ "$HOSTID" =~ ^[1-9][0-9]{0,9}$ ]]; then
     die "$HOSTID_FILE contains an invalid hostId ('$HOSTID') — expected a positive integer. Ask the box-maintainer role to check the distributor sweep."
 fi
-[ ! -e "$UNIT_FILE" ]             || die "systemd unit already exists at $UNIT_FILE"
 
 # Make bun discoverable even if this script runs from a shell that hasn't
 # sourced rc files (e.g. an SSH exec).
@@ -86,6 +111,7 @@ command -v bun >/dev/null 2>&1 || die "bun not on PATH — run bootstrap.sh firs
 
 # --- Port claim (under exclusive lock) --------------------------------------
 
+log "kind:  $KIND"
 log "slug:  $SLUG"
 log "title: $TITLE"
 log "dir:   $APP_DIR"
@@ -100,11 +126,8 @@ CLEANUP_ON_FAIL=0
 cleanup() {
     if [ "$CLEANUP_ON_FAIL" = "1" ]; then
         log "cleaning up partial create (rolling back port claim)..."
-        systemctl --user disable "app-$SLUG.service" 2>/dev/null || true
-        systemctl --user stop    "app-$SLUG.service" 2>/dev/null || true
-        rm -f  "$UNIT_FILE"
+        bash "$UNITS" uninstall "$SLUG" 2>/dev/null || true
         rm -rf "$APP_DIR"
-        systemctl --user daemon-reload 2>/dev/null || true
     fi
 }
 trap cleanup EXIT
@@ -118,21 +141,10 @@ PORT=$(
     exec 200>"$LOCK_FILE"
     flock -x 200
 
-    # Collect ports already claimed by installed systemd units.
-    USED_PORTS=""
-    if compgen -G "$HOME/.config/systemd/user/app-*.service" > /dev/null; then
-        USED_PORTS=$(grep -h '^Environment=PORT=' "$HOME"/.config/systemd/user/app-*.service 2>/dev/null \
-                     | sed 's/^Environment=PORT=//')
-    fi
-    # Also reserve ports of archived apps so their stashed units can be
-    # restored to the same slot later. Without this, archived-then-restore
-    # breaks the moment a new app claims the freed slot.
-    if compgen -G "$HOME/fleet/apps-archive/*/app-*.service.archived" > /dev/null; then
-        ARCHIVED_PORTS=$(grep -h '^Environment=PORT=' "$HOME"/fleet/apps-archive/*/app-*.service.archived 2>/dev/null \
-                         | sed 's/^Environment=PORT=//')
-        USED_PORTS=$(printf '%s\n%s' "$USED_PORTS" "$ARCHIVED_PORTS")
-    fi
-    USED_PORTS=$(printf '%s\n' "$USED_PORTS" | sort -u)
+    # Every public port already claimed: live units (both styles) plus the
+    # stashes of archived apps and archived conversations, so their units
+    # can be restored to the same slot later.
+    USED_PORTS=$(bash "$UNITS" used-ports)
 
     picked=""
     for candidate in $(seq 9501 9599); do
@@ -147,22 +159,13 @@ PORT=$(
         exit 1
     fi
 
-    # Write via a temp file + atomic rename so a mid-write sed failure can't
-    # leave a partial unit on disk.
-    tmp_unit=$(mktemp "$HOME/.config/systemd/user/.app-$SLUG.XXXXXX")
-    sed \
-        -e "s|__SLUG__|$SLUG|g" \
-        -e "s|__APP_DIR__|$APP_DIR|g" \
-        -e "s|__PORT__|$picked|g" \
-        "$TEMPLATE_DIR/app-SLUG.service.template" > "$tmp_unit"
-    mv "$tmp_unit" "$UNIT_FILE"
-
+    bash "$UNITS" write "$SLUG" "$APP_DIR" "$picked"
     printf '%s' "$picked"
 )
 [ -n "$PORT" ] || die "port claim failed"
 
-log "port:  $PORT (claimed atomically)"
-log "wrote systemd unit: $UNIT_FILE"
+log "port:  $PORT (claimed atomically; app listens privately on $((PORT + 10000)))"
+log "wrote systemd units: app-$SLUG.{socket,service} app-$SLUG-{relay.service,marker.path,boot.service}"
 
 # Port is now claimed on disk — any failure past this point needs rollback.
 CLEANUP_ON_FAIL=1
@@ -171,11 +174,6 @@ CLEANUP_ON_FAIL=1
 
 cp -r "$TEMPLATE_DIR" "$APP_DIR"
 log "scaffolded starter into $APP_DIR"
-
-# Remove the systemd template from the scaffold (it's already been rendered
-# into ~/.config/systemd/user/); we keep it in the template directory but
-# don't need a copy in every app folder.
-rm -f "$APP_DIR/app-SLUG.service.template"
 
 # Delete the starter's shipped app.json — the sidebar sweep gates on this file
 # existing, so leaving it in place would flash a half-built app onto the
@@ -206,13 +204,27 @@ mkdir -p "$APP_DIR/static"
 # description). Title pre-filled; description blank for the agent to fill.
 # The `.pending` suffix keeps the app INVISIBLE to the sidebar sweep until
 # the agent renames it to app.json as the publish step.
-python3 - "$APP_DIR/app.json.pending" "$TITLE" <<'PYEOF'
+#
+# Conversation apps never appear in the sidebar, so they get app.json right
+# away (its title + description show on the app's chip and in the
+# conversation's Apps tab) and the .may-sleep marker.
+if [ "$KIND" = conversation ]; then
+    META="$APP_DIR/app.json"
+else
+    META="$APP_DIR/app.json.pending"
+fi
+python3 - "$META" "$TITLE" <<'PYEOF'
 import json, sys, pathlib
 p = pathlib.Path(sys.argv[1])
 p.write_text(json.dumps({"title": sys.argv[2], "description": ""}, indent=2) + "\n")
 PYEOF
-log "wrote app.json.pending (title=\"$TITLE\", description empty)"
-log "  → sidebar will NOT show this app until you publish: mv app.json.pending app.json"
+if [ "$KIND" = conversation ]; then
+    : > "$APP_DIR/.may-sleep"
+    log "wrote app.json (title=\"$TITLE\", description empty) and .may-sleep (sleeps when idle)"
+else
+    log "wrote app.json.pending (title=\"$TITLE\", description empty)"
+    log "  → sidebar will NOT show this app until you publish: mv app.json.pending app.json"
+fi
 
 # PANE_BASE substitution — src/lib/pane.ts + server.js carry literal
 # `/apps/__HOSTID__/__SLUG__/pane` strings that need to be rewritten to
@@ -264,16 +276,15 @@ fi
 
 # --- Enable + start --------------------------------------------------------
 
-systemctl --user daemon-reload
-systemctl --user enable --now "app-$SLUG.service"
-log "systemd unit enabled and started"
+bash "$UNITS" install "$SLUG" "$APP_DIR" "$PORT"
+log "systemd units enabled and started"
 
-# Give it a beat to come up, then verify.
-sleep 2
-if systemctl --user is-active --quiet "app-$SLUG.service"; then
-    log "app-$SLUG is active (running)"
+# Knock on the public address — this also wakes a sleeping app, so it checks
+# the whole path (socket → relay → app) the user's requests will take.
+if curl -fsS -o /dev/null --max-time 30 "http://127.0.0.1:$PORT/"; then
+    log "app-$SLUG answers on 127.0.0.1:$PORT"
 else
-    log "WARNING: app-$SLUG did not reach active state"
+    log "WARNING: app-$SLUG did not answer on 127.0.0.1:$PORT"
     log "  check: journalctl --user -u app-$SLUG -n 50 --no-pager"
     # Don't die here — leave the app in place so the agent can debug it.
     # The port claim stays valid; user can archive-app or delete manually.
@@ -283,15 +294,48 @@ fi
 
 CLEANUP_ON_FAIL=0
 
+APP_LINK="$(tr -d '[:space:]' < "$HOME/fleet/host/parent" 2>/dev/null)/apps/$HOSTID/$SLUG/pane/"
+
 cat <<EOF
 
 [create-app] done
+  kind:    $KIND
   slug:    $SLUG
   title:   $TITLE
-  port:    $PORT (bound to 127.0.0.1)
+  port:    $PORT (public, 127.0.0.1) → $((PORT + 10000)) (the app itself)
   folder:  $APP_DIR
   logs:    journalctl --user -u app-$SLUG -f
   status:  systemctl --user status app-$SLUG
+EOF
+
+if [ "$KIND" = conversation ]; then
+cat <<EOF
+
+  This is a conversation app: it never appears in the sidebar, and it is
+  archived along with your conversation. It may sleep when idle (.may-sleep
+  is present) — delete that marker if the app does anything on its own clock.
+
+Next: edit the starter down to your app's actual shape.
+  - src/lib/server/db/schema.ts  — the Drizzle schema (replace the starter table)
+  - src/routes/+page.svelte       — the UI
+  - src/routes/+page.server.ts    — server logic (load + form actions)
+  - README.md.pending             — describe the app; rename to README.md when done
+  - app.json                      — fill in the "description" field
+
+Iterate in dev mode:
+    systemctl --user stop app-$SLUG
+    cd $APP_DIR
+    bun run dev
+
+Then build + restart:
+    bun run build && systemctl --user restart app-$SLUG
+
+Finally, once it works end to end and has its icon, hand it to the user by
+linking it in your message (it renders as an app chip):
+    [$TITLE]($APP_LINK)
+EOF
+else
+cat <<EOF
 
   ⚠️ The app is NOT on the user's sidebar yet. The sweep gates on app.json
      existing; you have app.json.pending. Publish (final step) once the app
@@ -315,3 +359,4 @@ Then build + restart:
 Finally, publish (this puts the tile on the user's sidebar):
     mv $APP_DIR/app.json.pending $APP_DIR/app.json
 EOF
+fi
