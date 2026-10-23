@@ -6,7 +6,7 @@
 
 ## Concept
 
-Redesign Skynet's modals with Apple's interfaces as the reference, starting with the skills modal and going modal by modal; after the modals, the sidebar and the conversation view get the same pass. Apple is the reference for the UX, not for the visual skin — the result should look like Skynet, not like Apple made it. Alongside, admins get finer control over where shared skills and roles live: a chosen set of hosts kept in sync, or a deliberate "every host" that also covers hosts added later. Non-admins never see the sharing controls.
+Redesign Skynet's modals with Apple's interfaces as the reference, starting with the skills modal and going modal by modal; after the modals, the sidebar, the conversation view and the bar across the top of app / remote-desktop / file panes get the same pass — by then the whole interface has been visually reimagined (Ashley, 2026-10-23). Apple is the reference for the UX, not for the visual skin — the result should look like Skynet, not like Apple made it. Alongside, admins get finer control over where shared skills and roles live: a chosen set of hosts kept in sync, or a deliberate "every host" that also covers hosts added later. Non-admins never see the sharing controls.
 
 ### Standing rule for every design session in this campaign
 
@@ -23,7 +23,7 @@ So: this artifact deliberately does NOT list Apple design principles, and no ses
 - No modal loses anything it can do today, including read-only states (fleet-distributed skills; shared roles for non-admins stay view-only all the way into the editor). Shared skills are invisible to non-admins and agent-only for them (Ashley, 2026-10-18).
 - Admins can share a skill or role to a chosen set of hosts, kept in sync across exactly those, or to "every host", which also reaches hosts added later; ticking all of today's hosts one by one does NOT include future hosts. Non-admins see none of this.
 - The id skill describes every non-admin-visible change as it ships (admin-only features stay out of it).
-- After the modals, the sidebar and the conversation view have had the same pass.
+- After the modals, the sidebar, the conversation view and the pane bar (apps, remote desktops, files) have had the same pass.
 
 ## Shapes
 
@@ -39,9 +39,10 @@ Starting order: foundation, skills, then the remaining modals, then host targeti
 - **[declared] shape-admin-modals** — Admin in the Preferences family; users and hosts one level deeper in the same window; hosts grouped by attention with reasons; instance file read → Edit (see shape-admin-modals.closed.md) — closed 2026-10-21
 - **[declared] shape-creation-and-search-dialogs** — new-conversation dialog (role list, name pre-filled, admin Agent/Shell), What's new, search, archived apps (see shape-creation-and-search-dialogs.closed.md) — closed 2026-10-22
 - **[declared] shape-file-modal** — one file window wherever a file opens (chat + Files tabs); opens by type (look at / read first with Edit / ready to work on); one header with view switches, Formatted / Plain text off its own row everywhere (see shape-file-modal.closed.md) — closed 2026-10-22
-- **[discovered] shape-modal-sizing** — once every modal is redesigned, Ashley walks through them all and says where each should size or expand (per tab where it helps, on screens with room), instead of tracking sizes shape by shape (Ashley, 2026-10-18) — not started
+- **[discovered] shape-modal-sizing** — once every modal is redesigned, Ashley walks through them all and says where each should size or expand (per tab where it helps, on screens with room), instead of tracking sizes shape by shape (Ashley, 2026-10-18) — deferred until after the redesigned modals are deployed: the preview desktop's screen is too small to judge sizes, so Ashley notes what needs it on her real screens (Ashley, 2026-10-23)
 - **[declared] shape-host-targeting** — admin-only: shared skills and roles target a chosen set of hosts or a permanent "every host"; sync machinery + the admin controls in both skills and roles modals — not started
 - **[declared] shape-sidebar** — the conversation list / sidebar, after all modals — not started
+- **[discovered] shape-pane-bar** — the bar across the top of app, remote-desktop and file panes (one shared bar today), not the apps' own content (Ashley, 2026-10-23) — not started
 - **[declared] shape-conversation-view** — the chat view itself, last — not started
 
 ### Shipping (Ashley, 2026-10-17)
