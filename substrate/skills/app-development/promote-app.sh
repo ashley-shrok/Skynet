@@ -54,6 +54,12 @@ rollback() {
 }
 trap rollback EXIT
 
+# Hold the create lock from removing the units until they're back (and through
+# any rollback), so a concurrent create-app.sh can't claim the port while no
+# unit or stash is reserving it. Released when this script exits.
+exec 200>"$HOME/fleet/.create-lock"
+flock -x -w 60 200 || die "could not get ~/fleet/.create-lock within 60s — another app is being created; try again"
+
 bash "$UNITS" uninstall "$SLUG"
 ROLLBACK=1
 
@@ -62,7 +68,10 @@ log "moved folder"
 
 bash "$UNITS" install "$SLUG" "$DEST" "$PORT"
 
-if ! curl -fsS -o /dev/null --max-time 30 "http://127.0.0.1:$PORT/"; then
+# Any HTTP answer counts — an app whose root page is a 404 or a 500 is still
+# running at its new location; only no answer at all means the move broke it.
+CODE=$(curl -s -o /dev/null -w '%{http_code}' --max-time 30 "http://127.0.0.1:$PORT/" || true)
+if [ -z "$CODE" ] || [ "$CODE" = "000" ]; then
     die "app-$SLUG did not answer on 127.0.0.1:$PORT after the move"
 fi
 

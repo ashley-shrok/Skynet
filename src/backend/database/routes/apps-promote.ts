@@ -37,7 +37,10 @@ import {
   APP_SLUG_RE,
   isLocalHostId,
 } from "../../claude-session/identity-artifact-reader.js";
-import { dropIdentityInboxMessage } from "../../claude-session/per-identity-file.js";
+import {
+  dropIdentityInboxMessage,
+  IdentityGoneError,
+} from "../../claude-session/per-identity-file.js";
 import { getRegistry } from "../../fleet-status/registry-holder.js";
 import { canUserSeeIdentity } from "../../fleet-status/identity-gate-holder.js";
 
@@ -46,6 +49,23 @@ const authManager = AuthManager.getInstance();
 const authenticateJWT = authManager.createAuthMiddleware();
 
 const SSH_CONNECT_TIMEOUT_MS = 3000;
+
+/**
+ * One request per app per minute reaches the agent: a repeat inside the
+ * window answers ok without dropping another inbox message, so repeated
+ * clicks (from any viewer, any browser) can't keep waking the agent.
+ */
+const PROMOTE_DEDUPE_MS = 60_000;
+const recentRequests = new Map<string, number>();
+
+function recentlyRequested(key: string, now: number): boolean {
+  for (const [k, at] of recentRequests) if (now - at >= PROMOTE_DEDUPE_MS) recentRequests.delete(k);
+  return recentRequests.has(key);
+}
+
+export function _resetPromoteDedupeForTesting(): void {
+  recentRequests.clear();
+}
 
 /**
  * The event the agent receives. The title is the agent's own app.json text,
@@ -98,6 +118,11 @@ router.post(
       return res.status(404).json({ error: "Not found" });
     }
 
+    const dedupeKey = `${hostId}/${slug}`;
+    if (recentlyRequested(dedupeKey, Date.now())) {
+      return res.json({ ok: true });
+    }
+
     const body = buildPromoteRequestMessage(slug, app.title);
 
     const doWork = async () => {
@@ -114,6 +139,7 @@ router.post(
       }
       try {
         const file = await dropIdentityInboxMessage(owner, body, { hostId, conn });
+        recentRequests.set(dedupeKey, Date.now());
         databaseLogger.info("app promote requested", {
           operation: "apps_promote_request",
           userId,
@@ -124,6 +150,10 @@ router.post(
         });
         return res.json({ ok: true });
       } catch (err) {
+        if (err instanceof IdentityGoneError) {
+          // Archived since the registry last saw it — nothing to ask.
+          return res.status(404).json({ error: "Not found" });
+        }
         databaseLogger.error("app promote request: inbox write failed", {
           operation: "apps_promote_request_failed",
           hostId,

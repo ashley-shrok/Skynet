@@ -166,11 +166,14 @@ router.get(
 
     // convo-scoped apps: a conversation app's icon lives in its owner's
     // folder and is shown only to users who can see that identity.
+    // Registry rows are keyed by the caller's own row id for the box (same
+    // as the pane proxy); the URL id may be another user's row.
+    const ownHostIdStr = String(host?.id ?? hostIdNum);
     const owner =
       getRegistry()
         ?.getAppSnapshot()
-        .find((a) => a.hostId === String(hostIdNum) && a.slug === slug)?.owner ?? null;
-    if (owner !== null && !(await canUserSeeIdentity(owner, String(hostIdNum), userId))) {
+        .find((a) => a.hostId === ownHostIdStr && a.slug === slug)?.owner ?? null;
+    if (owner !== null && !(await canUserSeeIdentity(owner, ownHostIdStr, userId))) {
       return res.status(404).json({ error: "no icon on disk for this app" });
     }
 
@@ -357,6 +360,12 @@ router.get(
     const app = registry
       .getAppSnapshot()
       .find((a) => a.hostId === hostIdStr && a.slug === slug);
+    // convo-scoped apps: a conversation app's address is only handed to users
+    // who can see its owning identity; same 404 as "not present" so the
+    // app's existence doesn't leak.
+    if (app?.owner && !(await canUserSeeIdentity(app.owner, hostIdStr, userId))) {
+      return res.status(404).json({ error: "app no longer present" });
+    }
     if (!app) {
       // The tile was rendered from a stale snapshot OR the app has been
       // removed since the frontend last received a frame OR the app was

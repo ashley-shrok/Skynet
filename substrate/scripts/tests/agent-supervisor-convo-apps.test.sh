@@ -84,6 +84,16 @@ uninstall tally" "$(cat "$s/calls")" "calls"
   rm -rf "$s"
 }
 
+test_retire_uninstalls_even_when_stash_fails() {
+  local s; s=$(setup)
+  mkdir -p "$s/identities/alpha/apps/tally"
+  printf '#!/usr/bin/env bash\nprintf "%%s\\n" "$*" >> "%s/calls"\n[ "$1" = stash ] && exit 1\nexit 0\n' "$s" > "$s/app-units-stub.sh"
+  ( source_supervisor "$s"; retire_identity_apps alpha "$s/identities/alpha" >/dev/null 2>&1 )
+  assert_eq "stash tally $s/identities/alpha/apps/tally
+uninstall tally" "$(cat "$s/calls")" "uninstall still runs"
+  rm -rf "$s"
+}
+
 test_retire_without_apps_is_a_noop() {
   local s; s=$(setup)
   mkdir -p "$s/identities/alpha"
@@ -167,6 +177,7 @@ test_unarchive_old_style_does_not_use_app_units() {
 
 printf 'agent-supervisor convo-apps tests\n'
 run_test test_retire_stashes_and_uninstalls_each_app
+run_test test_retire_uninstalls_even_when_stash_fails
 run_test test_retire_without_apps_is_a_noop
 run_test test_retire_skips_invalid_folder_names
 run_test test_restore_only_touches_stashed_apps

@@ -20,6 +20,8 @@ const mocks = vi.hoisted(() => {
     resolveHostByUniversalId: vi.fn(),
     canAccessHost: vi.fn(),
     createAuthMiddleware: vi.fn(),
+    getAppSnapshot: vi.fn(() => [] as unknown[]),
+    canUserSeeIdentity: vi.fn(async () => true),
     sshLogger: {
       info: vi.fn(),
       warn: vi.fn(),
@@ -46,6 +48,14 @@ vi.mock("../../utils/auth-manager.js", () => ({
       createAuthMiddleware: mocks.createAuthMiddleware,
     })),
   },
+}));
+
+vi.mock("../../fleet-status/registry-holder.js", () => ({
+  getRegistry: () => ({ getAppSnapshot: mocks.getAppSnapshot }),
+}));
+
+vi.mock("../../fleet-status/identity-gate-holder.js", () => ({
+  canUserSeeIdentity: mocks.canUserSeeIdentity,
 }));
 
 vi.mock("../../utils/logger.js", () => ({
@@ -125,6 +135,10 @@ describe("subdomain-dispatch middleware", () => {
     mocks.resolveHostByUniversalId.mockReset();
     mocks.canAccessHost.mockReset();
     mocks.createAuthMiddleware.mockReset();
+    mocks.getAppSnapshot.mockReset();
+    mocks.getAppSnapshot.mockReturnValue([]);
+    mocks.canUserSeeIdentity.mockReset();
+    mocks.canUserSeeIdentity.mockResolvedValue(true);
     mocks.sshLogger.info.mockClear();
     mocks.sshLogger.warn.mockClear();
     mocks.sshLogger.error.mockClear();
@@ -295,6 +309,58 @@ describe("subdomain-dispatch middleware", () => {
     expect(target.hostname).toBe("MyHost");
     expect(target.port).toBe(3000);
     expect(target.host).toBe(hostRow);
+  });
+
+  // convo-scoped apps: box access isn't enough for a conversation app's port.
+  describe("conversation app ports", () => {
+    const hostRow = { id: 42, name: "MyHost", ip: "10.0.0.5", port: 22, username: "user" };
+    const convoApp = { hostId: "42", slug: "tally", port: 9505, owner: "alpha" };
+
+    it.each([
+      ["public port", "42-9505.serve.term.example.com"],
+      ["private port behind the relay", "42-19505.serve.term.example.com"],
+    ])("refuses the %s when the caller can't see the owning identity", async (_label, sub) => {
+      mocks.resolveHostByUniversalId.mockResolvedValue(hostRow);
+      mocks.canAccessHost.mockResolvedValue({ hasAccess: true });
+      mocks.getAppSnapshot.mockReturnValue([convoApp]);
+      mocks.canUserSeeIdentity.mockResolvedValue(false);
+      const mod = await import("../subdomain-dispatch.js");
+      const middleware = mod.createSubdomainDispatchMiddleware();
+      const req = makeReq({ subdomainHeader: sub });
+      const { res, statusCalls } = makeRes();
+      const next = vi.fn();
+      await middleware(req, res, next);
+      expect(next).not.toHaveBeenCalled();
+      expect(statusCalls).toContain(403);
+      expect(mocks.canUserSeeIdentity).toHaveBeenCalledWith("alpha", "42", "user-abc");
+    });
+
+    it("allows it when the caller can see the owning identity", async () => {
+      mocks.resolveHostByUniversalId.mockResolvedValue(hostRow);
+      mocks.canAccessHost.mockResolvedValue({ hasAccess: true });
+      mocks.getAppSnapshot.mockReturnValue([convoApp]);
+      const mod = await import("../subdomain-dispatch.js");
+      const middleware = mod.createSubdomainDispatchMiddleware();
+      const req = makeReq({ subdomainHeader: "42-9505.serve.term.example.com" });
+      const { res } = makeRes();
+      const next = vi.fn();
+      await middleware(req, res, next);
+      expect(next).toHaveBeenCalledTimes(1);
+    });
+
+    it("never consults the identity gate for other ports", async () => {
+      mocks.resolveHostByUniversalId.mockResolvedValue(hostRow);
+      mocks.canAccessHost.mockResolvedValue({ hasAccess: true });
+      mocks.getAppSnapshot.mockReturnValue([convoApp, { hostId: "42", slug: "side", port: 9506, owner: null }]);
+      const mod = await import("../subdomain-dispatch.js");
+      const middleware = mod.createSubdomainDispatchMiddleware();
+      for (const sub of ["42-3000.serve.term.example.com", "42-9506.serve.term.example.com"]) {
+        const next = vi.fn();
+        await middleware(makeReq({ subdomainHeader: sub }), makeRes().res, next);
+        expect(next).toHaveBeenCalledTimes(1);
+      }
+      expect(mocks.canUserSeeIdentity).not.toHaveBeenCalled();
+    });
   });
 
   it("rejects a dashed non-numeric prefix like 'foo-12-3000'", async () => {

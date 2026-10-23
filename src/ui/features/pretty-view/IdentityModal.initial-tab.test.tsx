@@ -249,4 +249,15 @@ describe("IdentityModal — Apps tab (convo-scoped apps)", () => {
     expect(screen.getAllByTestId("identity-apps-row")).toHaveLength(1);
     expect(screen.getByText("Tally")).toBeTruthy();
   });
+
+  it("when the last app leaves (moved to the sidebar) the modal falls back to the agent file, never blank", async () => {
+    mockApps = [app({})];
+    const { rerender } = render(<Harness open={true} initialTab="apps" />);
+    expect(await screen.findByTestId("identity-apps-tab")).toBeTruthy();
+    mockApps = [app({ owner: null })];
+    rerender(<Harness open={true} initialTab="apps" />);
+    await waitFor(() => expect(screen.queryByTestId("identity-modal-nav-apps")).toBeNull());
+    expect(screen.queryByTestId("identity-apps-tab")).toBeNull();
+    expect(screen.getByTestId("identity-modal-nav-identity").getAttribute("aria-pressed")).toBe("true");
+  });
 });

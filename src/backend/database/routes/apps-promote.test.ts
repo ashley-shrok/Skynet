@@ -37,6 +37,7 @@ vi.mock("../../claude-session/identity-artifact-reader.js", () => ({
 }));
 vi.mock("../../claude-session/per-identity-file.js", () => ({
   dropIdentityInboxMessage: vi.fn(),
+  IdentityGoneError: class IdentityGoneError extends Error {},
 }));
 vi.mock("../../fleet-status/registry-holder.js", () => ({ getRegistry: vi.fn() }));
 vi.mock("../../fleet-status/identity-gate-holder.js", () => ({ canUserSeeIdentity: vi.fn() }));
@@ -44,10 +45,10 @@ vi.mock("../../fleet-status/identity-gate-holder.js", () => ({ canUserSeeIdentit
 import { connectOneShot } from "../../ssh/ssh-one-shot.js";
 import { resolveHostById } from "../../ssh/host-resolver.js";
 import { isLocalHostId } from "../../claude-session/identity-artifact-reader.js";
-import { dropIdentityInboxMessage } from "../../claude-session/per-identity-file.js";
+import { dropIdentityInboxMessage, IdentityGoneError } from "../../claude-session/per-identity-file.js";
 import { getRegistry } from "../../fleet-status/registry-holder.js";
 import { canUserSeeIdentity } from "../../fleet-status/identity-gate-holder.js";
-import router, { buildPromoteRequestMessage } from "./apps-promote.js";
+import router, { buildPromoteRequestMessage, _resetPromoteDedupeForTesting } from "./apps-promote.js";
 import { __resetHostSemaphoreRegistryForTests } from "../../ssh/host-semaphore-registry.js";
 
 function post(server: http.Server, path: string): Promise<{ status: number; body: unknown }> {
@@ -84,6 +85,7 @@ let server: http.Server;
 
 beforeEach(async () => {
   vi.clearAllMocks();
+  _resetPromoteDedupeForTesting();
   mockUserId = "1";
   (resolveHostById as Mock).mockImplementation((id: number) =>
     Promise.resolve(id === 5 || id === 7 ? stubHost : null),
@@ -124,6 +126,19 @@ describe("POST /apps/:hostId/:slug/promote-request", () => {
     expect(stubConn.end).toHaveBeenCalled();
   });
 
+  it("a repeat within a minute answers ok without waking the agent again", async () => {
+    expect((await post(server, "/apps/5/tally/promote-request")).status).toBe(200);
+    expect((await post(server, "/apps/5/tally/promote-request")).status).toBe(200);
+    expect(dropIdentityInboxMessage).toHaveBeenCalledTimes(1);
+  });
+
+  it("a failed drop doesn't block a retry", async () => {
+    (dropIdentityInboxMessage as Mock).mockRejectedValueOnce(new Error("disk full"));
+    expect((await post(server, "/apps/5/tally/promote-request")).status).toBe(500);
+    expect((await post(server, "/apps/5/tally/promote-request")).status).toBe(200);
+    expect(dropIdentityInboxMessage).toHaveBeenCalledTimes(2);
+  });
+
   it("404 for a sidebar app (nothing to promote)", async () => {
     const res = await post(server, "/apps/5/side/promote-request");
     expect(res.status).toBe(404);
@@ -156,6 +171,12 @@ describe("POST /apps/:hostId/:slug/promote-request", () => {
     (connectOneShot as Mock).mockRejectedValue(new Error("down"));
     const res = await post(server, "/apps/7/remote-app/promote-request");
     expect(res.status).toBe(504);
+  });
+
+  it("404 when the identity was archived in the meantime (no stray folder)", async () => {
+    (dropIdentityInboxMessage as Mock).mockRejectedValue(new IdentityGoneError("alpha"));
+    const res = await post(server, "/apps/5/tally/promote-request");
+    expect(res.status).toBe(404);
   });
 
   it("500 when the inbox write fails", async () => {

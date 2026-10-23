@@ -144,6 +144,13 @@ PORT=$(
     # Every public port already claimed: live units (both styles) plus the
     # stashes of archived apps and archived conversations, so their units
     # can be restored to the same slot later.
+    # Re-check the name under the lock — a create of the same slug that
+    # started at the same moment would otherwise overwrite these units.
+    if bash "$UNITS" slug-taken "$SLUG"; then
+        echo "the name '$SLUG' was just taken by another app on this box — pick another slug" >&2
+        exit 1
+    fi
+
     USED_PORTS=$(bash "$UNITS" used-ports)
 
     picked=""
@@ -284,7 +291,8 @@ log "systemd units enabled and started"
 
 # Knock on the public address — this also wakes a sleeping app, so it checks
 # the whole path (socket → relay → app) the user's requests will take.
-if curl -fsS -o /dev/null --max-time 30 "http://127.0.0.1:$PORT/"; then
+CODE=$(curl -s -o /dev/null -w '%{http_code}' --max-time 30 "http://127.0.0.1:$PORT/" || true)
+if [ -n "$CODE" ] && [ "$CODE" != "000" ]; then
     log "app-$SLUG answers on 127.0.0.1:$PORT"
 else
     log "WARNING: app-$SLUG did not answer on 127.0.0.1:$PORT"

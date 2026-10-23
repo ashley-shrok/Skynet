@@ -391,6 +391,14 @@ async function remoteStatExists(
 // Public: dropIdentityInboxMessage (convo-scoped apps)
 // ---------------------------------------------------------------------------
 
+/** The identity's folder no longer exists on the host (e.g. just archived). */
+export class IdentityGoneError extends Error {
+  constructor(name: string) {
+    super(`identity folder not found: ${name}`);
+    this.name = "IdentityGoneError";
+  }
+}
+
 /** Inbox filename contract — must match inbox-watcher's name-shape filter. */
 export const INBOX_MSG_NAME_RE = /^20[0-9]{6}T[0-9]{9}-[0-9a-f]{8}\.msg$/;
 
@@ -409,6 +417,10 @@ export function makeInboxMessageName(now: Date = new Date(), hex?: string): stri
  * (the watcher ignores the `.tmp` name, so it never sees a half-written file).
  * The supervisor wakes a dormant identity for it and the inbox-watcher pastes
  * the body into the identity's session. Returns the message filename.
+ *
+ * Never creates the identity's own folder: if it's gone (archived since the
+ * caller last looked) this throws IdentityGoneError instead of leaving a
+ * stray `identities/<name>/inbox/` the supervisor would mistake for an agent.
  */
 export async function dropIdentityInboxMessage(
   name: string,
@@ -418,7 +430,15 @@ export async function dropIdentityInboxMessage(
   assertValidIdentityKey(name);
   const file = makeInboxMessageName();
   if (isLocalHostId(opts.hostId)) {
-    const dir = path.join(getLocalIdentitiesRoot(), name, "inbox");
+    const identityDir = path.join(getLocalIdentitiesRoot(), name);
+    try {
+      const st = await fs.stat(identityDir);
+      if (!st.isDirectory()) throw new IdentityGoneError(name);
+    } catch (err) {
+      if (err instanceof IdentityGoneError || isEnoent(err)) throw new IdentityGoneError(name);
+      throw err;
+    }
+    const dir = path.join(identityDir, "inbox");
     await fs.mkdir(dir, { recursive: true });
     const finalPath = path.join(dir, file);
     await fs.writeFile(finalPath + ".tmp", body, "utf-8");
@@ -428,7 +448,12 @@ export async function dropIdentityInboxMessage(
   if (opts.conn === null) {
     throw new Error("conn required for remote host");
   }
-  await execCommand(opts.conn, `mkdir -p ${shellSingleQuote(`fleet/identities/${name}/inbox`)}`);
+  const idDir = shellSingleQuote(`fleet/identities/${name}`);
+  const probe = await execCommand(
+    opts.conn,
+    `if [ -d ${idDir} ]; then mkdir -p ${shellSingleQuote(`fleet/identities/${name}/inbox`)} && echo ok; else echo gone; fi`,
+  );
+  if (probe.trim() !== "ok") throw new IdentityGoneError(name);
   await writeMarkdownFileAtomic(opts.conn, `fleet/identities/${name}/inbox/${file}`, body);
   return file;
 }

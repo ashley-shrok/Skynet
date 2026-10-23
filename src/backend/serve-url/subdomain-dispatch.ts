@@ -64,6 +64,11 @@ import {
 import { sshLogger } from "../utils/logger.js";
 import type { ServeTarget, ErrorClass } from "./types.js";
 import type { Host } from "../../types/index.js";
+import { getRegistry } from "../fleet-status/registry-holder.js";
+import { canUserSeeIdentity } from "../fleet-status/identity-gate-holder.js";
+
+/** convo-scoped apps: an app's private port is its public port + this. */
+const APP_PRIVATE_PORT_OFFSET = 10000;
 
 /* ------------------------------------------------------------------------ */
 /*  Types                                                                   */
@@ -418,6 +423,36 @@ export function createSubdomainDispatchMiddleware() {
           port,
           host: host as Host,
         },
+        originalUrl,
+        primaryDomain,
+      );
+      writeInterstitial(res, result);
+      return;
+    }
+
+    // 5b. convo-scoped apps: a serve URL onto a conversation app's port (its
+    // public port, or the private one behind the relay) is only allowed for
+    // users who can see the app's owning identity — the same rule as the app
+    // pane. Box access alone isn't enough.
+    const ownerApp = getRegistry()
+      ?.getAppSnapshot()
+      .find(
+        (a) =>
+          a.hostId === String(host.id) &&
+          a.owner &&
+          a.port !== null &&
+          (a.port === port || a.port + APP_PRIVATE_PORT_OFFSET === port),
+      );
+    if (ownerApp?.owner && !(await canUserSeeIdentity(ownerApp.owner, String(host.id), userId))) {
+      sshLogger.info("serve-url dispatch: conversation app hidden by owner identity gate", {
+        operation: "serve_url_dispatch_owner_hidden",
+        hostId: hostRef,
+        port,
+        userId,
+      });
+      const result = renderInterstitial(
+        "permission_denied",
+        { hostname: host.name, port, host: host as Host },
         originalUrl,
         primaryDomain,
       );

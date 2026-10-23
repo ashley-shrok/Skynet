@@ -75,6 +75,7 @@ import {
   dropIdentityInboxMessage,
   makeInboxMessageName,
   INBOX_MSG_NAME_RE,
+  IdentityGoneError,
 } from "./per-identity-file.js";
 import { IDENTITY_KEY_RE as READER_IDENTITY_KEY_RE } from "./identity-artifact-reader.js";
 import { IDENTITY_KEY_RE as PRIMITIVE_IDENTITY_KEY_RE } from "./per-identity-file.js";
@@ -1090,6 +1091,7 @@ describe("dropIdentityInboxMessage", () => {
   });
 
   it("LOCAL: mkdir -p inbox, write <file>.tmp, rename to <file>", async () => {
+    (fsMod.stat as unknown as ReturnType<typeof vi.fn>).mockResolvedValue({ isDirectory: () => true });
     const file = await dropIdentityInboxMessage("alpha", "hello", { hostId: 999, conn: null });
     expect(INBOX_MSG_NAME_RE.test(file)).toBe(true);
     const mkdir = fsMod.mkdir as unknown as ReturnType<typeof vi.fn>;
@@ -1104,13 +1106,34 @@ describe("dropIdentityInboxMessage", () => {
     expect(String(rename.mock.calls[0][1]).endsWith(file)).toBe(true);
   });
 
-  it("REMOTE: mkdir -p over exec, then atomic SFTP write into the inbox", async () => {
+  it("REMOTE: mkdir -p over exec (only if the identity exists), then atomic SFTP write", async () => {
     const { conn, renameCalls } = buildMockConn();
+    (execCommand as unknown as ReturnType<typeof vi.fn>).mockResolvedValueOnce("ok\n");
     const file = await dropIdentityInboxMessage("alpha", "hello", { hostId: 1, conn });
     expect((execCommand as unknown as ReturnType<typeof vi.fn>).mock.calls[0][1]).toBe(
-      "mkdir -p 'fleet/identities/alpha/inbox'",
+      "if [ -d 'fleet/identities/alpha' ]; then mkdir -p 'fleet/identities/alpha/inbox' && echo ok; else echo gone; fi",
     );
     expect(renameCalls.at(-1)?.to).toContain(`fleet/identities/alpha/inbox/${file}`);
+  });
+
+  it("LOCAL: a missing identity folder → IdentityGoneError, nothing written", async () => {
+    (fsMod.stat as unknown as ReturnType<typeof vi.fn>).mockRejectedValue(
+      Object.assign(new Error("nope"), { code: "ENOENT" }),
+    );
+    await expect(
+      dropIdentityInboxMessage("alpha", "x", { hostId: 999, conn: null }),
+    ).rejects.toBeInstanceOf(IdentityGoneError);
+    expect((fsMod.mkdir as unknown as ReturnType<typeof vi.fn>)).not.toHaveBeenCalled();
+    expect((fsMod.writeFile as unknown as ReturnType<typeof vi.fn>)).not.toHaveBeenCalled();
+  });
+
+  it("REMOTE: a missing identity folder → IdentityGoneError, nothing written", async () => {
+    const { conn, sftp } = buildMockConn();
+    (execCommand as unknown as ReturnType<typeof vi.fn>).mockResolvedValueOnce("gone\n");
+    await expect(
+      dropIdentityInboxMessage("alpha", "x", { hostId: 1, conn }),
+    ).rejects.toBeInstanceOf(IdentityGoneError);
+    expect(sftp.writeFile).not.toHaveBeenCalled();
   });
 
   it("rejects an invalid identity name before any I/O", async () => {

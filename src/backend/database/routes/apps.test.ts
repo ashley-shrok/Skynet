@@ -70,7 +70,8 @@ const readAppIconFileMock = vi.fn();
 const isLocalHostIdMock = vi.fn();
 
 vi.mock("../../claude-session/identity-artifact-reader.js", () => ({
-  readAppIconFile: (conn: unknown, slug: string) => readAppIconFileMock(conn, slug),
+  readAppIconFile: (conn: unknown, slug: string, owner?: string | null) =>
+    readAppIconFileMock(conn, slug, owner),
   isLocalHostId: (n: number | undefined) => isLocalHostIdMock(n),
   APP_SLUG_RE: /^[a-z0-9-]{1,64}$/,
 }));
@@ -102,6 +103,10 @@ vi.mock("../../ssh/tmux-helper.js", () => ({
 // ---------------------------------------------------------------------------
 
 const getAppSnapshotMock = vi.fn<() => unknown[]>();
+const canUserSeeIdentityMock = vi.fn(async () => true);
+vi.mock("../../fleet-status/identity-gate-holder.js", () => ({
+  canUserSeeIdentity: (...args: unknown[]) => canUserSeeIdentityMock(...(args as [])),
+}));
 const getRegistryMock = vi.fn<() => unknown>();
 
 vi.mock("../../fleet-status/registry-holder.js", () => ({
@@ -206,6 +211,8 @@ beforeEach(() => {
   // HIGH-1 redirect defaults: registry present, app absent (individual
   // tests populate the snapshot for the 302 path).
   getAppSnapshotMock.mockReturnValue([]);
+  canUserSeeIdentityMock.mockReset();
+  canUserSeeIdentityMock.mockResolvedValue(true);
   getRegistryMock.mockReturnValue({
     getAppSnapshot: () => getAppSnapshotMock(),
   });
@@ -468,7 +475,7 @@ describe("GET /apps/:hostId/:slug/icon — SSH connection lifecycle", () => {
     const res = await httpGet(server, "/apps/1/scratch-test/icon");
     expect(res.status).toBe(200);
     expect(connectOneShotMock).not.toHaveBeenCalled();
-    expect(readAppIconFileMock).toHaveBeenCalledWith(null, "scratch-test");
+    expect(readAppIconFileMock).toHaveBeenCalledWith(null, "scratch-test", null);
   });
 });
 
@@ -774,5 +781,53 @@ describe("GET /apps/:hostId/:slug — HIGH-1 redirect route", () => {
     expect(res.headers["location"]).toBe(
       "https://5-8080.serve.term.example.com",
     );
+  });
+});
+
+// convo-scoped apps: a conversation app is only revealed (redirect target,
+// icon) to users who can see its owning identity.
+describe("GET /apps/:hostId/:slug — conversation app owner gate", () => {
+  const convoApp = {
+    hostId: "1",
+    slug: "tally",
+    title: "Tally",
+    description: "",
+    port: 9505,
+    hasIcon: true,
+    createdAtMs: 0,
+    isHealthy: true,
+    healthMessage: null,
+    users: null,
+    owner: "alpha",
+  };
+
+  it("302 when the caller can see the owner", async () => {
+    getAppSnapshotMock.mockReturnValue([convoApp]);
+    const res = await httpGet(server, "/apps/1/tally");
+    expect(res.status).toBe(302);
+    expect(canUserSeeIdentityMock).toHaveBeenCalledWith("alpha", "1", expect.anything());
+  });
+
+  it("404 (same as not present) when the caller can't", async () => {
+    getAppSnapshotMock.mockReturnValue([convoApp]);
+    canUserSeeIdentityMock.mockResolvedValue(false);
+    const res = await httpGet(server, "/apps/1/tally");
+    expect(res.status).toBe(404);
+    expect(res.body).toMatchObject({ error: "app no longer present" });
+  });
+
+  it("icon: 404 without reading the file when the caller can't see the owner", async () => {
+    getAppSnapshotMock.mockReturnValue([convoApp]);
+    canUserSeeIdentityMock.mockResolvedValue(false);
+    const res = await httpGet(server, "/apps/1/tally/icon");
+    expect(res.status).toBe(404);
+    expect(readAppIconFileMock).not.toHaveBeenCalled();
+  });
+
+  it("icon: read from the owner's folder when visible", async () => {
+    getAppSnapshotMock.mockReturnValue([convoApp]);
+    await httpGet(server, "/apps/1/tally/icon");
+    expect(readAppIconFileMock).toHaveBeenCalled();
+    expect(readAppIconFileMock.mock.calls.at(-1)?.[2]).toBe("alpha");
   });
 });

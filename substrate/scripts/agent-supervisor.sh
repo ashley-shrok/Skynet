@@ -1138,11 +1138,17 @@ retire_identity_apps() {
     [ -d "$d" ] || continue
     slug="$(basename "$d")"
     [[ "$slug" =~ ^[a-z][a-z0-9-]*$ ]] || continue
-    if bash "$APP_UNITS_SCRIPT" stash "$slug" "${d%/}" >/dev/null 2>&1 \
-       && bash "$APP_UNITS_SCRIPT" uninstall "$slug" >/dev/null 2>&1; then
+    # Stash first (it reserves the port and is what un-archive restores from),
+    # then always uninstall — the folder is about to move, and units left
+    # behind would point at a path that no longer exists.
+    if ! bash "$APP_UNITS_SCRIPT" stash "$slug" "${d%/}" >/dev/null 2>&1; then
+      log "WARN: '$name' retire: could not stash conversation app '$slug' — it will not come back on un-archive; uninstalling anyway"
+    fi
+    if bash "$APP_UNITS_SCRIPT" uninstall "$slug" >/dev/null 2>&1 \
+       || bash "$APP_UNITS_SCRIPT" uninstall "$slug" >/dev/null 2>&1; then
       log "'$name' retire: conversation app '$slug' stopped, units stashed"
     else
-      log "WARN: '$name' retire: could not stop/stash conversation app '$slug' — check app-units.sh by hand"
+      log "WARN: '$name' retire: could not uninstall conversation app '$slug' — run app-units.sh uninstall $slug by hand"
     fi
   done
 }
@@ -1424,6 +1430,7 @@ retire_identity() {
       # State 3 (collision — impossible per D-16 since un-archive is out of scope, but planner-defensive):
       # both active and archive/ exist. NOT transient — abort on the first attempt.
       log "ERROR: '$name' retire step 4b (folder move) FAILED: collision — both active and archive/ folders exist; refusing to mv"
+      restore_identity_apps "$name" "$iddir"   # identity stays live → so do its apps
       return 1
     else
       # State 4 (anomaly): active absent, archive absent — nothing to retire. NOT transient.
@@ -1439,6 +1446,7 @@ retire_identity() {
   done
   if [ "$_step4b_ok" != 1 ]; then
     log "ERROR: '$name' retire step 4b (folder move) FAILED after 3 attempts — sentinel already deleted, live folder remains"
+    restore_identity_apps "$name" "$iddir"   # identity stays live → so do its apps
     return 1
   fi
 

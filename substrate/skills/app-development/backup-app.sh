@@ -5,7 +5,7 @@
 #
 # Snapshot lands at ~/fleet/apps-backups/<slug>-<UTC-timestamp>/. Includes:
 #   - the full app folder contents (code + db.sqlite* + drizzle/ etc.)
-#   - the systemd unit file, copied inside as app-<slug>.service.snapshot
+#   - the app's systemd unit files, copied inside as <unit>.snapshot
 #
 # The running app stays running — SQLite in WAL mode is safe to cp under
 # concurrent writes. If a torn snapshot ever bites, it's a one-off recovery
@@ -81,11 +81,21 @@ JSEOF
     rm -f "$tmp_backup_script"
 fi
 
-if [ -f "$UNIT_FILE" ]; then
-    cp -a "$UNIT_FILE" "$DEST/app-$SLUG.service.snapshot"
-    log "copied unit file -> $DEST/app-$SLUG.service.snapshot"
+# Every unit the app has: one for old-style apps, five for current ones
+# (socket, relay, app, marker watch, boot check — see app-units.sh).
+UNIT_DIR="$(dirname "$UNIT_FILE")"
+copied=0
+for u in "app-$SLUG.socket" "app-$SLUG-relay.service" "app-$SLUG.service" \
+         "app-$SLUG-marker.path" "app-$SLUG-boot.service"; do
+    if [ -f "$UNIT_DIR/$u" ]; then
+        cp -a "$UNIT_DIR/$u" "$DEST/$u.snapshot"
+        copied=$((copied + 1))
+    fi
+done
+if [ "$copied" -gt 0 ]; then
+    log "copied $copied unit file(s) -> $DEST/*.snapshot"
 else
-    log "no unit file at $UNIT_FILE — snapshot contains folder only"
+    log "no unit files for app-$SLUG — snapshot contains folder only"
 fi
 
 BYTES=$(du -sh "$DEST" 2>/dev/null | cut -f1)
