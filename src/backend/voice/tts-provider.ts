@@ -16,6 +16,7 @@
  *               AWS for instances covered by an AWS BAA. IMDS credentials.
  *   openai      OpenAI speech.        Needs OPENAI_API_KEY.
  *   elevenlabs  ElevenLabs.           Needs ELEVENLABS_API_KEY.
+ *   gemini      Google Gemini TTS.    Needs GEMINI_API_KEY.
  *
  * Optional overrides:
  *   TTS_MODEL          model id sent to the selected provider (Polly ignores it).
@@ -36,7 +37,7 @@ import type { Readable } from "node:stream";
 import { databaseLogger } from "../utils/logger.js";
 import { TtsNotConfiguredError, TtsStallError } from "./tts-errors.js";
 import { pollyTtsProvider } from "./tts-polly.js";
-import { elevenLabsTtsProvider, openAiTtsProvider } from "./tts-http-providers.js";
+import { elevenLabsTtsProvider, geminiTtsProvider, openAiTtsProvider } from "./tts-http-providers.js";
 
 /** One entry in a provider's voice list, as the app's pickers render it. */
 export interface TtsVoice {
@@ -80,19 +81,21 @@ export interface TtsProvider {
   isUnavailable(err: unknown): boolean;
 }
 
-export const TTS_PROVIDER_IDS = ["polly", "openai", "elevenlabs"] as const;
+export const TTS_PROVIDER_IDS = ["polly", "openai", "elevenlabs", "gemini"] as const;
 export type TtsProviderId = (typeof TTS_PROVIDER_IDS)[number];
 
 const PROVIDERS: Record<TtsProviderId, TtsProvider> = {
   polly: pollyTtsProvider,
   openai: openAiTtsProvider,
   elevenlabs: elevenLabsTtsProvider,
+  gemini: geminiTtsProvider,
 };
 
 export const TTS_PROVIDER_LABELS: Record<TtsProviderId, string> = {
   polly: "Amazon Polly",
   openai: "OpenAI",
   elevenlabs: "ElevenLabs",
+  gemini: "Google Gemini",
 };
 
 /** Longest voice id accepted anywhere (saved frontmatter, prefs, speak body). */

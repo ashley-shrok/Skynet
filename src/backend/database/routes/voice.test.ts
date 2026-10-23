@@ -1156,6 +1156,80 @@ describe("TTS_PROVIDER selection", () => {
     expect(fetchMock.mock.calls.some((c) => String(c[0]).includes("/text-to-speech/EXAVITQu4vr4xnSDxMaL/"))).toBe(true);
   });
 
+  function geminiSse(events: unknown[], done = true): Response {
+    const text =
+      events.map((e) => `event: x\ndata: ${JSON.stringify(e)}\n\n`).join("") + (done ? "event: done\ndata: [DONE]\n\n" : "");
+    return new Response(text, { status: 200, headers: { "Content-Type": "text/event-stream" } });
+  }
+
+  function geminiAudio(bytes: number): unknown {
+    return {
+      event_type: "step.delta",
+      index: 0,
+      delta: { type: "audio", mime_type: "audio/l16;rate=24000", data: Buffer.alloc(bytes, 1).toString("base64") },
+    };
+  }
+
+  it("gemini: decodes streamed audio events into 24 kHz PCM, default voice Kore", async () => {
+    process.env.TTS_PROVIDER = "gemini";
+    process.env.GEMINI_API_KEY = "g-key";
+    fetchMock.mockResolvedValueOnce(
+      geminiSse([{ event_type: "step.start", index: 0 }, geminiAudio(4), geminiAudio(6), { event_type: "step.stop", index: 0 }]),
+    );
+
+    const res = await speakStream({ text: "Hello there.", voices: ["marin"] });
+
+    expect(res._status).toBe(200);
+    expect(String(fetchMock.mock.calls[0]?.[0])).toBe("https://generativelanguage.googleapis.com/v1beta/interactions");
+    expect((fetchMock.mock.calls[0]?.[1]?.headers as Record<string, string>)["x-goog-api-key"]).toBe("g-key");
+    expect(sentBody()).toEqual({
+      model: "gemini-3.8-flash-tts",
+      input: [{ type: "user_input", content: [{ type: "text", text: "Hello there." }] }],
+      response_format: { type: "audio" },
+      generation_config: { speech_config: [{ voice: "Kore" }] },
+      stream: true,
+    });
+    expect(Buffer.from(res._writes[0]).readUInt32LE(24)).toBe(24000);
+    expect(res._writes.slice(1).reduce((n, w) => n + w.length, 0)).toBe(10);
+  });
+
+  it("gemini: an error event before any audio is retried like an HTTP 503", async () => {
+    process.env.TTS_PROVIDER = "gemini";
+    process.env.GEMINI_API_KEY = "g-key";
+    fetchMock
+      .mockResolvedValueOnce(geminiSse([{ event_type: "error", error: { code: "unavailable", message: "overloaded" } }]))
+      .mockResolvedValueOnce(geminiSse([geminiAudio(4)]));
+
+    const res = await speakStream({ text: "Hi.", voices: ["Puck"] });
+
+    expect(res._status).toBe(200);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(sentBody(1)).toMatchObject({ generation_config: { speech_config: [{ voice: "Puck" }] } });
+    expect(res._writes.slice(1).reduce((n, w) => n + w.length, 0)).toBe(4);
+  });
+
+  it("gemini: a rejected key reported as an error event → TTS unavailable, no retry", async () => {
+    process.env.TTS_PROVIDER = "gemini";
+    process.env.GEMINI_API_KEY = "g-key";
+    fetchMock.mockResolvedValue(geminiSse([{ event_type: "error", error: { code: "permission_denied", message: "bad key" } }]));
+
+    const res = await speakStream({ text: "Hi." });
+
+    expect(res._status).toBe(503);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("gemini: a stream that ends without audio is retried, not spoken as silence", async () => {
+    process.env.TTS_PROVIDER = "gemini";
+    process.env.GEMINI_API_KEY = "g-key";
+    fetchMock.mockResolvedValueOnce(geminiSse([{ event_type: "step.stop", index: 0 }])).mockResolvedValueOnce(geminiSse([geminiAudio(2)]));
+
+    const res = await speakStream({ text: "Hi." });
+
+    expect(res._status).toBe(200);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
   it("listener hangs up mid-message → no further chunks are requested from the provider", async () => {
     process.env.TTS_PROVIDER = "openai";
     process.env.OPENAI_API_KEY = "oa-key";

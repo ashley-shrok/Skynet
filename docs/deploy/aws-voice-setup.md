@@ -15,7 +15,7 @@ and `/voice/speak-stream`) — this is intentional and IS the cost gate.
 >
 > **Text-to-speech provider is selectable too.** Speaking defaults to Amazon
 > Polly (`TTS_PROVIDER` unset or `polly`), keeping message text inside AWS.
-> Instances without a BAA requirement can set `TTS_PROVIDER=openai|elevenlabs`
+> Instances without a BAA requirement can set `TTS_PROVIDER=openai|elevenlabs|gemini`
 > plus the matching API key (see `docker/skynet.env.example`) and skip the
 > Polly half of this guide. Voice pickers then list that provider's voices;
 > saved voices are kept and skipped when the active provider lacks them.

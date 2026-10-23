@@ -47,13 +47,14 @@ describe("resolveTtsProvider", () => {
     expect(resolveTtsProvider({}).id).toBe("polly");
     expect(resolveTtsProvider({ TTS_PROVIDER: " OpenAI " }).id).toBe("openai");
     expect(resolveTtsProvider({ TTS_PROVIDER: "elevenlabs" }).id).toBe("elevenlabs");
+    expect(resolveTtsProvider({ TTS_PROVIDER: "Gemini" }).id).toBe("gemini");
     expect(() => resolveTtsProvider({ TTS_PROVIDER: "chatterbox" })).toThrow(TtsNotConfiguredError);
   });
 });
 
 describe("isRecognizedVoiceId (write-side gate for saved voices)", () => {
   it("accepts a voice of ANY provider, regardless of which is active", () => {
-    for (const id of ["Joanna", "Matthew", "marin", "nova", "SAz9YHcvj6GT2YYXdXww"]) {
+    for (const id of ["Joanna", "Matthew", "marin", "nova", "SAz9YHcvj6GT2YYXdXww", "Kore", "Zubenelgenubi"]) {
       expect(isRecognizedVoiceId(id)).toBe(true);
     }
   });

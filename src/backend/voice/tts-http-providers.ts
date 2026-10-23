@@ -4,8 +4,11 @@
  *   openai      POST https://api.openai.com/v1/audio/speech            (24 kHz PCM)
  *   elevenlabs  POST https://api.elevenlabs.io/v1/text-to-speech/{voice}/stream
  *                                                 ?output_format=pcm_24000
+ *   gemini      POST https://generativelanguage.googleapis.com/v1beta/interactions
+ *                                                 (SSE, base64 24 kHz PCM deltas)
  *
- * Both return headerless signed 16-bit LE mono PCM, which the speak routes
+ * All return headerless signed 16-bit LE mono PCM (Gemini's arrives base64'd
+ * inside server-sent events and is decoded here), which the speak routes
  * wrap in the same RIFF header the browser player already parses (the player
  * reads the sample rate from that header, so 24 kHz needs no client change).
  *
@@ -59,12 +62,13 @@ function modelOr(provider: TtsProviderId, defaultModel: string): string {
  * POST and hand back the response once headers arrive. Non-2xx → TtsHttpError
  * (with a truncated body for logs); no response at all → TtsNetworkError.
  */
-async function postForAudio(
+async function postJson(
   provider: TtsProviderId,
   url: string,
   headers: Record<string, string>,
   body: unknown,
-): Promise<Readable> {
+  signal?: AbortSignal,
+): Promise<Response> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(new Error("response-start timeout")), RESPONSE_START_TIMEOUT_MS);
   let res: Response;
@@ -73,7 +77,7 @@ async function postForAudio(
       method: "POST",
       headers: { "Content-Type": "application/json", ...headers },
       body: JSON.stringify(body),
-      signal: controller.signal,
+      signal: signal ? AbortSignal.any([controller.signal, signal]) : controller.signal,
     });
   } catch (err: unknown) {
     throw new TtsNetworkError(provider, err);
@@ -87,6 +91,17 @@ async function postForAudio(
   if (!res.body) {
     throw new Error(`${provider} TTS response had no body`);
   }
+  return res;
+}
+
+/** postJson for providers whose response body IS the PCM. */
+async function postForAudio(
+  provider: TtsProviderId,
+  url: string,
+  headers: Record<string, string>,
+  body: unknown,
+): Promise<Readable> {
+  const res = await postJson(provider, url, headers, body);
   return Readable.fromWeb(res.body as unknown as WebReadableStream<Uint8Array>);
 }
 
@@ -211,6 +226,166 @@ export const elevenLabsTtsProvider: TtsProvider = {
       { "xi-api-key": readApiKey("elevenlabs", "ELEVENLABS_API_KEY") },
       { text, model_id: modelOr("elevenlabs", ELEVENLABS_DEFAULT_MODEL) },
     ),
+  isRetriable: isRetriableHttpError,
+  isUnavailable: isUnavailableHttpError,
+};
+
+// --- Google Gemini ------------------------------------------------------------
+
+/** Gemini's prebuilt voices. Fixed by Google (no list endpoint). */
+const GEMINI_VOICES: readonly TtsVoice[] = (
+  [
+    ["Achernar", "Soft"], ["Achird", "Friendly"], ["Algenib", "Gravelly"], ["Algieba", "Smooth"],
+    ["Alnilam", "Firm"], ["Aoede", "Breezy"], ["Autonoe", "Bright"], ["Callirrhoe", "Easy-going"],
+    ["Charon", "Informative"], ["Despina", "Smooth"], ["Enceladus", "Breathy"], ["Erinome", "Clear"],
+    ["Fenrir", "Excitable"], ["Gacrux", "Mature"], ["Iapetus", "Clear"], ["Kore", "Firm"],
+    ["Laomedeia", "Upbeat"], ["Leda", "Youthful"], ["Orus", "Firm"], ["Puck", "Upbeat"],
+    ["Pulcherrima", "Forward"], ["Rasalgethi", "Informative"], ["Sadachbia", "Lively"],
+    ["Sadaltager", "Knowledgeable"], ["Schedar", "Even"], ["Sulafat", "Warm"], ["Umbriel", "Easy-going"],
+    ["Vindemiatrix", "Gentle"], ["Zephyr", "Bright"], ["Zubenelgenubi", "Casual"],
+  ] as const
+).map(([id, description]) => ({ id, name: id, description }));
+
+const GEMINI_VOICE_IDS = new Set(GEMINI_VOICES.map((v) => v.id));
+const GEMINI_DEFAULT_MODEL = "gemini-3.8-flash-tts";
+const GEMINI_SAMPLE_RATE = 24000;
+
+/** Gemini error codes (SSE `error` events) → the HTTP status they'd carry. */
+const GEMINI_ERROR_STATUS: Record<string, number> = {
+  invalid_argument: 400,
+  unauthenticated: 401,
+  permission_denied: 403,
+  not_found: 404,
+  resource_exhausted: 429,
+  internal: 500,
+  unavailable: 503,
+  gateway_timeout: 504,
+  deadline_exceeded: 504,
+};
+
+interface GeminiEvent {
+  event_type?: string;
+  delta?: { type?: string; data?: unknown; mime_type?: unknown };
+  error?: { message?: unknown; code?: unknown };
+}
+
+/** Parse an SSE body into its JSON `data:` payloads; stops at `[DONE]`. */
+async function* readSseEvents(body: ReadableStream<Uint8Array>): AsyncGenerator<GeminiEvent> {
+  const reader = body.getReader();
+  const decoder = new TextDecoder();
+  let buf = "";
+  try {
+    for (;;) {
+      const { value, done } = await reader.read();
+      buf += done ? decoder.decode() : decoder.decode(value, { stream: true });
+      let sep: RegExpExecArray | null;
+      while ((sep = /\r?\n\r?\n/.exec(buf))) {
+        const block = buf.slice(0, sep.index);
+        buf = buf.slice(sep.index + sep[0].length);
+        const data = block
+          .split(/\r?\n/)
+          .filter((l) => l.startsWith("data:"))
+          .map((l) => l.slice(5).replace(/^ /, ""))
+          .join("\n");
+        if (data === "") continue;
+        if (data === "[DONE]") return;
+        yield JSON.parse(data) as GeminiEvent;
+      }
+      if (done) return;
+    }
+  } finally {
+    reader.cancel().catch(() => {});
+  }
+}
+
+/**
+ * The PCM bytes carried by a Gemini stream, in order. An `error` event (or a
+ * stream that ends without audio) throws TtsHttpError, so retry / backup
+ * classification works the same as for an HTTP error.
+ */
+async function* geminiPcm(body: ReadableStream<Uint8Array>): AsyncGenerator<Buffer> {
+  let sawAudio = false;
+  for await (const ev of readSseEvents(body)) {
+    if (ev.event_type === "error") {
+      const code = typeof ev.error?.code === "string" ? ev.error.code.toLowerCase() : "unknown";
+      const message = typeof ev.error?.message === "string" ? ev.error.message : "";
+      const status = GEMINI_ERROR_STATUS[code] ?? 500;
+      throw new TtsHttpError("gemini", status, `${code}: ${message}`.replace(/\s+/g, " ").slice(0, ERROR_BODY_MAX));
+    }
+    if (ev.event_type !== "step.delta" || ev.delta?.type !== "audio" || typeof ev.delta.data !== "string") continue;
+    const mime = typeof ev.delta.mime_type === "string" ? ev.delta.mime_type.toLowerCase() : "";
+    const rate = /rate=(\d+)/.exec(mime)?.[1];
+    if ((mime && !/^audio\/(l16|pcm)/.test(mime)) || (rate && Number(rate) !== GEMINI_SAMPLE_RATE)) {
+      throw new Error(`gemini TTS returned unexpected audio format "${mime}"`);
+    }
+    sawAudio = true;
+    yield Buffer.from(ev.delta.data, "base64");
+  }
+  if (!sawAudio) throw new TtsHttpError("gemini", 502, "stream ended without audio");
+}
+
+/**
+ * Speak via Gemini. Resolves once the FIRST audio arrives (not just headers):
+ * Gemini reports most failures as an SSE `error` event on a 200 response, and
+ * surfacing those here lets them be retried / handed to the backup before any
+ * audio has gone out.
+ */
+async function synthesizeGemini(text: string, voiceId: string): Promise<Readable> {
+  // Aborting this ends the whole request, body included: on a first-audio
+  // timeout, and when the returned stream is closed early (listener hung up,
+  // stall watchdog) so a pending body read never holds the connection open.
+  const controller = new AbortController();
+  const res = await postJson(
+    "gemini",
+    "https://generativelanguage.googleapis.com/v1beta/interactions",
+    { "x-goog-api-key": readApiKey("gemini", "GEMINI_API_KEY") },
+    {
+      model: modelOr("gemini", GEMINI_DEFAULT_MODEL),
+      input: [{ type: "user_input", content: [{ type: "text", text }] }],
+      response_format: { type: "audio" },
+      generation_config: { speech_config: [{ voice: voiceId }] },
+      stream: true,
+    },
+    controller.signal,
+  );
+  const pcm = geminiPcm(res.body as unknown as ReadableStream<Uint8Array>);
+  const timer = setTimeout(() => controller.abort(new Error("no audio before response-start timeout")), RESPONSE_START_TIMEOUT_MS);
+  let first: IteratorResult<Buffer>;
+  try {
+    first = await pcm.next();
+  } catch (err: unknown) {
+    const timedOut = controller.signal.aborted;
+    controller.abort();
+    // A Gemini error event or bad audio is the provider's answer; a cut-off
+    // body (our timeout, a dropped connection) is a network failure.
+    if (err instanceof TtsHttpError || (!timedOut && !(err instanceof TypeError) && !(err instanceof DOMException))) throw err;
+    throw new TtsNetworkError("gemini", err);
+  } finally {
+    clearTimeout(timer);
+  }
+  if (first.done) throw new TtsHttpError("gemini", 502, "stream ended without audio");
+  const firstChunk = first.value;
+  async function* all(): AsyncGenerator<Buffer> {
+    yield firstChunk;
+    yield* pcm;
+  }
+  const out = Readable.from(all(), { objectMode: false });
+  out.once("close", () => controller.abort());
+  return out;
+}
+
+export const geminiTtsProvider: TtsProvider = {
+  id: "gemini",
+  sampleRate: GEMINI_SAMPLE_RATE,
+  // No documented character cap; kept in line with OpenAI's so a long
+  // message is split into similar-sized requests.
+  maxCharsPerRequest: 4000,
+  defaultVoiceId: "Kore",
+  model: () => modelOr("gemini", GEMINI_DEFAULT_MODEL),
+  staticVoices: GEMINI_VOICES,
+  listVoices: async () => [...GEMINI_VOICES],
+  isOwnVoiceId: (id) => GEMINI_VOICE_IDS.has(id),
+  synthesize: synthesizeGemini,
   isRetriable: isRetriableHttpError,
   isUnavailable: isUnavailableHttpError,
 };
