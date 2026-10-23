@@ -19,6 +19,8 @@ import { useSpeakPlayback } from "./useSpeakPlayback";
 import { handleCleanCopy } from "./clean-copy";
 import { useEditableFileEligibility } from "./use-editable-file-eligibility";
 import { FileChip } from "./FileChip";
+import { AppChip } from "./AppChip";
+import { parseSkynetAppUrl } from "../apps/app-link";
 import { WidgetBubble } from "./WidgetBubble";
 import { buildSkynetFileUrl, isSkynetFileUrl } from "./file-url";
 
@@ -214,6 +216,7 @@ export const ChatMessage = React.memo(function ChatMessage({
   const markdownComponents = useMemo<Components>(() => ({
     // URL dispatch inside the assistant's rendered markdown:
     //   file URL       → FileChip on its own line (shape 2026-09-28).
+    //   app pane URL   → AppChip on its own line (convo-scoped apps).
     //   interactive-message URL → swap for WidgetBubble (Phase 137 D-137).
     //   anything else  → plain anchor with target=_blank.
     a: ({ node: _node, ...rest }) => {
@@ -263,6 +266,18 @@ export const ChatMessage = React.memo(function ChatMessage({
                 })
               }
             />
+          </span>
+        );
+      }
+
+      // convo-scoped apps: an app pane link (`<origin>/apps/<hostId>/<slug>/pane/`)
+      // renders as an app chip on its own line — click opens the app, drag
+      // splits it beside the conversation. Same-origin only (parseSkynetAppUrl).
+      const appAddress = parseSkynetAppUrl(href);
+      if (href && appAddress) {
+        return (
+          <span className="block my-1.5">
+            <AppChip url={href} address={appAddress} />
           </span>
         );
       }

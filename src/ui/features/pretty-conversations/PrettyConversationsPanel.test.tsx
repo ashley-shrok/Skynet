@@ -3602,6 +3602,28 @@ describe("PrettyConversationsPanel: Phase 119 Apps section", () => {
     ).toBeNull();
   });
 
+  // convo-scoped apps: conversation apps (owner set) never appear in the
+  // sidebar grid; with only conversation apps, the grid shows its empty state.
+  it("convo-apps: the grid shows sidebar apps only — conversation apps stay out", () => {
+    mockAppTiles = [
+      makeAppTile({ hostId: "1", slug: "groceries", title: "Groceries" }),
+      { ...makeAppTile({ hostId: "1", slug: "tally", title: "Tally" }), owner: "alpha" },
+    ];
+    setSnapshot({ activeSet: [], pinned: [], middle: [], rdpGroup: null });
+    render(<PrettyConversationsPanel variant="desktop" onDeactivateRow={() => {}} />);
+    fireEvent.click(screen.getByTestId("pretty-conversations-apps-header"));
+    const tiles = screen.queryAllByRole("button", { name: /App tile:/ });
+    expect(tiles.map((t) => t.getAttribute("aria-label"))).toEqual(["App tile: Groceries"]);
+  });
+
+  it("convo-apps: only conversation apps → the empty-state prompt", () => {
+    mockAppTiles = [{ ...makeAppTile({ hostId: "1", slug: "tally", title: "Tally" }), owner: "alpha" }];
+    setSnapshot({ activeSet: [], pinned: [], middle: [], rdpGroup: null });
+    render(<PrettyConversationsPanel variant="desktop" onDeactivateRow={() => {}} />);
+    fireEvent.click(screen.getByTestId("pretty-conversations-apps-header"));
+    expect(screen.getByText("Ask an agent to make an app for you.")).toBeTruthy();
+  });
+
   // A17: D-04 empty-expanded — click header → expand → empty-state prompt.
   it("A17: click header → section expands → 'Ask an agent to make an app for you.' becomes visible (D-04)", () => {
     mockAppTiles = [];

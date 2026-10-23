@@ -25,6 +25,7 @@ import { hasSkynetDragPayload } from "./SplitView";
 import { subscribeDragSessionEnd } from "./drag-preview-session";
 import { keepFrameOutOfSessionHistory } from "./app-frame-no-history";
 import { PANE_BAR_BUTTON_CLASS, PaneBar } from "./PaneBar";
+import { usePromoteRequestsVersion } from "@/state/app-promote-requests";
 
 // Re-exported for existing importers; the bar now lives in PaneBar.
 export { sidebarToggleClearance } from "./PaneBar";
@@ -234,6 +235,7 @@ export function AppPane({
   const isTouchDevice = useIsTouchDevice();
 
   const tiles = useAppTiles();
+  const promoteVersion = usePromoteRequestsVersion();
   const tile = tiles.find((a) => a.hostId === String(hostId) && a.slug === slug);
   const title = (tile?.title ?? label ?? slug).trim() || slug;
   const initial = title.charAt(0).toUpperCase() || "?";
@@ -267,7 +269,13 @@ export function AppPane({
         },
       });
     }
-    items.push(app.openStandalone, app.rename);
+    // convo-scoped apps: a conversation app lives and dies with its
+    // conversation — no rename or archive of its own; instead it can be
+    // moved to the sidebar (through its agent).
+    const isConversationApp = !!tile?.owner;
+    items.push(app.openStandalone);
+    if (isConversationApp) items.push(app.moveToSidebar);
+    else items.push(app.rename);
     // Desktop-only: on a phone the pane IS the screen.
     if (!isMobile && onCloseTab) {
       items.push({
@@ -276,9 +284,9 @@ export function AppPane({
         onClick: () => onCloseTab(tabId),
       });
     }
-    items.push(app.archive);
+    if (!isConversationApp) items.push(app.archive);
     return items;
-  }, [hostId, slug, title, tabId, isMobile, onCloseTab, onArchiveApp]);
+  }, [hostId, slug, title, tabId, isMobile, onCloseTab, onArchiveApp, tile?.owner, promoteVersion]);
 
   // Page list for back/forward (see § App bar above).
   const historyRef = useRef<FrameHistory>(EMPTY_FRAME_HISTORY);

@@ -147,6 +147,14 @@ export interface AppState {
   createdAtMs: number;
   isHealthy: boolean;
   healthMessage: string | null;
+  /**
+   * convo-scoped apps: the identity (folder name) that owns a conversation
+   * app — it never shows in the sidebar grid, only as chips and in that
+   * identity's Apps tab. null/absent for sidebar apps.
+   */
+  owner?: string | null;
+  /** convo-scoped apps: true while a sleep-capable app is asleep (null = n/a). */
+  asleep?: boolean | null;
 }
 
 export interface SessionState {

@@ -238,6 +238,7 @@ import {
   parseAndOpenHarnessFromUrl,
   type HarnessOpenTarget,
 } from "@/features/notifications/open-harness-deep-link";
+import { OPEN_APP_EVENT, type OpenAppDetail } from "./features/apps/app-link";
 // Phase 11 Plan 03 (user "no settings" lock): SettingsRow import RETIRED
 // alongside AppRail — the entire settings-surface tree dies here.
 
@@ -3190,6 +3191,19 @@ export function AppShell({
     },
     [openTab, splitTree, openSessionInTree, isTouchDevice, isMobile, sidebarPeek.close],
   );
+
+  // convo-scoped apps: app chips in chat bubbles and the identity modal's Apps
+  // tab ask for an app to open via OPEN_APP_EVENT — same result as a sidebar
+  // tile click.
+  useEffect(() => {
+    const handle = (e: Event) => {
+      const d = (e as CustomEvent<OpenAppDetail>).detail;
+      if (!d || !Number.isInteger(d.hostId) || typeof d.slug !== "string") return;
+      onOpenApp(d.hostId, d.slug, d.title || d.slug);
+    };
+    window.addEventListener(OPEN_APP_EVENT, handle);
+    return () => window.removeEventListener(OPEN_APP_EVENT, handle);
+  }, [onOpenApp]);
 
   // AppShell-side archive callback threaded through PrettyConversationsPanel
   // → AppTile. Fires after the AppTile's optimistic publishAppGone + before

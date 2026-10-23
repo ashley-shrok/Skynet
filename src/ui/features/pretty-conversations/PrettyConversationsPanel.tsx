@@ -1262,7 +1262,11 @@ export function PrettyConversationsPanel({
   // performs zero re-filtering / re-sorting — backend `app-frame-filter.ts`
   // is the sole authority for host visibility per D-14 + Phase 118 D-15.
   const [appsExpanded, setAppsExpanded] = useState(false);
-  const appTiles = useAppTiles();
+  // convo-scoped apps: conversation apps (owner set) never appear in the
+  // sidebar grid — they're reached through chips and the identity modal's
+  // Apps tab. The store holds them too, for those surfaces.
+  const allAppTiles = useAppTiles();
+  const appTiles = useMemo(() => allAppTiles.filter((a) => !a.owner), [allAppTiles]);
 
   // shape-sidebar-search-inline: sidebar search lives in a dedicated input
   // row directly below the header icon-button row (added in task 2). It

@@ -95,6 +95,11 @@ vi.mock("./GitTab", () => ({
   default: () => <div data-testid="git-tab-stub" />,
 }));
 
+// convo-scoped apps: the Apps tab reads the app store; tests swap the list.
+import type { AppState } from "@/api/fleet-status-types";
+let mockApps: AppState[] = [];
+vi.mock("@/state/app-tiles-store", () => ({ useAppTiles: () => mockApps }));
+
 import { IdentityModal } from "./IdentityModal";
 
 const BASE_IDENTITY: Identity = {
@@ -116,6 +121,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   openedSockets.length = 0;
   gitProbeAnswer = null;
+  mockApps = [];
 });
 afterEach(() => {
   cleanup();
@@ -209,5 +215,38 @@ describe("IdentityModal — opening on a requested tab", () => {
       ).toBe("true"),
     );
     expect(screen.queryByTestId("desktop-tab-stub")).toBeNull();
+  });
+});
+
+
+describe("IdentityModal — Apps tab (convo-scoped apps)", () => {
+  const app = (over: Partial<AppState>): AppState => ({
+    hostId: "7",
+    slug: "tally",
+    title: "Tally",
+    description: "",
+    port: 9505,
+    hasIcon: false,
+    createdAtMs: 0,
+    isHealthy: true,
+    healthMessage: null,
+    owner: "tina",
+    ...over,
+  });
+
+  it("no apps of its own → no Apps tab", async () => {
+    mockApps = [app({ owner: null }), app({ slug: "other", owner: "bob" }), app({ slug: "far", hostId: "8" })];
+    render(<Harness open={true} />);
+    await waitFor(() => expect(screen.getByTestId("identity-modal")).toBeTruthy());
+    expect(screen.queryByTestId("identity-modal-nav-apps")).toBeNull();
+  });
+
+  it("with an app of its own → Apps tab lists it", async () => {
+    mockApps = [app({}), app({ slug: "side", title: "Side", owner: null })];
+    render(<Harness open={true} initialTab="apps" />);
+    expect(await screen.findByTestId("identity-apps-tab")).toBeTruthy();
+    expect(screen.getByTestId("identity-modal-nav-apps")).toBeTruthy();
+    expect(screen.getAllByTestId("identity-apps-row")).toHaveLength(1);
+    expect(screen.getByText("Tally")).toBeTruthy();
   });
 });

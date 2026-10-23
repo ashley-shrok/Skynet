@@ -1,6 +1,12 @@
 import { archiveApp } from "../../api/apps-archive-api";
 import { encodeWorkspaceSpec, specForTab } from "../../lib/tab-url";
 import { renameApp, validateAppTitle } from "../../api/apps-rename-api";
+import { requestAppPromotion } from "../../api/apps-promote-api";
+import {
+  clearPromoteRequested,
+  isPromoteRequested,
+  markPromoteRequested,
+} from "../../state/app-promote-requests";
 import {
   publishAppGone,
   markPendingAppArchive,
@@ -47,6 +53,10 @@ export interface AppMenuItems {
   openStandalone: RowKebabMenuItem;
   rename: RowKebabMenuItem;
   archive: RowKebabMenuItem;
+  /** convo-scoped apps — conversation apps only (callers gate on app.owner).
+   *  Sends the owning agent a "move this to the sidebar" event; the agent
+   *  does the move. Disabled + relabelled once requested this page load. */
+  moveToSidebar: RowKebabMenuItem;
 }
 
 export function buildAppMenuItems(
@@ -61,7 +71,31 @@ export function buildAppMenuItems(
   // unencoded interpolation from this surface.
   const openUrl = `/apps/${encodeURIComponent(app.hostId)}/${encodeURIComponent(app.slug)}`;
 
+  const promoteRequested = isPromoteRequested(app.hostId, app.slug);
+
   return {
+    moveToSidebar: {
+      label: promoteRequested ? "Move to sidebar requested" : "Move to sidebar",
+      hint: promoteRequested ? "The agent will move it and confirm in its conversation" : undefined,
+      disabled: promoteRequested,
+      testId: "app-menu-item-move-to-sidebar",
+      onClick: async () => {
+        markPromoteRequested(app.hostId, app.slug);
+        try {
+          await requestAppPromotion(Number(app.hostId), app.slug);
+        } catch (err) {
+          clearPromoteRequested(app.hostId, app.slug);
+          const errMessage = err instanceof Error ? err.message : String(err);
+          console.warn({
+            operation: "app_promote_request_failed",
+            hostId: Number(app.hostId),
+            slug: app.slug,
+            errMessage,
+          });
+          window.alert(`Couldn't ask the agent to move "${app.title}" to the sidebar: ${errMessage}`);
+        }
+      },
+    },
     openInNewWindow: {
       label: "Open in new tab",
       testId: "app-menu-item-open-new-window",
