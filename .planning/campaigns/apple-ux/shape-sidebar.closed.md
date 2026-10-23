@@ -69,3 +69,61 @@ The conversation list gets the same pass the windows got. It joins the windows' 
 - Visible to everyone: the id skill's sidebar descriptions (rows, phone gestures, swipe to archive with Undo, app icons, width) need updating in the same work.
 - The tasting's measurements and colours are the starting point; the desktop browser used for previews reports no mouse hover, so check hover-only things by unit test or on a real screen.
 - Upstream's un-archive changes (spinner on archived rows in full search, agent-side identity un-archive) arrive at the next rebase; port them into the redesigned search window.
+
+---
+
+## Close-Out
+
+**Closed:** 2026-10-23
+**Overall verdict:** closed-hit (every agreed feature present; one wording drift and four additions endorsed by Ashley)
+
+### Shape features (conformance)
+
+- **What this is** — present · windows' neutral family; glows, tinted cards, uppercase labels and fading lines gone; desktop one-line, phone grouped two-line; phone ⋮ replaced by hold and swipe; wider sidebar.
+- **Surface** — present · own lifted dark surface with a hairline edge; no lines under header or search; footer hairline kept.
+- **Header** — present · logo left, round quiet pencil right.
+- **Search** — present · filled rounded field, accent outline on focus, "everywhere ↗" as before.
+- **Section titles** — present · sentence case, no fading lines; desktop 13px semibold faint, phone bold white; arrows right when closed, down when open.
+- **Projects are folders** — present · arrow, folder glyph, name; desktop 14px with hover and ⋮ on hover; phone heading with ⋮ shown; sub-projects step in by 10.
+- **Desktop conversation rows** — present · one line, 24px plain picture, 14px title, read softer / unread bright, 34 tall with 2 between, neutral hover, open row in its agent's colour, fainter role, no pin glyph, ⋮ on hover plus right-click.
+- **Phone conversation rows** — drifted · all present; a pressed row turns slightly lighter (as tasted) rather than darker — Ashley endorsed. The empty "…" line is hidden on every phone row without a second line, as tasted.
+- **Unread** — present · dot in the agent's colour plus brighter title; outline gone; envelope kept; dot steps aside on desktop hover.
+- **Phone gestures: press-and-hold** — present · 500ms hold opens the same menu; movement cancels; no drag, no text selection; the following tap ignored.
+- **Phone gestures: swipe to archive with Undo** — present · no confirm; 5-second "Archived … · Undo" bar; archive only after the bar goes; Undo restores; non-archivable rows don't swipe.
+- **Phone gestures: app icons** — present · hold opens the menu; corner ⋮ hidden.
+- **Phone gestures: headings keep ⋮** — present.
+- **Phone gestures: menu Archive keeps its confirm** — present.
+- **Apps grid** — present · neutral wells, hairline, softer shadow, softer names.
+- **Footer** — present · picture, name, five round quiet buttons; 30px desktop, 44px phone.
+- **Width** — present · 300 start and minimum, 480 maximum; narrower saved widths brought up to 300.
+- **Empty Conversations note** — present · exact copy.
+- **Readability floor** — present · faint grey brightened to about 5:1; desktop targets ≥ 24; phone ⋮ and "+" 32.
+- **Text size on phone** — present · relative to the user's setting; search field 16px minimum.
+- **Scope: leftover row styles cleared** — present.
+- **Scope OUT items** — present · pane bar, conversation view, sidebar open/close arrow, footer windows untouched.
+- **Handoff: id skill updated** — present.
+- **Handoff: upstream un-archive changes ported** — cannot-verify · arrives at the next rebase.
+- **What would make it wrong: old glows / cards / uppercase / fading lines remain** — present (guarded).
+- **What would make it wrong: phone and desktop read as two products** — present (guarded).
+- **What would make it wrong: stray swipe loses a conversation / archives early** — present (guarded).
+- **What would make it wrong: press-and-hold misfires** — present (guarded).
+- **What would make it wrong: an existing capability is lost** — present (guarded).
+- **What would make it wrong: contrast or desktop target below the floor** — present (guarded).
+- **What would make it wrong: unread louder than "sent you a message"** — present (guarded).
+
+### Additions (in the result, not in the shape)
+
+- A red "Archive" strip shows behind a phone row while it's being swiped — endorsed-as-drift
+- In a narrow desktop window (phone layout, mouse), rows show their ⋮ all the time — endorsed-as-drift
+- Sidebar menus (rows, headings, app icons) take the windows' menu look — endorsed-as-drift
+- An app icon's ⋮ still appears on keyboard focus — endorsed-as-drift
+
+### Follow-ups
+
+- Port upstream's un-archive changes into the redesigned search window at the next rebase — deferred
+- Carry hold-and-swipe (no ⋮ on every row) to other phone lists — deferred (logged in the campaign)
+- Brighten the windows' faintest grey in the post-deploy look pass — deferred (logged in the campaign)
+
+### Notes
+
+Conformance read only. Ashley endorsed all five divergences at once (2026-10-23).

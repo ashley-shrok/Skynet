@@ -132,7 +132,7 @@ import { AvatarImage } from "@/components/avatar-image";
 // hidden (shape-sidebar). RowKebabMenu's portal-click-containment prevents
 // item-click leaks to the row's onClick (row body is a clickable surface for
 // session selection).
-import { useRowTouchGestures } from "./row-touch-gestures";
+import { isCoarsePointer, useRowTouchGestures } from "./row-touch-gestures";
 import {
   RowKebabMenu,
   useRowKebabContextMenu,
@@ -709,12 +709,22 @@ function PrettyConversationRowImpl({
         tabIndex={0}
         // Phones drag nothing (split view is desktop-only), and a draggable
         // row would turn a press-and-hold into a drag.
-        draggable={!isMobile}
+        draggable={!isMobile && !isCoarsePointer()}
         aria-pressed={selected}
         onClick={onBodyClick}
         {...touch.handlers}
         onContextMenu={kebabContextMenu.onContextMenu}
-        onKeyDown={onBodyKeyDown}
+        onKeyDown={(e) => {
+          // The keyboard's menu key (or Shift+F10) opens the row menu under
+          // the row — the way in for keyboards and screen readers.
+          if (e.key === "ContextMenu" || (e.shiftKey && e.key === "F10")) {
+            e.preventDefault();
+            const r = e.currentTarget.getBoundingClientRect();
+            kebabContextMenu.openAt(r.left + 24, r.bottom);
+            return;
+          }
+          onBodyKeyDown(e);
+        }}
         onMouseEnter={setRowTooltip(identity?.displayName, identity?.task)}
         onDragStart={onRowDragStart}
         style={{ ...bodyStyle, ...touch.style }}

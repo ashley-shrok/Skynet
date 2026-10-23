@@ -3225,6 +3225,26 @@ describe("PrettyConversationRow (shape-sidebar): draggable only on desktop", () 
   });
 });
 
+describe("PrettyConversationRow (shape-sidebar): keyboard menu key", () => {
+  it.each([{ key: "ContextMenu" }, { key: "F10", shiftKey: true }])(
+    "%o on a focused row opens the row menu",
+    async (keyInit) => {
+      const { container } = render(
+        <PrettyConversationRow
+          row={makeRow({ host: makeHost({ id: "1" }) })}
+          selected={false}
+          pinned={false}
+          variant="desktop"
+          onSelect={vi.fn()}
+          onArchive={vi.fn()}
+        />,
+      );
+      fireEvent.keyDown(rowBody(container), keyInit);
+      await waitFor(() => expect(screen.getByTestId("row-kebab-context-anchor")).toBeTruthy());
+    },
+  );
+});
+
 describe("PrettyConversationRow (shape-sidebar): press-and-hold opens the row menu", () => {
   const menuNames = (menu: HTMLElement) =>
     within(menu)

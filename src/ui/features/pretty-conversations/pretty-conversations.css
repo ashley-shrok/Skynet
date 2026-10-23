@@ -397,9 +397,16 @@
     opacity: 0;
   }
 }
+/* Visually hidden, but still there for screen readers (their users can't
+   rely on a hold). */
 @media (pointer: coarse) {
   .pv-row-kebab-slot > button {
-    display: none;
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    opacity: 0;
   }
 }
 
@@ -423,6 +430,15 @@
   user-select: none;
   -webkit-user-select: none;
   -webkit-tap-highlight-color: transparent;
+  /* Vertical scrolling stays the browser's; a sideways move is ours (swipe). */
+  touch-action: pan-y;
+}
+/* Pictures inside rows and app icons never start their own drag or the
+   browser's image menu — the row's hold owns the long press. */
+.pv-avatar img,
+.pv-app-icon-img {
+  pointer-events: none;
+  -webkit-user-drag: none;
 }
 .pv-row:hover {
   background: var(--pv-sb-hover);
@@ -608,8 +624,8 @@
   width: 18px;
   height: 18px;
 }
-[data-swiping="true"] > .pv-row {
-  background: var(--k-s1);
+.pv-panel-scroll [data-conversation-id][data-swiping="true"] > .pv-row {
+  background: var(--k-s1) !important;
 }
 
 /* ═══ Footer ═════════════════════════════════════════════════════════════ */
@@ -819,7 +835,9 @@
   }
   .pv-row:active,
   .pv-row.selected,
-  .pv-row.selected:hover {
+  .pv-row.selected:hover,
+  .pv-row.pv-neutral.selected,
+  .pv-row.rdp.selected {
     background: var(--k-s2);
   }
   /* Touch screens hide the ⋮, so the text can run to the edge. */

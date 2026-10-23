@@ -13,7 +13,7 @@ import { buildAppMenuItems } from "./app-menu-items";
 // RowKebabMenu inside the tile: right-click with a mouse, press-and-hold on a
 // touch screen (row-touch-gestures.ts), the ⋮ on keyboard focus.
 import { RowKebabMenu, useRowKebabContextMenu, type RowKebabMenuItem } from "./RowKebabMenu";
-import { useRowTouchGestures } from "./row-touch-gestures";
+import { isCoarsePointer, useRowTouchGestures } from "./row-touch-gestures";
 
 // ─── AppTile — Phase 119 Plan 03 (D-07..D-13) ───────────────────────────────
 // One tile in the sidebar's Apps section (119-04 integrates it into
@@ -219,7 +219,7 @@ export function AppTile({ app, onOpenApp, onArchive, variant = "desktop" }: AppT
       // with the fix the user can act on.
       title={app.isHealthy ? undefined : unhealthyTooltip(app.healthMessage)}
       // A draggable tile would turn a press-and-hold into a drag on phones.
-      draggable={!isMobile}
+      draggable={!isMobile && !isCoarsePointer()}
       onDragStart={onTileDragStart}
       onClick={onTileClick}
       {...touch.handlers}

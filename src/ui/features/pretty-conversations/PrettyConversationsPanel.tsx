@@ -318,6 +318,7 @@ import { getBasePath } from "@/lib/base-path";
 import { roleDisplayName } from "@/lib/role-display-name";
 import { kitAlert, kitConfirm, kitPrompt } from "@/components/kit";
 import { toast } from "sonner";
+import { systemLogger } from "@/lib/frontend-logger";
 import { KitScopeContext, type KitScopeValue } from "@/components/kit/scope";
 
 // Phase 122 Plan 04 (D-17 removal): the SEARCH_HIDDEN_SENTINEL_KEY constant
@@ -1998,27 +1999,29 @@ export function PrettyConversationsPanel({
 
   // Swipe-to-archive on touch (shape-sidebar): no confirm. The row leaves at
   // once and an "Archived … · Undo" bar shows for SWIPE_UNDO_MS; the archive
-  // call is only made once the bar goes (timed out or swiped away). Undo puts
-  // the row back with nothing to restore. Leaving the page inside the window
-  // archives nothing — the row is back on the next load.
+  // call — and closing the conversation's pane, if open — only happen once
+  // the bar goes (timed out or swiped away). Undo puts the row back with
+  // nothing to restore. Leaving the page inside the window archives nothing —
+  // the row is back on the next load.
   const handleSwipeArchive = (row: ConversationRowShape) => {
     const target = archiveTarget(row);
     if (target === null) return;
     const { hostIdNum, identityKey, label } = target;
-    if (activeSetRef.current.has(row.id)) handleRowDeactivate(row);
     const undoRemove = optimisticArchiveRemove(hostIdNum, identityKey, identityKey);
-    console.log(`[swipe-archive] pending hostId=${hostIdNum} identity=${identityKey}`);
+    const logCtx = { operation: "swipe_archive", hostId: hostIdNum, identityKey };
+    systemLogger.info("swipe-archive pending", { ...logCtx, event: "pending" });
     let settled = false;
     const commit = () => {
       if (settled) return;
       settled = true;
-      console.log(`[swipe-archive] commit hostId=${hostIdNum} identity=${identityKey}`);
+      systemLogger.info("swipe-archive commit", { ...logCtx, event: "commit" });
+      if (activeSetRef.current.has(row.id)) handleRowDeactivate(row);
       void commitArchive(hostIdNum, identityKey, undoRemove);
     };
     const undo = () => {
       if (settled) return;
       settled = true;
-      console.log(`[swipe-archive] undo hostId=${hostIdNum} identity=${identityKey}`);
+      systemLogger.info("swipe-archive undo", { ...logCtx, event: "undo" });
       undoRemove();
     };
     toast(`Archived "${label}"`, {

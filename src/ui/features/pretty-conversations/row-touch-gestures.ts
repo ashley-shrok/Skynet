@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState, type CSSProperties, type MouseEvent, type TouchEvent } from "react";
+import { systemLogger } from "@/lib/frontend-logger";
 
 // Touch gestures for sidebar rows and app icons (shape-sidebar):
 //   - press-and-hold opens the item's menu at the finger;
@@ -23,6 +24,13 @@ const SLIDE_OUT_MS = 180;
 /** How long after a hold/swipe ends the browser's follow-up click is swallowed. */
 const SWALLOW_CLICK_MS = 400;
 
+/** True on touch-first devices (phones and tablets, whatever their width).
+ *  Their rows and icons aren't draggable: a hold there must open the menu,
+ *  not lift a drag. */
+export function isCoarsePointer(): boolean {
+  return typeof window !== "undefined" && window.matchMedia?.("(pointer: coarse)").matches === true;
+}
+
 /** The row's menu renders inside it (portaled, but React events still bubble
  *  through the row) — only touches and clicks on the row's own DOM count. */
 function isOwnTarget(e: { currentTarget: Element; target: EventTarget | null }): boolean {
@@ -45,6 +53,7 @@ export interface RowTouchGestures {
     onTouchEnd: (e: TouchEvent<HTMLElement>) => void;
     onTouchCancel: (e: TouchEvent<HTMLElement>) => void;
     onClickCapture: (e: MouseEvent<HTMLElement>) => void;
+    onContextMenuCapture: (e: MouseEvent<HTMLElement>) => void;
   };
   /** Horizontal offset of the row while swiping (≤ 0). */
   offset: number;
@@ -81,8 +90,12 @@ export function useRowTouchGestures({ onHold, onSwipeArchive }: RowTouchGestureO
     (e: TouchEvent<HTMLElement>) => {
       if (!isOwnTarget(e)) return;
       if (e.touches.length !== 1) {
+        // A second finger cancels whatever was going on — a half-done swipe
+        // slides back.
         clearHold();
         mode.current = "idle";
+        setAnimating(true);
+        setOffset(0);
         return;
       }
       const t = e.touches[0];
@@ -99,7 +112,7 @@ export function useRowTouchGestures({ onHold, onSwipeArchive }: RowTouchGestureO
           if (mode.current !== "pending") return;
           mode.current = "held";
           swallowClick.current = true;
-          console.log("[sidebar-gesture] hold → menu");
+          systemLogger.info("sidebar hold → menu", { operation: "sidebar_gesture", event: "hold" });
           onHold(start.current.x, start.current.y);
         }, HOLD_MS);
       }
@@ -153,9 +166,19 @@ export function useRowTouchGestures({ onHold, onSwipeArchive }: RowTouchGestureO
       const far = -dx > width.current * SWIPE_COMMIT_FRACTION;
       setAnimating(true);
       if (!cancelled && (far || flick) && onSwipeArchive) {
-        console.log(`[sidebar-gesture] swipe → archive dx=${Math.round(dx)} flick=${flick}`);
+        systemLogger.info("sidebar swipe → archive", {
+          operation: "sidebar_gesture",
+          event: "swipe_archive",
+          dx: Math.round(dx),
+          flick,
+        });
         setOffset(-Math.max(width.current, 1));
-        setTimeout(() => onSwipeArchive(), SLIDE_OUT_MS);
+        setTimeout(() => {
+          onSwipeArchive();
+          // The archive normally removes the row; if it stays, bring it back.
+          setAnimating(false);
+          setOffset(0);
+        }, SLIDE_OUT_MS);
       } else {
         setOffset(0);
       }
@@ -173,6 +196,13 @@ export function useRowTouchGestures({ onHold, onSwipeArchive }: RowTouchGestureO
     e.stopPropagation();
   }, []);
 
+  // The browser's own long-press menu (Android: "Download image / Share" on a
+  // picture) would cancel the touch and win over ours — block it while a
+  // touch is being held. Mouse right-clicks pass through untouched.
+  const onContextMenuCapture = useCallback((e: MouseEvent<HTMLElement>) => {
+    if (mode.current === "pending" || mode.current === "held") e.preventDefault();
+  }, []);
+
   const style: CSSProperties | undefined =
     offset !== 0 || animating
       ? {
@@ -182,7 +212,7 @@ export function useRowTouchGestures({ onHold, onSwipeArchive }: RowTouchGestureO
       : undefined;
 
   return {
-    handlers: { onTouchStart, onTouchMove, onTouchEnd, onTouchCancel, onClickCapture },
+    handlers: { onTouchStart, onTouchMove, onTouchEnd, onTouchCancel, onClickCapture, onContextMenuCapture },
     offset,
     style,
   };

@@ -189,6 +189,32 @@ describe("useRowTouchGestures — press-and-hold", () => {
 });
 
 describe("useRowTouchGestures — swipe to archive", () => {
+  it("a second finger mid-swipe slides the row back", () => {
+    const onSwipeArchive = vi.fn();
+    render(<Harness onSwipeArchive={onSwipeArchive} />);
+    const el = surface();
+    touch(el, "touchStart", [{ x: 180, y: 20 }], 0);
+    touch(el, "touchMove", [{ x: 130, y: 22 }], 100);
+    expect(offsetOf(el)).toBe(-50);
+    touch(el, "touchStart", [{ x: 130, y: 22 }, { x: 60, y: 30 }], 120);
+    expect(offsetOf(el)).toBe(0);
+    touch(el, "touchEnd", [], 200);
+    act(() => vi.advanceTimersByTime(1000));
+    expect(onSwipeArchive).not.toHaveBeenCalled();
+  });
+
+  it("the browser's own long-press menu is blocked during a hold, not otherwise", () => {
+    render(<Harness onHold={vi.fn()} />);
+    const el = surface();
+    const idle = createEvent.contextMenu(el, { cancelable: true });
+    fireEvent(el, idle);
+    expect(idle.defaultPrevented).toBe(false);
+    touch(el, "touchStart", [{ x: 10, y: 10 }], 0);
+    const during = createEvent.contextMenu(el, { cancelable: true });
+    fireEvent(el, during);
+    expect(during.defaultPrevented).toBe(true);
+  });
+
   it("leftward swipe tracks the finger with a translateX offset (≤ 0) and cancels the hold", () => {
     const onHold = vi.fn();
     render(<Harness onHold={onHold} onSwipeArchive={vi.fn()} />);

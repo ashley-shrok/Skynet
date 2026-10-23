@@ -4356,15 +4356,33 @@ describe("PrettyConversationsPanel (shape-sidebar): swipe to archive with Undo",
     expect(kitText(kitAlerts(dialogs)[0])).toContain("boom");
   });
 
-  it("an open (active-set) conversation is closed when swiped away", async () => {
+  it("an open (active-set) conversation's pane closes only when the archive happens", async () => {
     seedWren();
     mockActiveSet = new Set(["swipe-row"]);
     const onDeactivateRow = vi.fn();
     const { container } = render(
       <PrettyConversationsPanel variant="mobile" onDeactivateRow={onDeactivateRow} />,
     );
-    await swipe(container);
+    const opts = await swipe(container);
+    expect(onDeactivateRow).not.toHaveBeenCalled();
+    act(() => opts.onAutoClose());
     expect(onDeactivateRow).toHaveBeenCalled();
+  });
+
+  it("Undo leaves an open conversation's pane open", async () => {
+    seedWren();
+    mockActiveSet = new Set(["swipe-row"]);
+    const onDeactivateRow = vi.fn();
+    const { container } = render(
+      <PrettyConversationsPanel variant="mobile" onDeactivateRow={onDeactivateRow} />,
+    );
+    const opts = await swipe(container);
+    act(() => {
+      opts.action.onClick();
+      opts.onDismiss();
+    });
+    await flushKit();
+    expect(onDeactivateRow).not.toHaveBeenCalled();
   });
 
   it("rows that can't be archived (non-numeric host / RDP) don't swipe", async () => {
