@@ -1574,7 +1574,7 @@ moves the folder back to `~/fleet/identities/<name>/`; it returns dormant (or
 always-on if it was), with a "you were unarchived" note at the top of its
 identity file. This takes about a minute.
 
-If it hasn't come back after a couple of minutes, read
+If it hasn't come back after a couple of minutes and the flag is gone, read
 `~/fleet/identities-archive/<name>/.unarchive-refused` — it says why it was
 refused (a role still archived, a live identity with the same name, an
 account that can't be confirmed as an agent's, …). Fix the cause and drop the

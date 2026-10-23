@@ -141,9 +141,9 @@ function cleanNote(raw: string): string {
 
 /**
  * One look at where the un-archive stands. Restored = live folder present and
- * archive folder gone. Refused = archive folder still there but the flag is
- * gone (the supervisor clears it when it refuses, after writing the note).
- * Anything else = still pending.
+ * archive folder gone. Refused = archive folder still there, the flag gone and
+ * a refusal note present (the supervisor writes the note, then clears the
+ * flag). Flag gone without a note is the success path mid-move → pending.
  */
 async function readUnarchiveOutcome(
   key: string,
@@ -155,7 +155,11 @@ async function readUnarchiveOutcome(
     const live = await exists(path.join(getLocalIdentitiesRoot(), key));
     const archived = await exists(archDir);
     if (live && !archived) return { state: "restored" };
-    if (archived && !(await exists(path.join(archDir, ".unarchive-requested")))) {
+    if (
+      archived &&
+      !(await exists(path.join(archDir, ".unarchive-requested"))) &&
+      (await exists(path.join(archDir, UNARCHIVE_REFUSED_NOTE)))
+    ) {
       const note = await fs
         .readFile(path.join(archDir, UNARCHIVE_REFUSED_NOTE), "utf8")
         .catch(() => "");
@@ -168,7 +172,7 @@ async function readUnarchiveOutcome(
     conn,
     `a="$HOME/fleet/identities-archive/${key}"; l="$HOME/fleet/identities/${key}"; ` +
       `if [ -d "$l" ] && [ ! -d "$a" ]; then echo restored; ` +
-      `elif [ -d "$a" ] && [ ! -e "$a/.unarchive-requested" ]; then echo refused; head -c ${NOTE_MAX_CHARS} "$a/${UNARCHIVE_REFUSED_NOTE}" 2>/dev/null; ` +
+      `elif [ -d "$a" ] && [ ! -e "$a/.unarchive-requested" ] && [ -e "$a/${UNARCHIVE_REFUSED_NOTE}" ]; then echo refused; head -c ${NOTE_MAX_CHARS} "$a/${UNARCHIVE_REFUSED_NOTE}" 2>/dev/null; ` +
       `else echo pending; fi`,
   ).catch(() => "pending");
   const [first, ...rest] = out.split("\n");

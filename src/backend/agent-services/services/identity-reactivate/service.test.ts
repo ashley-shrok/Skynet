@@ -228,6 +228,20 @@ describe("identity-reactivate service", () => {
     expect(d.createOrUpdateUser).not.toHaveBeenCalled();
   });
 
+  it.each(["invite", "ban", "knock"])(
+    "not_an_agent when the agents-room membership is only %s",
+    async (membership) => {
+      const d = deps({
+        getRoomMembershipOf: vi.fn(async (roomId: string) => ({
+          ok: true as const,
+          membership: roomId === AGENTS_ROOM ? membership : null,
+        })) as unknown as IdentityReactivateDeps["getRoomMembershipOf"],
+      });
+      expect(failCode(await run(d))).toBe("not_an_agent");
+      expect(d.createOrUpdateUser).not.toHaveBeenCalled();
+    },
+  );
+
   it.each([HUMANS_ROOM, AGENTS_ROOM])(
     "matrix_unavailable when the membership lookup for %s fails",
     async (failingRoom) => {

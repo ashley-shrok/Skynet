@@ -39,7 +39,7 @@
  *   10: 504 SSH connect failure REMOTE
  *   10b: 500 sentinel write failure → generic error; no wait
  *   11: refused LOCAL — note text returned (trimmed) as 409 { reason: "refused", message }
- *   12: refused LOCAL — empty / missing note → default message
+ *   12: refused LOCAL — empty note → default message; flag gone with no note → still pending
  *   13: refused LOCAL — note capped at 500 chars
  *   14: pending — no outcome within UNARCHIVE_WAIT_MS → 200 { ok, outcome: "pending" } after exactly WAIT/POLL polls
  *   15: outcome waits for the supervisor — pending polls keep going until it acts
@@ -352,7 +352,8 @@ function supervisorRefusesOnPoll(n: number, note: string | null): void {
     if (c !== n) return;
     disk.flag = false;
     disk.note = note;
-    remoteProbe = () => Promise.resolve(`refused\n${note ?? ""}`);
+    remoteProbe = () =>
+      Promise.resolve(note === null ? "pending\n" : `refused\n${note}`);
   };
 }
 
@@ -422,6 +423,7 @@ beforeEach(() => {
   //   - live roles, anything else → exists
   mockFsAccess.mockImplementation((p: string) => {
     if (p === FLAG_PATH) return disk.flag ? Promise.resolve() : enoent();
+    if (p === NOTE_PATH) return disk.note !== null ? Promise.resolve() : enoent();
     if (p.startsWith(ARCH_DIR)) return disk.archive ? Promise.resolve() : enoent();
     if (p.startsWith(FAKE_LIVE_ROOT)) return disk.live ? Promise.resolve() : enoent();
     return Promise.resolve();
@@ -715,11 +717,11 @@ describe("POST /identities/:key/unarchive", () => {
     expect(res.body).toEqual({ reason: "refused", message: DEFAULT_REFUSAL });
   });
 
-  it("Test 12b: LOCAL refused with no note file at all → default message", async () => {
+  it("Test 12b: LOCAL flag gone but no refusal note (success path mid-move) → not refused, keeps waiting", async () => {
     supervisorRefusesOnPoll(1, null);
     const res = await post(42);
-    expect(res.status).toBe(409);
-    expect(res.body).toEqual({ reason: "refused", message: DEFAULT_REFUSAL });
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ ok: true, outcome: "pending" });
   });
 
   it("Test 13: LOCAL refusal note is capped at 500 chars", async () => {

@@ -13,7 +13,7 @@
  * that asked. Refused unless the account:
  *   - is currently switched off (never touches a live account's password),
  *   - is not a server admin,
- *   - has at some point been in the agents directory room,
+ *   - has at some point been in the agents directory room (joined, or left),
  *   - has never been in the humans directory room.
  * On success the account is also re-joined to the agents directory so the
  * returned identity is recognized as an agent again (best-effort).
@@ -129,7 +129,9 @@ export function createIdentityReactivateService(
       if (inHumans.membership !== null) {
         return fail("human_account", "this account belongs to a person, not an agent");
       }
-      if (inAgents.membership === null) {
+      // Agents are force-joined at birth and left on archive; an invite, knock
+      // or ban alone doesn't show the account was ever an agent.
+      if (inAgents.membership !== "join" && inAgents.membership !== "leave") {
         return fail("not_an_agent", "this account was never in the agents directory, so it can't be confirmed as an agent");
       }
 

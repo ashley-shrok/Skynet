@@ -86,7 +86,7 @@ describe("Phase 143 Plan 143-05 Task 1 — unarchiveIdentity", () => {
     expect(authApi.post).toHaveBeenCalledWith(
       "/identities/wren/unarchive",
       { hostId: 42 },
-      { timeout: 150_000 },
+      { timeout: 180_000 },
     );
     expect(result).toEqual({ ok: true, outcome: "restored" });
   });

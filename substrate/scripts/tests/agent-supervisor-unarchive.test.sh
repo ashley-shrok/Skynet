@@ -267,6 +267,8 @@ fixture_live_role() {
 #        on 200 the body carries access_token "fresh-tok"
 #
 # Usage: start_stub_admin <get_codes> [post_codes]
+# post_codes defaults to 403 — what a deactivated account (or a stale
+# password) gets, so step d's pre-login falls through to filing a request.
 # Each is a comma-separated status-code sequence; once exhausted, the LAST
 # code repeats. Every request (method, path, body) is appended to
 # $STUB_REQ_LOG so tests can check what was sent.
@@ -276,7 +278,7 @@ STUB_LOG=""
 STUB_REQ_LOG=""
 
 start_stub_admin() {
-  local get_codes="${1:-200}" post_codes="${2:-200}"
+  local get_codes="${1:-200}" post_codes="${2:-403}"
   STUB_PID=""
   STUB_PORT=""
   STUB_LOG=$(mktemp)
@@ -451,6 +453,9 @@ _all_request_files_count() { find "${1}-requests" -type f | wc -l | tr -d ' '; }
 
 # _respond <scratch> <uuid> <json> — play the backend: write the response.
 _respond() { printf '%s\n' "$3" > "${1}-requests/$2.response.json"; }
+
+# _login_count — POST /login calls the stub has seen so far.
+_login_count() { grep -c '^POST /_matrix/client/v3/login' "$STUB_REQ_LOG" || true; }
 
 _state() { cat "${1}-archive/$2/.unarchive-reactivate" 2>/dev/null || true; }
 
@@ -665,8 +670,9 @@ test_identity_full_reactivation_happy_path() {
   local scratch; scratch=$(setup_unarchive_scratch)
   fixture_live_role "$scratch" box-maintainer
   fixture_archived_identity "$scratch" nu "scalar:box-maintainer"
-  # whoami always 401 (deactivated account's token is dead); login 200.
-  start_stub_admin "401" "200" || { teardown_unarchive_scratch "$scratch"; return; }
+  # whoami always 401 (deactivated account's token is dead); tick 1's
+  # pre-login with the old password 403s, tick 3's login with the new one 200s.
+  start_stub_admin "401" "403,200" || { teardown_unarchive_scratch "$scratch"; return; }
   _point_relay "$scratch" nu
   local d="${scratch}-archive/nu"
 
@@ -685,6 +691,8 @@ test_identity_full_reactivation_happy_path() {
   assert_nofile "$scratch/nu"             "tick 1: not moved yet"
   assert_nofile "$d/.unarchive-refused"   "tick 1: not refused"
   assert_grep "asked the backend to reactivate @nu:test" "$out" "tick 1: log line"
+  assert_eq "1" "$(_login_count)" "tick 1: tried the saved password first"
+  assert_grep '^POST /_matrix/client/v3/login .*pw-nu' "$(cat "$STUB_REQ_LOG")" "tick 1: pre-login used relay.json's password"
 
   # Tick 1.5: no response yet → nothing changes.
   _tick "$scratch" >/dev/null
@@ -702,7 +710,7 @@ test_identity_full_reactivation_happy_path() {
   assert_eq "0" "$(_all_request_files_count "$scratch")" "tick 2: request + response dropped"
   assert_nofile "$scratch/nu" "tick 2: not moved yet"
   assert_nogrep "new-secret-pw" "$out" "tick 2: password never logged"
-  assert_nogrep "^POST" "$(cat "$STUB_REQ_LOG")" "tick 2: no login yet"
+  assert_eq "1" "$(_login_count)" "tick 2: no login yet (only tick 1's pre-login)"
 
   # Tick 3: logs in with the new password, saves token, completes.
   out=$(_tick "$scratch")
@@ -723,7 +731,7 @@ test_identity_full_reactivation_happy_path() {
 
 test_identity_transient_error_rerequests() {
   local code
-  for code in matrix_unavailable expired queue_full internal; do
+  for code in matrix_unavailable expired queue_full internal unknown_service not_configured; do
     local scratch; scratch=$(setup_unarchive_scratch)
     fixture_live_role "$scratch" box-maintainer
     fixture_archived_identity "$scratch" xi "scalar:box-maintainer"
@@ -835,6 +843,142 @@ test_identity_stale_request_dropped_and_refiled() {
   teardown_unarchive_scratch "$scratch"
 }
 
+test_identity_prelogin_succeeds_without_request() {
+  # relay.json already holds a working password (an earlier attempt saved it,
+  # then was interrupted): step d's pre-login succeeds, no request filed.
+  local scratch; scratch=$(setup_unarchive_scratch)
+  fixture_live_role "$scratch" box-maintainer
+  fixture_archived_identity "$scratch" chi "scalar:box-maintainer"
+  start_stub_admin "401" "200" || { teardown_unarchive_scratch "$scratch"; return; }
+  _point_relay "$scratch" chi
+
+  local out; out=$(_tick "$scratch")
+  local reqs; reqs=$(cat "$STUB_REQ_LOG")
+  stop_stub_admin
+
+  assert_grep '^POST /_matrix/client/v3/login .*pw-chi' "$reqs" "pre-login: used relay.json's password"
+  _assert_completed "$scratch" chi "pre-login"
+  assert_file "$scratch/chi/.dormant" "pre-login: .dormant written"
+  assert_eq "0" "$(_all_request_files_count "$scratch")" "pre-login: no reactivation requested"
+  assert_eq "fresh-tok" "$(jq -r '.access_token' "$scratch/chi/relay.json")" "pre-login: access_token saved"
+  assert_eq "fresh-tok" "$(jq -r '.token' "$scratch/chi/relay.json")" "pre-login: token saved"
+  assert_nogrep "fresh-tok|pw-chi" "$out" "pre-login: secrets never logged"
+  teardown_unarchive_scratch "$scratch"
+}
+
+test_identity_prelogin_transient_waits() {
+  # Pre-login 503 (homeserver hiccup): wait, don't file a request yet.
+  local scratch; scratch=$(setup_unarchive_scratch)
+  fixture_live_role "$scratch" box-maintainer
+  fixture_archived_identity "$scratch" psi "scalar:box-maintainer"
+  start_stub_admin "401" "503" || { teardown_unarchive_scratch "$scratch"; return; }
+  _point_relay "$scratch" psi
+
+  _tick "$scratch" >/dev/null
+  stop_stub_admin
+
+  local d="${scratch}-archive/psi"
+  assert_nofile "$scratch/psi"              "pre-login 503: not moved"
+  assert_file   "$d/.unarchive-requested"   "pre-login 503: flag retained"
+  assert_nofile "$d/.unarchive-reactivate"  "pre-login 503: no state"
+  assert_nofile "$d/.unarchive-refused"     "pre-login 503: NOT refused"
+  assert_eq "0" "$(_all_request_files_count "$scratch")" "pre-login 503: no request filed"
+  teardown_unarchive_scratch "$scratch"
+}
+
+test_identity_prelogin_without_password_files_request() {
+  # No password in relay.json at all → nothing to try, file the request.
+  local scratch; scratch=$(setup_unarchive_scratch)
+  fixture_live_role "$scratch" box-maintainer
+  fixture_archived_identity "$scratch" omega "scalar:box-maintainer"
+  start_stub_admin "401" "200" || { teardown_unarchive_scratch "$scratch"; return; }
+  _point_relay "$scratch" omega
+  local tmp; tmp=$(mktemp)
+  jq 'del(.password)' "${scratch}-archive/omega/relay.json" > "$tmp" && mv "$tmp" "${scratch}-archive/omega/relay.json"
+
+  _tick "$scratch" >/dev/null
+  local logins; logins=$(_login_count)
+  stop_stub_admin
+
+  assert_eq "0" "$logins" "no password: no login attempted"
+  assert_eq "1" "$(_request_count "$scratch")" "no password: request filed"
+  assert_nofile "$scratch/omega" "no password: not moved"
+  teardown_unarchive_scratch "$scratch"
+}
+
+test_identity_account_active_then_login_succeeds() {
+  local scratch; scratch=$(setup_unarchive_scratch)
+  fixture_live_role "$scratch" box-maintainer
+  fixture_archived_identity "$scratch" alpha2 "scalar:box-maintainer"
+  # tick 1 pre-login 403 (e.g. login briefly refused); tick 3 login 200.
+  start_stub_admin "401" "403,200" || { teardown_unarchive_scratch "$scratch"; return; }
+  _point_relay "$scratch" alpha2
+  local d="${scratch}-archive/alpha2"
+
+  _tick "$scratch" >/dev/null
+  local uuid; uuid=$(_state "$scratch" alpha2)
+  _respond "$scratch" "$uuid" '{"ok":false,"error":{"code":"account_active","message":"account is already active"}}'
+
+  _tick "$scratch" >/dev/null
+  assert_eq "saved" "$(_state "$scratch" alpha2)" "account_active: state 'saved'"
+  assert_eq "0" "$(_all_request_files_count "$scratch")" "account_active: request dropped"
+  assert_file   "$d/.unarchive-requested" "account_active: flag retained"
+  assert_nofile "$d/.unarchive-refused"   "account_active: NOT refused"
+  assert_eq "1" "$(_login_count)" "account_active: login waits for the next tick"
+
+  local out; out=$(_tick "$scratch")
+  local reqs; reqs=$(cat "$STUB_REQ_LOG")
+  stop_stub_admin
+  assert_eq "2" "$(printf '%s\n' "$reqs" | grep -c '^POST /_matrix/client/v3/login')" "account_active: logged in on the next tick"
+  _assert_completed "$scratch" alpha2 "account_active"
+  assert_eq "pw-alpha2" "$(jq -r '.password' "$scratch/alpha2/relay.json")" "account_active: box's password kept"
+  assert_eq "fresh-tok" "$(jq -r '.access_token' "$scratch/alpha2/relay.json")" "account_active: token saved"
+  assert_grep "un-archive COMPLETE" "$out" "account_active: completion log"
+  teardown_unarchive_scratch "$scratch"
+}
+
+test_identity_account_active_then_login_403_refuses() {
+  local scratch; scratch=$(setup_unarchive_scratch)
+  fixture_live_role "$scratch" box-maintainer
+  fixture_archived_identity "$scratch" beta2 "scalar:box-maintainer"
+  start_stub_admin "401" "403" || { teardown_unarchive_scratch "$scratch"; return; }
+  _point_relay "$scratch" beta2
+
+  _tick "$scratch" >/dev/null
+  local uuid; uuid=$(_state "$scratch" beta2)
+  _respond "$scratch" "$uuid" '{"ok":false,"error":{"code":"account_active","message":"account is already active"}}'
+  _tick "$scratch" >/dev/null
+  assert_eq "saved" "$(_state "$scratch" beta2)" "account_active+403: state 'saved' after response"
+  local out; out=$(_tick "$scratch")
+  stop_stub_admin
+
+  _assert_refused "$scratch" beta2 "saved password failed" "account_active+403"
+  assert_grep "un-archive REFUSED" "$out" "account_active+403: LOUD refuse log"
+  teardown_unarchive_scratch "$scratch"
+}
+
+test_identity_refusal_note_removed_at_pickup() {
+  # A note from an earlier refusal is cleared as soon as a new flag is picked
+  # up — the front end must not read it as this attempt's answer while the
+  # request is still pending.
+  local scratch; scratch=$(setup_unarchive_scratch)
+  fixture_live_role "$scratch" box-maintainer
+  fixture_archived_identity "$scratch" gamma2 "scalar:box-maintainer"
+  printf 'an earlier attempt was refused\n' > "${scratch}-archive/gamma2/.unarchive-refused"
+  start_stub_admin "401" "403" || { teardown_unarchive_scratch "$scratch"; return; }
+  _point_relay "$scratch" gamma2
+
+  _tick "$scratch" >/dev/null
+  stop_stub_admin
+
+  local d="${scratch}-archive/gamma2"
+  assert_nofile "$d/.unarchive-refused"   "pickup: old refusal note removed"
+  assert_file   "$d/.unarchive-requested" "pickup: flag retained (still pending)"
+  assert_eq "1" "$(_request_count "$scratch")" "pickup: request filed"
+  assert_nofile "$scratch/gamma2" "pickup: not moved yet"
+  teardown_unarchive_scratch "$scratch"
+}
+
 test_identity_login_401_refuses() {
   local scratch; scratch=$(setup_unarchive_scratch)
   fixture_live_role "$scratch" box-maintainer
@@ -848,7 +992,7 @@ test_identity_login_401_refuses() {
   stop_stub_admin
 
   assert_grep '^POST /_matrix/client/v3/login' "$reqs" "login 401: login attempted"
-  _assert_refused "$scratch" tau "http 401" "login 401"
+  _assert_refused "$scratch" tau "saved password failed" "login 401"
   assert_eq "stale-tok-tau" "$(jq -r '.access_token' "${scratch}-archive/tau/relay.json")" "login 401: token untouched"
   assert_grep "un-archive REFUSED" "$out" "login 401: LOUD refuse log"
   teardown_unarchive_scratch "$scratch"
@@ -1328,6 +1472,12 @@ run_test test_identity_transient_error_rerequests
 run_test test_identity_permanent_error_refuses
 run_test test_identity_ok_response_without_password_rerequests
 run_test test_identity_stale_request_dropped_and_refiled
+run_test test_identity_prelogin_succeeds_without_request
+run_test test_identity_prelogin_transient_waits
+run_test test_identity_prelogin_without_password_files_request
+run_test test_identity_account_active_then_login_succeeds
+run_test test_identity_account_active_then_login_403_refuses
+run_test test_identity_refusal_note_removed_at_pickup
 run_test test_identity_login_401_refuses
 run_test test_identity_login_5xx_retries
 run_test test_identity_refusal_drops_pending_request

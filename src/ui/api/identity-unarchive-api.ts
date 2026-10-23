@@ -113,7 +113,7 @@ function parseUnarchive409OrRethrow(error: unknown): never {
 // ─── unarchiveIdentity ────────────────────────────────────────────────────────
 
 /** Backend waits up to 2 min for the supervisor; leave headroom past that. */
-const UNARCHIVE_REQUEST_TIMEOUT_MS = 150_000;
+const UNARCHIVE_REQUEST_TIMEOUT_MS = 180_000;
 
 export type UnarchiveOutcome = "restored" | "pending";
 

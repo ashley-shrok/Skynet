@@ -1968,13 +1968,16 @@ PYEOF
 #     a. whoami with relay.json's access_token → 200: account live and this box
 #        holds a working login (crash recovery) → go to the folder steps.
 #     b. state "saved" → password login with relay.json's password → token
-#        saved, go to the folder steps. 401/403 → refuse. Other → retry.
+#        saved, go to the folder steps. Rejected → refuse. Other → retry.
 #     c. state <uuid> → read <uuid>.response.json if present:
 #          ok        → save password into relay.json, state "saved", log in next tick
 #          transient → drop the request, file a new one next tick
+#          account_active → state "saved" (try this box's password)
 #          other     → refuse with the backend's reason
 #        No response after UNARCHIVE_REQUEST_STALE_SECS → drop it, re-file.
-#     d. no state → file a request naming relay.json's user_id (never a password).
+#     d. no state → try a login with relay.json's password (an earlier attempt
+#        may already have saved the new one); rejected → file a request naming
+#        relay.json's user_id (never a password).
 #
 #   Folder steps: .dormant unless .no-dormancy, clear the flag + state + any old
 #   refusal note, mv archive → live, restore the conversation's apps, prepend
@@ -2021,6 +2024,45 @@ _unarchive_relay_set() {
   return 1
 }
 
+# _unarchive_login <relay.json> <base> <mxid> <name> — password login with the
+# password saved in relay.json; on success saves the fresh access_token.
+#   returns 0 = logged in, 1 = transient failure, 3 = password rejected (or none saved)
+_unarchive_login() {
+  local relay="$1" base="$2" mxid="$3" name="$4"
+  local password body resp http newtok
+  password=$(jq -r '.password // empty' "$relay" 2>/dev/null)
+  [ -n "$password" ] || return 3
+  body=$(jq -n --arg u "$mxid" --arg p "$password" \
+    '{type:"m.login.password", identifier:{type:"m.id.user", user:$u}, password:$p}')
+  resp=$(curl -sS -w '\n%{http_code}' --max-time 15 -X POST \
+    -H 'Content-Type: application/json' --data-binary @- "$base/login" <<<"$body" 2>/dev/null)
+  http=$(printf '%s\n' "$resp" | tail -1)
+  case "$http" in
+    200)
+      newtok=$(printf '%s\n' "$resp" | sed '$d' | jq -r '.access_token // empty' 2>/dev/null)
+      if [ -z "$newtok" ]; then
+        log "ERROR: '$name' un-archive: login returned no access_token — retrying next tick"
+        return 1
+      fi
+      # shellcheck disable=SC2016  # jq variables, not shell
+      if ! _unarchive_relay_set "$relay" --arg t "$newtok" '.access_token = $t | .token = $t'; then
+        log "ERROR: '$name' un-archive: could not save the new chat login into relay.json — retrying next tick"
+        return 1
+      fi
+      log "'$name' un-archive: logged in with the saved password; fresh access_token saved"
+      return 0
+      ;;
+    401|403)
+      log "'$name' un-archive: login with the saved password rejected (http $http)"
+      return 3
+      ;;
+    *)
+      log "'$name' un-archive: login attempt failed http=$http (transient) — retrying next tick"
+      return 1
+      ;;
+  esac
+}
+
 # _unarchive_account_step <archive-dir> <name>
 #   returns 0 = account live and relay.json holds a working token (continue)
 #           1 = waiting (try again next tick)
@@ -2057,37 +2099,14 @@ _unarchive_account_step() {
 
   # b. New password saved — log in with it.
   if [ "$state" = "saved" ]; then
-    local password body resp http newtok
-    password=$(jq -r '.password // empty' "$relay" 2>/dev/null)
-    body=$(jq -n --arg u "$mxid" --arg p "$password" \
-      '{type:"m.login.password", identifier:{type:"m.id.user", user:$u}, password:$p}')
-    resp=$(curl -sS -w '\n%{http_code}' --max-time 15 -X POST \
-      -H 'Content-Type: application/json' --data-binary @- "$base/login" <<<"$body" 2>/dev/null)
-    http=$(printf '%s\n' "$resp" | tail -1)
-    case "$http" in
-      200)
-        newtok=$(printf '%s\n' "$resp" | sed '$d' | jq -r '.access_token // empty' 2>/dev/null)
-        if [ -z "$newtok" ]; then
-          log "ERROR: '$name' un-archive: login returned no access_token — retrying next tick"
-          return 1
-        fi
-        # shellcheck disable=SC2016  # jq variables, not shell
-        if ! _unarchive_relay_set "$relay" --arg t "$newtok" '.access_token = $t | .token = $t'; then
-          log "ERROR: '$name' un-archive: could not save the new chat login into relay.json — retrying next tick"
-          return 1
-        fi
-        rm -f "${d:?}/.unarchive-reactivate"
-        log "'$name' un-archive: logged in with the new password; fresh access_token saved"
-        return 0
-        ;;
-      401|403)
-        _unarchive_refuse "$d" "$name" "logging in with the new chat password failed (http $http) — ask a box maintainer"
+    _unarchive_login "$relay" "$base" "$mxid" "$name"
+    case $? in
+      0) rm -f "${d:?}/.unarchive-reactivate"; return 0 ;;
+      3)
+        _unarchive_refuse "$d" "$name" "the chat account is active but logging in with this box's saved password failed — ask a box maintainer to switch the account off so it can be reactivated again"
         return 2
         ;;
-      *)
-        log "'$name' un-archive: login attempt failed http=$http (transient) — retrying next tick"
-        return 1
-        ;;
+      *) return 1 ;;
     esac
   fi
 
@@ -2120,8 +2139,15 @@ _unarchive_account_step() {
       _unarchive_drop_request "$state"
       rm -f "${d:?}/.unarchive-reactivate"
       case "$code" in
-        matrix_unavailable|expired|queue_full|internal)
+        matrix_unavailable|expired|queue_full|internal|unknown_service|not_configured)
           log "'$name' un-archive: reactivation request failed ($code) — will ask again next tick"
+          return 1
+          ;;
+        account_active)
+          # Already live (e.g. reactivated earlier but this box never got the
+          # reply). Try the password this box has; step b refuses if it's wrong.
+          printf 'saved\n' > "$d/.unarchive-reactivate"
+          log "'$name' un-archive: chat account already active — trying this box's saved password next tick"
           return 1
           ;;
         *)
@@ -2139,7 +2165,15 @@ _unarchive_account_step() {
     return 1
   fi
 
-  # d. File a reactivation request (names the account only — never a password).
+  # d. Account may already be live with the password this box has (an earlier
+  # attempt saved it, then was refused or interrupted) — try that first.
+  _unarchive_login "$relay" "$base" "$mxid" "$name"
+  case $? in
+    0) return 0 ;;
+    1) return 1 ;;
+  esac
+
+  # File a reactivation request (names the account only — never a password).
   mkdir -p "$SERVICE_REQUESTS_DIR" 2>/dev/null || true
   local uuid
   uuid=$(cat /proc/sys/kernel/random/uuid 2>/dev/null || uuidgen 2>/dev/null)
@@ -2169,6 +2203,8 @@ scan_identity_unarchive_requested_sentinels() {
     [ -f "$d/.unarchive-requested" ] || continue
 
     log "'$name' un-archive: .unarchive-requested detected"
+    # A refusal note from an earlier attempt no longer applies.
+    rm -f "${d:?}/.unarchive-refused"
 
     # Pre-flight 1: name collision.
     if [ -e "$IDENTITIES_DIR/$name" ]; then
@@ -2215,7 +2251,7 @@ scan_identity_unarchive_requested_sentinels() {
 
     # Step 5: clear the flag, progress state and any old refusal note BEFORE
     # the mv (archive-side discipline).
-    rm -f "${d:?}/.unarchive-requested" "${d:?}/.unarchive-reactivate" "${d:?}/.unarchive-refused"
+    rm -f "${d:?}/.unarchive-refused" "${d:?}/.unarchive-reactivate" "${d:?}/.unarchive-requested"
 
     # Step 6: mv archive → live.
     mkdir -p "$IDENTITIES_DIR" 2>/dev/null || true
