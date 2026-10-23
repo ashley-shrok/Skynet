@@ -25,10 +25,11 @@
  */
 
 import { parseRiffHeader, decodePcmChunk, type RiffHeader } from "./riffPcmDecode";
+import { createTimeStretcher, type TimeStretcher } from "./timeStretch";
 
-// Client-side playback speedup. Applied per AudioBufferSourceNode; pitch scales
-// with rate (Web Audio API has no native time-stretch).
-// Advancing `nextStartTimeRef` must divide by this value to stay gapless.
+// Client-side playback speed. Applied by time-stretching the decoded PCM
+// (timeStretch.ts) before scheduling, so the pitch stays put; sources then
+// play at their native rate.
 // Per-user preference (user_preferences.tts_playback_rate), pushed in by
 // AppShell via setTtsPlaybackRate whenever the user's preferences load or
 // change. Each player snapshots the rate at creation, so a change applies
@@ -279,19 +280,19 @@ export function createWebAudioStreamPlayer(
   }
 
   /**
-   * Decode a PCM chunk and schedule an AudioBufferSourceNode on the given context.
+   * Schedule decoded (already time-stretched) samples as an
+   * AudioBufferSourceNode on the given context.
    *
    * Uses the nextStartTime running clock pattern from Nelly's demo:
    * schedule at nextStartTime, then advance nextStartTime by buffer.duration
    * so consecutive buffers play gaplessly.
    */
   function scheduleChunk(
-    pcmChunk: Uint8Array,
+    channelData: Float32Array[],
     hdr: RiffHeader,
     ctx: AudioContext,
     nextStartTimeRef: { value: number },
   ): void {
-    const channelData = decodePcmChunk(pcmChunk, hdr);
     if (channelData[0].length === 0) return;
 
     const buffer = ctx.createBuffer(hdr.channels, channelData[0].length, hdr.sampleRate);
@@ -301,7 +302,6 @@ export function createWebAudioStreamPlayer(
 
     const source = ctx.createBufferSource();
     source.buffer = buffer;
-    source.playbackRate.value = playbackRate;
     source.connect(ctx.destination);
     const idx = sources.length;
     source.onended = () => onSourceEnded(idx);
@@ -314,9 +314,8 @@ export function createWebAudioStreamPlayer(
     }
 
     source.start(nextStartTimeRef.value);
-    // Audible duration = buffer.duration / playbackRate. Advance by that so
-    // consecutive sources remain gapless at the accelerated rate.
-    const audibleDuration = buffer.duration / playbackRate;
+    // The speed change is already in the samples, so audible = buffer duration.
+    const audibleDuration = buffer.duration;
     const startTime = nextStartTimeRef.value;
     const expectedEnd = startTime + audibleDuration;
     nextStartTimeRef.value = expectedEnd;
@@ -366,6 +365,61 @@ export function createWebAudioStreamPlayer(
     // underrun on the very first scheduled source.
     const nextStartTimeRef = { value: audioContext.currentTime + 0.02 };
     let firstChunkScheduled = false;
+    let stretcher: TimeStretcher | null = null;
+
+    /**
+     * Schedule decoded samples, sub-split so no single AudioBuffer's audible
+     * playback extends far enough past the playhead to hit Chrome's
+     * silent-drop zone (see MAX_BUFFER_AUDIBLE_SECONDS at top of file), each
+     * piece behind the backpressure gate. Resolves false when the player was
+     * torn down while waiting.
+     */
+    async function scheduleSamples(channelData: Float32Array[], hdr: RiffHeader): Promise<boolean> {
+      const total = channelData[0]?.length ?? 0;
+      const maxPerSubChunk = Math.max(1, Math.floor(MAX_BUFFER_AUDIBLE_SECONDS * hdr.sampleRate));
+      let subOffset = 0;
+      while (subOffset < total) {
+        // Backpressure: hold off scheduling if the next source would start
+        // more than SCHEDULE_HORIZON_SECONDS ahead of the playhead. Wake
+        // when a source ends (playhead advances) or teardown fires. See
+        // SCHEDULE_HORIZON_SECONDS rationale at top of file for why this
+        // exists (Chrome silently drops far-future scheduled buffer output).
+        while (
+          !stopped &&
+          audioContext !== null &&
+          nextStartTimeRef.value - audioContext.currentTime >= SCHEDULE_HORIZON_SECONDS
+        ) {
+          console.info(
+            `[tts-player] backpressure-wait aheadSec=${(nextStartTimeRef.value - audioContext.currentTime).toFixed(3)} horizon=${SCHEDULE_HORIZON_SECONDS} pending=${sources.length - endedSources} ctxTime=${audioContext.currentTime.toFixed(3)} ctxState=${audioContext.state}`,
+          );
+          await new Promise<void>((resolve) => {
+            scheduleWakeup = resolve;
+          });
+        }
+        // audioContext may have been nulled by teardown() while we were parked
+        // (external stop, resume-closed error). Bail cleanly rather than
+        // dereferencing null below.
+        if (stopped || audioContext === null) return false;
+
+        const subEnd = Math.min(subOffset + maxPerSubChunk, total);
+        scheduleChunk(
+          channelData.map((c) => c.subarray(subOffset, subEnd)),
+          hdr,
+          audioContext,
+          nextStartTimeRef,
+        );
+        subOffset = subEnd;
+        // Fire onCanPlay on the first successfully scheduled chunk — analogous
+        // to HTMLAudioElement's canplay event (enough data to start playback).
+        if (!firstChunkScheduled) {
+          firstChunkScheduled = true;
+          watchStart(audioContext);
+          opts.onCanPlay?.();
+        }
+      }
+      return true;
+    }
+
     // Total bytes read off the response body — surfaced in reader-done so we
     // can compare client-received bytes against the backend's per-request
     // totalPcmBytes accounting (2026-09-28 cutoff investigation). A gap
@@ -382,6 +436,8 @@ export function createWebAudioStreamPlayer(
         // that is the caller's own action, never an end or an error.
         if (stopped) return;
         if (done) {
+          // The stretcher holds back about a frame of audio; play it out.
+          if (stretcher && header && !(await scheduleSamples(stretcher.flush(), header))) return;
           readerDone = true;
           const ctxTime = audioContext?.currentTime ?? -1;
           const lastMeta = scheduledMeta[scheduledMeta.length - 1];
@@ -437,61 +493,9 @@ export function createWebAudioStreamPlayer(
 
         if (pcmChunk.byteLength === 0) continue;
 
-        // Sub-split oversized chunks so no single AudioBuffer's audible
-        // playback extends far enough past the playhead to hit Chrome's
-        // silent-drop zone. See MAX_BUFFER_AUDIBLE_SECONDS at top of file
-        // for the drop mechanism. Cap is expressed in audible (ctx-time)
-        // seconds, so byte budget scales with the current playback rate:
-        //   bytesPerAudibleSecond = sampleRate * frameBytes * playbackRate
-        // Frame-align maxBytes so every sub-chunk stays sample-aligned
-        // (pcmRemainder guarantee holds across sub-splits since the outer
-        // chunk was already frame-aligned above).
-        const bytesPerAudibleSecond =
-          header.sampleRate * frameBytes * playbackRate;
-        const maxBytesPerSubChunk = Math.max(
-          frameBytes,
-          Math.floor(
-            (MAX_BUFFER_AUDIBLE_SECONDS * bytesPerAudibleSecond) / frameBytes,
-          ) * frameBytes,
-        );
-
-        let subOffset = 0;
-        while (subOffset < pcmChunk.byteLength) {
-          // Backpressure: hold off scheduling if the next source would start
-          // more than SCHEDULE_HORIZON_SECONDS ahead of the playhead. Wake
-          // when a source ends (playhead advances) or teardown fires. See
-          // SCHEDULE_HORIZON_SECONDS rationale at top of file for why this
-          // exists (Chrome silently drops far-future scheduled buffer output).
-          while (
-            !stopped &&
-            audioContext !== null &&
-            nextStartTimeRef.value - audioContext.currentTime >= SCHEDULE_HORIZON_SECONDS
-          ) {
-            console.info(
-              `[tts-player] backpressure-wait aheadSec=${(nextStartTimeRef.value - audioContext.currentTime).toFixed(3)} horizon=${SCHEDULE_HORIZON_SECONDS} pending=${sources.length - endedSources} ctxTime=${audioContext.currentTime.toFixed(3)} ctxState=${audioContext.state}`,
-            );
-            await new Promise<void>((resolve) => {
-              scheduleWakeup = resolve;
-            });
-          }
-          // audioContext may have been nulled by teardown() while we were parked
-          // (external stop, resume-closed error). Bail cleanly rather than
-          // dereferencing null below.
-          if (stopped || audioContext === null) return;
-
-          const subEnd = Math.min(subOffset + maxBytesPerSubChunk, pcmChunk.byteLength);
-          const subChunk = pcmChunk.subarray(subOffset, subEnd);
-          subOffset = subEnd;
-
-          scheduleChunk(subChunk, header, audioContext, nextStartTimeRef);
-          // Fire onCanPlay on the first successfully scheduled chunk — analogous
-          // to HTMLAudioElement's canplay event (enough data to start playback).
-          if (!firstChunkScheduled) {
-            firstChunkScheduled = true;
-            watchStart(audioContext);
-            opts.onCanPlay?.();
-          }
-        }
+        const decoded = decodePcmChunk(pcmChunk, header);
+        stretcher ??= createTimeStretcher(header.sampleRate, header.channels, playbackRate);
+        if (!(await scheduleSamples(stretcher.process(decoded), header))) return;
       }
     } catch (err) {
       if (!stopped && !onErrorFired) {

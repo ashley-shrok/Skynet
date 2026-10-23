@@ -299,7 +299,6 @@ export function PreferencesVoicePane({
         />
         <div className="flex justify-between text-[11px] text-[#8a8678]">
           <span>{formatRate(TTS_PLAYBACK_RATE_MIN)}</span>
-          <span>Pitch rises with speed.</span>
           <span>{formatRate(TTS_PLAYBACK_RATE_MAX)}</span>
         </div>
         {speedError !== null && (

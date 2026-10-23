@@ -712,29 +712,37 @@ describe("per-user playback rate", () => {
     expect(getTtsPlaybackRate()).toBe(4);
   });
 
-  it("Rate 2 — a player applies the rate set before it was created, and paces the schedule by it", async () => {
-    setTtsPlaybackRate(2);
-    // 2000 frames @ 1000Hz = 2s buffer → 1s audible at 2×.
-    const pcm = new Uint8Array(2000 * 2);
-    const chunk = makeWavChunk(pcm, { channels: 1, sampleRate: 1000, bitDepth: 16 });
-    const player = createWebAudioStreamPlayer({});
-    const second = new Uint8Array(2000 * 2);
+  /** Seconds of audio scheduled on a context, summed over its sources. */
+  function scheduledSeconds(ctx: (typeof ctxInstances)[number]): number {
+    return ctx.buffers.reduce((n, b) => n + b.frames / b.sampleRate, 0);
+  }
 
-    await player.play(makeMockResponse([chunk, second]));
+  it("Rate 2 — a player applies the rate set before it was created, shortening the audio without changing pitch", async () => {
+    setTtsPlaybackRate(2);
+    // 2 × 2000 frames @ 1000Hz = 4s of audio → 2s at 2×.
+    const chunk = makeWavChunk(new Uint8Array(2000 * 2), { channels: 1, sampleRate: 1000, bitDepth: 16 });
+    const player = createWebAudioStreamPlayer({});
+
+    await player.play(makeMockResponse([chunk, new Uint8Array(2000 * 2)]));
 
     const ctx = ctxInstances[0];
-    expect(ctx.sources).toHaveLength(2);
-    expect(ctx.sources[0].playbackRate.value).toBe(2);
-    expect(ctx.sources[1]._startedAt - ctx.sources[0]._startedAt).toBeCloseTo(1, 5);
+    expect(scheduledSeconds(ctx)).toBeCloseTo(2, 5);
+    // Speed lives in the samples; sources play at native rate (no pitch shift).
+    for (const src of ctx.sources) expect(src.playbackRate.value).toBe(1);
+    // Gapless: each source starts where the previous one ends.
+    for (let i = 1; i < ctx.sources.length; i++) {
+      const prev = ctx.buffers[i - 1];
+      expect(ctx.sources[i]._startedAt - ctx.sources[i - 1]._startedAt).toBeCloseTo(prev.frames / prev.sampleRate, 5);
+    }
   });
 
   it("Rate 3 — changing the rate mid-play doesn't affect a player already created", async () => {
     setTtsPlaybackRate(1.25);
     const player = createWebAudioStreamPlayer({});
     setTtsPlaybackRate(3);
-    const pcm = new Uint8Array([0x00, 0x00, 0xff, 0x7f]);
-    await player.play(makeMockResponse([makeWavChunk(pcm)]));
-    expect(ctxInstances[0].sources[0].playbackRate.value).toBe(1.25);
+    // 1000 frames @ 1000Hz = 1s → 0.8s at 1.25×.
+    await player.play(makeMockResponse([makeWavChunk(new Uint8Array(1000 * 2), { channels: 1, sampleRate: 1000, bitDepth: 16 })]));
+    expect(scheduledSeconds(ctxInstances[0])).toBeCloseTo(0.8, 5);
   });
 });
 
