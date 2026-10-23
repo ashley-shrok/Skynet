@@ -224,7 +224,6 @@ export function FileWindowActions({
 
 export function FileWindowHead({
   filename,
-  subtitle,
   switcher,
   speakText,
   actions,
@@ -232,8 +231,6 @@ export function FileWindowHead({
   closeTestId,
 }: {
   filename: string;
-  /** Where the file lives — "machine · folder". */
-  subtitle?: ReactNode;
   /** The view switch (FileViewSwitch). */
   switcher?: ReactNode;
   /** The text to read aloud, for prose files; null = no read-aloud button. */
@@ -255,7 +252,6 @@ export function FileWindowHead({
   const head = (
     <ModalHead
       title={<span className="block truncate text-[17px]">{filename}</span>}
-      subtitle={subtitle ? <span className="block truncate text-[12.5px] text-[var(--k-t3)]">{subtitle}</span> : undefined}
       closeTestId={closeTestId}
       className="items-center"
       leading={

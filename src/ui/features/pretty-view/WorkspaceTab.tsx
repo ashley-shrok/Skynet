@@ -430,8 +430,6 @@ function WorkspaceFileViewer({
   const bodyRef = useKeepScroll(`${editing.locked}:${editing.draftKey}`);
   const textReady =
     !skipFetch && fileState.status === "ready" && fileState.data.isText !== false;
-  const folder = file.relativePath.split("/").slice(0, -1);
-  const subtitle = ["Files", ...folder].join(" › ");
   const save = async (): Promise<void> => {
     const ok = binaryDraft ? await handleSaveBytes(binaryDraft) : await handleSave(draft);
     if (ok) editing.doneEditing();
@@ -440,7 +438,6 @@ function WorkspaceFileViewer({
   const head = (
     <FileWindowHead
       filename={file.name}
-      subtitle={subtitle}
       speakText={textReady && isSpeakableFile(file.name) ? draft : null}
       switcher={
         // Markdown's switch only once there's markdown to show.

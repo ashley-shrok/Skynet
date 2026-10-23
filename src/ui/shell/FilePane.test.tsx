@@ -1,10 +1,10 @@
 /**
  * FilePane — a chat-shared file shown read-only in its own pane.
  *
- * Covers: the bar (file name, "<host> · <folder>" subtitle, view switcher for
+ * Covers: the bar (file name only, view switcher for
  * multi-view types), the read-only body (editor locked, no Save), the
  * can't-show notice for read errors and for URL-sourced views whose URL no
- * longer serves, Reload re-reading, the ⋮ menu per platform, Open in modal
+ * longer serves, Reload re-reading, the ⋯ menu per platform, Open in modal
  * (handed to the source conversation, else a view-only modal here), Copy
  * path, the bar's drag payload, and the drag shield over the body.
  */
@@ -93,11 +93,11 @@ afterEach(() => {
 });
 
 describe("FilePane — bar and read-only body", () => {
-  it("shows the file name, machine + folder, and the file read-only", async () => {
+  it("shows the file name only, and the file read-only", async () => {
     mockedFetch.mockResolvedValue(ok("buy milk"));
     renderPane();
-    expect(screen.getByTestId("file-pane-title").textContent).toContain("todo.txt");
-    expect(screen.getByTestId("file-pane-subtitle").textContent).toBe("Skynet · /home/ubuntu/notes");
+    expect(screen.getByTestId("file-pane-title").textContent).toBe("todo.txt");
+    expect(screen.queryByTestId("file-pane-subtitle")).toBeNull();
     const editor = (await screen.findByTestId("code-editor")) as HTMLTextAreaElement;
     expect(editor.value).toBe("buy milk");
     expect(editor.disabled).toBe(true);

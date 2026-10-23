@@ -5,7 +5,7 @@
  * with a protocol descriptor (cross-window drops reopen the session), a
  * press on Reconnect never dragging, Reconnect firing the event GuacamoleApp
  * listens for, bar click selecting the pane, and the menu (desktop: Move to
- * new tab + Close; phone: no ⋮ at all).
+ * new tab + Close; phone: no ⋯ at all).
  */
 
 import { describe, it, expect, afterEach, beforeEach, vi } from "vitest";

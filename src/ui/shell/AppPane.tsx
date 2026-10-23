@@ -109,7 +109,7 @@ export { sidebarToggleClearance } from "./PaneBar";
 // ─── App bar (shape-app-pane-strip, 2026-10-09) ────────────────────────────
 // The bar itself is the shared PaneBar (also used by RemotePane); this file
 // supplies the app's back/forward/reload buttons, title glyph and menu.
-// The pane is no longer chrome-free: a glass bar sits above the iframe, always
+// The pane is no longer chrome-free: a bar sits above the iframe, always
 // visible. The WHOLE bar (minus its buttons) is the pane's drag handle and
 // writes the same application/x-skynet-badge payload an IdentityBadge does,
 // so every existing badge drop path (split edges/center, the badge drop
@@ -495,6 +495,7 @@ export function AppPane({
           descriptor: { tabType: "app", app: { hostId, slug }, label: title },
         }}
         title={title}
+        titleIconIsPicture={showIcon}
         titleIcon={
           showIcon ? (
             <img
@@ -521,8 +522,9 @@ export function AppPane({
               disabled={!nav.canBack}
               onClick={() => onNavClick("back")}
               className={PANE_BAR_BUTTON_CLASS}
+              data-icon="arrow"
             >
-              <ChevronLeft width={16} height={16} aria-hidden="true" />
+              <ChevronLeft aria-hidden="true" />
             </button>
             <button
               type="button"
@@ -533,8 +535,9 @@ export function AppPane({
               disabled={!nav.canForward}
               onClick={() => onNavClick("forward")}
               className={PANE_BAR_BUTTON_CLASS}
+              data-icon="arrow"
             >
-              <ChevronRight width={16} height={16} aria-hidden="true" />
+              <ChevronRight aria-hidden="true" />
             </button>
             <button
               type="button"
@@ -543,9 +546,9 @@ export function AppPane({
               title="Reload"
               draggable={false}
               onClick={() => onNavClick("reload")}
-              className={PANE_BAR_BUTTON_CLASS}
+              className={`${PANE_BAR_BUTTON_CLASS} ml-1`}
             >
-              <RotateCw width={14} height={14} aria-hidden="true" />
+              <RotateCw aria-hidden="true" />
             </button>
           </>
         }

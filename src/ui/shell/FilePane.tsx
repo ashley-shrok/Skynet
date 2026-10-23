@@ -16,7 +16,6 @@ import {
   OPEN_FILE_IN_CONVERSATION_EVENT,
   buildSkynetFileUrl,
   fileNameOfPath,
-  folderOfPath,
   type OpenFileInConversationDetail,
 } from "@/features/pretty-view/file-url";
 import {
@@ -29,20 +28,21 @@ import { systemLogger } from "@/lib/frontend-logger";
 import { encodeWorkspaceSpec, specForTab } from "@/lib/tab-url";
 import { hasSkynetDragPayload } from "./SplitView";
 import { subscribeDragSessionEnd } from "./drag-preview-session";
-import { PANE_BAR_BUTTON_CLASS, PaneBar } from "./PaneBar";
+import { PANE_BAR_BUTTON_CLASS, PANE_BAR_SPEAK_CLASS, PaneBar } from "./PaneBar";
 
 // ─── FilePane — a file shown read-only in its own pane ─────────────────────
 //
 // A chat-shared file (a Skynet file URL, `/file/<host>/<path>`) dragged out
 // of a conversation into split view. The body is the shared FileView — the
 // same viewers the file modal uses — opened read-only: no typing, cell edits
-// or annotations, and no Save. Editing stays in the modal (⋮ → Open in modal).
+// or annotations, and no Save. Editing stays in the modal (⋯ → Open in modal).
 //
 // Bar (PaneBar, same family as app and remote-desktop panes):
 //   - Left: Reload (re-reads the file from its machine) and Download.
-//   - Title: the file type's icon, the file name, and "<host> · <folder>".
+//   - Title: the file type's icon and the file name (name only — Copy path
+//     in the menu has where it lives).
 //   - Right: read aloud (prose files — .md / .txt — once read), the view
-//     switcher (types with more than one view), then ⋮.
+//     switcher (types with more than one view), then ⋯.
 //   - Menu (also right-click): Open in modal → Copy path → Download →
 //     Move to new tab (desktop) → Close (desktop).
 //
@@ -248,7 +248,6 @@ export function FilePane({
 
   const markdownSwitch = useMarkdownSwitchHost();
   const errorCopy = errorClass !== null ? describeFileUrlError(errorClass, url) : null;
-  const subtitle = `${host} · ${folderOfPath(path)}`;
   // Read aloud, as in the file modal's head. FileSpeakButton renders nothing
   // for files that aren't prose or have nothing to say.
   const speakText =
@@ -270,7 +269,7 @@ export function FilePane({
     speakText !== null || switcher !== null ? (
       <>
         {speakText !== null ? (
-          <FileSpeakButton filename={filename} text={speakText} className="size-6" />
+          <FileSpeakButton filename={filename} text={speakText} className={PANE_BAR_SPEAK_CLASS} />
         ) : null}
         {switcher}
       </>
@@ -289,8 +288,7 @@ export function FilePane({
           descriptor: { tabType: "file", file: { host, path, origin }, label: filename },
         }}
         title={filename}
-        subtitle={subtitle}
-        titleIcon={<TitleIcon width={12} height={12} />}
+        titleIcon={<TitleIcon aria-hidden="true" />}
         rightControls={rightControls}
         menuItems={menuItems}
         onSelectPane={onSelectPane}
@@ -305,7 +303,7 @@ export function FilePane({
               onClick={reload}
               className={PANE_BAR_BUTTON_CLASS}
             >
-              <RotateCw width={14} height={14} aria-hidden="true" />
+              <RotateCw aria-hidden="true" />
             </button>
             <button
               type="button"
@@ -316,7 +314,7 @@ export function FilePane({
               onClick={download}
               className={PANE_BAR_BUTTON_CLASS}
             >
-              <Download width={14} height={14} aria-hidden="true" />
+              <Download aria-hidden="true" />
             </button>
           </>
         }

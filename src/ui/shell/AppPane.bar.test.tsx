@@ -152,6 +152,24 @@ describe("AppPane bar", () => {
     expect(getByTestId("app-pane-title").textContent).toContain("Todo List");
   });
 
+  it("an app with an icon shows it as the whole tile; without one, its initial on the grey tile", () => {
+    const snap = (hasIcon: boolean) =>
+      publishAppSnapshot([
+        { hostId: "1", slug: "todo", title: "Todo List", description: "", port: 1, hasIcon, createdAtMs: 0, isHealthy: true, healthMessage: null },
+      ]);
+    snap(true);
+    const { getByTestId, unmount } = render(<AppPane hostId={1} slug="todo" tabId="t1" isVisible={true} />);
+    const tile = getByTestId("app-pane-title").querySelector(".pane-bar-icon") as HTMLElement;
+    expect(tile.dataset.picture).toBe("true");
+    expect(tile.querySelector("img")).not.toBeNull();
+    unmount();
+    snap(false);
+    const again = render(<AppPane hostId={1} slug="todo" tabId="t1" isVisible={true} />);
+    const plain = again.getByTestId("app-pane-title").querySelector(".pane-bar-icon") as HTMLElement;
+    expect(plain.dataset.picture).toBeUndefined();
+    expect(plain.textContent).toBe("T");
+  });
+
   it("title falls back to the tab label, then the slug", () => {
     const a = render(<AppPane hostId={1} slug="todo" tabId="t1" isVisible={true} label="My Todo" />);
     expect(a.getByTestId("app-pane-title").textContent).toContain("My Todo");
@@ -320,12 +338,12 @@ describe("AppPane bar", () => {
     expect(getByTestId("app-pane-reload")).toBeTruthy();
   });
 
-  it("no back-to-conversations button on desktop; bar stays 40px", () => {
+  it("no back-to-conversations button on desktop; bar stays the short one", () => {
     const { getByTestId, queryByTestId } = render(
       <AppPane hostId={1} slug="todo" tabId="t1" isVisible={true} />,
     );
     expect(queryByTestId("app-pane-back-to-list")).toBeNull();
-    expect(getByTestId("app-pane-bar").style.height).toBe("40px");
+    expect(getByTestId("app-pane-bar").dataset.touch).toBeUndefined();
   });
 
   it("touch: taller bar leads with back-to-conversations, which leaves the app without selecting the pane", () => {
@@ -335,7 +353,7 @@ describe("AppPane bar", () => {
       <AppPane hostId={1} slug="todo" tabId="t1" isVisible={true} onSelectPane={onSelectPane} />,
     );
     const bar = getByTestId("app-pane-bar");
-    expect(bar.style.height).toBe("52px");
+    expect(bar.dataset.touch).toBe("true");
     const backToList = getByTestId("app-pane-back-to-list");
     // First control in the bar, ahead of the app's own back button.
     expect(

@@ -1,5 +1,5 @@
 /**
- * App bar menu — the ⋮ kebab + right-click on an open app pane's bar, the
+ * App bar menu — the ⋯ button + right-click on an open app pane's bar, the
  * app-pane counterpart of the IdentityBadge menu. Covers item set + order on
  * desktop and mobile, Close, Move to new tab (incl. popup blocked), the
  * shared Archive flow closing panes via onArchiveApp, right-click opening the
@@ -86,6 +86,17 @@ describe("AppPane bar menu", () => {
       "Close",
       "Archive",
     ]);
+  });
+
+  it("the ⋯ button and its menu take the kit look", async () => {
+    const { container } = render(
+      <AppPane hostId={1} slug="todo" tabId="t1" isVisible onCloseTab={vi.fn()} />,
+    );
+    const trigger = container.querySelector('[data-testid="app-pane-kebab-trigger"]') as HTMLElement;
+    expect(trigger.className).toContain("k-icon-btn");
+    expect(trigger.querySelector("svg.lucide-ellipsis, svg.lucide-more-horizontal")).not.toBeNull();
+    const menu = await openKebab(container);
+    expect(menu.className).toContain("k-menu");
   });
 
   it("mobile: no Move to new tab or Close", async () => {

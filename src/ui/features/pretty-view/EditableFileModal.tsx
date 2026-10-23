@@ -17,9 +17,9 @@ import {
   useKeepScroll,
   useMarkdownSwitchHost,
 } from "./file-viewers/FileWindowHead";
+import { parseSkynetFileUrl } from "./file-url";
 import { isSpeakableFile } from "./file-viewers/file-speak";
 import { MarkdownSwitchHostContext } from "./markdown-mode-switch";
-import { folderOfPath, parseSkynetFileUrl } from "./file-url";
 import { describeFileUrlError, useFileUrlContent } from "./file-url-content";
 
 /**
@@ -34,8 +34,8 @@ import { describeFileUrlError, useFileUrlContent } from "./file-url-content";
  * matters here, the user opens the file, remembers what they wanted to
  * write, closes the modal, then types.
  *
- * Head: the shared file-window head (FileWindowHead) — type tile, name,
- * "machine · folder", read aloud for prose, the view switch (markdown's
+ * Head: the shared file-window head (FileWindowHead) — type tile, name
+ * (name only — where it lives is one step away in Copy path), read aloud for prose, the view switch (markdown's
  * Formatted / Plain text included), then Edit or Save, then ⋯ (Download,
  * Copy path). How the file opens follows its type (fileOpenKind): pictures
  * and media just show; documents open for reading with Edit; code, text and
@@ -215,8 +215,9 @@ export default function EditableFileModal({
     usesEditorFetch && fetchState.status === "ready" && fetchState.data.isText !== false;
   const editable = canSave && (urlModeEditable || (textReady && (currentMode.editable || isDirty)));
 
+
+  // Copy path in the ⋯ menu — the head shows the name only.
   const parsed = parseSkynetFileUrl(url);
-  const subtitle = parsed ? `${parsed.host} · ${folderOfPath(parsed.path)}` : undefined;
 
   const fileView = (
     <MarkdownSwitchHostContext.Provider value={markdownHost}>
@@ -257,7 +258,6 @@ export default function EditableFileModal({
     >
       <FileWindowHead
         filename={filename}
-        subtitle={subtitle}
         speakText={textReady && isSpeakableFile(filename) ? draft : null}
         switcher={
           // Markdown's switch only once there's markdown to show.

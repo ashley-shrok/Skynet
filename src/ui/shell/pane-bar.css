@@ -1,0 +1,78 @@
+/* PaneBar — the bar across the top of app, remote-desktop and file panes.
+   Solid, one hairline, quiet buttons; the kit's palette (kit.css :root).
+   Shape: .planning/campaigns/apple-ux/shape-pane-bar.md */
+
+@layer components {
+  .pane-bar {
+    --pane-bar-bg: #16171b;
+    height: 44px;
+    background: var(--pane-bar-bg);
+    border-bottom: 1px solid var(--k-hair);
+    font-family: var(--font-sans);
+  }
+  .pane-bar[data-touch="true"] { height: 52px; }
+
+  /* The pane's own buttons (back, forward, reload, download, reconnect). */
+  .pane-bar-btn {
+    appearance: none;
+    border: 0;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    width: 30px;
+    height: 30px;
+    border-radius: 8px;
+    background: transparent;
+    color: var(--k-t2);
+    transition: background-color 0.12s, color 0.12s, opacity 0.12s;
+  }
+  .pane-bar-btn:enabled { cursor: pointer; }
+  .pane-bar-btn:enabled:hover { background: var(--k-s2); color: var(--k-t1); }
+  .pane-bar-btn:disabled { opacity: 0.28; }
+  .pane-bar-btn:focus-visible { outline: 2px solid var(--k-acc); outline-offset: 1px; }
+  .pane-bar-btn svg { width: 16px; height: 16px; stroke-width: 2; }
+  .pane-bar-btn[data-icon="arrow"] svg { width: 19px; height: 19px; }
+  .pane-bar[data-touch="true"] .pane-bar-btn { width: 32px; height: 36px; }
+
+  /* Touch devices: back to the conversation list. */
+  .pane-bar-back {
+    width: 36px;
+    height: 36px;
+    border-radius: 999px;
+    background: var(--k-s2);
+    color: var(--k-t1);
+  }
+  .pane-bar-back:enabled:hover,
+  .pane-bar-back:active { background: var(--k-s3); color: var(--k-t1); }
+  .pane-bar-back svg { width: 22px; height: 22px; stroke-width: 2.2; margin-left: -2px; }
+
+  /* Title: icon tile, then the name. */
+  .pane-bar-icon {
+    flex: none;
+    width: 20px;
+    height: 20px;
+    border-radius: 6px;
+    overflow: hidden;
+    display: grid;
+    place-items: center;
+    background: var(--k-s3);
+    color: var(--k-t1);
+    box-shadow: inset 0 0 0 0.5px rgba(255, 255, 255, 0.12);
+    font-size: 10px;
+    font-weight: 700;
+  }
+  .pane-bar-icon[data-picture="true"] { background: transparent; }
+  .pane-bar-icon svg { width: 13px; height: 13px; }
+  .pane-bar-title {
+    color: var(--k-t1);
+    font-size: 13.5px;
+    font-weight: 600;
+    letter-spacing: -0.005em;
+  }
+
+  /* The ⋯ menu button. */
+  .pane-bar .pane-bar-menu { width: 30px; height: 30px; }
+  .pane-bar[data-touch="true"] .pane-bar-menu { width: 36px; height: 36px; }
+  .pane-bar .pane-bar-menu[data-state="open"] { background: var(--k-s2); color: var(--k-t1); }
+}

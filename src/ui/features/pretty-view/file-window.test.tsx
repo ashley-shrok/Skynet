@@ -10,7 +10,7 @@
  *     before discarding;
  *   - ready to work on (code): Save straight away, dimmed until a change;
  *   - text views of look-at types (diff Raw, calendar Source) show Save.
- * Plus: the head subtitle, the ⋯ menu, the markdown switch in the head (and
+ * Plus: the head shows the name only, the ⋯ menu, the markdown switch in the head (and
  * none in the editor), the phone layout, and what saving means in each
  * window (chat: Save attaches the copy and closes; Files tab: Save writes, then back to reading).
  */
@@ -418,12 +418,13 @@ describe.each([chatWindow, filesTabWindow])("$name", (w) => {
   });
 });
 
-// ── What differs: where the file lives, what saving means, ⋯ menu ───────────
+// ── What differs: what saving means, ⋯ menu ─────────────────────────────────
 
 describe("chat file window", () => {
-  it("says where the file lives: machine · folder", async () => {
+  it("shows the name only — not where the file lives", async () => {
     const win = await chatWindow.open("notes.md");
-    expect(subtitleOf(win)).toBe(`t1000 · ${CHAT_FOLDER}`);
+    expect(subtitleOf(win)).toBe("");
+    expect(win.textContent).not.toContain(CHAT_FOLDER);
   });
 
   it("⋯ holds Download and Copy path", async () => {
@@ -472,9 +473,10 @@ describe("chat file window", () => {
 });
 
 describe("Files-tab file window", () => {
-  it("says where the file lives: Files › folder", async () => {
+  it("shows the name only — no Files › folder", async () => {
     const win = await filesTabWindow.open("notes.md");
-    expect(subtitleOf(win)).toBe("Files › docs");
+    expect(subtitleOf(win)).toBe("");
+    expect(head(win).textContent).not.toContain("Files ›");
   });
 
   it("⋯ holds Download (no Copy path — the window doesn't know the full path)", async () => {

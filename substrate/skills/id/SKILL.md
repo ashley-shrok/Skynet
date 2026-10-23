@@ -961,22 +961,22 @@ not something agents drive.
   *Agent-side: none.* Pure client-side window management; no persistent
   state, no disk artifact.
 
-- **App bar (top of every open app).** A glassy bar across the top of an
-  open app's pane, whether the app fills the screen or sits in a split.
+- **App bar (top of every open app).** A plain dark bar across the top of
+  an open app's pane, whether the app fills the screen or sits in a split.
   Left: **back**, **forward**, and **reload** (circular-arrow) buttons —
   they act only on the page inside that app, never on Skynet or any other
   pane, and back/forward grey out when there's nowhere to go. Going back
   or forward loads that page fresh (it isn't restored mid-scroll). On a
-  phone the bar is a little taller and starts with a round **back to
-  conversations** (←) button — the same one that floats at the top left of
-  a conversation — which returns to the conversation list without moving
+  phone the bar is a little taller and starts with a round grey **back to
+  conversations** (←) button — the same job as the one that floats at the
+  top left of a conversation — which returns to the conversation list without moving
   the app off its current page. On a phone, pages inside an app don't
   build up the browser's history: the phone's back gesture (or browser
   back) in an app goes to the conversation list, and stepping back a page
   inside the app is the bar's back button.
-  Center: the app's icon and name. Right: a **three-dots (⋮) button** —
+  Center: the app's icon and name. Right: a **three-dots (⋯) button** —
   always visible, phone included — opening the app's menu; right-clicking
-  the bar opens the same menu. Same look as a conversation's menu:
+  the bar opens the same menu, in the same look as the sidebar's menus:
   **Move to new tab** (desktop only — opens it in a new Skynet tab
   and closes this pane), **Open standalone**, **Rename…**,
   **Close** (desktop only), **Archive** (the same double-confirm as the
@@ -997,13 +997,13 @@ not something agents drive.
   sidebar.
 
 - **Remote-desktop bar (top of every open RDP / VNC / telnet session).**
-  The same glassy bar as an app's, across the top of a remote-desktop
+  The same bar as an app's, across the top of a remote-desktop
   pane. Left: a single **reconnect** (circular-arrow) button that drops
   and re-opens the connection to that machine. Center: a monitor icon
-  (terminal icon for telnet) and the machine's name. Right: the **⋮**
+  (terminal icon for telnet) and the machine's name. Right: the **⋯**
   menu — **Move to new tab** (opens the session in a new Skynet tab and
   closes this pane) and **Close** — also on right-click; both are desktop
-  only, so on a phone there is no ⋮. On a phone the bar is taller and
+  only, so on a phone there is no ⋯. On a phone the bar is taller and
   starts with the round **back to conversations** (←) button, same as an
   app's. The **whole bar is the drag handle**: drop it on the drop lane's
   Close, onto another pane to rearrange, or into another Skynet window
@@ -1015,9 +1015,9 @@ not something agents drive.
   *Agent-side: none.*
 
 - **File window (click a file chip in a chat, or a file in any Files tab).**
-  One window, the same wherever a file opens. Header: the file type's icon,
-  the name, and beneath it in faint text where it lives (machine · folder
-  for a chat file; Files › folder for a Files-tab file). Right: read aloud
+  One window, the same wherever a file opens. Header: the file type's icon
+  and the name — just the name; where the file lives isn't shown (Copy path
+  in ⋯ has it for chat files). Right: read aloud
   (prose files), the view switch (e.g. Table / Raw, Rendered / Source, and
   **Formatted / Plain text** for markdown), the main button, **⋯**
   (Download; Copy path for chat files), close. How it opens follows the
@@ -1047,13 +1047,13 @@ not something agents drive.
 - **File bar (top of every open file pane).** A file dragged out of a
   conversation, shown **view-only** with the same viewers the file window
   uses (nothing can be typed, edited or annotated, and there's no Save).
-  The same glassy bar as an app's. Left: **reload** (circular-arrow —
+  The same bar as an app's. Left: **reload** (circular-arrow —
   re-reads the file from its machine, e.g. after you've changed it) and
-  **download**. Center: the file type's icon, the file name, and beneath
-  it in faint text the machine and folder. Right: a **read aloud** button
+  **download**. Center: the file type's icon and the file name — just the
+  name; where it lives is in **Copy path**. Right: a **read aloud** button
   for prose files (.md / .txt — same as the file window's), the view
   switcher for types with more than one view (e.g. Rendered / Source, and
-  Formatted / Plain text for markdown), then the **⋮**
+  Formatted / Plain text for markdown), then the **⋯**
   menu — **Open in modal** (the file window, opened in the
   conversation the file came from so Save attaches the edited copy there;
   when that conversation isn't open in this Skynet tab the modal opens

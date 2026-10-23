@@ -12,7 +12,7 @@ const GuacamoleApp = lazy(() => import("@/features/guacamole/GuacamoleApp"));
 
 // ─── RemotePane — RDP / VNC / telnet leaf ──────────────────────────────────
 //
-// The remote desktop under the same glass bar apps have (PaneBar), so a
+// The remote desktop under the same bar apps have (PaneBar), so a
 // remote session is a first-class split-view pane: drag the bar to rearrange,
 // to the drop lane's Close zone, or into another Skynet window; ⋮ / right-
 // click for its menu.
@@ -115,7 +115,7 @@ export function RemotePane({
           descriptor: { tabType: protocol, label: hostName },
         }}
         title={hostName}
-        titleIcon={<TitleIcon width={12} height={12} />}
+        titleIcon={<TitleIcon aria-hidden="true" />}
         menuItems={menuItems}
         onSelectPane={onSelectPane}
         navButtons={
@@ -128,7 +128,7 @@ export function RemotePane({
             onClick={reconnect}
             className={PANE_BAR_BUTTON_CLASS}
           >
-            <RotateCw width={14} height={14} aria-hidden="true" />
+            <RotateCw aria-hidden="true" />
           </button>
         }
       />
