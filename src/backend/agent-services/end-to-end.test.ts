@@ -208,7 +208,7 @@ describe("agent services end to end", () => {
         true,
       );
     expect(JSON.parse(r.stderr.trim())).toMatchObject({
-      model: "gpt-image-2",
+      model: "gpt-image-1.5",
       n: 2,
     });
     expect(fs.readdirSync(wireDir())).toEqual([]);

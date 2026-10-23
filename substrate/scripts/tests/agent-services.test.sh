@@ -275,7 +275,7 @@ test_agent_phone_requires_flags() {
 # ---------------------------------------------------------------------------
 
 test_image_gen_success_default_outputs() {
-  fake_backend '{"ok":true,"service":"image-gen","result":{"size":"1024x1024","model":"gpt-image-2","n":2,"generation_time_ms":5}}' 2 &
+  fake_backend '{"ok":true,"service":"image-gen","result":{"size":"1024x1024","model":"gpt-image-1.5","n":2,"generation_time_ms":5}}' 2 &
   local out status
   out=$(HOME="$FIXTURE" IMAGE_GEN_TIMEOUT_SEC=10 "$IMAGE_GEN" "a cat" --n 2 --size 512x512 2>"$FIXTURE/err")
   status=$?
@@ -288,7 +288,7 @@ test_image_gen_success_default_outputs() {
     case "$p" in "$FIXTURE/fleet/image-gen-outputs/"*) ;; *) fail "unexpected output path: $p";; esac
     [ -f "$p" ] || fail "output missing: $p"
   done <<<"$out"
-  assert_eq "gpt-image-2" "$(jq -r .model "$FIXTURE/err")" "metadata on stderr"
+  assert_eq "gpt-image-1.5" "$(jq -r .model "$FIXTURE/err")" "metadata on stderr"
   assert_eq 2 "$(jq '.images | length' "$FIXTURE/err")" "metadata lists images"
 }
 

@@ -1,6 +1,6 @@
 /**
  * image-gen — generate images from a prompt (optionally editing a reference
- * image) with OpenAI gpt-image-2, and hand the PNGs back to the agent.
+ * image) with OpenAI gpt-image-1.5, and hand the PNGs back to the agent.
  *
  * Agent side: substrate/scripts/image-gen (wrapper over fleet-service) and
  * substrate/skills/image-gen/SKILL.md.
@@ -47,7 +47,7 @@ export function createImageGenService(
 ) {
   return defineService({
     name: "image-gen",
-    description: "Generate images from a prompt with OpenAI gpt-image-2",
+    description: "Generate images from a prompt with OpenAI gpt-image-1.5",
     input: imageGenInput,
     attachments: {
       ref: {

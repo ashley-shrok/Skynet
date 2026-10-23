@@ -4,7 +4,7 @@
  *
  * Mounts on /identities/avatar (in database.ts) and provides:
  *   POST /batch   — LLM archetype draft of 3 DISTINCT prompts + 3 parallel
- *                   gpt-image-2 calls (one per prompt) + gamma correction
+ *                   gpt-image-1.5 calls (one per prompt) + gamma correction
  *                   + in-memory candidate cache
  *   GET  /candidate/:id — serves cached candidate PNG bytes
  *

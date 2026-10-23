@@ -67,7 +67,7 @@ describe("image-gen service", () => {
       ok: true,
       result: {
         size: "1024x1024",
-        model: "gpt-image-2",
+        model: "gpt-image-1.5",
         n: 2,
         generation_time_ms: 900,
       },

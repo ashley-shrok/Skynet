@@ -1,7 +1,7 @@
 /**
  * agent-services/services/image-gen/adapter.ts
  *
- * OpenAI gpt-image-2 HTTP adapter for the image-gen file-drop broker
+ * OpenAI gpt-image HTTP adapter (model: IMAGE_GEN_MODEL) for the image-gen file-drop broker
  * (D-25, D-26). Wraps a raw `fetch` call — no `openai` npm SDK dep, matching
  * the existing avatar-batch route convention
  * (src/backend/database/routes/identity-avatar-batch.ts:378-410).
@@ -32,7 +32,7 @@
  *   - NEVER logs the Authorization header or the OPENAI_API_KEY value in any
  *     code path (T-116-01-01 mitigation, V13).
  *
- * Model: locked to `gpt-image-2` (IMAGE_GEN_MODEL) per D-26. Not exposed to the caller — the
+ * Model: locked to IMAGE_GEN_MODEL per D-26. Not exposed to the caller — the
  * request parser has no `model` key in KNOWN_KEYS so no smuggle path exists.
  */
 
@@ -57,9 +57,11 @@ const OPENAI_EDITS_URL = "https://api.openai.com/v1/images/edits";
  * caller-supplied model.
  */
 // gpt-image-1 was retired for image requests by OpenAI (Oct 2026: 400
-// "The model 'gpt-image-1' does not exist."); gpt-image-2 accepts the same
-// generations + edits parameters this adapter sends.
-export const IMAGE_GEN_MODEL = "gpt-image-2";
+// "The model 'gpt-image-1' does not exist."). gpt-image-1.5 is the
+// like-for-like successor: same generations + edits parameters, and a
+// high-quality 1024px render takes ~17s. (gpt-image-2 also works but took
+// ~74s at high quality — past the 60s timeout.)
+export const IMAGE_GEN_MODEL = "gpt-image-1.5";
 const OPENAI_MODEL = IMAGE_GEN_MODEL;
 
 /**
