@@ -19,7 +19,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type React from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-import { AlarmClock, ChevronLeft, Folder, GitBranch, Mic, Monitor, Pencil, User } from "lucide-react";
+import { AlarmClock, AppWindow, ChevronLeft, Folder, GitBranch, Mic, Monitor, Pencil, User } from "lucide-react";
 import { Modal, ModalFoot, ModalHead, ModalTabs, escBelongsElsewhere } from "@/components/modal";
 import { KitBanner, KitButton, KitEmpty, KitInput, KitLoading, kitConfirm } from "@/components/kit";
 import { Tabs, TabsContent } from "@/components/tabs";
@@ -70,6 +70,8 @@ import {
   type GitDiffSource,
 } from "./AgentGit";
 import DesktopTab from "./DesktopTab";
+import { AppsTab, conversationAppsFor } from "./AppsTab";
+import { useAppTiles } from "@/state/app-tiles-store";
 import { useDesktopRunning } from "./use-desktop-running";
 import type { EscapeHandler, LeaveGuard } from "./roles-window/RolesWindow";
 import { bumpModalOpen } from "@/lib/freeze-diag";
@@ -187,10 +189,16 @@ export function IdentityModal({
       else if (activeTab === "desktop") setActiveTab("identity");
     }
   }
+  // The Apps tab shows only while this conversation has apps of its own
+  // (same conditional shape as Git / Desktop).
+  const allApps = useAppTiles();
+  const conversationApps = conversationAppsFor(allApps, hostId, identity.identityKey);
+  const hasApps = conversationApps.length > 0;
   const NAV_SECTIONS = [
     { value: "identity", label: "Agent file", Icon: User },
     { value: "identity-wakeups", label: "Wake-ups", Icon: AlarmClock },
     { value: "workspace", label: "Files", Icon: Folder },
+    ...(hasApps ? [{ value: "apps", label: "Apps", Icon: AppWindow }] : []),
     ...(hasGitRepos ? [{ value: "git", label: "Git", Icon: GitBranch }] : []),
     ...(desktopRunning ? [{ value: "desktop", label: "Desktop", Icon: Monitor }] : []),
   ] as const;
@@ -891,6 +899,15 @@ export function IdentityModal({
         <TabsContent value="workspace" className="flex-1 min-h-0 overflow-hidden flex flex-col border-t border-[var(--k-hair)]">
           <WorkspaceTab target={{ kind: "identity", identityKey: identity.identityKey }} hostId={hostId} hue={hue} />
         </TabsContent>
+
+        {hasApps && (
+          <TabsContent
+            value="apps"
+            className="flex-1 min-h-0 overflow-y-auto px-6 max-sm:px-5 py-4 border-t border-[var(--k-hair)]"
+          >
+            <AppsTab apps={conversationApps} onClose={() => onOpenChange(false)} />
+          </TabsContent>
+        )}
 
         {hasGitRepos && (
           <TabsContent value="git" className="flex-1 min-h-0 overflow-y-auto border-t border-[var(--k-hair)]">

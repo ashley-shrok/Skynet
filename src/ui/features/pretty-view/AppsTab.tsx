@@ -5,10 +5,10 @@
 // to move the app. No drag, no rename, no archive (the app goes with the
 // conversation).
 
-import { useState, type KeyboardEvent } from "react";
+import { useState } from "react";
 import { AppWindow } from "lucide-react";
-import { cn } from "@/lib/utils";
 import type { AppState } from "@/api/fleet-status-types";
+import { KitSettingsGroup, KitSettingsRow } from "@/components/kit";
 import { usePromoteRequestsVersion } from "@/state/app-promote-requests";
 import { appIconUrl } from "../pretty-conversations/app-icon-url";
 import { buildAppMenuItems } from "../pretty-conversations/app-menu-items";
@@ -34,13 +34,11 @@ export interface AppsTabProps {
 
 export function AppsTab({ apps, onClose }: AppsTabProps) {
   return (
-    <div className="flex-1 min-h-0 overflow-y-auto p-3" data-testid="identity-apps-tab">
-      <ul className="flex flex-col gap-1.5">
-        {apps.map((app) => (
-          <AppsTabRow key={`${app.hostId}/${app.slug}`} app={app} onClose={onClose} />
-        ))}
-      </ul>
-    </div>
+    <KitSettingsGroup data-testid="identity-apps-tab">
+      {apps.map((app) => (
+        <AppsTabRow key={`${app.hostId}/${app.slug}`} app={app} onClose={onClose} />
+      ))}
+    </KitSettingsGroup>
   );
 }
 
@@ -51,54 +49,34 @@ function AppsTabRow({ app, onClose }: { app: AppState; onClose: () => void }) {
     onClose();
     requestOpenApp({ hostId: Number(app.hostId), slug: app.slug, title: app.title });
   };
-  const onKeyDown = (e: KeyboardEvent<HTMLDivElement>) => {
-    if (e.key === "Enter" || e.key === " ") {
-      e.preventDefault();
-      open();
-    }
-  };
   const menu = buildAppMenuItems({ hostId: app.hostId, slug: app.slug, title: app.title });
   return (
-    <li
-      className={cn(
-        "group flex items-center gap-3 rounded-lg px-3 py-2",
-        "bg-black/20 border border-white/10 hover:bg-black/30 hover:border-white/[0.18]",
-      )}
+    <KitSettingsRow
       data-testid="identity-apps-row"
-    >
-      <div
-        role="button"
-        tabIndex={0}
-        onClick={open}
-        onKeyDown={onKeyDown}
-        className="flex flex-1 min-w-0 items-center gap-3 cursor-pointer"
-        aria-label={`Open ${app.title}`}
-      >
-        {app.hasIcon && !imgFailed ? (
+      leading={
+        app.hasIcon && !imgFailed ? (
           <img
             src={appIconUrl(app.hostId, app.slug, app.iconVersion)}
             alt=""
-            className="size-8 shrink-0 rounded-[8px]"
+            className="size-[34px] shrink-0 rounded-[9px]"
             draggable={false}
             onError={() => setImgFailed(true)}
           />
         ) : (
-          <span className="size-8 shrink-0 rounded-[8px] bg-white/[0.06] flex items-center justify-center">
-            <AppWindow className="size-4 opacity-70" aria-hidden />
+          <span className="size-[34px] shrink-0 rounded-[9px] bg-[var(--k-s3)] grid place-items-center text-[var(--k-t2)]">
+            <AppWindow className="size-4" aria-hidden />
           </span>
-        )}
-        <span className="flex min-w-0 flex-col">
-          <span className="truncate text-[13px] text-[#e8e4d8]">{app.title}</span>
-          {app.description ? (
-            <span className="truncate text-[12px] text-[#e8e4d8]/60">{app.description}</span>
-          ) : null}
-        </span>
-      </div>
-      <RowKebabMenu
-        ariaLabel={`${app.title} menu`}
-        testId="identity-apps-row-kebab"
-        items={[menu.moveToSidebar]}
-      />
-    </li>
+        )
+      }
+      label={<span className="font-semibold">{app.title}</span>}
+      description={app.description || undefined}
+      truncate
+      openLabel={`Open ${app.title}`}
+      onClick={open}
+      chevron={false}
+      control={
+        <RowKebabMenu ariaLabel={`${app.title} menu`} testId="identity-apps-row-kebab" items={[menu.moveToSidebar]} />
+      }
+    />
   );
 }
