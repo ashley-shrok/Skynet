@@ -9,12 +9,11 @@ import {
 import type { AppState } from "../../api/fleet-status-types";
 import { appIconUrl } from "./app-icon-url";
 import { buildAppMenuItems } from "./app-menu-items";
-// shape-sidebar-header-affordances: app tile context menu + long-press
-// machinery retired; the actions (Open in new tab, Open standalone, Rename,
-// Archive) now live in a RowKebabMenu rendered inside the tile. Hover-reveal on desktop +
-// always-visible on mobile via a CSS-only group-hover + viewport-width gate
-// at the kebab's wrapper div.
+// The actions (Open in new tab, Open standalone, Rename, Archive) live in a
+// RowKebabMenu inside the tile: right-click with a mouse, press-and-hold on a
+// touch screen (row-touch-gestures.ts), the ⋮ on keyboard focus.
 import { RowKebabMenu, useRowKebabContextMenu, type RowKebabMenuItem } from "./RowKebabMenu";
+import { useRowTouchGestures } from "./row-touch-gestures";
 
 // ─── AppTile — Phase 119 Plan 03 (D-07..D-13) ───────────────────────────────
 // One tile in the sidebar's Apps section (119-04 integrates it into
@@ -29,9 +28,8 @@ import { RowKebabMenu, useRowKebabContextMenu, type RowKebabMenuItem } from "./R
 //   - LEFT-CLICK (D-06, Phase 120): opens the app in a pane leaf via the
 //     onOpenApp prop. AppShell wires this to
 //     `openTab(null, "app", ..., { app: { hostId, slug }, label: title })`.
-//     The suppressNextClickRef gate suppresses the synthesized click that
-//     follows a long-press so long-press doesn't double-fire menu AND
-//     onOpenApp (Pitfall 4). Unhealthy tiles remain clickable — health does
+//     The click that follows a press-and-hold is swallowed so the hold
+//     doesn't open the menu AND the app. Unhealthy tiles remain clickable — health does
 //     NOT gate the click (D-18); the proxy attempts a connection and Phase
 //     103's interstitial renders inside the iframe if the tunnel refuses.
 //     Phase 119's Phase-119-Plan-03 D-13 shipped this as a deliberate no-op
@@ -48,11 +46,8 @@ import { RowKebabMenu, useRowKebabContextMenu, type RowKebabMenuItem } from "./R
 //     new MIME and route to `onDropAppTileInTree` on AppShell.
 //   - RIGHT-CLICK (D-12, desktop): fires onContextMenu → opens
 //     the same kebab menu (useRowKebabContextMenu).
-//   - LONG-PRESS (D-12, mobile / coarse-pointer): 500ms touchstart timer;
-//     10px movement cancels; timer fire triggers the same context menu at
-//     the touch coords. navigator.vibrate?.(10) is feature-checked because
-//     iOS Safari does not implement the API (Pitfall 4). Handlers mirror
-//     PrettyConversationRow.tsx:442-451 + :595-603 exactly.
+//   - PRESS-AND-HOLD (touch): useRowTouchGestures — a 500ms hold opens the
+//     same menu at the finger; moving the finger cancels it.
 //   - KEBAB actions (Open in new tab [desktop], Open standalone, Rename…,
 //     Archive): built by
 //     buildAppMenuItems (app-menu-items.ts), shared with the AppPane bar.
@@ -177,8 +172,6 @@ export function AppTile({ app, onOpenApp, onArchive, variant = "desktop" }: AppT
     [app.hostId, app.slug, app.title],
   );
 
-  // shape-sidebar-header-affordances: onRowContextMenu + onTouchStart/Move/End
-  // handlers RETIRED. The kebab is the sole affordance for the two actions.
 
   // URL construction — mirrors the backend GET /apps/:hostId/:slug/icon
   // path shape (D-06 / RESEARCH.md discretion).
@@ -208,8 +201,10 @@ export function AppTile({ app, onOpenApp, onArchive, variant = "desktop" }: AppT
     { ...menu.rename, testId: "pv-app-tile-kebab-item-rename" },
     { ...menu.archive, testId: "pv-app-tile-kebab-item-archive" },
   ];
-  // Right-click on the tile opens the same kebab menu at the cursor.
+  // Right-click on the tile opens the same kebab menu at the cursor;
+  // press-and-hold opens it on a touch screen, like a home screen.
   const kebabContextMenu = useRowKebabContextMenu(kebabItems);
+  const touch = useRowTouchGestures({ onHold: kebabContextMenu.openAt });
 
   return (
     <div
@@ -223,9 +218,11 @@ export function AppTile({ app, onOpenApp, onArchive, variant = "desktop" }: AppT
       // The grid hides the health line visually; hover surfaces it instead,
       // with the fix the user can act on.
       title={app.isHealthy ? undefined : unhealthyTooltip(app.healthMessage)}
-      draggable={true}
+      // A draggable tile would turn a press-and-hold into a drag on phones.
+      draggable={!isMobile}
       onDragStart={onTileDragStart}
       onClick={onTileClick}
+      {...touch.handlers}
       onContextMenu={kebabContextMenu.onContextMenu}
       data-testid="pv-app-tile"
       data-app-key={`${app.hostId}:${app.slug}`}
@@ -249,14 +246,13 @@ export function AppTile({ app, onOpenApp, onArchive, variant = "desktop" }: AppT
           <span className="pv-app-unhealthy-message">{app.healthMessage}</span>
         )}
       </div>
-      {/* shape-sidebar-header-affordances: tile kebab. Absolute-positioned top-
-          right. Hidden with a mouse (pv-app-tile-kebab-slot in the grid CSS) —
-          right-click is the menu there; still revealed on keyboard focus.
-          Always visible on touch screens, which have no right-click. RowKebabMenu's
-          portal-click-containment stops item onClicks from leaking to the
-          tile's onClick (which opens the app). */}
+      {/* Tile kebab, top-right. Shown only on keyboard focus (pv-app-tile-
+          kebab-slot in the grid CSS): right-click is the menu with a mouse,
+          press-and-hold on a touch screen. RowKebabMenu's portal-click-
+          containment stops item onClicks from leaking to the tile's onClick
+          (which opens the app). */}
       <div
-        className="pv-app-tile-kebab-slot absolute top-0.5 right-0.5 transition-opacity shrink-0 z-[5]"
+        className="pv-app-tile-kebab-slot"
         data-testid="pv-app-tile-kebab-slot"
       >
         <RowKebabMenu

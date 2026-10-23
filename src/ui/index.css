@@ -769,7 +769,7 @@ button[data-hold-active="true"] {
    MTG-style "multicolor = gold". A multi-role identity with no colorHue of
    its own resolves to hue 44 (backend identity-appearance.ts); the
    `pv-multi-role` class (on the PrettyView root, the identity modal, and the
-   sidebar row) adds a metallic band so it reads as gold rather than yellow.
+   search row) adds a metallic band so it reads as gold rather than yellow.
    The sheen is built off the element's own hue, so an explicit colorHue on a
    multi-role identity still gets the metallic finish in its own color. */
 .pv-multi-role {
@@ -782,12 +782,7 @@ button[data-hold-active="true"] {
     hsla(calc(var(--pv-mr-h) - 6), 45%, 18%, 0.7) 100%);
   --pv-mr-rim: hsla(calc(var(--pv-mr-h) + 2), 75%, 68%, 0.55);
 }
-.pv-row.pv-multi-role {
-  --pv-mr-h: var(--pv-hue);
-}
-.pv-multi-role .pv-hue-surface,
-.pv-row.pv-multi-role:not(.pv-row--desktop),
-.pv-row.pv-multi-role .pv-avatar {
+.pv-multi-role .pv-hue-surface {
   background-image: var(--pv-mr-sheen) !important;
   border-color: var(--pv-mr-rim) !important;
 }
@@ -800,24 +795,12 @@ button[data-hold-active="true"] {
     linear-gradient(160deg, hsl(var(--pv-id-hue), 50%, 38%), hsl(var(--pv-id-hue), 45%, 22%)) !important;
   border-color: var(--pv-mr-rim) !important;
 }
-.pv-row.pv-row--desktop.pv-multi-role.selected {
-  background: linear-gradient(100deg,
-    hsla(calc(var(--pv-mr-h) + 2), 65%, 58%, 0.34),
-    hsla(calc(var(--pv-mr-h) - 4), 50%, 30%, 0.30) 60%,
-    hsla(var(--pv-mr-h), 55%, 45%, 0.26));
-}
-.pv-row.pv-multi-role .pv-avatar {
-  box-shadow:
-    0 4px 12px rgba(0, 0, 0, 0.6),
-    inset 0 2px 0 hsla(calc(var(--pv-mr-h) + 4), 90%, 85%, 0.55),
-    0 0 20px hsla(var(--pv-mr-h), 70%, 55%, 0.45);
-}
 
 /* Roleless look. An identity with no roles and no colorHue of its own has no
    role to borrow a look from, so it paints in one neutral grey everywhere
    rather than each surface's own default hue. `pv-neutral` sits where
-   `pv-multi-role` does (PrettyView root, identity modal, sidebar row) and on
-   the search row; surfaces that build their colors in JS (badge, task pill,
+   `pv-multi-role` does (PrettyView root, identity modal) and on the search
+   row (the sidebar row's own neutral rules live in pretty-conversations.css); surfaces that build their colors in JS (badge, task pill,
    modal header) use identityTint() for the same greys. The hue these
    elements still carry (NEUTRAL_HUE) only reaches small accents. */
 .pv-neutral {
@@ -826,25 +809,10 @@ button[data-hold-active="true"] {
   --pv-neutral-rim: hsla(0, 0%, 60%, 0.36);
   --pv-neutral-glow: hsla(0, 0%, 60%, 0.18);
 }
-.pv-neutral .pv-hue-surface,
-.pv-row.pv-neutral:not(.pv-row--desktop) {
+.pv-neutral .pv-hue-surface {
   background-image: var(--pv-neutral-fill) !important;
   border-color: var(--pv-neutral-rim) !important;
 }
-.pv-row.pv-neutral:not(.pv-row--desktop) {
-  box-shadow:
-    0 8px 24px rgba(0, 0, 0, 0.5),
-    inset 0 1px 0 rgba(255, 220, 170, 0.18),
-    0 0 0 0.5px var(--pv-neutral-glow),
-    0 0 32px var(--pv-neutral-glow);
-}
-.pv-row.pv-row--desktop.pv-neutral:hover {
-  background: hsla(0, 0%, 50%, 0.14);
-}
-.pv-row.pv-row--desktop.pv-neutral.selected {
-  background: hsla(0, 0%, 55%, 0.26);
-}
-.pv-row.pv-neutral .pv-avatar,
 .pv-search-row.pv-neutral .pv-search-row-avatar {
   background-image: var(--pv-neutral-disc) !important;
   border-color: var(--pv-neutral-rim) !important;

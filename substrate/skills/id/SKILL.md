@@ -752,8 +752,8 @@ not something agents drive.
   screen, the small red line under its name) says what's wrong, and the
   tooltip suggests asking an agent to check on it — if the user asks you
   about a broken app, start from the `app-development` skill.
-  Each app's **menu** opens on right-click with a mouse, or from the ⋮ on
-  the icon's corner on a touch screen, with:
+  Each app's **menu** opens on right-click with a mouse, or by pressing and
+  holding the icon on a touch screen, with:
   - **Open in new tab** — the app alone in a new Skynet tab
     (desktop only; panes already showing it stay put).
   - **Open standalone** — the app by itself in a browser tab, no Skynet
@@ -780,7 +780,7 @@ not something agents drive.
     apps".
 
 - **Pinned section (under Apps).** Conversations the user has pinned for
-  quick access. To pin: the row's **kebab menu** → **Move to** → **Pinned**,
+  quick access. To pin: the row's **menu** → **Move to** → **Pinned**,
   or drag it onto the Pinned section. To unpin: **Move to** → **Unpin**, or
   move it somewhere else.
   **Pinned and in-a-project are mutually exclusive** — a conversation sits
@@ -796,8 +796,24 @@ not something agents drive.
   reason as `.no-dormancy`, this is a UI-organization signal the user
   owns.
 
-- **Kebab menu on any sidebar row (conversation).** The three-dots menu
-  on the row. Contents:
+- **Conversation rows.** On desktop each row is one line: the agent's
+  picture and the conversation's title, the open conversation tinted in
+  that agent's colour. On a phone each row is two lines (title, then the
+  role or machine), and each run of rows sits on one rounded panel. An
+  **unread** conversation (the agent finished a turn the user hasn't seen)
+  shows a small dot in the agent's colour at the row's end and a brighter
+  title; a **red envelope** on the picture means the agent sent the user a
+  message; an **amber disc** on the picture means the agent has local work
+  not pushed anywhere.
+  **Swipe to archive (phone).** Swiping a conversation row to the left
+  archives it at once, no confirm: the row slides away and a bar says
+  "Archived … · Undo" for about 5 seconds. The archive only happens once
+  the bar is gone; Undo puts the row back. Rows that can't be archived
+  (remote desktops, relay rooms) don't swipe.
+
+- **Row menu on any sidebar row (conversation).** On desktop, the ⋮ that
+  appears when hovering the row, or a right-click on it; on a touch screen,
+  press and hold the row (rows there have no ⋮). Contents:
   - **Open in new tab** — opens that conversation in a new Skynet tab
     (a separate client instance; desktop only).
     *Agent-side: none.*
@@ -820,7 +836,8 @@ not something agents drive.
     Add / change / remove that key to move in / between / out; adding one
     means also removing `.pinned`. UI reflects it within a few seconds.
     **User-gated.**
-  - **Archive** — retires the identity. See § On `/id archive`.
+  - **Archive** — retires the identity, after a confirm. See § On `/id
+    archive`.
 
   The same menu CONTENT appears on the conversation's **task pill** in the
   open conversation view (top-center) — its own three-dots button, or
@@ -844,8 +861,9 @@ not something agents drive.
     frontmatter. Direct filesystem creation works (`mkdir` + write the file);
     open frontends pick it up on the next fleet-status sweep, within a few
     seconds. **User-gated.**
-  Each project is expandable and collapsible. Drag conversations in and
-  out to move them; a conversation dropped inside a sub-project lands in
+  Each project shows as a folder with an open/close arrow before its name
+  (pointing right when closed, down when open), and is expandable and
+  collapsible. Drag conversations in and out to move them; a conversation dropped inside a sub-project lands in
   that sub-project.
   **Sub-projects.** A project can sit inside another project, to any depth.
   A sub-project shows as an indented, collapsible section inside its
@@ -866,8 +884,8 @@ not something agents drive.
   to that line, never a folder move. No line = top level. A project's
   `members:` list holds only the agents directly in it, not those in its
   sub-projects.
-  Each project header carries a **kebab menu** (also
-  opened by right-clicking the header) with:
+  Each project header carries a **kebab menu** (on desktop it appears on
+  hover; also opened by right-clicking the header) with:
   - **Open project** — opens the **project modal** (§ Conversation view).
   - **New conversation in this project** — auto-assigns the spawned
     agent to this project.
@@ -895,7 +913,13 @@ not something agents drive.
   immediately upon wake.
 
 - **Conversations header (bottom).** Every conversation not pinned and
-  not in a project shows up here — the default landing zone.
+  not in a project shows up here — the default landing zone. When it's
+  empty it says "Start a conversation with the pencil at the top."
+  *Agent-side: none.*
+
+- **Sidebar width (desktop).** Drag the sidebar's right edge to resize it,
+  between 300 and 480 pixels wide; it starts at 300 and remembers the
+  width in that browser.
   *Agent-side: none.*
 
 - **Drag & drop / split view.** Dragging any sidebar item (conversation

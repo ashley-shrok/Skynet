@@ -163,3 +163,67 @@ describe("RowKebabMenu — right-click opens the same menu", () => {
     expect(await screen.findByRole("menuitem", { name: "Un-archive" })).toBeTruthy();
   });
 });
+
+// ─── openAt (shape-sidebar): press-and-hold opens the same menu at a point ──
+
+function OpenAtRow({
+  items,
+  x = 42,
+  y = 77,
+}: {
+  items: RowKebabMenuItem[];
+  x?: number;
+  y?: number;
+}): React.JSX.Element {
+  const ctx = useRowKebabContextMenu(items);
+  return (
+    <div data-testid="row">
+      <button type="button" data-testid="open-at" onClick={() => ctx.openAt(x, y)}>
+        hold
+      </button>
+      {ctx.menu}
+    </div>
+  );
+}
+
+describe("useRowKebabContextMenu — openAt", () => {
+  beforeEach(() => {
+    document.body.innerHTML = "";
+  });
+
+  it("openAt(x, y) opens the same items at that point", async () => {
+    const onArchive = vi.fn();
+    render(
+      <OpenAtRow
+        items={[
+          { label: "Rename…", onClick: () => {} },
+          { label: "Archive", onClick: onArchive },
+        ]}
+      />,
+    );
+    expect(screen.queryByTestId("row-kebab-context-anchor")).toBeNull();
+    act(() => {
+      fireEvent.click(screen.getByTestId("open-at"));
+    });
+    const anchor = screen.getByTestId("row-kebab-context-anchor");
+    expect(anchor.style.position).toBe("fixed");
+    expect(anchor.style.left).toBe("42px");
+    expect(anchor.style.top).toBe("77px");
+    const items = (await screen.findAllByRole("menuitem")).map((el) => el.textContent);
+    expect(items).toEqual(["Rename…", "Archive"]);
+
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("menuitem", { name: "Archive" }));
+    expect(onArchive).toHaveBeenCalledTimes(1);
+    expect(screen.queryByTestId("row-kebab-context-anchor")).toBeNull();
+  });
+
+  it("openAt is a no-op when there are no items", () => {
+    render(<OpenAtRow items={[]} />);
+    act(() => {
+      fireEvent.click(screen.getByTestId("open-at"));
+    });
+    expect(screen.queryByTestId("row-kebab-context-anchor")).toBeNull();
+    expect(screen.queryByRole("menu")).toBeNull();
+  });
+});

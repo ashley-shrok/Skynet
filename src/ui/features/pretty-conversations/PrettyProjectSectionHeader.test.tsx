@@ -724,3 +724,57 @@ describe("PrettyProjectSectionHeader — DM mark", () => {
     expect(queryByTestId("pv-project-section-dm-alpha")).toBeNull();
   });
 });
+
+// ─── shape-sidebar: chevron data-open + folder icon, before the label ───────
+
+describe("PrettyProjectSectionHeader — shape-sidebar heading look", () => {
+  function renderHeader(collapsed: boolean) {
+    return render(
+      <PrettyProjectSectionHeader
+        slug="alpha"
+        displayName="Alpha"
+        collapsed={collapsed}
+        onToggleCollapse={vi.fn()}
+        onNewConversationClick={vi.fn()}
+        onDropRow={vi.fn()}
+        rows={<div data-testid="row-child">row</div>}
+      />,
+    );
+  }
+
+  it("heading has pv-project-head; chevron then folder icon come before the label", () => {
+    const { getByTestId } = renderHeader(false);
+    const header = getByTestId("pv-project-section-header-alpha");
+    expect(header.classList.contains("pv-project-head")).toBe(true);
+    const chevron = header.querySelector(".pv-section-chevron") as Element;
+    const folder = header.querySelector(".pv-project-folder") as Element;
+    const label = header.querySelector(".pv-section-label") as Element;
+    expect(chevron).not.toBeNull();
+    expect(folder).not.toBeNull();
+    expect(label.textContent).toBe("Alpha");
+    // Document order: chevron → folder → label.
+    expect(chevron.compareDocumentPosition(folder) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(folder.compareDocumentPosition(label) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    // No rotate-class chevron any more.
+    expect(header.querySelector(".rotate-180")).toBeNull();
+  });
+
+  it("chevron data-open follows collapsed (true when open, false when collapsed)", () => {
+    const { getByTestId, rerender } = renderHeader(false);
+    const chevron = () =>
+      getByTestId("pv-project-section-header-alpha").querySelector(".pv-section-chevron") as Element;
+    expect(chevron().getAttribute("data-open")).toBe("true");
+    rerender(
+      <PrettyProjectSectionHeader
+        slug="alpha"
+        displayName="Alpha"
+        collapsed={true}
+        onToggleCollapse={vi.fn()}
+        onNewConversationClick={vi.fn()}
+        onDropRow={vi.fn()}
+        rows={<div data-testid="row-child">row</div>}
+      />,
+    );
+    expect(chevron().getAttribute("data-open")).toBe("false");
+  });
+});

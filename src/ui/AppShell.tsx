@@ -294,6 +294,11 @@ export { tabIcon, renderTabContent } from "@/shell/tabUtils";
 
 // ─── AppShell ────────────────────────────────────────────────────────────────
 
+/** Desktop sidebar width limits (px). 300 fits a ChatGPT-width title plus the
+ *  conversation picture beside it (shape-sidebar). */
+const SIDEBAR_MIN_WIDTH = 300;
+const SIDEBAR_MAX_WIDTH = 480;
+
 export function AppShell({
   username,
   onLogout,
@@ -465,9 +470,13 @@ export function AppShell({
   // Phase 11 Plan 03: railView state RETIRED (rail is gone; pretty-conversations
   // is the only sidebar-panel content). profileDropdownOpen also retired —
   // it was an AppRail-only state per Plan 01 Section E item 2.
+  // Desktop sidebar width: 300–480, dragged by its edge. A saved width below
+  // the minimum (or unreadable) comes back up to it.
   const [sidebarWidth, setSidebarWidth] = useState(() => {
-    const saved = localStorage.getItem("skynet_sidebarWidth");
-    return saved ? parseInt(saved, 10) : 266;
+    const saved = parseInt(localStorage.getItem("skynet_sidebarWidth") ?? "", 10);
+    return Number.isFinite(saved)
+      ? Math.max(SIDEBAR_MIN_WIDTH, Math.min(SIDEBAR_MAX_WIDTH, saved))
+      : SIDEBAR_MIN_WIDTH;
   });
   const [sidebarDragging, setSidebarDragging] = useState(false);
   const [sidebarEditing, setSidebarEditing] = useState(false);
@@ -3572,7 +3581,7 @@ export function AppShell({
       const startW = sidebarWidth;
       function onMove(ev: PointerEvent) {
         setSidebarWidth(
-          Math.max(160, Math.min(480, startW + ev.clientX - startX)),
+          Math.max(SIDEBAR_MIN_WIDTH, Math.min(SIDEBAR_MAX_WIDTH, startW + ev.clientX - startX)),
         );
       }
       function onEnd() {
@@ -4188,7 +4197,7 @@ export function AppShell({
           <div
             ref={sidebarPanelRef}
             data-sidebar-peek={sidebarPeek.state}
-            className={`relative flex flex-col bg-[color:var(--color-pv-base)] shrink-0 overflow-hidden ${sidebarOpen || sidebarPeekActive ? `border-r transition-colors ${sidebarDragging ? "border-[hsla(var(--pv-hue,35),55%,50%,0.6)]" : "border-[color:var(--color-pv-border-quiet)]"}` : ""}`}
+            className={`pv-sidebar-surface relative flex flex-col shrink-0 overflow-hidden ${sidebarOpen || sidebarPeekActive ? `border-r transition-colors ${sidebarDragging ? "border-[hsla(var(--pv-hue,35),55%,50%,0.6)]" : "border-[color:var(--k-hair)]"}` : ""}`}
             style={
               sidebarPeekActive
                 ? {
@@ -4263,7 +4272,7 @@ export function AppShell({
             // wrapper ~59px below the visible viewport on notched iPhone PWAs,
             // cutting the .pv-panel-footer half off. Desktop sidebar sibling at
             // ~L3679 also has no explicit height for the same reason.
-            className="flex flex-col flex-1 min-w-0 bg-[color:var(--color-pv-base)]"
+            className="pv-sidebar-surface flex flex-col flex-1 min-w-0"
           >
             {sidebarPanelContent}
           </div>

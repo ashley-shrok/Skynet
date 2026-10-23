@@ -3035,3 +3035,87 @@ describe("PrettyConversationsPanel: DM marks", () => {
     expect(unreadRow?.querySelector('[data-testid="pv-dm-badge"]')).toBeNull();
   });
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// shape-sidebar: section-heading look (classes, chevron data-open, folder
+// icon, "+" class) and the empty Conversations note's copy.
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe("PrettyConversationsPanel (shape-sidebar): section headings", () => {
+  function seedAlpha(collapsed: string[] = []) {
+    const hostA = makeHost("1", "hostA");
+    const rowA = makeRow({ id: "alpha-row", label: "a", host: hostA, targetTmuxSession: "a-sess" });
+    setSnapshot({ projectSections: [{ slug: "alpha", displayName: "Alpha", rows: [rowA] }] });
+    mockProjects = [
+      { slug: "alpha", displayName: "Alpha", hostId: "1", hostname: "hostA", archived: false },
+    ];
+    mockCollapsed = new Set(collapsed);
+  }
+  function renderPanel() {
+    return render(
+      <PrettyConversationsPanel
+        variant="desktop"
+        hostTree={HOST_TREE}
+        onCreateSession={() => {}}
+        onDeactivateRow={() => {}}
+      />,
+    );
+  }
+
+  it("top-level headings carry pv-section-head; the Projects '+' carries pv-section-add", () => {
+    seedAlpha();
+    const { container } = renderPanel();
+    for (const id of [
+      "pretty-conversations-apps-header",
+      "pv-projects-super-header",
+      "pv-flat-middle-section-header",
+    ]) {
+      const el = container.querySelector(`[data-testid="${id}"]`) as HTMLElement;
+      expect(el, id).not.toBeNull();
+      expect(el.classList.contains("pv-section-head"), id).toBe(true);
+    }
+    const plus = container.querySelector('[data-testid="pv-projects-new-project-button"]') as HTMLElement;
+    expect(plus.classList.contains("pv-section-add")).toBe(true);
+  });
+
+  it("project headings are pv-project-head with a chevron then a folder icon", () => {
+    seedAlpha();
+    const { container } = renderPanel();
+    const head = container.querySelector('[data-testid="pv-project-section-header-alpha"]') as HTMLElement;
+    expect(head.classList.contains("pv-project-head")).toBe(true);
+    const chevron = head.querySelector(".pv-section-chevron") as Element;
+    const folder = head.querySelector(".pv-project-folder") as Element;
+    expect(chevron).not.toBeNull();
+    expect(folder).not.toBeNull();
+    expect(chevron.compareDocumentPosition(folder) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(chevron.getAttribute("data-open")).toBe("true");
+  });
+
+  it("a collapsed project's chevron has data-open=false", () => {
+    seedAlpha(["alpha"]);
+    const { container } = renderPanel();
+    const head = container.querySelector('[data-testid="pv-project-section-header-alpha"]') as HTMLElement;
+    expect(head.querySelector(".pv-section-chevron")!.getAttribute("data-open")).toBe("false");
+  });
+
+  it("the Projects chevron's data-open toggles when the section collapses and expands", () => {
+    seedAlpha();
+    const { container } = renderPanel();
+    const header = container.querySelector('[data-testid="pv-projects-super-header"]') as HTMLElement;
+    const chevron = () => header.querySelector(":scope > .pv-section-chevron") as Element;
+    expect(chevron().getAttribute("data-open")).toBe("true");
+    fireEvent.click(header);
+    expect(chevron().getAttribute("data-open")).toBe("false");
+    fireEvent.click(header);
+    expect(chevron().getAttribute("data-open")).toBe("true");
+    expect(container.querySelector(".rotate-180")).toBeNull();
+  });
+
+  it("the empty Conversations note reads the new copy", () => {
+    setSnapshot({ middle: [] });
+    const { container } = renderPanel();
+    const empty = container.querySelector('[data-testid="pv-flat-middle-empty"]') as HTMLElement;
+    expect(empty).not.toBeNull();
+    expect(empty.textContent).toBe("Start a conversation with the pencil at the top.");
+  });
+});

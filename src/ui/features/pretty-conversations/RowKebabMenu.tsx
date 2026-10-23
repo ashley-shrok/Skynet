@@ -357,10 +357,10 @@ export function RowKebabMenu({
 //
 // Convenience gesture: right-clicking a surface that carries a kebab opens the
 // SAME menu (same items, same KebabMenuContent) at the cursor. The ⋮ trigger
-// stays the primary/discoverable affordance — this is not a second menu, and
-// touch long-press stays retired (shape-sidebar-header-affordances): a
-// contextmenu event synthesized from a touch long-press is ignored so mobile
-// keeps its native behavior and HTML5 row drag is unaffected.
+// stays the primary/discoverable affordance — this is not a second menu. A
+// contextmenu event synthesized from a touch long-press is ignored; surfaces
+// that want press-and-hold on touch (sidebar rows and app icons) call
+// `openAt` from their own hold gesture instead (row-touch-gestures.ts).
 //
 // Usage:
 //   const ctx = useRowKebabContextMenu(items);
@@ -387,6 +387,8 @@ export interface RowKebabContextMenu {
   onContextMenu: (e: React.MouseEvent) => void;
   /** Render anywhere inside the surface (it portals itself). */
   menu: React.ReactNode;
+  /** Open the menu at a viewport point (press-and-hold on touch). */
+  openAt: (x: number, y: number) => void;
 }
 
 export function useRowKebabContextMenu(
@@ -453,7 +455,14 @@ export function useRowKebabContextMenu(
           document.body,
         );
 
-  return { onContextMenu, menu };
+  const openAt = React.useCallback(
+    (x: number, y: number) => {
+      if (enabled) setPos({ x, y });
+    },
+    [enabled],
+  );
+
+  return { onContextMenu, menu, openAt };
 }
 
 /**

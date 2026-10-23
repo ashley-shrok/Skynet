@@ -317,6 +317,8 @@ import { useFeedbackEnabled } from "@/feedback/feedback-store";
 import { getBasePath } from "@/lib/base-path";
 import { roleDisplayName } from "@/lib/role-display-name";
 import { kitAlert, kitConfirm, kitPrompt } from "@/components/kit";
+import { toast } from "sonner";
+import { KitScopeContext, type KitScopeValue } from "@/components/kit/scope";
 
 // Phase 122 Plan 04 (D-17 removal): the SEARCH_HIDDEN_SENTINEL_KEY constant
 // and its one-shot cold-load scroll-hide useEffect at ~L950 were retired
@@ -476,9 +478,15 @@ type RowActions = {
   deactivate: (row: ConversationRowShape) => void;
   kill: (row: ConversationRowShape) => void;
   archive: (row: ConversationRowShape) => void;
+  swipeArchive: (row: ConversationRowShape) => void;
   moveToProject: (row: ConversationRowShape, slug: string | null) => void;
   createProject: (row: ConversationRowShape) => void;
 };
+
+const SIDEBAR_KIT_SCOPE: KitScopeValue = { hue: 220 };
+
+// How long a swipe-archive can be undone before it is carried out.
+export const SWIPE_UNDO_MS = 5000;
 
 const EMPTY_SUBMENU_PROJECTS: readonly { slug: string; displayName: string; depth: number }[] = [];
 const noopTogglePin = () => {};
@@ -552,6 +560,11 @@ const PrettyConversationRowLive = memo(function PrettyConversationRowLive(props:
       onArchive={
         archivable && canonicalArchiveIdForRow(row) !== null
           ? () => actions.archive(row)
+          : undefined
+      }
+      onSwipeArchive={
+        archivable && canonicalArchiveIdForRow(row) !== null
+          ? () => actions.swipeArchive(row)
           : undefined
       }
       onMoveToProject={
@@ -1926,33 +1939,24 @@ export function PrettyConversationsPanel({
     };
   };
 
-  const handleArchive = async (row: ConversationRowShape) => {
-    if (canonicalArchiveIdForRow(row) === null) return;
-    if (!row.host || !row.targetTmuxSession) return; // gate above already ensures this; TS narrowing
+  // Resolves an archivable row to what archiving it needs, or null.
+  const archiveTarget = (row: ConversationRowShape) => {
+    if (canonicalArchiveIdForRow(row) === null) return null;
+    if (!row.host || !row.targetTmuxSession) return null; // gate above already ensures this; TS narrowing
     const hostIdNum = parseInt(row.host.id, 10);
-    if (!Number.isFinite(hostIdNum)) return;
+    if (!Number.isFinite(hostIdNum)) return null;
     const identityKey = row.targetTmuxSession;
     const resolved =
-      (Number.isFinite(hostIdNum)
-        ? identitiesByHostKey?.get(`${hostIdNum}::${identityKey}`)
-        : undefined) ?? identitiesByKey.get(identityKey);
+      identitiesByHostKey?.get(`${hostIdNum}::${identityKey}`) ?? identitiesByKey.get(identityKey);
     // Mirror the sidebar row's label preference (PrettyConversationRow.tsx):
     // task if present, else displayName, else identityKey.
     const label = resolved?.task || resolved?.displayName || identityKey;
-    const ok = await kitConfirm({
-      title: `Archive "${label}"?`,
-      body: "The agent is retired and its conversation leaves the sidebar. You can't undo this here.",
-      confirmLabel: "Archive",
-      destructive: true,
-    });
-    if (!ok) return;
-    if (activeSetRef.current.has(row.id)) { // latest — the confirm doesn't freeze the page
-      handleRowDeactivate(row);
-    }
-    // Optimistic removal — mark pending FIRST so any in-flight fleet-status
-    // frame that races with the removes below is silent-dropped rather than
-    // re-inserting the row.
-    const undoRemove = optimisticArchiveRemove(hostIdNum, identityKey, identityKey);
+    return { hostIdNum, identityKey, label };
+  };
+
+  // The archive call itself, after the row is already gone from the sidebar.
+  // On failure the row comes back and the user is told.
+  const commitArchive = async (hostIdNum: number, identityKey: string, undoRemove: () => void) => {
     try {
       await archiveIdentity(hostIdNum, identityKey);
     } catch (err) {
@@ -1969,6 +1973,60 @@ export function PrettyConversationsPanel({
         body: err instanceof Error ? err.message : String(err),
       });
     }
+  };
+
+  const handleArchive = async (row: ConversationRowShape) => {
+    const target = archiveTarget(row);
+    if (target === null) return;
+    const { hostIdNum, identityKey, label } = target;
+    const ok = await kitConfirm({
+      title: `Archive "${label}"?`,
+      body: "The agent is retired and its conversation leaves the sidebar. You can't undo this here.",
+      confirmLabel: "Archive",
+      destructive: true,
+    });
+    if (!ok) return;
+    if (activeSetRef.current.has(row.id)) { // latest — the confirm doesn't freeze the page
+      handleRowDeactivate(row);
+    }
+    // Optimistic removal — mark pending FIRST so any in-flight fleet-status
+    // frame that races with the removes below is silent-dropped rather than
+    // re-inserting the row.
+    const undoRemove = optimisticArchiveRemove(hostIdNum, identityKey, identityKey);
+    await commitArchive(hostIdNum, identityKey, undoRemove);
+  };
+
+  // Swipe-to-archive on touch (shape-sidebar): no confirm. The row leaves at
+  // once and an "Archived … · Undo" bar shows for SWIPE_UNDO_MS; the archive
+  // call is only made once the bar goes (timed out or swiped away). Undo puts
+  // the row back with nothing to restore. Leaving the page inside the window
+  // archives nothing — the row is back on the next load.
+  const handleSwipeArchive = (row: ConversationRowShape) => {
+    const target = archiveTarget(row);
+    if (target === null) return;
+    const { hostIdNum, identityKey, label } = target;
+    if (activeSetRef.current.has(row.id)) handleRowDeactivate(row);
+    const undoRemove = optimisticArchiveRemove(hostIdNum, identityKey, identityKey);
+    console.log(`[swipe-archive] pending hostId=${hostIdNum} identity=${identityKey}`);
+    let settled = false;
+    const commit = () => {
+      if (settled) return;
+      settled = true;
+      console.log(`[swipe-archive] commit hostId=${hostIdNum} identity=${identityKey}`);
+      void commitArchive(hostIdNum, identityKey, undoRemove);
+    };
+    const undo = () => {
+      if (settled) return;
+      settled = true;
+      console.log(`[swipe-archive] undo hostId=${hostIdNum} identity=${identityKey}`);
+      undoRemove();
+    };
+    toast(`Archived "${label}"`, {
+      duration: SWIPE_UNDO_MS,
+      action: { label: "Undo", onClick: undo },
+      onAutoClose: commit,
+      onDismiss: commit,
+    });
   };
 
   // quick-260807-e4s (patch #149 followup-1 pin-nuke): mirror the store's
@@ -2352,6 +2410,7 @@ export function PrettyConversationsPanel({
     archive: (row) => {
       void handleArchive(row);
     },
+    swipeArchive: handleSwipeArchive,
     moveToProject: (row, slug) => {
       if (slug === null) unpinForProjectMoveRef.current(row);
       handleRowMoveToProject(row, slug);
@@ -2365,6 +2424,7 @@ export function PrettyConversationsPanel({
       deactivate: (row) => rowActionsImplRef.current?.deactivate(row),
       kill: (row) => rowActionsImplRef.current?.kill(row),
       archive: (row) => rowActionsImplRef.current?.archive(row),
+      swipeArchive: (row) => rowActionsImplRef.current?.swipeArchive(row),
       moveToProject: (row, slug) =>
         rowActionsImplRef.current?.moveToProject(row, slug),
       createProject: (row) => rowActionsImplRef.current?.createProject(row),
@@ -3228,6 +3288,9 @@ export function PrettyConversationsPanel({
   });
 
   return (
+    // The sidebar's menus (rows, headings, app icons) take the windows' menu
+    // look — same as inside a window.
+    <KitScopeContext.Provider value={SIDEBAR_KIT_SCOPE}>
     <div
       className="relative flex flex-col flex-1 min-h-0 overflow-hidden pb-[env(safe-area-inset-bottom)]"
       data-testid="pretty-conversations-panel"
@@ -3383,7 +3446,7 @@ export function PrettyConversationsPanel({
             aria-busy="true"
             aria-label={loadingLabel}
             data-testid="pretty-conversations-loading"
-            className="flex items-center justify-center gap-2 px-4 py-3 text-[14px] text-[#dfe3ee]/75"
+            className="pv-section-note flex items-center gap-2"
           >
             <Loader2
               className="size-4 shrink-0 animate-spin"
@@ -3400,15 +3463,15 @@ export function PrettyConversationsPanel({
             CTA pre-populates the modal via openSearchEverywhere. */}
         {sidebarSearchActive && !sidebarSearchHasAnyMatch && (
           <div
-            className="pv-sidebar-search-empty flex flex-col items-center gap-3 px-6 py-10 text-center"
+            className="pv-sidebar-search-empty"
             data-testid="pv-sidebar-search-empty"
           >
-            <div className="text-[13px] italic text-[color:var(--color-pv-fg-dim)]">
+            <div className="pv-sidebar-search-empty-text">
               no matches for &ldquo;{trimmedSidebarSearchQuery}&rdquo;
             </div>
             <button
               type="button"
-              className="pv-sidebar-search-empty-cta text-[12px] text-[color:var(--color-pv-fg-muted)] hover:text-[color:var(--color-pv-fg)] underline underline-offset-2 decoration-dotted"
+              className="pv-sidebar-search-empty-cta"
               onClick={openSearchEverywhere}
               data-testid="pv-sidebar-search-everywhere-cta"
             >
@@ -3467,7 +3530,7 @@ export function PrettyConversationsPanel({
                 setAppsExpanded((v) => !v);
               }
             }}
-            className="group flex items-center gap-2.5 pl-1 pr-1 pt-3.5 pb-1.5 w-full text-left cursor-pointer"
+            className="pv-section-head group w-full text-left cursor-pointer"
             data-testid="pretty-conversations-apps-header"
             aria-expanded={appsExpanded || sidebarSearchActive}
             aria-controls="pv-apps-section-content"
@@ -3475,10 +3538,7 @@ export function PrettyConversationsPanel({
             <span className="pv-section-label">
               Apps
             </span>
-            <span
-              aria-hidden="true"
-              className="flex-1 h-px bg-[linear-gradient(90deg,transparent_0%,rgba(168,154,128,0.20)_30%,rgba(168,154,128,0.20)_70%,transparent_100%)]"
-            />
+            <span aria-hidden="true" className="flex-1" />
             {/* shape-sidebar-header-affordances: Apps header kebab.
                 Items today: Archived apps (opens ArchivedAppsModal).
                 Hover-reveal on desktop (opacity-0 → group-hover:opacity-100
@@ -3498,14 +3558,15 @@ export function PrettyConversationsPanel({
               {appsHeaderContextMenu.menu}
             </div>
             <ChevronDown
-              className={`size-3.5 text-[#a89a80] opacity-90 shrink-0 transition-transform ${appsExpanded || sidebarSearchActive ? "rotate-180" : ""}`}
+              className="pv-section-chevron"
+              data-open={appsExpanded || sidebarSearchActive ? "true" : "false"}
               aria-hidden="true"
             />
           </div>
           {(appsExpanded || sidebarSearchActive) && (
             <div id="pv-apps-section-content" className="pv-apps-grid">
               {searchedAppTiles.length === 0 ? (
-                <div className="pv-apps-empty px-4 py-2 text-center text-[13px] italic text-[#5c6070]/85">
+                <div className="pv-apps-empty pv-section-note">
                   Ask an agent to make an app for you.
                 </div>
               ) : (
@@ -3581,20 +3642,17 @@ export function PrettyConversationsPanel({
                 />
               )}
               <div
-                className="flex items-center gap-2.5 pl-1 pr-1 pt-3.5 pb-1.5"
+                className="pv-section-head"
                 data-testid="pretty-conversations-pinned-header"
               >
                 <span className="pv-section-label">
                   Pinned
                 </span>
-                <span
-                  aria-hidden="true"
-                  className="flex-1 h-px bg-[linear-gradient(90deg,transparent_0%,rgba(168,154,128,0.20)_30%,rgba(168,154,128,0.20)_70%,transparent_100%)]"
-                />
+                <span aria-hidden="true" className="flex-1" />
               </div>
               {searchedPinned.length === 0 ? (
                 <div
-                  className="pv-pinned-empty px-4 py-2 text-center text-[13px] italic text-[#5c6070]/85"
+                  className="pv-pinned-empty pv-section-note"
                   data-testid="pretty-conversations-pinned-empty"
                 >
                   Drag a conversation here to pin.
@@ -3667,7 +3725,7 @@ export function PrettyConversationsPanel({
                         }
                       : undefined
                   }
-                  className="group flex items-center gap-2.5 pl-1 pr-1 pt-3.5 pb-1.5 w-full text-left cursor-pointer"
+                  className="pv-section-head group w-full text-left cursor-pointer"
                   data-testid="pv-projects-super-header"
                   aria-expanded={!projectsSectionCollapsed || sidebarSearchActive}
                   aria-controls="pv-projects-section-content"
@@ -3692,33 +3750,31 @@ export function PrettyConversationsPanel({
                       data-testid="pv-projects-super-header-unread"
                     />
                   ) : null}
-                  <span
-                    aria-hidden="true"
-                    className="flex-1 h-px bg-[linear-gradient(90deg,transparent_0%,rgba(168,154,128,0.20)_30%,rgba(168,154,128,0.20)_70%,transparent_100%)]"
-                  />
+                  <span aria-hidden="true" className="flex-1" />
                   {showPencilButton && (
                     <button
                       type="button"
                       aria-label="New project"
                       title="New project"
                       data-testid="pv-projects-new-project-button"
-                      className="shrink-0 p-0.5 rounded text-[#a89a80] opacity-90 hover:opacity-100 cursor-pointer"
+                      className="pv-section-add"
                       onClick={(e) => {
                         e.stopPropagation();
                         setPendingProjectSlug(null);
                         setCreateProjectModalOpen(true);
                       }}
                     >
-                      <Plus className="size-3.5" aria-hidden="true" />
+                      <Plus aria-hidden="true" />
                     </button>
                   )}
                   <ChevronDown
-                    className={`size-3.5 text-[#a89a80] opacity-90 shrink-0 transition-transform ${!projectsSectionCollapsed || sidebarSearchActive ? "rotate-180" : ""}`}
+                    className="pv-section-chevron"
+                    data-open={!projectsSectionCollapsed || sidebarSearchActive ? "true" : "false"}
                     aria-hidden="true"
                   />
                 </div>
                 {(!projectsSectionCollapsed || sidebarSearchActive) && (
-                <div id="pv-projects-section-content" className="pl-3.5">
+                <div id="pv-projects-section-content">
                   {(() => {
                     // Nested projects: render the (already tree-ordered,
                     // search-filtered) sections as a tree. A section whose
@@ -3777,7 +3833,7 @@ export function PrettyConversationsPanel({
                             // PrettyProjectSectionHeader is already active on the
                             // whole section, so drag-and-drop works over this text.
                             <div
-                              className="pv-project-empty px-4 py-2 text-center text-[13px] italic text-[#5c6070]/85"
+                              className="pv-project-empty pv-section-note"
                               data-testid="pretty-conversations-project-empty"
                             >
                               Create a new conversation, or drag one here.
@@ -3857,28 +3913,25 @@ export function PrettyConversationsPanel({
                     }}
                   />
                 )}
-                {/* Section header — icon + label + gradient rule. Always
+                {/* Section header — the label alone. Always
                     renders now; when the middle is empty a placeholder row
                     follows so the section reads as a real fixture, not a
                     stray label. */}
                 <div
-                  className="flex items-center gap-2.5 pl-1 pr-1 pt-3.5 pb-1.5"
+                  className="pv-section-head"
                   data-testid="pv-flat-middle-section-header"
                 >
                   <span className="pv-section-label">
                     Conversations
                   </span>
-                  <span
-                    aria-hidden="true"
-                    className="flex-1 h-px bg-[linear-gradient(90deg,transparent_0%,rgba(168,154,128,0.20)_30%,rgba(168,154,128,0.20)_70%,transparent_100%)]"
-                  />
+                  <span aria-hidden="true" className="flex-1" />
                 </div>
                 {searchedMiddle.length === 0 && (
                   <div
-                    className="px-4 py-2 text-[12px] leading-snug text-center text-[#5c6070]/70"
+                    className="pv-section-note"
                     data-testid="pv-flat-middle-empty"
                   >
-                    Start your first conversation with an agent using the button at the top-left of the page
+                    Start a conversation with the pencil at the top.
                   </div>
                 )}
                 {searchedMiddle.map((row) => (
@@ -3915,21 +3968,16 @@ export function PrettyConversationsPanel({
                 className="pv-panel-group"
                 data-rdp-group="true"
               >
-                {/* RDP section header — matches the Apps/Pinned/Projects/
-                    Conversations typographic treatment: title-case label,
-                    warm #a89a80 color, matching icon weight + symmetric
-                    gradient rule. */}
+                {/* RDP section header — same section title as Apps / Pinned /
+                    Projects / Conversations. */}
                 <div
-                  className="flex items-center gap-2.5 pl-1 pr-1 pt-3.5 pb-1.5"
+                  className="pv-section-head"
                   data-testid="rdp-divider"
                 >
                   <span className="pv-section-label">
                     {rdpSectionLabel}
                   </span>
-                  <span
-                    aria-hidden="true"
-                    className="flex-1 h-px bg-[linear-gradient(90deg,transparent_0%,rgba(168,154,128,0.20)_30%,rgba(168,154,128,0.20)_70%,transparent_100%)]"
-                  />
+                  <span aria-hidden="true" className="flex-1" />
                 </div>
                 {searchedRdpGroup.rows.map((row) => (
                   <PrettyConversationRowLive
@@ -4436,5 +4484,6 @@ export function PrettyConversationsPanel({
           handleArchiveProject) directly without a portal-mounted context menu
           middleman. */}
     </div>
+    </KitScopeContext.Provider>
   );
 }

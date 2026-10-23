@@ -28,6 +28,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import {
   act,
+  createEvent,
   render,
   fireEvent,
   waitFor,
@@ -469,6 +470,22 @@ vi.mock("@/api/identity-archive-api", () => ({
   archiveIdentity: (hostId: number, identityKey: string) =>
     archiveIdentitySpy(hostId, identityKey),
 }));
+
+// shape-sidebar: swipe-to-archive shows an "Archived … · Undo" toast via
+// sonner. The spy records each call so tests can drive the toast's
+// callbacks (action.onClick / onAutoClose / onDismiss) directly.
+const { toastSpy } = vi.hoisted(() => {
+  const fn = vi.fn() as unknown as ((...args: unknown[]) => unknown) & Record<string, unknown>;
+  return { toastSpy: fn };
+});
+vi.mock("sonner", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("sonner")>();
+  const toast = Object.assign(
+    (...args: unknown[]) => (toastSpy as (...a: unknown[]) => unknown)(...args),
+    { ...actual.toast },
+  );
+  return { ...actual, toast };
+});
 
 // Phase 91 Plan 05 — mocks required by NewConversationModal which is
 // now portal-mounted inside PrettyConversationsPanel.
@@ -4150,5 +4167,317 @@ describe("PrettyConversationsPanel: rows re-render only when their own data chan
     expect(selectConversationSpy).toHaveBeenCalledWith("row-a");
     expect(first).not.toHaveBeenCalled();
     expect(second).toHaveBeenCalledWith("row-a");
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// shape-sidebar: swipe-to-archive with an Undo toast; menu Archive still
+// confirms; sidebar menus take the kit look; Apps chevron data-open.
+// ─────────────────────────────────────────────────────────────────────────────
+
+type ToastOpts = {
+  duration: number;
+  action: { label: string; onClick: () => void };
+  onAutoClose: () => void;
+  onDismiss: () => void;
+};
+
+function panelTouch(
+  el: HTMLElement,
+  kind: "touchStart" | "touchMove" | "touchEnd",
+  points: { x: number; y: number }[],
+  t: number,
+): void {
+  const list = points.map((p, i) => ({ identifier: i, clientX: p.x, clientY: p.y, target: el }));
+  const ev = createEvent[kind](el, {
+    touches: kind === "touchEnd" ? [] : list,
+    changedTouches: list,
+    cancelable: true,
+  });
+  Object.defineProperty(ev, "timeStamp", { value: t });
+  act(() => {
+    fireEvent(el, ev);
+  });
+}
+
+describe("PrettyConversationsPanel (shape-sidebar): swipe to archive with Undo", () => {
+  const hostA = makeHost("42", "hostA");
+  const wrenSession = { hostId: 42, hostName: "hostA", sessionName: "wren", created: 1, role: null };
+
+  function seedWren(task: string | null = null) {
+    mockFleetSessionsSnapshot = [wrenSession];
+    mockIdentitiesByKey = new Map([
+      ["wren", { identityKey: "wren", displayName: "Wren", title: null, task }],
+    ]);
+    setSnapshot({
+      activeSet: [],
+      pinned: [],
+      middle: [
+        makeConversationRow({
+          id: "swipe-row",
+          label: "wren",
+          host: hostA,
+          targetTmuxSession: "wren",
+        }),
+      ],
+      rdpGroup: null,
+    });
+  }
+
+  function bodyOf(container: HTMLElement, id = "swipe-row"): HTMLElement {
+    const rowEl = container.querySelector(`[data-conversation-id="${id}"]`) as HTMLElement;
+    const body = rowEl.querySelector('[role="button"]') as HTMLElement;
+    body.getBoundingClientRect = () =>
+      ({ width: 300, height: 48, top: 0, left: 0, right: 300, bottom: 48, x: 0, y: 0, toJSON: () => ({}) }) as DOMRect;
+    return body;
+  }
+
+  /** Swipes the row fully left and waits for the toast. */
+  async function swipe(container: HTMLElement, id = "swipe-row"): Promise<ToastOpts> {
+    const body = bodyOf(container, id);
+    panelTouch(body, "touchStart", [{ x: 290, y: 20 }], 0);
+    panelTouch(body, "touchMove", [{ x: 60, y: 22 }], 1000);
+    panelTouch(body, "touchEnd", [], 1000);
+    await waitFor(() => expect(toastSpy).toHaveBeenCalledTimes(1));
+    return (toastSpy as unknown as ReturnType<typeof vi.fn>).mock.calls[0][1] as ToastOpts;
+  }
+
+  beforeEach(() => {
+    (toastSpy as unknown as ReturnType<typeof vi.fn>).mockReset();
+  });
+
+  it("swipe: no confirm, row removed at once, toast 'Archived \"<label>\"' with Undo + 5s duration; archive waits for the toast", async () => {
+    seedWren();
+    const dialogs = autoAnswerKitDialogs({ confirm: true });
+    const { container } = render(
+      <PrettyConversationsPanel variant="mobile" onDeactivateRow={() => {}} />,
+    );
+    const opts = await swipe(container);
+
+    expect((toastSpy as unknown as ReturnType<typeof vi.fn>).mock.calls[0][0]).toBe('Archived "Wren"');
+    expect(opts.duration).toBe(5000);
+    expect(opts.action.label).toBe("Undo");
+    expect(typeof opts.action.onClick).toBe("function");
+    expect(typeof opts.onAutoClose).toBe("function");
+    expect(typeof opts.onDismiss).toBe("function");
+
+    // Same optimistic remove as the menu's Archive.
+    expect(markPendingArchiveSpy).toHaveBeenCalledWith(42, "wren");
+    expect(removeFleetSessionSpy).toHaveBeenCalledWith(42, "wren");
+    // No confirm, and nothing archived yet.
+    expect(kitConfirms(dialogs)).toHaveLength(0);
+    await flushKit();
+    expect(archiveIdentitySpy).not.toHaveBeenCalled();
+  });
+
+  it("toast label prefers the identity's task", async () => {
+    seedWren("Fixing the auth bug");
+    const { container } = render(
+      <PrettyConversationsPanel variant="mobile" onDeactivateRow={() => {}} />,
+    );
+    await swipe(container);
+    expect((toastSpy as unknown as ReturnType<typeof vi.fn>).mock.calls[0][0]).toBe(
+      'Archived "Fixing the auth bug"',
+    );
+  });
+
+  it("Undo restores the row and never archives (even if the toast is dismissed afterwards)", async () => {
+    seedWren();
+    const { container } = render(
+      <PrettyConversationsPanel variant="mobile" onDeactivateRow={() => {}} />,
+    );
+    const opts = await swipe(container);
+    upsertFleetSessionSpy.mockClear();
+
+    act(() => opts.action.onClick());
+    expect(clearPendingArchiveSpy).toHaveBeenCalledWith(42, "wren");
+    expect(upsertFleetSessionSpy).toHaveBeenCalledWith(wrenSession);
+
+    act(() => {
+      opts.onDismiss();
+      opts.onAutoClose();
+    });
+    await flushKit();
+    expect(archiveIdentitySpy).not.toHaveBeenCalled();
+    expect(clearPendingArchiveSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it("auto-close archives exactly once (a later dismiss is ignored)", async () => {
+    seedWren();
+    const { container } = render(
+      <PrettyConversationsPanel variant="mobile" onDeactivateRow={() => {}} />,
+    );
+    const opts = await swipe(container);
+    act(() => opts.onAutoClose());
+    await waitFor(() => expect(archiveIdentitySpy).toHaveBeenCalledTimes(1));
+    expect(archiveIdentitySpy).toHaveBeenCalledWith(42, "wren");
+    act(() => {
+      opts.onDismiss();
+      opts.onAutoClose();
+      opts.action.onClick(); // Undo after the commit is too late
+    });
+    await flushKit();
+    expect(archiveIdentitySpy).toHaveBeenCalledTimes(1);
+    expect(clearPendingArchiveSpy).not.toHaveBeenCalled();
+  });
+
+  it("dismissing the toast archives exactly once", async () => {
+    seedWren();
+    const { container } = render(
+      <PrettyConversationsPanel variant="mobile" onDeactivateRow={() => {}} />,
+    );
+    const opts = await swipe(container);
+    act(() => {
+      opts.onDismiss();
+      opts.onDismiss();
+      opts.onAutoClose();
+    });
+    await waitFor(() => expect(archiveIdentitySpy).toHaveBeenCalledTimes(1));
+    await flushKit();
+    expect(archiveIdentitySpy).toHaveBeenCalledTimes(1);
+  });
+
+  it("a failed archive restores the row and shows 'Couldn't archive'", async () => {
+    seedWren();
+    const dialogs = autoAnswerKitDialogs({});
+    archiveIdentitySpy.mockImplementationOnce(async () => {
+      throw new Error("boom");
+    });
+    const { container } = render(
+      <PrettyConversationsPanel variant="mobile" onDeactivateRow={() => {}} />,
+    );
+    const opts = await swipe(container);
+    upsertFleetSessionSpy.mockClear();
+    act(() => opts.onAutoClose());
+    await waitFor(() => expect(clearPendingArchiveSpy).toHaveBeenCalledWith(42, "wren"));
+    expect(upsertFleetSessionSpy).toHaveBeenCalledWith(wrenSession);
+    await waitFor(() => expect(kitAlerts(dialogs)).toHaveLength(1));
+    expect(String(kitAlerts(dialogs)[0].title)).toMatch(/couldn't archive/i);
+    expect(kitText(kitAlerts(dialogs)[0])).toContain("boom");
+  });
+
+  it("an open (active-set) conversation is closed when swiped away", async () => {
+    seedWren();
+    mockActiveSet = new Set(["swipe-row"]);
+    const onDeactivateRow = vi.fn();
+    const { container } = render(
+      <PrettyConversationsPanel variant="mobile" onDeactivateRow={onDeactivateRow} />,
+    );
+    await swipe(container);
+    expect(onDeactivateRow).toHaveBeenCalled();
+  });
+
+  it("rows that can't be archived (non-numeric host / RDP) don't swipe", async () => {
+    const rdpHost = makeHost("h9", "beelink", { enableRdp: true });
+    setSnapshot({
+      activeSet: [],
+      pinned: [],
+      middle: [],
+      rdpGroup: {
+        hostId: "__rdp__",
+        hostName: "rdp",
+        rows: [
+          makeConversationRow({
+            id: "rdp-row",
+            label: "beelink",
+            host: rdpHost,
+            targetTmuxSession: null,
+            rdpHostRow: true,
+          }),
+        ],
+      },
+    });
+    const { container } = render(
+      <PrettyConversationsPanel variant="mobile" onDeactivateRow={() => {}} />,
+    );
+    const body = bodyOf(container, "rdp-row");
+    panelTouch(body, "touchStart", [{ x: 290, y: 20 }], 0);
+    panelTouch(body, "touchMove", [{ x: 60, y: 22 }], 1000);
+    const wrapper = container.querySelector('[data-conversation-id="rdp-row"]') as HTMLElement;
+    expect(wrapper.getAttribute("data-swiping")).toBeNull();
+    expect(wrapper.querySelector(".pv-row-swipe-action")).toBeNull();
+    panelTouch(body, "touchEnd", [], 1000);
+    await new Promise((r) => setTimeout(r, 250));
+    expect(toastSpy).not.toHaveBeenCalled();
+    expect(markPendingArchiveSpy).not.toHaveBeenCalled();
+  });
+
+  it("archivable rows show the swipe Archive backdrop while swiping", () => {
+    seedWren();
+    const { container } = render(
+      <PrettyConversationsPanel variant="mobile" onDeactivateRow={() => {}} />,
+    );
+    const body = bodyOf(container);
+    panelTouch(body, "touchStart", [{ x: 290, y: 20 }], 0);
+    panelTouch(body, "touchMove", [{ x: 260, y: 20 }], 1000);
+    const wrapper = container.querySelector('[data-conversation-id="swipe-row"]') as HTMLElement;
+    expect(wrapper.getAttribute("data-swiping")).toBe("true");
+    expect(wrapper.querySelector(".pv-row-swipe-action")!.textContent).toContain("Archive");
+    panelTouch(body, "touchEnd", [], 1000); // short → snaps back
+    expect(wrapper.getAttribute("data-swiping")).toBeNull();
+  });
+
+  it("the menu's Archive still asks to confirm first and shows no toast", async () => {
+    seedWren();
+    const dialogs = autoAnswerKitDialogs({ confirm: true });
+    const { container } = render(
+      <PrettyConversationsPanel variant="desktop" onDeactivateRow={() => {}} />,
+    );
+    const body = bodyOf(container);
+    const menu = await openRowKebabInBody(body);
+    fireEvent.click(within(menu).getByRole("menuitem", { name: "Archive" }));
+    await waitFor(() => expect(kitConfirms(dialogs)).toHaveLength(1));
+    expectArchiveConfirm(kitConfirms(dialogs)[0], "Wren");
+    await waitFor(() => expect(archiveIdentitySpy).toHaveBeenCalledTimes(1));
+    expect(toastSpy).not.toHaveBeenCalled();
+  });
+});
+
+describe("PrettyConversationsPanel (shape-sidebar): kit-scoped menus + Apps heading", () => {
+  it("row menus in the sidebar take the kit look (KitScopeContext)", async () => {
+    setSnapshot({
+      middle: [
+        makeConversationRow({
+          id: "kit-row",
+          label: "wren",
+          host: makeHost("42", "hostA"),
+          targetTmuxSession: "wren",
+        }),
+      ],
+    });
+    const { container } = render(
+      <PrettyConversationsPanel variant="desktop" onDeactivateRow={() => {}} />,
+    );
+    const rowEl = container.querySelector('[data-conversation-id="kit-row"]') as HTMLElement;
+    const menu = await openRowKebabInBody(rowEl.querySelector('[role="button"]') as HTMLElement);
+    expect(menu.classList.contains("k-menu")).toBe(true);
+    expect(menu.style.getPropertyValue("--pv-id-hue")).toBe("220");
+  });
+
+  it("Apps heading is pv-section-head and its chevron data-open toggles with the section", () => {
+    render(<PrettyConversationsPanel variant="desktop" onDeactivateRow={() => {}} />);
+    const header = screen.getByTestId("pretty-conversations-apps-header");
+    expect(header.classList.contains("pv-section-head")).toBe(true);
+    const chevron = () => header.querySelector(".pv-section-chevron") as Element;
+    const before = header.getAttribute("aria-expanded");
+    expect(chevron().getAttribute("data-open")).toBe(before);
+    fireEvent.click(header);
+    const after = header.getAttribute("aria-expanded");
+    expect(after).not.toBe(before);
+    expect(chevron().getAttribute("data-open")).toBe(after);
+    fireEvent.click(header);
+    expect(chevron().getAttribute("data-open")).toBe(before);
+  });
+
+  it("Pinned and Conversations headings are pv-section-head", () => {
+    setSnapshot({ pinned: [makeConversationRow({ id: "p1" })] });
+    const { container } = render(
+      <PrettyConversationsPanel variant="desktop" onDeactivateRow={() => {}} />,
+    );
+    const pinned = container.querySelector('[data-testid="pretty-conversations-pinned-header"]');
+    expect(pinned).not.toBeNull();
+    expect(pinned!.classList.contains("pv-section-head")).toBe(true);
+    const conv = container.querySelector('[data-testid="pv-flat-middle-section-header"]') as HTMLElement;
+    expect(conv.classList.contains("pv-section-head")).toBe(true);
   });
 });

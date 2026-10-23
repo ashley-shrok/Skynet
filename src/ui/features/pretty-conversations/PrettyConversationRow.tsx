@@ -103,7 +103,7 @@ import {
   type DragEvent,
   type KeyboardEvent,
 } from "react";
-import { Pin, GitPullRequestDraft, Mail } from "lucide-react";
+import { Archive, GitPullRequestDraft, Mail } from "lucide-react";
 
 import { tabIcon } from "@/shell/tabUtils";
 import { sessionMatchKey } from "@/features/terminal/session-hue";
@@ -127,13 +127,12 @@ import {
 } from "@/lib/identity-roles";
 import { AvatarImage } from "@/components/avatar-image";
 
-// shape-sidebar-header-affordances: row context menu + long-press machinery
-// retired; the row's five actions now live in a RowKebabMenu rendered inside
-// the row body. Hover-reveal on desktop + always-visible on mobile is applied
-// at the kebab's wrapper div (opacity-100 at <md, md:opacity-0 →
-// md:group-hover:opacity-100 at md+). RowKebabMenu's portal-click-containment
-// prevents item-click leaks to the row's onClick (row body is a clickable
-// surface for session selection).
+// The row's actions live in a RowKebabMenu inside the row body: ⋮ on hover
+// and right-click on desktop; press-and-hold on touch screens, where the ⋮ is
+// hidden (shape-sidebar). RowKebabMenu's portal-click-containment prevents
+// item-click leaks to the row's onClick (row body is a clickable surface for
+// session selection).
+import { useRowTouchGestures } from "./row-touch-gestures";
 import {
   RowKebabMenu,
   useRowKebabContextMenu,
@@ -203,6 +202,7 @@ function PrettyConversationRowImpl({
   onTogglePin,
   onDeactivate,
   onArchive,
+  onSwipeArchive,
   onKill,
   onMoveToProject,
   onCreateProject,
@@ -246,6 +246,13 @@ function PrettyConversationRowImpl({
    * handleArchive owns the window.confirm + POST + pane-close composition.
    */
   onArchive?: () => void;
+  /**
+   * Swipe-to-archive on touch (shape-sidebar): fired once the row has slid
+   * out. No confirm — the panel removes the row at once and offers Undo for a
+   * few seconds before archiving. Omitted for rows that can't be archived;
+   * those rows don't swipe.
+   */
+  onSwipeArchive?: () => void;
   /**
    * quick-260810-n3a: Fired when user clicks the red Kill menu item.
    * Provided by the panel only when !isRdp && !identity && row.targetTmuxSession.
@@ -665,6 +672,12 @@ function PrettyConversationRowImpl({
     return items;
   })();
   const kebabContextMenu = useRowKebabContextMenu(kebabItems);
+  // Touch: press-and-hold opens the same menu; swipe left archives. Phone rows
+  // carry no ⋮ on touch screens (CSS), so the hold is the way in.
+  const touch = useRowTouchGestures({
+    onHold: kebabContextMenu.openAt,
+    onSwipeArchive: onSwipeArchive,
+  });
 
   return (
     <div
@@ -676,7 +689,14 @@ function PrettyConversationRowImpl({
       data-dm={row.dm === true ? "true" : undefined}
       data-variant={variant}
       data-rdp-host-row={isRdp ? "true" : undefined}
+      data-swiping={touch.offset !== 0 ? "true" : undefined}
     >
+      {onSwipeArchive && touch.offset !== 0 && (
+        <div className="pv-row-swipe-action" aria-hidden="true">
+          <Archive />
+          <span>Archive</span>
+        </div>
+      )}
       {/* Row body — the CSS file (pretty-conversations.css) handles all
           layout, background, border, shadow, hover, and state variants via
           the composed className. The only inline style is `--pv-hue` (for
@@ -687,14 +707,17 @@ function PrettyConversationRowImpl({
       <div
         role="button"
         tabIndex={0}
-        draggable={true}
+        // Phones drag nothing (split view is desktop-only), and a draggable
+        // row would turn a press-and-hold into a drag.
+        draggable={!isMobile}
         aria-pressed={selected}
         onClick={onBodyClick}
+        {...touch.handlers}
         onContextMenu={kebabContextMenu.onContextMenu}
         onKeyDown={onBodyKeyDown}
         onMouseEnter={setRowTooltip(identity?.displayName, identity?.task)}
         onDragStart={onRowDragStart}
-        style={bodyStyle}
+        style={{ ...bodyStyle, ...touch.style }}
         className={cn("group", rowClassName)}
       >
         {/* Avatar disc — identity avatar OR initial letter OR tabIcon fallback.
@@ -840,18 +863,11 @@ function PrettyConversationRowImpl({
           )}
         </div>
 
-        {/* Non-interactive pin indicator — absolute-positioned at the row's
-            top-left corner so it reads as a row-level flag. Preserved from
-            pre-Phase-48; the right-column meta wrapper retirement does NOT
-            affect this element. Rendered iff `pinned`. */}
-        {pinned && (
-          <span
-            className="pv-pin-indicator"
-            aria-hidden="true"
-            data-testid="pv-pin-indicator"
-          >
-            <Pin />
-          </span>
+        {/* Unread: a small dot in the agent's own colour at the row's end
+            (pretty-conversations.css). Pinned rows carry no pin glyph — they
+            already sit under Pinned. */}
+        {row.unread === true && (
+          <span className="pv-unread-dot" data-testid="pv-unread-dot" aria-label="Unread" role="img" />
         )}
         {/* Phase 48 Plan 05 — the right-column meta wrapper RETIRED entirely.
             Retired symbols and their replacements:
@@ -861,17 +877,13 @@ function PrettyConversationRowImpl({
                 hack) plus the 4-input `isWorkingFalse + notRecycling +
                 noQueuePending` JSX render gate → replaced by an avatar spinner
                 ring, retired 2026-10-21 in favor of the unread outline. */}
-        {/* shape-sidebar-header-affordances: row-level kebab menu. Positioned
-            absolute, right edge of the row card, vertically centered. Hover-reveal on desktop
-            (opacity-0 at md+, group-hover + group-focus-within bump to 100);
-            always-visible on mobile (opacity-100 at <md where no hover
-            exists). RowKebabMenu's portal-click-containment prevents item
-            onClicks from leaking through to the row body's onClick. The
-            items[] builder mirrors the retired PrettyConversationContextMenu
-            items[] (Open in new tab / Move to / Kill / Archive) with the
-            same per-item eligibility gates. */}
+        {/* Row-level kebab menu, right edge of the row, vertically centred.
+            Desktop: appears on hover / keyboard focus. Narrow mouse windows:
+            always shown. Touch screens: hidden — press-and-hold opens the same
+            menu (pretty-conversations.css). RowKebabMenu's portal-click-
+            containment keeps item clicks from reaching the row body. */}
         <div
-          className="absolute top-1/2 -translate-y-1/2 right-2 opacity-100 md:opacity-0 md:group-hover:opacity-100 md:group-focus-within:opacity-100 transition-opacity shrink-0 z-[5]"
+          className="pv-row-kebab-slot"
           data-testid="pv-row-kebab-slot"
         >
           <RowKebabMenu

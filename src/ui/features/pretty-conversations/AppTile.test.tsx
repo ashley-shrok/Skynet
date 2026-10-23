@@ -38,7 +38,7 @@
 // is needed.
 
 import { describe, it, expect, vi, beforeEach, afterEach, type Mock } from "vitest";
-import { render, fireEvent, screen, cleanup } from "@testing-library/react";
+import { act, createEvent, render, fireEvent, screen, cleanup, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
 // jsdom does not implement ResizeObserver; stub it so Radix's DropdownMenu
@@ -847,5 +847,97 @@ describe("AppTile — app-rename shape: Rename menu item", () => {
       hostId: 7,
       slug: "scratch",
     });
+  });
+});
+
+// ─── shape-sidebar: press-and-hold opens the tile menu; no drag on phones ────
+
+function tileTouch(
+  el: HTMLElement,
+  kind: "touchStart" | "touchMove" | "touchEnd",
+  points: { x: number; y: number }[],
+  t: number,
+): boolean {
+  const list = points.map((p, i) => ({ identifier: i, clientX: p.x, clientY: p.y, target: el }));
+  const ev = createEvent[kind](el, {
+    touches: kind === "touchEnd" ? [] : list,
+    changedTouches: list,
+    cancelable: true,
+  });
+  Object.defineProperty(ev, "timeStamp", { value: t });
+  let result = true;
+  act(() => {
+    result = fireEvent(el, ev);
+  });
+  return result;
+}
+
+const menuLabels = () =>
+  Array.from(screen.getByRole("menu").querySelectorAll('[role="menuitem"]')).map(
+    (el) => el.textContent,
+  );
+
+describe("AppTile — shape-sidebar press-and-hold + draggable", () => {
+  it.each(["desktop", "mobile"] as const)(
+    "%s: a 500ms touch hold opens the same menu as right-click, at the finger, and doesn't open the app",
+    async (variant) => {
+      const onOpenApp = vi.fn();
+      // Reference: right-click menu items.
+      const ref = render(<AppTile app={makeApp()} variant={variant} onOpenApp={onOpenApp} />);
+      fireEvent.contextMenu(ref.getByTestId("pv-app-tile"), { clientX: 5, clientY: 5 });
+      await screen.findByRole("menu");
+      const rightClickLabels = menuLabels();
+      expect(rightClickLabels).toContain("Archive");
+      ref.unmount();
+      document.body.innerHTML = "";
+
+      render(<AppTile app={makeApp()} variant={variant} onOpenApp={onOpenApp} />);
+      const tile = screen.getByTestId("pv-app-tile");
+      tileTouch(tile, "touchStart", [{ x: 33, y: 44 }], 0);
+      expect(screen.queryByRole("menu")).toBeNull();
+      const anchor = await waitFor(() => screen.getByTestId("row-kebab-context-anchor"), {
+        timeout: 2000,
+      });
+      expect(anchor.style.left).toBe("33px");
+      expect(anchor.style.top).toBe("44px");
+      expect(tileTouch(tile, "touchEnd", [{ x: 33, y: 44 }], 600)).toBe(false);
+      fireEvent.click(tile);
+      expect(onOpenApp).not.toHaveBeenCalled();
+      await screen.findByRole("menu");
+      expect(menuLabels()).toEqual(rightClickLabels);
+    },
+  );
+
+  it("a short tap still opens the app; moving the finger opens no menu", async () => {
+    const onOpenApp = vi.fn();
+    render(<AppTile app={makeApp()} variant="mobile" onOpenApp={onOpenApp} />);
+    const tile = screen.getByTestId("pv-app-tile");
+    tileTouch(tile, "touchStart", [{ x: 10, y: 10 }], 0);
+    tileTouch(tile, "touchMove", [{ x: 10, y: 40 }], 50);
+    tileTouch(tile, "touchEnd", [], 100);
+    await new Promise((r) => setTimeout(r, 650));
+    expect(screen.queryByTestId("row-kebab-context-anchor")).toBeNull();
+
+    tileTouch(tile, "touchStart", [{ x: 10, y: 10 }], 1000);
+    tileTouch(tile, "touchEnd", [{ x: 10, y: 10 }], 1100);
+    fireEvent.click(tile);
+    expect(onOpenApp).toHaveBeenCalledTimes(1);
+  });
+
+  it("a leftward swipe on a tile does not move it (tiles have no swipe-archive)", () => {
+    render(<AppTile app={makeApp()} variant="mobile" />);
+    const tile = screen.getByTestId("pv-app-tile");
+    tileTouch(tile, "touchStart", [{ x: 100, y: 10 }], 0);
+    tileTouch(tile, "touchMove", [{ x: 10, y: 10 }], 50);
+    expect(tile.style.transform).toBe("");
+    tileTouch(tile, "touchEnd", [], 60);
+  });
+
+  it("tile is draggable on desktop but not on mobile", () => {
+    const d = render(<AppTile app={makeApp()} variant="desktop" />);
+    expect(d.getByTestId("pv-app-tile").getAttribute("draggable")).toBe("true");
+    d.unmount();
+    const m = render(<AppTile app={makeApp()} variant="mobile" />);
+    expect(m.getByTestId("pv-app-tile").getAttribute("draggable")).toBe("false");
   });
 });

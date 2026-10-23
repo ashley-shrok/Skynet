@@ -70,7 +70,7 @@
 // and identities-store to per-test-controllable outputs.
 
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { act, render, fireEvent, screen, within } from "@testing-library/react";
+import { act, createEvent, render, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { Identity } from "@/api/identities-api";
 import type { ConversationRow as ConversationRowShape } from "@/state/conversation-store";
@@ -3097,5 +3097,316 @@ describe("PrettyConversationRow: no Close menu item", () => {
     );
     const menu = await openRowKebab(container);
     expect(within(menu).queryByTestId("pv-row-kebab-item-close")).toBeNull();
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// shape-sidebar (sidebar redesign): unread dot, no pin glyph, touch gestures
+// (press-and-hold → the row menu; swipe-left → onSwipeArchive), drag only on
+// desktop, and the ⋮ slot's class.
+// ─────────────────────────────────────────────────────────────────────────────
+
+type TouchPt = { x: number; y: number };
+function rowTouch(
+  el: HTMLElement,
+  kind: "touchStart" | "touchMove" | "touchEnd",
+  points: TouchPt[],
+  t: number,
+): boolean {
+  const list = points.map((p, i) => ({ identifier: i, clientX: p.x, clientY: p.y, target: el }));
+  const ev = createEvent[kind](el, {
+    touches: kind === "touchEnd" ? [] : list,
+    changedTouches: list,
+    cancelable: true,
+  });
+  Object.defineProperty(ev, "timeStamp", { value: t });
+  let result = true;
+  act(() => {
+    result = fireEvent(el, ev);
+  });
+  return result;
+}
+
+function rowBody(container: HTMLElement, id = "conv-1"): HTMLElement {
+  const wrapper = container.querySelector(`[data-conversation-id="${id}"]`) as HTMLElement;
+  const body = wrapper.querySelector('[role="button"]') as HTMLElement;
+  body.getBoundingClientRect = () =>
+    ({ width: 300, height: 48, top: 0, left: 0, right: 300, bottom: 48, x: 0, y: 0, toJSON: () => ({}) }) as DOMRect;
+  return body;
+}
+
+describe("PrettyConversationRow (shape-sidebar): unread dot + no pin glyph", () => {
+  it("an unread row renders the unread dot", () => {
+    const { container } = render(
+      <PrettyConversationRow
+        row={makeRow({ unread: true })}
+        selected={false}
+        pinned={false}
+        variant="desktop"
+        onSelect={vi.fn()}
+      />,
+    );
+    const dot = container.querySelector('[data-testid="pv-unread-dot"]');
+    expect(dot).not.toBeNull();
+    expect(dot!.getAttribute("aria-label")).toBe("Unread");
+  });
+
+  it.each([
+    ["unread: false", { unread: false }],
+    ["unread absent", {}],
+  ])("no unread dot when %s", (_label, over) => {
+    const { container } = render(
+      <PrettyConversationRow
+        row={makeRow(over as Partial<ConversationRowShape>)}
+        selected={false}
+        pinned={false}
+        variant="mobile"
+        onSelect={vi.fn()}
+      />,
+    );
+    expect(container.querySelector('[data-testid="pv-unread-dot"]')).toBeNull();
+  });
+
+  it.each(["desktop", "mobile"] as const)("a pinned %s row renders no pin glyph", (variant) => {
+    const { container } = render(
+      <PrettyConversationRow
+        row={makeRow()}
+        selected={false}
+        pinned={true}
+        variant={variant}
+        onSelect={vi.fn()}
+        onTogglePin={vi.fn()}
+      />,
+    );
+    expect(container.querySelector('[data-testid="pv-pin-indicator"]')).toBeNull();
+    expect(container.querySelector(".pv-pin-indicator")).toBeNull();
+  });
+
+  it("the ⋮ slot carries the pv-row-kebab-slot class (testid unchanged)", () => {
+    const { container } = render(
+      <PrettyConversationRow
+        row={makeRow()}
+        selected={false}
+        pinned={false}
+        variant="desktop"
+        onSelect={vi.fn()}
+      />,
+    );
+    const slot = container.querySelector('[data-testid="pv-row-kebab-slot"]') as HTMLElement;
+    expect(slot).not.toBeNull();
+    expect(slot.classList.contains("pv-row-kebab-slot")).toBe(true);
+  });
+});
+
+describe("PrettyConversationRow (shape-sidebar): draggable only on desktop", () => {
+  it("mobile row body is not draggable; desktop row body is", () => {
+    const mobile = render(
+      <PrettyConversationRow
+        row={makeRow()}
+        selected={false}
+        pinned={false}
+        variant="mobile"
+        onSelect={vi.fn()}
+      />,
+    );
+    expect(rowBody(mobile.container).getAttribute("draggable")).toBe("false");
+    mobile.unmount();
+
+    const desktop = render(
+      <PrettyConversationRow
+        row={makeRow()}
+        selected={false}
+        pinned={false}
+        variant="desktop"
+        onSelect={vi.fn()}
+      />,
+    );
+    expect(rowBody(desktop.container).getAttribute("draggable")).toBe("true");
+  });
+});
+
+describe("PrettyConversationRow (shape-sidebar): press-and-hold opens the row menu", () => {
+  const menuNames = (menu: HTMLElement) =>
+    within(menu)
+      .getAllByRole("menuitem")
+      .map((el) => el.textContent?.trim());
+
+  it.each(["mobile", "desktop"] as const)(
+    "%s: a 500ms touch hold opens the same menu as the ⋮, at the finger, and the row is not selected",
+    async (variant) => {
+      const onSelect = vi.fn();
+      const props = {
+        row: makeRow({ host: makeHost({ id: "1" }) }),
+        selected: false,
+        pinned: false,
+        variant,
+        onSelect,
+        onArchive: vi.fn(),
+        onKill: vi.fn(),
+        onDeactivate: vi.fn(),
+        inActiveSet: true,
+      };
+      // Reference: the ⋮ menu's items.
+      const ref = render(<PrettyConversationRow {...props} />);
+      const kebabItems = menuNames(await openRowKebab(ref.container));
+      expect(kebabItems).toContain("Archive");
+      ref.unmount();
+      document.body.innerHTML = "";
+
+      const { container } = render(<PrettyConversationRow {...props} />);
+      const body = rowBody(container);
+      rowTouch(body, "touchStart", [{ x: 40, y: 60 }], 0);
+      expect(screen.queryByTestId("row-kebab-context-anchor")).toBeNull();
+      const anchor = await waitFor(
+        () => screen.getByTestId("row-kebab-context-anchor"),
+        { timeout: 2000 },
+      );
+      expect(anchor.style.left).toBe("40px");
+      expect(anchor.style.top).toBe("60px");
+      expect(rowTouch(body, "touchEnd", [{ x: 40, y: 60 }], 600)).toBe(false);
+      // The click that follows the hold doesn't select the row.
+      fireEvent.click(body);
+      expect(onSelect).not.toHaveBeenCalled();
+
+      const menu = screen.getByRole("menu");
+      expect(menuNames(menu)).toEqual(kebabItems);
+    },
+  );
+
+  it("hold then tap Archive in the menu fires onArchive", async () => {
+    const onArchive = vi.fn();
+    const { container } = render(
+      <PrettyConversationRow
+        row={makeRow({ host: makeHost({ id: "1" }) })}
+        selected={false}
+        pinned={false}
+        variant="mobile"
+        onSelect={vi.fn()}
+        onArchive={onArchive}
+      />,
+    );
+    const body = rowBody(container);
+    rowTouch(body, "touchStart", [{ x: 40, y: 60 }], 0);
+    await waitFor(() => screen.getByTestId("row-kebab-context-anchor"), { timeout: 2000 });
+    rowTouch(body, "touchEnd", [{ x: 40, y: 60 }], 600);
+    const item = screen.getByRole("menuitem", { name: "Archive" });
+    // A real tap on the item starts with its own touchstart (which reaches
+    // the row through the portal) before the click.
+    rowTouch(item, "touchStart", [{ x: 60, y: 90 }], 2000);
+    rowTouch(item, "touchEnd", [{ x: 60, y: 90 }], 2050);
+    fireEvent.click(item);
+    expect(onArchive).toHaveBeenCalledTimes(1);
+  });
+
+  it("moving the finger before 500ms opens no menu", async () => {
+    const { container } = render(
+      <PrettyConversationRow
+        row={makeRow({ host: makeHost({ id: "1" }) })}
+        selected={false}
+        pinned={false}
+        variant="mobile"
+        onSelect={vi.fn()}
+        onArchive={vi.fn()}
+      />,
+    );
+    const body = rowBody(container);
+    rowTouch(body, "touchStart", [{ x: 40, y: 60 }], 0);
+    rowTouch(body, "touchMove", [{ x: 40, y: 120 }], 50);
+    await new Promise((r) => setTimeout(r, 700));
+    expect(screen.queryByTestId("row-kebab-context-anchor")).toBeNull();
+  });
+});
+
+describe("PrettyConversationRow (shape-sidebar): swipe to archive", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("with onSwipeArchive: swiping shows the Archive backdrop + data-swiping, and a committed swipe calls it after the slide", () => {
+    vi.useFakeTimers();
+    const onSwipeArchive = vi.fn();
+    const onArchive = vi.fn();
+    const { container } = render(
+      <PrettyConversationRow
+        row={makeRow({ host: makeHost({ id: "1" }) })}
+        selected={false}
+        pinned={false}
+        variant="mobile"
+        onSelect={vi.fn()}
+        onArchive={onArchive}
+        onSwipeArchive={onSwipeArchive}
+      />,
+    );
+    const wrapper = container.querySelector('[data-conversation-id="conv-1"]') as HTMLElement;
+    const body = rowBody(container);
+    expect(wrapper.getAttribute("data-swiping")).toBeNull();
+    expect(wrapper.querySelector(".pv-row-swipe-action")).toBeNull();
+
+    rowTouch(body, "touchStart", [{ x: 280, y: 20 }], 0);
+    rowTouch(body, "touchMove", [{ x: 240, y: 22 }], 100);
+    expect(wrapper.getAttribute("data-swiping")).toBe("true");
+    const backdrop = wrapper.querySelector(".pv-row-swipe-action") as HTMLElement;
+    expect(backdrop).not.toBeNull();
+    expect(backdrop.textContent).toContain("Archive");
+    expect(backdrop.getAttribute("aria-hidden")).toBe("true");
+    expect(body.style.transform).toBe("translateX(-40px)");
+
+    rowTouch(body, "touchMove", [{ x: 100, y: 22 }], 1000); // -180 of 300 = 60%
+    rowTouch(body, "touchEnd", [], 1000);
+    expect(onSwipeArchive).not.toHaveBeenCalled();
+    act(() => {
+      vi.advanceTimersByTime(200);
+    });
+    expect(onSwipeArchive).toHaveBeenCalledTimes(1);
+    // Swipe never goes through the confirming menu Archive.
+    expect(onArchive).not.toHaveBeenCalled();
+  });
+
+  it("a short swipe snaps back: backdrop and data-swiping go away, nothing archived", () => {
+    vi.useFakeTimers();
+    const onSwipeArchive = vi.fn();
+    const { container } = render(
+      <PrettyConversationRow
+        row={makeRow({ host: makeHost({ id: "1" }) })}
+        selected={false}
+        pinned={false}
+        variant="mobile"
+        onSelect={vi.fn()}
+        onSwipeArchive={onSwipeArchive}
+      />,
+    );
+    const wrapper = container.querySelector('[data-conversation-id="conv-1"]') as HTMLElement;
+    const body = rowBody(container);
+    rowTouch(body, "touchStart", [{ x: 280, y: 20 }], 0);
+    rowTouch(body, "touchMove", [{ x: 250, y: 20 }], 1000);
+    expect(wrapper.getAttribute("data-swiping")).toBe("true");
+    rowTouch(body, "touchEnd", [], 1000);
+    expect(wrapper.getAttribute("data-swiping")).toBeNull();
+    expect(wrapper.querySelector(".pv-row-swipe-action")).toBeNull();
+    act(() => {
+      vi.advanceTimersByTime(500);
+    });
+    expect(onSwipeArchive).not.toHaveBeenCalled();
+  });
+
+  it("without onSwipeArchive the row doesn't swipe and shows no backdrop", () => {
+    const { container } = render(
+      <PrettyConversationRow
+        row={makeRow({ host: makeHost({ id: "1" }) })}
+        selected={false}
+        pinned={false}
+        variant="mobile"
+        onSelect={vi.fn()}
+        onArchive={vi.fn()}
+      />,
+    );
+    const wrapper = container.querySelector('[data-conversation-id="conv-1"]') as HTMLElement;
+    const body = rowBody(container);
+    rowTouch(body, "touchStart", [{ x: 280, y: 20 }], 0);
+    rowTouch(body, "touchMove", [{ x: 60, y: 20 }], 100);
+    expect(wrapper.getAttribute("data-swiping")).toBeNull();
+    expect(wrapper.querySelector(".pv-row-swipe-action")).toBeNull();
+    expect(body.style.transform).toBe("");
+    rowTouch(body, "touchEnd", [], 100);
   });
 });

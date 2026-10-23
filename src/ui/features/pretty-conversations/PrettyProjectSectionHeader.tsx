@@ -54,7 +54,7 @@ import {
   useState,
   type ReactNode,
 } from "react";
-import { ChevronDown, Mail } from "lucide-react";
+import { ChevronDown, Folder, Mail } from "lucide-react";
 
 import { useDragPreviewClaim } from "@/shell/drag-preview-session";
 import {
@@ -417,11 +417,17 @@ export function PrettyProjectSectionHeader({
             : undefined
         }
         onDragEnd={headerDraggable ? () => endProjectDrag() : undefined}
-        className="group flex items-center gap-2.5 pl-1 pr-1 pt-3.5 pb-1.5 w-full text-left cursor-pointer"
+        className="pv-project-head group w-full text-left cursor-pointer"
         data-testid={`pv-project-section-header-${slug}`}
         aria-expanded={!collapsed}
         aria-controls={`pv-project-section-content-${slug}`}
       >
+        <ChevronDown
+          className="pv-section-chevron"
+          data-open={collapsed ? "false" : "true"}
+          aria-hidden="true"
+        />
+        <Folder className="pv-project-folder" aria-hidden="true" />
         <span className="pv-section-label">
           {displayName}
         </span>
@@ -442,10 +448,7 @@ export function PrettyProjectSectionHeader({
             data-testid={`pv-project-section-unread-${slug}`}
           />
         ) : null}
-        <span
-          aria-hidden="true"
-          className="flex-1 h-px bg-[linear-gradient(90deg,transparent_0%,rgba(168,154,128,0.20)_30%,rgba(168,154,128,0.20)_70%,transparent_100%)]"
-        />
+        <span aria-hidden="true" className="flex-1" />
         {/* shape-sidebar-header-affordances: project header kebab. The
             hover-reveal wrapper mirrors the Apps header pattern verbatim
             (opacity-0 → group-hover:opacity-100 at md+; opacity-100 at <md;
@@ -463,13 +466,9 @@ export function PrettyProjectSectionHeader({
           />
           {kebabContextMenu.menu}
         </div>
-        <ChevronDown
-          className={`size-3.5 text-[#a89a80] opacity-90 shrink-0 transition-transform ${collapsed ? "" : "rotate-180"}`}
-          aria-hidden="true"
-        />
       </div>
       {!collapsed && (
-        <div id={`pv-project-section-content-${slug}`} className="pl-3.5">{rows}</div>
+        <div id={`pv-project-section-content-${slug}`} className="pv-project-content">{rows}</div>
       )}
     </div>
   );
