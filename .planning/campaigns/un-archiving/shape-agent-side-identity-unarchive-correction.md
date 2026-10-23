@@ -1,7 +1,7 @@
 # Shape: agent-side identity un-archive — restore the sentinel-drop pattern across the fleet
 
 **Declared:** 2026-10-01
-**Status:** declared (not opened)
+**Status:** superseded 2026-10-23 by shape-unarchive-one-path-supervisor-reactivation.md (never opened)
 **Vehicle:** TBD at /open time
 
 ## What this is

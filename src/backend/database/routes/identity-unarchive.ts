@@ -1,45 +1,30 @@
 /**
  * Phase 143 Plan 143-04 (D-01/D-02/D-03/D-04): POST /identities/:key/unarchive
  *
- * User-initiated un-archive gesture. The route owns the full on-the-wire
- * sequence from precondition checks through the Matrix reactivate + token
- * mint + relay.json rewrite and finally the `.unarchive-requested` sentinel
- * drop inside the archived identity's folder (`~/fleet/identities-archive/<key>/`).
- * The agent-supervisor's reconcile tick picks up the sentinel and does the
- * folder move back to the live tree.
+ * User-initiated un-archive gesture. The route runs the fast precondition
+ * checks, drops the `.unarchive-requested` flag inside the archived identity's
+ * folder (`~/fleet/identities-archive/<key>/`), then waits for the outcome.
  *
- * 2026-10-01 matrix-cred-location correction: the Matrix reactivate + token
- * mint + relay.json rewrite steps live HERE (always run on T1000 where the
- * encrypted admin creds live) rather than in the per-host supervisor (which
- * doesn't have access to the admin creds on hosts other than T1000). The
- * supervisor retains folder-mv + sentinel-delete + dormancy logic + a whoami
- * safety-check that refuses a sentinel the backend didn't precede (half-un-archive
- * guard). See `.planning/campaigns/un-archiving/shape-agent-side-identity-unarchive-correction.md`
- * for the agent-side-restoration shape and the architecture rationale.
+ * One un-archive path (shape-unarchive-one-path-supervisor-reactivation.md):
+ * the flag is the only trigger — front end and agents drop the same one — and
+ * the agent-supervisor on the identity's host does everything after it,
+ * including asking this backend (identity-reactivate agent service) to bring
+ * the chat account back. This route does no chat-account work.
  *
  * POST /identities/:key/unarchive  body: { hostId: number }
- *   → 200 { ok: true }
+ *   → 200 { ok: true, outcome: "restored" }                    — folder back in the live tree
+ *   → 200 { ok: true, outcome: "pending" }                     — no outcome within UNARCHIVE_WAIT_MS; still in progress
+ *   → 409 { reason: "refused", message: string }               — supervisor refused (its note, verbatim)
  *   → 409 { reason: "archive_not_found" }                       — precondition 1
  *   → 409 { reason: "name_collision" }                          — precondition 2
  *   → 409 { reason: "missing_roles", missingRoles: string[] }   — precondition 3
- *   → 502 { error: "matrix reactivate failed" }                 — admin API failure
- *   → 502 { error: "matrix mint failed" }                       — admin login-as-user failure
- *   → 500 { error: "relay.json read/parse failed" }             — archive relay corrupt
- *   → 500 { error: "relay.json rewrite failed" }                — write-side failure (incl. SSH)
+ *   → 409 { reason: "identity_unreadable" }                     — identity file missing / unparseable
  *   → 500 { error: "failed to drop unarchive sentinel" }        — sentinel write failure
  *
- * On a Matrix-reactivate/mint partial success followed by relay.json rewrite
- * or sentinel-drop failure: the Synapse account is reactivated but the on-disk
- * state is NOT updated. The orphan state (reactivated account, dead token in
- * relay.json, no sentinel) is harmless and self-healing: user retries → the
- * admin PUT is idempotent (deactivated=false either way), login_as_user mints
- * a fresh token, relay.json rewrites again, sentinel drops. No compensating
- * re-deactivate (shape 4 discussion will revisit if the pattern changes).
- *
  * Semantic contract:
- *   - D-01: Drops `.unarchive-requested` inside the ARCHIVE folder. Reconciler
- *     (shape 1, already landed) moves the folder back to the live tree on the
- *     next scan tick after a whoami probe confirms the Matrix account is live.
+ *   - D-01: Drops `.unarchive-requested` inside the ARCHIVE folder. The
+ *     supervisor reactivates the chat account, logs in, and moves the folder
+ *     back to the live tree; refusals leave `.unarchive-refused` and clear the flag.
  *   - D-02: Three fast-path preconditions (defense-in-depth; reconciler enforces
  *     the same logic independently per D-04):
  *       1. archive-exists: `~/fleet/identities-archive/<key>/` must be present.
@@ -49,17 +34,16 @@
  *          `roles:` frontmatter must have a live folder (`~/fleet/roles/<name>/`).
  *          If any are still archived, refuse with missingRoles listing them.
  *   - D-03: Failure response shape — structured 409 `{ reason, missingRoles? }`
- *     for preconditions; 5xx with generic `error` text for Matrix / disk failures.
+ *     for preconditions; 5xx with generic `error` text for disk failures.
  *   - D-04: Reconciler is authoritative on-tick; the precondition check is
  *     fast-path defense so the frontend surfaces a reason immediately.
  *   - Idempotent: sentinel already present → write succeeds via tmp+rename
- *     overwrite → endpoint returns 200. Matrix reactivate + mint are idempotent
- *     per the Synapse admin API contract.
+ *     overwrite, and the wait picks up whatever the in-flight attempt yields.
  *
  * Route mirrors identity-archive.ts byte-for-byte through step 4 (auth →
  * hostId parse → key gate → resolveHostById → LOCAL/REMOTE branch), then
- * runs preconditions (5a/5b/5c), the Matrix step (5d/5e/5f — 2026-10-01),
- * and finally the sentinel drop (5g).
+ * runs preconditions (5a/5b/5c), the sentinel drop (5d), and the outcome
+ * wait (5e).
  *
  * Security (Phase 143 Plan 143-04 threat register):
  *   - T-143-04-01 (EoP, unauth caller): authenticateJWT middleware runs first;
@@ -101,16 +85,9 @@ import {
   getLocalIdentitiesRoot,
   getLocalRolesRoot,
 } from "../../claude-session/identity-artifact-reader.js";
-import {
-  writeIdentityArchiveFile,
-  readIdentityArchiveFile,
-} from "../../claude-session/per-identity-archive-file.js";
+import { writeIdentityArchiveFile } from "../../claude-session/per-identity-archive-file.js";
 import { getLocalArchivedIdentitiesRoot } from "../../claude-session/list-archived-identity-keys.js";
 import { execCommand } from "../../ssh/tmux-helper.js";
-import {
-  createOrUpdateUser,
-  loginAsUser,
-} from "../../matrix/matrix-admin-client.js";
 
 /**
  * Promisified wrapper for execFile that resolves with { stdout, stderr }.
@@ -141,6 +118,64 @@ const authenticateJWT = authManager.createAuthMiddleware();
 
 /** SSH connect timeout — matches sibling identity-archive.ts. */
 const SSH_CONNECT_TIMEOUT_MS = 3000;
+
+/** How long the button's request waits for the supervisor's outcome. */
+export const UNARCHIVE_WAIT_MS = 2 * 60 * 1000;
+/** Poll cadence while waiting. */
+export const UNARCHIVE_POLL_MS = 3000;
+/** Refusal note the supervisor leaves in the archived folder. */
+export const UNARCHIVE_REFUSED_NOTE = ".unarchive-refused";
+const NOTE_MAX_CHARS = 500;
+
+const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
+
+type UnarchiveOutcome =
+  | { state: "restored" }
+  | { state: "refused"; note: string }
+  | { state: "pending" };
+
+function cleanNote(raw: string): string {
+  const note = raw.trim().slice(0, NOTE_MAX_CHARS);
+  return note || "the un-archive was refused without a reason";
+}
+
+/**
+ * One look at where the un-archive stands. Restored = live folder present and
+ * archive folder gone. Refused = archive folder still there but the flag is
+ * gone (the supervisor clears it when it refuses, after writing the note).
+ * Anything else = still pending.
+ */
+async function readUnarchiveOutcome(
+  key: string,
+  conn: Awaited<ReturnType<typeof connectOneShot>> | null,
+): Promise<UnarchiveOutcome> {
+  if (conn === null) {
+    const exists = (p: string) => fs.access(p).then(() => true, () => false);
+    const archDir = path.join(getLocalArchivedIdentitiesRoot(), key);
+    const live = await exists(path.join(getLocalIdentitiesRoot(), key));
+    const archived = await exists(archDir);
+    if (live && !archived) return { state: "restored" };
+    if (archived && !(await exists(path.join(archDir, ".unarchive-requested")))) {
+      const note = await fs
+        .readFile(path.join(archDir, UNARCHIVE_REFUSED_NOTE), "utf8")
+        .catch(() => "");
+      return { state: "refused", note: cleanNote(note) };
+    }
+    return { state: "pending" };
+  }
+  // REMOTE — key is IDENTITY_KEY_RE-validated, so interpolation is safe.
+  const out = await execCommand(
+    conn,
+    `a="$HOME/fleet/identities-archive/${key}"; l="$HOME/fleet/identities/${key}"; ` +
+      `if [ -d "$l" ] && [ ! -d "$a" ]; then echo restored; ` +
+      `elif [ -d "$a" ] && [ ! -e "$a/.unarchive-requested" ]; then echo refused; head -c ${NOTE_MAX_CHARS} "$a/${UNARCHIVE_REFUSED_NOTE}" 2>/dev/null; ` +
+      `else echo pending; fi`,
+  ).catch(() => "pending");
+  const [first, ...rest] = out.split("\n");
+  if (first.trim() === "restored") return { state: "restored" };
+  if (first.trim() === "refused") return { state: "refused", note: cleanNote(rest.join("\n")) };
+  return { state: "pending" };
+}
 
 /**
  * Embedded Python that prints, as a JSON array on stdout, every role named in
@@ -453,8 +488,8 @@ router.post(
         }
 
         if (roles === null) {
-          // Missing or unreadable identity file. Refuse BEFORE any Matrix
-          // work — treating it as roleless would skip the role check and
+          // Missing or unreadable identity file. Refuse BEFORE dropping
+          // the flag — treating it as roleless would skip the role check and
           // leave a half-restored identity the supervisor then refuses.
           databaseLogger.warn("identity-unarchive: identity file unreadable, refusing", {
             operation: "identity_unarchive_identity_unreadable",
@@ -514,106 +549,10 @@ router.post(
           }
         }
 
-        // -----------------------------------------------------------------
-        // 5d/5e/5f (2026-10-01 matrix-cred-location correction):
-        // Matrix reactivate + token mint + relay.json rewrite BEFORE the
-        // sentinel drop. Admin creds live in the DB on T1000 (where this
-        // route always runs); the supervisor on the identity's home host
-        // no longer touches Matrix admin at all. For LOCAL identities the
-        // relay.json rewrite goes via fs; for REMOTE it goes via SSH using
-        // the archive-tree writer's whitelist expansion for relay.json.
-        //
-        // Partial-success / orphan handling: Matrix reactivate is idempotent
-        // (PUT deactivated=false either way), login_as_user is cheap, so a
-        // write-side failure leaves a self-healing orphan: next user retry
-        // flows through all three steps cleanly. No compensating re-deactivate.
-        // -----------------------------------------------------------------
-
-        // 5d. Read the archived relay.json for mxid + password. Preserve the
-        // full JSON object so other fields (base, legacy keys) survive the
-        // rewrite — only access_token + token alias change.
-        let relayParsed: Record<string, unknown>;
-        let mxid: string;
-        let password: string;
-        try {
-          const raw = await readIdentityArchiveFile(key, "relay.json", {
-            hostId,
-            conn,
-          });
-          relayParsed = JSON.parse(raw) as Record<string, unknown>;
-          const uid = relayParsed.user_id;
-          const pw = relayParsed.password;
-          if (typeof uid !== "string" || !uid.startsWith("@")) {
-            throw new Error("relay.json user_id missing or malformed");
-          }
-          if (typeof pw !== "string" || pw.length === 0) {
-            throw new Error("relay.json password missing");
-          }
-          mxid = uid;
-          password = pw;
-        } catch (readErr) {
-          databaseLogger.error(
-            `identity unarchive: relay.json read/parse failed for key=${key} hostId=${hostId}: ${readErr instanceof Error ? readErr.message : String(readErr)}`,
-          );
-          return res
-            .status(500)
-            .json({ error: "relay.json read/parse failed" });
-        }
-
-        // 5e. Matrix reactivate (admin PUT /_synapse/admin/v2/users/{mxid}
-        // with deactivated=false). createOrUpdateUser is the shared primitive;
-        // same call shape identity-birth Step 6 uses.
-        const reactivateResult = await createOrUpdateUser(mxid, password);
-        if (reactivateResult.ok === false) {
-          databaseLogger.error(
-            `identity unarchive: matrix reactivate failed for mxid=${mxid} key=${key} status=${reactivateResult.status} error=${reactivateResult.error}`,
-          );
-          return res
-            .status(502)
-            .json({ error: "matrix reactivate failed" });
-        }
-
-        // 5f. Mint fresh access_token (admin POST /_synapse/admin/v1/users/{mxid}/login).
-        const mintResult = await loginAsUser(mxid);
-        if (mintResult.ok === false) {
-          databaseLogger.error(
-            `identity unarchive: matrix mint failed for mxid=${mxid} key=${key} status=${mintResult.status} error=${mintResult.error}`,
-          );
-          return res
-            .status(502)
-            .json({ error: "matrix mint failed" });
-        }
-
-        // 5f.5. Rewrite relay.json with the fresh token. Preserve all other
-        // keys verbatim (base, legacy fields). Both access_token AND token
-        // alias get the fresh value — recv.sh reads either (belt-and-braces
-        // across historical schema variants per matrix-admin-client.ts:431).
-        const newRelay = {
-          ...relayParsed,
-          access_token: mintResult.accessToken,
-          token: mintResult.accessToken,
-        };
-        try {
-          await writeIdentityArchiveFile(
-            key,
-            "relay.json",
-            JSON.stringify(newRelay, null, 2),
-            { hostId, conn, chmod: 0o600 },
-          );
-        } catch (writeErr) {
-          databaseLogger.error(
-            `identity unarchive: relay.json rewrite failed for key=${key} hostId=${hostId}: ${writeErr instanceof Error ? writeErr.message : String(writeErr)}`,
-          );
-          return res
-            .status(500)
-            .json({ error: "relay.json rewrite failed" });
-        }
-
-        // 5g. Drop the sentinel via the archive-tree writer (plan 143-01).
-        // The writer re-validates key + relPath before touching disk (belt-and-suspenders).
-        // Idempotent by construction: existing sentinel is overwritten via tmp+rename.
-        // The supervisor's whoami probe (2026-10-01 safety) will see the fresh
-        // token minted in step 5f and proceed with folder-mv.
+        // 5d. Drop the flag. The supervisor owns everything after this point
+        // (chat-account reactivation via the identity-reactivate agent service,
+        // login, folder move); the route waits for the outcome the same way
+        // identity birth waits for the supervisor.
         await writeIdentityArchiveFile(key, ".unarchive-requested", "", {
           hostId,
           conn,
@@ -621,10 +560,58 @@ router.post(
 
         // Audit log per T-143-04-07 (repudiation): who requested un-archive on what.
         databaseLogger.info(
-          `identity unarchive requested: userId=${userId}, hostId=${hostId}, key=${key}, mxid=${mxid}`,
+          `identity unarchive requested: userId=${userId}, hostId=${hostId}, key=${key}`,
         );
 
-        return res.json({ ok: true });
+        // 5e. Wait for the supervisor's outcome: restored (folder back in the
+        // live tree), refused (flag cleared, folder still archived, refusal
+        // note says why), or still pending after UNARCHIVE_WAIT_MS.
+        let clientGone = false;
+        // `req` "close" doesn't fire once express.json() has consumed the
+        // body; the response's "close" does (before we've finished = client left).
+        res.on("close", () => {
+          if (!res.writableFinished) clientGone = true;
+        });
+        const waitStart = Date.now();
+        while (!clientGone && Date.now() - waitStart < UNARCHIVE_WAIT_MS) {
+          await sleep(UNARCHIVE_POLL_MS);
+          const outcome = await readUnarchiveOutcome(key, conn);
+          if (outcome.state === "restored") {
+            databaseLogger.info("identity unarchive: restored", {
+              operation: "identity_unarchive_restored",
+              identityKey: key,
+              hostId,
+              elapsedMs: Date.now() - waitStart,
+            });
+            return res.json({ ok: true, outcome: "restored" });
+          }
+          if (outcome.state === "refused") {
+            databaseLogger.warn("identity unarchive: refused by supervisor", {
+              operation: "identity_unarchive_refused",
+              identityKey: key,
+              hostId,
+              note: outcome.note,
+              elapsedMs: Date.now() - waitStart,
+            });
+            return res.status(409).json({ reason: "refused", message: outcome.note });
+          }
+        }
+        if (clientGone) {
+          databaseLogger.info("identity unarchive: client left during wait", {
+            operation: "identity_unarchive_client_gone",
+            identityKey: key,
+            hostId,
+            elapsedMs: Date.now() - waitStart,
+          });
+          return;
+        }
+        databaseLogger.warn("identity unarchive: still pending after wait", {
+          operation: "identity_unarchive_wait_timeout",
+          identityKey: key,
+          hostId,
+          timeoutMs: UNARCHIVE_WAIT_MS,
+        });
+        return res.json({ ok: true, outcome: "pending" });
       } catch (err) {
         // Log server-side; return generic message to the client (T-143-04-06).
         databaseLogger.error(

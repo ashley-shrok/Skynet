@@ -49,7 +49,10 @@ vi.mock("@/api/conversation-search-api", () => ({
 
 // Phase 143 Plan 143-10 — mock unarchiveIdentity for kebab Un-archive tests.
 const unarchiveIdentityMock = vi.fn<
-  (hostId: number, identityKey: string) => Promise<{ ok: true }>
+  (
+    hostId: number,
+    identityKey: string,
+  ) => Promise<{ ok: true; outcome: "restored" | "pending" }>
 >();
 vi.mock("@/api/identity-unarchive-api", async (importOriginal) => {
   const orig = (await importOriginal()) as Record<string, unknown>;
@@ -117,7 +120,7 @@ function makeRow(overrides: Partial<ConversationSearchResult> = {}): Conversatio
 beforeEach(() => {
   searchConversationsMock.mockReset();
   unarchiveIdentityMock.mockReset();
-  unarchiveIdentityMock.mockResolvedValue({ ok: true });
+  unarchiveIdentityMock.mockResolvedValue({ ok: true, outcome: "restored" });
   _resetForTests();
 });
 
@@ -803,8 +806,8 @@ describe("Phase 143 — kebab-menu Un-archive on archived-identity rows (D-11, D
     // endpoint returns), and only GONE after we manually resolve it with 200.
     let resolveUnarchive!: () => void;
     unarchiveIdentityMock.mockImplementation(
-      () => new Promise<{ ok: true }>((res) => {
-        resolveUnarchive = () => res({ ok: true });
+      () => new Promise<{ ok: true; outcome: "restored" | "pending" }>((res) => {
+        resolveUnarchive = () => res({ ok: true, outcome: "restored" });
       }),
     );
     const alertSpy = vi.spyOn(window, "alert").mockImplementation(() => {});
@@ -836,6 +839,9 @@ describe("Phase 143 — kebab-menu Un-archive on archived-identity rows (D-11, D
     // The row must still be present in the DOM and window.alert must NOT have been called.
     expect(screen.queryByTestId("conversation-search-row-/archived-mid.jsonl")).toBeTruthy();
     expect(alertSpy).not.toHaveBeenCalled();
+    // While waiting for the supervisor the row shows a spinner instead of its menu.
+    expect(screen.getByTestId("conversation-search-unarchiving-midflightkey-3")).toBeTruthy();
+    expect(screen.queryByTestId("conversation-search-archived-row-kebab-midflightkey-3")).toBeNull();
 
     // Now resolve the never-resolving mock (endpoint returns 200).
     resolveUnarchive();
@@ -846,7 +852,7 @@ describe("Phase 143 — kebab-menu Un-archive on archived-identity rows (D-11, D
       { timeout: 2000 },
     );
     expect(alertSpy).toHaveBeenCalledWith(
-      expect.stringMatching(/Un-archiving/),
+      expect.stringMatching(/midflightkey is back\./),
     );
   });
 
@@ -875,6 +881,65 @@ describe("Phase 143 — kebab-menu Un-archive on archived-identity rows (D-11, D
     await waitFor(() => expect(window.alert).toHaveBeenCalled(), { timeout: 2000 });
     // Modal stays open — onOpenChange should NOT have been called with false (D-19)
     expect(onOpenChange).not.toHaveBeenCalledWith(false);
+  });
+
+  it("5b: pending outcome → row stays, spinner clears, 'still un-archiving' alert", async () => {
+    unarchiveIdentityMock.mockResolvedValueOnce({ ok: true, outcome: "pending" });
+    const archivedRow = makeRow({
+      transcriptPath: "/archived-pending.jsonl",
+      identityKey: "slowpoke",
+      hostId: 2,
+      isArchived: true,
+    });
+    const alertSpy = vi.spyOn(window, "alert").mockImplementation(() => {});
+    const user = userEvent.setup();
+    render(
+      <ConversationSearchModal
+        open={true}
+        onOpenChange={vi.fn()}
+        onOpenActiveConversation={vi.fn()}
+      />,
+    );
+    await searchAndGetResults([archivedRow]);
+    await user.click(screen.getByTestId("conversation-search-archived-row-kebab-slowpoke-2"));
+    await user.click(await screen.findByRole("menuitem", { name: /^Un-archive$/ }));
+
+    await waitFor(() => expect(alertSpy).toHaveBeenCalled(), { timeout: 2000 });
+    expect(alertSpy.mock.calls[0][0]).toMatch(/Still un-archiving slowpoke — check back shortly\./);
+    expect(screen.queryByTestId("conversation-search-row-/archived-pending.jsonl")).toBeTruthy();
+    await waitFor(() =>
+      expect(screen.queryByTestId("conversation-search-unarchiving-slowpoke-2")).toBeNull(),
+    );
+  });
+
+  it("7b: refused by the supervisor → row stays + alert carries the refusal reason", async () => {
+    unarchiveIdentityMock.mockRejectedValueOnce(
+      new UnarchiveError("the backend refused to reactivate the chat account (not_an_agent)", "refused"),
+    );
+    const archivedRow = makeRow({
+      transcriptPath: "/archived-refused.jsonl",
+      identityKey: "tina",
+      hostId: 1,
+      isArchived: true,
+    });
+    const alertSpy = vi.spyOn(window, "alert").mockImplementation(() => {});
+    const user = userEvent.setup();
+    render(
+      <ConversationSearchModal
+        open={true}
+        onOpenChange={vi.fn()}
+        onOpenActiveConversation={vi.fn()}
+      />,
+    );
+    await searchAndGetResults([archivedRow]);
+    await user.click(screen.getByTestId("conversation-search-archived-row-kebab-tina-1"));
+    await user.click(await screen.findByRole("menuitem", { name: /^Un-archive$/ }));
+
+    await waitFor(() => expect(alertSpy).toHaveBeenCalled(), { timeout: 2000 });
+    expect(alertSpy.mock.calls[0][0]).toBe(
+      "Couldn't un-archive tina: the backend refused to reactivate the chat account (not_an_agent)",
+    );
+    expect(screen.queryByTestId("conversation-search-row-/archived-refused.jsonl")).toBeTruthy();
   });
 
   it("7: missing_roles failure → row stays + distinct alert copy naming the missing role(s) (D-17 verbatim)", async () => {

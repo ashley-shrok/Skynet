@@ -1942,234 +1942,291 @@ except Exception:
 PYEOF
 }
 
-# ---- user-initiated identity un-archive scanner (un-archive host-side shape) ----
+# ---- user-initiated identity un-archive scanner (one-path un-archive shape) ----
 # scan_identity_unarchive_requested_sentinels()
 #
-# Sibling of scan_archive_requested_sentinels. Walks $IDENTITIES_ARCHIVE_DIR/*/
-# every reconcile tick and reverses the archive for any archived identity whose
-# folder carries a `.unarchive-requested` sentinel.
+# Walks $IDENTITIES_ARCHIVE_DIR/*/ every reconcile tick and un-archives any
+# archived identity whose folder carries a `.unarchive-requested` flag. The flag
+# is the ONLY trigger: the front-end button and agents drop the same one. See
+# .planning/campaigns/un-archiving/shape-unarchive-one-path-supervisor-reactivation.md.
 #
-# 2026-10-01 matrix-cred-location correction: the Matrix reactivate + token mint
-# + relay.json rewrite steps moved OUT of this scanner and INTO the backend
-# `identity-unarchive.ts` route. The route always runs on T1000 (where the
-# encrypted admin creds live in the DB); the per-host supervisor doesn't have
-# admin creds on hosts other than T1000, and spreading them via substrate was
-# a crown-jewel blast-radius reject. The scanner retains preconditions +
-# folder-mv + sentinel-delete + dormancy logic, with a new whoami safety-check
-# that refuses a sentinel the backend didn't precede (half-un-archive guard).
-# See .planning/campaigns/un-archiving/shape-agent-side-identity-unarchive-correction.md
-# for the agent-side-restoration shape and the full architecture rationale.
+# Archiving switches the chat (Matrix) account off, which erases its password on
+# the chat server. Only the backend holds the chat admin credentials, so the
+# supervisor asks it — via the identity-reactivate agent service (request files
+# in $SERVICE_REQUESTS_DIR, see substrate/scripts/fleet-service for the wire
+# protocol) — to reactivate the account. The backend generates a fresh password
+# and returns it in the response; the supervisor saves it into the archived
+# relay.json and logs in normally to get a fresh access_token. The work spans
+# several ticks; progress is kept in $d/.unarchive-reactivate (the pending
+# request uuid, or the literal "saved" once the new password is in relay.json).
 #
-# Per-identity flow (all steps LOG per-step; secrets never logged):
+# Per-identity flow (all steps LOG; secrets never logged):
 #
-#   Pre-flight 1 (name collision, permanent-refuse):
-#     If $IDENTITIES_DIR/$name already exists → LOUD ERROR log, delete the
-#     `.unarchive-requested` sentinel, skip. The operator resolves manually
-#     (rename the live identity or the archived one).
+#   Pre-flight 1 (name collision) and Pre-flight 2 (every role live) — refuse.
 #
-#   Pre-flight 2 (roles-all-live precondition, permanent-refuse):
-#     Read the archived $name.md frontmatter roles via _extract_frontmatter_roles.
-#     Every listed role must have a live folder at $ROLES_DIR/<role>. Any
-#     missing → LOUD ERROR log naming ALL missing roles, delete the sentinel,
-#     skip. User un-archives roles first, then re-issues. An identity with no
-#     roles has nothing to check and passes.
+#   Account step:
+#     a. whoami with relay.json's access_token → 200: account live and this box
+#        holds a working login (crash recovery) → go to the folder steps.
+#     b. state "saved" → password login with relay.json's password → token
+#        saved, go to the folder steps. 401/403 → refuse. Other → retry.
+#     c. state <uuid> → read <uuid>.response.json if present:
+#          ok        → save password into relay.json, state "saved", log in next tick
+#          transient → drop the request, file a new one next tick
+#          other     → refuse with the backend's reason
+#        No response after UNARCHIVE_REQUEST_STALE_SECS → drop it, re-file.
+#     d. no state → file a request naming relay.json's user_id (never a password).
 #
-#   Safety check (whoami probe, half-un-archive guard — 2026-10-01):
-#     Read base + access_token from the archive folder's relay.json. GET
-#     $base/account/whoami with Bearer <access_token>. 200 confirms the
-#     Matrix account is live (reactivate+mint already happened — either via
-#     the backend un-archive route, or by a previous tick that got as far as
-#     relay.json rewrite before crashing). 401 means the token is still the
-#     stale deactivated-era one and nothing reactivated the account — refuse
-#     with a LOUD log instructing the operator to use the frontend path, and
-#     RETAIN the sentinel (operator may be mid-flow). Any other code (5xx,
-#     network, timeout) is treated as transient — sentinel retained, next
-#     tick retries.
+#   Folder steps: .dormant unless .no-dormancy, clear the flag + state + any old
+#   refusal note, mv archive → live, restore the conversation's apps, prepend
+#   the "you were unarchived" banner.
 #
-#     This guard exists because the Matrix admin creds live only on T1000
-#     (see 2026-10-01 correction above). An agent dropping a sentinel
-#     directly inside the archive folder would otherwise cause a
-#     half-un-archive (folder moves to live, Matrix account still deactivated,
-#     identity useless). Until shape 4 restores agent-side identity un-archive
-#     via a scoped T1000 internal endpoint, direct sentinel-drops for
-#     identities on non-T1000 hosts refuse here.
+#   Refuse = write the reason to $d/.unarchive-refused (the front end's wait and
+#   asking agents read it), drop any pending request, delete the flag. The front
+#   end's wait treats "archive folder present, flag gone" as refused.
 #
-#   Step 4 (Conditional .dormant write):
-#     If the archive folder carries `.no-dormancy`, the always-on intent is
-#     preserved — do NOT write .dormant, log the preservation. Else write an
-#     empty `.dormant` inside the archive folder.
-#
-#   Step 5 (Delete .unarchive-requested):
-#     rm from the archive folder BEFORE the mv, mirroring the archive-side
-#     step-4a discipline (a mid-flight crash between delete and mv leaves
-#     the folder in archive with .dormant already inside — operator manually
-#     resolves via a fresh un-archive drop; this edge case matches the
-#     archive path's same discipline).
-#
-#   Step 6 (mv archive → live):
-#     `mv $IDENTITIES_ARCHIVE_DIR/$name $IDENTITIES_DIR/$name`. The .dormant
-#     sentinel travels with the folder atomically. On success the identity
-#     appears in the sidebar again and waits for the usual wake triggers
-#     (matrix_peek on a DM, schedule_peek on a wakeup) — reconcile's
-#     alive-check sees .dormant and skips the auto-launch; matrix_peek's
-#     next parallel probe uses the fresh access_token the backend route
-#     minted and wrote into relay.json before dropping the sentinel.
-#
-# ACCEPTED CAVEAT: room memberships do NOT survive reactivation. Retire's
-# deactivate call uses erase=true, which wipes the account's room membership
-# records; the backend's admin PUT deactivated=false brings the account back
-# alive but does NOT restore membership records — verified against the live
-# t1000 Synapse via a throwaway-account spike (2026-09-30). New DMs to the
-# un-archived identity work naturally (Matrix auto-creates a new DM room on
-# send; matrix_peek wakes on it), but peers with cached zombie-room IDs would
-# send into rooms the identity is no longer in. This is the same stale-cache
-# problem archive itself creates and not made worse here.
-# If a rejoin path becomes desirable, it lands as a small follow-up shape (retire
-# captures joined_rooms → un-archive scanner reads the snapshot and force-joins
-# via admin /join/{roomId}?user_id=<mxid> — matrix-admin-client.ts already
-# exposes the joinRoom primitive on the TS side). See
-# .planning/campaigns/un-archiving/shape-unarchive-host-side.md § Matrix
-# fidelity spike — results + accepted caveat.
+# ACCEPTED CAVEAT: room memberships do NOT survive reactivation (archive's
+# deactivate uses erase=true). The backend re-joins the agents directory room;
+# other rooms are not restored. New DMs work naturally.
+SERVICE_REQUESTS_DIR="${AGENT_SERVICE_REQUESTS_DIR:-$HOME/fleet/service-requests}"
+UNARCHIVE_REQUEST_STALE_SECS="${AGENT_UNARCHIVE_REQUEST_STALE_SECS:-600}"
+
+# _unarchive_drop_request <uuid> — remove every file of one service request.
+_unarchive_drop_request() {
+  local uuid="$1"
+  [[ "$uuid" =~ ^[A-Za-z0-9-]+$ ]] || return 0
+  rm -f -- "${SERVICE_REQUESTS_DIR:?}/${uuid:?}".* 2>/dev/null || true
+}
+
+# _unarchive_refuse <archive-dir> <name> <reason>
+_unarchive_refuse() {
+  local d="$1" name="$2" reason="$3" st
+  log "ERROR: '$name' un-archive REFUSED: $reason"
+  st=$(cat "$d/.unarchive-reactivate" 2>/dev/null || true)
+  [ "$st" = "saved" ] || _unarchive_drop_request "$st"
+  rm -f "${d:?}/.unarchive-reactivate"
+  printf '%s\n' "$reason" > "$d/.unarchive-refused.tmp.$$" \
+    && mv -f "$d/.unarchive-refused.tmp.$$" "$d/.unarchive-refused"
+  rm -f "${d:?}/.unarchive-requested"
+}
+
+# _unarchive_relay_set <relay.json> [jq args...] <jq-filter> — atomic 0600 rewrite.
+_unarchive_relay_set() {
+  local f="$1"; shift
+  local tmp="$f.tmp.$$"
+  if ( umask 077; jq "$@" "$f" > "$tmp" ) && mv -f "$tmp" "$f"; then
+    chmod 600 "$f"
+    return 0
+  fi
+  rm -f "${tmp:?}"
+  return 1
+}
+
+# _unarchive_account_step <archive-dir> <name>
+#   returns 0 = account live and relay.json holds a working token (continue)
+#           1 = waiting (try again next tick)
+#           2 = refused (already reported via _unarchive_refuse)
+_unarchive_account_step() {
+  local d="$1" name="$2"
+  local relay="$d/relay.json"
+  if [ ! -f "$relay" ]; then
+    _unarchive_refuse "$d" "$name" "the archived identity has no saved chat login (relay.json is missing)"
+    return 2
+  fi
+  local base mxid token
+  base=$(jq -r '.base // empty' "$relay" 2>/dev/null)
+  mxid=$(jq -r '.user_id // empty' "$relay" 2>/dev/null)
+  token=$(jq -r '.access_token // .token // empty' "$relay" 2>/dev/null)
+  if [ -z "$base" ] || [ -z "$mxid" ]; then
+    _unarchive_refuse "$d" "$name" "the archived identity's saved chat login is missing its server or account"
+    return 2
+  fi
+
+  # a. Already live with a working login?
+  if [ -n "$token" ]; then
+    local code
+    code=$(curl -sS -o /dev/null -w '%{http_code}' --max-time 15 \
+      -H "Authorization: Bearer $token" "$base/account/whoami" 2>/dev/null)
+    if [ "$code" = "200" ]; then
+      log "'$name' un-archive: chat login already works — proceeding to folder move"
+      return 0
+    fi
+  fi
+
+  local state
+  state=$(cat "$d/.unarchive-reactivate" 2>/dev/null || true)
+
+  # b. New password saved — log in with it.
+  if [ "$state" = "saved" ]; then
+    local password body resp http newtok
+    password=$(jq -r '.password // empty' "$relay" 2>/dev/null)
+    body=$(jq -n --arg u "$mxid" --arg p "$password" \
+      '{type:"m.login.password", identifier:{type:"m.id.user", user:$u}, password:$p}')
+    resp=$(curl -sS -w '\n%{http_code}' --max-time 15 -X POST \
+      -H 'Content-Type: application/json' --data-binary @- "$base/login" <<<"$body" 2>/dev/null)
+    http=$(printf '%s\n' "$resp" | tail -1)
+    case "$http" in
+      200)
+        newtok=$(printf '%s\n' "$resp" | sed '$d' | jq -r '.access_token // empty' 2>/dev/null)
+        if [ -z "$newtok" ]; then
+          log "ERROR: '$name' un-archive: login returned no access_token — retrying next tick"
+          return 1
+        fi
+        # shellcheck disable=SC2016  # jq variables, not shell
+        if ! _unarchive_relay_set "$relay" --arg t "$newtok" '.access_token = $t | .token = $t'; then
+          log "ERROR: '$name' un-archive: could not save the new chat login into relay.json — retrying next tick"
+          return 1
+        fi
+        rm -f "${d:?}/.unarchive-reactivate"
+        log "'$name' un-archive: logged in with the new password; fresh access_token saved"
+        return 0
+        ;;
+      401|403)
+        _unarchive_refuse "$d" "$name" "logging in with the new chat password failed (http $http) — ask a box maintainer"
+        return 2
+        ;;
+      *)
+        log "'$name' un-archive: login attempt failed http=$http (transient) — retrying next tick"
+        return 1
+        ;;
+    esac
+  fi
+
+  # c. A reactivation request is pending.
+  if [[ "$state" =~ ^[A-Za-z0-9-]+$ ]]; then
+    local resp_file="$SERVICE_REQUESTS_DIR/$state.response.json"
+    if [ -f "$resp_file" ]; then
+      local okv code msg pw
+      okv=$(jq -r '.ok' "$resp_file" 2>/dev/null)
+      if [ "$okv" = "true" ]; then
+        pw=$(jq -r '.result.password // empty' "$resp_file" 2>/dev/null)
+        if [ -z "$pw" ]; then
+          log "ERROR: '$name' un-archive: reactivation response carried no password — asking again next tick"
+          _unarchive_drop_request "$state"
+          rm -f "${d:?}/.unarchive-reactivate"
+          return 1
+        fi
+        # shellcheck disable=SC2016  # jq variables, not shell
+        if ! _unarchive_relay_set "$relay" --arg p "$pw" '.password = $p'; then
+          log "ERROR: '$name' un-archive: could not save the new chat password into relay.json — retrying next tick"
+          return 1
+        fi
+        printf 'saved\n' > "$d/.unarchive-reactivate"
+        _unarchive_drop_request "$state"
+        log "'$name' un-archive: chat account reactivated by the backend; new password saved — logging in next tick"
+        return 1
+      fi
+      code=$(jq -r '.error.code // "unknown"' "$resp_file" 2>/dev/null)
+      msg=$(jq -r '.error.message // empty' "$resp_file" 2>/dev/null)
+      _unarchive_drop_request "$state"
+      rm -f "${d:?}/.unarchive-reactivate"
+      case "$code" in
+        matrix_unavailable|expired|queue_full|internal)
+          log "'$name' un-archive: reactivation request failed ($code) — will ask again next tick"
+          return 1
+          ;;
+        *)
+          _unarchive_refuse "$d" "$name" "the backend refused to reactivate the chat account ($code)${msg:+: $msg}"
+          return 2
+          ;;
+      esac
+    fi
+    local age=$(( $(date +%s) - $(stat -c %Y "$d/.unarchive-reactivate" 2>/dev/null || date +%s) ))
+    if [ "$age" -ge "$UNARCHIVE_REQUEST_STALE_SECS" ]; then
+      log "'$name' un-archive: reactivation request $state unanswered after ${age}s — dropping it and asking again"
+      _unarchive_drop_request "$state"
+      rm -f "${d:?}/.unarchive-reactivate"
+    fi
+    return 1
+  fi
+
+  # d. File a reactivation request (names the account only — never a password).
+  mkdir -p "$SERVICE_REQUESTS_DIR" 2>/dev/null || true
+  local uuid
+  uuid=$(cat /proc/sys/kernel/random/uuid 2>/dev/null || uuidgen 2>/dev/null)
+  if [ -z "$uuid" ]; then
+    log "ERROR: '$name' un-archive: could not generate a request id — retrying next tick"
+    return 1
+  fi
+  if jq -cn --arg a "$mxid" --arg t "$(date -u +%FT%TZ)" \
+      '{service:"identity-reactivate", requested_at:$t, input:{account:$a}}' \
+      > "$SERVICE_REQUESTS_DIR/$uuid.json.tmp.$$" \
+    && mv -f "$SERVICE_REQUESTS_DIR/$uuid.json.tmp.$$" "$SERVICE_REQUESTS_DIR/$uuid.json"; then
+    printf '%s\n' "$uuid" > "$d/.unarchive-reactivate"
+    log "'$name' un-archive: asked the backend to reactivate $mxid (request $uuid)"
+  else
+    _unarchive_drop_request "$uuid"
+    log "ERROR: '$name' un-archive: could not write the reactivation request — retrying next tick"
+  fi
+  return 1
+}
+
 scan_identity_unarchive_requested_sentinels() {
   local d name
   for d in "$IDENTITIES_ARCHIVE_DIR"/*/; do
     [ -d "$d" ] || continue                          # nullglob-miss guard
+    d="${d%/}"
     name="$(basename "$d")"
     [ -f "$d/.unarchive-requested" ] || continue
 
-    log "'$name' user-initiated un-archive: .unarchive-requested detected"
+    log "'$name' un-archive: .unarchive-requested detected"
 
-    # -----------------------------------------------------------------------
-    # Pre-flight 1: name collision refuse.
-    # -----------------------------------------------------------------------
+    # Pre-flight 1: name collision.
     if [ -e "$IDENTITIES_DIR/$name" ]; then
-      log "ERROR: '$name' un-archive REFUSED: live identity already exists at $IDENTITIES_DIR/$name — resolve the collision manually. Sentinel deleted."
-      rm -f "$d/.unarchive-requested"
+      _unarchive_refuse "$d" "$name" "a live identity named '$name' already exists on this box"
       continue
     fi
 
-    # -----------------------------------------------------------------------
-    # Pre-flight 2: roles-all-live precondition.
-    # -----------------------------------------------------------------------
+    # Pre-flight 2: every role the identity held must be live.
     local ident_file="$d/$name.md"
     if [ ! -f "$ident_file" ]; then
-      log "ERROR: '$name' un-archive REFUSED: identity file not found at $ident_file. Sentinel deleted."
-      rm -f "$d/.unarchive-requested"
+      _unarchive_refuse "$d" "$name" "the archived identity file $name.md is missing"
       continue
     fi
     local roles_json
     if ! roles_json=$(_extract_frontmatter_roles "$ident_file"); then
-      log "ERROR: '$name' un-archive REFUSED: could not parse role frontmatter in $ident_file. Sentinel deleted."
-      rm -f "$d/.unarchive-requested"
+      _unarchive_refuse "$d" "$name" "couldn't read the roles in $name.md"
       continue
     fi
-    # Enumerate missing roles.
-    local missing=()
-    local role
+    local missing=() role
     while IFS= read -r role; do
       [ -z "$role" ] && continue
-      if [ ! -d "$ROLES_DIR/$role" ]; then
-        missing+=("$role")
-      fi
+      [ -d "$ROLES_DIR/$role" ] || missing+=("$role")
     done < <(printf '%s' "$roles_json" | jq -r '.[]?' 2>/dev/null)
     if [ "${#missing[@]}" -gt 0 ]; then
-      log "ERROR: '$name' un-archive REFUSED: role(s) not live in $ROLES_DIR: ${missing[*]}. Un-archive those roles first, then re-issue. Sentinel deleted."
-      rm -f "$d/.unarchive-requested"
+      _unarchive_refuse "$d" "$name" "un-archive role(s) ${missing[*]} first — this identity depends on them"
       continue
     fi
 
-    # -----------------------------------------------------------------------
-    # Safety check (whoami probe, half-un-archive guard — 2026-10-01):
-    # Confirm the Matrix account is reactivated before touching the folder.
-    # The backend un-archive route (identity-unarchive.ts) does Matrix
-    # reactivate + mint + relay.json rewrite BEFORE dropping the sentinel.
-    # If someone drops the sentinel directly without going through the
-    # backend (e.g., an agent on a non-T1000 host — admin creds live only
-    # on T1000), the relay.json still carries the stale deactivated-era
-    # token and whoami will 401. Refuse + retain sentinel so the operator
-    # notices and uses the frontend path; shape 4 will restore agent-side
-    # identity un-archive via a scoped T1000 internal endpoint.
-    # -----------------------------------------------------------------------
-    local relay_json="$d/relay.json"
-    if [ ! -f "$relay_json" ]; then
-      log "ERROR: '$name' un-archive: relay.json not found at $relay_json. Sentinel retained; next tick will retry."
-      continue
-    fi
-    local base access_token
-    base=$(jq -r '.base // empty' "$relay_json" 2>/dev/null)
-    access_token=$(jq -r '.access_token // empty' "$relay_json" 2>/dev/null)
-    if [ -z "$base" ] || [ -z "$access_token" ]; then
-      log "ERROR: '$name' un-archive: relay.json missing base or access_token — sentinel retained; backend route should populate before sentinel drop"
-      continue
-    fi
+    # Account step (may span several ticks).
+    if ! _unarchive_account_step "$d" "$name"; then continue; fi
 
-    # whoami probe — no retries; a fresh backend-prepared token should work first time.
-    local whoami_resp whoami_code
-    whoami_resp=$(curl -sS -w '\n%{http_code}' --max-time 15 \
-      -H "Authorization: Bearer $access_token" \
-      "$base/account/whoami" 2>/dev/null)
-    whoami_code=$(printf '%s\n' "$whoami_resp" | tail -1)
-    case "$whoami_code" in
-      200)
-        log "'$name' un-archive: whoami probe success (account is live) — proceeding to folder move"
-        ;;
-      401)
-        log "ERROR: '$name' un-archive REFUSED: whoami probe returned 401 — Matrix account is still deactivated (sentinel was dropped without the backend's reactivate+mint+relay-rewrite). Use the frontend un-archive path, which runs on T1000 where the admin creds live. Sentinel retained."
-        continue
-        ;;
-      *)
-        log "ERROR: '$name' un-archive: whoami probe failed http=$whoami_code (transient / unexpected) — sentinel retained; next tick will retry"
-        continue
-        ;;
-    esac
-
-    # -----------------------------------------------------------------------
     # Step 4: Conditional .dormant write (preserve pre-archive .no-dormancy).
-    # A .dormant that was left inside the archive folder from a pre-retire
-    # idle-sweep travels with the folder either way — reconcile's exempt-branch
-    # clears it on the .no-dormancy path — so we only need to WRITE .dormant
-    # in the non-preserved branch. Write is checked: a failing redirection
-    # (permission denied, disk full, .dormant is unexpectedly a directory)
-    # would defeat the shape's core "un-archive comes back dormant" invariant
-    # by moving the identity live without the sentinel — abort with sentinel
-    # retained instead of silently proceeding.
-    # -----------------------------------------------------------------------
+    # Checked write: moving the identity live without .dormant would defeat the
+    # "un-archive comes back dormant" invariant — abort with the flag retained.
     if [ -f "$d/.no-dormancy" ]; then
       log "'$name' un-archive step 4: .no-dormancy present in archive — always-on intent preserved, skipping .dormant write"
     else
       if ! : > "$d/.dormant"; then
-        log "ERROR: '$name' un-archive step 4 (.dormant write) FAILED at $d/.dormant — sentinel retained; next tick will retry"
+        log "ERROR: '$name' un-archive step 4 (.dormant write) FAILED at $d/.dormant — flag retained; next tick will retry"
         continue
       fi
       log "'$name' un-archive step 4: .dormant written in archive folder"
     fi
 
-    # -----------------------------------------------------------------------
-    # Step 5: Delete .unarchive-requested BEFORE mv (archive-side discipline).
-    # -----------------------------------------------------------------------
-    rm -f "$d/.unarchive-requested"
+    # Step 5: clear the flag, progress state and any old refusal note BEFORE
+    # the mv (archive-side discipline).
+    rm -f "${d:?}/.unarchive-requested" "${d:?}/.unarchive-reactivate" "${d:?}/.unarchive-refused"
 
-    # -----------------------------------------------------------------------
-    # Step 6: mv archive → live. Sentinel already deleted; .dormant (if any)
-    # travels with the folder atomically. mkdir -p guards against a fresh
-    # box / test scratch dir where $IDENTITIES_DIR doesn't exist yet;
-    # parity with retire_identity's mkdir -p for $IDENTITIES_ARCHIVE_DIR.
-    # -----------------------------------------------------------------------
+    # Step 6: mv archive → live.
     mkdir -p "$IDENTITIES_DIR" 2>/dev/null || true
     if ! mv "$d" "$IDENTITIES_DIR/$name"; then
-      log "ERROR: '$name' un-archive step 6 (mv archive→live) FAILED — sentinel already deleted; identity retained in archive tree with matrix already reactivated by the backend route + .dormant already written. Investigate manually; drop a fresh .unarchive-requested to retry once the collision is resolved."
+      log "ERROR: '$name' un-archive step 6 (mv archive→live) FAILED — flag already deleted; identity retained in archive tree with its chat account live + .dormant written. Investigate manually; drop a fresh .unarchive-requested to retry once the collision is resolved."
       continue
     fi
-    log "'$name' un-archive COMPLETE: folder moved to live tree (matrix reactivate + token mint + relay.json rewrite done by backend route before sentinel)"
+    log "'$name' un-archive COMPLETE: folder moved to live tree"
     restore_identity_apps "$name" "$IDENTITIES_DIR/$name"
 
-    # -----------------------------------------------------------------------
-    # Step 7: Prepend un-archive banner to the identity file body.
-    # Non-fatal — the un-archive is otherwise complete at this point; a
-    # failure here means the agent won't see the in-session banner but
-    # everything else (folder move, matrix reactivate, .dormant) is intact.
-    # See _prepend_unarchive_banner() docblock for shape rationale.
-    # -----------------------------------------------------------------------
+    # Step 7: Prepend un-archive banner (non-fatal).
     local live_ident_file="$IDENTITIES_DIR/$name/$name.md"
     local unarchive_ts
     unarchive_ts=$(date -u +%Y-%m-%dT%H:%M:%SZ)
@@ -3913,7 +3970,7 @@ reconcile() {
   scan_archive_requested_sentinels                 # Phase 115 D-10: user-initiated archive-scan (every tick, no gate, bypasses .pinned/.no-dormancy/coordinator/freshness)
   scan_role_archive_requested_sentinels            # Phase 133 D-01/D-05: user-initiated ROLE archive (every tick, no gate, cascades retire_identity per D-08, moves role folder per D-09 if all-clean)
   scan_app_archive_requested_sentinels             # app-archive shape: user-initiated APP archive (every tick, invokes archive-app.sh from the app-development skill on any folder carrying .archive-requested)
-  scan_identity_unarchive_requested_sentinels      # un-archive host-side shape: user-initiated identity UN-archive (matrix reactivate + fresh token + .dormant + mv archive→live)
+  scan_identity_unarchive_requested_sentinels      # one-path un-archive: flag → backend reactivates chat account → login → .dormant + mv archive→live
   scan_role_unarchive_requested_sentinels          # un-archive host-side shape: user-initiated role UN-archive (folder mv only, no identity cascade)
   scan_app_unarchive_requested_sentinels           # un-archive host-side shape: user-initiated app UN-archive (folded-in restore-app.sh: port-collision check under create-lock, mv archive→live, systemd reinstall + enable+start)
   reap_desktops                                    # stop agent-desktop@ units of gone identities, and of dormant ones nobody is viewing

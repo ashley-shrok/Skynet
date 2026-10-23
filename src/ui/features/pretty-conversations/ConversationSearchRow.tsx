@@ -43,6 +43,7 @@ import { roleDisplayName } from "@/lib/role-display-name";
 import { NEUTRAL_HUE } from "@/lib/identity-roles";
 import { AvatarImage } from "@/components/avatar-image";
 import { cn } from "@/lib/utils";
+import { Loader2 } from "lucide-react";
 import {
   RowKebabMenu,
   useRowKebabContextMenu,
@@ -64,6 +65,8 @@ export interface ConversationSearchRowProps {
    * rows are unaffected.
    */
   onUnarchive?: (result: ConversationSearchResult) => void;
+  /** True while an un-archive of this row is in flight: spinner, no menu. */
+  unarchiving?: boolean;
   /** Injected in tests; falls back to Date.now() so relative-time rendering
    *  is deterministic under vitest. */
   now?: number;
@@ -138,6 +141,7 @@ export function ConversationSearchRow({
   onClick,
   query = "",
   onUnarchive,
+  unarchiving = false,
   now,
 }: ConversationSearchRowProps): JSX.Element {
   const name = result.displayName ?? result.identityKey;
@@ -210,7 +214,7 @@ export function ConversationSearchRow({
   // Phase 143 D-11 / D-12 / D-13 / D-14: render the kebab only on archived
   // rows when the onUnarchive callback is provided. The kebab replaces the
   // chevron slot for archived rows; non-archived rows are unaffected.
-  const showKebab = result.isArchived && onUnarchive != null;
+  const showKebab = result.isArchived && onUnarchive != null && !unarchiving;
   const kebabItems: RowKebabMenuItem[] = showKebab
     ? [
         {
@@ -261,10 +265,19 @@ export function ConversationSearchRow({
               </>
             )}
             {result.isArchived && (
-              <span className="pv-search-archived-pill">archived</span>
+              <span className="pv-search-archived-pill">
+                {unarchiving ? "un-archiving…" : "archived"}
+              </span>
             )}
           </span>
         </span>
+        {unarchiving && (
+          <Loader2
+            className="size-4 animate-spin shrink-0"
+            aria-label="Un-archiving"
+            data-testid={`conversation-search-unarchiving-${result.identityKey}-${result.hostId}`}
+          />
+        )}
         {showKebab && (
           <RowKebabMenu
             testId={`conversation-search-archived-row-kebab-${result.identityKey}-${result.hostId}`}

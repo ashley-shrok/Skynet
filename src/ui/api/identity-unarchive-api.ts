@@ -10,7 +10,11 @@ import { authApi, handleApiError } from "@/main-axios";
 //
 // Endpoint:  POST /identities/:key/unarchive
 // Body:      { hostId: number }
-// Response:  { ok: true }
+// Response:  { ok: true, outcome: "restored" | "pending" }
+//
+// The backend drops the flag and then waits up to 2 minutes for the
+// supervisor's outcome, so this call uses a longer timeout than authApi's
+// default. "pending" = no outcome yet; the un-archive keeps going.
 //
 // Structured 409 failure reasons (D-03):
 //   missing_roles     — identity depends on still-archived roles; missingRoles
@@ -18,6 +22,7 @@ import { authApi, handleApiError } from "@/main-axios";
 //                       alert (D-17).
 //   name_collision    — a live-tree identity with the same key already exists.
 //   archive_not_found — the archived folder for this key doesn't exist.
+//   refused           — the supervisor refused; `message` carries its reason.
 //
 // Non-409 errors flow through handleApiError (main-axios.ts) so callers see
 // the same ApiError / message shape the rest of the codebase produces.
@@ -32,6 +37,7 @@ export type UnarchiveFailureReason =
   | "missing_roles"
   | "name_collision"
   | "archive_not_found"
+  | "refused"
   | "unknown";
 
 export class UnarchiveError extends Error {
@@ -50,6 +56,7 @@ export class UnarchiveError extends Error {
 interface Unarchive409Body {
   reason?: string;
   missingRoles?: string[];
+  message?: string;
 }
 
 // ─── Shared 409 parser ───────────────────────────────────────────────────────
@@ -84,6 +91,13 @@ function parseUnarchive409OrRethrow(error: unknown): never {
         undefined,
       );
     }
+    if (reason === "refused") {
+      throw new UnarchiveError(
+        body.message || "the un-archive was refused",
+        "refused",
+        undefined,
+      );
+    }
     // Unknown 409 reason — surface it as UnarchiveError with "unknown" reason
     // so callers always receive a typed error for 409s, regardless of reason.
     throw new UnarchiveError(
@@ -98,14 +112,24 @@ function parseUnarchive409OrRethrow(error: unknown): never {
 
 // ─── unarchiveIdentity ────────────────────────────────────────────────────────
 
+/** Backend waits up to 2 min for the supervisor; leave headroom past that. */
+const UNARCHIVE_REQUEST_TIMEOUT_MS = 150_000;
+
+export type UnarchiveOutcome = "restored" | "pending";
+
 export async function unarchiveIdentity(
   hostId: number,
   identityKey: string,
-): Promise<{ ok: true }> {
+): Promise<{ ok: true; outcome: UnarchiveOutcome }> {
   const url = `/identities/${encodeURIComponent(identityKey)}/unarchive`;
   try {
-    const response = await authApi.post(url, { hostId });
-    return response.data as { ok: true };
+    const response = await authApi.post(
+      url,
+      { hostId },
+      { timeout: UNARCHIVE_REQUEST_TIMEOUT_MS },
+    );
+    const data = response.data as { ok: true; outcome?: UnarchiveOutcome };
+    return { ok: true, outcome: data.outcome === "restored" ? "restored" : "pending" };
   } catch (error) {
     try {
       parseUnarchive409OrRethrow(error);

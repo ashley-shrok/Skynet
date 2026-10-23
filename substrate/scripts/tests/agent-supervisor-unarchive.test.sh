@@ -29,15 +29,22 @@
 #   AGENT_IDENTITIES_ARCHIVE_DIR=<scratch>-archive
 #   AGENT_ROLES_DIR=<scratch>-roles
 #   AGENT_ROLES_ARCHIVE_DIR=<scratch>-roles-archive
+#   AGENT_SERVICE_REQUESTS_DIR=<scratch>-requests
 #   AGENT_SUPERVISOR_LIB_ONLY=1
 #
-# 2026-10-01 matrix-cred-location correction: the identity un-archive scanner
-# no longer touches the Matrix admin API — the backend un-archive route owns
-# reactivate + mint + relay.json rewrite BEFORE dropping the sentinel. The
-# scanner's new safety check is a whoami probe against the relay.json's token;
-# if it 401s (token still stale → backend was bypassed) the scanner refuses.
-# These tests exercise the whoami-pass happy path and the whoami-401 refuse
-# path; the deleted retry-loop tests for admin PUT/POST no longer apply here.
+# Identity un-archive (one-path supervisor reactivation shape): the scanner
+# asks the backend to reactivate the chat account through the
+# identity-reactivate agent service (request files in
+# $AGENT_SERVICE_REQUESTS_DIR), saves the returned password into the archived
+# relay.json, logs in for a fresh token, then moves the folder live. The flow
+# spans several reconcile ticks; tests drive it tick by tick, play the backend
+# by writing <uuid>.response.json by hand, and play the homeserver with a
+# python stub (whoami + /login). Refusals are asserted via the
+# .unarchive-refused note the front end reads.
+#
+# AGENT_SERVICE_REQUESTS_DIR is ALWAYS pointed at a per-test scratch dir — the
+# supervisor's default is the real ~/fleet/service-requests, which a live
+# backend answers.
 
 export AGENT_SUPERVISOR_LIB_ONLY=1
 set -u
@@ -135,6 +142,8 @@ _source_supervisor_unarchive() {
     export AGENT_SYSTEMCTL_BIN="$systemctl_stub"
   fi
   export DORMANCY_STATE_DIR="$scratch/.state"
+  # Never the real ~/fleet/service-requests (a live backend answers there).
+  export AGENT_SERVICE_REQUESTS_DIR="${scratch}-requests"
   export AGENT_SUPERVISOR_LIB_ONLY=1
   # shellcheck disable=SC1090
   source "$SUPERVISOR" 2>/dev/null || true
@@ -144,7 +153,7 @@ _source_supervisor_unarchive() {
 setup_unarchive_scratch() {
   local s; s=$(mktemp -d)
   mkdir -p "$s/.state" "${s}-archive" "${s}-roles" "${s}-roles-archive" \
-           "${s}-apps" "${s}-apps-archive"
+           "${s}-apps" "${s}-apps-archive" "${s}-requests"
   printf '%s' "$s"
 }
 
@@ -156,6 +165,7 @@ teardown_unarchive_scratch() {
   [ -n "$s" ] && [ -d "${s}-roles-archive" ] && rm -rf "${s}-roles-archive"
   [ -n "$s" ] && [ -d "${s}-apps" ] && rm -rf "${s}-apps"
   [ -n "$s" ] && [ -d "${s}-apps-archive" ] && rm -rf "${s}-apps-archive"
+  [ -n "$s" ] && [ -d "${s}-requests" ] && rm -rf "${s}-requests"
 }
 
 # Create an archived identity fixture under $IDENTITIES_ARCHIVE_DIR.
@@ -250,21 +260,23 @@ fixture_live_role() {
   printf 'role-marker\n' > "${scratch}-roles/$role/role.md"
 }
 
-# ---- stub homeserver (whoami probe target — 2026-10-01 matrix-cred-location correction) ----
-# One endpoint exercised:
-#   GET /_matrix/client/v3/account/whoami  → canned status code (sequence)
+# ---- stub homeserver ----
+# Two endpoints exercised:
+#   GET  /_matrix/client/v3/account/whoami → canned status code (sequence)
+#   POST /_matrix/client/v3/login          → canned status code (sequence);
+#        on 200 the body carries access_token "fresh-tok"
 #
-# Takes a comma-separated status-code sequence; once exhausted, the LAST
-# code repeats. On GET 200 the body is a small whoami response. Earlier
-# PUT (reactivate) + POST (mint) endpoints retired — the backend route
-# owns those now.
+# Usage: start_stub_admin <get_codes> [post_codes]
+# Each is a comma-separated status-code sequence; once exhausted, the LAST
+# code repeats. Every request (method, path, body) is appended to
+# $STUB_REQ_LOG so tests can check what was sent.
 STUB_PID=""
 STUB_PORT=""
 STUB_LOG=""
 STUB_REQ_LOG=""
 
 start_stub_admin() {
-  local get_codes="${1:-200}"
+  local get_codes="${1:-200}" post_codes="${2:-200}"
   STUB_PID=""
   STUB_PORT=""
   STUB_LOG=$(mktemp)
@@ -273,10 +285,11 @@ start_stub_admin() {
   python3 -c "
 import http.server, sys, socketserver, json
 
-get_codes = [int(c) for c in sys.argv[1].split(',')]
-port_file = sys.argv[2]
-req_log   = sys.argv[3]
-counters  = {'GET': 0}
+get_codes  = [int(c) for c in sys.argv[1].split(',')]
+post_codes = [int(c) for c in sys.argv[2].split(',')]
+port_file  = sys.argv[3]
+req_log    = sys.argv[4]
+counters   = {'GET': 0, 'POST': 0}
 
 class Handler(http.server.BaseHTTPRequestHandler):
     def _log_and_respond(self, method, codes):
@@ -292,14 +305,15 @@ class Handler(http.server.BaseHTTPRequestHandler):
         self.send_response(code)
         self.send_header('Content-Type', 'application/json')
         self.end_headers()
-        if method == 'GET' and code == 200:
-            # Shape a minimal whoami response; scanner doesn't parse the body,
-            # only cares about the status code.
+        if code == 200 and method == 'GET':
             self.wfile.write(b'{\"user_id\":\"@test:test\",\"device_id\":\"TESTDEV\"}')
+        elif code == 200 and method == 'POST':
+            self.wfile.write(b'{\"user_id\":\"@test:test\",\"access_token\":\"fresh-tok\",\"device_id\":\"NEWDEV\"}')
         else:
-            self.wfile.write(b'{\"errcode\":\"M_UNKNOWN_TOKEN\"}')
+            self.wfile.write(b'{\"errcode\":\"M_FORBIDDEN\"}')
 
     def do_GET(self): self._log_and_respond('GET', get_codes)
+    def do_POST(self): self._log_and_respond('POST', post_codes)
     def log_message(self, fmt, *args): pass
 
 with socketserver.TCPServer(('127.0.0.1', 0), Handler) as server:
@@ -307,7 +321,7 @@ with socketserver.TCPServer(('127.0.0.1', 0), Handler) as server:
     with open(port_file, 'w') as f:
         f.write(str(port))
     server.serve_forever()
-" "$get_codes" "$STUB_LOG" "$STUB_REQ_LOG" &
+" "$get_codes" "$post_codes" "$STUB_LOG" "$STUB_REQ_LOG" &
   STUB_PID=$!
 
   local waited=0
@@ -406,32 +420,156 @@ test_extract_roles_malformed() {
 # scan_identity_unarchive_requested_sentinels — behavior tests
 # ============================================================
 
-test_identity_happy_path_scalar_role() {
+# _tick <scratch> — one reconcile tick of the identity scanner (fresh source,
+# like the real supervisor's next pass). Prints the scanner's log output.
+_tick() {
+  local scratch="$1"
+  ( _source_supervisor_unarchive "$scratch"
+    scan_identity_unarchive_requested_sentinels 2>&1 ) || true
+}
+
+# _point_relay <scratch> <name> — aim the fixture relay.json at the stub.
+_point_relay() {
+  sed -i "s|STUB_PORT|$STUB_PORT|" "${1}-archive/$2/relay.json"
+}
+
+# _request_files <scratch> — request files (not responses/claims) in the
+# scratch service-requests dir, one per line.
+_request_files() {
+  local f
+  for f in "${1}-requests"/*.json; do
+    [ -e "$f" ] || continue
+    case "$f" in *.response.json|*.claimed.json) continue ;; esac
+    printf '%s\n' "$f"
+  done
+}
+
+_request_count() { _request_files "$1" | grep -c . || true; }
+
+# _all_request_files_count <scratch> — every file in the requests dir.
+_all_request_files_count() { find "${1}-requests" -type f | wc -l | tr -d ' '; }
+
+# _respond <scratch> <uuid> <json> — play the backend: write the response.
+_respond() { printf '%s\n' "$3" > "${1}-requests/$2.response.json"; }
+
+_state() { cat "${1}-archive/$2/.unarchive-reactivate" 2>/dev/null || true; }
+
+# _assert_refused <scratch> <name> <note-pattern> <label>
+_assert_refused() {
+  local scratch="$1" name="$2" pat="$3" label="$4"
+  local d="${scratch}-archive/$name"
+  assert_nofile "$scratch/$name"               "$label: no folder moved"
+  assert_file   "$d"                           "$label: archive folder retained"
+  assert_nofile "$d/.unarchive-requested"      "$label: flag cleared"
+  assert_nofile "$d/.unarchive-reactivate"     "$label: progress state cleared"
+  assert_nofile "$d/.dormant"                  "$label: .dormant NOT written"
+  assert_file   "$d/.unarchive-refused"        "$label: refusal note written"
+  assert_grep "$pat" "$(cat "$d/.unarchive-refused" 2>/dev/null)" "$label: refusal note names the reason"
+  assert_eq "0" "$(_all_request_files_count "$scratch")" "$label: no service-request files left behind"
+}
+
+# _assert_completed <scratch> <name> <label>
+_assert_completed() {
+  local scratch="$1" name="$2" label="$3"
+  assert_file   "$scratch/$name"                       "$label: live folder present after mv"
+  assert_nofile "${scratch}-archive/$name"             "$label: archive folder gone after mv"
+  assert_nofile "$scratch/$name/.unarchive-requested"  "$label: flag cleared"
+  assert_nofile "$scratch/$name/.unarchive-reactivate" "$label: progress state cleared"
+  assert_nofile "$scratch/$name/.unarchive-refused"    "$label: no refusal note"
+  assert_grep "You were unarchived at" "$(cat "$scratch/$name/$name.md" 2>/dev/null)" "$label: banner present"
+}
+
+# --- pre-flight refusals ---
+
+test_identity_name_collision_refuses() {
+  local scratch; scratch=$(setup_unarchive_scratch)
+  fixture_live_role "$scratch" box-maintainer
+  fixture_archived_identity "$scratch" eta "scalar:box-maintainer"
+  mkdir -p "$scratch/eta"
+  printf 'existing live identity\n' > "$scratch/eta/eta.md"
+
+  local out; out=$(_tick "$scratch")
+
+  assert_eq "existing live identity" "$(cat "$scratch/eta/eta.md")" "name-collision: live identity untouched"
+  assert_file   "${scratch}-archive/eta"                       "name-collision: archive folder retained"
+  assert_nofile "${scratch}-archive/eta/.unarchive-requested"  "name-collision: flag cleared"
+  assert_grep "live identity named 'eta' already exists" "$(cat "${scratch}-archive/eta/.unarchive-refused" 2>/dev/null)" \
+    "name-collision: refusal note names the collision"
+  assert_eq "0" "$(_all_request_files_count "$scratch")" "name-collision: no reactivation requested"
+  assert_grep "un-archive REFUSED" "$out" "name-collision: LOUD refuse log"
+  teardown_unarchive_scratch "$scratch"
+}
+
+test_identity_role_missing_scalar_refuses() {
+  local scratch; scratch=$(setup_unarchive_scratch)
+  fixture_archived_identity "$scratch" epsilon "scalar:missing-role"
+
+  local out; out=$(_tick "$scratch")
+
+  _assert_refused "$scratch" epsilon "role\\(s\\) missing-role first" "role-missing"
+  assert_grep "un-archive REFUSED" "$out" "role-missing: LOUD refuse log"
+  teardown_unarchive_scratch "$scratch"
+}
+
+test_identity_role_missing_multi_names_only_missing() {
+  local scratch; scratch=$(setup_unarchive_scratch)
+  fixture_live_role "$scratch" box-maintainer
+  fixture_archived_identity "$scratch" zeta "flow:box-maintainer,sky-uat"
+
+  _tick "$scratch" >/dev/null
+
+  _assert_refused "$scratch" zeta "sky-uat" "multi-role missing"
+  assert_nogrep "box-maintainer" "$(cat "${scratch}-archive/zeta/.unarchive-refused" 2>/dev/null)" \
+    "multi-role missing: note does NOT list box-maintainer (which IS live)"
+  teardown_unarchive_scratch "$scratch"
+}
+
+test_identity_missing_relay_json_refuses() {
+  local scratch; scratch=$(setup_unarchive_scratch)
+  fixture_live_role "$scratch" box-maintainer
+  fixture_archived_identity "$scratch" kappa "scalar:box-maintainer" --no-relay
+
+  _tick "$scratch" >/dev/null
+
+  _assert_refused "$scratch" kappa "relay.json is missing" "no relay.json"
+  teardown_unarchive_scratch "$scratch"
+}
+
+test_identity_relay_json_without_account_refuses() {
+  local scratch; scratch=$(setup_unarchive_scratch)
+  fixture_live_role "$scratch" box-maintainer
+  fixture_archived_identity "$scratch" kappa "scalar:box-maintainer"
+  printf '{"base":"http://127.0.0.1:1","password":"pw"}' > "${scratch}-archive/kappa/relay.json"
+
+  _tick "$scratch" >/dev/null
+
+  _assert_refused "$scratch" kappa "missing its server or account" "relay.json without user_id"
+  teardown_unarchive_scratch "$scratch"
+}
+
+# --- whoami fast path (account already live, e.g. crash recovery) ---
+
+test_identity_whoami_fast_path_completes() {
   local scratch; scratch=$(setup_unarchive_scratch)
   fixture_live_role "$scratch" box-maintainer
   fixture_archived_identity "$scratch" alpha "scalar:box-maintainer"
   start_stub_admin "200" || { teardown_unarchive_scratch "$scratch"; return; }
-  sed -i "s|STUB_PORT|$STUB_PORT|" "${scratch}-archive/alpha/relay.json"
+  _point_relay "$scratch" alpha
 
-  local out
-  out=$( _source_supervisor_unarchive "$scratch"
-         scan_identity_unarchive_requested_sentinels 2>&1 ) || true
+  local out; out=$(_tick "$scratch")
+  local reqs; reqs=$(cat "$STUB_REQ_LOG")
   stop_stub_admin
 
-  assert_file   "$scratch/alpha"                       "happy path: live folder present after mv"
-  assert_nofile "${scratch}-archive/alpha"             "happy path: archive folder gone after mv"
-  assert_file   "$scratch/alpha/.dormant"              "happy path: .dormant travelled with folder"
-  assert_nofile "$scratch/alpha/.unarchive-requested"  "happy path: un-archive sentinel deleted"
-
-  # relay.json access_token UNCHANGED by scanner (backend route owns rewrite;
-  # here we only placed the fixture with its original "stale-tok-alpha" value,
-  # which the stub accepts via the whoami probe without caring what the token is).
-  local tok; tok=$(jq -r '.access_token' "$scratch/alpha/relay.json")
-  assert_eq "stale-tok-alpha" "$tok" "happy path: scanner does NOT rewrite token (backend route owns that)"
-
-  assert_grep "un-archive: whoami probe success" "$out" "whoami probe success log"
-  assert_grep "un-archive step 4: .dormant written" "$out" "step 4 wrote .dormant"
-  assert_grep "un-archive COMPLETE" "$out" "completion log present"
+  _assert_completed "$scratch" alpha "whoami fast path"
+  assert_file "$scratch/alpha/.dormant" "whoami fast path: .dormant travelled with folder"
+  assert_eq "stale-tok-alpha" "$(jq -r '.access_token' "$scratch/alpha/relay.json")" \
+    "whoami fast path: working token left as-is"
+  assert_eq "0" "$(_all_request_files_count "$scratch")" "whoami fast path: no reactivation requested"
+  assert_grep "GET /_matrix/client/v3/account/whoami" "$reqs" "whoami fast path: whoami probed"
+  assert_nogrep "^POST" "$reqs" "whoami fast path: no login attempted"
+  assert_grep "chat login already works" "$out" "whoami fast path: log line"
+  assert_grep "un-archive step 4: .dormant written" "$out" "whoami fast path: step 4 wrote .dormant"
+  assert_grep "un-archive COMPLETE" "$out" "whoami fast path: completion log"
   teardown_unarchive_scratch "$scratch"
 }
 
@@ -441,16 +579,13 @@ test_identity_happy_path_flow_list_all_live() {
   fixture_live_role "$scratch" sky-uat
   fixture_archived_identity "$scratch" beta "flow:box-maintainer,sky-uat"
   start_stub_admin "200" || { teardown_unarchive_scratch "$scratch"; return; }
-  sed -i "s|STUB_PORT|$STUB_PORT|" "${scratch}-archive/beta/relay.json"
+  _point_relay "$scratch" beta
 
-  local out
-  out=$( _source_supervisor_unarchive "$scratch"
-         scan_identity_unarchive_requested_sentinels 2>&1 ) || true
+  _tick "$scratch" >/dev/null
   stop_stub_admin
 
-  assert_file "$scratch/beta"           "flow-list happy path: live folder present"
-  assert_file "$scratch/beta/.dormant"  "flow-list happy path: .dormant written"
-  assert_grep "un-archive COMPLETE" "$out"
+  _assert_completed "$scratch" beta "flow-list happy path"
+  assert_file "$scratch/beta/.dormant" "flow-list happy path: .dormant written"
   teardown_unarchive_scratch "$scratch"
 }
 
@@ -460,52 +595,13 @@ test_identity_happy_path_block_list_all_live() {
   fixture_live_role "$scratch" sky-uat
   fixture_archived_identity "$scratch" gamma "block:box-maintainer,sky-uat"
   start_stub_admin "200" || { teardown_unarchive_scratch "$scratch"; return; }
-  sed -i "s|STUB_PORT|$STUB_PORT|" "${scratch}-archive/gamma/relay.json"
+  _point_relay "$scratch" gamma
 
-  local out
-  out=$( _source_supervisor_unarchive "$scratch"
-         scan_identity_unarchive_requested_sentinels 2>&1 ) || true
+  _tick "$scratch" >/dev/null
   stop_stub_admin
 
-  assert_file "$scratch/gamma"           "block-list happy path: live folder present"
-  assert_file "$scratch/gamma/.dormant"  "block-list happy path: .dormant written"
-  assert_grep "un-archive COMPLETE" "$out"
-  teardown_unarchive_scratch "$scratch"
-}
-
-test_identity_no_dormancy_preserved() {
-  local scratch; scratch=$(setup_unarchive_scratch)
-  fixture_live_role "$scratch" box-maintainer
-  fixture_archived_identity "$scratch" delta "scalar:box-maintainer" --no-dormancy
-  start_stub_admin "200" || { teardown_unarchive_scratch "$scratch"; return; }
-  sed -i "s|STUB_PORT|$STUB_PORT|" "${scratch}-archive/delta/relay.json"
-
-  local out
-  out=$( _source_supervisor_unarchive "$scratch"
-         scan_identity_unarchive_requested_sentinels 2>&1 ) || true
-  stop_stub_admin
-
-  assert_file   "$scratch/delta"                       "no-dormancy: live folder present"
-  assert_file   "$scratch/delta/.no-dormancy"          "no-dormancy: sentinel travelled with folder"
-  assert_nofile "$scratch/delta/.dormant"              "no-dormancy: .dormant was NOT written"
-  assert_grep "always-on intent preserved" "$out" "no-dormancy: log line names the preservation"
-  teardown_unarchive_scratch "$scratch"
-}
-
-test_identity_role_missing_scalar_refuses() {
-  local scratch; scratch=$(setup_unarchive_scratch)
-  # DO NOT create the role live — it stays only in the (implicitly-empty) roles-archive.
-  fixture_archived_identity "$scratch" epsilon "scalar:missing-role"
-
-  local out
-  out=$( _source_supervisor_unarchive "$scratch"
-         scan_identity_unarchive_requested_sentinels 2>&1 ) || true
-
-  assert_nofile "$scratch/epsilon"                              "role-missing: no folder moved"
-  assert_file   "${scratch}-archive/epsilon"                    "role-missing: archive folder retained"
-  assert_nofile "${scratch}-archive/epsilon/.unarchive-requested" "role-missing: sentinel deleted per REFUSE discipline"
-  assert_grep "REFUSED: role.s. not live" "$out" "role-missing: LOUD refuse log"
-  assert_grep "missing-role" "$out" "role-missing: log names the missing role"
+  _assert_completed "$scratch" gamma "block-list happy path"
+  assert_file "$scratch/gamma/.dormant" "block-list happy path: .dormant written"
   teardown_unarchive_scratch "$scratch"
 }
 
@@ -516,18 +612,13 @@ _assert_roleless_unarchives() {
   local scratch; scratch=$(setup_unarchive_scratch)
   fixture_archived_identity "$scratch" zeta "$spec"
   start_stub_admin "200" || { teardown_unarchive_scratch "$scratch"; return; }
-  sed -i "s|STUB_PORT|$STUB_PORT|" "${scratch}-archive/zeta/relay.json"
+  _point_relay "$scratch" zeta
 
-  local out
-  out=$( _source_supervisor_unarchive "$scratch"
-         scan_identity_unarchive_requested_sentinels 2>&1 ) || true
+  local out; out=$(_tick "$scratch")
   stop_stub_admin
 
-  assert_file   "$scratch/zeta"                       "no-roles ($spec): live folder present after mv"
-  assert_nofile "${scratch}-archive/zeta"             "no-roles ($spec): archive folder gone after mv"
-  assert_nofile "$scratch/zeta/.unarchive-requested"  "no-roles ($spec): un-archive sentinel deleted"
-  assert_nogrep "REFUSED" "$out"                      "no-roles ($spec): not refused"
-  assert_grep "un-archive COMPLETE" "$out"            "no-roles ($spec): completion log present"
+  _assert_completed "$scratch" zeta "no-roles ($spec)"
+  assert_nogrep "REFUSED" "$out" "no-roles ($spec): not refused"
   teardown_unarchive_scratch "$scratch"
 }
 
@@ -536,172 +627,318 @@ test_identity_no_roles_unarchives() {
   _assert_roleless_unarchives "none"
 }
 
-test_identity_role_missing_multi_names_only_missing() {
+test_identity_no_dormancy_preserved() {
   local scratch; scratch=$(setup_unarchive_scratch)
   fixture_live_role "$scratch" box-maintainer
-  # sky-uat is NOT created — it's the one that's missing.
-  fixture_archived_identity "$scratch" zeta "flow:box-maintainer,sky-uat"
+  fixture_archived_identity "$scratch" delta "scalar:box-maintainer" --no-dormancy
+  start_stub_admin "200" || { teardown_unarchive_scratch "$scratch"; return; }
+  _point_relay "$scratch" delta
 
-  local out
-  out=$( _source_supervisor_unarchive "$scratch"
-         scan_identity_unarchive_requested_sentinels 2>&1 ) || true
+  local out; out=$(_tick "$scratch")
+  stop_stub_admin
 
-  assert_nofile "$scratch/zeta"                                "multi-role missing: no folder moved"
-  assert_nofile "${scratch}-archive/zeta/.unarchive-requested" "multi-role missing: sentinel deleted"
-  assert_grep "sky-uat" "$out" "multi-role missing: LOUD log names sky-uat"
-  assert_nogrep "role.s. not live in.*box-maintainer" "$out" "multi-role missing: log does NOT list box-maintainer (which IS live)"
+  _assert_completed "$scratch" delta "no-dormancy"
+  assert_file   "$scratch/delta/.no-dormancy" "no-dormancy: marker travelled with folder"
+  assert_nofile "$scratch/delta/.dormant"     "no-dormancy: .dormant was NOT written"
+  assert_grep "always-on intent preserved" "$out" "no-dormancy: log line names the preservation"
   teardown_unarchive_scratch "$scratch"
 }
 
-test_identity_name_collision_refuses() {
+test_identity_old_refusal_note_removed_on_success() {
   local scratch; scratch=$(setup_unarchive_scratch)
   fixture_live_role "$scratch" box-maintainer
-  fixture_archived_identity "$scratch" eta "scalar:box-maintainer"
-  # Create a live-tree collision.
-  mkdir -p "$scratch/eta"
-  printf 'existing live identity\n' > "$scratch/eta/eta.md"
+  fixture_archived_identity "$scratch" omicron "scalar:box-maintainer"
+  printf 'an earlier attempt was refused\n' > "${scratch}-archive/omicron/.unarchive-refused"
+  start_stub_admin "200" || { teardown_unarchive_scratch "$scratch"; return; }
+  _point_relay "$scratch" omicron
 
-  local out
-  out=$( _source_supervisor_unarchive "$scratch"
-         scan_identity_unarchive_requested_sentinels 2>&1 ) || true
+  _tick "$scratch" >/dev/null
+  stop_stub_admin
 
-  # Live identity untouched.
-  assert_file "$scratch/eta/eta.md" "name-collision: live identity untouched"
-  # Archive folder still present (no mv), sentinel deleted per REFUSE.
-  assert_file   "${scratch}-archive/eta"                        "name-collision: archive folder retained"
-  assert_nofile "${scratch}-archive/eta/.unarchive-requested"  "name-collision: sentinel deleted"
-  assert_grep "REFUSED: live identity already exists" "$out" "name-collision: LOUD refuse log"
+  _assert_completed "$scratch" omicron "old refusal note"
   teardown_unarchive_scratch "$scratch"
 }
 
-# ---------------------------------------------------------------
-# 2026-10-01 matrix-cred-location correction: whoami safety tests.
-# These replace the retired step-1/step-2 reactivate+mint retry tests
-# (scanner no longer touches admin API — backend route owns that now).
-# ---------------------------------------------------------------
+# --- reactivation via the identity-reactivate service (multi-tick) ---
 
-test_identity_whoami_401_refuses_sentinel_retained() {
-  # Simulate an agent dropping the sentinel directly without going through
-  # the backend route. relay.json still has the stale deactivated-era token;
-  # whoami 401s → scanner refuses + retains sentinel.
+test_identity_full_reactivation_happy_path() {
   local scratch; scratch=$(setup_unarchive_scratch)
   fixture_live_role "$scratch" box-maintainer
-  fixture_archived_identity "$scratch" iota "scalar:box-maintainer"
+  fixture_archived_identity "$scratch" nu "scalar:box-maintainer"
+  # whoami always 401 (deactivated account's token is dead); login 200.
+  start_stub_admin "401" "200" || { teardown_unarchive_scratch "$scratch"; return; }
+  _point_relay "$scratch" nu
+  local d="${scratch}-archive/nu"
+
+  # Tick 1: files a request naming only the account.
+  local out; out=$(_tick "$scratch")
+  assert_eq "1" "$(_request_count "$scratch")" "tick 1: exactly one request filed"
+  local req uuid
+  req=$(_request_files "$scratch" | head -1)
+  uuid=$(basename "$req" .json)
+  assert_eq "$uuid" "$(_state "$scratch" nu)" "tick 1: state holds the request uuid"
+  assert_eq "identity-reactivate" "$(jq -r '.service' "$req" 2>/dev/null)" "tick 1: request names the service"
+  assert_eq '{"account":"@nu:test"}' "$(jq -c '.input' "$req" 2>/dev/null)" "tick 1: input carries only the account"
+  assert_grep '^20[0-9]{2}-[0-9]{2}-[0-9]{2}T' "$(jq -r '.requested_at' "$req" 2>/dev/null)" "tick 1: requested_at stamped"
+  assert_nogrep 'password|pw-nu|stale-tok' "$(cat "$req" 2>/dev/null)" "tick 1: request carries no secret"
+  assert_file   "$d/.unarchive-requested" "tick 1: flag retained"
+  assert_nofile "$scratch/nu"             "tick 1: not moved yet"
+  assert_nofile "$d/.unarchive-refused"   "tick 1: not refused"
+  assert_grep "asked the backend to reactivate @nu:test" "$out" "tick 1: log line"
+
+  # Tick 1.5: no response yet → nothing changes.
+  _tick "$scratch" >/dev/null
+  assert_eq "$uuid" "$(_state "$scratch" nu)" "waiting tick: state unchanged"
+  assert_eq "1" "$(_request_count "$scratch")" "waiting tick: no duplicate request"
+
+  # Backend answers ok with a fresh password.
+  _respond "$scratch" "$uuid" '{"ok":true,"service":"identity-reactivate","result":{"password":"new-secret-pw"}}'
+
+  # Tick 2: password saved (0600), state "saved", request files dropped.
+  out=$(_tick "$scratch")
+  assert_eq "new-secret-pw" "$(jq -r '.password' "$d/relay.json")" "tick 2: new password saved in relay.json"
+  assert_eq "600" "$(stat -c %a "$d/relay.json")" "tick 2: relay.json mode 600"
+  assert_eq "saved" "$(_state "$scratch" nu)" "tick 2: state is 'saved'"
+  assert_eq "0" "$(_all_request_files_count "$scratch")" "tick 2: request + response dropped"
+  assert_nofile "$scratch/nu" "tick 2: not moved yet"
+  assert_nogrep "new-secret-pw" "$out" "tick 2: password never logged"
+  assert_nogrep "^POST" "$(cat "$STUB_REQ_LOG")" "tick 2: no login yet"
+
+  # Tick 3: logs in with the new password, saves token, completes.
+  out=$(_tick "$scratch")
+  local reqs; reqs=$(cat "$STUB_REQ_LOG")
+  stop_stub_admin
+  assert_grep '^POST /_matrix/client/v3/login .*new-secret-pw' "$reqs" "tick 3: login used the new password"
+  assert_grep '^POST /_matrix/client/v3/login .*@nu:test' "$reqs" "tick 3: login named the account"
+  _assert_completed "$scratch" nu "tick 3"
+  assert_file "$scratch/nu/.dormant" "tick 3: .dormant written"
+  assert_eq "fresh-tok" "$(jq -r '.access_token' "$scratch/nu/relay.json")" "tick 3: access_token saved"
+  assert_eq "fresh-tok" "$(jq -r '.token' "$scratch/nu/relay.json")" "tick 3: token saved"
+  assert_eq "new-secret-pw" "$(jq -r '.password' "$scratch/nu/relay.json")" "tick 3: password kept"
+  assert_eq "600" "$(stat -c %a "$scratch/nu/relay.json")" "tick 3: relay.json mode 600"
+  assert_nogrep "fresh-tok|new-secret-pw" "$out" "tick 3: secrets never logged"
+  assert_grep "un-archive COMPLETE" "$out" "tick 3: completion log"
+  teardown_unarchive_scratch "$scratch"
+}
+
+test_identity_transient_error_rerequests() {
+  local code
+  for code in matrix_unavailable expired queue_full internal; do
+    local scratch; scratch=$(setup_unarchive_scratch)
+    fixture_live_role "$scratch" box-maintainer
+    fixture_archived_identity "$scratch" xi "scalar:box-maintainer"
+    start_stub_admin "401" || { teardown_unarchive_scratch "$scratch"; return; }
+    _point_relay "$scratch" xi
+    local d="${scratch}-archive/xi"
+
+    _tick "$scratch" >/dev/null
+    local uuid1; uuid1=$(_state "$scratch" xi)
+    _respond "$scratch" "$uuid1" "{\"ok\":false,\"error\":{\"code\":\"$code\",\"message\":\"try later\"}}"
+
+    _tick "$scratch" >/dev/null
+    assert_eq "0" "$(_all_request_files_count "$scratch")" "$code: failed request dropped"
+    assert_nofile "$d/.unarchive-reactivate" "$code: state cleared"
+    assert_file   "$d/.unarchive-requested"  "$code: flag retained"
+    assert_nofile "$d/.unarchive-refused"    "$code: NOT refused"
+
+    _tick "$scratch" >/dev/null
+    stop_stub_admin
+    local uuid2; uuid2=$(_state "$scratch" xi)
+    assert_eq "1" "$(_request_count "$scratch")" "$code: re-filed on the next tick"
+    if [ -z "$uuid2" ] || [ "$uuid2" = "$uuid1" ]; then
+      fail "$code: re-filed request has a new uuid (old=$uuid1 new=$uuid2)"
+    fi
+    assert_file "${scratch}-requests/$uuid2.json" "$code: state names the new request"
+    teardown_unarchive_scratch "$scratch"
+  done
+}
+
+test_identity_permanent_error_refuses() {
+  local scratch; scratch=$(setup_unarchive_scratch)
+  fixture_live_role "$scratch" box-maintainer
+  fixture_archived_identity "$scratch" pi "scalar:box-maintainer"
   start_stub_admin "401" || { teardown_unarchive_scratch "$scratch"; return; }
-  sed -i "s|STUB_PORT|$STUB_PORT|" "${scratch}-archive/iota/relay.json"
+  _point_relay "$scratch" pi
 
-  local out
-  out=$( _source_supervisor_unarchive "$scratch"
-         scan_identity_unarchive_requested_sentinels 2>&1 ) || true
+  _tick "$scratch" >/dev/null
+  local uuid; uuid=$(_state "$scratch" pi)
+  _respond "$scratch" "$uuid" '{"ok":false,"error":{"code":"human_account","message":"that account belongs to a person"}}'
+  local out; out=$(_tick "$scratch")
   stop_stub_admin
 
-  assert_nofile "$scratch/iota"                              "whoami 401: no folder moved"
-  assert_file   "${scratch}-archive/iota"                    "whoami 401: archive folder retained"
-  assert_file   "${scratch}-archive/iota/.unarchive-requested" "whoami 401: sentinel RETAINED for operator"
-  assert_grep "REFUSED: whoami probe returned 401" "$out" "whoami 401: LOUD refuse log fires"
-  assert_grep "Use the frontend un-archive path" "$out" "whoami 401: operator pointed at frontend path"
+  _assert_refused "$scratch" pi "human_account" "permanent error"
+  assert_grep "belongs to a person" "$(cat "${scratch}-archive/pi/.unarchive-refused" 2>/dev/null)" \
+    "permanent error: note carries the backend's message"
+  assert_grep "un-archive REFUSED" "$out" "permanent error: LOUD refuse log"
   teardown_unarchive_scratch "$scratch"
 }
 
-test_identity_whoami_transient_5xx_retains_sentinel() {
-  # Whoami probe returns 503 (transient): scanner retains sentinel, next tick
-  # will retry. No folder move; no .dormant write.
+test_identity_ok_response_without_password_rerequests() {
   local scratch; scratch=$(setup_unarchive_scratch)
   fixture_live_role "$scratch" box-maintainer
-  fixture_archived_identity "$scratch" theta "scalar:box-maintainer"
-  start_stub_admin "503" || { teardown_unarchive_scratch "$scratch"; return; }
-  sed -i "s|STUB_PORT|$STUB_PORT|" "${scratch}-archive/theta/relay.json"
+  fixture_archived_identity "$scratch" rho "scalar:box-maintainer"
+  start_stub_admin "401" || { teardown_unarchive_scratch "$scratch"; return; }
+  _point_relay "$scratch" rho
 
-  local out
-  out=$( _source_supervisor_unarchive "$scratch"
-         scan_identity_unarchive_requested_sentinels 2>&1 ) || true
+  _tick "$scratch" >/dev/null
+  local uuid; uuid=$(_state "$scratch" rho)
+  _respond "$scratch" "$uuid" '{"ok":true,"result":{}}'
+  _tick "$scratch" >/dev/null
   stop_stub_admin
 
-  assert_nofile "$scratch/theta"                              "whoami 503: no folder moved"
-  assert_file   "${scratch}-archive/theta/.unarchive-requested" "whoami 503: sentinel retained for next tick"
-  assert_nofile "${scratch}-archive/theta/.dormant"           "whoami 503: .dormant NOT written"
-  assert_grep "whoami probe failed http=503" "$out" "whoami 503: transient log fires"
+  assert_eq "0" "$(_all_request_files_count "$scratch")" "no-password ok: request dropped"
+  assert_nofile "${scratch}-archive/rho/.unarchive-reactivate" "no-password ok: state cleared (asks again)"
+  assert_file   "${scratch}-archive/rho/.unarchive-requested"  "no-password ok: flag retained"
+  assert_eq "pw-rho" "$(jq -r '.password' "${scratch}-archive/rho/relay.json")" "no-password ok: relay.json untouched"
   teardown_unarchive_scratch "$scratch"
 }
 
-test_identity_relay_json_missing_access_token_retains_sentinel() {
-  # If relay.json is missing base or access_token (e.g., corrupted archive),
-  # scanner can't construct the whoami URL — retain sentinel + LOUD log.
+test_identity_stale_request_dropped_and_refiled() {
   local scratch; scratch=$(setup_unarchive_scratch)
   fixture_live_role "$scratch" box-maintainer
-  fixture_archived_identity "$scratch" kappa "scalar:box-maintainer"
-  # Overwrite relay.json with a broken shape (user_id present but access_token absent).
-  printf '{"base":"http://127.0.0.1:1","password":"pw","user_id":"@kappa:test"}' > "${scratch}-archive/kappa/relay.json"
+  fixture_archived_identity "$scratch" sigma "scalar:box-maintainer"
+  start_stub_admin "401" || { teardown_unarchive_scratch "$scratch"; return; }
+  _point_relay "$scratch" sigma
+  local d="${scratch}-archive/sigma"
 
-  local out
-  out=$( _source_supervisor_unarchive "$scratch"
-         scan_identity_unarchive_requested_sentinels 2>&1 ) || true
+  _tick "$scratch" >/dev/null
+  local uuid1; uuid1=$(_state "$scratch" sigma)
+  # Leave a claim behind too, as a backend that took it and died would.
+  printf '{}' > "${scratch}-requests/$uuid1.claimed.json"
 
-  assert_nofile "$scratch/kappa"                              "relay.json broken: no folder moved"
-  assert_file   "${scratch}-archive/kappa/.unarchive-requested" "relay.json broken: sentinel retained"
-  assert_grep "relay.json missing base or access_token" "$out"
+  # Within the stale window (default 600s): kept.
+  _tick "$scratch" >/dev/null
+  assert_eq "$uuid1" "$(_state "$scratch" sigma)" "stale: fresh request kept"
+  assert_file "${scratch}-requests/$uuid1.json" "stale: fresh request file kept"
+
+  # Age the request past the window.
+  touch -d "@$(( $(date +%s) - 700 ))" "$d/.unarchive-reactivate"
+  local out; out=$(_tick "$scratch")
+  assert_eq "0" "$(_all_request_files_count "$scratch")" "stale: request + claim dropped"
+  assert_nofile "$d/.unarchive-reactivate" "stale: state cleared"
+  assert_file   "$d/.unarchive-requested"  "stale: flag retained"
+  assert_nofile "$d/.unarchive-refused"    "stale: NOT refused"
+  assert_grep "unanswered after" "$out" "stale: log line"
+
+  _tick "$scratch" >/dev/null
+  local uuid2; uuid2=$(_state "$scratch" sigma)
+  assert_eq "1" "$(_request_count "$scratch")" "stale: re-filed on the next tick"
+  if [ -z "$uuid2" ] || [ "$uuid2" = "$uuid1" ]; then
+    fail "stale: re-filed request has a new uuid (old=$uuid1 new=$uuid2)"
+  fi
+
+  # AGENT_UNARCHIVE_REQUEST_STALE_SECS=0 makes any pending request stale at once.
+  out=$( export AGENT_UNARCHIVE_REQUEST_STALE_SECS=0; _tick "$scratch" )
+  stop_stub_admin
+  assert_eq "0" "$(_all_request_files_count "$scratch")" "stale (env 0): request dropped"
+  assert_nofile "$d/.unarchive-reactivate" "stale (env 0): state cleared"
+  teardown_unarchive_scratch "$scratch"
+}
+
+test_identity_login_401_refuses() {
+  local scratch; scratch=$(setup_unarchive_scratch)
+  fixture_live_role "$scratch" box-maintainer
+  fixture_archived_identity "$scratch" tau "scalar:box-maintainer"
+  start_stub_admin "401" "401" || { teardown_unarchive_scratch "$scratch"; return; }
+  _point_relay "$scratch" tau
+  printf 'saved\n' > "${scratch}-archive/tau/.unarchive-reactivate"
+
+  local out; out=$(_tick "$scratch")
+  local reqs; reqs=$(cat "$STUB_REQ_LOG")
+  stop_stub_admin
+
+  assert_grep '^POST /_matrix/client/v3/login' "$reqs" "login 401: login attempted"
+  _assert_refused "$scratch" tau "http 401" "login 401"
+  assert_eq "stale-tok-tau" "$(jq -r '.access_token' "${scratch}-archive/tau/relay.json")" "login 401: token untouched"
+  assert_grep "un-archive REFUSED" "$out" "login 401: LOUD refuse log"
+  teardown_unarchive_scratch "$scratch"
+}
+
+test_identity_login_5xx_retries() {
+  local scratch; scratch=$(setup_unarchive_scratch)
+  fixture_live_role "$scratch" box-maintainer
+  fixture_archived_identity "$scratch" upsilon "scalar:box-maintainer"
+  start_stub_admin "401" "503" || { teardown_unarchive_scratch "$scratch"; return; }
+  _point_relay "$scratch" upsilon
+  printf 'saved\n' > "${scratch}-archive/upsilon/.unarchive-reactivate"
+
+  _tick "$scratch" >/dev/null
+  stop_stub_admin
+
+  local d="${scratch}-archive/upsilon"
+  assert_nofile "$scratch/upsilon"          "login 503: not moved"
+  assert_eq "saved" "$(_state "$scratch" upsilon)" "login 503: state still 'saved'"
+  assert_file   "$d/.unarchive-requested"   "login 503: flag retained"
+  assert_nofile "$d/.unarchive-refused"     "login 503: NOT refused"
+  assert_eq "0" "$(_all_request_files_count "$scratch")" "login 503: no new request filed"
+  teardown_unarchive_scratch "$scratch"
+}
+
+test_identity_refusal_drops_pending_request() {
+  local scratch; scratch=$(setup_unarchive_scratch)
+  fixture_live_role "$scratch" box-maintainer
+  fixture_archived_identity "$scratch" phi "scalar:box-maintainer"
+  start_stub_admin "401" || { teardown_unarchive_scratch "$scratch"; return; }
+  _point_relay "$scratch" phi
+
+  _tick "$scratch" >/dev/null
+  assert_eq "1" "$(_request_count "$scratch")" "pending refuse: request filed on tick 1"
+  # A live identity with the same name appears while the request is pending.
+  mkdir -p "$scratch/phi"
+  _tick "$scratch" >/dev/null
+  stop_stub_admin
+
+  assert_nofile "${scratch}-archive/phi/.unarchive-requested"  "pending refuse: flag cleared"
+  assert_nofile "${scratch}-archive/phi/.unarchive-reactivate" "pending refuse: state cleared"
+  assert_grep "already exists" "$(cat "${scratch}-archive/phi/.unarchive-refused" 2>/dev/null)" "pending refuse: note written"
+  assert_eq "0" "$(_all_request_files_count "$scratch")" "pending refuse: pending request dropped"
   teardown_unarchive_scratch "$scratch"
 }
 
 test_identity_no_sentinel_noop() {
   local scratch; scratch=$(setup_unarchive_scratch)
   fixture_live_role "$scratch" box-maintainer
-  # Create an archived identity WITHOUT the un-archive sentinel.
   mkdir -p "${scratch}-archive/lambda"
   printf -- '---\nroles: box-maintainer\n---\nbody\n' > "${scratch}-archive/lambda/lambda.md"
 
-  local out
-  out=$( _source_supervisor_unarchive "$scratch"
-         scan_identity_unarchive_requested_sentinels 2>&1 ) || true
+  local out; out=$(_tick "$scratch")
 
   assert_file   "${scratch}-archive/lambda"          "no-sentinel: archive folder untouched"
   assert_nofile "$scratch/lambda"                    "no-sentinel: no folder moved"
-  assert_nogrep "un-archive step 1" "$out" "no-sentinel: no step-1 log line fires"
+  assert_nofile "${scratch}-archive/lambda/.unarchive-refused" "no-sentinel: no refusal note"
+  assert_eq "0" "$(_all_request_files_count "$scratch")" "no-sentinel: no request filed"
+  assert_nogrep "un-archive" "$out" "no-sentinel: no un-archive log lines"
   teardown_unarchive_scratch "$scratch"
 }
 
-# Shape 5 — un-archive wake-up smoothing. On happy-path un-archive, the scanner
-# prepends a dated banner to the identity file body (right after frontmatter)
-# so the agent that wakes from this un-archive has an in-session signal that
-# anything happened. Delivered to the agent via the existing identity-file-watch
-# wake channel.
+# Shape 5 — un-archive wake-up smoothing. On a completed un-archive, the
+# scanner prepends a dated banner to the identity file body (right after
+# frontmatter) so the agent that wakes has an in-session signal.
 test_identity_banner_prepended_on_happy_path() {
   local scratch; scratch=$(setup_unarchive_scratch)
   fixture_live_role "$scratch" box-maintainer
   fixture_archived_identity "$scratch" mu "scalar:box-maintainer"
   start_stub_admin "200" || { teardown_unarchive_scratch "$scratch"; return; }
-  sed -i "s|STUB_PORT|$STUB_PORT|" "${scratch}-archive/mu/relay.json"
+  _point_relay "$scratch" mu
 
-  local out
-  out=$( _source_supervisor_unarchive "$scratch"
-         scan_identity_unarchive_requested_sentinels 2>&1 ) || true
+  local out; out=$(_tick "$scratch")
   stop_stub_admin
 
   assert_file "$scratch/mu/mu.md" "banner-prepend: identity file lives at live path"
 
-  # Banner wording invariant — the exact text the agent reads on wake. Pin
-  # the distinguishing phrases so wording drift during a refactor shows up
-  # here before it ships.
+  # Banner wording invariant — the exact text the agent reads on wake.
   local body; body=$(cat "$scratch/mu/mu.md" 2>/dev/null)
   assert_grep "You were unarchived at" "$body"             "banner-prepend: banner opening phrase present"
   assert_grep "state of the world may have moved"  "$body" "banner-prepend: banner middle phrase present"
   assert_grep "Delete this banner once you've caught up" "$body" "banner-prepend: delete-when-done instruction present"
+  assert_grep 'You were unarchived at 2[0-9]{3}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z' "$body" \
+    "banner-prepend: ISO8601 UTC timestamp"
 
-  # Timestamp shape: ISO8601 Z-suffixed UTC. Loose regex — presence is the
-  # assertion, not the exact second-value.
-  if ! printf '%s' "$body" | grep -qE 'You were unarchived at 2[0-9]{3}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z'; then
-    FAIL=$((FAIL+1))
-    printf '  FAIL banner-prepend: timestamp missing or wrong shape in banner\n' >&2
-  fi
-
-  # Placement invariant: banner MUST sit AFTER the frontmatter close, not
-  # inside the frontmatter block or before it. Count --- lines before the
-  # banner — must be exactly 2 (opener + closer).
+  # Placement invariant: banner sits AFTER the frontmatter close.
   local dashes_before
   dashes_before=$(printf '%s\n' "$body" | awk '/^You were unarchived at|^> .*You were unarchived at/ { exit } /^---[[:space:]]*$/ { c++ } END { print c+0 }')
   assert_eq "2" "$dashes_before" "banner-prepend: banner sits after frontmatter close (not inside / before)"
 
-  # Supervisor logged the step-7 success line.
   assert_grep "un-archive step 7:" "$out" "banner-prepend: step 7 success log present"
   teardown_unarchive_scratch "$scratch"
 }
@@ -1075,17 +1312,25 @@ run_test test_extract_roles_none
 run_test test_extract_roles_singular_key_ignored
 run_test test_extract_roles_malformed
 
-run_test test_identity_happy_path_scalar_role
+run_test test_identity_name_collision_refuses
+run_test test_identity_role_missing_scalar_refuses
+run_test test_identity_role_missing_multi_names_only_missing
+run_test test_identity_missing_relay_json_refuses
+run_test test_identity_relay_json_without_account_refuses
+run_test test_identity_whoami_fast_path_completes
 run_test test_identity_happy_path_flow_list_all_live
 run_test test_identity_happy_path_block_list_all_live
-run_test test_identity_no_dormancy_preserved
-run_test test_identity_role_missing_scalar_refuses
 run_test test_identity_no_roles_unarchives
-run_test test_identity_role_missing_multi_names_only_missing
-run_test test_identity_name_collision_refuses
-run_test test_identity_whoami_401_refuses_sentinel_retained
-run_test test_identity_whoami_transient_5xx_retains_sentinel
-run_test test_identity_relay_json_missing_access_token_retains_sentinel
+run_test test_identity_no_dormancy_preserved
+run_test test_identity_old_refusal_note_removed_on_success
+run_test test_identity_full_reactivation_happy_path
+run_test test_identity_transient_error_rerequests
+run_test test_identity_permanent_error_refuses
+run_test test_identity_ok_response_without_password_rerequests
+run_test test_identity_stale_request_dropped_and_refiled
+run_test test_identity_login_401_refuses
+run_test test_identity_login_5xx_retries
+run_test test_identity_refusal_drops_pending_request
 run_test test_identity_no_sentinel_noop
 run_test test_identity_banner_prepended_on_happy_path
 

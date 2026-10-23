@@ -704,10 +704,12 @@ across every conversation.
 In the full search modal, archived conversations (matching the query but
 whose identity has been archived) render as rows with an always-visible
 three-dots menu on the right. Clicking the menu's **Un-archive** item
-requests the reconciler restore that identity's folder; the row is
-optimistically removed from the search view. If un-archive is refused (for
-example, the identity holds a role that itself is still archived), a native
-alert names the role you need to un-archive first. Left-clicking an
+starts the un-archive; the row shows a spinner ("un-archiving…") until it
+finishes — usually within a minute — and then a native alert says the
+conversation is back (the row leaves the search view) or why it was refused
+(for example, a role that itself is still archived, which the alert names).
+If nothing has happened after two minutes the alert says it's still working,
+and it carries on in the background. Left-clicking an
 archived row itself does nothing — the identity's conversation surface
 doesn't exist while archived.
 
@@ -1565,11 +1567,18 @@ reappears in the sidebar and is servable.
 
 ### Identity
 
-**Agent-side identity un-archive is temporarily restricted**.
+`touch ~/fleet/identities-archive/<name>/.unarchive-requested` on the identity's
+home host — the same flag the frontend's **Un-archive** drops. The supervisor
+asks the backend to bring the identity's relay account back, logs it in, and
+moves the folder back to `~/fleet/identities/<name>/`; it returns dormant (or
+always-on if it was), with a "you were unarchived" note at the top of its
+identity file. This takes about a minute.
 
-**For identities, direct the user at the frontend path:** open the conversation
-search modal (sidebar search → `everywhere ↗`), find the archived identity's row,
-click the three-dots kebab menu, pick **Un-archive**.
+If it hasn't come back after a couple of minutes, read
+`~/fleet/identities-archive/<name>/.unarchive-refused` — it says why it was
+refused (a role still archived, a live identity with the same name, an
+account that can't be confirmed as an agent's, …). Fix the cause and drop the
+flag again, or tell the user.
 
 **User-initiated boundary** — same as `/id archive`, an agent doesn't spontaneously
 un-archive things on its own initiative. Un-archive when the user asks (or points to

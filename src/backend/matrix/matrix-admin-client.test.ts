@@ -2320,3 +2320,209 @@ describe("createRoom initial_state (260911-n8a)", () => {
     expect(body.initial_state).toEqual(initialState);
   });
 });
+
+// ---------------------------------------------------------------------------
+// getUserAccountStatus + getRoomMembershipOf (identity-reactivate agent
+// service). Read-only checks the service runs before reactivating an
+// archived agent's chat account.
+// ---------------------------------------------------------------------------
+
+import {
+  getUserAccountStatus,
+  getRoomMembershipOf,
+} from "./matrix-admin-client.js";
+
+describe("getUserAccountStatus", () => {
+  it("GETs the v2 users endpoint with the encoded mxid and admin bearer", async () => {
+    const fetchMock = vi.fn(async () =>
+      mockFetchResponse(200, { deactivated: true, admin: false }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    await getUserAccountStatus("@ace:server");
+    const url = fetchMock.mock.calls[0][0] as string;
+    expect(url).toBe(
+      `${HAPPY_CREDS.homeserverBase}/_synapse/admin/v2/users/${encodeURIComponent("@ace:server")}`,
+    );
+    const opts = fetchMock.mock.calls[0][1] as RequestInit;
+    expect(opts.method).toBe("GET");
+    expect((opts.headers as Record<string, string>)["Authorization"]).toBe(
+      `Bearer ${HAPPY_CREDS.accessToken}`,
+    );
+  });
+
+  it("404 → ok:true, exists:false (not an error)", async () => {
+    stubFetchOk(404, { errcode: "M_NOT_FOUND" });
+    expect(await getUserAccountStatus("@ghost:server")).toEqual({
+      ok: true,
+      exists: false,
+      deactivated: false,
+      admin: false,
+    });
+  });
+
+  it("deactivated:true, admin:false → exists, deactivated, not admin", async () => {
+    stubFetchOk(200, { name: "@ace:server", deactivated: true, admin: false });
+    expect(await getUserAccountStatus("@ace:server")).toEqual({
+      ok: true,
+      exists: true,
+      deactivated: true,
+      admin: false,
+    });
+  });
+
+  it("active account (deactivated:false) → deactivated:false", async () => {
+    stubFetchOk(200, { deactivated: false, admin: false });
+    const r = await getUserAccountStatus("@ace:server");
+    expect(r).toMatchObject({ ok: true, exists: true, deactivated: false });
+  });
+
+  it("admin:true → admin:true", async () => {
+    stubFetchOk(200, { deactivated: true, admin: true });
+    expect(await getUserAccountStatus("@root:server")).toMatchObject({ ok: true, admin: true });
+  });
+
+  it("admin:1 (older Synapse integer form) → admin:true", async () => {
+    stubFetchOk(200, { deactivated: true, admin: 1 });
+    expect(await getUserAccountStatus("@root:server")).toMatchObject({ ok: true, admin: true });
+  });
+
+  it("admin:0 / missing fields → admin:false, deactivated:false", async () => {
+    stubFetchOk(200, { admin: 0 });
+    expect(await getUserAccountStatus("@ace:server")).toEqual({
+      ok: true,
+      exists: true,
+      deactivated: false,
+      admin: false,
+    });
+  });
+
+  it("non-2xx (500) → ok:false, status 500, admin_api_non_2xx", async () => {
+    stubFetchOk(500, { error: "boom" });
+    expect(await getUserAccountStatus("@ace:server")).toEqual({
+      ok: false,
+      status: 500,
+      error: "admin_api_non_2xx",
+    });
+  });
+
+  it("AbortError (timeout) → ok:false, status 504, admin_api_timeout", async () => {
+    stubFetchAbort();
+    expect(await getUserAccountStatus("@ace:server")).toEqual({
+      ok: false,
+      status: 504,
+      error: "admin_api_timeout",
+    });
+  });
+
+  it("network error → ok:false, status 502, admin_api_proxy_error", async () => {
+    stubFetchNetworkError();
+    expect(await getUserAccountStatus("@ace:server")).toMatchObject({
+      ok: false,
+      status: 502,
+      error: "admin_api_proxy_error",
+    });
+  });
+
+  it("no admin creds → ok:false, status 500; fetch not called", async () => {
+    vi.mocked(getMatrixAdminCreds).mockResolvedValue(null);
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    const r = await getUserAccountStatus("@ace:server");
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.status).toBe(500);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+});
+
+describe("getRoomMembershipOf", () => {
+  const member = (stateKey: string, membership: unknown) => ({
+    type: "m.room.member",
+    state_key: stateKey,
+    content: { membership },
+  });
+
+  it("GETs the v1 room state endpoint with the encoded room id", async () => {
+    const fetchMock = vi.fn(async () => mockFetchResponse(200, { state: [] }));
+    vi.stubGlobal("fetch", fetchMock);
+    await getRoomMembershipOf("!agents:server", "@ace:server");
+    expect(fetchMock.mock.calls[0][0]).toBe(
+      `${HAPPY_CREDS.homeserverBase}/_synapse/admin/v1/rooms/${encodeURIComponent("!agents:server")}/state`,
+    );
+    expect((fetchMock.mock.calls[0][1] as RequestInit).method).toBe("GET");
+  });
+
+  it("member event found → its membership ('leave' after deactivation)", async () => {
+    stubFetchOk(200, {
+      state: [
+        { type: "m.room.name", state_key: "", content: { name: "agents" } },
+        member("@other:server", "join"),
+        member("@ace:server", "leave"),
+      ],
+    });
+    expect(await getRoomMembershipOf("!r:server", "@ace:server")).toEqual({
+      ok: true,
+      membership: "leave",
+    });
+  });
+
+  it("member event found with 'join'", async () => {
+    stubFetchOk(200, { state: [member("@ace:server", "join")] });
+    expect(await getRoomMembershipOf("!r:server", "@ace:server")).toEqual({
+      ok: true,
+      membership: "join",
+    });
+  });
+
+  it("no member event for the account → membership:null", async () => {
+    stubFetchOk(200, { state: [member("@other:server", "join")] });
+    expect(await getRoomMembershipOf("!r:server", "@ace:server")).toEqual({
+      ok: true,
+      membership: null,
+    });
+  });
+
+  it("non-member event with matching state_key is ignored", async () => {
+    stubFetchOk(200, {
+      state: [{ type: "m.room.custom", state_key: "@ace:server", content: { membership: "join" } }],
+    });
+    expect(await getRoomMembershipOf("!r:server", "@ace:server")).toEqual({
+      ok: true,
+      membership: null,
+    });
+  });
+
+  it("missing/garbage state array → membership:null", async () => {
+    stubFetchOk(200, { state: "nope" });
+    expect(await getRoomMembershipOf("!r:server", "@ace:server")).toEqual({
+      ok: true,
+      membership: null,
+    });
+  });
+
+  it("non-2xx (404 unknown room) → ok:false, status 404, admin_api_non_2xx", async () => {
+    stubFetchOk(404, { errcode: "M_NOT_FOUND" });
+    expect(await getRoomMembershipOf("!r:server", "@ace:server")).toEqual({
+      ok: false,
+      status: 404,
+      error: "admin_api_non_2xx",
+    });
+  });
+
+  it("AbortError (timeout) → ok:false, status 504, admin_api_timeout", async () => {
+    stubFetchAbort();
+    expect(await getRoomMembershipOf("!r:server", "@ace:server")).toEqual({
+      ok: false,
+      status: 504,
+      error: "admin_api_timeout",
+    });
+  });
+
+  it("network error → ok:false, status 502, admin_api_proxy_error", async () => {
+    stubFetchNetworkError();
+    expect(await getRoomMembershipOf("!r:server", "@ace:server")).toMatchObject({
+      ok: false,
+      status: 502,
+      error: "admin_api_proxy_error",
+    });
+  });
+});

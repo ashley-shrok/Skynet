@@ -88,6 +88,10 @@ export interface ConversationSearchModalProps {
   onOpenActiveConversation: (result: ConversationSearchResult) => void;
 }
 
+function unarchivingKey(r: ConversationSearchResult): string {
+  return `${r.hostId}:${r.identityKey}`;
+}
+
 export function ConversationSearchModal({
   open,
   onOpenChange,
@@ -99,6 +103,8 @@ export function ConversationSearchModal({
   // even when the store's query is stale (e.g. user typed "foo" but hasn't
   // pressed Enter yet — state.query is still the previous fired query).
   const [localValue, setLocalValue] = useState<string>(state.query);
+  // Archived rows whose un-archive is in flight (keyed by host + identity).
+  const [unarchiving, setUnarchiving] = useState<ReadonlySet<string>>(new Set());
 
   // On open→true transition, re-seed the local input from the store's
   // last-fired query. If the user closed the modal mid-edit (localValue
@@ -190,40 +196,69 @@ export function ConversationSearchModal({
   // Phase 143 D-11 / D-16 / D-17 / D-19 — endpoint-first un-archive handler.
   //
   // CRITICAL SEQUENCE (CONTEXT.md Risk Summary): the row MUST NOT be removed
-  // until the endpoint returns 200. Do NOT touch store state until resolve.
+  // until the endpoint reports "restored". The endpoint drops the flag and
+  // waits for the supervisor's outcome (shape-unarchive-one-path-supervisor-
+  // reactivation.md); the row shows a spinner meanwhile.
   //
-  // On resolve (200): remove the row from results THEN fire the success alert.
-  // On reject: DO NOT touch the results store (row stays — never removed).
-  //   Fire failure alert with distinct copy for missing_roles (D-17 verbatim).
+  // restored → remove the row, then "<name> is back." alert.
+  // pending  → row stays, "still un-archiving" alert (it keeps going).
+  // reject   → row stays, failure alert (refused reason, missing roles, ...).
   //
   // Modal stays open in all branches (D-19): no onOpenChange(false) call here.
   async function handleUnarchive(result: ConversationSearchResult): Promise<void> {
     if (!result.isArchived) return; // defensive guard
+    const rowKey = unarchivingKey(result);
+    if (unarchiving.has(rowKey)) return; // already in flight
 
+    setUnarchiving((prev) => new Set(prev).add(rowKey));
     try {
       // Step 1: call endpoint FIRST — row untouched while request is in flight.
-      await unarchiveIdentity(result.hostId, result.identityKey);
+      // The backend drops the flag and waits (up to ~2 min) for the
+      // supervisor's outcome; the row shows a spinner meanwhile.
+      const { outcome } = await unarchiveIdentity(result.hostId, result.identityKey);
+      console.info({
+        operation: "conversation_search_unarchive_outcome",
+        identityKey: result.identityKey,
+        hostId: result.hostId,
+        outcome,
+      });
+
+      if (outcome === "pending") {
+        // eslint-disable-next-line no-alert
+        window.alert(
+          `Still un-archiving ${result.identityKey} — check back shortly.`,
+        );
+        return;
+      }
+
       // Release any optimistic-archive mark this tab still holds, so the
       // reconciler's restore re-surfaces the row here too.
       clearPendingArchive(result.hostId, result.identityKey);
 
-      // Step 2: endpoint returned 200 — now remove the row from the store.
+      // Step 2: restored — now remove the row from the store.
       removeResultByIdentity(result.hostId, result.identityKey);
 
       // Step 3: fire success alert (D-16).
       // eslint-disable-next-line no-alert
-      window.alert(
-        `Un-archiving ${result.identityKey} — it may take a moment to reflect elsewhere in the app.`,
-      );
+      window.alert(`${result.identityKey} is back.`);
     } catch (err) {
       // Failure path: row was NEVER removed (no restore branch needed —
       // by construction the row is still present). Fire failure alert (D-17).
+      console.info({
+        operation: "conversation_search_unarchive_failed",
+        identityKey: result.identityKey,
+        hostId: result.hostId,
+        reason: err instanceof UnarchiveError ? err.reason : "error",
+      });
       if (err instanceof UnarchiveError && err.reason === "missing_roles") {
         // D-17 verbatim: names the still-archived role(s) inline.
         // eslint-disable-next-line no-alert
         window.alert(
           `Un-archive role ${err.missingRoles?.join(", ") ?? "(unknown)"} first — this conversation depends on it.`,
         );
+      } else if (err instanceof UnarchiveError && err.reason === "refused") {
+        // eslint-disable-next-line no-alert
+        window.alert(`Couldn't un-archive ${result.identityKey}: ${err.message}`);
       } else if (err instanceof UnarchiveError && err.reason === "name_collision") {
         // eslint-disable-next-line no-alert
         window.alert(
@@ -241,6 +276,12 @@ export function ConversationSearchModal({
           `Couldn't un-archive ${result.identityKey} — try again in a moment.`,
         );
       }
+    } finally {
+      setUnarchiving((prev) => {
+        const next = new Set(prev);
+        next.delete(rowKey);
+        return next;
+      });
     }
   }
 
@@ -361,6 +402,7 @@ export function ConversationSearchModal({
             query={state.query}
             onClick={() => handleRowClick(r)}
             onUnarchive={r.isArchived ? handleUnarchive : undefined}
+            unarchiving={r.isArchived && unarchiving.has(unarchivingKey(r))}
           />
         ))}
         {state.hasMore && (

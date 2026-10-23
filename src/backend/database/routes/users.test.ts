@@ -349,6 +349,10 @@ const mockDeactivateUser = vi.fn<
 vi.mock("../../matrix/matrix-admin-client.js", () => ({
   createOrUpdateUser: (...args: [string, string, string?]) => mockCreateOrUpdateUser(...args),
   deactivateUser: (...args: [string]) => mockDeactivateUser(...args),
+  // Read at import time by the identity-reactivate agent service (pulled in
+  // via the agent-services registry); unused by these tests.
+  getUserAccountStatus: vi.fn(),
+  getRoomMembershipOf: vi.fn(),
 }));
 
 // Phase 89-02 Task 3: mock registry-rooms — POST /users/create post-mint hook.
@@ -359,6 +363,10 @@ const mockJoinHumanToHumansRegistry = vi.fn<
 
 vi.mock("../../relay-sessions/registry-rooms.js", () => ({
   joinHumanToHumansRegistry: (...args: [string]) => mockJoinHumanToHumansRegistry(...args),
+  // Read at import time by the identity-reactivate agent service; unused here.
+  getAgentsRegistryRoomId: vi.fn(),
+  getHumansRegistryRoomId: vi.fn(),
+  joinAgentToAgentsRegistry: vi.fn(),
 }));
 
 // Mock: username-to-mxid — fixed happy-path stubs so tests don't reason about sanitizer output

@@ -353,6 +353,10 @@ vi.mock("../../matrix/matrix-admin-client.js", () => ({
     status: 201,
   })),
   deactivateUser: vi.fn(async () => ({ ok: true })),
+  // Read at import time by the identity-reactivate agent service (pulled in
+  // via the agent-services registry); unused by these tests.
+  getUserAccountStatus: vi.fn(),
+  getRoomMembershipOf: vi.fn(),
 }));
 
 vi.mock("../../matrix/username-to-mxid.js", () => ({

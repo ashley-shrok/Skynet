@@ -77,8 +77,8 @@ describe("Phase 143 Plan 143-05 Task 1 — unarchiveIdentity", () => {
 
   // Test 1 (happy): unarchiveIdentity issues POST /identities/wren/unarchive
   //                 with body { hostId } and returns the parsed response.
-  it("Test 1 (happy): unarchiveIdentity(42, 'wren') POSTs /identities/wren/unarchive with body { hostId: 42 } and returns { ok: true }", async () => {
-    vi.mocked(authApi.post).mockResolvedValueOnce({ data: { ok: true } });
+  it("Test 1 (happy): unarchiveIdentity(42, 'wren') POSTs /identities/wren/unarchive with body { hostId: 42 } and a long timeout, and returns the outcome", async () => {
+    vi.mocked(authApi.post).mockResolvedValueOnce({ data: { ok: true, outcome: "restored" } });
 
     const result = await unarchiveIdentity(42, "wren");
 
@@ -86,8 +86,25 @@ describe("Phase 143 Plan 143-05 Task 1 — unarchiveIdentity", () => {
     expect(authApi.post).toHaveBeenCalledWith(
       "/identities/wren/unarchive",
       { hostId: 42 },
+      { timeout: 150_000 },
     );
-    expect(result).toEqual({ ok: true });
+    expect(result).toEqual({ ok: true, outcome: "restored" });
+  });
+
+  it("Test 1b (pending): an outcome other than restored comes back as pending", async () => {
+    vi.mocked(authApi.post).mockResolvedValueOnce({ data: { ok: true, outcome: "pending" } });
+    expect(await unarchiveIdentity(42, "wren")).toEqual({ ok: true, outcome: "pending" });
+  });
+
+  it("Test 1c (409 refused): throws UnarchiveError reason 'refused' carrying the supervisor's message", async () => {
+    vi.mocked(authApi.post).mockRejectedValueOnce(
+      makeAxiosError(409, { reason: "refused", message: "un-archive role(s) ops first" }),
+    );
+    await expect(unarchiveIdentity(42, "wren")).rejects.toMatchObject({
+      name: "UnarchiveError",
+      reason: "refused",
+      message: "un-archive role(s) ops first",
+    });
   });
 
   // Test 2 (409 missing_roles): identity depends on still-archived roles.

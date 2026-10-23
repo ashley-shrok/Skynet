@@ -14,8 +14,10 @@ host: ~/fleet/service-requests/            backend
 
 Services today: `agent-phone` (Twilio calls), `image-gen` (OpenAI
 gpt-image-1), `stt` (speech to text through the instance's voice-input
-provider, `src/backend/voice/stt-provider.ts`). Identity births (`spawn-requests/`) predate this and still have
-their own scanner.
+provider, `src/backend/voice/stt-provider.ts`), `identity-reactivate` (brings
+an archived agent's chat account back for un-archive; asked by the
+agent-supervisor, not by agents, and has no wrapper script or skill). Identity
+births (`spawn-requests/`) predate this and still have their own scanner.
 
 ## Layout
 

@@ -1698,3 +1698,130 @@ export async function putRoomPowerLevels(
     return { ok: false, status: 502, error: ERR_PROXY };
   }
 }
+
+// ---------------------------------------------------------------------------
+// getUserAccountStatus — GET /_synapse/admin/v2/users/{mxid}
+// ---------------------------------------------------------------------------
+//
+// Read whether an account exists, is switched off (deactivated), and is a
+// server admin. Used by the identity-reactivate agent service to refuse
+// anything but a switched-off, non-admin account. 404 is data, not an error:
+// it maps to ok:true, exists:false.
+
+export type GetUserAccountStatusOk = AdminOk<{
+  exists: boolean;
+  deactivated: boolean;
+  admin: boolean;
+}>;
+
+export async function getUserAccountStatus(
+  mxid: string,
+): Promise<GetUserAccountStatusOk | AdminErr> {
+  const creds = await getMatrixAdminCreds();
+  if (!creds) {
+    return { ok: false, status: 500, error: ERR_CREDS_MISSING };
+  }
+
+  const url = `${creds.homeserverBase}/_synapse/admin/v2/users/${encodeURIComponent(mxid)}`;
+
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+  try {
+    const response = await fetch(url, {
+      method: "GET",
+      headers: {
+        Authorization: `Bearer ${creds.accessToken}`,
+        "Content-Type": "application/json",
+      },
+      signal: controller.signal,
+    });
+    clearTimeout(timeoutId);
+    if (response.status === 404) {
+      return { ok: true, exists: false, deactivated: false, admin: false };
+    }
+    if (!response.ok) {
+      return { ok: false, status: response.status, error: ERR_NON_2XX };
+    }
+    const parsed = (await response.json()) as {
+      deactivated?: unknown;
+      admin?: unknown;
+    };
+    return {
+      ok: true,
+      exists: true,
+      deactivated: parsed.deactivated === true,
+      // Synapse has reported admin as both boolean and 0/1 across versions.
+      admin: parsed.admin === true || parsed.admin === 1,
+    };
+  } catch (err: unknown) {
+    clearTimeout(timeoutId);
+    if (err instanceof DOMException && err.name === "AbortError") {
+      return { ok: false, status: 504, error: ERR_TIMEOUT };
+    }
+    databaseLogger.error("matrix admin proxy error", err, {
+      operation: "matrix_admin_get_user_account_status",
+    });
+    return { ok: false, status: 502, error: ERR_PROXY };
+  }
+}
+
+// ---------------------------------------------------------------------------
+// getRoomMembershipOf — GET /_synapse/admin/v1/rooms/{roomId}/state
+// ---------------------------------------------------------------------------
+//
+// Current membership state ("join", "leave", "invite", "ban", ...) of one
+// account in a room, or null when the account has never had a membership
+// event there. Deactivation leaves rooms but keeps the "leave" record, so a
+// non-null result means "has been in this room at some point".
+
+export type GetRoomMembershipOfOk = AdminOk<{ membership: string | null }>;
+
+export async function getRoomMembershipOf(
+  roomId: string,
+  mxid: string,
+): Promise<GetRoomMembershipOfOk | AdminErr> {
+  const creds = await getMatrixAdminCreds();
+  if (!creds) {
+    return { ok: false, status: 500, error: ERR_CREDS_MISSING };
+  }
+
+  const url = `${creds.homeserverBase}/_synapse/admin/v1/rooms/${encodeURIComponent(roomId)}/state`;
+
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+  try {
+    const response = await fetch(url, {
+      method: "GET",
+      headers: {
+        Authorization: `Bearer ${creds.accessToken}`,
+        "Content-Type": "application/json",
+      },
+      signal: controller.signal,
+    });
+    clearTimeout(timeoutId);
+    if (!response.ok) {
+      return { ok: false, status: response.status, error: ERR_NON_2XX };
+    }
+    const parsed = (await response.json()) as { state?: unknown };
+    const events = Array.isArray(parsed.state) ? parsed.state : [];
+    for (const ev of events as Array<Record<string, unknown>>) {
+      if (ev?.type !== "m.room.member" || ev.state_key !== mxid) continue;
+      const membership = (ev.content as { membership?: unknown } | undefined)
+        ?.membership;
+      return {
+        ok: true,
+        membership: typeof membership === "string" ? membership : null,
+      };
+    }
+    return { ok: true, membership: null };
+  } catch (err: unknown) {
+    clearTimeout(timeoutId);
+    if (err instanceof DOMException && err.name === "AbortError") {
+      return { ok: false, status: 504, error: ERR_TIMEOUT };
+    }
+    databaseLogger.error("matrix admin proxy error", err, {
+      operation: "matrix_admin_get_room_membership_of",
+    });
+    return { ok: false, status: 502, error: ERR_PROXY };
+  }
+}
