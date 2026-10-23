@@ -87,6 +87,67 @@ function hostIdsOf(identityHosts: Record<string, number>): Set<number> {
   return new Set(Object.values(identityHosts));
 }
 
+// A requested host can come back with no identities even on a 200 — the
+// backend swallows per-host fan-out failures (SSH timeout, breaker open) and
+// returns [] for that host. Such a host stays uncovered and is retried on this
+// schedule (delay after the 1st, 2nd, … empty attempt); past the end it is
+// given up on until a later refresh happens to include it and it answers.
+// Also paces whole-request failures, so a failing backend is not re-hit on
+// every conversation-store notification.
+const UNCOVERED_HOST_RETRY_DELAYS_MS = [0, 2_000, 4_000, 8_000, 16_000, 32_000];
+let uncoveredHostRetries = new Map<
+  number,
+  { attempts: number; nextAt: number; gaveUp: boolean }
+>();
+let retryTimer: ReturnType<typeof setTimeout> | null = null;
+
+// Responses can land out of order (fetchOnce vs a subscriber refresh vs a
+// caller's refreshIdentities). Each replaces the whole list, so an older
+// response landing after a newer one would roll the store back. Apply only
+// responses issued after the last one applied.
+let fetchSeq = 0;
+let lastAppliedFetchSeq = 0;
+
+/**
+ * Apply a fan-out response (or record its failure) and update host coverage.
+ * Returns false when the response was superseded by a newer one already
+ * applied — the caller must then leave the store alone.
+ */
+function recordFetchOutcome(
+  seq: number,
+  identityHosts: Record<string, number>,
+  list: Identity[] | null,
+): boolean {
+  if (list !== null) {
+    if (seq < lastAppliedFetchSeq) return false;
+    lastAppliedFetchSeq = seq;
+    setIdentities(list);
+    const answered = new Set<number>();
+    for (const i of list) if (typeof i.hostId === "number") answered.add(i.hostId);
+    coveredHostIds = answered;
+  }
+  const now = Date.now();
+  for (const hostId of hostIdsOf(identityHosts)) {
+    if (coveredHostIds.has(hostId)) {
+      uncoveredHostRetries.delete(hostId);
+      continue;
+    }
+    const attempts = (uncoveredHostRetries.get(hostId)?.attempts ?? 0) + 1;
+    const gaveUp = attempts > UNCOVERED_HOST_RETRY_DELAYS_MS.length;
+    uncoveredHostRetries.set(hostId, {
+      attempts,
+      nextAt: gaveUp ? Infinity : now + UNCOVERED_HOST_RETRY_DELAYS_MS[attempts - 1],
+      gaveUp,
+    });
+    if (gaveUp && attempts === UNCOVERED_HOST_RETRY_DELAYS_MS.length + 1) {
+      console.warn(
+        `identities-store: host returned no identities after ${attempts - 1} attempts — giving up until a later refresh covers it [hostId:${hostId}]`,
+      );
+    }
+  }
+  return true;
+}
+
 function notify() {
   // Single-authority cache write: every state change that reaches listeners
   // also schedules a localStorage cache write so the next cold paint has the
@@ -347,9 +408,10 @@ export function deriveDiskPinnedIds(
 // imports the module without ever calling fetchOnce doesn't leak a live
 // subscription.
 //
-// Coverage is recorded on SUCCESS, not on attempt, so a failed refresh is
-// retried on the next fleetSessions notification instead of leaving rows on
-// safe-default cosmetics for the life of the tab. An inflight guard keeps a
+// A host counts as covered only once a response actually carries identities
+// for it, so a failed refresh — or a host whose fan-out failed inside a 200 —
+// is retried (paced by UNCOVERED_HOST_RETRY_DELAYS_MS) instead of leaving
+// rows on safe-default cosmetics for the life of the tab. An inflight guard keeps a
 // burst of store notifications from stacking duplicate fetches; when the
 // fetch lands, coverage is re-checked at once because hosts that reported
 // while it was in the air are not in it.
@@ -366,8 +428,27 @@ function refreshIfFleetHasNewHosts(): void {
     buildIdentityHostsFromFleet(getFleetSessionsSnapshot()),
   );
   if (fleetHosts.size === 0) return; // still empty — wait for the load flip
-  const missing = [...fleetHosts].filter((h) => !coveredHostIds.has(h));
-  if (missing.length === 0) return;
+  const now = Date.now();
+  let soonestRetry = Infinity;
+  const missing = [...fleetHosts].filter((h) => {
+    if (coveredHostIds.has(h)) return false;
+    const retry = uncoveredHostRetries.get(h);
+    if (retry === undefined) return true;
+    if (retry.nextAt <= now) return true;
+    soonestRetry = Math.min(soonestRetry, retry.nextAt);
+    return false;
+  });
+  if (missing.length === 0) {
+    // Only backed-off hosts are uncovered — come back when the soonest is
+    // due rather than relying on another store notification arriving.
+    if (soonestRetry !== Infinity && retryTimer === null) {
+      retryTimer = setTimeout(() => {
+        retryTimer = null;
+        refreshIfFleetHasNewHosts();
+      }, soonestRetry - now);
+    }
+    return;
+  }
   refreshForNewHostsInflight = true;
   console.info(
     `identities-store: fleet names uncovered hosts — refreshing [hosts:${missing.join(",")},covered:${[...coveredHostIds].join(",")}]`,
@@ -416,9 +497,15 @@ async function fetchOnce(): Promise<void> {
       const identityHosts = buildIdentityHostsFromFleet(
         getFleetSessionsSnapshot(),
       );
-      const list = await listIdentities(identityHosts);
-      setIdentities(list);
-      coveredHostIds = hostIdsOf(identityHosts);
+      const seq = ++fetchSeq;
+      let list: Identity[];
+      try {
+        list = await listIdentities(identityHosts);
+      } catch (err) {
+        recordFetchOutcome(seq, identityHosts, null);
+        throw err;
+      }
+      recordFetchOutcome(seq, identityHosts, list);
     } catch (err) {
       console.warn("identities-store: initial identities fetch failed", err);
       state = { ...state, loaded: true };
@@ -475,11 +562,15 @@ export function refreshIdentities(
         ...buildIdentityHostsFromFleet(getFleetSessionsSnapshot()),
         ...extraIdentityHosts,
       };
-      const list = await listIdentities(identityHosts);
-      setIdentities(list);
-      // setIdentities replaces the whole list, so coverage is exactly the
-      // hosts this request named.
-      coveredHostIds = hostIdsOf(identityHosts);
+      const seq = ++fetchSeq;
+      let list: Identity[];
+      try {
+        list = await listIdentities(identityHosts);
+      } catch (err) {
+        recordFetchOutcome(seq, identityHosts, null);
+        throw err;
+      }
+      recordFetchOutcome(seq, identityHosts, list);
       return true;
     } catch (err) {
       // Never rejects — callers rely on that. But the failure is reported both
@@ -1020,6 +1111,11 @@ export function __resetIdentitiesStoreForTest(): void {
   inflight = null;
   coveredHostIds = new Set();
   refreshForNewHostsInflight = false;
+  uncoveredHostRetries = new Map();
+  if (retryTimer !== null) clearTimeout(retryTimer);
+  retryTimer = null;
+  fetchSeq = 0;
+  lastAppliedFetchSeq = 0;
   notify();
 }
 

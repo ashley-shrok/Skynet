@@ -147,8 +147,17 @@ async function flush(): Promise<void> {
   for (let i = 0; i < 5; i++) await Promise.resolve();
 }
 
+// The backend answers every named host with its identities; a host only
+// counts as covered when the response carries identities for it.
+function answerEveryHost(): void {
+  vi.mocked(IdentitiesApi.listIdentities).mockImplementation(async (map = {}) =>
+    Object.entries(map).map(([key, hostId]) => makeIdentity(key, false, hostId)),
+  );
+}
+
 describe("refresh-after-fleet-load — re-fetches per newly reported host", () => {
   it("Test 7: each newly reported host triggers one re-fetch; churn on covered hosts does not", async () => {
+    answerEveryHost();
     // First fetch — fleet is empty, so listIdentities called with {}.
     await refreshIdentities();
     expect(vi.mocked(IdentitiesApi.listIdentities)).toHaveBeenCalledTimes(1);
@@ -185,6 +194,7 @@ describe("refresh-after-fleet-load — re-fetches per newly reported host", () =
   // Regression guard: a FAILED refresh must not mark its hosts covered, or
   // the safe-default (null-cosmetics) render stays up for the life of the tab.
   it("Test 7b: a failed refresh retries on the next fleetSessions change", async () => {
+    answerEveryHost();
     vi.mocked(IdentitiesApi.listIdentities).mockRejectedValueOnce(
       new Error("network down"),
     );
@@ -214,6 +224,7 @@ describe("refresh-after-fleet-load — re-fetches per newly reported host", () =
   });
 
   it("Test 7d: a host that reports while a re-fetch is in flight is fetched once it lands", async () => {
+    answerEveryHost();
     let release!: (v: Identity[]) => void;
     vi.mocked(IdentitiesApi.listIdentities).mockImplementationOnce(
       () => new Promise<Identity[]>((r) => { release = r; }),
@@ -232,13 +243,93 @@ describe("refresh-after-fleet-load — re-fetches per newly reported host", () =
     expect(vi.mocked(IdentitiesApi.listIdentities)).toHaveBeenCalledTimes(1);
 
     // First fetch lands → coverage re-checked → host 6 fetched.
-    release([]);
+    release([makeIdentity("jarvis-2", false, 3)]);
     await flush();
     expect(vi.mocked(IdentitiesApi.listIdentities)).toHaveBeenCalledTimes(2);
     expect(vi.mocked(IdentitiesApi.listIdentities)).toHaveBeenLastCalledWith({
       "jarvis-2": 3,
       sonar: 6,
     });
+  });
+
+  it("Test 7e: a host whose fan-out failed inside a 200 stays uncovered and is retried with backoff, then given up", async () => {
+    vi.useFakeTimers();
+    try {
+      // Host 3 answers; host 6's fan-out fails server-side, so the 200 holds
+      // nothing for it.
+      vi.mocked(IdentitiesApi.listIdentities).mockImplementation(async () => [
+        makeIdentity("jarvis-2", false, 3),
+      ]);
+      updateFleetSessions([makeSession(3, "jarvis-2"), makeSession(6, "sonar")]);
+      await flush();
+      // First attempt, then the immediate (0 ms) retry for host 6.
+      expect(vi.mocked(IdentitiesApi.listIdentities)).toHaveBeenCalledTimes(2);
+
+      // Churn inside the backoff window does not re-fetch.
+      updateFleetSessions([
+        makeSession(3, "jarvis-2"),
+        makeSession(6, "sonar"),
+        makeSession(3, "aqua"),
+      ]);
+      await flush();
+      expect(vi.mocked(IdentitiesApi.listIdentities)).toHaveBeenCalledTimes(2);
+
+      // Retries come on the backoff timer even with no store notification.
+      for (const ms of [2_000, 4_000, 8_000, 16_000, 32_000]) {
+        await vi.advanceTimersByTimeAsync(ms);
+        await flush();
+      }
+      expect(vi.mocked(IdentitiesApi.listIdentities)).toHaveBeenCalledTimes(7);
+
+      // Given up: no more fetches for host 6 on its own.
+      await vi.advanceTimersByTimeAsync(120_000);
+      updateFleetSessions([makeSession(3, "jarvis-2"), makeSession(6, "sonar")]);
+      await flush();
+      expect(vi.mocked(IdentitiesApi.listIdentities)).toHaveBeenCalledTimes(7);
+
+      // A refresh for another reason that host 6 now answers covers it.
+      answerEveryHost();
+      updateFleetSessions([
+        makeSession(3, "jarvis-2"),
+        makeSession(6, "sonar"),
+        makeSession(9, "zoey"),
+      ]);
+      await flush();
+      expect(vi.mocked(IdentitiesApi.listIdentities)).toHaveBeenCalledTimes(8);
+      const hosts = new Set(
+        __getIdentitiesStoreSnapshotForTest().identities.map((i) => i.hostId),
+      );
+      expect(hosts).toEqual(new Set([3, 6, 9]));
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("Test 7f: an older response landing after a newer one is ignored", async () => {
+    // Requests naming only host 1 hang until released (the "older" ones);
+    // requests naming both hosts answer at once.
+    const releases: Array<(v: Identity[]) => void> = [];
+    vi.mocked(IdentitiesApi.listIdentities).mockImplementation((map = {}) =>
+      "nelly" in map
+        ? Promise.resolve([
+            makeIdentity("tina", false, 1),
+            makeIdentity("nelly", false, 5),
+          ])
+        : new Promise<Identity[]>((r) => { releases.push(r); }),
+    );
+    const releaseOld = (v: Identity[]) => releases.forEach((r) => r(v));
+
+    updateFleetSessions([makeSession(1, "tina")]);
+    const older = refreshIdentities();
+    updateFleetSessions([makeSession(1, "tina"), makeSession(5, "nelly")]);
+    await refreshIdentities();
+    releaseOld([makeIdentity("tina", false, 1)]);
+    await older;
+
+    const keys = __getIdentitiesStoreSnapshotForTest()
+      .identities.map((i) => i.identityKey)
+      .sort();
+    expect(keys).toEqual(["nelly", "tina"]);
   });
 
   it("Test 7c: refreshIdentities resolves false on failure, true on success, and never rejects", async () => {
