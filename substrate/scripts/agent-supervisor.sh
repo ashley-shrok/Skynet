@@ -2667,6 +2667,34 @@ wait_for_claude() {
   return 1
 }
 
+# wait_for_claude_ready <session> <session_id> [budget_secs]: returns 0 once claude can take typed
+# input, 1 if the budget runs out. wait_for_claude only proves the process exists; claude takes
+# several more seconds to reach its compose box, and keys typed before then lose their Enter (the
+# app's dormant send waits on .resume-complete, so dropping that marker early loses the user's
+# message). Ready = claude's own ~/.claude/sessions/<pid>.json names this session and carries a
+# "status" field: it writes the file without one at startup and adds status once the REPL is up.
+# Matching the session id keeps a stale file from a SIGKILLed claude whose pid got reused from
+# counting. Deliberately not a pane scrape — that depends on pane size and rendering. The budget
+# is checked between polls, so a hung tmux can overrun it by up to one 3s poll.
+CLAUDE_SESSIONS_DIR="${CLAUDE_SESSIONS_DIR:-$HOME/.claude/sessions}"
+wait_for_claude_ready() {
+  local sess="$1" sid="$2" budget="${3:-20}" tty pid f deadline
+  deadline=$(( $(date +%s) + budget ))
+  while [ "$(date +%s)" -lt "$deadline" ]; do
+    tty="$(timeout -k 1 2 tmux list-panes -t "=$sess" -F '#{pane_tty}' 2>/dev/null | head -1)"
+    if [ -n "$tty" ]; then
+      for pid in $(ps -t "${tty#/dev/}" -o pid=,comm= 2>/dev/null | awk 'tolower($2) ~ /claude|node/ {print $1}'); do
+        f="$CLAUDE_SESSIONS_DIR/$pid.json"
+        grep -qF "\"sessionId\":\"$sid\"" "$f" 2>/dev/null \
+          && grep -qE '"status"[[:space:]]*:[[:space:]]*"[a-z]' "$f" 2>/dev/null \
+          && return 0
+      done
+    fi
+    sleep 0.25
+  done
+  return 1
+}
+
 # _check_id_first_turn <jsonl-path> <identity-name>
 # Predicate: does the first user-role line of the jsonl match "/id NAME" as a real slash-command
 # user turn? Three byte-string checks (per Tina 2026-08-29 consult on the app's approach —
@@ -3058,7 +3086,15 @@ drive() {
     # regression puts one of those prompts back on screen, we WARN in the log so a stuck agent is
     # findable rather than silently relay-deaf. (Agent will hang until we notice + re-enable the
     # answer path — accepted tradeoff for ~15s of wake wall-time savings.)
-    sleep 1                                      # brief settle so claude's Ink renders past the initial paint before the observable-outcome scrape
+    # Blocks reconcile (drive() runs identities one at a time) for as long as claude takes to come
+    # up — a few seconds normally, the full budget if it never reports.
+    local _ready_t0=$SECONDS _ready_budget=20
+    if wait_for_claude_ready "$sess" "$resume" "$_ready_budget"; then
+      log "'$name' claude ready (status reported) $((SECONDS-_ready_t0))s after launch check"
+    else
+      log "WARNING: '$name' claude did not report a status within ${_ready_budget}s of resume — dropping .resume-complete anyway so the app's pending send isn't held forever; it may lose its Enter. If an interactive-prompt warning follows, that prompt is why (session '$sess')"
+    fi
+    sleep 1                                     # brief settle so claude's Ink renders past the initial paint before the observable-outcome scrape
     pane="$(timeout -k 5 10 tmux capture-pane -pt "$sess" -S -40 2>/dev/null)"
     case "$pane" in
       *"Resume from summary"*|*"Resume full session"*|*"Yes, I trust this folder"*|*"Enter to confirm"*)
