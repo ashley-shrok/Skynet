@@ -315,6 +315,17 @@ export interface SweepAppLine {
    * camelCase `users` (same word — no rename needed).
    */
   users: string[] | null;
+  /**
+   * convo-scoped apps: the identity that owns a conversation app (it lives
+   * under ~/fleet/identities/<owner>/apps/), or null for a sidebar app.
+   * Additive — older emitters don't send it (undefined → null at the adapter).
+   */
+  owner?: string | null;
+  /**
+   * convo-scoped apps: true while a current-style app is asleep, false while
+   * awake, null when not applicable (old-style app) or unknown. Additive.
+   */
+  asleep?: boolean | null;
 }
 
 // ---------------------------------------------------------------------------

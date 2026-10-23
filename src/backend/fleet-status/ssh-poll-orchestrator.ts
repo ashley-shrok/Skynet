@@ -1457,6 +1457,12 @@ function adaptAppLineToState(hostId: string, line: SweepAppLine): AppState {
     // the `users` field; parser is lenient and lands undefined; adapter
     // normalizes to the AppState D-3 contract of `string[] | null`).
     users: line.users ?? null,
+    // convo-scoped apps: additive fields; older emitters omit them.
+    owner:
+      typeof line.owner === "string" && /^[a-zA-Z0-9_-]{1,64}$/.test(line.owner)
+        ? line.owner
+        : null,
+    asleep: typeof line.asleep === "boolean" ? line.asleep : null,
   };
 }
 

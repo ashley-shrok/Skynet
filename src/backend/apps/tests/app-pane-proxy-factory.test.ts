@@ -968,7 +968,9 @@ describe("error hook", () => {
       name: "Error",
       level: "",
     });
-    const req = makeExpressReq();
+    // POST: not retried (convo-scoped apps retry only GET/HEAD), so the
+    // first error goes straight to the interstitial.
+    const req = makeExpressReq("POST");
     const { res } = makeExpressRes(false);
     opts.on.error(err, req, res);
     expect(mocks.classifyTunnelError).toHaveBeenCalledWith(err);
@@ -1104,8 +1106,54 @@ describe("on.error hook", () => {
   it("writes the interstitial when headers have not been sent", async () => {
     const onError = await errorHook(7003);
     const res = { headersSent: false, writableEnded: false, setHeader: vi.fn(), destroy: vi.fn() };
-    onError(Object.assign(new Error("refused"), { code: "ECONNREFUSED" }), makeExpressReq(), res);
+    onError(Object.assign(new Error("refused"), { code: "ECONNREFUSED" }), makeExpressReq("POST"), res);
     expect(mocks.writeInterstitial).toHaveBeenCalledTimes(1);
     expect(res.destroy).not.toHaveBeenCalled();
+  });
+});
+
+/* ------------------------------------------------------------------------ */
+/*  convo-scoped apps — one silent retry while an app falls asleep           */
+/* ------------------------------------------------------------------------ */
+
+describe("retry once on refused/reset (sleeping apps)", () => {
+  it("GET refused before any response → no interstitial; the middleware is re-entered once with the original URL", async () => {
+    vi.useFakeTimers();
+    try {
+      const { getOrCreateAppPaneProxyForTarget } = await import("../app-pane-proxy-factory.js");
+      const handler = getOrCreateAppPaneProxyForTarget(makeTarget(), 12345, 1, "retry-a");
+      const inner = mocks.createProxyMiddleware.mock.results.at(-1)?.value as ReturnType<typeof vi.fn>;
+      const opts = lastOptions() as { on: { error: Function } };
+      const req = { ...makeExpressReq(), url: "/1/retry-a/pane/api/x" } as unknown as Request & { url: string };
+      const { res } = makeExpressRes(false);
+      handler(req, res as unknown as Response, () => {});
+      expect(inner).toHaveBeenCalledTimes(1);
+      req.url = "/api/x"; // what pathRewrite leaves behind
+      opts.on.error(Object.assign(new Error("refused"), { code: "ECONNREFUSED" }), req, res);
+      expect(mocks.writeInterstitial).not.toHaveBeenCalled();
+      vi.advanceTimersByTime(300);
+      expect(inner).toHaveBeenCalledTimes(2);
+      expect(req.url).toBe("/1/retry-a/pane/api/x");
+      // A second failure on the retried request renders the interstitial.
+      opts.on.error(Object.assign(new Error("refused"), { code: "ECONNREFUSED" }), req, res);
+      expect(mocks.writeInterstitial).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("shouldRetryOnce: only idempotent, unanswered, not-yet-retried, refused/reset requests", async () => {
+    const { shouldRetryOnce } = await import("../app-pane-proxy-factory.js");
+    const res = () => ({ headersSent: false, writableEnded: false, setHeader: () => {} });
+    const refused = Object.assign(new Error("x"), { code: "ECONNREFUSED" });
+    expect(shouldRetryOnce(refused, { method: "GET" }, res())).toBe(true);
+    expect(shouldRetryOnce(refused, { method: "HEAD" }, res())).toBe(true);
+    expect(shouldRetryOnce(Object.assign(new Error("x"), { code: "ECONNRESET" }), { method: "GET" }, res())).toBe(true);
+    expect(shouldRetryOnce(new Error("socket hang up"), { method: "GET" }, res())).toBe(true);
+    expect(shouldRetryOnce(refused, { method: "POST" }, res())).toBe(false);
+    expect(shouldRetryOnce(refused, { method: "GET", __paneRetried: true }, res())).toBe(false);
+    expect(shouldRetryOnce(refused, { method: "GET" }, { ...res(), headersSent: true })).toBe(false);
+    expect(shouldRetryOnce(refused, { method: "GET" }, {})).toBe(false); // raw WS socket
+    expect(shouldRetryOnce(Object.assign(new Error("x"), { code: "ETIMEDOUT" }), { method: "GET" }, res())).toBe(false);
   });
 });

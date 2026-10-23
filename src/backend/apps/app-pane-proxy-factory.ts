@@ -75,7 +75,7 @@
 
 import type * as http from "node:http";
 import * as zlib from "node:zlib";
-import type { Request, Response } from "express";
+import type { NextFunction, Request, Response } from "express";
 import {
   createProxyMiddleware,
   type RequestHandler,
@@ -434,6 +434,26 @@ export function getOrCreateAppPaneProxyForTarget(
       error: (err, req, res) => {
         const errorClass = classifyTunnelError(err);
         const e = (err ?? {}) as { code?: string; name?: string; level?: string };
+        // convo-scoped apps: a sleep-capable app closes its door when it goes
+        // to sleep; a request landing in that split second is refused or
+        // reset. Retry an idempotent request once — the retry reaches the box's
+        // held socket, which wakes the app.
+        if (shouldRetryOnce(err, req, res)) {
+          const retryReq = req as RetryableRequest;
+          retryReq.__paneRetried = true;
+          if (retryReq.__paneOriginalUrl !== undefined) retryReq.url = retryReq.__paneOriginalUrl;
+          sshLogger.info("apps pane proxy: retrying once after connection refused/reset", {
+            operation: "apps_pane_proxy_retry",
+            target: `${target.hostname}:${target.port}`,
+            hostId,
+            slug,
+            errCode: typeof e.code === "string" ? e.code : "",
+          });
+          setTimeout(() => {
+            void middleware(req as Request, res as Response, () => {});
+          }, PANE_RETRY_DELAY_MS);
+          return;
+        }
         sshLogger.warn("apps pane proxy: proxy-time-error", {
           operation: "apps_pane_proxy",
           target: `${target.hostname}:${target.port}`,
@@ -478,6 +498,43 @@ export function getOrCreateAppPaneProxyForTarget(
     },
   });
 
-  proxyCache.set(cacheKey, middleware);
-  return middleware;
+  // Remember the pre-rewrite URL so a retry (see on.error) re-enters the
+  // middleware with the path it originally saw. `.upgrade` is carried over —
+  // the WS dispatcher calls it on the returned handler.
+  const wrapped = ((req: Request, res: Response, next: NextFunction) => {
+    const r = req as RetryableRequest;
+    if (r.__paneOriginalUrl === undefined) r.__paneOriginalUrl = req.url;
+    return middleware(req, res, next);
+  }) as RequestHandler;
+  wrapped.upgrade = middleware.upgrade;
+
+  proxyCache.set(cacheKey, wrapped);
+  return wrapped;
+}
+
+/** Delay before the single retry — long enough for the box to re-arm its socket. */
+const PANE_RETRY_DELAY_MS = 250;
+
+type RetryableRequest = Request & {
+  __paneRetried?: boolean;
+  __paneOriginalUrl?: string;
+};
+
+/**
+ * True for the one case worth a silent retry: an idempotent request (GET /
+ * HEAD) whose connection to the app was refused or reset before any response
+ * reached the client, and which hasn't been retried already.
+ */
+export function shouldRetryOnce(err: unknown, req: unknown, res: unknown): boolean {
+  const r = req as RetryableRequest | undefined;
+  const w = res as { headersSent?: boolean; writableEnded?: boolean; setHeader?: unknown } | undefined;
+  if (!r || !w || typeof w.setHeader !== "function") return false; // raw WS socket
+  if (r.__paneRetried) return false;
+  if (w.headersSent || w.writableEnded) return false;
+  const method = String(r.method ?? "").toUpperCase();
+  if (method !== "GET" && method !== "HEAD") return false;
+  const e = (err ?? {}) as { code?: unknown; message?: unknown };
+  const code = typeof e.code === "string" ? e.code : "";
+  if (code === "ECONNREFUSED" || code === "ECONNRESET" || code === "EPIPE") return true;
+  return /socket hang up/i.test(String(e.message ?? ""));
 }

@@ -52,6 +52,7 @@
 import os from "os";
 import path from "path";
 import fs from "node:fs/promises";
+import { randomBytes } from "node:crypto";
 import type { Client as SSHClientType } from "ssh2";
 type SFTPWrapper = import("ssh2").SFTPWrapper;
 
@@ -384,6 +385,52 @@ async function remoteStatExists(
   } finally {
     sftp.end();
   }
+}
+
+// ---------------------------------------------------------------------------
+// Public: dropIdentityInboxMessage (convo-scoped apps)
+// ---------------------------------------------------------------------------
+
+/** Inbox filename contract — must match inbox-watcher's name-shape filter. */
+export const INBOX_MSG_NAME_RE = /^20[0-9]{6}T[0-9]{9}-[0-9a-f]{8}\.msg$/;
+
+/** `20261023T143022123-a7f3b2c1.msg` — UTC timestamp to the ms + 8 random hex. */
+export function makeInboxMessageName(now: Date = new Date(), hex?: string): string {
+  const p = (n: number, w = 2) => String(n).padStart(w, "0");
+  const ts =
+    `${now.getUTCFullYear()}${p(now.getUTCMonth() + 1)}${p(now.getUTCDate())}` +
+    `T${p(now.getUTCHours())}${p(now.getUTCMinutes())}${p(now.getUTCSeconds())}${p(now.getUTCMilliseconds(), 3)}`;
+  return `${ts}-${hex ?? randomBytes(4).toString("hex")}.msg`;
+}
+
+/**
+ * Drop a message into `~/fleet/identities/<name>/inbox/` per the agent-supervisor
+ * inbox dropper contract: write `<file>.msg.tmp`, then rename to `<file>.msg`
+ * (the watcher ignores the `.tmp` name, so it never sees a half-written file).
+ * The supervisor wakes a dormant identity for it and the inbox-watcher pastes
+ * the body into the identity's session. Returns the message filename.
+ */
+export async function dropIdentityInboxMessage(
+  name: string,
+  body: string,
+  opts: { hostId: number; conn: SSHClientType | null },
+): Promise<string> {
+  assertValidIdentityKey(name);
+  const file = makeInboxMessageName();
+  if (isLocalHostId(opts.hostId)) {
+    const dir = path.join(getLocalIdentitiesRoot(), name, "inbox");
+    await fs.mkdir(dir, { recursive: true });
+    const finalPath = path.join(dir, file);
+    await fs.writeFile(finalPath + ".tmp", body, "utf-8");
+    await fs.rename(finalPath + ".tmp", finalPath);
+    return file;
+  }
+  if (opts.conn === null) {
+    throw new Error("conn required for remote host");
+  }
+  await execCommand(opts.conn, `mkdir -p ${shellSingleQuote(`fleet/identities/${name}/inbox`)}`);
+  await writeMarkdownFileAtomic(opts.conn, `fleet/identities/${name}/inbox/${file}`, body);
+  return file;
 }
 
 // ---------------------------------------------------------------------------

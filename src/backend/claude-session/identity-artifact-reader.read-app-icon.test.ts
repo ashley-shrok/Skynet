@@ -198,3 +198,28 @@ describe("readAppIconFile — source-level Pitfall 5 lock", () => {
     expect(body).not.toMatch(/icon\.svg/i);
   });
 });
+
+// ──────────────────────────────────────────────────────────────────────
+// convo-scoped apps — a conversation app's icon lives under its owner
+// ──────────────────────────────────────────────────────────────────────
+
+describe("readAppIconFile — conversation app (owner)", () => {
+  it("REMOTE: probes ~/fleet/identities/<owner>/apps/<slug>/icon.webp", async () => {
+    const fakeConn = { __fake: "ssh-conn" } as unknown as SSHClientType;
+    const cmds: string[] = [];
+    (execCommand as unknown as ReturnType<typeof vi.fn>).mockImplementation(
+      (_conn: unknown, cmd: string) => {
+        cmds.push(cmd);
+        if (cmd === "echo $HOME") return Promise.resolve("/home/ubuntu\n");
+        return Promise.resolve("");
+      },
+    );
+    const result = await readAppIconFile(fakeConn, "tally", "alpha");
+    expect(result).toBeNull();
+    expect(cmds.some((c) => c.includes('"/home/ubuntu/fleet/identities/alpha/apps/tally/icon.webp"'))).toBe(true);
+  });
+
+  it("rejects an owner that isn't an identity name", async () => {
+    await expect(readAppIconFile(null, "tally", "../etc")).rejects.toThrow(/invalid owner/);
+  });
+});

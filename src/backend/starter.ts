@@ -200,6 +200,7 @@ export function maybeInstallStopHook(
 // ---------------------------------------------------------------------------
 export { makeSemaphore } from "./ssh/host-semaphore-registry.js";
 import { getHostConnectLimiter, getHostSemaphore } from "./ssh/host-semaphore-registry.js";
+import { setIdentityGate } from "./fleet-status/identity-gate-holder.js";
 
 // ---------------------------------------------------------------------------
 // Phase 72 Plan 05 — projection helper for the `runs_fleet_substrate` opt-in
@@ -880,6 +881,10 @@ if (process.env.VITEST !== "true") {
           ? runGate()
           : getHostSemaphore(hostIdNum).run(runGate);
       }
+
+      // convo-scoped apps: the HTTP routes that serve a conversation app
+      // (pane proxy, icon, Move-to-sidebar) ask the same question.
+      setIdentityGate(resolveIdentityGate);
 
       const fleetStatusServer = startFleetStatusServer({
         port: 30012,

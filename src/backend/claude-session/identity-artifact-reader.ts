@@ -3450,9 +3450,15 @@ export async function readAvatarSiblingFile(
 export async function readAppIconFile(
   conn: SSHClientType | null,
   slug: string,
+  // convo-scoped apps: a conversation app lives under its owning identity
+  // (~/fleet/identities/<owner>/apps/<slug>/) instead of ~/fleet/apps/.
+  owner: string | null = null,
 ): Promise<{ bytes: Buffer; mime: "image/webp" } | null> {
   if (!APP_SLUG_RE.test(slug)) {
     throw new Error("invalid slug");
+  }
+  if (owner !== null && !IDENTITY_KEY_RE.test(owner)) {
+    throw new Error("invalid owner");
   }
 
   if (conn === null) {
@@ -3463,7 +3469,10 @@ export async function readAppIconFile(
     // (/root inside Skynet). Every other local fleet-subpath reader in
     // this file routes through the getLocal*Root helpers for the same
     // reason — see the docblock above getLocalHomeRoot.
-    const filePath = path.join(getLocalAppsRoot(), slug, "icon.webp");
+    const filePath =
+      owner === null
+        ? path.join(getLocalAppsRoot(), slug, "icon.webp")
+        : path.join(getLocalIdentitiesRoot(), owner, "apps", slug, "icon.webp");
     try {
       const bytes = await fs.readFile(filePath);
       if (bytes.byteLength > IDMEDIT_MAX_AVATAR_BYTES) {
@@ -3488,7 +3497,10 @@ export async function readAppIconFile(
   // then read via SFTP. Interpolating ${slug} directly is shell-safe because
   // APP_SLUG_RE has already gated the value.
   const remoteHome = (await execWithTimeout(conn, "echo $HOME")).trim();
-  const targetPath = `${remoteHome}/fleet/apps/${slug}/icon.webp`;
+  const targetPath =
+    owner === null
+      ? `${remoteHome}/fleet/apps/${slug}/icon.webp`
+      : `${remoteHome}/fleet/identities/${owner}/apps/${slug}/icon.webp`;
   const lsCmd = `ls "${targetPath}" 2>/dev/null || true`;
   const lsOut = (await execWithTimeout(conn, lsCmd)).trim();
   if (lsOut === "") return null;

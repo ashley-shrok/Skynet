@@ -72,6 +72,9 @@ import {
   removeIdentityFile,
   identityFileExists,
   ALLOWED_REL_PATHS,
+  dropIdentityInboxMessage,
+  makeInboxMessageName,
+  INBOX_MSG_NAME_RE,
 } from "./per-identity-file.js";
 import { IDENTITY_KEY_RE as READER_IDENTITY_KEY_RE } from "./identity-artifact-reader.js";
 import { IDENTITY_KEY_RE as PRIMITIVE_IDENTITY_KEY_RE } from "./per-identity-file.js";
@@ -1066,5 +1069,54 @@ describe("Phase 115 Plan 115-01: .archive-requested sentinel primitive coverage"
     expect(sftp.ext_openssh_rename).not.toHaveBeenCalled();
     expect(sftp.unlink).not.toHaveBeenCalled();
     expect(sftp.stat).not.toHaveBeenCalled();
+  });
+});
+
+
+// ──────────────────────────────────────────────────────────────────────
+// convo-scoped apps: dropIdentityInboxMessage (agent-supervisor inbox)
+// ──────────────────────────────────────────────────────────────────────
+
+describe("dropIdentityInboxMessage", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("names files the inbox-watcher accepts", () => {
+    const name = makeInboxMessageName(new Date(Date.UTC(2026, 9, 23, 14, 30, 22, 123)), "a7f3b2c1");
+    expect(name).toBe("20261023T143022123-a7f3b2c1.msg");
+    expect(INBOX_MSG_NAME_RE.test(name)).toBe(true);
+    expect(INBOX_MSG_NAME_RE.test(makeInboxMessageName())).toBe(true);
+  });
+
+  it("LOCAL: mkdir -p inbox, write <file>.tmp, rename to <file>", async () => {
+    const file = await dropIdentityInboxMessage("alpha", "hello", { hostId: 999, conn: null });
+    expect(INBOX_MSG_NAME_RE.test(file)).toBe(true);
+    const mkdir = fsMod.mkdir as unknown as ReturnType<typeof vi.fn>;
+    const writeFile = fsMod.writeFile as unknown as ReturnType<typeof vi.fn>;
+    const rename = fsMod.rename as unknown as ReturnType<typeof vi.fn>;
+    expect(String(mkdir.mock.calls[0][0])).toMatch(/alpha[\\/]inbox$/);
+    expect(mkdir.mock.calls[0][1]).toEqual({ recursive: true });
+    const [tmpPath, body] = writeFile.mock.calls[0];
+    expect(String(tmpPath).endsWith(`${file}.tmp`)).toBe(true);
+    expect(body).toBe("hello");
+    expect(String(rename.mock.calls[0][0])).toBe(String(tmpPath));
+    expect(String(rename.mock.calls[0][1]).endsWith(file)).toBe(true);
+  });
+
+  it("REMOTE: mkdir -p over exec, then atomic SFTP write into the inbox", async () => {
+    const { conn, renameCalls } = buildMockConn();
+    const file = await dropIdentityInboxMessage("alpha", "hello", { hostId: 1, conn });
+    expect((execCommand as unknown as ReturnType<typeof vi.fn>).mock.calls[0][1]).toBe(
+      "mkdir -p 'fleet/identities/alpha/inbox'",
+    );
+    expect(renameCalls.at(-1)?.to).toContain(`fleet/identities/alpha/inbox/${file}`);
+  });
+
+  it("rejects an invalid identity name before any I/O", async () => {
+    await expect(
+      dropIdentityInboxMessage("../etc", "x", { hostId: 999, conn: null }),
+    ).rejects.toThrow(/invalid identityKey/);
+    expect((fsMod.writeFile as unknown as ReturnType<typeof vi.fn>)).not.toHaveBeenCalled();
   });
 });

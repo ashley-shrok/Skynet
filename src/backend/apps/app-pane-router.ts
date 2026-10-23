@@ -93,6 +93,7 @@ import {
 } from "./app-proxy-csrf-check.js";
 import { getOrCreateAppPaneProxyForTarget } from "./app-pane-proxy-factory.js";
 import { resolvePaneTarget } from "./pane-target-resolver.js";
+import { canUserSeeIdentity } from "../fleet-status/identity-gate-holder.js";
 import { classifyTunnelError } from "../serve-url/error-classifier.js";
 import {
   renderInterstitial,
@@ -213,6 +214,19 @@ router.all(
     const app = registry
       .getAppSnapshot()
       .find((a) => a.hostId === hostIdStr && a.slug === slug);
+    // convo-scoped apps: a conversation app is served only to users who can
+    // see its owning identity. 404 (not 403) so the app's existence doesn't
+    // leak to someone who can't see the conversation.
+    if (app?.owner && !(await canUserSeeIdentity(app.owner, hostIdStr, userId))) {
+      sshLogger.info("app pane: conversation app hidden by owner identity gate", {
+        operation: "apps_pane_owner_hidden",
+        hostId: hostIdNum,
+        slug,
+        owner: app.owner,
+        userId,
+      });
+      return res.status(404).json({ error: "Not found" });
+    }
     const hasLivePort =
       app !== undefined &&
       app.port !== null &&
@@ -557,6 +571,18 @@ export async function handleAppPaneUpgrade(
       .getAppSnapshot()
       .find((a) => a.hostId === String(hostIdNum) && a.slug === slug);
     if (!app) {
+      rejectUpgrade(socket, "HTTP/1.1 404 Not Found");
+      return;
+    }
+    // convo-scoped apps: same owner identity gate as the HTTP path.
+    if (app.owner && !(await canUserSeeIdentity(app.owner, String(hostIdNum), userId))) {
+      sshLogger.info("app pane WS: conversation app hidden by owner identity gate", {
+        operation: "apps_pane_ws_owner_hidden",
+        hostId: hostIdNum,
+        slug,
+        owner: app.owner,
+        userId,
+      });
       rejectUpgrade(socket, "HTTP/1.1 404 Not Found");
       return;
     }

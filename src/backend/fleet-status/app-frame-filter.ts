@@ -337,6 +337,16 @@ export async function filterAppFrame(
     return rest as AppState;
   }
 
+  /**
+   * convo-scoped apps: a conversation app (owner set) is visible to exactly
+   * the users who can see its owning identity — the same identity gate the
+   * conversation itself goes through. Sidebar apps (owner null) skip this.
+   */
+  async function canUserSeeOwner(app: AppState): Promise<boolean> {
+    if (!app.owner) return true;
+    return canUserSeeIdentity(app.owner, app.hostId);
+  }
+
   if (frame.type === "app-update") {
     // Phase 130 (D-7 short-circuit): host gate first, then per-app user gate.
     // Strip the `users` field before emit — Phase 129 HIGH-1 mirror; users
@@ -349,6 +359,16 @@ export async function filterAppFrame(
         userId,
         hostId: Number(frame.app.hostId),
         slug: frame.app.slug,
+      });
+      return null;
+    }
+    if (!(await canUserSeeOwner(frame.app))) {
+      systemLogger.debug("convo-apps: app-update hidden by owner identity gate", {
+        operation: "app_frame_filter_app_update_owner_hidden",
+        userId,
+        hostId: Number(frame.app.hostId),
+        slug: frame.app.slug,
+        owner: frame.app.owner,
       });
       return null;
     }
@@ -560,20 +580,34 @@ export async function filterAppFrame(
     // Phase 130: per-app user gate on every survivor of the host filter.
     // Strip `users` from every app before emit (Phase 129 HIGH-1 mirror).
     const callerUsername = await getCallerUsername();
-    const projectedApps: AppState[] = apps
-      .filter((a) => {
-        if (!visible.has(a.hostId)) return false;
-        if (!isAppVisibleToUser(a.users ?? null, callerUsername)) {
-          systemLogger.debug("Phase 130: app-snapshot entry hidden by user gate", {
-            operation: "app_frame_filter_app_snapshot_user_hidden",
-            userId,
-            hostId: Number(a.hostId),
-            slug: a.slug,
-          });
-          return false;
-        }
-        return true;
-      })
+    const userVisible = apps.filter((a) => {
+      if (!visible.has(a.hostId)) return false;
+      if (!isAppVisibleToUser(a.users ?? null, callerUsername)) {
+        systemLogger.debug("Phase 130: app-snapshot entry hidden by user gate", {
+          operation: "app_frame_filter_app_snapshot_user_hidden",
+          userId,
+          hostId: Number(a.hostId),
+          slug: a.slug,
+        });
+        return false;
+      }
+      return true;
+    });
+    // convo-scoped apps: owner identity gate, one resolve per unique
+    // (host, owner) pair in the frame.
+    const ownerKeys = Array.from(
+      new Set(userVisible.filter((a) => a.owner).map((a) => `${a.hostId}\u0000${a.owner}`)),
+    );
+    const ownerOk = new Map(
+      await Promise.all(
+        ownerKeys.map(async (k) => {
+          const [hid, owner] = k.split("\u0000");
+          return [k, await canUserSeeIdentity(owner, hid)] as const;
+        }),
+      ),
+    );
+    const projectedApps: AppState[] = userVisible
+      .filter((a) => !a.owner || ownerOk.get(`${a.hostId}\u0000${a.owner}`) === true)
       .map(stripAppUsers);
     return makeAppSnapshotFrame(projectedApps);
   }

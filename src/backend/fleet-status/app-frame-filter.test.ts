@@ -1080,6 +1080,64 @@ describe("app-frame-filter", () => {
     expect(resolver).not.toHaveBeenCalled();
     expect(checkAccessMock).not.toHaveBeenCalled();
   });
+
+  // -------------------------------------------------------------------------
+  // convo-scoped apps: a conversation app (owner set) is gated by its owning
+  // identity's visibility; sidebar apps (owner null) are not.
+  // -------------------------------------------------------------------------
+  const ownerCtx = (visibleOwners: string[], calls: string[] = []): AppFrameFilterCtx => ({
+    userId: "U",
+    resolveHostOwnerById: async () => ({ hostIdNum: 1, hostUserId: "U" }),
+    resolveIdentityGate: async (name, hostIdStr) => {
+      calls.push(`${hostIdStr}/${name}`);
+      return visibleOwners.includes(name);
+    },
+    resolveCallerUsername: async () => "alice",
+  });
+
+  it("convo-apps: app-update for a conversation app follows the owner's visibility", async () => {
+    const frame = makeAppUpdateFrame(makeAppState("h1", "tally", { owner: "alpha" }));
+    const shown = await filterAppFrame(frame, ownerCtx(["alpha"]), undefined, async () => true);
+    expect(shown?.type).toBe("app-update");
+    if (shown?.type === "app-update") expect(shown.app.owner).toBe("alpha");
+    const hidden = await filterAppFrame(frame, ownerCtx([]), undefined, async () => true);
+    expect(hidden).toBeNull();
+  });
+
+  it("convo-apps: sidebar app-update never consults the identity gate", async () => {
+    const calls: string[] = [];
+    const frame = makeAppUpdateFrame(makeAppState("h1", "todo", { owner: null }));
+    const shown = await filterAppFrame(frame, ownerCtx([], calls), undefined, async () => true);
+    expect(shown?.type).toBe("app-update");
+    expect(calls).toEqual([]);
+  });
+
+  it("convo-apps: app-snapshot keeps visible owners' apps, drops hidden ones, resolves each owner once", async () => {
+    const calls: string[] = [];
+    const frame = makeAppSnapshotFrame([
+      makeAppState("h1", "side"),
+      makeAppState("h1", "a1", { owner: "alpha" }),
+      makeAppState("h1", "a2", { owner: "alpha" }),
+      makeAppState("h1", "b1", { owner: "beta" }),
+    ]);
+    const out = await filterAppFrame(frame, ownerCtx(["alpha"], calls), undefined, async () => true);
+    expect(out?.type).toBe("app-snapshot");
+    if (out?.type === "app-snapshot") {
+      expect(out.apps.map((a) => a.slug)).toEqual(["side", "a1", "a2"]);
+    }
+    expect(calls.sort()).toEqual(["h1/alpha", "h1/beta"]);
+  });
+
+  it("convo-apps: identity gate throwing hides the conversation app (fail closed)", async () => {
+    const ctx: AppFrameFilterCtx = {
+      ...ownerCtx([]),
+      resolveIdentityGate: async () => {
+        throw new Error("ssh down");
+      },
+    };
+    const frame = makeAppUpdateFrame(makeAppState("h1", "tally", { owner: "alpha" }));
+    expect(await filterAppFrame(frame, ctx, undefined, async () => true)).toBeNull();
+  });
 });
 
 // ---------------------------------------------------------------------------

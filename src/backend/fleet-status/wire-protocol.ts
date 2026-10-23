@@ -739,6 +739,15 @@ export const AppStateSchema = z.object({
    * — falls open at the gate seam per D-3).
    */
   users: z.array(z.string()).nullable().optional(),
+  /**
+   * convo-scoped apps: the identity (folder name) that owns a conversation
+   * app, or null for a sidebar app. Conversation apps are visible to exactly
+   * the users who can see that identity (app-frame-filter), never shown in
+   * the sidebar grid, and listed in the identity modal's Apps tab.
+   */
+  owner: z.string().nullable().optional(),
+  /** convo-scoped apps: whether a sleep-capable app is asleep right now (null = n/a). */
+  asleep: z.boolean().nullable().optional(),
 });
 
 export type AppState = z.infer<typeof AppStateSchema>;

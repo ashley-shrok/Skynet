@@ -68,6 +68,7 @@ const mocks = vi.hoisted(() => ({
   renderInterstitial: vi.fn(),
   writeInterstitial: vi.fn(),
   verifyJWTToken: vi.fn(),
+  canUserSeeIdentity: vi.fn(),
   sshLogger: {
     info: vi.fn(),
     warn: vi.fn(),
@@ -100,6 +101,10 @@ vi.mock("../../ssh/host-resolver.js", () => ({
 
 vi.mock("../../fleet-status/registry-holder.js", () => ({
   getRegistry: mocks.getRegistry,
+}));
+
+vi.mock("../../fleet-status/identity-gate-holder.js", () => ({
+  canUserSeeIdentity: mocks.canUserSeeIdentity,
 }));
 
 vi.mock("../pane-target-resolver.js", () => ({
@@ -310,6 +315,8 @@ describe("app-pane-router", () => {
       res.send("<html>interstitial</html>");
     });
     mocks.verifyJWTToken.mockResolvedValue({ userId: "u1" });
+    mocks.canUserSeeIdentity.mockReset();
+    mocks.canUserSeeIdentity.mockResolvedValue(true);
   });
 
   /* -------------------- HTTP GET (case a) -------------------- */
@@ -977,6 +984,59 @@ describe("app-pane-router", () => {
         expect(mocks.renderInterstitial.mock.calls[0][0]).toBe(
           "app_not_serving",
         );
+      } finally {
+        await close();
+      }
+    });
+  });
+  /* -------------------- convo-scoped apps: owner identity gate -------------------- */
+
+  describe("conversation app (owner set)", () => {
+    const convoApp = {
+      hostId: "5",
+      slug: "todo",
+      title: "Todo",
+      description: "",
+      port: 3001,
+      hasIcon: false,
+      createdAtMs: 0,
+      isHealthy: true,
+      healthMessage: null,
+      users: null,
+      owner: "alpha",
+    };
+
+    it("forwards when the caller can see the owning identity", async () => {
+      mocks.getAppSnapshot.mockReturnValue([convoApp]);
+      const { port, close } = await makeServer(false);
+      try {
+        const res = await sendHttp(port, "GET", "/apps/5/todo/pane/api/list");
+        expect(res.status).toBe(200);
+        expect(mocks.canUserSeeIdentity).toHaveBeenCalledWith("alpha", "5", "u1");
+      } finally {
+        await close();
+      }
+    });
+
+    it("404s (no proxy) when the caller can't see the owning identity", async () => {
+      mocks.getAppSnapshot.mockReturnValue([convoApp]);
+      mocks.canUserSeeIdentity.mockResolvedValue(false);
+      const { port, close } = await makeServer(false);
+      try {
+        const res = await sendHttp(port, "GET", "/apps/5/todo/pane/api/list");
+        expect(res.status).toBe(404);
+        expect(mocks.getOrCreateAppPaneProxyForTarget).not.toHaveBeenCalled();
+      } finally {
+        await close();
+      }
+    });
+
+    it("never consults the identity gate for a sidebar app", async () => {
+      const { port, close } = await makeServer(false);
+      try {
+        const res = await sendHttp(port, "GET", "/apps/5/todo/pane/api/list");
+        expect(res.status).toBe(200);
+        expect(mocks.canUserSeeIdentity).not.toHaveBeenCalled();
       } finally {
         await close();
       }

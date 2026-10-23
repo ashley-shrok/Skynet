@@ -90,6 +90,7 @@ import { getHostSemaphore } from "../../ssh/host-semaphore-registry.js";
 import { resolveHostByUniversalId } from "../../ssh/host-resolver.js";
 import { sshLogger } from "../../utils/logger.js";
 import { getRegistry } from "../../fleet-status/registry-holder.js";
+import { canUserSeeIdentity } from "../../fleet-status/identity-gate-holder.js";
 import { getAppIconVersion } from "../../fleet-status/avatar-version-registry.js";
 import { AVATAR_VERSION_RE } from "../../fleet-status/identity-appearance.js";
 import { getCachedAvatar, type CachedAvatar } from "./identity-avatar-cache.js";
@@ -163,13 +164,23 @@ router.get(
       }
     }
 
+    // convo-scoped apps: a conversation app's icon lives in its owner's
+    // folder and is shown only to users who can see that identity.
+    const owner =
+      getRegistry()
+        ?.getAppSnapshot()
+        .find((a) => a.hostId === String(hostIdNum) && a.slug === slug)?.owner ?? null;
+    if (owner !== null && !(await canUserSeeIdentity(owner, String(hostIdNum), userId))) {
+      return res.status(404).json({ error: "no icon on disk for this app" });
+    }
+
     let icon: CachedAvatar | null;
     try {
       // Shares the identity-avatar byte cache; `app.` can't collide with an
       // identity key (IDENTITY_KEY_RE has no dot).
       const result = await getCachedAvatar(hostIdNum, `app.${slug}`, version, async () => {
         // LOCAL: bind-mount read, no SSH.
-        if (!host) return readAppIconFile(null, slug);
+        if (!host) return readAppIconFile(null, slug, owner);
         const remoteHost = host;
         // REMOTE: connect + SFTP read + conn.end under the per-host
         // semaphore (verify:ssh-cap). Cache misses only — a hit never
@@ -178,7 +189,7 @@ router.get(
           let conn: import("ssh2").Client | null = null;
           try {
             conn = await connectOneShot(remoteHost, 5_000);
-            return await readAppIconFile(conn, slug);
+            return await readAppIconFile(conn, slug, owner);
           } finally {
             // SSH connection is always released on every exit path.
             if (conn) {
