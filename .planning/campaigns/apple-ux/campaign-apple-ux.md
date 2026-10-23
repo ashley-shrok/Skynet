@@ -45,6 +45,7 @@ Starting order: foundation, skills, then the remaining modals, then host targeti
 - **[declared] shape-sidebar** — the conversation list in the windows' family on both sizes: folders for projects, unread dot, desktop one-line rows at 14px, phone grouped two-line lists with hold for the menu and swipe to archive (with Undo), sidebar 300 wide minimum (see shape-sidebar.closed.md) — closed 2026-10-23
 - **[discovered] shape-pane-bar** — the bar across the top of app, remote-desktop and file panes (one shared bar today), not the apps' own content (Ashley, 2026-10-23) — not started
 - **[declared] shape-conversation-view** — the chat view itself, last — not started
+- **[discovered] shape-review** — a review, added at the end of the campaign; Ashley will explain what it covers when we get there (Ashley, 2026-10-23) — not started
 
 ### Shipping (Ashley, 2026-10-17)
 
