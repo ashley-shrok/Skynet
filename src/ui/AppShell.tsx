@@ -3834,6 +3834,16 @@ export function AppShell({
           // (useKeyboardViewportLock); otherwise 100dvh as before.
           height: "var(--app-height, 100dvh)",
           paddingTop: "max(env(safe-area-inset-top), 0px)",
+          // Touch conversation screen: continue PrettyView's top-left warm
+          // radial (same ellipse, centred on PrettyView's top edge) up
+          // through the status-bar band, so the band reads as part of the
+          // chat instead of a flat stripe above it.
+          ...(isTouchDevice && !isMobileListScreen
+            ? {
+                backgroundImage:
+                  "radial-gradient(ellipse 800px 400px at 20% max(env(safe-area-inset-top), 0px), rgba(255,240,215,0.08), transparent 60%)",
+              }
+            : {}),
         }}
       >
         {/* Phase 10 Wave 3: persistent top-left sidebar-toggle chevron.
@@ -3921,12 +3931,12 @@ export function AppShell({
               // Touch: mirror the identity badge's visual offset so the back
               // button reads as its left-side counterpart. The badge is
               // Tailwind `top-4 right-5` inside PrettyView; PrettyView sits
-              // under `safe-area-inset-top + 12px session-view padding`. So
-              // badge-top from viewport = safe-area + 12 + 1rem. Reuse the
+              // under `safe-area-inset-top` (no extra session-view padding). So
+              // badge-top from viewport = safe-area + 1rem. Reuse the
               // exact same rem-based math so both offsets scale together
               // under patch #165's html=24 mobile bump.
               top: isTouchDevice
-                ? "calc(max(env(safe-area-inset-top), 8px) + 12px + 1rem)"
+                ? "calc(max(env(safe-area-inset-top), 8px) + 1rem)"
                 : "max(env(safe-area-inset-top), 8px)",
               left: !isTouchDevice && (sidebarOpen || sidebarPeekOpen)
                 ? `${sidebarPanelWidth}px`
@@ -4093,8 +4103,7 @@ export function AppShell({
                 // squeezed to 0px wide: a 0px squeeze re-wrapped every bubble of
                 // every mounted chat on each list<->chat switch (and the old
                 // transition-all animated that, 200ms of layout per frame —
-                // iPhone jank). Same box as the view screen (top = safe-area,
-                // paddingTop 12) so showing it again needs no relayout;
+                // iPhone jank). Same box as the view screen (top = safe-area) so showing it again needs no relayout;
                 // content-visibility skips rendering it while hidden.
                 {
                   position: "fixed",
@@ -4102,14 +4111,11 @@ export function AppShell({
                   left: 0,
                   right: 0,
                   bottom: 0,
-                  paddingTop: 12,
                   visibility: "hidden",
                   pointerEvents: "none",
                   contentVisibility: "hidden",
                 }
-              : isTouchDevice
-                ? { paddingTop: 12 }
-                : undefined
+              : undefined
           }
           aria-hidden={isMobileListScreen ? true : undefined}
         >

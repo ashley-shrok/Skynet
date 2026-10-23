@@ -322,7 +322,9 @@ function ModalHead({
     <div
       data-slot="modal-head"
       className={cn(
-        "px-5 py-3.5 flex items-start justify-between gap-3",
+        // Mobile: the container's safe-area-inset-top already clears the
+        // status bar, so the head's own top padding stays small there.
+        "px-5 pt-1.5 pb-3.5 sm:pt-3.5 flex items-start justify-between gap-3",
         "border-b border-[hsla(var(--pv-id-hue),60%,55%,0.22)]",
         "shadow-[0_1px_0_rgba(255,220,190,0.05)]",
         "flex-shrink-0",
