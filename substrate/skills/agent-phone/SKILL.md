@@ -20,6 +20,12 @@ If you're about to run this and the message would be fine as a Matrix DM, use th
 agent-phone --to <username> --from "<caller name>" "<message>"
 ```
 
+**Always run it in the background** (Bash with `run_in_background: true`). A call can take up to about 13 minutes, longer than a foreground command is allowed to run, and running it in the background keeps you free while the phone rings. You are notified when it exits; read its output then. Until then:
+
+- Don't act on anything the call asks the user — wait for her reply.
+- Don't place another call to the same person; it would queue behind this one and may expire.
+- Don't reset or recycle your session; that kills the call's helper and the reply is lost.
+
 Three arguments, all required:
 
 - `--to <username>` — the app username of the person to call. The backend looks up their phone number from their user record. You can only call people who have registered the host you're running on in the app; anyone else gets `not_permitted`.
@@ -65,22 +71,18 @@ Write `<message>` as pure content — no `"Hi, this is …"`, no `"— <name>"` 
 1. The helper (via the shared `fleet-service` client) drops a request into `~/fleet/service-requests/<uuid>.json`.
 2. The backend picks it up within ~10 seconds and renames it to `<uuid>.claimed.json`.
 3. The backend places the call. The recipient's phone rings.
-4. On pickup, the voice speaks the opening line and your message, then records the reply. The reply ends when the callee stops talking for about 4 seconds, presses any key, or hasn't started talking within 10 seconds (replies are capped at about two minutes). Then the voice says the receipt phrase and hangs up. Pressing a key is the reliable way to finish in a noisy place, worth telling a user who mentions being in the car.
+4. On pickup, the voice speaks the opening line and your message, then records the reply. The reply ends a few seconds after the callee stops talking (3 to 7, shorter the longer she talked), presses any key, or hasn't started talking within 10 seconds (replies are capped at about five minutes). Then the voice says the receipt phrase and hangs up. Pressing a key is the reliable way to finish in a noisy place, worth telling a user who mentions being in the car.
 5. The backend transcribes the reply, deletes the recording, and drops `~/fleet/service-requests/<uuid>.response.json` back onto your host.
 6. The helper prints the transcript to stdout, cleans up its files, and exits.
 
-Most calls come back within a minute or two of being picked up. The worst case is about **9.5 minutes**. The backend's limits fit inside the helper's wait — a request that waits more than 2 minutes to start is dropped as `expired` without dialing, and a call still going after 6 minutes is hung up — so a call does not ring after you've been told it failed.
+Most calls come back within a minute or two of being picked up. The worst case is about **13 minutes**. The backend's limits fit inside the helper's wait — a request that waits more than 2 minutes to start is dropped as `expired` without dialing, and a call still going after 9 minutes is hung up — so a call does not ring after you've been told it failed.
 
 ## Response shape
 
 - **Success** — exit `0`. The transcript is printed on **stdout** (one line per speaker turn, prefixed `voice:` for what the phone voice said, `user:` for what the callee said). Metadata (outcome, call length in seconds) is printed to **stderr** as a JSON object for debug visibility.
 - **Failure** — non-zero exit. A JSON object `{outcome, message?}` is printed to **stderr** describing what went wrong. Nothing is printed to stdout.
 
-Grab the transcript into a variable:
-
-```
-transcript=$(agent-phone --to alice --from "..." "..." 2>/dev/null)
-```
+Run in the background, the transcript is in the command's output when you're notified; its exit status tells success from failure.
 
 ## Outcomes
 
@@ -95,7 +97,7 @@ Every response file carries exactly one `outcome`. Successful transcripts land u
 | canceled           | Rare — the call was canceled before it connected. Retry. |
 | placement_error    | The provider refused to place the call. Check `message` for the reason (bad phone number, out of credit, rejected credentials). Not agent-retriable — escalate to the operator. |
 | queue_error        | The call was accepted but couldn't be connected (carrier trouble, or a number that can't be reached). The phone did not ring. Retry once in a few minutes; if it happens again, escalate. |
-| timeout            | The call didn't finish within 6 minutes and the backend hung it up (or, from the helper, the backend never answered). Very rare. **The phone may have rung**, so do NOT retry right away — tell the user by another channel or escalate. |
+| timeout            | The call didn't finish within 9 minutes and the backend hung it up (or, from the helper, the backend never answered). Very rare. **The phone may have rung**, so do NOT retry right away — tell the user by another channel or escalate. |
 | expired            | The request sat in the queue past 2 minutes and was dropped without dialing (usually because another call to the same person was in progress). The phone did not ring; retry. |
 | not_picked_up      | The backend never picked up the request. The backend may be down or not managing this host. Not agent-retriable — escalate to the operator. |
 | not_configured     | The backend's phone provider isn't set up (the Twilio account settings are missing). Not agent-retriable — escalate to the operator. |

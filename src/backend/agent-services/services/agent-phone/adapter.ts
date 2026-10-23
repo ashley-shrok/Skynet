@@ -19,9 +19,9 @@
  *      input and the `stt` service use), then delete it from Twilio —
  *      always, whether or not transcription worked.
  *
- * Time budget (the agent's helper waits 570s from the request):
- *   queue TTL 2 min (service.ts) + call deadline 6 min + recording wait
- *   20s + transcription ≤ 2 × 30s ≈ 9.3 min. So a call never starts or
+ * Time budget (the agent's helper waits 780s from the request):
+ *   queue TTL 2 min (service.ts) + call deadline 9 min + recording wait
+ *   20s + transcription ≤ 2 × 30s ≈ 12.3 min. So a call never starts or
  *   keeps ringing after the agent has been told it timed out.
  *
  * Contract:
@@ -44,13 +44,13 @@ const TWILIO_API_BASE = "https://api.twilio.com/2010-04-01";
 const REQUEST_TIMEOUT_MS = 30_000;
 
 /**
- * Backend wait for one call — 6 minutes; see the time budget above. The
- * longest legitimate call is about 5.2 minutes: 45s ring, ~2.2 min to read
+ * Backend wait for one call — 9 minutes; see the time budget above. The
+ * longest legitimate call is about 8.3 minutes: 45s ring, ~2.2 min to read
  * a 2000-character message, up to 10s before she starts replying plus a
- * 2-minute reply (two 60s Gathers) and its ~4s closing pause, and the
- * receipt line.
+ * 5-minute reply (REPLY_WINDOWS 60s Gathers) and up to ~7s of closing
+ * pause, and the receipt line.
  */
-export const CALL_DEADLINE_MS = 6 * 60 * 1000;
+export const CALL_DEADLINE_MS = 9 * 60 * 1000;
 
 /** Interval between GET /Calls/:sid checks. */
 export const CALL_POLL_INTERVAL_MS = 3_000;

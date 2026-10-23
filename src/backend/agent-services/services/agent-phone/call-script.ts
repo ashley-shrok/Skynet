@@ -19,13 +19,13 @@
  * to the next verb (verified on live calls), so no webhook is needed.
  *
  * Twilio stops a speech <Gather> after 60s even mid-sentence (the
- * undocumented `maxSpeechTime` can't raise it — tested live). A second
- * <Gather> right behind it picks the callee up if she is still talking,
- * so a reply can run to two minutes. When she has finished, that second
- * <Gather> hears nothing and gives up after REPLY_CONTINUE_TIMEOUT_SEC,
- * so a finished reply ends about one second later than with one Gather.
- * Inline TwiML can't branch, so every extra <Gather> would add another
- * such second of dead air; more than two needs a webhook.
+ * undocumented `maxSpeechTime` can't raise it — tested live). Follow-on
+ * <Gather>s right behind it pick the callee up while she is still
+ * talking, so a reply can run REPLY_WINDOWS minutes. Inline TwiML can't
+ * branch, so once she has finished, each follow-on <Gather> left over
+ * hears nothing and gives up after REPLY_CONTINUE_TIMEOUT_SEC: a reply
+ * that ends in the first minute gets REPLY_WINDOWS − 1 extra seconds of
+ * dead air, one in the last minute none. A webhook would avoid that.
  */
 
 /** Twilio <Say> voice: a Google Chirp3-HD generative voice. */
@@ -37,8 +37,11 @@ export const REPLY_PAUSE_SEC = 3;
 /** Seconds to wait for her to start replying before moving on. */
 export const REPLY_START_TIMEOUT_SEC = 10;
 
-/** Seconds the follow-on <Gather> waits for her to keep talking. */
+/** Seconds each follow-on <Gather> waits for her to keep talking. */
 export const REPLY_CONTINUE_TIMEOUT_SEC = 1;
+
+/** Back-to-back 60s <Gather>s: the reply's cap in minutes. */
+export const REPLY_WINDOWS = 5;
 
 /** <Start><Recording> name, so <Stop> can end it. */
 const REPLY_RECORDING_NAME = "reply";
@@ -91,7 +94,7 @@ export function buildCallTwiml(openingLine: string, receiptLine: string): string
     `<Say voice="${CALL_VOICE}">${escapeXml(openingLine)}</Say>`,
     `<Start><Recording name="${REPLY_RECORDING_NAME}" channels="mono" trim="trim-silence"/></Start>`,
     replyGather(REPLY_START_TIMEOUT_SEC),
-    replyGather(REPLY_CONTINUE_TIMEOUT_SEC),
+    ...Array.from({ length: REPLY_WINDOWS - 1 }, () => replyGather(REPLY_CONTINUE_TIMEOUT_SEC)),
     `<Stop><Recording name="${REPLY_RECORDING_NAME}"/></Stop>`,
     `<Say voice="${CALL_VOICE}">${escapeXml(receiptLine)}</Say>`,
     "<Hangup/>",

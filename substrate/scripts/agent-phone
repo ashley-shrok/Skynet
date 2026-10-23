@@ -14,10 +14,11 @@
 #   agent-phone --to <username> --from "<caller name>" - < message.txt
 #
 # Env overrides:
-#   AGENT_PHONE_TIMEOUT_SEC   wait in seconds (default 570 = 9.5 min, under
-#                             Claude Code's 10-min Bash-tool limit and over
-#                             the backend's ~9.3-min worst case; see
-#                             agent-phone/adapter.ts "Time budget")
+#   AGENT_PHONE_TIMEOUT_SEC   wait in seconds (default 780 = 13 min, over
+#                             the backend's ~12.3-min worst case; see
+#                             agent-phone/adapter.ts "Time budget"). Past
+#                             Claude Code's 10-min foreground Bash limit, so
+#                             agents run this in the background.
 #
 # Exit status:
 #   0  call delivered (outcome completed or no_response). Transcript on
@@ -28,7 +29,7 @@
 
 set -uo pipefail
 
-TIMEOUT_SEC="${AGENT_PHONE_TIMEOUT_SEC:-570}"
+TIMEOUT_SEC="${AGENT_PHONE_TIMEOUT_SEC:-780}"
 FLEET_SERVICE="$(dirname -- "$(readlink -f -- "$0")")/fleet-service"
 [ -x "$FLEET_SERVICE" ] || FLEET_SERVICE="fleet-service"
 
