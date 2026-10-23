@@ -270,7 +270,7 @@ describe("PreferencesVoicePane — a saved voice the service doesn't have", () =
 describe("PreferencesVoicePane — voice mode: when to send", () => {
   it("is a radio group of the two choices", () => {
     render(<PreferencesVoicePane userId="user1" userPrefs={makePrefs()} />);
-    const group = screen.getByRole("radiogroup");
+    const group = screen.getByRole("radiogroup", { name: "Voice mode sends what you said" });
     expect(group.getAttribute("data-testid")).toBe("preferences-voice-mode-turn");
     expect(group.querySelectorAll("input[type=radio]")).toHaveLength(2);
   });
@@ -351,5 +351,49 @@ describe("PreferencesVoicePane — voice mode: when to send", () => {
     fireEvent.click(screen.getByTestId("preferences-voice-mode-turn-phrase"));
     await waitFor(() => expect(screen.getByTestId("preferences-voice-mode-turn-error")).toBeTruthy());
     expect((screen.getByTestId("preferences-voice-mode-turn-timed") as HTMLInputElement).checked).toBe(true);
+  });
+});
+
+describe("PreferencesVoicePane — when voice mode listens", () => {
+  it("is a radio group of the two choices", () => {
+    render(<PreferencesVoicePane userId="user1" userPrefs={makePrefs()} />);
+    const group = screen.getByRole("radiogroup", { name: "Voice mode listens" });
+    expect(group.getAttribute("data-testid")).toBe("preferences-voice-mode-listen");
+    expect(group.querySelectorAll("input[type=radio]")).toHaveLength(2);
+  });
+
+  it("shows the iPhone note only for headphone presses", () => {
+    const { rerender } = render(<PreferencesVoicePane userId="user1" userPrefs={makePrefs()} />);
+    expect(screen.queryByText(/restarting the phone fixes it/)).toBeNull();
+    rerender(<PreferencesVoicePane userId="user1" userPrefs={makePrefs({ voiceModeListen: "press" })} />);
+    expect(screen.getByText(/restarting the phone fixes it/)).toBeTruthy();
+  });
+
+  it("defaults to all the time", () => {
+    render(<PreferencesVoicePane userId="user1" userPrefs={makePrefs()} />);
+    expect((screen.getByTestId("preferences-voice-mode-listen-always") as HTMLInputElement).checked).toBe(true);
+  });
+
+  it("choosing headphone presses saves 'press'", async () => {
+    const onUserPrefsChanged = vi.fn();
+    render(<PreferencesVoicePane userId="user1" userPrefs={makePrefs()} onUserPrefsChanged={onUserPrefsChanged} />);
+    fireEvent.click(screen.getByTestId("preferences-voice-mode-listen-press"));
+    await waitFor(() => expect(mockSave).toHaveBeenCalledWith({ voiceModeListen: "press" }));
+    expect(onUserPrefsChanged).toHaveBeenCalledWith({ voiceModeListen: "press" });
+  });
+
+  it("switching back to all the time stores null (the default)", async () => {
+    render(<PreferencesVoicePane userId="user1" userPrefs={makePrefs({ voiceModeListen: "press" })} />);
+    expect((screen.getByTestId("preferences-voice-mode-listen-press") as HTMLInputElement).checked).toBe(true);
+    fireEvent.click(screen.getByTestId("preferences-voice-mode-listen-always"));
+    await waitFor(() => expect(mockSave).toHaveBeenCalledWith({ voiceModeListen: null }));
+  });
+
+  it("reverts and shows an error when the save fails", async () => {
+    mockSave.mockRejectedValueOnce(new Error("nope"));
+    render(<PreferencesVoicePane userId="user1" userPrefs={makePrefs()} />);
+    fireEvent.click(screen.getByTestId("preferences-voice-mode-listen-press"));
+    await waitFor(() => expect(screen.getByTestId("preferences-voice-mode-listen-error")).toBeTruthy());
+    expect((screen.getByTestId("preferences-voice-mode-listen-always") as HTMLInputElement).checked).toBe(true);
   });
 });

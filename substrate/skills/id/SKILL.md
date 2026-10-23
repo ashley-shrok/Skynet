@@ -1505,7 +1505,7 @@ crown, then gear.
   split at short pauses and transcribes each in the background; a piece
   with no words (a sneeze, a cough) is dropped without a sound. The turn
   ends after three seconds of silence, or — if the user chose it under
-  **Agent voices** — only when they end with their send phrase ("send it"
+  Preferences → **Voice** — only when they end with their send phrase ("send it"
   by default; the phrase is removed from the message). Replies that arrive
   while they're mid-message wait until it's sent. Sounds mark the round
   trip: the mic's send sound when the message goes, a soft ticking from
@@ -1534,9 +1534,25 @@ crown, then gear.
   voice-mode session starts unmuted. The chip's × — or ending a sentence
   with "stop voice mode" — ends voice mode and throws away anything not yet
   sent. Replies are spoken in the agent's voice —
-  its own, else its role's, else the user's **Agent voices** fallback, else
+  its own, else its role's, else the user's Preferences → **Voice** pick, else
   the box's default. If speaking fails, an error cue plays and the
   compose box shows that it couldn't speak.
+  **Press to talk** (Preferences → Voice → *When I press my headphones*): voice
+  mode sits **Muted** with the mic fully off, still reading agents' new
+  messages aloud. A press of play/pause on the user's headphones (an AirPod
+  stem) — or a tap on the Muted chip — opens the mic for one turn: Starting
+  while it opens (2–3 seconds), the "your turn" sound once it's ready, then
+  the turn ends the usual way and the mic turns off again by itself (while
+  the mic is open, a tap on the chip ends the turn at once — presses don't
+  reach Skynet then, so that tap is the way out without the send phrase). Saying
+  nothing for 15 seconds closes it with a soft falling tone. A double press
+  skips what's being read; a single press while a reply is being read cuts
+  it off and opens the mic. Headphone buttons work in a desktop browser
+  and on iPhone; an iPhone can get into a state where presses stop
+  arriving, and restarting the phone fixes it (the Preferences option says
+  so). Until then the Muted chip's tap still works. Presses only reach Skynet while it's the
+  device's "now playing" source — music or a video started elsewhere takes
+  the buttons until it stops.
   *Agent-side: none.*
 
 - **⚡ Lightning bolt — Skills menu** (agent conversations only). Sits

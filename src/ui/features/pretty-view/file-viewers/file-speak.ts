@@ -6,7 +6,7 @@
  * URLs or code blocks). Text longer than one speak request allows is split
  * into pieces that play back to back.
  *
- * The voice is the user's fallback voice (Preferences → Agent voices), not
+ * The voice is the user's fallback voice (Preferences → Voice), not
  * any identity's: files aren't tied to the agent that shared them. AppShell
  * pushes it in via setFileSpeakVoice, same pattern as setTtsPlaybackRate.
  */
