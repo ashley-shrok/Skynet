@@ -40,6 +40,9 @@ vi.mock("@/features/guacamole/GuacamoleDisplay", () => ({
   },
 }));
 
+const mobileState = { isMobile: false };
+vi.mock("@/hooks/use-mobile", () => ({ useIsMobile: () => mobileState.isMobile }));
+
 import DesktopTab from "./DesktopTab";
 
 function lastDisplay() {
@@ -66,6 +69,7 @@ beforeEach(() => {
   toastError.mockReset();
   toastInfo.mockReset();
   displayProps.length = 0;
+  mobileState.isMobile = false;
   vi.spyOn(console, "info").mockImplementation(() => {});
 });
 
@@ -336,6 +340,28 @@ describe("DesktopTab", () => {
       expect(screen.getByTestId("desktop-view-only").textContent).toContain(
         "agent paused",
       );
+    });
+  });
+
+  describe("open beside conversation", () => {
+    it("the button calls onPopOut", async () => {
+      connectDesktop.mockResolvedValue({ token: "t", geometry: "1280x800", userHasControl: false });
+      const onPopOut = vi.fn();
+      render(<DesktopTab identityKey="alice" hostId={7} isVisible onPopOut={onPopOut} />);
+      fireEvent.click(await screen.findByTestId("desktop-pop-out"));
+      expect(onPopOut).toHaveBeenCalledTimes(1);
+    });
+
+    it("no button without onPopOut, or on a phone", async () => {
+      connectDesktop.mockResolvedValue({ token: "t", geometry: "1280x800", userHasControl: false });
+      const { unmount } = render(<DesktopTab identityKey="alice" hostId={7} isVisible />);
+      await screen.findByTestId("guac-display");
+      expect(screen.queryByTestId("desktop-pop-out")).toBeNull();
+      unmount();
+      mobileState.isMobile = true;
+      render(<DesktopTab identityKey="alice" hostId={7} isVisible onPopOut={vi.fn()} />);
+      await screen.findAllByTestId("guac-display");
+      expect(screen.queryByTestId("desktop-pop-out")).toBeNull();
     });
   });
 });

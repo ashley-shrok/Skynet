@@ -534,22 +534,22 @@ describe("Phase 120 D-21 — renderTabContent dispatch (six-arm Record<TabType, 
     expect(screen.queryByTestId("mock-app-pane")).toBeNull();
   });
 
-  it("Test 14 (exhaustiveness — Phase 120 D-03/D-04): TAB_ICONS and RENDERERS each have all seven TabType arms", () => {
+  it("Test 14 (exhaustiveness — Phase 120 D-03/D-04): TAB_ICONS and RENDERERS each have every TabType arm", () => {
     // Compile-time exhaustiveness is enforced by Record<TabType, ...>, but
     // this runtime assertion guards against a future silent-drop of an arm
     // during refactoring (e.g. someone deletes a row and TypeScript lets it
     // slide because the removed key satisfies the union — it doesn't, but
     // this test makes the intent explicit anyway).
     const expectedArms: Array<
-      "dashboard" | "terminal" | "rdp" | "vnc" | "telnet" | "app" | "file"
-    > = ["dashboard", "terminal", "rdp", "vnc", "telnet", "app", "file"];
+      "dashboard" | "terminal" | "rdp" | "vnc" | "telnet" | "app" | "file" | "desktop"
+    > = ["dashboard", "terminal", "rdp", "vnc", "telnet", "app", "file", "desktop"];
     const iconKeys = Object.keys(TAB_ICONS).sort();
     const rendererKeys = Object.keys(RENDERERS).sort();
     const expected = [...expectedArms].sort();
     expect(iconKeys).toEqual(expected);
     expect(rendererKeys).toEqual(expected);
     // Belt-and-suspenders: cardinality assertion.
-    expect(Object.keys(TAB_ICONS).length).toBe(7);
-    expect(Object.keys(RENDERERS).length).toBe(7);
+    expect(Object.keys(TAB_ICONS).length).toBe(8);
+    expect(Object.keys(RENDERERS).length).toBe(8);
   });
 });

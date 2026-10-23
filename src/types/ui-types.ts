@@ -164,7 +164,8 @@ export type TabType =
   | "vnc"
   | "telnet"
   | "app" // Phase 120 D-01 — app content type
-  | "file"; // a file shown read-only in its own pane
+  | "file" // a file shown read-only in its own pane
+  | "desktop"; // an agent's virtual desktop in its own pane
 
 export type TunnelStatusValue =
   | "CONNECTED"
@@ -255,6 +256,11 @@ export type Tab = {
   // at-the-type-level discipline as `app`. `origin` is the encoded tab spec
   // of the conversation the file was dragged out of, when known.
   file?: { host: string; path: string; origin?: string | null };
+
+  // Desktop leaf: whose virtual desktop the pane shows — the identity and
+  // the host it lives on. REQUIRED whenever `type === "desktop"`; absent
+  // otherwise — same discipline as `app` / `file`.
+  desktop?: { hostId: number; identityKey: string };
 };
 
 // Phase 120 D-02 — narrowing predicate. Returns true when the tab is an app
@@ -273,6 +279,13 @@ export function isFileTab(
   tab: Tab,
 ): tab is Tab & { file: { host: string; path: string; origin?: string | null } } {
   return tab.type === "file" && tab.file !== undefined;
+}
+
+// Narrowing predicate for desktop leaves (see `Tab.desktop`).
+export function isDesktopTab(
+  tab: Tab,
+): tab is Tab & { desktop: { hostId: number; identityKey: string } } {
+  return tab.type === "desktop" && tab.desktop !== undefined;
 }
 
 export type DashboardCardId =

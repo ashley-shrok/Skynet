@@ -70,7 +70,7 @@ export interface SplittableTab {
 
 /**
  * Whether the tab shown full-screen (no split open) can be split by an
- * edge drop. Harness sessions, relay rooms, apps and files all can; anything
+ * edge drop. Harness sessions, relay rooms, apps, files and desktops all can; anything
  * else (a bare terminal, nothing shown) is replaced by the dropped pane.
  */
 export function isSplittableActiveTab(
@@ -79,7 +79,7 @@ export function isSplittableActiveTab(
 ): boolean {
   if (tab == null) return false;
   if (tab.sessionKind === "relay-room") return true;
-  if (tab.type === "app" || tab.type === "file") return true;
+  if (tab.type === "app" || tab.type === "file" || tab.type === "desktop") return true;
   return (
     tab.type === "terminal" &&
     tab.targetTmuxSession != null &&

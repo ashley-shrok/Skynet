@@ -53,6 +53,7 @@ vi.mock("@/state/conversation-store", () => ({
 import { TaskPill } from "./TaskPill";
 import { __setSessionDesktopRunningForTests } from "@/api/fleet-status-client";
 import { parseBadgePayload, BADGE_MIME } from "@/shell/badge-drag";
+import { DESKTOP_DRAG_MIME } from "@/shell/desktop-drag";
 
 function setMobileViewport(isMobile: boolean) {
   Object.defineProperty(window, "innerWidth", {
@@ -295,6 +296,29 @@ describe("TaskPill", () => {
       expect(onOpen).toHaveBeenCalledWith("desktop");
       act(() => __setSessionDesktopRunningForTests(1, "willow", false));
       expect(screen.queryByTestId("pv-desktop-button")).toBeNull();
+    });
+
+    it("dragging the desktop button carries only the desktop payload (it opens a desktop pane)", () => {
+      renderPill();
+      act(() => __setSessionDesktopRunningForTests(1, "willow", true));
+      const btn = screen.getByTestId("pv-desktop-button");
+      expect(btn.getAttribute("draggable")).toBe("true");
+      const dt = makeDataTransferStub();
+      fireEvent.dragStart(btn, { dataTransfer: dt });
+      expect(dt.types).toEqual([DESKTOP_DRAG_MIME]);
+      expect(JSON.parse(dt.getData(DESKTOP_DRAG_MIME))).toEqual({
+        hostId: 1,
+        identityKey: "willow",
+        label: "Willow",
+      });
+      expect(dt.effectAllowed).toBe("copy");
+    });
+
+    it("the desktop button isn't a drag source on a phone", () => {
+      setMobileViewport(true);
+      renderPill();
+      act(() => __setSessionDesktopRunningForTests(1, "willow", true));
+      expect(screen.getByTestId("pv-desktop-button").getAttribute("draggable")).toBe("false");
     });
 
     it("desktop signal is per session — another agent's desktop doesn't light this pill", () => {

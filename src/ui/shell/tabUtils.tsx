@@ -35,7 +35,7 @@ import type {
 // mount site here doesn't materially move the cold-start chunk cost.
 import { PrettyView } from "@/features/pretty-view/PrettyView";
 import type { Tab, TabType, Host } from "@/types/ui-types";
-import { isAppTab, isFileTab } from "@/types/ui-types";
+import { isAppTab, isDesktopTab, isFileTab } from "@/types/ui-types";
 import type { SSHHost } from "@/types";
 // Phase 137 Plan 03 (D-16): UserPreferences threaded to PrettyView for the
 // fallbackVoice speak-flow resolution chain.
@@ -44,6 +44,7 @@ import { useTabsSafe } from "@/shell/TabContext";
 import { useIdentities } from "@/state/identities-store";
 import { sessionMatchKey } from "@/features/terminal/session-hue";
 import { AppPane } from "./AppPane";
+import { DesktopPane } from "./DesktopPane";
 import { FilePane } from "./FilePane";
 import { RemotePane } from "./RemotePane";
 
@@ -101,6 +102,7 @@ export const TAB_ICONS: Record<TabType, React.ElementType> = {
   telnet: Terminal,
   app: AppWindow,
   file: FileText,
+  desktop: Monitor,
 };
 
 export function tabIcon(type: TabType) {
@@ -472,6 +474,21 @@ const renderFileTab: Renderer = (tab, deps) => {
   );
 };
 
+// Desktop leaf: an agent's virtual desktop in its own pane.
+const renderDesktopTab: Renderer = (tab, deps) => {
+  if (!isDesktopTab(tab)) return null;
+  return (
+    <DesktopPane
+      hostId={tab.desktop.hostId}
+      identityKey={tab.desktop.identityKey}
+      tabId={tab.id}
+      isVisible={deps.isVisible}
+      onSelectPane={deps.onSelectPane}
+      onCloseTab={deps.onCloseTab}
+    />
+  );
+};
+
 // Record<TabType, Renderer> — compile-time exhaustive. Three explicit rows
 // for rdp/vnc/telnet all pointing at the same helper (D-04 cleanup replaces
 // the switch-fall-through). The `app` entry is appended (matches the
@@ -484,6 +501,7 @@ export const RENDERERS: Record<TabType, Renderer> = {
   telnet: renderGuacamoleTab,
   app: renderAppTab,
   file: renderFileTab,
+  desktop: renderDesktopTab,
 };
 
 export function renderTabContent(

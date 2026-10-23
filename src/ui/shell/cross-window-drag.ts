@@ -25,7 +25,7 @@
 // The whole surface is a no-op when BroadcastChannel is unavailable (Safari
 // 15.4+ and every other modern browser 2016+; tests may shim it).
 
-import { APP_HOST_ID_RE, APP_SLUG_RE } from "@/lib/tab-url";
+import { APP_HOST_ID_RE, APP_SLUG_RE, DESKTOP_IDENTITY_RE } from "@/lib/tab-url";
 import { fileNameOfPath, isValidFileAddress } from "@/features/pretty-view/file-url";
 
 const CHANNEL_NAME = "skynet-drag-accept";
@@ -208,4 +208,32 @@ export function fileLeafFromDescriptor(
       ? descriptor.label.trim().slice(0, MAX_APP_LABEL)
       : fileNameOfPath(path as string);
   return { host, path: path as string, origin, label };
+}
+
+/**
+ * Desktop leaf counterpart to appLeafFromDescriptor: a desktop pane bar's drag
+ * payload carries `descriptor: { tabType: "desktop", desktop: { hostId,
+ * identityKey }, label }`. Returns the openTab arguments, or null when
+ * malformed.
+ */
+export function desktopLeafFromDescriptor(
+  descriptor:
+    | {
+        tabType?: string;
+        desktop?: { hostId?: unknown; identityKey?: unknown } | null;
+        label?: string | null;
+      }
+    | null
+    | undefined,
+): { hostId: number; identityKey: string; label: string } | null {
+  if (!descriptor || descriptor.tabType !== "desktop") return null;
+  const rawHostId = descriptor.desktop?.hostId;
+  const identityKey = descriptor.desktop?.identityKey;
+  if (typeof rawHostId !== "number" || !APP_HOST_ID_RE.test(String(rawHostId))) return null;
+  if (typeof identityKey !== "string" || !DESKTOP_IDENTITY_RE.test(identityKey)) return null;
+  const label =
+    typeof descriptor.label === "string" && descriptor.label.trim().length > 0
+      ? descriptor.label.trim().slice(0, MAX_APP_LABEL)
+      : identityKey;
+  return { hostId: rawHostId, identityKey, label };
 }

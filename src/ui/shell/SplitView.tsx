@@ -46,6 +46,11 @@ import {
   parseFileChipPayload,
   type FileChipDragPayload,
 } from "@/features/pretty-view/file-url";
+import {
+  DESKTOP_DRAG_MIME,
+  parseDesktopDragPayload,
+  type DesktopDragPayload,
+} from "./desktop-drag";
 
 /**
  * Phase 57 Plan 02 — overlay geometry helper. Given the current pane's
@@ -609,7 +614,8 @@ function EmptyDropTarget({
 // carries at least one skynet-owned MIME (application/x-skynet-badge for
 // IdentityBadge drags, application/x-skynet-row for conv-list-row drags,
 // application/x-skynet-app-tile for AppTile drags — Phase 120 D-07,
-// FILE_CHIP_MIME for chat file-chip drags).
+// FILE_CHIP_MIME for chat file-chip drags, DESKTOP_DRAG_MIME for the
+// green desktop button's drags).
 // Pure function; used in all three Pane native drag listeners (onDragOver,
 // onDragLeave, onDrop) to reject browser text-selection drags, which carry
 // only text/plain=<selected-text> and were falsely passing the old gate.
@@ -618,7 +624,8 @@ export function hasSkynetDragPayload(dt: DataTransfer | null | undefined): boole
     (dt?.types.includes("application/x-skynet-badge") ?? false) ||
     (dt?.types.includes("application/x-skynet-row") ?? false) ||
     (dt?.types.includes("application/x-skynet-app-tile") ?? false) ||
-    (dt?.types.includes(FILE_CHIP_MIME) ?? false)
+    (dt?.types.includes(FILE_CHIP_MIME) ?? false) ||
+    (dt?.types.includes(DESKTOP_DRAG_MIME) ?? false)
   );
 }
 
@@ -637,10 +644,12 @@ const Pane = memo(function Pane({
   onDropRowInTree,
   onDropAppTileInTree,
   onDropFileChipInTree,
+  onDropDesktopInTree,
   onReplaceInTree,
   onCenterDropRow,
   onCenterDropAppTile,
   onCenterDropFileChip,
+  onCenterDropDesktop,
   onSwapInTree,
   onDropBadgeInTree,
   onCenterDropBadge,
@@ -685,6 +694,12 @@ const Pane = memo(function Pane({
     path: SplitPath,
     edge: DropEdge,
   ) => void;
+  // Desktop-button drop (DESKTOP_DRAG_MIME): opens a new desktop leaf at the edge.
+  onDropDesktopInTree?: (
+    payload: DesktopDragPayload,
+    path: SplitPath,
+    edge: DropEdge,
+  ) => void;
   // Phase 64 Plan 02 — center-drop-from-conv-list dispatch. AppShell wires
   // this to `replaceInTree` (functional-updater around split-tree
   // `replaceLeaf`). See
@@ -718,6 +733,11 @@ const Pane = memo(function Pane({
   // File-chip center drop: replaces the target pane with a new file leaf.
   onCenterDropFileChip?: (
     payload: FileChipDragPayload,
+    targetTabId: string,
+  ) => void;
+  // Desktop-button center drop: replaces the target pane with a new desktop leaf.
+  onCenterDropDesktop?: (
+    payload: DesktopDragPayload,
     targetTabId: string,
   ) => void;
   // Phase 64 Plan 02 — center-drop-from-open-badge dispatch. AppShell wires
@@ -1122,6 +1142,20 @@ const Pane = memo(function Pane({
           onCenterDropFileChip(fileChipCenter, tabId);
           return;
         }
+        // Desktop-button center drop: open a new desktop leaf in place of the target.
+        const desktopCenter = parseDesktopDragPayload(
+          e.dataTransfer?.getData(DESKTOP_DRAG_MIME) ?? "",
+        );
+        if (desktopCenter !== null && onCenterDropDesktop) {
+          systemLogger.info("pv-split-drop center-drop dispatch=desktop", {
+            operation: "pv_split_drop_center_desktop",
+            hostId: desktopCenter.hostId,
+            identityKey: desktopCenter.identityKey,
+            targetTabId: tabId,
+          });
+          onCenterDropDesktop(desktopCenter, tabId);
+          return;
+        }
         // Phase 64 /close finding (Addition 2): text/plain-only fallback
         // path REMOVED. The shape strictly names two rich-payload sources
         // (row via application/x-skynet-row, badge via
@@ -1208,6 +1242,21 @@ const Pane = memo(function Pane({
         onDropFileChipInTree(fileChip, path, edge);
         return;
       }
+      // Desktop-button edge drop: a copy gesture like a file chip — the
+      // button stays beside its task pill; a new desktop leaf opens here.
+      const desktopDrop = parseDesktopDragPayload(
+        e.dataTransfer?.getData(DESKTOP_DRAG_MIME) ?? "",
+      );
+      if (desktopDrop !== null && onDropDesktopInTree) {
+        systemLogger.info("pv-split-drop pane dispatch=desktop", {
+          operation: "pv_split_drop_desktop",
+          hostId: desktopDrop.hostId,
+          identityKey: desktopDrop.identityKey,
+          edge,
+        });
+        onDropDesktopInTree(desktopDrop, path, edge);
+        return;
+      }
       // Cross-window-aware badge edge-drop (2026-09-17). When onDropBadgeInTree
       // is wired AND the payload carries the badge MIME, route through
       // AppShell's descriptor resolver — same-window resolves to local tabId
@@ -1260,11 +1309,13 @@ const Pane = memo(function Pane({
     onDropRowInTree,
     onDropAppTileInTree,
     onDropFileChipInTree,
+    onDropDesktopInTree,
     onOpenSessionInTree,
     onReplaceInTree,
     onCenterDropRow,
     onCenterDropAppTile,
     onCenterDropFileChip,
+    onCenterDropDesktop,
     onSwapInTree,
     onDropBadgeInTree,
     onCenterDropBadge,
@@ -1400,10 +1451,12 @@ function PaneTree({
   onDropRowInTree,
   onDropAppTileInTree,
   onDropFileChipInTree,
+  onDropDesktopInTree,
   onReplaceInTree,
   onCenterDropRow,
   onCenterDropAppTile,
   onCenterDropFileChip,
+  onCenterDropDesktop,
   onSwapInTree,
   onDropBadgeInTree,
   onCenterDropBadge,
@@ -1439,6 +1492,12 @@ function PaneTree({
     path: SplitPath,
     edge: DropEdge,
   ) => void;
+  // Desktop-button drop (DESKTOP_DRAG_MIME): opens a new desktop leaf at the edge.
+  onDropDesktopInTree?: (
+    payload: DesktopDragPayload,
+    path: SplitPath,
+    edge: DropEdge,
+  ) => void;
   // Phase 64 Plan 02 — center-drop handlers threaded through PaneTree to
   // reach each leaf's Pane instance.
   onReplaceInTree?: (
@@ -1455,6 +1514,11 @@ function PaneTree({
   // File-chip center drop: replaces the target pane with a new file leaf.
   onCenterDropFileChip?: (
     payload: FileChipDragPayload,
+    targetTabId: string,
+  ) => void;
+  // Desktop-button center drop: replaces the target pane with a new desktop leaf.
+  onCenterDropDesktop?: (
+    payload: DesktopDragPayload,
     targetTabId: string,
   ) => void;
   onSwapInTree?: (tabIdA: string, tabIdB: string) => void;
@@ -1482,10 +1546,12 @@ function PaneTree({
         onDropRowInTree={onDropRowInTree}
         onDropAppTileInTree={onDropAppTileInTree}
         onDropFileChipInTree={onDropFileChipInTree}
+        onDropDesktopInTree={onDropDesktopInTree}
         onReplaceInTree={onReplaceInTree}
         onCenterDropRow={onCenterDropRow}
         onCenterDropAppTile={onCenterDropAppTile}
         onCenterDropFileChip={onCenterDropFileChip}
+        onCenterDropDesktop={onCenterDropDesktop}
         onSwapInTree={onSwapInTree}
         onDropBadgeInTree={onDropBadgeInTree}
         onCenterDropBadge={onCenterDropBadge}
@@ -1511,10 +1577,12 @@ function PaneTree({
           onDropRowInTree={onDropRowInTree}
           onDropAppTileInTree={onDropAppTileInTree}
           onDropFileChipInTree={onDropFileChipInTree}
+          onDropDesktopInTree={onDropDesktopInTree}
           onReplaceInTree={onReplaceInTree}
           onCenterDropRow={onCenterDropRow}
           onCenterDropAppTile={onCenterDropAppTile}
           onCenterDropFileChip={onCenterDropFileChip}
+          onCenterDropDesktop={onCenterDropDesktop}
           onSwapInTree={onSwapInTree}
           onDropBadgeInTree={onDropBadgeInTree}
           onCenterDropBadge={onCenterDropBadge}
@@ -1541,10 +1609,12 @@ export const SplitView = memo(function SplitView({
   onDropRowInTree,
   onDropAppTileInTree,
   onDropFileChipInTree,
+  onDropDesktopInTree,
   onReplaceInTree,
   onCenterDropRow,
   onCenterDropAppTile,
   onCenterDropFileChip,
+  onCenterDropDesktop,
   onSwapInTree,
   onDropBadgeInTree,
   onCenterDropBadge,
@@ -1581,6 +1651,12 @@ export const SplitView = memo(function SplitView({
     path: SplitPath,
     edge: DropEdge,
   ) => void;
+  // Desktop-button drop (DESKTOP_DRAG_MIME): opens a new desktop leaf at the edge.
+  onDropDesktopInTree?: (
+    payload: DesktopDragPayload,
+    path: SplitPath,
+    edge: DropEdge,
+  ) => void;
   // Phase 64 Plan 02 — center-drop-from-conv-list-row dispatch. Wired by
   // AppShell to `replaceInTree` (functional-updater around split-tree
   // `replaceLeaf` from Plan 64-01). See CONTEXT.md § In-scope items 2, 3.
@@ -1598,6 +1674,11 @@ export const SplitView = memo(function SplitView({
   // File-chip center drop: replaces the target pane with a new file leaf.
   onCenterDropFileChip?: (
     payload: FileChipDragPayload,
+    targetTabId: string,
+  ) => void;
+  // Desktop-button center drop: replaces the target pane with a new desktop leaf.
+  onCenterDropDesktop?: (
+    payload: DesktopDragPayload,
     targetTabId: string,
   ) => void;
   // Phase 64 Plan 02 — center-drop-from-open-badge dispatch. Wired by
@@ -1667,10 +1748,12 @@ export const SplitView = memo(function SplitView({
         onDropRowInTree={onDropRowInTree}
         onDropAppTileInTree={onDropAppTileInTree}
         onDropFileChipInTree={onDropFileChipInTree}
+        onDropDesktopInTree={onDropDesktopInTree}
         onReplaceInTree={onReplaceInTree}
         onCenterDropRow={onCenterDropRow}
         onCenterDropAppTile={onCenterDropAppTile}
         onCenterDropFileChip={onCenterDropFileChip}
+        onCenterDropDesktop={onCenterDropDesktop}
         onSwapInTree={onSwapInTree}
         onDropBadgeInTree={onDropBadgeInTree}
         onCenterDropBadge={onCenterDropBadge}

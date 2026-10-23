@@ -18,6 +18,8 @@
 //   file:<b64url>                a file pane: base64url of JSON [host, path,
 //                                origin?] (file URL host segment, absolute
 //                                path, the source conversation's spec)
+//   desktop:<hostId>:<identity>  an agent's virtual desktop pane (numeric
+//                                host id, identity name)
 //
 // active=<N> is the zero-based index (within the emitted `tab=` list) of the
 // tab that should be focused on restore. Omitted if the active tab isn't
@@ -73,6 +75,7 @@ export type TabSpec =
       fileHost?: never;
       path?: never;
       origin?: never;
+      identityKey?: never;
     }
   | {
       protocol: "relay";
@@ -84,6 +87,7 @@ export type TabSpec =
       fileHost?: never;
       path?: never;
       origin?: never;
+      identityKey?: never;
     }
   | {
       // Phase 120 D-16 — app-leaf tuple carried through the URL fragment.
@@ -98,6 +102,7 @@ export type TabSpec =
       fileHost?: never;
       path?: never;
       origin?: never;
+      identityKey?: never;
     }
   | {
       // File leaf: the Skynet file URL's host segment + absolute path, plus
@@ -112,6 +117,22 @@ export type TabSpec =
       roomId?: never;
       hostId?: never;
       slug?: never;
+      identityKey?: never;
+    }
+  | {
+      // Desktop leaf: an agent's virtual desktop. hostId is stringified at
+      // the URL boundary like the app variant's; identityKey matches the
+      // backend's IDENTITY_KEY_RE. Wire form `desktop:<hostId>:<identity>`.
+      protocol: "desktop";
+      hostId: string;
+      identityKey: string;
+      host?: never;
+      session?: never;
+      roomId?: never;
+      slug?: never;
+      fileHost?: never;
+      path?: never;
+      origin?: never;
     };
 
 // Full workspace state carried in the URL: an ordered list of tab specs,
@@ -147,6 +168,7 @@ const PROTOCOLS: TabSpec["protocol"][] = [
   "relay",
   "app", // Phase 120 D-16 — app-leaf URL-fragment variant
   "file",
+  "desktop",
 ];
 
 // App leaf identity shape (MEDIUM-7). Shared with the cross-window app-bar
@@ -154,6 +176,8 @@ const PROTOCOLS: TabSpec["protocol"][] = [
 // from outside input applies the same gate.
 export const APP_HOST_ID_RE = /^[1-9][0-9]{0,9}$/;
 export const APP_SLUG_RE = /^[a-z0-9-]{1,64}$/;
+// Identity name shape — mirrors the backend's IDENTITY_KEY_RE.
+export const DESKTOP_IDENTITY_RE = /^[a-z0-9_-]{1,64}$/;
 
 // UTF-8-safe base64url (no padding) for the file variant's payload.
 function base64UrlEncode(text: string): string {
@@ -289,6 +313,17 @@ export function parseTabParam(raw: string | null): TabSpec | null {
     if (!APP_SLUG_RE.test(slug)) return null;
     return { protocol: "app", hostId, slug };
   }
+  // Desktop variant — `desktop:<hostId>:<identity>`. Same shape gates as
+  // the app variant; anything malformed drops the tab.
+  if (protocol === "desktop") {
+    const idx2 = rest.indexOf(":");
+    if (idx2 === -1) return null;
+    const hostId = rest.slice(0, idx2);
+    const identityKey = rest.slice(idx2 + 1);
+    if (!APP_HOST_ID_RE.test(hostId)) return null;
+    if (!DESKTOP_IDENTITY_RE.test(identityKey)) return null;
+    return { protocol: "desktop", hostId, identityKey };
+  }
   // File variant — `file:<base64url of JSON [host, path, origin?]>`. The
   // payload is base64url because the split-tree alphabet is percent-decoded
   // once on its way into the fragment (encodeWorkspaceSpec re-parses it), so
@@ -356,6 +391,9 @@ export function encodeTabSpec(spec: TabSpec): string {
   if (spec.protocol === "app") {
     return `app:${spec.hostId}:${encodeURIComponent(spec.slug)}`;
   }
+  if (spec.protocol === "desktop") {
+    return `desktop:${spec.hostId}:${spec.identityKey}`;
+  }
   if (spec.protocol === "file") {
     const parts = spec.origin ? [spec.fileHost, spec.path, spec.origin] : [spec.fileHost, spec.path];
     return `file:${base64UrlEncode(JSON.stringify(parts))}`;
@@ -415,6 +453,8 @@ export function specForTab(input: {
   app?: { hostId: number; slug: string };
   // File leaf — mirrors `Tab.file`; present ONLY when input.type === "file".
   file?: { host: string; path: string; origin?: string | null };
+  // Desktop leaf — mirrors `Tab.desktop`; present ONLY when input.type === "desktop".
+  desktop?: { hostId: number; identityKey: string };
 }): TabSpec | null {
   // Phase 97 Plan 05: relay-room tabs surface via sessionKind + relayRoomId.
   // MUST come before the host-required check — relay tabs have no host.
@@ -445,6 +485,14 @@ export function specForTab(input: {
           origin: input.file.origin,
         }
       : { protocol: "file", fileHost: input.file.host, path: input.file.path };
+  }
+  if (input.type === "desktop") {
+    if (!input.desktop) return null;
+    return {
+      protocol: "desktop",
+      hostId: String(input.desktop.hostId),
+      identityKey: input.desktop.identityKey,
+    };
   }
   if (!input.host?.name) return null;
   const host = input.host.name;

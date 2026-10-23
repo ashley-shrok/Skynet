@@ -14,6 +14,8 @@
 // condition holds, each a shortcut into the agent window:
 //   - desktop running (green) → Desktop tab
 //   - local work not pushed (amber) → Git tab
+// The desktop button is also a drag source (desktop only): dragging it into
+// the content area opens the desktop as its own split-view pane.
 // They hang off the pill's right edge so the pill stays centered whether or
 // not they show, and the pill's width reserves room for both so it never
 // resizes when one appears.
@@ -33,6 +35,7 @@ import {
 } from "@/lib/identity-roles";
 import { AvatarImage } from "@/components/avatar-image";
 import { writeBadgeDragData, type BadgeDragSource } from "@/shell/badge-drag";
+import { writeDesktopDragData } from "@/shell/desktop-drag";
 import {
   RowKebabMenu,
   useRowKebabContextMenu,
@@ -111,6 +114,22 @@ export function TaskPill({
         console.info(`[task-pill-drag] tabId=${tabId} dragId=${dragId} hostId=${hostId}`);
       }
     : undefined;
+
+  // Desktop button drag → a desktop pane (a copy gesture; the button stays).
+  const onDesktopDragStart =
+    isMobile || !Number.isFinite(hostId)
+    ? undefined
+    : (e: ReactDragEvent<HTMLElement>) => {
+        e.stopPropagation();
+        writeDesktopDragData(e.dataTransfer, {
+          hostId,
+          identityKey: identity.identityKey.toLowerCase(),
+          label: identity.displayName || identity.identityKey,
+        });
+        console.info(
+          `[task-pill-desktop-drag] start hostId=${hostId} identityKey=${identity.identityKey}`,
+        );
+      };
 
   const open = (tab?: TaskPillJumpTab) => {
     console.info(
@@ -212,9 +231,14 @@ export function TaskPill({
           {desktopRunning && (
             <SideButton
               testId="pv-desktop-button"
-              label="Desktop running — open it"
+              label={
+                onDesktopDragStart
+                  ? "Desktop running — click to open it, or drag it beside the conversation"
+                  : "Desktop running — open it"
+              }
               hue={150}
               onClick={() => open("desktop")}
+              onDragStart={onDesktopDragStart}
             >
               <Monitor width={16} height={16} aria-hidden="true" />
             </SideButton>
@@ -241,16 +265,21 @@ function SideButton({
   label,
   hue,
   onClick,
+  onDragStart,
   children,
 }: {
   testId: string;
   label: string;
   hue: number;
   onClick: () => void;
+  /** Present → the button is a drag source. */
+  onDragStart?: (e: ReactDragEvent<HTMLElement>) => void;
   children: React.ReactNode;
 }) {
   return (
     <button
+      draggable={onDragStart !== undefined}
+      onDragStart={onDragStart}
       type="button"
       data-testid={testId}
       aria-label={label}

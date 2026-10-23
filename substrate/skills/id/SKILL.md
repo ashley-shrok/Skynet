@@ -882,9 +882,12 @@ not something agents drive.
   open, presents a placement UI so the user can split the view —
   arbitrary depth). Dragging a **file chip** out of a chat bubble does the
   same for that file: it opens in a new **file pane** (each drag opens
-  another, even for a file already open). Each open conversation pane has a **task pill** (relay rooms: a **badge** per participant), each
+  another, even for a file already open). Dragging the green **monitor**
+  button beside a conversation's task pill does the same for that agent's
+  virtual desktop: it opens in a new **desktop pane**. Each open conversation pane has a **task pill** (relay rooms: a **badge** per participant), each
   open app pane its **app bar**, each remote-desktop pane its
-  **remote-desktop bar**, and each file pane its **file bar** (all below); dragging it to a different spot in
+  **remote-desktop bar**, each file pane its **file bar**, and each desktop
+  pane its **desktop bar** (all below); dragging it to a different spot in
   the split tree rearranges panes. Moving an app pane keeps the app on the
   page it was on; moving a remote-desktop pane keeps it connected.
   While a task pill, badge or pane bar is being dragged, a **drop lane** appears along
@@ -892,7 +895,8 @@ not something agents drive.
   edge when the sidebar is collapsed): its top two-thirds is **Close**
   (✕ — closes that pane), its bottom third **Archive** (archives the agent
   after the usual "can't be undone" confirm; shown only for an agent's own
-  conversation, not relay rooms, apps, remote desktops or files). Dropping a conversation's task pill
+  conversation, not relay rooms, apps, remote desktops, files or agent
+  desktops). Dropping a conversation's task pill
   on a project, Pinned, or Conversations files it there, exactly like
   dragging its sidebar row, and the pane stays open. Dropping anywhere
   else in the sidebar does nothing.
@@ -985,6 +989,26 @@ not something agents drive.
   *Agent-side: none.* The pane never writes your file; if the user
   mentions a file "open beside" the conversation, it's this pane. When
   you change a file the user has open, they press reload to see it.
+
+- **Desktop bar (top of every open desktop pane).** An agent's virtual
+  desktop in its own pane — the same live view as the identity modal's
+  **Desktop** tab, opened by dragging the green monitor button beside the
+  task pill, or with **Open beside conversation** on that tab. The same
+  glassy bar as an app's. Left: **reconnect** (circular-arrow), then
+  **Take control** (hand) — or, while the user has control, **Hand back to
+  agent** (undo arrow, amber). Center: a monitor icon, the agent's name,
+  and beneath it in faint text whether it's view only, under the user's
+  control (agent paused), or paused because someone else has control.
+  Right: the **⋮** menu — **Move to new tab** and **Close** (both desktop
+  only) — also on right-click. The **whole bar is the drag handle**, same
+  as the app bar. The picture scales to fit and never resizes the agent's
+  screen. Control is handed back when the pane closes or its connection
+  drops. If the desktop stops, the pane stays with a "desktop isn't
+  running" notice and a **Start desktop** button. Desktop panes come back
+  after a page reload. Desktop only — there's no way to open one on a
+  phone.
+  *Agent-side:* see the `desktop` skill (§ If the user takes control) —
+  control taken from a pane pauses you exactly as from the modal.
 
 ### Sidebar footer
 
@@ -1153,7 +1177,9 @@ crown, then gear.
   identity modal: a green **monitor** button while the agent's virtual
   desktop is running (opens the Desktop tab), and an amber button while the
   agent has local work not pushed to any remote (opens the Git tab). They
-  pulse briefly when they appear, then hold a steady color.
+  pulse briefly when they appear, then hold a steady color. On desktop
+  the green button can also be dragged into the content area to open the
+  desktop as its own pane (§ Desktop bar).
   *Agent-side:* starting your desktop (`desktop` skill) makes the green
   button appear for the user within a few seconds; stopping it removes it.
 
@@ -1212,6 +1238,9 @@ crown, then gear.
     agent's own desktop input (Esc then goes to the desktop, not the
     modal). **Hand back to agent** returns it; leaving the tab or closing
     the modal hands back too, with a "Handed back to agent" note.
+    **Open beside conversation** (desktop only) closes the modal and opens
+    the desktop in its own pane to the right of the conversation
+    (§ Desktop bar).
     *Agent-side:* see the `desktop` skill (§ If the user takes control).
 
 - **Role modal (jump to via the identity modal header, or from the

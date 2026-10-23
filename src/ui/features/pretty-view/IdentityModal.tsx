@@ -73,6 +73,7 @@ import { useGitReposAnswer } from "./use-has-git-repos";
 import DesktopTab from "./DesktopTab";
 import { AppsTab, conversationAppsFor } from "./AppsTab";
 import { useAppTiles } from "@/state/app-tiles-store";
+import { requestDesktopPane } from "@/shell/desktop-drag";
 import { useDesktopRunning } from "./use-desktop-running";
 import { bumpModalOpen } from "@/lib/freeze-diag";
 
@@ -924,6 +925,14 @@ export function IdentityModal({
               hostId={hostId}
               isVisible={open && shownTab === "desktop"}
               onControlChange={setDesktopControl}
+              onPopOut={() => {
+                requestDesktopPane({
+                  hostId,
+                  identityKey: identity.identityKey.toLowerCase(),
+                  label: identity.displayName || identity.identityKey,
+                });
+                onOpenChange(false);
+              }}
             />
           </TabsContent>
         )}

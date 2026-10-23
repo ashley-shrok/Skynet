@@ -53,7 +53,7 @@ import type {
   ThemeId,
   FontSizeId,
 } from "@/types/ui-types";
-import { isAppTab, isFileTab } from "@/types/ui-types";
+import { isAppTab, isDesktopTab, isFileTab } from "@/types/ui-types";
 import { applyAccentColor, applyFontSize } from "@/lib/theme";
 import { useTheme } from "@/components/theme-provider";
 import {
@@ -76,6 +76,12 @@ import { PrettyConversationsPanel } from "@/features/pretty-conversations/Pretty
 import { setTtsPlaybackRate } from "@/features/pretty-view/webAudioStreamPlayer";
 import { setFileSpeakVoice } from "@/features/pretty-view/file-viewers/file-speak";
 import { setVoiceModeSettings } from "@/features/pretty-view/voice-mode-settings";
+import {
+  DESKTOP_DRAG_MIME,
+  OPEN_DESKTOP_PANE_EVENT,
+  parseDesktopDragPayload,
+  type DesktopDragPayload,
+} from "@/shell/desktop-drag";
 import {
   FILE_CHIP_MIME,
   fileNameOfPath,
@@ -170,6 +176,7 @@ import {
   subscribeToDragAccepts,
   appLeafFromDescriptor,
   fileLeafFromDescriptor,
+  desktopLeafFromDescriptor,
 } from "@/shell/cross-window-drag";
 import {
   encodeSplitTreeToUrl,
@@ -1435,6 +1442,7 @@ export function AppShell({
         // specForTab returns null for those and the loop continues.
         app: t.app,
         file: t.file,
+        desktop: t.desktop,
       });
       if (!spec) continue;
       if (t.id === activeTabId) activeIndex = tabSpecs.length;
@@ -1473,6 +1481,7 @@ export function AppShell({
         // in a split.
         app: t.app,
         file: t.file,
+        desktop: t.desktop,
       });
     });
     writeWorkspaceToUrl(
@@ -1826,6 +1835,19 @@ export function AppShell({
             // each get their own openedIds entry via openTab below.
             // File leaf — always a fresh tab per spec (duplicates of the
             // same file are allowed, each its own pane).
+            // Desktop leaf — like a file leaf, a fresh tab per spec.
+            if (spec.protocol === "desktop") {
+              const newId = openTab(null, "desktop", undefined, {
+                desktop: {
+                  hostId: Number(spec.hostId),
+                  identityKey: spec.identityKey,
+                },
+                label: spec.identityKey,
+                allowCreateTmux: false,
+              });
+              if (newId) openedIds.push(newId);
+              continue; // skip host-required logic below
+            }
             if (spec.protocol === "file") {
               const newId = openTab(null, "file", undefined, {
                 file: {
@@ -1989,7 +2011,7 @@ export function AppShell({
           {
             let openedIdx = 0;
             for (const spec of pending.tabs) {
-              if (spec.protocol === "file") {
+              if (spec.protocol === "file" || spec.protocol === "desktop") {
                 const key = encodeTabSpec(spec);
                 const id = openedIds[openedIdx];
                 if (id) fileSpecToTabIds.set(key, [...(fileSpecToTabIds.get(key) ?? []), id]);
@@ -2058,6 +2080,30 @@ export function AppShell({
                   !claimedFileTabIds.has(t.id) &&
                   t.file.host === spec.fileHost &&
                   t.file.path === spec.path
+                ) {
+                  claimedFileTabIds.add(t.id);
+                  return t.id;
+                }
+              }
+              return null;
+            }
+            // Desktop leaves share the file leaves' queue (keys can't clash —
+            // the encoded spec carries its protocol).
+            if (spec.protocol === "desktop") {
+              const queued = fileSpecToTabIds.get(encodeTabSpec(spec));
+              while (queued && queued.length > 0) {
+                const id = queued.shift()!;
+                if (!claimedFileTabIds.has(id)) {
+                  claimedFileTabIds.add(id);
+                  return id;
+                }
+              }
+              for (const t of [...restoredTabs, ...tabs]) {
+                if (
+                  isDesktopTab(t) &&
+                  !claimedFileTabIds.has(t.id) &&
+                  String(t.desktop.hostId) === spec.hostId &&
+                  t.desktop.identityKey === spec.identityKey
                 ) {
                   claimedFileTabIds.add(t.id);
                   return t.id;
@@ -2203,6 +2249,8 @@ export function AppShell({
       app?: { hostId: number; slug: string };
       // File leaf: present only when type === "file" (see Tab.file).
       file?: { host: string; path: string; origin?: string | null };
+      // Desktop leaf: present only when type === "desktop" (see Tab.desktop).
+      desktop?: { hostId: number; identityKey: string };
     },
   ): string {
     // Patch #35: append a monotonic counter suffix so multiple openTab
@@ -2213,7 +2261,8 @@ export function AppShell({
     // Phase 90 Plan 07 Task 3: `host?.name ?? "relay-room"` for the id
     // prefix — the id shape stays greppable in logs even for host-less
     // relay-room tabs. `host` is null for relay-room tabs.
-    const hostNameForId = host?.name ?? (type === "file" ? "file" : "relay-room");
+    const hostNameForId =
+      host?.name ?? (type === "file" || type === "desktop" ? type : "relay-room");
     const tabId = `${hostNameForId}-${type}-${Date.now()}-${openTabCounter.current++}`;
     const instanceId =
       restore?.instanceId ??
@@ -2242,6 +2291,7 @@ export function AppShell({
     // an app-type tab. Present when type === "app"; absent otherwise.
     const appTuple = options?.app;
     const fileAddress = options?.file;
+    const desktopAddress = options?.desktop;
 
     // Fallback label when host is null and no custom label supplied — use
     // the room title (if any) so the tab title reads meaningfully; else the
@@ -2277,6 +2327,7 @@ export function AppShell({
             // two independent leaves that each connect independently.
             ...(appTuple !== undefined ? { app: appTuple } : {}),
             ...(fileAddress !== undefined ? { file: fileAddress } : {}),
+            ...(desktopAddress !== undefined ? { desktop: desktopAddress } : {}),
           },
         ];
       }
@@ -2314,6 +2365,7 @@ export function AppShell({
           // Phase 120 D-02 — see the customLabel branch above.
           ...(appTuple !== undefined ? { app: appTuple } : {}),
           ...(fileAddress !== undefined ? { file: fileAddress } : {}),
+          ...(desktopAddress !== undefined ? { desktop: desktopAddress } : {}),
         },
       ];
     });
@@ -2833,6 +2885,7 @@ export function AppShell({
         targetTmuxSession?: string | null;
         app?: { hostId?: number; slug?: string } | null;
         file?: { host?: string; path?: string; origin?: string | null } | null;
+        desktop?: { hostId?: number; identityKey?: string } | null;
         label?: string | null;
       } | null;
     }): string | null => {
@@ -2864,6 +2917,17 @@ export function AppShell({
       // whether this window's user can actually load it.
       // File leaf: hostless, keyed by the file URL's (host, path). The file
       // routes' own host-access check gates what this window can show.
+      // Desktop leaf: hostless, keyed by (hostId, identityKey). The desktop
+      // routes' own host-access check gates what this window can show.
+      if (descriptor.tabType === "desktop") {
+        const leaf = desktopLeafFromDescriptor(descriptor);
+        if (leaf === null) return null;
+        return openTab(null, "desktop", undefined, {
+          desktop: { hostId: leaf.hostId, identityKey: leaf.identityKey },
+          label: leaf.label,
+          allowCreateTmux: false,
+        });
+      }
       if (descriptor.tabType === "file") {
         const leaf = fileLeafFromDescriptor(descriptor);
         if (leaf === null) return null;
@@ -2922,6 +2986,7 @@ export function AppShell({
           targetTmuxSession?: string | null;
           app?: { hostId?: number; slug?: string } | null;
           file?: { host?: string; path?: string; origin?: string | null } | null;
+          desktop?: { hostId?: number; identityKey?: string } | null;
           label?: string | null;
         } | null;
       },
@@ -2966,6 +3031,7 @@ export function AppShell({
           targetTmuxSession?: string | null;
           app?: { hostId?: number; slug?: string } | null;
           file?: { host?: string; path?: string; origin?: string | null } | null;
+          desktop?: { hostId?: number; identityKey?: string } | null;
           label?: string | null;
         } | null;
       },
@@ -3013,21 +3079,24 @@ export function AppShell({
     doCloseTabRef.current = doCloseTab;
   });
 
-  // A file pane has no sidebar row to bring it back: once it has left the
-  // layout (replaced by a center drop, or the user moved on from it shown
-  // alone) and isn't the tab on screen, nothing can reach it again. Close it
-  // rather than leave it mounted — and written into the URL, recreated on
-  // every reload.
+  // A file or desktop pane has no sidebar row to bring it back: once it has
+  // left the layout (replaced by a center drop, or the user moved on from it
+  // shown alone) and isn't the tab on screen, nothing can reach it again.
+  // Close it rather than leave it mounted — and written into the URL,
+  // recreated on every reload. (A desktop pane closing also hands control
+  // back to the agent.)
   useEffect(() => {
     if (!tabsReady) return;
     const inTree = new Set(collectTabIds(splitTree));
     for (const t of tabs) {
-      if (t.type !== "file") continue;
+      if (t.type !== "file" && t.type !== "desktop") continue;
       if (inTree.has(t.id) || t.id === activeTabId || t.id === selectedConversationId) continue;
-      systemLogger.info("[file-pane] closing unreachable file pane", {
-        operation: "file_pane_close_unreachable",
+      systemLogger.info(`[${t.type}-pane] closing unreachable ${t.type} pane`, {
+        operation: `${t.type}_pane_close_unreachable`,
         tabId: t.id,
         host: t.file?.host,
+        desktopHostId: t.desktop?.hostId,
+        identityKey: t.desktop?.identityKey,
         hadSplitTree: splitTree !== null,
       });
       doCloseTabRef.current(t.id);
@@ -3386,6 +3455,102 @@ export function AppShell({
     },
     [openFileTab, replaceInTree],
   );
+
+  // Desktop drops (the green desktop button beside a task pill dragged into
+  // split view) — a copy gesture like a file chip: every drop opens a fresh
+  // desktop leaf.
+  const openDesktopTab = useCallback(
+    (payload: DesktopDragPayload) =>
+      openTab(null, "desktop", undefined, {
+        desktop: { hostId: payload.hostId, identityKey: payload.identityKey },
+        label: payload.label,
+        allowCreateTmux: false,
+      }),
+    [openTab],
+  );
+  const onDropDesktopInTree = useCallback(
+    (payload: DesktopDragPayload, path: SplitPath, edge: DropEdge) => {
+      systemLogger.info("pv-split-drop onDropDesktopInTree", {
+        operation: "pv_split_drop_on_drop_desktop_in_tree",
+        hostId: payload.hostId,
+        identityKey: payload.identityKey,
+        edge,
+        path: JSON.stringify(path),
+      });
+      const newTabId = openDesktopTab(payload);
+      openSessionInTree(newTabId, path, edge);
+      selectConversationDeferred(newTabId);
+    },
+    [openDesktopTab, openSessionInTree],
+  );
+  const onCenterDropDesktop = useCallback(
+    (payload: DesktopDragPayload, targetTabId: string) => {
+      systemLogger.info("pv-split-drop onCenterDropDesktop", {
+        operation: "pv_split_drop_on_center_drop_desktop",
+        hostId: payload.hostId,
+        identityKey: payload.identityKey,
+        targetTabId,
+      });
+      const newTabId = openDesktopTab(payload);
+      replaceInTree(newTabId, targetTabId);
+    },
+    [openDesktopTab, replaceInTree],
+  );
+
+  // "Open beside conversation" in the agent window's Desktop tab: open the
+  // desktop pane to the right of that agent's conversation pane. With no
+  // split open, the shown conversation (if any) splits; otherwise the desktop
+  // fills the area.
+  const openDesktopBesideRef = useRef<(payload: DesktopDragPayload) => void>(() => {});
+  openDesktopBesideRef.current = (payload: DesktopDragPayload) => {
+    const convTab = tabs.find(
+      (t) =>
+        t.type === "terminal" &&
+        t.host?.id === String(payload.hostId) &&
+        t.targetTmuxSession?.toLowerCase() === payload.identityKey,
+    );
+    const newTabId = openDesktopTab(payload);
+    const convPath =
+      splitTree !== null && convTab !== undefined ? findLeaf(splitTree, convTab.id) : null;
+    systemLogger.info("[desktop-pane] open beside conversation", {
+      operation: "desktop_pane_open_beside",
+      hostId: payload.hostId,
+      identityKey: payload.identityKey,
+      convTabId: convTab?.id ?? null,
+      convInTree: convPath !== null,
+      hadSplitTree: splitTree !== null,
+    });
+    if (splitTree !== null) {
+      // Conversation not in the split (rare — the modal opens from its
+      // pane): beside the focused pane, else the largest one.
+      const targetPath =
+        convPath ??
+        (focusedTabId !== null ? findLeaf(splitTree, focusedTabId) : null) ??
+        findLargestLeafPath(splitTree);
+      openSessionInTree(newTabId, targetPath ?? [], "right");
+    } else {
+      const activeTab = tabs.find((t) => t.id === activeTabId);
+      const activeIsSession = isSplittableActiveTab(activeTab, identitiesByKey);
+      setSplitTree(() => {
+        const droppedLeaf = { kind: "session" as const, tabId: newTabId };
+        if (!activeIsSession || activeTab == null) return droppedLeaf;
+        const activeLeaf = { kind: "session" as const, tabId: activeTab.id };
+        return insertAtEdge(activeLeaf, [], droppedLeaf, "right");
+      });
+    }
+    selectConversationDeferred(newTabId);
+    setFocusedTabId(newTabId);
+  };
+  useEffect(() => {
+    const handle = (e: Event) => {
+      const payload = parseDesktopDragPayload(
+        JSON.stringify((e as CustomEvent<unknown>).detail ?? null),
+      );
+      if (payload !== null) openDesktopBesideRef.current(payload);
+    };
+    window.addEventListener(OPEN_DESKTOP_PANE_EVENT, handle);
+    return () => window.removeEventListener(OPEN_DESKTOP_PANE_EVENT, handle);
+  }, []);
 
   // ─── Sidebar ─────────────────────────────────────────────────────────────
   // Phase 11 Plan 03: handleRailClick + editHostInManager RETIRED — the rail
@@ -3828,6 +3993,7 @@ export function AppShell({
     topLeftTab !== undefined &&
     (isAppTab(topLeftTab) ||
       isFileTab(topLeftTab) ||
+      isDesktopTab(topLeftTab) ||
       // Remote tabs only render (bar included) when they have a host.
       (topLeftTab.host !== undefined &&
         (topLeftTab.type === "rdp" ||
@@ -4208,7 +4374,8 @@ export function AppShell({
                 if (
                   !types.includes("text/plain") &&
                   !types.includes("application/x-skynet-app-tile") &&
-                  !types.includes(FILE_CHIP_MIME)
+                  !types.includes(FILE_CHIP_MIME) &&
+                  !types.includes(DESKTOP_DRAG_MIME)
                 )
                   return;
                 if (types.includes("Files")) return;
@@ -4280,7 +4447,8 @@ export function AppShell({
                 if (
                   !types.includes("text/plain") &&
                   !types.includes("application/x-skynet-app-tile") &&
-                  !types.includes(FILE_CHIP_MIME)
+                  !types.includes(FILE_CHIP_MIME) &&
+                  !types.includes(DESKTOP_DRAG_MIME)
                 )
                   return;
                 const rect = e.currentTarget.getBoundingClientRect();
@@ -4321,7 +4489,8 @@ export function AppShell({
                 if (
                   !types.includes("text/plain") &&
                   !types.includes("application/x-skynet-app-tile") &&
-                  !types.includes(FILE_CHIP_MIME)
+                  !types.includes(FILE_CHIP_MIME) &&
+                  !types.includes(DESKTOP_DRAG_MIME)
                 )
                   return;
                 if (types.includes("Files")) return;
@@ -4451,6 +4620,37 @@ export function AppShell({
                     operation: "pv_split_drop_outer_file_chip",
                     host: fileChip.host,
                     filename: fileChip.filename,
+                    edge,
+                    activeIsSession,
+                  });
+                  setSplitTree(() => {
+                    const droppedLeaf = { kind: "session" as const, tabId: newTabId };
+                    if (!activeIsSession || activeTab == null) return droppedLeaf;
+                    const activeLeaf = { kind: "session" as const, tabId: activeTab.id };
+                    return insertAtEdge(activeLeaf, [], droppedLeaf, edge);
+                  });
+                  selectConversationDeferred(newTabId);
+                  setFocusedTabId(newTabId);
+                  return;
+                }
+                // Desktop-button branch — same shape as the file-chip
+                // branch: split the shown conversation, else fill the area.
+                const desktopDrop = parseDesktopDragPayload(
+                  e.dataTransfer.getData(DESKTOP_DRAG_MIME),
+                );
+                if (desktopDrop !== null) {
+                  const rect = e.currentTarget.getBoundingClientRect();
+                  const edge = computeNearestEdge(rect, e.clientX, e.clientY);
+                  const activeTab = tabs.find((t) => t.id === activeTabId);
+                  const activeIsSession = isSplittableActiveTab(
+                    activeTab,
+                    identitiesByKey,
+                  );
+                  const newTabId = openDesktopTab(desktopDrop);
+                  systemLogger.info("pv-split-drop outer desktop dispatch", {
+                    operation: "pv_split_drop_outer_desktop",
+                    hostId: desktopDrop.hostId,
+                    identityKey: desktopDrop.identityKey,
                     edge,
                     activeIsSession,
                   });
@@ -4693,6 +4893,8 @@ export function AppShell({
                     onCenterDropAppTile={onCenterDropAppTile}
                     onDropFileChipInTree={onDropFileChipInTree}
                     onCenterDropFileChip={onCenterDropFileChip}
+                    onDropDesktopInTree={onDropDesktopInTree}
+                    onCenterDropDesktop={onCenterDropDesktop}
                     onSwapInTree={swapInTree}
                     onDropBadgeInTree={(payload, path, edge) =>
                       onDropBadgeInTree(

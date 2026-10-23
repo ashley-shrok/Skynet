@@ -1,183 +1,41 @@
 /**
- * DesktopTab — live look at an identity's virtual desktop, with "Take control".
+ * DesktopTab — live look at an identity's virtual desktop, with "Take control",
+ * inside the agent window (IdentityModal).
  *
- * The desktop is the identity's own X display (substrate/scripts/agent-desktop)
- * that the agent drives through its desktop-mcp tools. This tab streams it
- * through the existing Guacamole pipeline: the backend opens an SSH tunnel to
- * the desktop's VNC port and hands back a token with guacd's `read-only` set,
- * and GuacamoleDisplay renders it with input capture off (viewOnly).
+ * The connection itself — view-only stream, take / renew / hand back control,
+ * start, errors — is the shared desktop session (desktop-session.tsx), the
+ * same one the split-view desktop pane uses. This tab adds its toolbar and
+ * sizes the body: the identity modal grows to its wide viewer size while this
+ * tab is active, its height following the body's desktop-shaped aspect ratio.
+ * Hiding the tab or closing the modal drops the stream and hands back control.
  *
- * States: connecting → live view; stopped (with a Start button that starts the
- * desktop in the background and polls until it's up); not installed; error.
- *
- * Take control: the backend writes the identity's control lease (the agent's
- * desktop tools pause) and issues an interactive token. While held, the tab
- * renews the lease every RENEW_MS; Hand back, hiding the tab, closing the
- * modal, or the stream dropping releases it (hiding/closing says so with a
- * toast). If none of that gets through (tab killed), the lease lapses on its
- * own 90s after the last renew.
- *
- * The agent's screen size is the agent's: the display runs with
- * fixedRemoteSize, so neither watching nor control ever resizes it — the
- * picture just scales to fill the body (the identity modal grows to its
- * wide viewer size while this tab is active, its height following the
- * body's desktop-shaped aspect ratio).
+ * "Open beside the conversation" (desktop only) hands the desktop to a split
+ * pane next to the conversation and closes the agent window.
  *
  * The identity modal only shows this tab once useDesktopRunning
  * (use-desktop-running.ts) sees the desktop running.
  */
 
-import {
-  useCallback,
-  useEffect,
-  useRef,
-  useState,
-  type CSSProperties,
-  type ReactNode,
-} from "react";
-import {
-  Eye,
-  Hand,
-  Monitor,
-  MousePointer2,
-  Play,
-  RefreshCw,
-  Undo2,
-} from "lucide-react";
-import { toast } from "sonner";
-import {
-  connectDesktop,
-  getDesktopStatus,
-  releaseDesktopControl,
-  renewDesktopControl,
-  startDesktop,
-  takeDesktopControl,
-} from "@/api/workspace-desktop-api";
+import { Eye, Hand, MousePointer2, PanelRightOpen, RefreshCw, Undo2 } from "lucide-react";
 import { useModalFullscreen } from "@/components/modal";
-import { GuacamoleDisplay } from "@/features/guacamole/GuacamoleDisplay";
+import { useIsMobile } from "@/hooks/use-mobile";
 import {
-  resolveWorkspaceErrorCopy,
-  type WorkspaceErrorCopy,
-} from "./workspace-error-copy";
+  DesktopStage,
+  desktopGeometry,
+  desktopToolbarBtnStyle as toolbarBtnStyle,
+  useDesktopSession,
+} from "./desktop-session";
 
-/** How long to wait for a desktop we just started before giving up. */
-const START_TIMEOUT_MS = 90_000;
-const START_POLL_MS = 2_000;
 /** Body aspect before the live geometry is known (agent-desktop's default). */
 const DEFAULT_W = 1280;
 const DEFAULT_H = 800;
-/** Control lease renew interval — well inside the 90s lease. */
-const RENEW_MS = 30_000;
-
-const DESKTOP_ERROR_COPY: Record<string, WorkspaceErrorCopy> = {
-  not_installed: {
-    heading: "Desktops aren't set up on this computer yet",
-    body: "The desktop tools haven't been installed here. They arrive with the next fleet update.",
-  },
-  guacd_unreachable: {
-    heading: "The viewer service isn't reachable",
-    body: "Skynet's remote-desktop service isn't responding right now. Try again in a moment.",
-  },
-  too_many_tunnels: {
-    heading: "Too many desktops open",
-    body: "Close a desktop view in another window, then try again.",
-  },
-  no_password: {
-    heading: "The desktop isn't ready yet",
-    body: "It's still starting up. Try again in a few seconds.",
-  },
-  start_timeout: {
-    heading: "The desktop didn't start",
-    body: "It took too long to come up. Try again, or ask the agent to start it.",
-  },
-  stream_error: {
-    heading: "Lost the connection to the desktop",
-    body: "The live view stopped. Reconnect to pick it back up.",
-  },
-};
-
-function errorCopy(errorClass: string): WorkspaceErrorCopy {
-  return (
-    DESKTOP_ERROR_COPY[errorClass] ?? resolveWorkspaceErrorCopy(errorClass)
-  );
-}
-
-function errorClassOf(err: unknown): string {
-  return err instanceof Error ? err.message : "host_unreachable";
-}
-
-type View =
-  | { status: "connecting" }
-  | {
-      status: "live";
-      token: string;
-      geometry: string | null;
-      attempt: number;
-      /** This tab holds the control lease and an interactive token. */
-      control: boolean;
-      /** Someone (e.g. this user in another window) has control. */
-      agentPaused: boolean;
-    }
-  | { status: "stopped" }
-  | { status: "starting" }
-  | { status: "disconnected" }
-  | { status: "error"; errorClass: string };
-
-const toolbarBtnStyle: CSSProperties = {
-  display: "inline-flex",
-  alignItems: "center",
-  gap: 5,
-  padding: "5px 10px",
-  fontSize: 12,
-  fontWeight: 500,
-  color: "var(--color-pv-fg-muted)",
-  background: "var(--color-pv-surface-quiet-alt)",
-  border: "1px solid var(--color-pv-border-quiet)",
-  borderRadius: 6,
-  cursor: "pointer",
-  whiteSpace: "nowrap",
-};
-
-function Notice({
-  heading,
-  body,
-  children,
-}: {
-  heading: string;
-  body: string;
-  children?: ReactNode;
-}): JSX.Element {
-  return (
-    <div
-      style={{
-        display: "flex",
-        flexDirection: "column",
-        alignItems: "center",
-        justifyContent: "center",
-        gap: 10,
-        height: "100%",
-        padding: 24,
-        textAlign: "center",
-        color: "var(--color-pv-fg-muted)",
-      }}
-    >
-      <Monitor size={28} style={{ opacity: 0.5 }} />
-      <div
-        style={{ fontWeight: 600, fontSize: 14, color: "var(--color-pv-fg)" }}
-      >
-        {heading}
-      </div>
-      <div style={{ fontSize: 12.5, maxWidth: 380 }}>{body}</div>
-      {children}
-    </div>
-  );
-}
 
 export default function DesktopTab({
   identityKey,
   hostId,
   isVisible,
   onControlChange,
+  onPopOut,
 }: {
   identityKey: string;
   hostId: number;
@@ -185,153 +43,24 @@ export default function DesktopTab({
   isVisible: boolean;
   /** Told when this tab takes or gives up control (the modal stops Esc from closing it meanwhile). */
   onControlChange?: (inControl: boolean) => void;
+  /** Open the desktop in a split pane instead; absent → no button. */
+  onPopOut?: () => void;
 }): JSX.Element {
-  const [view, setView] = useState<View>({ status: "connecting" });
-  const [taking, setTaking] = useState(false);
+  const session = useDesktopSession({
+    identityKey,
+    hostId,
+    isVisible,
+    logTag: "desktop-tab",
+    onControlChange,
+  });
+  const { view, taking, inControl, connect, takeControl } = session;
   // Phone: the modal is fullscreen and the body just takes what's left.
   const fullscreen = useModalFullscreen();
-  const attemptRef = useRef(0);
-  const mountedRef = useRef(true);
-  const controlRef = useRef(false);
-  const onControlChangeRef = useRef(onControlChange);
-  onControlChangeRef.current = onControlChange;
-
-  /**
-   * Drop the lease if we hold it (fire and forget — it lapses on its own
-   * anyway). Returns whether there was one to drop.
-   */
-  const releaseIfHeld = useCallback(
-    (reason: string): boolean => {
-      if (!controlRef.current) return false;
-      controlRef.current = false;
-      onControlChangeRef.current?.(false);
-      console.info("[desktop-tab] control released", {
-        identityKey,
-        hostId,
-        reason,
-      });
-      releaseDesktopControl(identityKey, hostId).catch(() => {});
-      return true;
-    },
-    [identityKey, hostId],
-  );
-
-  useEffect(() => {
-    mountedRef.current = true;
-    return () => {
-      mountedRef.current = false;
-      releaseIfHeld("unmount");
-    };
-  }, [releaseIfHeld]);
-
-  const connect = useCallback(async () => {
-    releaseIfHeld("reconnect-or-hand-back");
-    setView({ status: "connecting" });
-    try {
-      const conn = await connectDesktop(identityKey, hostId);
-      if (!mountedRef.current) return;
-      attemptRef.current += 1;
-      setView({
-        status: "live",
-        token: conn.token,
-        geometry: conn.geometry,
-        attempt: attemptRef.current,
-        control: false,
-        agentPaused: conn.userHasControl,
-      });
-    } catch (err) {
-      if (!mountedRef.current) return;
-      const cls = errorClassOf(err);
-      setView(
-        cls === "not_running"
-          ? { status: "stopped" }
-          : { status: "error", errorClass: cls },
-      );
-    }
-  }, [identityKey, hostId, releaseIfHeld]);
-
-  // Connect when first shown; drop the stream (and any control) when hidden.
-  useEffect(() => {
-    if (isVisible) void connect();
-    else {
-      if (releaseIfHeld("tab-hidden")) toast.info("Handed back to agent");
-      setView({ status: "connecting" });
-    }
-  }, [isVisible, connect, releaseIfHeld]);
-
-  const takeControl = useCallback(async () => {
-    setTaking(true);
-    try {
-      const conn = await takeDesktopControl(identityKey, hostId);
-      if (!mountedRef.current) {
-        releaseDesktopControl(identityKey, hostId).catch(() => {});
-        return;
-      }
-      controlRef.current = true;
-      onControlChangeRef.current?.(true);
-      console.info("[desktop-tab] control taken", {
-        identityKey,
-        hostId,
-        geometry: conn.geometry,
-      });
-      attemptRef.current += 1;
-      setView({
-        status: "live",
-        token: conn.token,
-        geometry: conn.geometry,
-        attempt: attemptRef.current,
-        control: true,
-        agentPaused: true,
-      });
-    } catch (err) {
-      if (mountedRef.current) toast.error(errorCopy(errorClassOf(err)).heading);
-    } finally {
-      if (mountedRef.current) setTaking(false);
-    }
-  }, [identityKey, hostId]);
-
-  const inControl = view.status === "live" && view.control;
-
-  // Keep the lease alive while we hold it.
-  useEffect(() => {
-    if (!inControl) return;
-    const timer = setInterval(() => {
-      renewDesktopControl(identityKey, hostId).catch(() => {});
-    }, RENEW_MS);
-    return () => clearInterval(timer);
-  }, [inControl, identityKey, hostId]);
-
-  const onStreamLost = useCallback(() => {
-    if (!mountedRef.current) return;
-    releaseIfHeld("stream-lost");
-    setView({ status: "disconnected" });
-  }, [releaseIfHeld]);
-
-  const start = useCallback(async () => {
-    setView({ status: "starting" });
-    try {
-      await startDesktop(identityKey, hostId);
-      const deadline = Date.now() + START_TIMEOUT_MS;
-      while (Date.now() < deadline) {
-        await new Promise((r) => setTimeout(r, START_POLL_MS));
-        if (!mountedRef.current) return;
-        const s = await getDesktopStatus(identityKey, hostId).catch(() => null);
-        if (s?.available && s.running) {
-          await connect();
-          return;
-        }
-      }
-      if (mountedRef.current)
-        setView({ status: "error", errorClass: "start_timeout" });
-    } catch (err) {
-      if (mountedRef.current)
-        setView({ status: "error", errorClass: errorClassOf(err) });
-    }
-  }, [identityKey, hostId, connect]);
+  // No split view on a phone, so nowhere to pop out to.
+  const isMobile = useIsMobile();
 
   const live = view.status === "live";
-  const [geoW, geoH] =
-    live && view.geometry ? view.geometry.split("x").map(Number) : [0, 0];
+  const [geoW, geoH] = desktopGeometry(view);
 
   return (
     <div className="flex-1 min-h-0 flex flex-col" data-testid="desktop-tab">
@@ -403,6 +132,17 @@ export default function DesktopTab({
             <Undo2 size={12} /> Hand back to agent
           </button>
         )}
+        {onPopOut && !isMobile && (
+          <button
+            type="button"
+            style={toolbarBtnStyle}
+            onClick={onPopOut}
+            title="Show this desktop in its own pane beside the conversation"
+            data-testid="desktop-pop-out"
+          >
+            <PanelRightOpen size={12} /> Open beside conversation
+          </button>
+        )}
         {(live ||
           view.status === "disconnected" ||
           view.status === "error") && (
@@ -438,57 +178,7 @@ export default function DesktopTab({
           minHeight: 240,
         }}
       >
-        {view.status === "connecting" && (
-          <Notice heading="Connecting to the desktop…" body="" />
-        )}
-        {view.status === "starting" && (
-          <Notice
-            heading="Starting the desktop…"
-            body="The first start on a computer can take a minute."
-          />
-        )}
-        {view.status === "stopped" && (
-          <Notice
-            heading="The desktop isn't running"
-            body="It starts on its own when the agent needs it. You can also start it now."
-          >
-            <button
-              type="button"
-              style={toolbarBtnStyle}
-              onClick={() => void start()}
-              data-testid="desktop-start"
-            >
-              <Play size={12} /> Start desktop
-            </button>
-          </Notice>
-        )}
-        {view.status === "disconnected" && (
-          <Notice {...errorCopy("stream_error")}>
-            <button
-              type="button"
-              style={toolbarBtnStyle}
-              onClick={() => void connect()}
-            >
-              <RefreshCw size={12} /> Reconnect
-            </button>
-          </Notice>
-        )}
-        {view.status === "error" && <Notice {...errorCopy(view.errorClass)} />}
-        {live && (
-          <GuacamoleDisplay
-            key={view.attempt}
-            viewOnly={!view.control}
-            fixedRemoteSize
-            isVisible={isVisible}
-            connectionConfig={{
-              token: view.token,
-              protocol: "vnc",
-              ...(geoW && geoH ? { width: geoW, height: geoH } : {}),
-            }}
-            onDisconnect={onStreamLost}
-            onError={onStreamLost}
-          />
-        )}
+        <DesktopStage session={session} isVisible={isVisible} />
       </div>
     </div>
   );

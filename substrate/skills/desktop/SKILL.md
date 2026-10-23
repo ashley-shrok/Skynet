@@ -6,7 +6,7 @@ distributed: true
 
 # desktop
 
-You have your own virtual desktop: a private Linux X display (openbox window manager, 1280×800) that only you use. Other identities on this box have their own. **The user can watch it live** from your identity's Desktop tab in the app, so work on it as if someone is looking over your shoulder.
+You have your own virtual desktop: a private Linux X display (openbox window manager, 1280×800) that only you use. Other identities on this box have their own. **The user can watch it live** from your identity's Desktop tab in the app, or in a desktop pane beside your conversation, so work on it as if someone is looking over your shoulder.
 
 ## When to use it
 
