@@ -1554,6 +1554,10 @@ export async function handleIdentityProbeTrappedWork(
               resolved as unknown as Parameters<typeof connectOneShot>[0],
               5000,
             );
+            // One probe runs a read per identity (49 on a big host, every
+            // minute per open tab): send them all through one skynet-hostd
+            // channel instead of a login each.
+            enableHostd(conn);
             // Every read is its own exec channel on this ONE connection;
             // bound them so a ~30-identity host never exceeds sshd's
             // per-connection MaxSessions (OpenSSH default 10).
