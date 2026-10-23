@@ -47,6 +47,7 @@ import { roleDisplayName } from "@/lib/role-display-name";
 import { NEUTRAL_HUE } from "@/lib/identity-roles";
 import { AvatarImage } from "@/components/avatar-image";
 import { cn } from "@/lib/utils";
+import { Loader2 } from "lucide-react";
 import { KitChip, KitListRow } from "@/components/kit";
 import {
   RowKebabMenu,
@@ -281,7 +282,16 @@ export function ConversationSearchRow({
       trailing={
         <>
           <span className="text-[12px] text-[var(--k-t3)] whitespace-nowrap">{when}</span>
-          {result.isArchived && <KitChip>archived</KitChip>}
+          {result.isArchived && (
+            <KitChip>{unarchiving ? "un-archiving…" : "archived"}</KitChip>
+          )}
+          {unarchiving && (
+            <Loader2
+              className="size-4 animate-spin shrink-0 text-[var(--k-t3)]"
+              aria-label="Un-archiving"
+              data-testid={`conversation-search-unarchiving-${result.identityKey}-${result.hostId}`}
+            />
+          )}
           {kebabContextMenu.menu}
         </>
       }

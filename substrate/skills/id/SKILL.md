@@ -723,10 +723,12 @@ at the end. No results says "Try fewer or different words."
 In the full search window, archived conversations (matching the query but
 whose identity has been archived) render as rows with a three-dots menu on
 the right (shown on hover, always shown on a touch screen). Clicking the menu's **Un-archive** item
-requests the reconciler restore that identity's folder; the row is
-optimistically removed from the search view. If un-archive is refused (for
-example, the identity holds a role that itself is still archived), a notice
-names the role you need to un-archive first. Left-clicking an
+starts the un-archive; the row shows a spinner ("un-archiving…") until it
+finishes — usually within a minute — and then a notice says the
+conversation is back (the row leaves the search view) or why it was refused
+(for example, a role that itself is still archived, which the notice names).
+If nothing has happened after two minutes the notice says it's still working,
+and it carries on in the background. Left-clicking an
 archived row itself does nothing — the identity's conversation surface
 doesn't exist while archived.
 

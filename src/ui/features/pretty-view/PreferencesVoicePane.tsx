@@ -298,14 +298,11 @@ export function PreferencesVoicePane({
       <KitSettingsGroup
         title="Speed"
         footer={
-          <>
-            Pitch rises with speed.
-            {speedError !== null ? (
-              <span className="k-err block mt-1" role="alert" data-testid="preferences-voice-speed-error">
-                {speedError}
-              </span>
-            ) : null}
-          </>
+          speedError !== null ? (
+            <span className="k-err block" role="alert" data-testid="preferences-voice-speed-error">
+              {speedError}
+            </span>
+          ) : undefined
         }
       >
         <KitSettingsRow

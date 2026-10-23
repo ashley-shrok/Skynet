@@ -232,10 +232,10 @@ export function ConversationSearchModal({
       });
 
       if (outcome === "pending") {
-        // eslint-disable-next-line no-alert
-        window.alert(
-          `Still un-archiving ${result.identityKey} — check back shortly.`,
-        );
+        await kitAlert({
+          title: `Still un-archiving ${result.identityKey}`,
+          body: "Check back shortly.",
+        });
         return;
       }
 
@@ -247,18 +247,26 @@ export function ConversationSearchModal({
       removeResultByIdentity(result.hostId, result.identityKey);
 
       // Step 3: fire success notice (D-16).
-      await kitAlert({
-        title: `Un-archiving ${result.identityKey}`,
-        body: "It may take a moment to reflect elsewhere in the app.",
-      });
+      await kitAlert({ title: `${result.identityKey} is back.` });
     } catch (err) {
       // Failure path: row was NEVER removed (no restore branch needed —
       // by construction the row is still present). Fire failure notice (D-17).
+      console.info({
+        operation: "conversation_search_unarchive_failed",
+        identityKey: result.identityKey,
+        hostId: result.hostId,
+        reason: err instanceof UnarchiveError ? err.reason : "error",
+      });
       if (err instanceof UnarchiveError && err.reason === "missing_roles") {
         // D-17: names the still-archived role(s) inline.
         await kitAlert({
           title: `Un-archive role ${err.missingRoles?.join(", ") ?? "(unknown)"} first`,
           body: "This conversation depends on it.",
+        });
+      } else if (err instanceof UnarchiveError && err.reason === "refused") {
+        await kitAlert({
+          title: `Couldn't un-archive ${result.identityKey}`,
+          body: err.message,
         });
       } else if (err instanceof UnarchiveError && err.reason === "name_collision") {
         await kitAlert({
@@ -402,6 +410,7 @@ export function ConversationSearchModal({
                 query={state.query}
                 onClick={() => handleRowClick(r)}
                 onUnarchive={r.isArchived ? handleUnarchive : undefined}
+                unarchiving={r.isArchived && unarchiving.has(unarchivingKey(r))}
               />
             ))}
           </KitList>

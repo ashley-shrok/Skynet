@@ -858,6 +858,9 @@ describe("Phase 143 — kebab-menu Un-archive on archived-identity rows (D-11, D
     // The row must still be present in the DOM and no kit notice must NOT have been called.
     expect(screen.queryByTestId("conversation-search-row-/archived-mid.jsonl")).toBeTruthy();
     expect(alertSpy.calls).toHaveLength(0);
+    // While waiting for the supervisor the row shows a spinner instead of its menu.
+    expect(screen.getByTestId("conversation-search-unarchiving-midflightkey-3")).toBeTruthy();
+    expect(screen.queryByTestId("conversation-search-archived-row-kebab-midflightkey-3")).toBeNull();
 
     // Now resolve the never-resolving mock (endpoint returns 200).
     resolveUnarchive();
@@ -867,7 +870,7 @@ describe("Phase 143 — kebab-menu Un-archive on archived-identity rows (D-11, D
       expect(screen.queryByTestId("conversation-search-row-/archived-mid.jsonl")).toBeNull(),
       { timeout: 2000 },
     );
-    expect(kitAlertText(alertSpy, 0)).toMatch(/Un-archiving/);
+    expect(kitAlertText(alertSpy, 0)).toMatch(/midflightkey is back\./);
   });
 
   it("6: modal stays open after Un-archive success (D-19)", async () => {
@@ -905,7 +908,7 @@ describe("Phase 143 — kebab-menu Un-archive on archived-identity rows (D-11, D
       hostId: 2,
       isArchived: true,
     });
-    const alertSpy = vi.spyOn(window, "alert").mockImplementation(() => {});
+    const alertSpy = autoAnswerKitDialogs();
     const user = userEvent.setup();
     render(
       <ConversationSearchModal
@@ -918,8 +921,8 @@ describe("Phase 143 — kebab-menu Un-archive on archived-identity rows (D-11, D
     await user.click(screen.getByTestId("conversation-search-archived-row-kebab-slowpoke-2"));
     await user.click(await screen.findByRole("menuitem", { name: /^Un-archive$/ }));
 
-    await waitFor(() => expect(alertSpy).toHaveBeenCalled(), { timeout: 2000 });
-    expect(alertSpy.mock.calls[0][0]).toMatch(/Still un-archiving slowpoke — check back shortly\./);
+    await waitFor(() => expect(alertSpy.calls.length).toBeGreaterThan(0), { timeout: 2000 });
+    expect(kitAlertText(alertSpy, 0)).toBe("Still un-archiving slowpoke — Check back shortly.");
     expect(screen.queryByTestId("conversation-search-row-/archived-pending.jsonl")).toBeTruthy();
     await waitFor(() =>
       expect(screen.queryByTestId("conversation-search-unarchiving-slowpoke-2")).toBeNull(),
@@ -936,7 +939,7 @@ describe("Phase 143 — kebab-menu Un-archive on archived-identity rows (D-11, D
       hostId: 1,
       isArchived: true,
     });
-    const alertSpy = vi.spyOn(window, "alert").mockImplementation(() => {});
+    const alertSpy = autoAnswerKitDialogs();
     const user = userEvent.setup();
     render(
       <ConversationSearchModal
@@ -949,9 +952,9 @@ describe("Phase 143 — kebab-menu Un-archive on archived-identity rows (D-11, D
     await user.click(screen.getByTestId("conversation-search-archived-row-kebab-tina-1"));
     await user.click(await screen.findByRole("menuitem", { name: /^Un-archive$/ }));
 
-    await waitFor(() => expect(alertSpy).toHaveBeenCalled(), { timeout: 2000 });
-    expect(alertSpy.mock.calls[0][0]).toBe(
-      "Couldn't un-archive tina: the backend refused to reactivate the chat account (not_an_agent)",
+    await waitFor(() => expect(alertSpy.calls.length).toBeGreaterThan(0), { timeout: 2000 });
+    expect(kitAlertText(alertSpy, 0)).toBe(
+      "Couldn't un-archive tina — the backend refused to reactivate the chat account (not_an_agent)",
     );
     expect(screen.queryByTestId("conversation-search-row-/archived-refused.jsonl")).toBeTruthy();
   });
@@ -1285,7 +1288,7 @@ describe("ConversationSearchModal: apple-ux chrome", () => {
   }
 
   it("count line follows the listed results after an un-archive takes a row out", async () => {
-    unarchiveIdentityMock.mockResolvedValue({ ok: true });
+    unarchiveIdentityMock.mockResolvedValue({ ok: true, outcome: "restored" });
     autoAnswerKitDialogs();
     const rows = [
       makeRow({ transcriptPath: "/x0.jsonl", identityKey: "gone", hostId: 1, isArchived: true }),
@@ -1304,7 +1307,7 @@ describe("ConversationSearchModal: apple-ux chrome", () => {
   });
 
   it("un-archiving the last listed row while more pages remain shows Load more, not \"No results\"", async () => {
-    unarchiveIdentityMock.mockResolvedValue({ ok: true });
+    unarchiveIdentityMock.mockResolvedValue({ ok: true, outcome: "restored" });
     autoAnswerKitDialogs();
     searchConversationsMock.mockResolvedValueOnce({
       results: [makeRow({ transcriptPath: "/only.jsonl", identityKey: "only", hostId: 2, isArchived: true })],
