@@ -191,10 +191,10 @@ if [ -z "$HARNESS_PID" ]; then
   fi
 fi
 # -------------------------------------------------------------------------------------------
-# Event ids already surfaced by the post-join backfill below. The backfill reads the room right
-# after joining, so an opener posted just AFTER the join is caught by the backfill AND arrives
-# again in the next sync's timeline (it's newer than the cursor) — the same event woke the agent
-# twice. The main text loop skips any id in here. Bounded: cleared past BF_SEEN_MAX entries.
+# Event ids already surfaced by the post-join backfill below. The first sync that shows a newly
+# joined room usually carries its recent timeline too (an opener posted after the join, and often
+# ones from before it), so without this the same event woke the agent twice. The main text loop
+# skips any id in here and then forgets it. Bounded: cleared between syncs past BF_SEEN_MAX.
 declare -A BF_SEEN=()
 BF_SEEN_MAX=500
 while :; do
@@ -266,6 +266,7 @@ while :; do
   # join, no wake; invite + opener => you wake on the opener, exactly when there's something to
   # respond to. (Diagnosed by @molly; reproduced + fixed 2026-07-09.)
   JOINED=""
+  [ "${#BF_SEEN[@]}" -ge "$BF_SEEN_MAX" ] && BF_SEEN=()
   for r in $(jq -r '.rooms.invite // {} | keys[]' <<<"$R"); do
     curl -s -X POST "$BASE/join/$r" -H "$H" -H 'Content-Type: application/json' -d '{}' >/dev/null
     BFJSON=$(curl -s -H "$H" "$BASE/rooms/$r/messages?dir=b&limit=10")   # newest-first; chunk items carry NO room_id, so pass $r via --arg
@@ -273,7 +274,6 @@ while :; do
       [ -z "$bj" ] && continue
       br=$(jq -r '.r' <<<"$bj"); bs=$(jq -r '.s' <<<"$bj"); bev=$(jq -r '.ev' <<<"$bj"); bk=$(jq -r '.k' <<<"$bj")
       [ -n "${BF_SEEN[$bev]+x}" ] && continue
-      [ "${#BF_SEEN[@]}" -ge "$BF_SEEN_MAX" ] && BF_SEEN=()
       BF_SEEN[$bev]=1
       if [ "$bk" = "enc" ]; then
         bln="[room $br] [$bs] (event $bev): [ENCRYPTED message — cannot read it; this room is E2E-encrypted and curl agents are locked out. Reply in plaintext that you cannot read it and move to an unencrypted, agent-created room.]"
@@ -314,6 +314,7 @@ while :; do
     mr=$(jq -r '.r' <<<"$mj"); ms=$(jq -r '.s' <<<"$mj"); mev=$(jq -r '.ev' <<<"$mj"); mk=$(jq -r '.k' <<<"$mj")
     if [ -n "${BF_SEEN[$mev]+x}" ]; then
       echo "recv.sh: skipping $mev in $mr — already surfaced by post-join backfill" >&2
+      unset 'BF_SEEN[$mev]'
       continue
     fi
     if [ "$mk" = "enc" ]; then
