@@ -174,6 +174,9 @@ CLEANUP_ON_FAIL=1
 
 cp -r "$TEMPLATE_DIR" "$APP_DIR"
 log "scaffolded starter into $APP_DIR"
+# A box not yet swept by the distributor can still carry the retired
+# single-unit template inside the starter; it doesn't belong in the app.
+rm -f "$APP_DIR/app-SLUG.service.template"
 
 # Delete the starter's shipped app.json — the sidebar sweep gates on this file
 # existing, so leaving it in place would flash a half-built app onto the

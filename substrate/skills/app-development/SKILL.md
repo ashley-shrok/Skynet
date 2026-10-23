@@ -11,35 +11,67 @@ distributed: true
 
 ## What this skill builds
 
-Apps live on your box, on disk, under a canonical location. The front-end
-client the user is on auto-discovers them and lists them in her sidebar.
-Every user sees the apps hosted on boxes she has access to, and only those
-apps. Clicking a tile opens the app; dragging one into a split opens it as a
-leaf; right-clicking gets an "open in new tab" affordance.
+Apps live on your box, on disk. There are two kinds:
 
-Your job with this skill is to build one such app when the user asks —
-"throw together a tool that tracks X", "make me a page that graphs Y",
-"give me a dashboard for Z", "log every W" — or to edit an existing app
-when she asks for changes to something you or another agent made before.
+- **Sidebar apps** — shared on the box. The front-end client lists them as
+  tiles in the user's sidebar (the Apps grid), for every user with access to
+  the box. They stay until someone archives them.
+- **Conversation apps** — belong to one conversation (you). They never get a
+  sidebar tile. You hand one to the user by linking it in a message, which
+  the chat renders as an **app chip**; the conversation's apps are also
+  listed in the **Apps** tab of its identity modal. Whoever can read the
+  conversation can use them. They are archived together with the
+  conversation, unless the user moves one to the sidebar first.
 
-**The sidebar tile IS the access path.** Users open apps through their
-tile in the sidebar — click to open, drag into a split to open as a
-leaf, right-click for "open in new tab". URLs to apps DO work (the
-tile's "open in new tab" affordance is exactly a link to the app's
-URL, and that's a valid path), but do NOT hand the URL out yourself.
-On some clients — notably the iOS PWA — an app opened by URL renders
-incorrectly, whereas opening through the tile works everywhere. When
-you finish, tell the user the app is ready and name the tile; that's
-the handoff.
+Your job with this skill is to build one when the user asks — "throw
+together a tool that tracks X", "make me a page that graphs Y", "give me a
+dashboard for Z", "log every W" — or to edit an existing app when she asks
+for changes to something you or another agent made before.
 
-**Publishing (§ Making a new app step 9) is what makes the tile appear
-and is deferred until the app is verified end-to-end** — otherwise a
-half-built app flashes onto her sidebar and invites a click that hits
-a broken page. If she needs to see a work-in-progress version before
-it's done, publish it anyway (rename `app.json.pending` → `app.json`)
-so it reaches her as a tile — do NOT fall back to handing her a URL
-as the WIP-access mechanism. The rule "tile, not URL" holds for
-finished apps AND for WIP the user needs to poke at early.
+### Which kind to build
+
+- **Tailored to the task you're working on** (a viewer for this
+  investigation's data, a checklist for this migration, a picker for this
+  decision) → **conversation app**.
+- **A general-purpose tool, or something tied to your role** (one of the
+  roles you hold) rather than this task, **or the user asked for a sidebar
+  app** ("put it in my sidebar", "make me an app I can keep using") →
+  **sidebar app**.
+- **Ambiguous → ask** before building.
+
+### Handing an app to the user
+
+**Link the app in your message** — it renders as an app chip with the
+app's icon and title. Clicking the chip opens the app; dragging it splits the
+view so the app sits beside the conversation. The link is the app's pane
+address:
+
+    <app-parent>/apps/<host-id>/<slug>/pane/
+
+with `<app-parent>` from `~/fleet/host/parent` and `<host-id>` from
+`~/fleet/host/id` (read both at the time; `create-app.sh` prints the exact
+link when it finishes). Write it as a Markdown link —
+`[Tally board](https://…/apps/6/tally-board/pane/)` — so the chip is
+labelled even before the app is known to the client.
+
+- **Conversation apps:** the chip IS the handoff. Link it once the app works
+  end to end and has its icon.
+- **Sidebar apps:** the tile is the main way in; after publishing, tell the
+  user the tile is there and name it. Linking a sidebar app is fine too — it
+  gets the same chip.
+
+Do NOT hand out any other URL for an app (serve URLs, `127.0.0.1:<port>`,
+"open it at …"). On some clients — notably the iOS PWA — an app opened by a
+bare URL renders incorrectly; the chip and the tile open it inside the app,
+which works everywhere.
+
+**Publishing a sidebar app (§ Making a new app step 9) is what makes the tile
+appear and is deferred until the app is verified end-to-end** — otherwise a
+half-built app flashes onto her sidebar and invites a click that hits a broken
+page. If she needs to see a work-in-progress sidebar app before it's done,
+publish it anyway (rename `app.json.pending` → `app.json`) so it reaches her
+as a tile. Conversation apps have no publish step: nothing appears anywhere
+until you link the chip, so just don't link it before it works.
 
 ## The stack — one canonical shape, not a menu
 
@@ -60,10 +92,16 @@ htmx, or a bundler other than Vite — stop. The stack is what the stack is.
 
 ## On-disk layout
 
-**Every app lives at `~/fleet/apps/<slug>/`** on the agent's box. The folder
-is the app: it holds the code, its own SQLite database, the systemd unit
-template, and a tiny metadata file. No shared registry, no per-app database
-elsewhere on disk, no configuration outside the folder.
+**Every sidebar app lives at `~/fleet/apps/<slug>/`** on the agent's box;
+**every conversation app lives at `~/fleet/identities/<your-name>/apps/<slug>/`**
+(inside your identity folder, so it travels with you). The folder is the app:
+it holds the code, its own SQLite database, a tiny metadata file and (for
+apps that may sleep) the `.may-sleep` marker. No shared registry, no per-app
+database elsewhere on disk, no configuration outside the folder (the systemd
+units are rendered from it — see § How an app is run).
+
+**Slugs are unique across the whole box** — sidebar, conversation and
+archived apps share one namespace (`create-app.sh` checks).
 
 Three top-level folders sit under `~/fleet/`:
 
@@ -123,8 +161,10 @@ see it. Renaming `app.json.pending` → `app.json` is the explicit
 onto her sidebar and inviting a click that hits a broken page.
 
 For **editing** an existing app, this doesn't apply — its `app.json`
-already exists (it's already on her sidebar). Only NEW apps go through
-the pending flow.
+already exists (it's already on her sidebar). Only NEW sidebar apps go
+through the pending flow. **Conversation apps get `app.json` straight
+away** — they never show in the sidebar, and the title + description show
+on their chip and in the Apps tab.
 
 ## Lifecycle — the helpers
 
@@ -138,25 +178,39 @@ everything else.
   `--user` units survive logout. Run this once before creating your first
   app on any box.
 
-- **`create-app.sh <slug> [title]`** — allocates the next free port in the
-  9501-9599 range, scaffolds the starter template into `~/fleet/apps/<slug>/`,
-  installs dependencies, writes `app.json.pending` (the app stays invisible
-  to the sidebar until you rename it to `app.json` at publish time),
-  renders + installs the systemd unit, starts the service, verifies it's
-  live. Slug must be kebab-case. Title is optional; defaults to a
-  title-cased slug if omitted.
+- **`create-app.sh [--conversation] <slug> [title]`** — allocates the next
+  free port in the 9501-9599 range, scaffolds the starter template, installs
+  dependencies, installs the app's systemd units, starts it, verifies it
+  answers. Without `--conversation`: a sidebar app in `~/fleet/apps/<slug>/`
+  with `app.json.pending` (invisible until you publish), always-on. With
+  `--conversation`: a conversation app in
+  `~/fleet/identities/$FLEET_IDENTITY/apps/<slug>/` with `app.json` and the
+  `.may-sleep` marker. Slug must be kebab-case. Title is optional; defaults to
+  a title-cased slug if omitted. Prints the app's link when done.
 
-- **`archive-app.sh <slug>`** — stops the systemd unit, disables it, removes
-  the unit file, runs `daemon-reload`, moves `~/fleet/apps/<slug>/` to
+- **`promote-app.sh <slug>`** — moves one of your conversation apps to the
+  sidebar: stops it, moves the folder (data, icon, marker and all) to
+  `~/fleet/apps/<slug>/`, reinstalls its units on the SAME port, checks it
+  answers. Rolls back on failure. See § Moving a conversation app to the
+  sidebar.
+
+- **`app-units.sh`** — the one place that knows how an app is run under
+  systemd (see § How an app is run). The other helpers and the box's
+  supervisor call it; you rarely need it directly. `app-units.sh find <slug>`
+  prints an app's folder; `app-units.sh port <slug>` its public port.
+
+- **`archive-app.sh <slug>`** — sidebar apps only. Stashes the app's units
+  inside its folder, stops and removes them, moves `~/fleet/apps/<slug>/` to
   `~/fleet/apps-archive/<slug>/`. This is the default remove path. Users who
-  ask to delete something sometimes change their minds.
+  ask to delete something sometimes change their minds. Conversation apps are
+  never archived on their own — they go with the conversation.
 
 - **Un-archive (agent gesture — no standalone script)** — inverse of
   archive. Drop an empty `.unarchive-requested` sentinel inside
   `~/fleet/apps-archive/<slug>/`. The box's `agent-supervisor` picks it
   up on its next reconcile tick (~15s), moves the folder back from
-  `apps-archive/` to `apps/`, re-installs the systemd unit from the
-  stashed copy inside the folder, and starts the service. Same disk
+  `apps-archive/` to `apps/`, re-installs the systemd units from the
+  stashed copies inside the folder, and starts the app. Same disk
   gesture pattern as archive from an agent's perspective.
 
 - **`make-icon.sh`** — makes an icon in the house style (see step 8 of
@@ -164,25 +218,35 @@ everything else.
   the other apps use; `draft <slug> <color> "<symbol>"` generates a draft
   and a preview; `accept <slug>` installs the draft, rebuilds and restarts.
 
-- **`backup-app.sh <slug>`** — snapshots `~/fleet/apps/<slug>/` and the
+- **`backup-app.sh <slug>`** — snapshots the app folder (sidebar or conversation) and the
   systemd unit file into `~/fleet/apps-backups/<slug>-<timestamp>/`. Restoring
   from a backup is a manual step; the backup is a safety net, not a formal
   lifecycle state.
 
 ## Making a new app — the recipe
 
+0. **Pick the kind** — conversation app or sidebar app (§ Which kind to
+   build). Ask if it's unclear.
 1. **Bootstrap if needed.** If `~/fleet/apps/` doesn't exist, run
    `bootstrap.sh`. Skip if it already exists.
 2. **Pick a slug** — kebab-case, meaningful in three months. `grocery-list`,
    not `app1`. It becomes the folder name and the systemd unit name.
 3. **Pick a title** if you want one different from the slug. This is what
-   the sidebar tile shows.
+   the sidebar tile (or the chip and Apps tab) shows.
 4. **Run the create helper:**
 
-       bash ~/.claude/skills/app-development/create-app.sh <slug> "<title>"
+       bash ~/.claude/skills/app-development/create-app.sh <slug> "<title>"                 # sidebar app
+       bash ~/.claude/skills/app-development/create-app.sh --conversation <slug> "<title>"  # conversation app
 
    That does the whole scaffold-plus-install cycle. Log tail from the helper
-   tells you the assigned port and confirms the service is live.
+   tells you the assigned port, confirms the app answers and (for a
+   conversation app) prints the link you'll hand over. `<app-dir>` below is
+   the folder it reports — `~/fleet/apps/<slug>` or
+   `~/fleet/identities/<you>/apps/<slug>`.
+   **Conversation apps start with the `.may-sleep` marker. If the app will
+   do anything on its own clock — timers, schedules, polling, background
+   jobs, work that keeps going after a request finishes — delete the marker
+   now** (§ Sleeping). Sidebar apps start always-on.
 5. **Edit the starter down to your app.** The starter is a working small
    app (a to-do list) with its initial migration already generated in
    `drizzle/`. When the service first boots, that migration runs and the
@@ -216,7 +280,7 @@ everything else.
 7. **Verify.** Once it looks right in dev mode, build the production output
    and restart the systemd unit:
 
-       cd ~/fleet/apps/<slug>
+       cd <app-dir>
        bun run build
        systemctl --user restart app-<slug>
 
@@ -228,13 +292,13 @@ everything else.
    you see one, fix it before publishing — don't publish an app with a
    known deprecation in its config.
 
-   Then confirm it's live: `systemctl --user status app-<slug>` should read
-   `active (running)`. Open the app yourself (dev mode or a local
-   `curl 127.0.0.1:<port>`) and walk the golden path — this is the last
-   moment before it goes on the user's sidebar. If anything is still
-   broken, do NOT continue — the remaining steps (icon, publish) assume a
-   working app.
-8. **Make an icon.** Every app tile on the sidebar gets a visual mark;
+   Then confirm it's live: `curl -s -o /dev/null -w '%{http_code}\n'
+   127.0.0.1:<port>/` should print 200 (this also wakes a sleeping app —
+   `systemctl --user status app-<slug>` reads `inactive` while it's asleep,
+   which is fine). Walk the golden path yourself — this is the last moment
+   before it reaches the user. If anything is still broken, do NOT continue —
+   the remaining steps (icon, handover) assume a working app.
+8. **Make an icon.** Every app — sidebar tile or conversation-app chip — gets a visual mark;
    without one, the client falls back to a generic app glyph. The house
    style is one white, logo-like symbol — simple, not visually busy —
    centered on a flat background of the app's own color, the way icons on a
@@ -280,19 +344,22 @@ everything else.
      publish on the icon, and don't accept a bad one: a poor icon gets
      learned and sticks.
    - **If the user brought their own icon**, use that instead — convert it
-     with `convert <src> ~/fleet/apps/<slug>/icon.webp`, then
-     `ln -sf ../icon.webp ~/fleet/apps/<slug>/static/icon.webp`, rebuild
+     with `convert <src> <app-dir>/icon.webp`, then
+     `ln -sf ../icon.webp <app-dir>/static/icon.webp`, rebuild
      and restart.
    - **Replacing an existing app's icon** is the same steps; `accept`
      overwrites the old one.
-9. **Publish.** This is the moment the tile appears on the user's sidebar.
-   Only do this once step 7 has actually passed:
+9. **Hand it over.** Only once step 7 has actually passed.
+   - **Sidebar app — publish.** This is the moment the tile appears on the
+     user's sidebar:
 
-       mv ~/fleet/apps/<slug>/app.json.pending ~/fleet/apps/<slug>/app.json
+         mv ~/fleet/apps/<slug>/app.json.pending ~/fleet/apps/<slug>/app.json
 
-   The front-end client's next sweep picks it up. Tell the user the app
-   is ready and name the tile ("your `Birthdays` tile is on the sidebar
-   now") — do NOT hand her a URL (see § What this skill builds).
+     The front-end client's next sweep picks it up. Tell the user the app is
+     ready and name the tile ("your `Birthdays` tile is on the sidebar now").
+   - **Conversation app — link the chip** (the link `create-app.sh` printed;
+     § Handing an app to the user). Make sure `app.json`'s description is
+     filled in — it shows on the chip and in the Apps tab.
 
 ## Iteration workflow — dev mode vs prod
 
@@ -309,7 +376,7 @@ Two modes:
 The rhythm:
 
     systemctl --user stop app-<slug>
-    cd ~/fleet/apps/<slug>
+    cd <app-dir>
     bun run dev
     # edit files; browser refreshes automatically
     # ctrl-c when done
@@ -325,7 +392,9 @@ crashes it stays down. Production mode runs under systemd with
 
 If asked to modify an existing app:
 
-1. **Find it.** `ls ~/fleet/apps/` for the list; the folder is the slug.
+1. **Find it.** `ls ~/fleet/apps/` for sidebar apps, `ls ~/fleet/identities/<you>/apps/`
+   for your conversation apps; `bash ~/.claude/skills/app-development/app-units.sh find <slug>`
+   prints any app's folder.
 2. **Back it up FIRST.** Before any editing that could corrupt data or lose
    work:
 
@@ -419,33 +488,50 @@ panel resetting — needs an explicit callback:
 Skip enhance only when the submit genuinely needs a full navigation
 (auth state change, redirect to a different app).
 
-## The systemd unit
+## How an app is run — systemd units
 
-The starter includes `app-SLUG.service.template` with substitution markers
-`__SLUG__`, `__APP_DIR__`, `__HOST__`, `__PORT__`. The `create-app.sh`
-helper renders it in place and installs the result to
-`~/.config/systemd/user/app-<slug>.service`.
+`app-units.sh` renders every app's units from `templates/units/` and is the
+only thing that installs, removes, stashes or restores them. Every app made
+with this skill gets five user units, all named after its slug:
 
-Key directives and why they matter:
+- `app-<slug>.socket` — holds the app's **public** port (9501-9599) open at
+  all times, whether the app is running or asleep. The front-end client
+  always talks to this port.
+- `app-<slug>-relay.service` — started by the socket on a request; forwards
+  traffic to the app's **private** port (public + 10000). Tied to the app:
+  it stops when the app stops.
+- `app-<slug>.service` — the app itself (`bun ./server.js` on the private
+  port). `Restart=on-failure`: a crash comes back in about two seconds; a
+  clean exit means "asleep" and stays stopped.
+- `app-<slug>-marker.path` — starts the app whenever `.may-sleep` is added
+  or removed.
+- `app-<slug>-boot.service` — at boot, starts the app unless `.may-sleep`
+  exists.
 
-- `Restart=always` + `RestartSec=2` — a crash comes back in about two
-  seconds.
+Apps created before this layout have a single always-on `app-<slug>.service`
+on the public port. They keep working as they are and simply never sleep.
+
+Key directives in the app unit and why they matter:
+
 - `KillMode=control-group` + `KillSignal=SIGTERM` + `TimeoutStopSec=10` —
   kills the whole process tree on stop. Without this, a child spawned by
   Bun can outlive its parent and hold the port on restart.
-- `Environment=HOST=127.0.0.1` + `Environment=PORT=<port>` — the only
-  runtime knobs. The app hardcodes nothing.
+- `Environment=HOST=127.0.0.1` + `Environment=PORT=<private port>` — the
+  only runtime knobs. The app hardcodes nothing.
+- `ExecStartPost` waits until the app answers on its private port, so the
+  relay never forwards the first request after a wake to nobody.
 - `StandardOutput=journal` + `SyslogIdentifier=app-<slug>` — logs go to the
   user's journal, viewable with `journalctl --user -u app-<slug> -f`.
-- `WantedBy=default.target` + linger enabled = starts on user login,
-  survives logout, comes back on reboot.
 
 Common commands:
 
 - **Restart after code changes:** `systemctl --user restart app-<slug>`
-- **Stop:** `systemctl --user stop app-<slug>`
-- **Status:** `systemctl --user status app-<slug>`
+- **Stop:** `systemctl --user stop app-<slug>` (the next request through the
+  public port starts it again — the socket is still holding the address)
+- **Status:** `systemctl --user status app-<slug>` (`inactive` = asleep or
+  stopped; `failed` = crash loop, look at the logs)
 - **Tail logs:** `journalctl --user -u app-<slug> -f`
+- **Public port:** `bash ~/.claude/skills/app-development/app-units.sh port <slug>`
 
 If `systemctl --user` fails with `Failed to connect to bus`, your shell is
 missing the user-bus env — prefix the command with
@@ -453,6 +539,61 @@ missing the user-bus env — prefix the command with
 The skill's scripts set these themselves.
 
 Never `pkill bun` — it kills every app on the box.
+
+## Sleeping — the `.may-sleep` marker
+
+A `.may-sleep` file in the app's folder means **"this app has no background
+work, so it may sleep."** The marker is the only switch — adding or removing
+it is the whole gesture; nothing else to run.
+
+- **With the marker:** after 10 minutes with no requests and no open
+  connections, the app's own `server.js` shuts it down cleanly (asleep). The
+  box keeps holding its address; the next request — a chip click, a click
+  inside an already-open app — wakes it in about a tenth of a second. A
+  reboot leaves it asleep until its first request.
+- **Without the marker:** the app starts at boot and runs continuously.
+- **Removing the marker wakes a sleeping app immediately**, and it stays up.
+  Adding it lets the app fall asleep at its next idle stretch.
+
+Defaults: conversation apps start with the marker; sidebar apps start
+without it.
+
+**Remove the marker if the app does anything on its own clock** — a timer, a
+schedule, polling a feed, sending reminders, a background job, or work that
+keeps going after the request that started it has returned. All of that stops
+while the app sleeps. Live connections (a page streaming updates) keep it
+awake, which is intended.
+
+Rules:
+
+- Keep everything in the database — anything held only in memory is lost
+  when the app sleeps (the persistence rules below already say so).
+- Don't remove the sleep logic from `server.js` or its idle-connection
+  close (`keepAliveTimeout`); the box relies on them.
+- Never wipe or re-create the app folder in a way that loses the marker
+  (`rsync --delete` from elsewhere, deleting and re-scaffolding) — that
+  silently turns a sleeping app always-on.
+- Old apps (single-unit layout) can't sleep; the marker does nothing for them.
+
+## Moving a conversation app to the sidebar
+
+The user can ask for this from the app's top-bar menu or the Apps tab
+(**Move to sidebar**). It reaches you as an event, not typed text:
+
+    <task-notification>
+    <summary>Move to sidebar — delivered by the app</summary>
+    <event>[app <slug>] The user asked to move your conversation app "…" to the sidebar. …</event>
+    </task-notification>
+
+Do it, then tell the user in the conversation whether it worked:
+
+    bash ~/.claude/skills/app-development/promote-app.sh <slug>
+
+It keeps the app's name, address, data, icon and sleep setting, so chips and
+open panes keep working; the app leaves your Apps tab and appears as a
+sidebar tile within a few seconds. If the app does background work and still
+has `.may-sleep`, remove the marker as part of the move. If the move fails,
+the helper puts the app back where it was — say so and why.
 
 ## How the pane mounts your app — one rule to internalize
 
@@ -563,6 +704,10 @@ usable on both.
 **Archive by default.** Users who ask to delete something sometimes change
 their minds. The archive path costs nothing and preserves the option.
 
+Conversation apps are not archived on their own — they are archived with
+the conversation (and come back if it is un-archived). `archive-app.sh`
+refuses them.
+
     bash ~/.claude/skills/app-development/archive-app.sh <slug>
 
 If the user later says "wait, I want that back":
@@ -620,35 +765,50 @@ what you're doing — surprises here are worse than a moment of confirmation.
   Everything else has a natural home elsewhere.
 - About to build a portal-like page that lists apps → **stop.** The
   front-end client's sidebar is the portal now.
-- About to hand the user a URL, serve-URL, or "open it at …" link
-  → **stop.** URLs work, but the tile is the entry point users are
-  meant to use — on some clients (iOS PWA) opening by URL renders
-  incorrectly, whereas the tile works everywhere. Name the tile in
-  your handoff, not a URL. Same rule if you're forced to show a WIP
-  version before it's finished: publish early so it reaches her as a
-  tile — don't fall back to a URL.
-- About to `mv app.json.pending app.json` for a new app before it
+- About to hand the user a serve-URL, a `127.0.0.1:<port>`, or an "open
+  it at …" link → **stop.** Link the app's pane address so it renders as an
+  app chip (§ Handing an app to the user), or name the sidebar tile. On some
+  clients (iOS PWA) an app opened by a bare URL renders incorrectly; the chip
+  and the tile work everywhere.
+- About to build a sidebar app for something tailored to the task at hand
+  (or a conversation app for a general tool the user will keep using) →
+  **stop.** Re-read § Which kind to build; ask if unsure.
+- About to keep `.may-sleep` on an app with a timer, schedule, poller or
+  background job → **stop.** Delete the marker — the work stops while the
+  app sleeps.
+- About to archive a conversation app on its own, or move one into
+  `~/fleet/apps/` by hand → **stop.** It goes with the conversation; moving
+  it to the sidebar is `promote-app.sh`, when the user asks.
+- About to `mv app.json.pending app.json` for a new sidebar app before it
   actually works end-to-end → **stop.** Publishing early flashes a
   broken app onto her sidebar. Verify step 7 first.
-- About to write `app.json` directly for a new app (skipping the
+- About to write `app.json` directly for a new sidebar app (skipping the
   pending file) → **stop.** Use the pending flow — the whole point is
   the app is invisible to the sidebar until you publish.
 
 ## Common questions
 
 - **Where are the logs?** `journalctl --user -u app-<slug> -f`.
-- **Where's the database?** `~/fleet/apps/<slug>/db.sqlite`. Inspect with
-  `sqlite3 ~/fleet/apps/<slug>/db.sqlite '.tables'`.
-- **What port did my app get?** Read the systemd unit's `PORT` env:
-  `grep '^Environment=PORT' ~/.config/systemd/user/app-<slug>.service`. Or
+- **Where's the database?** `<app-dir>/db.sqlite` (`app-units.sh find <slug>`
+  prints `<app-dir>`). Inspect with `sqlite3 <app-dir>/db.sqlite '.tables'`.
+- **What port did my app get?**
+  `bash ~/.claude/skills/app-development/app-units.sh port <slug>` prints the
+  public port (the one Skynet and `curl` use; the app itself listens on
+  public + 10000). Or
   check the create-app helper's output when you ran it.
 - **How do I test locally without disturbing the running instance?** Stop
-  the unit (`systemctl --user stop app-<slug>`), then `cd ~/fleet/apps/<slug>
+  the unit (`systemctl --user stop app-<slug>`), then `cd <app-dir>
   && bun run dev`, then restart the unit when done. Dev mode binds to a
   different port by default so you can even skip the stop step, but the
   cleaner story is stop-dev-restart.
-- **How do I see what apps are on this box?** `ls ~/fleet/apps/`.
-- **Why isn't my new app showing up on the user's sidebar?** Almost
+- **How do I see what apps are on this box?** `ls ~/fleet/apps/` (sidebar)
+  and `ls ~/fleet/identities/*/apps/` (conversation apps).
+- **Why does `systemctl --user status app-<slug>` say inactive?** It's
+  probably asleep (it has `.may-sleep` and nobody has used it for 10
+  minutes). `curl 127.0.0.1:<port>/` wakes it. `failed` is different — a
+  crash loop; read the logs.
+- **Why isn't my new app showing up on the user's sidebar?** If it's a
+  conversation app, it never will — link its chip. Otherwise, almost
   certainly because `app.json.pending` hasn't been renamed to `app.json`
   yet — the sweep gates on `app.json` existing. Verify the app works,
   then `mv app.json.pending app.json` (§ Making a new app step 9).
@@ -658,9 +818,9 @@ what you're doing — surprises here are worse than a moment of confirmation.
   `agent-supervisor` picks it up on the next reconcile tick and reverses
   the archive.
 - **What if create-app fails partway through?** The helper is not perfectly
-  transactional; if it crashes mid-way, check `~/fleet/apps/<slug>/` and
-  `~/.config/systemd/user/app-<slug>.service`. Remove any partial state
-  before rerunning.
+  transactional; if it crashes mid-way, check the app folder and
+  `~/.config/systemd/user/app-<slug>*`. Remove any partial state
+  (`app-units.sh uninstall <slug>`, then the folder) before rerunning.
 - **The port range is exhausted (99 apps on this box).** That's a lot of
   apps. Talk to the user about which ones can be archived; don't extend
   the range without a conversation.
