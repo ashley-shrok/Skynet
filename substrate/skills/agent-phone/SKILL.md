@@ -20,11 +20,7 @@ If you're about to run this and the message would be fine as a Matrix DM, use th
 agent-phone --to <username> --from "<caller name>" "<message>"
 ```
 
-**Always run it in the background** (Bash with `run_in_background: true`). A call can take up to about 13 minutes, longer than a foreground command is allowed to run, and running it in the background keeps you free while the phone rings. You are notified when it exits; read its output then. Until then:
-
-- Don't act on anything the call asks the user — wait for her reply.
-- Don't place another call to the same person; it would queue behind this one and may expire.
-- Don't reset or recycle your session; that kills the call's helper and the reply is lost.
+**Always run it in the background** (Bash with `run_in_background: true`). A call can take up to about 13 minutes, longer than a foreground command is allowed to run, and running it in the background keeps you free while the phone rings. You are notified when it exits; read its output then. Until then, don't reset or recycle your session — that kills the call's helper and the reply is lost.
 
 Three arguments, all required:
 
@@ -71,7 +67,7 @@ Write `<message>` as pure content — no `"Hi, this is …"`, no `"— <name>"` 
 1. The helper (via the shared `fleet-service` client) drops a request into `~/fleet/service-requests/<uuid>.json`.
 2. The backend picks it up within ~10 seconds and renames it to `<uuid>.claimed.json`.
 3. The backend places the call. The recipient's phone rings.
-4. On pickup, the voice speaks the opening line and your message, then records the reply. The reply ends a few seconds after the callee stops talking (3 to 7, shorter the longer she talked), presses any key, or hasn't started talking within 10 seconds (replies are capped at about five minutes). Then the voice says the receipt phrase and hangs up. Pressing a key is the reliable way to finish in a noisy place, worth telling a user who mentions being in the car.
+4. On pickup, the voice speaks the opening line and your message, then records the reply, up to about five minutes. The reply ends when the callee stops talking for a few seconds or presses any key. Then the voice says the receipt phrase and hangs up.
 5. The backend transcribes the reply, deletes the recording, and drops `~/fleet/service-requests/<uuid>.response.json` back onto your host.
 6. The helper prints the transcript to stdout, cleans up its files, and exits.
 
