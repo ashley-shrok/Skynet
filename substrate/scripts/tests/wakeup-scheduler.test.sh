@@ -738,7 +738,17 @@ JSON
   cat > "$ident_dir/wakeups/once/wakeup.json" <<'JSON'
 {"name": "Once", "enabled": true, "schedule": {"type": "one_shot", "at": "2020-01-01T00:00:00Z"}, "instruction": "go now"}
 JSON
-  HOME="$home_dir" timeout 3 python3 "$PY_SCRIPT" "$ident_dir" >"$out_log" 2>/dev/null || true
+  # Run until the fire shows up (or 20s), not a fixed 3s: under full-suite
+  # load the interpreter alone can take longer than that to reach its first
+  # poll, which made this test fail intermittently with empty output.
+  HOME="$home_dir" timeout 20 python3 "$PY_SCRIPT" "$ident_dir" >"$out_log" 2>/dev/null &
+  local sched_pid=$!
+  local waited=0
+  while [ "$waited" -lt 200 ] && ! grep -q "⏰ \[scheduled: once @ .*\] go now" "$out_log" 2>/dev/null; do
+    sleep 0.1; waited=$((waited + 1))
+  done
+  sleep 0.5   # let the fire's bookkeeping (spec removal, .fired) land
+  kill "$sched_pid" 2>/dev/null; wait "$sched_pid" 2>/dev/null || true
   grep -q "⏰ \[scheduled: once @ .*\] go now" "$out_log" \
     || fail "SA-G14: expected one_shot fire keyed by folder name, got: $(cat "$out_log")"
   grep -q "flat" "$out_log" && fail "SA-G14: flat legacy spec must be ignored, got: $(cat "$out_log")"
