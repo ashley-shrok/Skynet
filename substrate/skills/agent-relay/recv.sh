@@ -191,6 +191,12 @@ if [ -z "$HARNESS_PID" ]; then
   fi
 fi
 # -------------------------------------------------------------------------------------------
+# Event ids already surfaced by the post-join backfill below. The backfill reads the room right
+# after joining, so an opener posted just AFTER the join is caught by the backfill AND arrives
+# again in the next sync's timeline (it's newer than the cursor) — the same event woke the agent
+# twice. The main text loop skips any id in here. Bounded: cleared past BF_SEEN_MAX entries.
+declare -A BF_SEEN=()
+BF_SEEN_MAX=500
 while :; do
   # Orphan-monitor guard: if Claude Code died, self-exit before touching Matrix state.
   # kill -0 sends no signal; it just tests process existence. Cheap check per iteration.
@@ -266,6 +272,9 @@ while :; do
     while IFS= read -r bj; do
       [ -z "$bj" ] && continue
       br=$(jq -r '.r' <<<"$bj"); bs=$(jq -r '.s' <<<"$bj"); bev=$(jq -r '.ev' <<<"$bj"); bk=$(jq -r '.k' <<<"$bj")
+      [ -n "${BF_SEEN[$bev]+x}" ] && continue
+      [ "${#BF_SEEN[@]}" -ge "$BF_SEEN_MAX" ] && BF_SEEN=()
+      BF_SEEN[$bev]=1
       if [ "$bk" = "enc" ]; then
         bln="[room $br] [$bs] (event $bev): [ENCRYPTED message — cannot read it; this room is E2E-encrypted and curl agents are locked out. Reply in plaintext that you cannot read it and move to an unencrypted, agent-created room.]"
       else
@@ -303,6 +312,10 @@ while :; do
   while IFS= read -r mj; do
     [ -z "$mj" ] && continue
     mr=$(jq -r '.r' <<<"$mj"); ms=$(jq -r '.s' <<<"$mj"); mev=$(jq -r '.ev' <<<"$mj"); mk=$(jq -r '.k' <<<"$mj")
+    if [ -n "${BF_SEEN[$mev]+x}" ]; then
+      echo "recv.sh: skipping $mev in $mr — already surfaced by post-join backfill" >&2
+      continue
+    fi
     if [ "$mk" = "enc" ]; then
       ln="[room $mr] [$ms] (event $mev): [ENCRYPTED message — cannot read it; this room is E2E-encrypted and curl agents are locked out. Reply in plaintext that you cannot read it and move to an unencrypted, agent-created room.]"
     else
