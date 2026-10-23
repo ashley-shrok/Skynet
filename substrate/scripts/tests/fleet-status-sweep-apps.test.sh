@@ -28,7 +28,7 @@
 #   5. no icon        — app.json + unit + listening, no icon   → has_icon: false
 #   6. with icon      — app.json + unit + listening + icon     → has_icon: true
 #   7. slug injection — bad folder name (uppercase, >40)       → no line, stderr log
-#   8. folder count cap — 51 valid apps → ≤50 lines + cap_hit warn (MEDIUM-4)
+#   8. folder count cap — 101 valid apps → ≤100 lines + cap_hit warn (MEDIUM-4)
 #
 # Exits 0 on all-pass; exits 1 on any failure with a diagnostic naming the
 # failing test. No SKIP gate — the driver now needs only python3 (already a
@@ -434,18 +434,18 @@ test_case_07_slug_injection() {
   assert_stderr_contains "app_slug_skipped" "case7 slug_skipped log"
 }
 
-# Case 8: MEDIUM-4 folder-count cap — 51 valid apps must produce at most
-# APP_ENUM_CAP (50) app lines + a stderr warn tagged
+# Case 8: MEDIUM-4 folder-count cap — 101 valid apps must produce at most
+# APP_ENUM_CAP (100) app lines + a stderr warn tagged
 # fleet_status_apps_cap_hit. Unit files exist for every app but no port
 # listener is spawned — the D-02 carve-out emits each as unhealthy, so all
-# 51 still count toward the cap even though none pass the port probe.
+# 101 still count toward the cap even though none pass the port probe.
 # Proves the cap fires on emission count, not on any subset.
 test_case_08_folder_count_cap() {
   local unit_dir="$FIXTURE/.config/systemd/user"
   mkdir -p "$unit_dir"
 
   local i slug port=9700
-  for i in $(seq 1 51); do
+  for i in $(seq 1 101); do
     slug="sweep-t116-cap-$i"
     mkdir -p "$FIXTURE/fleet/apps/$slug"
     python3 -c "
@@ -489,12 +489,12 @@ for l in sys.stdin.read().splitlines():
 print(n)
 " 2>/dev/null)
 
-  # At most APP_ENUM_CAP (50) app lines from the cap-prefix set.
-  if [ "$emitted_count" -gt 50 ]; then
-    fail "case8 cap: expected ≤ 50 app lines, got $emitted_count"
+  # At most APP_ENUM_CAP (100) app lines from the cap-prefix set.
+  if [ "$emitted_count" -gt 100 ]; then
+    fail "case8 cap: expected ≤ 100 app lines, got $emitted_count"
   fi
-  if [ "$emitted_count" -lt 50 ]; then
-    fail "case8 cap: expected exactly 50 cap-prefix app lines (cap value), got $emitted_count"
+  if [ "$emitted_count" -lt 100 ]; then
+    fail "case8 cap: expected exactly 100 cap-prefix app lines (cap value), got $emitted_count"
   fi
 
   # Stderr must contain the fleet_status_apps_cap_hit warn.
@@ -510,6 +510,90 @@ printf 'sweep: %s\n' "$SWEEP"
 printf 'fixture: %s\n' "$FIXTURE"
 printf '\n'
 
+
+# ---- convo-scoped apps ----
+
+# make_current_style_unit <slug> <public-port> <listen-public> <listen-private>
+#   Writes the two unit files the sweep reads for a current-style app
+#   (app-<slug>.socket with the public port, app-<slug>.service with the
+#   private port) and optionally spawns listeners standing in for systemd's
+#   held socket (public) and the awake app (private = public + 10000).
+make_current_style_unit() {
+  local slug="$1" port="$2" pub="$3" priv="$4"
+  local unit_dir="$FIXTURE/.config/systemd/user"
+  mkdir -p "$unit_dir"
+  printf '[Socket]\nListenStream=127.0.0.1:%s\nService=app-%s-relay.service\n' "$port" "$slug" > "$unit_dir/app-${slug}.socket"
+  printf '[Service]\nEnvironment=PORT=%s\nExecStart=/bin/sleep 3600\n' "$((port + 10000))" > "$unit_dir/app-${slug}.service"
+  local p
+  for p in $( [ "$pub" = true ] && echo "$port"; [ "$priv" = true ] && echo "$((port + 10000))" ); do
+    python3 -m http.server "$p" --bind 127.0.0.1 >/dev/null 2>&1 &
+    LISTENER_PIDS+=("$!")
+    local tries=0
+    while [ "$tries" -lt 20 ] && ! grep -qi ":$(printf '%04X' "$p") 00000000:0000 0A" /proc/net/tcp; do
+      tries=$((tries + 1)); sleep 0.05
+    done
+  done
+}
+
+# Case 9: a conversation app under ~/fleet/identities/<name>/apps/ is emitted
+# with owner=<name>; a sidebar app in the same sweep has owner=null.
+test_case_09_conversation_app_owner() {
+  make_app_folder "sweep-t116-side" "Side" "sidebar app"
+  create_test_unit "sweep-t116-side" 9584 true
+  local dir="$FIXTURE/fleet/identities/alpha/apps/sweep-t116-convo"
+  mkdir -p "$dir"
+  printf '{"title": "Convo", "description": "conversation app"}' > "$dir/app.json"
+  create_test_unit "sweep-t116-convo" 9585 true
+
+  local out
+  out=$(run_sweep)
+  assert_json_line_has "$out" "sweep-t116-convo" "owner" '"alpha"' "case9 conversation owner"
+  assert_json_line_has "$out" "sweep-t116-convo" "title" '"Convo"' "case9 conversation title"
+  assert_json_line_has "$out" "sweep-t116-side" "owner" 'null' "case9 sidebar owner"
+}
+
+# Case 10: current-style app whose public port isn't held → unhealthy.
+test_case_10_current_style_not_running() {
+  make_app_folder "sweep-t116-cur-down" "Down" "nothing listening"
+  make_current_style_unit "sweep-t116-cur-down" 9586 false false
+  local out
+  out=$(run_sweep)
+  assert_json_line_has "$out" "sweep-t116-cur-down" "port" '9586' "case10 public port from the socket unit"
+  assert_json_line_has "$out" "sweep-t116-cur-down" "is_healthy" 'false' "case10 unhealthy"
+  assert_json_line_has "$out" "sweep-t116-cur-down" "health_message" '"not running — ask an agent to check on it"' "case10 message"
+}
+
+# Case 11: public port held, private port not listening → healthy + asleep.
+# The state comes from the kernel socket table, not a connect — a connect on
+# a real box would wake the app.
+test_case_11_current_style_asleep() {
+  make_app_folder "sweep-t116-cur-sleep" "Sleepy" "asleep"
+  make_current_style_unit "sweep-t116-cur-sleep" 9587 true false
+  local out
+  out=$(run_sweep)
+  assert_json_line_has "$out" "sweep-t116-cur-sleep" "is_healthy" 'true' "case11 healthy"
+  assert_json_line_has "$out" "sweep-t116-cur-sleep" "asleep" 'true' "case11 asleep"
+}
+
+# Case 12: both ports listening → healthy + awake.
+test_case_12_current_style_awake() {
+  make_app_folder "sweep-t116-cur-awake" "Awake" "awake"
+  make_current_style_unit "sweep-t116-cur-awake" 9588 true true
+  local out
+  out=$(run_sweep)
+  assert_json_line_has "$out" "sweep-t116-cur-awake" "is_healthy" 'true' "case12 healthy"
+  assert_json_line_has "$out" "sweep-t116-cur-awake" "asleep" 'false' "case12 awake"
+}
+
+# Case 13: old-style app reports asleep=null (not applicable).
+test_case_13_old_style_asleep_null() {
+  make_app_folder "sweep-t116-old" "Old" "old style"
+  create_test_unit "sweep-t116-old" 9589 true
+  local out
+  out=$(run_sweep)
+  assert_json_line_has "$out" "sweep-t116-old" "asleep" 'null' "case13 asleep null"
+}
+
 run_test test_case_01_good_app
 run_test test_case_02_malformed_json
 run_test test_case_03_no_unit
@@ -518,6 +602,11 @@ run_test test_case_05_no_icon
 run_test test_case_06_with_icon
 run_test test_case_07_slug_injection
 run_test test_case_08_folder_count_cap
+run_test test_case_09_conversation_app_owner
+run_test test_case_10_current_style_not_running
+run_test test_case_11_current_style_asleep
+run_test test_case_12_current_style_awake
+run_test test_case_13_old_style_asleep_null
 
 printf '\n===============================\n'
 printf 'PASS: %d  FAIL: %d\n' "$PASS" "$FAIL"

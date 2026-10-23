@@ -202,6 +202,13 @@ APP_PORT_PROBE_TIMEOUT_SEC = 0.3
 # `Environment=PORT=<n>` extractor for the user's systemd unit body. Anchored
 # to a whole-word PORT= so we don't collide with `HTTP_PORT=` or similar.
 APP_UNIT_ENV_PORT_RE = re.compile(r"^\s*Environment\s*=.*?\bPORT=(\d+)\b", re.MULTILINE)
+# convo-scoped apps: current-style apps keep their PUBLIC port on a socket unit
+# (app-<slug>.socket, ListenStream=127.0.0.1:<port>); the app itself listens on
+# a private port (public + APP_PRIVATE_PORT_OFFSET) behind a relay. Old-style
+# apps have no socket unit and keep the public port in the service's PORT=.
+APP_SOCKET_LISTEN_RE = re.compile(r"^\s*ListenStream\s*=\s*127\.0\.0\.1:(\d+)\s*$", re.MULTILINE)
+APP_PRIVATE_PORT_OFFSET = 10000
+APP_SYSTEMCTL_TIMEOUT_SEC = 3.0
 
 # Phase 118 code-review MEDIUM-4 (fix pass 2026-09-18): DoS-hardening caps on
 # the source-C app enumeration in _enumerate_apps. Prior shape iterated
@@ -209,7 +216,7 @@ APP_UNIT_ENV_PORT_RE = re.compile(r"^\s*Environment\s*=.*?\bPORT=(\d+)\b", re.MU
 # a bug spawning 100+ directories could each incur a ~1.5s systemctl call and
 # dwarf the 8s exec ceiling. the user's design ceiling is ~10 apps per box
 # (D-15 discussion, RESEARCH § Q6); 50 leaves 5× headroom.
-APP_ENUM_CAP = 50
+APP_ENUM_CAP = 100
 # Cumulative wall-clock budget for _enumerate_apps. If the app loop passes
 # this threshold, bail with a structured warn and keep whatever we've built
 # so far — the sweep still emits its identity + pid lines and the caller
@@ -878,6 +885,73 @@ def _probe_app_port(port):
             return True
     except (OSError, socket.timeout):
         return False
+
+
+def _read_app_socket_file(slug, home):
+    """Return app-<slug>.socket text (current-style apps) or None."""
+    path = os.path.join(home, ".config", "systemd", "user", f"app-{slug}.socket")
+    try:
+        with open(path, "r", encoding="utf-8") as fh:
+            return fh.read()
+    except (FileNotFoundError, PermissionError, OSError):
+        return None
+
+
+def _loopback_listening_ports():
+    """Return the set of TCP ports in LISTEN state on 127.0.0.1 (or None).
+
+    Read from /proc/net/tcp — looking, not knocking. A connect() probe on a
+    current-style app's public port would make systemd start the relay and
+    wake a sleeping app, so its health is read from the kernel's socket table
+    instead: the public port LISTENing means the box is holding the app's
+    address; the private port LISTENing means the app itself is awake.
+    """
+    try:
+        with open("/proc/net/tcp", "r", encoding="ascii") as fh:
+            lines = fh.read().splitlines()[1:]
+    except OSError:
+        return None
+    ports = set()
+    for line in lines:
+        parts = line.split()
+        if len(parts) < 4 or parts[3] != "0A":   # 0A = TCP_LISTEN
+            continue
+        addr, _, port_hex = parts[1].partition(":")
+        if addr not in ("0100007F", "00000000"):  # 127.0.0.1 / 0.0.0.0
+            continue
+        try:
+            ports.add(int(port_hex, 16))
+        except ValueError:
+            continue
+    return ports
+
+
+def _failed_app_units(slugs):
+    """Return the subset of slugs whose app-<slug>.service is in the failed state.
+
+    One `systemctl --user show` call for all current-style apps per sweep. A
+    failed unit is one systemd gave up restarting (crash loop) — the only app
+    state the socket table can't tell apart from "asleep". Any error → empty
+    set (fail open: report asleep rather than broken).
+    """
+    if not slugs:
+        return set()
+    units = [f"app-{s}.service" for s in slugs]
+    try:
+        result = subprocess.run(
+            ["systemctl", "--user", "show", "-p", "Id", "-p", "ActiveState", "--", *units],
+            capture_output=True, text=True, timeout=APP_SYSTEMCTL_TIMEOUT_SEC,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return set()
+    failed = set()
+    current = None
+    for line in result.stdout.splitlines():
+        if line.startswith("Id=app-") and line.endswith(".service"):
+            current = line[len("Id=app-"):-len(".service")]
+        elif line == "ActiveState=failed" and current:
+            failed.add(current)
+    return failed
 
 
 # ---------------------------------------------------------------------------
@@ -1714,7 +1788,7 @@ def _enumerate_pids(home):
 # ---------------------------------------------------------------------------
 
 
-def _build_app_line(slug, folder_path, home):
+def _build_app_line(slug, folder_path, home, owner=None, listening=None, failed=None):
     """Assemble a SweepAppLine dict, or return None if D-01 excludes it.
 
     D-01 checks (both must pass for inclusion):
@@ -1774,10 +1848,18 @@ def _build_app_line(slug, folder_path, home):
         # transport error, not a bad card; just "no unit registered").
         return None
 
-    # Port from Environment=PORT=<n> in the unit body (D-07). None if the
-    # unit doesn't declare a PORT — D-05 allows nullable port.
-    m = APP_UNIT_ENV_PORT_RE.search(unit_text)
-    port = int(m.group(1)) if m else None
+    # convo-scoped apps: a socket unit marks a current-style app. Its public
+    # port lives there; the service's PORT= is the app's private port.
+    socket_text = _read_app_socket_file(slug, home)
+    asleep = None
+    if socket_text is not None:
+        m = APP_SOCKET_LISTEN_RE.search(socket_text)
+        port = int(m.group(1)) if m else None
+    else:
+        # Port from Environment=PORT=<n> in the unit body (D-07). None if the
+        # unit doesn't declare a PORT — D-05 allows nullable port.
+        m = APP_UNIT_ENV_PORT_RE.search(unit_text)
+        port = int(m.group(1)) if m else None
 
     # Health via loopback probe (D-02 carve-out). Two special cases:
     #
@@ -1805,6 +1887,23 @@ def _build_app_line(slug, folder_path, home):
     elif os.environ.get("HOME_HOST_DIR"):
         is_healthy = True
         health_message = None
+    elif socket_text is not None:
+        # Current-style app: never knock (that would wake it). Read the
+        # kernel's socket table and systemd's failed state instead.
+        if listening is None:
+            listening = _loopback_listening_ports() or set()
+        if failed is None:
+            failed = _failed_app_units([slug])
+        if slug in failed:
+            is_healthy = False
+            health_message = "keeps crashing — ask an agent to check on it"
+        elif port not in listening:
+            is_healthy = False
+            health_message = "not running — ask an agent to check on it"
+        else:
+            is_healthy = True
+            health_message = None
+            asleep = (port + APP_PRIVATE_PORT_OFFSET) not in listening
     else:
         is_healthy = _probe_app_port(port)
         if is_healthy:
@@ -1857,11 +1956,19 @@ def _build_app_line(slug, folder_path, home):
         "is_healthy": is_healthy,
         "health_message": health_message,
         "users": users,
+        # convo-scoped apps: owning identity for a conversation app (None for
+        # sidebar apps), and whether a current-style app is asleep right now
+        # (None when unknown / not applicable). Additive fields.
+        "owner": owner,
+        "asleep": asleep,
     }
 
 
 def _enumerate_apps(home):
-    """Return list of SweepAppLine dicts for ~/fleet/apps/*/.
+    """Return list of SweepAppLine dicts for ~/fleet/apps/*/ and conversation apps.
+
+    convo-scoped apps: also walks ~/fleet/identities/<name>/apps/*/ and emits
+    those apps with `owner` = <name>. Both roots share the caps below.
 
     Fail-open per D-18: an absent ~/fleet/apps/ dir yields []; a broken
     per-app entry is skipped (with a stderr log) but does not affect other
@@ -1884,16 +1991,46 @@ def _enumerate_apps(home):
     Both caps preserve fail-open discipline — the sweep still emits its
     identity + pid lines, and the caller gets a valid partial JSONL blob.
     """
-    root = os.path.join(home, "fleet", "apps")
     out = []
-    total_seen = 0
-    started = time.monotonic()
+    state = {"total_seen": 0, "started": time.monotonic(), "stop": False}
+
+    # Health inputs shared by every current-style app this sweep: one read of
+    # the kernel socket table and one systemctl call, not one per app.
+    unit_dir = os.path.join(home, ".config", "systemd", "user")
+    try:
+        sockets = [n[len("app-"):-len(".socket")] for n in os.listdir(unit_dir)
+                   if n.startswith("app-") and n.endswith(".socket")]
+    except OSError:
+        sockets = []
+    sockets = [s for s in sockets if APP_SLUG_RE.match(s) and len(s) <= APP_SLUG_MAX_LEN]
+    in_container = bool(os.environ.get("HOME_HOST_DIR"))
+    listening = None if in_container or not sockets else (_loopback_listening_ports() or set())
+    failed = set() if in_container else _failed_app_units(sockets)
+
+    _scan_app_root(os.path.join(home, "fleet", "apps"), home, None, out, state, listening, failed)
+
+    identities_root = os.path.join(home, "fleet", "identities")
+    try:
+        with os.scandir(identities_root) as it:
+            names = sorted(e.name for e in it
+                           if e.is_dir(follow_symlinks=False) and SAFE_NAME_RE.match(e.name))
+    except OSError:
+        names = []
+    for name in names:
+        if state["stop"]:
+            break
+        _scan_app_root(os.path.join(identities_root, name, "apps"), home, name, out, state, listening, failed)
+    return out
+
+
+def _scan_app_root(root, home, owner, out, state, listening, failed):
+    """Append SweepAppLine dicts for every app folder directly under root."""
     try:
         with os.scandir(root) as it:
             for entry in it:
                 if not entry.is_dir(follow_symlinks=False):
                     continue
-                total_seen += 1
+                state["total_seen"] += 1
                 # MEDIUM-4 folder-count cap. Count BEFORE slug validation so
                 # `total_seen` reflects folders actually present on disk (not
                 # just the ones that passed the regex). The cap fires on the
@@ -1904,21 +2041,23 @@ def _enumerate_apps(home):
                         "fleet_status_apps_cap_hit",
                         kind="count",
                         cap=APP_ENUM_CAP,
-                        observed=total_seen,
+                        observed=state["total_seen"],
                     )
+                    state["stop"] = True
                     break
                 # MEDIUM-4 wall-clock budget. Check BEFORE each iteration's
                 # subprocess call so we bail before eating another 1.5s.
-                elapsed = time.monotonic() - started
+                elapsed = time.monotonic() - state["started"]
                 if elapsed > APP_ENUM_WALLCLOCK_BUDGET_SEC:
                     _log(
                         "fleet_status_apps_cap_hit",
                         kind="wallclock",
                         budget_sec=APP_ENUM_WALLCLOCK_BUDGET_SEC,
                         elapsed_sec=round(elapsed, 3),
-                        observed=total_seen,
+                        observed=state["total_seen"],
                         emitted=len(out),
                     )
+                    state["stop"] = True
                     break
                 slug = entry.name
                 if (
@@ -1928,7 +2067,7 @@ def _enumerate_apps(home):
                     _log("app_slug_skipped", slug=slug[:APP_SLUG_MAX_LEN])
                     continue
                 try:
-                    line = _build_app_line(slug, entry.path, home)
+                    line = _build_app_line(slug, entry.path, home, owner, listening, failed)
                 except Exception:
                     # Belt-and-braces per RESEARCH § Q8: any unexpected raise
                     # inside _build_app_line is contained here so other apps
@@ -1939,12 +2078,11 @@ def _enumerate_apps(home):
                 if line is not None:
                     out.append(line)
     except FileNotFoundError:
-        # ~/fleet/apps/ absent is a valid empty state (fresh box, no apps
-        # provisioned yet) — D-19 fail-open, not an error worth logging.
-        return out
+        # An absent apps folder is a valid empty state (fresh box, or an
+        # identity with no conversation apps) — D-19 fail-open, not an error.
+        return
     except OSError as e:
         _log("apps_scandir_failed", errno=e.errno)
-    return out
 
 
 # ---------------------------------------------------------------------------
