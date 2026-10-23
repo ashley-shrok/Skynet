@@ -39,7 +39,7 @@ describe("createTimeStretcher", () => {
     expect(t.flush()[0]).toHaveLength(0);
   });
 
-  it.each([0.5, 0.8, 1.3, 1.6, 2, 3])("rate %s: output is exactly input / rate long, whatever the chunking", (rate) => {
+  it.each([0.25, 0.5, 0.8, 1.3, 1.6, 2, 3, 4])("rate %s: output is exactly input / rate long, whatever the chunking", (rate) => {
     const x = sine(180, 1.7);
     for (const chunk of [1, 333, 4801, x.length]) {
       expect(stretch(x, rate, chunk)).toHaveLength(Math.round(x.length / rate));
@@ -61,6 +61,20 @@ describe("createTimeStretcher", () => {
       for (let i = o; i < o + 480; i++) e += mid[i] * mid[i];
       expect(Math.sqrt(e / 480)).toBeGreaterThan(0.3);
     }
+  });
+
+  it("doesn't fade in the start of the audio", () => {
+    const x = new Float32Array(SR).fill(0.5);
+    expect(stretch(x, 1.3, 4800)[0]).toBeCloseTo(0.5, 5);
+  });
+
+  it("emits the end of the audio at high rates instead of overshooting", () => {
+    const x = sine(200, 2);
+    const t = createTimeStretcher(SR, 1, 4);
+    let n = 0;
+    for (let o = 0; o < x.length; o += 4800) n += t.process([x.slice(o, o + 4800)])[0].length;
+    expect(n).toBeLessThanOrEqual(Math.round(x.length / 4));
+    expect(t.flush()[0].length).toBeGreaterThan(0);
   });
 
   it("stretches every channel by the same amount", () => {

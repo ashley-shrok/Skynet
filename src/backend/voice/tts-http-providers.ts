@@ -253,6 +253,7 @@ const GEMINI_SAMPLE_RATE = 24000;
 /** Gemini error codes (SSE `error` events) → the HTTP status they'd carry. */
 const GEMINI_ERROR_STATUS: Record<string, number> = {
   invalid_argument: 400,
+  invalid_request: 400,
   unauthenticated: 401,
   permission_denied: 403,
   not_found: 404,
@@ -266,7 +267,7 @@ const GEMINI_ERROR_STATUS: Record<string, number> = {
 interface GeminiEvent {
   event_type?: string;
   delta?: { type?: string; data?: unknown; mime_type?: unknown };
-  error?: { message?: unknown; code?: unknown };
+  error?: { message?: unknown; code?: unknown; status?: unknown };
 }
 
 /** Parse an SSE body into its JSON `data:` payloads; stops at `[DONE]`. */
@@ -289,7 +290,13 @@ async function* readSseEvents(body: ReadableStream<Uint8Array>): AsyncGenerator<
           .join("\n");
         if (data === "") continue;
         if (data === "[DONE]") return;
-        yield JSON.parse(data) as GeminiEvent;
+        let ev: GeminiEvent;
+        try {
+          ev = JSON.parse(data) as GeminiEvent;
+        } catch {
+          throw new TtsHttpError("gemini", 502, `malformed event: ${data.slice(0, 100)}`);
+        }
+        yield ev;
       }
       if (done) return;
     }
@@ -307,9 +314,13 @@ async function* geminiPcm(body: ReadableStream<Uint8Array>): AsyncGenerator<Buff
   let sawAudio = false;
   for await (const ev of readSseEvents(body)) {
     if (ev.event_type === "error") {
-      const code = typeof ev.error?.code === "string" ? ev.error.code.toLowerCase() : "unknown";
+      // Seen as {code: "invalid_request"}; Google's usual shape is
+      // {code: 429, status: "RESOURCE_EXHAUSTED"} — accept either.
+      const raw = ev.error?.code;
+      const named = typeof raw === "string" ? raw : typeof ev.error?.status === "string" ? ev.error.status : "";
+      const code = named.toLowerCase() || (typeof raw === "number" ? String(raw) : "unknown");
       const message = typeof ev.error?.message === "string" ? ev.error.message : "";
-      const status = GEMINI_ERROR_STATUS[code] ?? 500;
+      const status = typeof raw === "number" && raw >= 400 && raw < 600 ? raw : (GEMINI_ERROR_STATUS[code] ?? 500);
       throw new TtsHttpError("gemini", status, `${code}: ${message}`.replace(/\s+/g, " ").slice(0, ERROR_BODY_MAX));
     }
     if (ev.event_type !== "step.delta" || ev.delta?.type !== "audio" || typeof ev.delta.data !== "string") continue;
@@ -335,6 +346,7 @@ async function synthesizeGemini(text: string, voiceId: string): Promise<Readable
   // timeout, and when the returned stream is closed early (listener hung up,
   // stall watchdog) so a pending body read never holds the connection open.
   const controller = new AbortController();
+  const startedAt = Date.now();
   const res = await postJson(
     "gemini",
     "https://generativelanguage.googleapis.com/v1beta/interactions",
@@ -349,7 +361,11 @@ async function synthesizeGemini(text: string, voiceId: string): Promise<Readable
     controller.signal,
   );
   const pcm = geminiPcm(res.body as unknown as ReadableStream<Uint8Array>);
-  const timer = setTimeout(() => controller.abort(new Error("no audio before response-start timeout")), RESPONSE_START_TIMEOUT_MS);
+  // Headers and first audio share one RESPONSE_START_TIMEOUT_MS budget.
+  const timer = setTimeout(
+    () => controller.abort(new Error("no audio before response-start timeout")),
+    Math.max(0, RESPONSE_START_TIMEOUT_MS - (Date.now() - startedAt)),
+  );
   let first: IteratorResult<Buffer>;
   try {
     first = await pcm.next();
@@ -387,5 +403,7 @@ export const geminiTtsProvider: TtsProvider = {
   isOwnVoiceId: (id) => GEMINI_VOICE_IDS.has(id),
   synthesize: synthesizeGemini,
   isRetriable: isRetriableHttpError,
-  isUnavailable: isUnavailableHttpError,
+  // Google rejects a malformed / unknown AIza… key with 400 API_KEY_INVALID.
+  isUnavailable: (err) =>
+    isUnavailableHttpError(err) || (err instanceof TtsHttpError && err.status === 400 && /API_KEY_INVALID/.test(err.body)),
 };

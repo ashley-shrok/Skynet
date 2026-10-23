@@ -93,6 +93,9 @@ const SCHEDULE_HORIZON_SECONDS = 15;
 // sub-source sequence too.
 const MAX_BUFFER_AUDIBLE_SECONDS = 10;
 
+/** Input audio time-stretched per main-thread slice (see the read loop). */
+const STRETCH_SLICE_SECONDS = 1;
+
 /** Audio scheduled but the clock never moved for this long (and no pause) → give up. */
 export const NEVER_STARTED_MS = 8000;
 
@@ -495,7 +498,18 @@ export function createWebAudioStreamPlayer(
 
         const decoded = decodePcmChunk(pcmChunk, header);
         stretcher ??= createTimeStretcher(header.sampleRate, header.channels, playbackRate);
-        if (!(await scheduleSamples(stretcher.process(decoded), header))) return;
+        // Stretch in slices, yielding between them: after a pause a single
+        // read can hold 20s+ of audio, and stretching it in one go would
+        // freeze the page. At 1× nothing is stretched, so one slice.
+        const total = decoded[0]?.length ?? 0;
+        const sliceLen =
+          playbackRate === 1 ? Math.max(1, total) : Math.max(1, Math.round(STRETCH_SLICE_SECONDS * header.sampleRate));
+        for (let off = 0; off < total; off += sliceLen) {
+          if (off > 0) await new Promise<void>((resolve) => setTimeout(resolve, 0));
+          if (stopped || audioContext === null) return;
+          const slice = decoded.map((c) => c.subarray(off, off + sliceLen));
+          if (!(await scheduleSamples(stretcher.process(slice), header))) return;
+        }
       }
     } catch (err) {
       if (!stopped && !onErrorFired) {

@@ -1219,6 +1219,45 @@ describe("TTS_PROVIDER selection", () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
+  it("gemini: a malformed key (HTTP 400 API_KEY_INVALID) → TTS unavailable, no retry", async () => {
+    process.env.TTS_PROVIDER = "gemini";
+    process.env.GEMINI_API_KEY = "AIza-bad";
+    fetchMock.mockResolvedValue(
+      new Response(JSON.stringify([{ error: { code: 400, status: "INVALID_ARGUMENT", details: [{ reason: "API_KEY_INVALID" }] } }]), { status: 400 }),
+    );
+
+    const res = await speakStream({ text: "Hi." });
+
+    expect(res._status).toBe(503);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("gemini: an error event in Google's numeric shape is classified by its code", async () => {
+    process.env.TTS_PROVIDER = "gemini";
+    process.env.GEMINI_API_KEY = "g-key";
+    fetchMock
+      .mockResolvedValueOnce(geminiSse([{ event_type: "error", error: { code: 503, status: "UNAVAILABLE", message: "busy" } }]))
+      .mockResolvedValueOnce(geminiSse([geminiAudio(4)]));
+
+    const res = await speakStream({ text: "Hi." });
+
+    expect(res._status).toBe(200);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("gemini: a malformed event is retried", async () => {
+    process.env.TTS_PROVIDER = "gemini";
+    process.env.GEMINI_API_KEY = "g-key";
+    fetchMock
+      .mockResolvedValueOnce(new Response("event: step.delta\ndata: {not json\n\n", { status: 200 }))
+      .mockResolvedValueOnce(geminiSse([geminiAudio(4)]));
+
+    const res = await speakStream({ text: "Hi." });
+
+    expect(res._status).toBe(200);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
   it("gemini: a stream that ends without audio is retried, not spoken as silence", async () => {
     process.env.TTS_PROVIDER = "gemini";
     process.env.GEMINI_API_KEY = "g-key";

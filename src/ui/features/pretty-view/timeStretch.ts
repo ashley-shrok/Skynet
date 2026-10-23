@@ -55,6 +55,8 @@ export function createTimeStretcher(sampleRate: number, channelCount: number, ra
   let bufStart = 0;
   let totalIn = 0;
   let totalOut = 0;
+  /** Finished output held back so the total never passes round(totalIn / rate). */
+  let held = emptyChannels(channelCount, 0);
   /** Index of the next output frame. */
   let frame = 0;
   /** Absolute input position of the last frame laid down. */
@@ -99,19 +101,33 @@ export function createTimeStretcher(sampleRate: number, channelCount: number, ra
     const lo = Math.max(-search, bufStart - ideal);
     const ref = mono(prevPos + hopOut, hopOut);
     const cand = mono(ideal + lo, search - lo + hopOut);
-    let best = 0;
-    let bestScore = -Infinity;
-    for (let d = lo; d <= search; d++) {
+    const score = (d: number, step: number): number => {
       let dot = 0;
       let energy = 0;
-      for (let i = 0, j = d - lo; i < hopOut; i++, j++) {
+      for (let i = 0, j = d - lo; i < hopOut; i += step, j += step) {
         const c = cand[j];
         dot += c * ref[i];
         energy += c * c;
       }
-      const score = dot / Math.sqrt(energy + 1e-9);
-      if (score > bestScore) {
-        bestScore = score;
+      return dot / Math.sqrt(energy + 1e-9);
+    };
+    // Coarse pass (every 3rd offset, every 2nd sample), then refine around
+    // the winner — about a fifth of the cost of a full search.
+    let best = lo;
+    let bestScore = -Infinity;
+    for (let d = lo; d <= search; d += 3) {
+      const sc = score(d, 2);
+      if (sc > bestScore) {
+        bestScore = sc;
+        best = d;
+      }
+    }
+    const center = best;
+    bestScore = -Infinity;
+    for (let d = Math.max(lo, center - 2); d <= Math.min(search, center + 2); d++) {
+      const sc = score(d, 1);
+      if (sc > bestScore) {
+        bestScore = sc;
         best = d;
       }
     }
@@ -130,7 +146,10 @@ export function createTimeStretcher(sampleRate: number, channelCount: number, ra
         const a = acc[ch];
         const src = buf[ch];
         const base = pos - bufStart;
-        for (let i = 0; i < frameLen; i++) a[i] += src[base + i] * win[i];
+        // The first frame has nothing to overlap its first half, so it isn't faded in.
+        const w0 = frame === 0 ? hopOut : 0;
+        for (let i = 0; i < w0; i++) a[i] += src[base + i];
+        for (let i = w0; i < frameLen; i++) a[i] += src[base + i] * win[i];
         // The first half can't receive any more overlap: it's final.
         out[ch].set(a.subarray(0, hopOut));
         a.copyWithin(0, hopOut);
@@ -150,17 +169,22 @@ export function createTimeStretcher(sampleRate: number, channelCount: number, ra
     return concatChannels(chunks, channelCount);
   }
 
+  /** Emit up to `limit` total samples of held + `out`; hold back the rest. */
   function emit(out: Float32Array[], limit: number): Float32Array[] {
-    const n = Math.max(0, Math.min(out[0]?.length ?? 0, limit - totalOut));
+    const all = concatChannels([held, out], channelCount);
+    const len = all[0]?.length ?? 0;
+    const n = Math.max(0, Math.min(len, limit - totalOut));
     totalOut += n;
-    return n === (out[0]?.length ?? 0) ? out : out.map((c) => c.subarray(0, n));
+    held = all.map((c) => c.slice(n));
+    return all.map((c) => c.subarray(0, n));
   }
 
   return {
     process(channels) {
       append(channels);
-      // Output trails input by about a frame, so never reaches the final length here.
-      return emit(run(), Number.POSITIVE_INFINITY);
+      // At high rates a frame can carry output past what the input so far
+      // will finally map to; that part waits for more input (or flush's trim).
+      return emit(run(), Math.floor(totalIn / rate));
     },
     flush() {
       const target = Math.round(totalIn / rate);
