@@ -451,6 +451,9 @@ export const GSD_MONITOR_STRIP_JQ =
  */
 export const RETIRED_SUBSTRATE_FILES = [
   ".claude/skills/role/SKILL.md",
+  // convo-scoped apps: the app unit template moved to templates/units/. Left
+  // in place it would be copied into every new app folder with the starter.
+  ".claude/skills/app-development/templates/app-starter/app-SLUG.service.template",
 ] as const;
 export const RETIRED_SUBSTRATE_DIRS = [".claude/skills/role"] as const;
 

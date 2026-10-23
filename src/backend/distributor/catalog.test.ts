@@ -125,7 +125,9 @@ describe("FLEET_SUBSTRATE_CATALOG", () => {
     // +1 for id-load-context (UserPromptSubmit hook — hands an `/id` load
     // its context) — 139 → 140.
     // +1 for app-development make-icon.sh (house-style app icons) — 140 → 141.
-    expect(FLEET_SUBSTRATE_CATALOG.length).toBe(141);
+    // +6 for convo-scoped apps: app-units.sh + promote-app.sh, and the one app
+    // unit template replaced by five under templates/units/ — 141 → 147.
+    expect(FLEET_SUBSTRATE_CATALOG.length).toBe(147);
   });
 
   it("Test 2: every bundled row's bundledPath starts with /app/fleet-substrate/skills/, /app/fleet-substrate/scripts/, or /app/fleet-substrate/user-onboarding/", () => {
@@ -268,7 +270,8 @@ describe("FLEET_SUBSTRATE_CATALOG", () => {
     // -1 for the role skill, retired 2026-10-09 — 107 → 106.
     // +1 for the sensor-development skill (SKILL.md) — 106 → 107.
     // +1 for app-development make-icon.sh — 107 → 108.
-    expect(skillRows.length).toBe(108);
+    // +6 for convo-scoped apps (app-units.sh, promote-app.sh, 1 → 5 unit templates) — 108 → 114.
+    expect(skillRows.length).toBe(114);
     // 18 helper scripts: agent-supervisor + wakeup-scheduler + context-watch +
     // file-watch (4th ambient monitor) + fleet-status-sweep (Phase 92
     // batch sweep) + (usage-reporter / usage-report / claude-usage-collector
@@ -517,7 +520,8 @@ describe("FLEET_SUBSTRATE_CATALOG", () => {
     // +1 for desktop-mcp.service — 137 → 138.
     // +1 for id-load-context — 138 → 139.
     // +1 for app-development make-icon.sh — 139 → 140.
-    expect(bundled.length).toBe(140);
+    // +6 for convo-scoped apps (app-units.sh, promote-app.sh, 1 → 5 unit templates) — 140 → 146.
+    expect(bundled.length).toBe(146);
     expect(runtime.length).toBe(1);
 
     // Every bundled row retains bundledPath under /app/fleet-substrate/

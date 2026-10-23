@@ -55,7 +55,7 @@
  *       role-history retirement (host copies removed via
  *       RETIRED_SUBSTRATE_FILES in run-bootstrap.ts)
  *     - 1 row for image-gen skill (Phase 116 file-drop broker SKILL.md)
- *     - 25 rows for app-development/ (SKILL.md + 5 helper scripts +
+ *     - 31 rows for app-development/ (SKILL.md + 7 helper scripts +
  *       19 starter-template files including a pre-generated initial
  *       Drizzle migration; first-class-apps campaign shape 1, 2026-09-17;
  *       favicon.svg row retired 2026-09-28 when the scaffold switched to
@@ -721,7 +721,7 @@ export const FLEET_SUBSTRATE_CATALOG: readonly CatalogEntry[] = [
     restartHook: null,
   },
 
-  // --- app-development skill (25 rows: SKILL.md + 5 helper scripts + 19 starter template files) ---
+  // --- app-development skill (31 rows: SKILL.md + 7 helper scripts + 18 starter template files + 5 unit templates) ---
   // First-class-apps campaign, shape 1 (2026-09-17). Ships the canonical
   // app-development skill that teaches fleet agents to build user-facing apps
   // under ~/fleet/apps/<slug>/. The skill folder on managed boxes lands at
@@ -776,6 +776,23 @@ export const FLEET_SUBSTRATE_CATALOG: readonly CatalogEntry[] = [
     installPath: "~/.claude/skills/app-development/make-icon.sh",
     restartHook: null,
   },
+  // convo-scoped apps: app-units.sh owns how an app runs under systemd (the
+  // agent-supervisor calls it on identity retire / un-archive and app
+  // un-archive); promote-app.sh moves a conversation app to the sidebar.
+  {
+    slug: "app-development-app-units",
+    sourceKind: "bundled",
+    bundledPath: "/app/fleet-substrate/skills/app-development/app-units.sh",
+    installPath: "~/.claude/skills/app-development/app-units.sh",
+    restartHook: null,
+  },
+  {
+    slug: "app-development-promote-app",
+    sourceKind: "bundled",
+    bundledPath: "/app/fleet-substrate/skills/app-development/promote-app.sh",
+    installPath: "~/.claude/skills/app-development/promote-app.sh",
+    restartHook: null,
+  },
   {
     slug: "app-development-template-gitignore",
     sourceKind: "bundled",
@@ -790,11 +807,42 @@ export const FLEET_SUBSTRATE_CATALOG: readonly CatalogEntry[] = [
     installPath: "~/.claude/skills/app-development/templates/app-starter/README.md",
     restartHook: null,
   },
+  // convo-scoped apps: the single app unit template became five unit templates
+  // under templates/units/, rendered by app-units.sh (socket + relay + app +
+  // sleep-marker watch + boot check).
   {
-    slug: "app-development-template-service",
+    slug: "app-development-template-unit-service",
     sourceKind: "bundled",
-    bundledPath: "/app/fleet-substrate/skills/app-development/templates/app-starter/app-SLUG.service.template",
-    installPath: "~/.claude/skills/app-development/templates/app-starter/app-SLUG.service.template",
+    bundledPath: "/app/fleet-substrate/skills/app-development/templates/units/app-SLUG.service.template",
+    installPath: "~/.claude/skills/app-development/templates/units/app-SLUG.service.template",
+    restartHook: null,
+  },
+  {
+    slug: "app-development-template-unit-socket",
+    sourceKind: "bundled",
+    bundledPath: "/app/fleet-substrate/skills/app-development/templates/units/app-SLUG.socket.template",
+    installPath: "~/.claude/skills/app-development/templates/units/app-SLUG.socket.template",
+    restartHook: null,
+  },
+  {
+    slug: "app-development-template-unit-relay",
+    sourceKind: "bundled",
+    bundledPath: "/app/fleet-substrate/skills/app-development/templates/units/app-SLUG-relay.service.template",
+    installPath: "~/.claude/skills/app-development/templates/units/app-SLUG-relay.service.template",
+    restartHook: null,
+  },
+  {
+    slug: "app-development-template-unit-marker",
+    sourceKind: "bundled",
+    bundledPath: "/app/fleet-substrate/skills/app-development/templates/units/app-SLUG-marker.path.template",
+    installPath: "~/.claude/skills/app-development/templates/units/app-SLUG-marker.path.template",
+    restartHook: null,
+  },
+  {
+    slug: "app-development-template-unit-boot",
+    sourceKind: "bundled",
+    bundledPath: "/app/fleet-substrate/skills/app-development/templates/units/app-SLUG-boot.service.template",
+    installPath: "~/.claude/skills/app-development/templates/units/app-SLUG-boot.service.template",
     restartHook: null,
   },
   {
