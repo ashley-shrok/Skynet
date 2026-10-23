@@ -74,12 +74,18 @@ let state: State = (() => {
 let inflight: Promise<void> | null = null;
 const listeners = new Set<() => void>();
 
-// Phase 66 Plan 05 — module-level guard for the one-shot re-fetch that fires
-// AFTER conversation-store's fleetSessions flips loaded (empty first fetch →
-// populated re-fetch). Prevents an unbounded refresh loop when the fleet
-// sessions array continues to churn after the initial load.
-let hasRefreshedAfterFleetLoad = false;
+// Hosts whose identities the store holds from a fan-out fetch (one that
+// returns every identity on each host it names). The fleet subscription
+// re-fetches whenever fleetSessions mentions a host outside this set — the
+// fleet snapshot fills in host by host on a cold boot, so a single re-fetch
+// on the first non-empty snapshot can cover only the first host to report.
+// Keyed on hosts, not identities, so steady session churn never re-fetches.
+let coveredHostIds = new Set<number>();
 let hasSubscribedToFleet = false;
+
+function hostIdsOf(identityHosts: Record<string, number>): Set<number> {
+  return new Set(Object.values(identityHosts));
+}
 
 function notify() {
   // Single-authority cache write: every state change that reaches listeners
@@ -336,36 +342,46 @@ export function deriveDiskPinnedIds(
 // (Phase 115 Plan 115-02: the sibling `deriveDiskHiddenIds` function
 //  was retired per D-21 alongside the backend .hidden fanout removal.)
 
-// Re-fetch after the first fleetSessions load. Succeeds at most ONCE per module
-// lifetime (guarded by hasRefreshedAfterFleetLoad). The subscription itself
-// is also installed lazily inside fetchOnce so a test that imports the module
-// without ever calling fetchOnce doesn't leak a live subscription.
+// Re-fetch whenever fleetSessions names a host the store hasn't fetched yet.
+// The subscription is installed lazily inside fetchOnce so a test that
+// imports the module without ever calling fetchOnce doesn't leak a live
+// subscription.
 //
-// The latch is set on SUCCESS, not on attempt. Setting it before the fetch
-// resolved meant one failed attempt permanently spent the only automatic
-// retry: the safe-default (null-cosmetics) render stayed up for the life of
-// the tab, and the only way back was a user action that happens to call
-// refreshIdentities directly — e.g. creating a role. The operator hit exactly that
-// (4 rows rendered colourless; creating a role restored them), which is what
-// identified this. An inflight guard keeps a burst of store notifications
-// from stacking duplicate fetches while one is in the air.
+// Coverage is recorded on SUCCESS, not on attempt, so a failed refresh is
+// retried on the next fleetSessions notification instead of leaving rows on
+// safe-default cosmetics for the life of the tab. An inflight guard keeps a
+// burst of store notifications from stacking duplicate fetches; when the
+// fetch lands, coverage is re-checked at once because hosts that reported
+// while it was in the air are not in it.
+//
+// The previous one-shot latch spent its only re-fetch on the first non-empty
+// snapshot. On a browser with no cached fleet snapshot that snapshot can hold
+// a single host's sessions (observed: {"jarvis-2":3}), so every other host's
+// identities stayed undressed — no title, avatar or project section.
+let refreshForNewHostsInflight = false;
+
+function refreshIfFleetHasNewHosts(): void {
+  if (refreshForNewHostsInflight) return;
+  const fleetHosts = hostIdsOf(
+    buildIdentityHostsFromFleet(getFleetSessionsSnapshot()),
+  );
+  if (fleetHosts.size === 0) return; // still empty — wait for the load flip
+  const missing = [...fleetHosts].filter((h) => !coveredHostIds.has(h));
+  if (missing.length === 0) return;
+  refreshForNewHostsInflight = true;
+  console.info(
+    `identities-store: fleet names uncovered hosts — refreshing [hosts:${missing.join(",")},covered:${[...coveredHostIds].join(",")}]`,
+  );
+  void refreshIdentities().then((ok) => {
+    refreshForNewHostsInflight = false;
+    if (ok) refreshIfFleetHasNewHosts();
+  });
+}
+
 function ensureFleetSubscription(): void {
   if (hasSubscribedToFleet) return;
   hasSubscribedToFleet = true;
-  let refreshInflight = false;
-  subscribeConversationStore(() => {
-    if (hasRefreshedAfterFleetLoad || refreshInflight) return;
-    const snapshot = getFleetSessionsSnapshot();
-    if (snapshot.length === 0) return; // still empty — wait for the load flip
-    refreshInflight = true;
-    void refreshIdentities().then((ok) => {
-      refreshInflight = false;
-      // Only a successful refresh spends the latch. On failure the next
-      // fleetSessions notification retries instead of leaving the user
-      // stuck with safe-defaults.
-      if (ok) hasRefreshedAfterFleetLoad = true;
-    });
-  });
+  subscribeConversationStore(refreshIfFleetHasNewHosts);
 }
 
 async function fetchOnce(): Promise<void> {
@@ -402,6 +418,7 @@ async function fetchOnce(): Promise<void> {
       );
       const list = await listIdentities(identityHosts);
       setIdentities(list);
+      coveredHostIds = hostIdsOf(identityHosts);
     } catch (err) {
       console.warn("identities-store: initial identities fetch failed", err);
       state = { ...state, loaded: true };
@@ -460,6 +477,9 @@ export function refreshIdentities(
       };
       const list = await listIdentities(identityHosts);
       setIdentities(list);
+      // setIdentities replaces the whole list, so coverage is exactly the
+      // hosts this request named.
+      coveredHostIds = hostIdsOf(identityHosts);
       return true;
     } catch (err) {
       // Never rejects — callers rely on that. But the failure is reported both
@@ -998,7 +1018,8 @@ export function __resetIdentitiesStoreForTest(): void {
     loaded: false,
   };
   inflight = null;
-  hasRefreshedAfterFleetLoad = false;
+  coveredHostIds = new Set();
+  refreshForNewHostsInflight = false;
   notify();
 }
 

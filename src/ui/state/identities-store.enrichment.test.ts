@@ -140,61 +140,105 @@ describe("fetchOnce / refreshIdentities — passes populated identityHosts to li
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Test 7: one-shot refresh after fleet-sessions load (guarded to fire exactly once)
+// Test 7: re-fetch whenever fleetSessions names a host not yet fetched
 // ─────────────────────────────────────────────────────────────────────────────
 
-describe("refresh-after-fleet-load — fires exactly once", () => {
-  it("Test 7: fetchOnce with empty fleet then updateFleetSessions triggers 1 additional listIdentities call", async () => {
+async function flush(): Promise<void> {
+  for (let i = 0; i < 5; i++) await Promise.resolve();
+}
+
+describe("refresh-after-fleet-load — re-fetches per newly reported host", () => {
+  it("Test 7: each newly reported host triggers one re-fetch; churn on covered hosts does not", async () => {
     // First fetch — fleet is empty, so listIdentities called with {}.
     await refreshIdentities();
     expect(vi.mocked(IdentitiesApi.listIdentities)).toHaveBeenCalledTimes(1);
     expect(vi.mocked(IdentitiesApi.listIdentities)).toHaveBeenLastCalledWith({});
 
-    // Fleet loads (false→true flip) → one-shot re-fetch should fire.
+    // First host reports → re-fetch.
     updateFleetSessions([makeSession(1, "tina")]);
-    // The subscription is synchronous through microtasks — flush.
-    await Promise.resolve();
-    await Promise.resolve();
+    await flush();
     expect(vi.mocked(IdentitiesApi.listIdentities)).toHaveBeenCalledTimes(2);
     expect(vi.mocked(IdentitiesApi.listIdentities)).toHaveBeenLastCalledWith({
       tina: 1,
     });
 
-    // Subsequent fleet changes must NOT chain more refreshes (guard).
+    // A second host reports later (cold boot fills the fleet in host by
+    // host) → re-fetch covering both.
     updateFleetSessions([makeSession(1, "tina"), makeSession(5, "nelly")]);
-    await Promise.resolve();
-    await Promise.resolve();
-    expect(vi.mocked(IdentitiesApi.listIdentities)).toHaveBeenCalledTimes(2);
+    await flush();
+    expect(vi.mocked(IdentitiesApi.listIdentities)).toHaveBeenCalledTimes(3);
+    expect(vi.mocked(IdentitiesApi.listIdentities)).toHaveBeenLastCalledWith({
+      tina: 1,
+      nelly: 5,
+    });
+
+    // More sessions on already-covered hosts must NOT re-fetch.
+    updateFleetSessions([
+      makeSession(1, "tina"),
+      makeSession(5, "nelly"),
+      makeSession(1, "bob"),
+    ]);
+    await flush();
+    expect(vi.mocked(IdentitiesApi.listIdentities)).toHaveBeenCalledTimes(3);
   });
 
-  // Regression guard: a FAILED post-fleet-load refresh must not spend the
-  // latch. It used to be set before the fetch resolved, so a single failure
-  // left the safe-default (null-cosmetics) render up for the life of the tab —
-  // the colourless-conversation-rows bug. The only recovery was a user action
-  // that called refreshIdentities directly, e.g. creating a role.
-  it("Test 7b: a failed post-fleet-load refresh retries on the next fleetSessions change", async () => {
+  // Regression guard: a FAILED refresh must not mark its hosts covered, or
+  // the safe-default (null-cosmetics) render stays up for the life of the tab.
+  it("Test 7b: a failed refresh retries on the next fleetSessions change", async () => {
     vi.mocked(IdentitiesApi.listIdentities).mockRejectedValueOnce(
       new Error("network down"),
     );
 
-    // Fleet loads → one-shot re-fetch fires and FAILS.
+    // Fleet loads → re-fetch fires and FAILS.
     updateFleetSessions([makeSession(1, "tina")]);
-    for (let i = 0; i < 5; i++) await Promise.resolve();
+    await flush();
     expect(vi.mocked(IdentitiesApi.listIdentities)).toHaveBeenCalledTimes(1);
 
-    // Next fleetSessions change must retry, because the latch was not spent.
+    // Next fleetSessions change must retry.
     updateFleetSessions([makeSession(1, "tina"), makeSession(5, "nelly")]);
-    for (let i = 0; i < 5; i++) await Promise.resolve();
+    await flush();
     expect(vi.mocked(IdentitiesApi.listIdentities)).toHaveBeenCalledTimes(2);
     expect(vi.mocked(IdentitiesApi.listIdentities)).toHaveBeenLastCalledWith({
       tina: 1,
       nelly: 5,
     });
 
-    // Once it succeeds the latch IS spent — no further chaining.
-    updateFleetSessions([makeSession(1, "tina"), makeSession(7, "zeus")]);
-    for (let i = 0; i < 5; i++) await Promise.resolve();
+    // Succeeded → hosts 1 and 5 covered; a same-host change is quiet.
+    updateFleetSessions([
+      makeSession(1, "tina"),
+      makeSession(5, "nelly"),
+      makeSession(5, "zeus"),
+    ]);
+    await flush();
     expect(vi.mocked(IdentitiesApi.listIdentities)).toHaveBeenCalledTimes(2);
+  });
+
+  it("Test 7d: a host that reports while a re-fetch is in flight is fetched once it lands", async () => {
+    let release!: (v: Identity[]) => void;
+    vi.mocked(IdentitiesApi.listIdentities).mockImplementationOnce(
+      () => new Promise<Identity[]>((r) => { release = r; }),
+    );
+
+    updateFleetSessions([makeSession(3, "jarvis-2")]);
+    await flush();
+    expect(vi.mocked(IdentitiesApi.listIdentities)).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(IdentitiesApi.listIdentities)).toHaveBeenLastCalledWith({
+      "jarvis-2": 3,
+    });
+
+    // Host 6 reports while the first fetch is still in the air — no stacking.
+    updateFleetSessions([makeSession(3, "jarvis-2"), makeSession(6, "sonar")]);
+    await flush();
+    expect(vi.mocked(IdentitiesApi.listIdentities)).toHaveBeenCalledTimes(1);
+
+    // First fetch lands → coverage re-checked → host 6 fetched.
+    release([]);
+    await flush();
+    expect(vi.mocked(IdentitiesApi.listIdentities)).toHaveBeenCalledTimes(2);
+    expect(vi.mocked(IdentitiesApi.listIdentities)).toHaveBeenLastCalledWith({
+      "jarvis-2": 3,
+      sonar: 6,
+    });
   });
 
   it("Test 7c: refreshIdentities resolves false on failure, true on success, and never rejects", async () => {
