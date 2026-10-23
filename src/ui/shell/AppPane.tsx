@@ -130,7 +130,7 @@ export { sidebarToggleClearance } from "./PaneBar";
 // app's live document.title. The only thing read from the frame is its
 // current address, to keep the page list.
 //
-// Bar menu (2026-10-11): a ⋮ kebab at the bar's right end, and right-click on
+// Bar menu (2026-10-11): a ⋯ button at the bar's right end, and right-click on
 // the bar, open the same RowKebabMenu an IdentityBadge has. Items: Move to new
 // window (desktop) → Open standalone → Rename… → Close (desktop) → Archive.
 // The app actions come from buildAppMenuItems, shared with the sidebar tile,

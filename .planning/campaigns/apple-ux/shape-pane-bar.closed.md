@@ -42,3 +42,38 @@ Ashley tasted the new bar as a console snippet over the live app (2026-10-23) on
 ## Handoff notes
 
 Copper (copper-box-maintainer-2), inside campaign apple-ux. The tasting's stylesheet is the visual reference (`workspace/tastings/panebar/panebar.css`). Build the look into the shared bar itself rather than bolting on overrides; reuse the kit's colours, icon-button and menu pieces. The id skill's bar descriptions (app bar, remote-desktop bar, file bar, file window) need matching edits, including dropping "glassy" and the file bar's machine-and-folder line. Committed, not pushed, not deployed — campaign shipping rule.
+
+---
+
+## Close-Out
+
+**Closed:** 2026-10-23
+**Overall verdict:** closed-hit
+
+### Shape features (conformance)
+
+- **The bar** — present · Solid dark fill in the windows' palette, one thin bottom line, no gradient/shadow/highlight; 44 on a computer, 52 on touch; built into the shared bar's own stylesheet.
+- **Left buttons** — present · 30x30, quiet until hovered then soft grey; larger back/forward arrows; reload set apart; disabled fades to ~28%; on all three pane kinds.
+- **Title, centred** — present · 20px tile then name; app icon at full colour on a clear tile, file/remote glyph on a small grey tile; name 13.5 semibold.
+- **File bar: name only** — present · Second line removed (the bar can no longer draw one); no machine/agent indicator; Copy path still in the menu.
+- **Right side** — present · ⋯ in the shared icon-button style; menu and right-click menu in the windows' menu look; read aloud restyled to match; view switch is the shared one, beside them.
+- **Touch devices** — present · Solid grey round back button; buttons 32x36, menu 36.
+- **File window header (same rule)** — present · No second line for chat files or Files-tab files.
+- **Handoff: guide edits** — present · "glassy" dropped, machine-and-folder lines dropped, ⋯ for ⋮, grey back button and sidebar-style menus described.
+- **What would make it wrong: The bar draws attention to itself** — present · No gradient, glow or shadow; only the tasting's hairline ring inside the icon tile.
+- **What would make it wrong: The three kinds of pane drift apart** — present · One shared bar, one stylesheet, one button style.
+- **What would make it wrong: A file bar or file window still shows where the file lives** — present · Removed at the source and at all three callers.
+- **What would make it wrong: The path becomes unreachable** — present · Copy path in the file pane menu and the chat-file window's ⋯.
+- **What would make it wrong: Anything the bar does today stops working** — present · Drag, right-click, click-to-select, sidebar-arrow clearance and touch back button all still wired (by reading).
+
+### Additions (in the result, not in the shape)
+
+None.
+
+### Follow-ups
+
+None.
+
+### Notes
+
+Clean pass, no questions for Ashley. Touch back button 40 → 36, the icon tile's hairline ring and the ~28% disabled fade all come from the approved tasting. A few code comments still said "vertical dots" — tidied after close. The view switch is the shared one the file window uses, unchanged (the tasting didn't restyle it either).

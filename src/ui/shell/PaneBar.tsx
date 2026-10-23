@@ -95,7 +95,7 @@ export interface PaneBarProps {
   /** The glyph is a picture filling the tile (an app's icon): no grey tile. */
   titleIconIsPicture?: boolean;
   title: string;
-  /** Controls left of the ⋮ (e.g. a view switcher); the column then sizes to fit. */
+  /** Controls left of the ⋯ (e.g. a view switcher); the column then sizes to fit. */
   rightControls?: ReactNode;
   menuItems: RowKebabMenuItem[];
   onSelectPane?: (tabId: string) => void;

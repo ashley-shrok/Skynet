@@ -14,7 +14,7 @@ const GuacamoleApp = lazy(() => import("@/features/guacamole/GuacamoleApp"));
 //
 // The remote desktop under the same bar apps have (PaneBar), so a
 // remote session is a first-class split-view pane: drag the bar to rearrange,
-// to the drop lane's Close zone, or into another Skynet window; ⋮ / right-
+// to the drop lane's Close zone, or into another Skynet window; ⋯ / right-
 // click for its menu.
 //
 // Bar contents:
