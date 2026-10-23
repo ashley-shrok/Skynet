@@ -17,6 +17,15 @@
  * the adapter fetches, transcribes with the instance STT provider and
  * deletes. <Gather> has no `action`; with inline TwiML Twilio carries on
  * to the next verb (verified on live calls), so no webhook is needed.
+ *
+ * Twilio stops a speech <Gather> after 60s even mid-sentence (the
+ * undocumented `maxSpeechTime` can't raise it — tested live). A second
+ * <Gather> right behind it picks the callee up if she is still talking,
+ * so a reply can run to two minutes. When she has finished, that second
+ * <Gather> hears nothing and gives up after REPLY_CONTINUE_TIMEOUT_SEC,
+ * so a finished reply ends about one second later than with one Gather.
+ * Inline TwiML can't branch, so every extra <Gather> would add another
+ * such second of dead air; more than two needs a webhook.
  */
 
 /** Twilio <Say> voice: a Google Chirp3-HD generative voice. */
@@ -27,6 +36,9 @@ export const REPLY_PAUSE_SEC = 3;
 
 /** Seconds to wait for her to start replying before moving on. */
 export const REPLY_START_TIMEOUT_SEC = 10;
+
+/** Seconds the follow-on <Gather> waits for her to keep talking. */
+export const REPLY_CONTINUE_TIMEOUT_SEC = 1;
 
 /** <Start><Recording> name, so <Stop> can end it. */
 const REPLY_RECORDING_NAME = "reply";
@@ -67,13 +79,19 @@ export function buildReceiptLine(): string {
   return "Your reply has been delivered.";
 }
 
+/** One reply window: ends after a pause in speech or any keypad press. */
+function replyGather(startTimeoutSec: number): string {
+  return `<Gather input="speech dtmf" numDigits="1" speechTimeout="${REPLY_PAUSE_SEC}" timeout="${startTimeoutSec}" speechModel="googlev2_telephony" language="en-US"/>`;
+}
+
 /** The whole call as TwiML. */
 export function buildCallTwiml(openingLine: string, receiptLine: string): string {
   return [
     "<Response>",
     `<Say voice="${CALL_VOICE}">${escapeXml(openingLine)}</Say>`,
     `<Start><Recording name="${REPLY_RECORDING_NAME}" channels="mono" trim="trim-silence"/></Start>`,
-    `<Gather input="speech dtmf" numDigits="1" speechTimeout="${REPLY_PAUSE_SEC}" timeout="${REPLY_START_TIMEOUT_SEC}" speechModel="googlev2_telephony" language="en-US"/>`,
+    replyGather(REPLY_START_TIMEOUT_SEC),
+    replyGather(REPLY_CONTINUE_TIMEOUT_SEC),
     `<Stop><Recording name="${REPLY_RECORDING_NAME}"/></Stop>`,
     `<Say voice="${CALL_VOICE}">${escapeXml(receiptLine)}</Say>`,
     "<Hangup/>",

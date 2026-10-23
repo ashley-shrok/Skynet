@@ -35,12 +35,16 @@ describe("call script", () => {
   it("says the opener, records the reply around a speech-ended Gather, then says the receipt", () => {
     const twiml = buildCallTwiml("Hi, this is A. M", "R");
     expect(twiml).toMatch(
-      /^<Response><Say voice="[^"]+">Hi, this is A\. M<\/Say><Start><Recording name="reply" [^>]*\/><\/Start><Gather [^>]*\/><Stop><Recording name="reply"\/><\/Stop><Say voice="[^"]+">R<\/Say><Hangup\/><\/Response>$/,
+      /^<Response><Say voice="[^"]+">Hi, this is A\. M<\/Say><Start><Recording name="reply" [^>]*\/><\/Start><Gather [^>]*\/><Gather [^>]*\/><Stop><Recording name="reply"\/><\/Stop><Say voice="[^"]+">R<\/Say><Hangup\/><\/Response>$/,
     );
     // No webhook anywhere: Twilio carries on to the next verb.
     expect(twiml).not.toContain("action=");
     // Speech ends the reply, and so does any keypad press.
     expect(twiml).toContain('input="speech dtmf"');
     expect(twiml).toContain('numDigits="1"');
+    // Two minutes of reply: a second Gather picks her up after Twilio's 60s
+    // cap, and gives up after a second when she has finished.
+    const timeouts = [...twiml.matchAll(/<Gather [^>]*timeout="(\d+)"/g)].map((m) => m[1]);
+    expect(timeouts).toEqual(["10", "1"]);
   });
 });

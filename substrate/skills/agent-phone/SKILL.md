@@ -65,11 +65,11 @@ Write `<message>` as pure content — no `"Hi, this is …"`, no `"— <name>"` 
 1. The helper (via the shared `fleet-service` client) drops a request into `~/fleet/service-requests/<uuid>.json`.
 2. The backend picks it up within ~10 seconds and renames it to `<uuid>.claimed.json`.
 3. The backend places the call. The recipient's phone rings.
-4. On pickup, the voice speaks the opening line and your message, then records the reply. The reply ends when the callee stops talking for about 3 seconds, presses any key, or hasn't started talking within 10 seconds (replies are capped at about a minute). Then the voice says the receipt phrase and hangs up. Pressing a key is the reliable way to finish in a noisy place, worth telling a user who mentions being in the car.
+4. On pickup, the voice speaks the opening line and your message, then records the reply. The reply ends when the callee stops talking for about 4 seconds, presses any key, or hasn't started talking within 10 seconds (replies are capped at about two minutes). Then the voice says the receipt phrase and hangs up. Pressing a key is the reliable way to finish in a noisy place, worth telling a user who mentions being in the car.
 5. The backend transcribes the reply, deletes the recording, and drops `~/fleet/service-requests/<uuid>.response.json` back onto your host.
 6. The helper prints the transcript to stdout, cleans up its files, and exits.
 
-Most calls come back within a minute or two of being picked up. The worst case is about **9.5 minutes**. The backend's limits fit inside the helper's wait — a request that waits more than 2 minutes to start is dropped as `expired` without dialing, and a call still going after 5.5 minutes is hung up — so a call does not ring after you've been told it failed.
+Most calls come back within a minute or two of being picked up. The worst case is about **9.5 minutes**. The backend's limits fit inside the helper's wait — a request that waits more than 2 minutes to start is dropped as `expired` without dialing, and a call still going after 6 minutes is hung up — so a call does not ring after you've been told it failed.
 
 ## Response shape
 
@@ -95,7 +95,7 @@ Every response file carries exactly one `outcome`. Successful transcripts land u
 | canceled           | Rare — the call was canceled before it connected. Retry. |
 | placement_error    | The provider refused to place the call. Check `message` for the reason (bad phone number, out of credit, rejected credentials). Not agent-retriable — escalate to the operator. |
 | queue_error        | The call was accepted but couldn't be connected (carrier trouble, or a number that can't be reached). The phone did not ring. Retry once in a few minutes; if it happens again, escalate. |
-| timeout            | The call didn't finish within 5.5 minutes and the backend hung it up (or, from the helper, the backend never answered). Very rare. **The phone may have rung**, so do NOT retry right away — tell the user by another channel or escalate. |
+| timeout            | The call didn't finish within 6 minutes and the backend hung it up (or, from the helper, the backend never answered). Very rare. **The phone may have rung**, so do NOT retry right away — tell the user by another channel or escalate. |
 | expired            | The request sat in the queue past 2 minutes and was dropped without dialing (usually because another call to the same person was in progress). The phone did not ring; retry. |
 | not_picked_up      | The backend never picked up the request. The backend may be down or not managing this host. Not agent-retriable — escalate to the operator. |
 | not_configured     | The backend's phone provider isn't set up (the Twilio account settings are missing). Not agent-retriable — escalate to the operator. |

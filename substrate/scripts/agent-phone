@@ -16,7 +16,7 @@
 # Env overrides:
 #   AGENT_PHONE_TIMEOUT_SEC   wait in seconds (default 570 = 9.5 min, under
 #                             Claude Code's 10-min Bash-tool limit and over
-#                             the backend's ~8.9-min worst case; see
+#                             the backend's ~9.3-min worst case; see
 #                             agent-phone/adapter.ts "Time budget")
 #
 # Exit status:
