@@ -62,7 +62,6 @@ import {
   type MicLevelMonitor,
   type MicLevelSummary,
 } from "./mic-level-monitor";
-import { learnHeadsetMic, micAudioConstraints } from "./preferred-mic";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -443,9 +442,7 @@ export function useVoiceRecording(
     // ⚠️ MUST be the first non-conditional statement — NO await before this.
     // iOS Safari requires getUserMedia to be called synchronously in the tap
     // handler. Any microtask (await) before this line kills the permission prompt.
-    // (micAudioConstraints is synchronous: `true`, or the remembered headset
-    // mic when iOS earlier handed out the phone's own — see preferred-mic.ts.)
-    const streamPromise = navigator.mediaDevices.getUserMedia({ audio: micAudioConstraints() });
+    const streamPromise = navigator.mediaDevices.getUserMedia({ audio: true });
     // Level-meter context — created here, still inside the gesture, so iOS
     // lets it run (see mic-level-monitor.ts).
     const levelCtx = createLevelContext();
@@ -470,9 +467,6 @@ export function useVoiceRecording(
         chunksRef.current = [];
 
         console.info(`[voice] mic-track ${describeMicTrack(stream)} ${ctxSuffix}`);
-        // Got the phone's own mic with a headset connected: the next recording
-        // uses the headset (this one is already running).
-        void learnHeadsetMic(stream, (msg) => console.info(`[voice] ${msg} ${ctxSuffix}`));
         for (const track of micTracks(stream)) {
           track.onmute = () => console.warn(`[voice] mic-track-muted label="${track.label}" ${ctxSuffix}`);
           track.onunmute = () => console.info(`[voice] mic-track-unmuted label="${track.label}" ${ctxSuffix}`);

@@ -15,7 +15,6 @@ import type { ComposeBoxProps } from "./ComposeBox";
 import { PIECE_GAP_MS, TIMED_END_MS } from "./useVoiceMode";
 import { appendVoiceLabel } from "./voice-label";
 import { __resetVoiceModeRegistryForTests } from "./voice-mode-registry";
-import { setVoiceModeSettings } from "./voice-mode-settings";
 
 vi.mock("@/api/compose-drafts-api", () => ({
   getComposeDraft: vi.fn().mockResolvedValue({ body: "", queueSlots: [] }),
@@ -128,7 +127,6 @@ beforeEach(() => {
 });
 
 afterEach(() => {
-  setVoiceModeSettings({});
   vi.useRealTimers();
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
@@ -326,24 +324,5 @@ describe("ComposeBox — hands-free voice mode (aux-row button)", () => {
   it("without a voiceModeFeed (relay) there is no voice-mode button", () => {
     render(<ComposeBox {...props({ voiceModeFeed: undefined })} />);
     expect(screen.queryByTestId("voice-mode-button")).toBeNull();
-  });
-});
-
-describe("ComposeBox — press-to-talk voice mode", () => {
-  it("starts Muted with the mic off; tapping Muted opens the mic for a turn", async () => {
-    setVoiceModeSettings({ listen: "press" });
-    render(<ComposeBox {...props()} />);
-    await startVoiceMode();
-    expect(chipPhase()).toBe("muted");
-    expect(screen.getByRole("status").textContent).toBe("Muted");
-    expect(MockMediaRecorder.instances.length).toBe(0);
-
-    await act(async () => {
-      fireEvent.click(screen.getByRole("button", { name: "Talk" }));
-    });
-    await flush();
-    expect(chipPhase()).toBe("listening");
-    expect(getUserMedia).toHaveBeenCalledTimes(2);
-    expect(MockMediaRecorder.instances.length).toBe(1);
   });
 });

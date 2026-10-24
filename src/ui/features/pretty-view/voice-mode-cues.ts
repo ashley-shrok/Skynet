@@ -13,8 +13,6 @@
  *   error    — the mic's error sound (a reply couldn't be spoken, etc.)
  *   off      — the auto-speak "off" chime, when voice mode ends
  *   alarm    — synthesized, deliberately unpleasant: voice mode bailed
- *   muted    — synthesized soft falling pair: press-to-talk closed the mic
- *              because nothing was said
  *   ticking  — synthesized soft wooden tick twice a second while the agent
  *              works (the tasted "soft ticking" variant)
  */
@@ -24,7 +22,7 @@ import stopUrl from "../../assets/sounds/mic/stop.mp3?url";
 import errorUrl from "../../assets/sounds/mic/error.mp3?url";
 import offUrl from "../../assets/sounds/auto-speak/off.mp3?url";
 
-export type VoiceModeCue = "sent" | "yourTurn" | "error" | "off" | "alarm" | "muted";
+export type VoiceModeCue = "sent" | "yourTurn" | "error" | "off" | "alarm";
 
 export interface VoiceModeCues {
   /** Play a cue; false when it couldn't be (sample not loaded, disposed, error). */
@@ -35,7 +33,7 @@ export interface VoiceModeCues {
   dispose: () => void;
 }
 
-const SAMPLE_URLS: Record<Exclude<VoiceModeCue, "alarm" | "muted">, string> = {
+const SAMPLE_URLS: Record<Exclude<VoiceModeCue, "alarm">, string> = {
   sent: stopUrl,
   yourTurn: startUrl,
   error: errorUrl,
@@ -49,7 +47,6 @@ const TICK_SCHEDULER_MS = 100;
 /** Overall ticking loudness (the tasting's default volume × tick peak). */
 const TICK_GAIN = 0.12;
 const ALARM_GAIN = 0.35;
-const MUTED_GAIN = 0.18;
 
 export function createVoiceModeCues(ctx: AudioContext, log: (msg: string) => void): VoiceModeCues {
   const buffers = new Map<VoiceModeCue, AudioBuffer>();
@@ -95,37 +92,12 @@ export function createVoiceModeCues(ctx: AudioContext, log: (msg: string) => voi
     }
   };
 
-  const playMuted = () => {
-    const out = ctx.createGain();
-    out.gain.value = MUTED_GAIN;
-    out.connect(ctx.destination);
-    const t0 = ctx.currentTime + 0.02;
-    [523, 392].forEach((freq, i) => {
-      const t = t0 + i * 0.14;
-      const o = ctx.createOscillator();
-      const g = ctx.createGain();
-      o.type = "sine";
-      o.frequency.value = freq;
-      g.gain.setValueAtTime(0.0001, t);
-      g.gain.exponentialRampToValueAtTime(1, t + 0.015);
-      g.gain.exponentialRampToValueAtTime(0.0001, t + 0.16);
-      o.connect(g);
-      g.connect(out);
-      o.start(t);
-      o.stop(t + 0.2);
-    });
-  };
-
   const play = (cue: VoiceModeCue): boolean => {
     if (disposed) return false;
     wake();
     try {
       if (cue === "alarm") {
         playAlarm();
-        return true;
-      }
-      if (cue === "muted") {
-        playMuted();
         return true;
       }
       const buf = buffers.get(cue);

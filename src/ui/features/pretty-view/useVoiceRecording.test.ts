@@ -19,7 +19,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach, type Mock } from "vitest";
 import { renderHook, act, waitFor } from "@testing-library/react";
 import { useVoiceRecording } from "./useVoiceRecording";
-import { __resetPreferredMicForTests } from "./preferred-mic";
 
 // ---------------------------------------------------------------------------
 // Mock infrastructure
@@ -1259,37 +1258,5 @@ describe("useVoiceRecording — silent-mic detection", () => {
     await act(async () => { await result.current.endSend(""); });
     expect(result.current.state).toBe("idle");
     expect(result.current.errorMessage).toBe("Couldn't make out any words");
-  });
-});
-
-describe("useVoiceRecording — headset mic over the phone's own", () => {
-  it("after iOS hands out the iPhone mic, the next recording asks for the AirPods", async () => {
-    __resetPreferredMicForTests();
-    const track = { stop: vi.fn(), label: "iPhone Microphone" };
-    const iphoneStream = { getTracks: () => [track], getAudioTracks: () => [track] };
-    const gum = vi.fn().mockResolvedValue(iphoneStream);
-    const enumerateDevices = vi.fn().mockResolvedValue([
-      { deviceId: "b1", label: "iPhone Microphone", kind: "audioinput", groupId: "" },
-      { deviceId: "h1", label: "AirPods", kind: "audioinput", groupId: "" },
-    ]);
-    Object.defineProperty(globalThis, "navigator", {
-      value: {
-        mediaDevices: { getUserMedia: gum, enumerateDevices },
-        userAgent: "Mozilla/5.0 (iPhone; CPU iPhone OS 18_7 like Mac OS X) AppleWebKit/605.1.15",
-        maxTouchPoints: 5,
-      },
-      writable: true,
-      configurable: true,
-    });
-    const { result } = renderHook(() => useVoiceRecording());
-    act(() => result.current.start({ autoCommit: true }));
-    await waitFor(() => expect(result.current.state).toBe("recording"));
-    await waitFor(() => expect(enumerateDevices).toHaveBeenCalled());
-    await act(async () => {
-      await result.current.cancel();
-    });
-    act(() => result.current.start({ autoCommit: true }));
-    expect(gum).toHaveBeenLastCalledWith({ audio: { deviceId: { ideal: "h1" } } });
-    __resetPreferredMicForTests();
   });
 });

@@ -13,10 +13,7 @@
  *
  * A fresh AudioContext is created per play() invocation — locked by
  * 19-CONTEXT.md § Frontend player to avoid sample-rate-mismatch bugs across
- * calls (Chatterbox voices may have different sample rates). A caller can
- * pass `context` instead (buffers carry their own sample rate, so any context
- * plays them): press-to-talk voice mode does, because iOS keeps a context
- * made outside a tap suspended unless the page is capturing the mic.
+ * calls (Chatterbox voices may have different sample rates).
  *
  * If the audio never starts (context stuck suspended, nobody paused it),
  * onError fires after NEVER_STARTED_MS rather than waiting forever.
@@ -102,12 +99,6 @@ export const NEVER_STARTED_MS = 8000;
 // ─── Public API ───────────────────────────────────────────────────────────────
 
 export interface WebAudioStreamPlayerOptions {
-  /**
-   * Play through this (already unlocked) context instead of a fresh one. It is
-   * borrowed: never closed by the player, though pause()/resume() still
-   * suspend/resume it.
-   */
-  context?: AudioContext;
   onEnded?: () => void;
   onError?: (err: Error) => void;
   // Phase 31 instrumentation hooks — fired at observable Web Audio lifecycle
@@ -222,7 +213,7 @@ export function createWebAudioStreamPlayer(
     sources.length = 0;
     if (neverStartedTimer !== null) clearTimeout(neverStartedTimer);
     neverStartedTimer = null;
-    if (audioContext && audioContext !== opts.context && audioContext.state !== "closed") {
+    if (audioContext && audioContext.state !== "closed") {
       audioContext.close().catch(() => {});
     }
     audioContext = null;
@@ -236,7 +227,7 @@ export function createWebAudioStreamPlayer(
       if (stopped || onEndedFired || onErrorFired || userPaused || audioContext !== ctx) return;
       if (endedSources > 0 || (ctx.state === "running" && ctx.currentTime > 0.05)) return;
       console.error(
-        `[tts-player] never-started afterMs=${NEVER_STARTED_MS} ctxState=${ctx.state} ctxTime=${ctx.currentTime.toFixed(3)} sources=${sources.length} borrowed=${ctx === opts.context}`,
+        `[tts-player] never-started afterMs=${NEVER_STARTED_MS} ctxState=${ctx.state} ctxTime=${ctx.currentTime.toFixed(3)} sources=${sources.length}`,
       );
       onErrorFired = true;
       teardown();
@@ -350,9 +341,8 @@ export function createWebAudioStreamPlayer(
     }
 
     // Fresh AudioContext per invocation — avoids sample-rate mismatch across calls
-    // (19-CONTEXT.md § Frontend player, locked decision) — unless the caller
-    // lent one (see file header).
-    audioContext = opts.context && opts.context.state !== "closed" ? opts.context : new AudioContext();
+    // (19-CONTEXT.md § Frontend player, locked decision).
+    audioContext = new AudioContext();
     reader = response.body.getReader();
 
     let headerBytes: Uint8Array | null = null;

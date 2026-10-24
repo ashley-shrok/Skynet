@@ -49,22 +49,6 @@
  *   - Holds a screen wake lock: mobile browsers suspend the page (and kill the
  *     mic) when the screen locks, so "phone in pocket" needs the screen kept on.
  *
- * Press to talk (voiceModeListen = "press", read at start):
- *   - The mic is fully off between turns (phase "muted"); replies are still
- *     spoken. A headphone press (or a tap on the Muted chip) opens it for one
- *     turn: "starting" while it opens, the "your turn" chime once it's ready,
- *     then the usual listening/hearing. When the turn ends the mic closes at
- *     once (the draft still finishes transcribing and sends). Nothing said for
- *     PRESS_IDLE_MS closes it too, with the "muted" cue.
- *   - Double press skips what's being read; a single press while a reply is
- *     read cuts it off and opens the mic.
- *   - Why the mic must close: with it open, iOS treats the AirPods as a call
- *     and keeps the stem press for itself. Closing means stopping the tracks,
- *     closing the mic's own AudioContext (micCtxRef — never the cue context)
- *     and setting the audio session back to playback; headphone-remote.ts
- *     then re-claims "now playing". See headphone-remote.ts for the
- *     measurements.
- *
  * start() is called from the button's click, so the VAD/cue AudioContext and
  * the "on" chime are unlocked inside a user gesture.
  */
@@ -87,8 +71,6 @@ import { registerVoiceModeActive } from "./voice-mode-registry";
 import { createVoiceModeCues, type VoiceModeCue, type VoiceModeCues } from "./voice-mode-cues";
 import { getVoiceModeSettings } from "./voice-mode-settings";
 import { describeMicTrack } from "./mic-level-monitor";
-import { learnHeadsetMic, micAudioConstraints } from "./preferred-mic";
-import { createHeadphoneRemote, RECLAIM_DELAY_MS, setAudioSessionType, type HeadphoneRemote } from "./headphone-remote";
 
 // ---------------------------------------------------------------------------
 // Tuning
@@ -135,8 +117,6 @@ const HISTORY_SLACK_MS = 60 * 1000;
 const ALARM_TAIL_MS = 1500;
 /** Let the "off" chime finish before the AudioContext is closed. */
 const OFF_TAIL_MS = 1000;
-/** Press to talk: the mic opened but nothing was said for this long → close it. */
-export const PRESS_IDLE_MS = 15 * 1000;
 
 const TRANSCRIBE_URL = "/voice/transcribe";
 
@@ -151,9 +131,7 @@ export type VoiceModePhase =
   | "hearing"
   | "transcribing"
   | "speaking"
-  | "paused"
-  /** Press to talk: the mic is off until the next headphone press. */
-  | "muted";
+  | "paused";
 
 /** Structural subset of PrettyView's StreamEvent that voice mode reads. */
 export interface VoiceModeMessage {
@@ -190,14 +168,6 @@ export interface UseVoiceModeReturn {
   stop: () => void;
   /** Stop the reply currently being read out and drop the queued ones. */
   skipSpeech: () => void;
-  /**
-   * Press to talk: same as a single headphone press — the chip's tap. Muted:
-   * open the mic; mic open: end the turn now (the only way out of a turn in
-   * send-phrase mode without the phrase, since presses don't arrive then).
-   */
-  talk: () => void;
-  /** This session is press to talk. */
-  pressToTalk: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -304,8 +274,6 @@ function describeTracks(stream: MediaStream | null): string {
 export function useVoiceMode(args: UseVoiceModeArgs): UseVoiceModeReturn {
   const [phase, setPhaseState] = useState<VoiceModePhase>("off");
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
-  /** This session is press to talk (read at start). */
-  const [pressToTalk, setPressToTalk] = useState(false);
 
   // Latest args, read from async callbacks without re-binding them.
   const argsRef = useRef(args);
@@ -329,18 +297,6 @@ export function useVoiceMode(args: UseVoiceModeArgs): UseVoiceModeReturn {
   const speakingRef = useRef<{ owner: symbol; finish: () => void } | null>(null);
   const acquiringRef = useRef(false); // getUserMedia in flight
   const nextRecorderIdRef = useRef(1);
-
-  // Press to talk.
-  const pressModeRef = useRef(false);
-  /** The user pressed for a turn; the mic should be open until it ends. */
-  const turnOpenRef = useRef(false);
-  /** The "your turn" chime for the open turn has played. */
-  const turnCuedRef = useRef(false);
-  /** performance.now() when listening for the open turn began. */
-  const turnListenAtRef = useRef(0);
-  const micCtxRef = useRef<AudioContext | null>(null);
-  const remoteRef = useRef<HeadphoneRemote | null>(null);
-  const reclaimTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Draft state.
   const piecesRef = useRef<Piece[]>([]);
@@ -403,7 +359,7 @@ export function useVoiceMode(args: UseVoiceModeArgs): UseVoiceModeReturn {
       !buttonSpeaking() &&
       queueRef.current.length === 0 &&
       !isComposing() &&
-      (streamRef.current !== null || (pressModeRef.current && !turnOpenRef.current));
+      streamRef.current !== null;
     if (should && !cues.isTicking()) {
       log("ticking-start");
       cues.startTicking();
@@ -566,7 +522,6 @@ export function useVoiceMode(args: UseVoiceModeArgs): UseVoiceModeReturn {
   const closePieceRef = useRef<() => void>(() => {});
   const endTurnRef = useRef<(reason: "timed" | "phrase", piece: Piece) => void>(() => {});
   const bailRef = useRef<(reason: string) => void>(() => {});
-  const closeTurnRef = useRef<(reason: string) => void>(() => {});
 
   const beginListening = useCallback(() => {
     if (!activeRef.current || !streamRef.current) return;
@@ -584,14 +539,6 @@ export function useVoiceMode(args: UseVoiceModeArgs): UseVoiceModeReturn {
     let speechStartAt = 0;
     let pieceStartAt = performance.now();
     pieceSpeechRef.current = false;
-    // Press to talk: the mic is ready — tell the user to go ahead.
-    if (pressModeRef.current && turnOpenRef.current) {
-      turnListenAtRef.current = pieceStartAt;
-      if (!turnCuedRef.current) {
-        turnCuedRef.current = true;
-        playCue("yourTurn");
-      }
-    }
 
     stopVad();
     vadTimerRef.current = setInterval(() => {
@@ -614,10 +561,8 @@ export function useVoiceMode(args: UseVoiceModeArgs): UseVoiceModeReturn {
             lastSpeechAtRef.current = now;
             // Timed mode: talking again before the draft went out means the
             // turn isn't over after all — fold this into the same message.
-            // (Press to talk: the mic closed when that turn ended, so this is a
-            // new message — the earlier one still goes on its own.)
             const last = piecesRef.current[piecesRef.current.length - 1];
-            if (last?.endsTurn === "timed" && !pressModeRef.current) {
+            if (last?.endsTurn === "timed") {
               log(`turn-end-cancelled-by-speech pieceId=${last.id}`);
               last.endsTurn = undefined;
             }
@@ -654,17 +599,6 @@ export function useVoiceMode(args: UseVoiceModeArgs): UseVoiceModeReturn {
       ) {
         endTurnRef.current("timed", last);
       }
-      // Press to talk: opened the mic but said nothing — close it again.
-      const lastPiece = piecesRef.current[piecesRef.current.length - 1];
-      if (
-        pressModeRef.current &&
-        (lastPiece === undefined || lastPiece.endsTurn !== undefined) &&
-        voicedMs === 0 &&
-        now - turnListenAtRef.current >= PRESS_IDLE_MS
-      ) {
-        closeTurnRef.current("nothing-said");
-        return;
-      }
       // Nothing said for a while — drop the clip and start a fresh one (but
       // not while something may be starting, or its first word is lost).
       if (now - pieceStartAt >= IDLE_ROTATE_MS && voicedMs === 0) {
@@ -676,7 +610,7 @@ export function useVoiceMode(args: UseVoiceModeArgs): UseVoiceModeReturn {
     }, VAD_TICK_MS);
     refreshListeningPhase();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [log, playCue, rotateRecorder, startRecorder, stopVad]);
+  }, [log, rotateRecorder, startRecorder, stopVad]);
 
   /** Stop listening without keeping what the live recorder captured. */
   const stopListening = useCallback(() => {
@@ -796,15 +730,6 @@ export function useVoiceMode(args: UseVoiceModeArgs): UseVoiceModeReturn {
       streamRef.current?.getTracks().forEach((t) => t.stop());
       streamRef.current = null;
       analyserRef.current = null;
-      void micCtxRef.current?.close().catch(() => {});
-      micCtxRef.current = null;
-      if (reclaimTimerRef.current !== null) clearTimeout(reclaimTimerRef.current);
-      reclaimTimerRef.current = null;
-      remoteRef.current?.dispose();
-      remoteRef.current = null;
-      if (pressModeRef.current) setAudioSessionType("auto", log);
-      pressModeRef.current = false;
-      turnOpenRef.current = false;
       const cues = cuesRef.current;
       const ctx = ctxRef.current;
       cuesRef.current = null;
@@ -818,7 +743,7 @@ export function useVoiceMode(args: UseVoiceModeArgs): UseVoiceModeReturn {
       else close();
       releaseWakeLock();
     },
-    [log, releaseWakeLock, stopSlot, stopVad],
+    [releaseWakeLock, stopSlot, stopVad],
   );
 
   const stop = useCallback(() => {
@@ -893,13 +818,6 @@ export function useVoiceMode(args: UseVoiceModeArgs): UseVoiceModeReturn {
     log(`turn-end reason=${reason} pieceId=${piece.id}`);
     piece.endsTurn = reason;
     tryFinishTurn();
-    // Press to talk: the turn is over, so the mic goes off now (the draft
-    // still finishes transcribing). Still talking past a send phrase → that
-    // speech starts the next message; the mic stays open for it.
-    if (pressModeRef.current && turnOpenRef.current && !pieceSpeechRef.current) {
-      closeTurnRef.current(`turn-end-${reason}`);
-      return;
-    }
     refreshListeningPhase();
     pumpRef.current();
   };
@@ -991,14 +909,7 @@ export function useVoiceMode(args: UseVoiceModeArgs): UseVoiceModeReturn {
       if (!activeRef.current) return;
       // Reply finished and the agent is done → "your turn" (unless a speak
       // button just took over — its own end plays it).
-      // (Press to talk with the mic opening: its own chime says when it's ready.)
-      if (
-        queueRef.current.length === 0 &&
-        !argsRef.current.isWorking &&
-        !buttonSpeaking() &&
-        !(pressModeRef.current && turnOpenRef.current)
-      )
-        playCue("yourTurn");
+      if (queueRef.current.length === 0 && !argsRef.current.isWorking && !buttonSpeaking()) playCue("yourTurn");
       pumpRef.current();
     };
 
@@ -1022,11 +933,7 @@ export function useVoiceMode(args: UseVoiceModeArgs): UseVoiceModeReturn {
       playCue("error");
       setErrorMessage("Voice mode: couldn't speak that reply");
     };
-    // Press to talk: play through voice mode's own context (unlocked in the
-    // start tap). With the mic off between turns, iOS keeps a fresh context
-    // made here suspended, and the reply never sounds.
     const player = createWebAudioStreamPlayer({
-      context: pressModeRef.current ? (ctxRef.current ?? undefined) : undefined,
       onEnded: finish,
       onError: () => {
         reportFailure();
@@ -1080,19 +987,10 @@ export function useVoiceMode(args: UseVoiceModeArgs): UseVoiceModeReturn {
       updateTickingRef.current();
       return;
     }
-    // Never talk over the user mid-turn: replies wait until the draft is sent
-    // (press to talk: from the press on, even before the first word).
-    const turnHeld = pressModeRef.current && turnOpenRef.current;
-    if (queueRef.current.length > 0 && !isComposing() && !turnHeld) {
+    // Never talk over the user mid-turn: replies wait until the draft is sent.
+    if (queueRef.current.length > 0 && !isComposing()) {
       if (vadTimerRef.current !== null) stopListening();
       speakNext();
-      return;
-    }
-    // Press to talk, between turns: the mic stays off.
-    if (pressModeRef.current && !turnOpenRef.current) {
-      const next: VoiceModePhase = piecesRef.current.length > 0 ? "transcribing" : "muted";
-      if (phaseRef.current !== next) setPhase(next);
-      updateTickingRef.current();
       return;
     }
     // Mic track lost (iOS ends a page's older capture when the manual mic
@@ -1126,14 +1024,6 @@ export function useVoiceMode(args: UseVoiceModeArgs): UseVoiceModeReturn {
     acquiringRef.current = false;
     if (!activeRef.current) return;
     console.error(`[voice-mode] getUserMedia-failed errMessage="${err instanceof Error ? err.message : String(err)}" ${tagRef.current}`);
-    // Press to talk, opening for a turn: a mic that won't open right now
-    // (headphones switching, another app) costs this turn, not voice mode.
-    if (pressModeRef.current && turnOpenRef.current) {
-      playCue("error");
-      setErrorMessage("Voice mode: couldn't turn the microphone on — press again to retry");
-      closeTurnRef.current("mic-open-failed");
-      return;
-    }
     playCue("error");
     setErrorMessage("Voice mode: microphone unavailable or permission denied");
     teardown(ALARM_TAIL_MS);
@@ -1146,61 +1036,7 @@ export function useVoiceMode(args: UseVoiceModeArgs): UseVoiceModeReturn {
     streamRef.current?.getTracks().forEach((t) => t.stop());
     streamRef.current = null;
     analyserRef.current = null;
-    void micCtxRef.current?.close().catch(() => {});
-    micCtxRef.current = null;
   }
-
-  /**
-   * Press to talk: end the open turn and turn the mic fully off, then hand
-   * the headphone buttons back to the page (see headphone-remote.ts).
-   */
-  closeTurnRef.current = (reason: string) => {
-    if (!pressModeRef.current || !turnOpenRef.current) return;
-    log(`press-turn-close reason=${reason} draftPieces=${piecesRef.current.length}`);
-    turnOpenRef.current = false;
-    turnCuedRef.current = false;
-    dropStream();
-    // Closed mid-turn (mic lost): what was already said still goes, rather
-    // than sitting unsent until a later press folds it into the next turn.
-    const last = piecesRef.current[piecesRef.current.length - 1];
-    if (last && last.endsTurn === undefined) {
-      log(`press-turn-close-ends-draft pieceId=${last.id}`);
-      last.endsTurn = "timed";
-      tryFinishTurn();
-    }
-    if (reason === "nothing-said") playCue("muted");
-    setAudioSessionType("playback", log);
-    if (reclaimTimerRef.current !== null) clearTimeout(reclaimTimerRef.current);
-    reclaimTimerRef.current = setTimeout(() => {
-      reclaimTimerRef.current = null;
-      if (!activeRef.current || turnOpenRef.current) return;
-      remoteRef.current?.reclaim();
-      const ctx = ctxRef.current;
-      if (ctx && ctx.state !== "running") void ctx.resume().catch(() => {});
-    }, RECLAIM_DELAY_MS);
-    pumpRef.current();
-  };
-
-  // Plus the remembered headset mic, if iOS handed out the phone's own (preferred-mic.ts).
-  const micConstraints = () =>
-    micAudioConstraints({ echoCancellation: true, noiseSuppression: true, autoGainControl: true });
-
-  /**
-   * Got the phone's built-in mic while a headset mic exists → switch to the
-   * headset (the pump re-acquires with it), or, for the press-to-talk
-   * permission stream, just remember it for the first turn.
-   */
-  const preferHeadsetMic = (stream: MediaStream) => {
-    void learnHeadsetMic(stream, log).then((learned) => {
-      if (!learned || !activeRef.current || streamRef.current !== stream) return;
-      log("mic-switch-to-headset");
-      // Press to talk: anything said since the chime is dropped with this
-      // stream — chime again once the headset mic is ready.
-      turnCuedRef.current = false;
-      dropStream();
-      pumpRef.current();
-    });
-  };
 
   const attachStreamRef = useRef<(stream: MediaStream) => void>(() => {});
   attachStreamRef.current = (stream: MediaStream) => {
@@ -1209,29 +1045,8 @@ export function useVoiceMode(args: UseVoiceModeArgs): UseVoiceModeReturn {
       stream.getTracks().forEach((t) => t.stop());
       return;
     }
-    // Press to talk: the stream taken in the start tap only secured mic
-    // permission — release it and wait for a press.
-    if (pressModeRef.current && !turnOpenRef.current) {
-      console.info(`[voice-mode] press-permission-ok ${describeMicTrack(stream)} ${tagRef.current}`);
-      // Learn the headset (so the first turn opens it) before letting go:
-      // device labels may hide once nothing is capturing.
-      void learnHeadsetMic(stream, log).finally(() => {
-        stream.getTracks().forEach((t) => t.stop());
-        if (!activeRef.current) return;
-        if (!turnOpenRef.current) setAudioSessionType("playback", log);
-        if (reclaimTimerRef.current !== null) clearTimeout(reclaimTimerRef.current);
-        reclaimTimerRef.current = setTimeout(() => {
-          reclaimTimerRef.current = null;
-          if (activeRef.current && !turnOpenRef.current) remoteRef.current?.reclaim();
-        }, RECLAIM_DELAY_MS);
-        pumpRef.current();
-      });
-      void acquireWakeLock();
-      return;
-    }
     streamRef.current = stream;
     console.info(`[voice-mode] stream-attached ${describeMicTrack(stream)} ${tagRef.current}`);
-    preferHeadsetMic(stream);
     for (const track of stream.getAudioTracks()) {
       // The phone muting the mic (call, Siri, another app taking audio) leaves
       // the track live but silent — log it; recorders may stall without onstop.
@@ -1242,27 +1057,12 @@ export function useVoiceMode(args: UseVoiceModeArgs): UseVoiceModeReturn {
         // Not fatal: drop the dead stream and re-acquire on the next pump
         // (after the manual mic, if that is what took it, is released).
         console.warn(`[voice-mode] mic-track-ended ${tagRef.current}`);
-        if (pressModeRef.current) {
-          closeTurnRef.current("mic-track-ended");
-          return;
-        }
         dropStream();
         if (phaseRef.current !== "speaking") setPhase("paused");
         pumpRef.current();
       };
     }
-    // Press to talk: the analyser gets its own context, closed with the turn
-    // (iOS stays in call mode while any context holds the mic).
-    let ctx = ctxRef.current;
-    if (pressModeRef.current) {
-      try {
-        ctx = new AudioContext();
-        micCtxRef.current = ctx;
-        if (ctx.state !== "running") void ctx.resume().catch(() => {});
-      } catch {
-        ctx = null;
-      }
-    }
+    const ctx = ctxRef.current;
     if (ctx) {
       const analyser = ctx.createAnalyser();
       analyser.fftSize = 1024;
@@ -1277,9 +1077,8 @@ export function useVoiceMode(args: UseVoiceModeArgs): UseVoiceModeReturn {
   acquireStreamRef.current = () => {
     acquiringRef.current = true;
     log("reacquire-mic");
-    if (pressModeRef.current) setAudioSessionType("play-and-record", log);
     navigator.mediaDevices
-      .getUserMedia({ audio: micConstraints() })
+      .getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true } })
       .then(attachStreamRef.current, failAcquireRef.current);
   };
 
@@ -1289,7 +1088,9 @@ export function useVoiceMode(args: UseVoiceModeArgs): UseVoiceModeReturn {
       setErrorMessage("Voice mode needs microphone access");
       return;
     }
-    const streamPromise = navigator.mediaDevices.getUserMedia({ audio: micConstraints() });
+    const streamPromise = navigator.mediaDevices.getUserMedia({
+      audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
+    });
     activeRef.current = true;
     sessionRef.current += 1;
     piecesRef.current = [];
@@ -1297,19 +1098,7 @@ export function useVoiceMode(args: UseVoiceModeArgs): UseVoiceModeReturn {
     setErrorMessage(null);
     setPhase("starting");
     const settings = getVoiceModeSettings();
-    pressModeRef.current = settings.listen === "press";
-    setPressToTalk(pressModeRef.current);
-    turnOpenRef.current = false;
-    turnCuedRef.current = false;
-    log(`start endOfTurn=${settings.endOfTurn} listen=${settings.listen}`);
-    // Press to talk: the near-silent loop must start inside this tap.
-    if (pressModeRef.current) {
-      remoteRef.current = createHeadphoneRemote({
-        onPress: () => talkRef.current(),
-        onSkip: () => skipRef.current(),
-        log,
-      });
-    }
+    log(`start endOfTurn=${settings.endOfTurn}`);
     // VAD analyser + cue context — created here, inside the start gesture, so
     // cues can play later with the mic open (iOS).
     try {
@@ -1348,45 +1137,6 @@ export function useVoiceMode(args: UseVoiceModeArgs): UseVoiceModeReturn {
     speaking?.finish();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [log]);
-
-  const skipRef = useRef(skipSpeech);
-  skipRef.current = skipSpeech;
-
-  /**
-   * Press to talk — one headphone press (or the Muted chip's tap). Muted →
-   * open the mic for a turn. A reply being read → cut it off, then open.
-   * Mic already open (if a press ever gets through) → end the turn now.
-   */
-  const talk = useCallback(() => {
-    if (!activeRef.current || !pressModeRef.current) return;
-    if (argsRef.current.suspended) {
-      log("press-ignored-manual-mic");
-      return;
-    }
-    if (turnOpenRef.current) {
-      if (acquiringRef.current) return; // still opening
-      if (pieceSpeechRef.current) {
-        closePieceRef.current();
-        pieceSpeechRef.current = false;
-      }
-      const last = piecesRef.current[piecesRef.current.length - 1];
-      if (last && last.endsTurn === undefined) endTurnRef.current("timed", last);
-      else closeTurnRef.current("pressed-again");
-      return;
-    }
-    log("press-turn-open");
-    // Open first so the cut-off reply's end doesn't count as "your turn".
-    turnOpenRef.current = true;
-    turnCuedRef.current = false;
-    if (speakingRef.current || buttonSpeaking()) skipRef.current();
-    if (reclaimTimerRef.current !== null) clearTimeout(reclaimTimerRef.current);
-    reclaimTimerRef.current = null;
-    cuesRef.current?.stopTicking();
-    setPhase("starting");
-    if (!acquiringRef.current) acquireStreamRef.current();
-  }, [log, setPhase]);
-  const talkRef = useRef(talk);
-  talkRef.current = talk;
 
   // New assistant messages → speech queue.
   useEffect(() => {
@@ -1487,7 +1237,7 @@ export function useVoiceMode(args: UseVoiceModeArgs): UseVoiceModeReturn {
         speakingRef.current === null &&
         queueRef.current.length === 0 &&
         !isComposing() &&
-        (phaseRef.current === "listening" || phaseRef.current === "muted")
+        phaseRef.current === "listening"
       ) {
         playCue("yourTurn");
       }
@@ -1503,7 +1253,6 @@ export function useVoiceMode(args: UseVoiceModeArgs): UseVoiceModeReturn {
       void acquireWakeLock();
       const ctx = ctxRef.current;
       if (ctx && ctx.state !== "running") void ctx.resume().catch(() => {});
-      if (pressModeRef.current && !turnOpenRef.current) remoteRef.current?.reclaim();
     };
     document.addEventListener("visibilitychange", onVisibility);
     return () => document.removeEventListener("visibilitychange", onVisibility);
@@ -1524,5 +1273,5 @@ export function useVoiceMode(args: UseVoiceModeArgs): UseVoiceModeReturn {
     [teardown],
   );
 
-  return { active: phase !== "off", phase, errorMessage, start, stop, skipSpeech, talk, pressToTalk };
+  return { active: phase !== "off", phase, errorMessage, start, stop, skipSpeech };
 }

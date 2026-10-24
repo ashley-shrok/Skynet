@@ -746,37 +746,36 @@ describe("per-user playback rate", () => {
   });
 });
 
-describe("createWebAudioStreamPlayer — lent context and never-started guard", () => {
+describe("createWebAudioStreamPlayer — never-started guard", () => {
   afterEach(() => {
     vi.useRealTimers();
   });
 
-  it("plays through a lent context and never closes it", async () => {
-    const lent = makeMockContext();
-    const onEnded = vi.fn();
-    const player = createWebAudioStreamPlayer({ context: lent as unknown as AudioContext, onEnded });
-    await player.play(makeMockResponse([makeWavChunk(new Uint8Array([0x00, 0x00, 0xff, 0x7f]))]));
-    expect(ctxInstances).toHaveLength(0);
-    expect(lent.sources).toHaveLength(1);
-    lent.sources[0].onended?.();
-    expect(onEnded).toHaveBeenCalledTimes(1);
-    expect(lent._closed).toBe(false);
-  });
-
   it("gives up with onError when the context stays suspended", async () => {
     vi.useFakeTimers();
-    const lent = makeMockContext();
-    lent.state = "suspended";
-    lent._resumeRejects = true;
     const onError = vi.fn();
     const onEnded = vi.fn();
-    const player = createWebAudioStreamPlayer({ context: lent as unknown as AudioContext, onError, onEnded });
+    // iOS: a context made outside a tap starts (and stays) suspended.
+    vi.stubGlobal(
+      "AudioContext",
+      class {
+        constructor() {
+          const ctx = makeMockContext();
+          ctx.state = "suspended";
+          ctx._resumeRejects = true;
+          ctxInstances.push(ctx);
+          return ctx;
+        }
+      },
+    );
+    const player = createWebAudioStreamPlayer({ onError, onEnded });
     await player.play(makeMockResponse([makeWavChunk(new Uint8Array([0x00, 0x00, 0xff, 0x7f]))]));
-    expect(lent._resumeCalls).toBe(1); // nudged once
+    const ctx = ctxInstances[0];
+    expect(ctx._resumeCalls).toBe(1); // nudged once
     await vi.advanceTimersByTimeAsync(NEVER_STARTED_MS + 10);
     expect(onError).toHaveBeenCalledTimes(1);
     expect(onEnded).not.toHaveBeenCalled();
-    expect(lent.sources[0]._stopped).toBe(true);
+    expect(ctx.sources[0]._stopped).toBe(true);
   });
 
   it("does not give up while the audio is playing", async () => {

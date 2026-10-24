@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createLogDedup } from "@/lib/log-dedup";
-import { AudioLines, Ban, Check, LoaderCircle, Mic, MicOff, Paperclip, Pause, Plus, RefreshCw, RotateCcw, Square, ThumbsUp, Volume2, X } from "lucide-react";
+import { AudioLines, Ban, Check, LoaderCircle, Mic, Paperclip, Pause, Plus, RefreshCw, RotateCcw, Square, ThumbsUp, Volume2, X } from "lucide-react";
 import { Button } from "@/components/button";
 import { Textarea } from "@/components/textarea";
 import { cn } from "@/lib/utils";
@@ -633,7 +633,6 @@ const VOICE_MODE_LABEL: Record<VoiceModePhase, string> = {
   transcribing: "Sending",
   speaking: "Speaking",
   paused: "Paused",
-  muted: "Muted",
 };
 
 // Per-phase glyph tint. Deliberately not amber (VISUAL-08: Send owns amber).
@@ -645,7 +644,6 @@ const VOICE_MODE_COLOR: Record<VoiceModePhase, string> = {
   transcribing: "#c9c3ff",
   speaking: "#a8f0c8",
   paused: "#8a93a6",
-  muted: "#d9a7b4",
 };
 
 /** What the Stop button shows after a press (see PrettyView). */
@@ -672,8 +670,8 @@ const AUX_BUTTON_CLASS = cn(
  * Voice-mode toggle in the aux-button row (2026-10-09, replaced the mic
  * long-press + status pill). Off: an icon button that starts voice mode. On:
  * the button widens into a chip that IS the status display — phase glyph +
- * label (a tap on it skips speech while the agent is talking, or — press to
- * talk — opens the mic while Muted) and an × that ends voice mode.
+ * label (a tap on it skips speech while the agent is talking) and an × that
+ * ends voice mode.
  */
 /** Tooltip on mics / voice-mode buttons disabled because voice mode is on. */
 const VOICE_MODE_ON_TITLE = "Voice mode is on";
@@ -687,8 +685,6 @@ function VoiceModeButton({
   onStart,
   onStop,
   onSkip,
-  onTalk,
-  pressToTalk,
 }: {
   phase: VoiceModePhase;
   disabled: boolean;
@@ -697,9 +693,6 @@ function VoiceModeButton({
   onStart: () => void;
   onStop: () => void;
   onSkip: () => void;
-  /** Press to talk: open the mic for a turn (Muted), or end it now (mic open). */
-  onTalk: () => void;
-  pressToTalk: boolean;
 }) {
   if (phase === "off") {
     return (
@@ -723,13 +716,9 @@ function VoiceModeButton({
     );
   }
   const busy = phase === "starting" || phase === "transcribing";
-  const Glyph =
-    busy ? LoaderCircle : phase === "speaking" ? Volume2 : phase === "paused" ? Pause : phase === "muted" ? MicOff : Mic;
+  const Glyph = busy ? LoaderCircle : phase === "speaking" ? Volume2 : phase === "paused" ? Pause : Mic;
   const label = VOICE_MODE_LABEL[phase];
   const speaking = phase === "speaking";
-  const muted = phase === "muted";
-  // Press to talk with the mic open: a tap ends the turn and turns the mic off.
-  const done = pressToTalk && (phase === "listening" || phase === "hearing");
   return (
     <div
       data-testid="voice-mode-button"
@@ -742,12 +731,10 @@ function VoiceModeButton({
     >
       <button
         type="button"
-        onClick={speaking ? onSkip : muted || done ? onTalk : undefined}
-        disabled={!speaking && !muted && !done}
-        aria-label={speaking ? "Skip speech" : muted ? "Talk" : done ? "Done talking" : undefined}
-        title={
-          speaking ? "Skip" : muted ? "Talk (or press play on your headphones)" : done ? "Done — send and turn the mic off" : undefined
-        }
+        onClick={speaking ? onSkip : undefined}
+        disabled={!speaking}
+        aria-label={speaking ? "Skip speech" : undefined}
+        title={speaking ? "Skip" : undefined}
         className="flex items-center gap-1.5 rounded px-0.5 py-1 enabled:cursor-pointer enabled:hover:bg-[rgba(220,225,245,0.12)] disabled:cursor-default"
       >
         <Glyph
@@ -2709,8 +2696,6 @@ export function ComposeBox({
               onStart={voiceMode.start}
               onStop={voiceMode.stop}
               onSkip={voiceMode.skipSpeech}
-              onTalk={voiceMode.talk}
-              pressToTalk={voiceMode.pressToTalk}
             />
           )}
           {onInterrupt && interruptFeedback && (
