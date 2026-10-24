@@ -83,22 +83,15 @@ export function AsideBubble({
         role="note"
         aria-label="Plain-language aside from the agent"
         className={cn(
-          // Base identity-hue Glass treatment — copied VERBATIM from
-          // ChatMessage.tsx L124-127 (assistant branch). Do NOT import
-          // from ChatMessage; the intentional duplication keeps
-          // AsideBubble self-contained per PATTERNS.md L28-32.
-          "leading-relaxed",
-          "rounded-[var(--radius-pv-bubble)] px-[18px] py-[14px]",
-          "pv-hue-surface",
-          "bg-[linear-gradient(160deg,hsla(var(--pv-id-hue),50%,38%,0.55),hsla(var(--pv-id-hue),45%,24%,0.6))]",
-          "text-[#fbf5e8]",
+          // The agent's bubble (conversation.css); the aside's own bright
+          // edge and glow are layered on by the inline style below.
+          "pv-bubble-agent pv-hue-surface",
           // Prose pipeline matching ChatMessage assistant branch —
           // prose-invert for readable typography on the dark
           // identity-hue background. First/last-child margin reset keeps
           // the tight bubble aesthetic (typography plugin defaults would
           // leave whitespace stripes top and bottom).
-          "prose prose-sm max-w-none prose-invert",
-          "[&>*:first-child]:mt-0 [&>*:last-child]:mb-0",
+          "prose max-w-none prose-invert",
         )}
         style={{
           // Aside-specific overrides layered on top of the base

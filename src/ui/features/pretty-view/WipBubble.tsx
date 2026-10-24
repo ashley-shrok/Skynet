@@ -20,28 +20,46 @@
 // Regenerate with `python3 scripts/render-wip-cube.py docker/branding-defaults/wip-cube.webp`.
 // 2026-09-07 (Phase 82): image src is now branding-configurable via useBrandingConfig().wipIndicatorPath; asset moved from public/ to docker/branding-defaults/ so it flows through the branding router's per-file fallback (override → bundled default). Operators drop /opt/skynet/branding/wip-cube.webp for a custom animation — no restart needed.
 //
-// Mount conditions unchanged from #86 — PrettyView.tsx renders <WipBubble />
-// as the last child of the content wrapper when EITHER (a) the Terminal PTY
-// reports non-idle OR (b) backgrounded agents/shells are running.
+// 2026-10-24 (shape-conversation-view): the default is now an orb in the
+// agent's colour — an arc spinning around a breathing core, beside the word
+// "Working" (conversation.css .pv-wip*). Only transform / opacity animate, so
+// it costs nothing per frame. An installation that supplies its own working
+// image (branding wipIndicatorCustom) keeps its image.
 //
-// Deliberately NOT a bubble. WIP is a naked, centered indicator so
-// at-a-glance parsing distinguishes "session is busy" from "assistant
-// said something." role="status" + aria-label carry semantics for AT.
+// Mount condition: PrettyView's agentWorking (main turn working, or a
+// background sub-agent running).
+//
+// Deliberately NOT a bubble, so at-a-glance parsing distinguishes "session is
+// busy" from "assistant said something." role="status" + aria-label carry
+// semantics for AT.
 
-import { cn } from "@/lib/utils";
 import { useBrandingConfig } from "@/branding/branding-store";
 
 export function WipBubble() {
-  const { wipIndicatorPath } = useBrandingConfig();
+  const { wipIndicatorPath, wipIndicatorCustom } = useBrandingConfig();
+  if (wipIndicatorCustom) {
+    return (
+      <div className="flex justify-start mt-3">
+        <img
+          src={wipIndicatorPath}
+          alt=""
+          role="status"
+          aria-label="Claude is working"
+          className="h-[52px] w-[52px]"
+        />
+      </div>
+    );
+  }
   return (
-    <div className={cn("flex", "justify-start", "mt-3")}>
-      <img
-        src={wipIndicatorPath}
-        alt=""
-        role="status"
-        aria-label="Claude is working"
-        className="h-[52px] w-[52px]"
-      />
+    <div className="flex justify-start">
+      <div className="pv-wip" role="status" aria-label="Claude is working" data-testid="pv-wip">
+        <span className="pv-wip-orb" aria-hidden="true">
+          <i />
+        </span>
+        <span className="pv-wip-word" aria-hidden="true">
+          Working
+        </span>
+      </div>
     </div>
   );
 }

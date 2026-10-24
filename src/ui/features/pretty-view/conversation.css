@@ -1,0 +1,492 @@
+/* The conversation view — header pill, bubbles, the floating composer and its
+   controls, working orb, floating controls. The kit's palette (kit.css :root);
+   each pane sets --pv-id-hue (the agent's colour) on its root.
+   Visual reference: workspace/tastings/convo/ (Ashley, six rounds).
+   Shape: .planning/campaigns/apple-ux/shape-conversation-view.md */
+
+/* Unlayered on purpose: the bubbles keep the typography plugin's prose
+   classes (lists, tables, headings), which live in Tailwind's utilities layer —
+   only unlayered rules can adjust what prose sets. */
+/* Bubble density ("snug"): close to the old tight padding, text half a size up. */
+[data-pv-root] {
+  --pv-b-py: 7px;
+  --pv-b-px: 12px;
+  --pv-b-fs: 14.5px;
+  --pv-b-lh: 1.5;
+  --pv-b-gap: 0.45em;
+  --pv-float-bg: linear-gradient(180deg, #24262d, #1e2026);
+  --pv-float-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06), 0 6px 18px rgba(0, 0, 0, 0.45);
+  --pv-envelope: #e5484d;
+  --pv-amber: #f0b53d;
+  --pv-red: #ff6b5e;
+}
+
+/* ── Floating controls: the pill, its round buttons, back, jump, load older ── */
+.pv-float {
+  background: var(--pv-float-bg);
+  border: 1px solid var(--k-hair2);
+  box-shadow: var(--pv-float-shadow);
+  color: var(--k-t1);
+}
+button.pv-float { cursor: pointer; transition: background-color 0.12s; }
+button.pv-float:hover:enabled { background: linear-gradient(180deg, #2c2f37, #25272e); }
+button.pv-float:active:enabled { background: var(--k-s3); }
+button.pv-float:focus-visible { outline: 2px solid var(--k-acc); outline-offset: 2px; }
+.pv-float-round {
+  width: 40px;
+  height: 40px;
+  border-radius: 999px;
+  display: inline-grid;
+  place-items: center;
+  padding: 0;
+}
+.pv-float-round svg { width: 19px; height: 19px; stroke-width: 2.2; }
+
+/* The edge fades: messages scroll under the header and the dock and darken
+   there. Gradients only — nothing re-samples the page while it scrolls. */
+.pv-fade-top {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: calc(env(safe-area-inset-top, 0px) + 76px);
+  z-index: 100;
+  pointer-events: none;
+  background: linear-gradient(180deg, rgba(11, 12, 15, 0.92) 0%, rgba(11, 12, 15, 0.72) 45%, rgba(11, 12, 15, 0) 100%);
+}
+.pv-dock {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 100;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 40px 12px calc(12px + var(--kb-safe-bottom, env(safe-area-inset-bottom, 0px)));
+  pointer-events: none;
+  background: linear-gradient(0deg, rgba(11, 12, 15, 0.94) 0%, rgba(11, 12, 15, 0.86) 55%, rgba(11, 12, 15, 0) 100%);
+}
+.pv-dock > * { pointer-events: auto; width: 100%; max-width: var(--pv-col, 780px); }
+.pv-dock[data-touch="true"] { padding-left: 8px; padding-right: 8px; padding-bottom: calc(8px + var(--kb-safe-bottom, env(safe-area-inset-bottom, 0px))); }
+
+/* ── Composer: one card — the text on top, every control on one row under it ── */
+.pv-composebox {
+  display: flex;
+  flex-direction: column;
+  padding: 4px 6px 6px;
+  background: linear-gradient(180deg, #212329, #1b1d22);
+  border: 1px solid var(--k-hair2);
+  border-radius: 22px;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05), 0 6px 20px rgba(0, 0, 0, 0.35);
+  transition: border-color 0.15s;
+  font-family: var(--font-sans);
+}
+.pv-composebox:focus-within { border-color: rgba(255, 255, 255, 0.22); }
+/* Nearly full: the card's edge picks up the warning too. */
+.pv-composebox[data-memory="red"] { border-color: rgba(255, 107, 94, 0.45); }
+.pv-compose-field { position: relative; }
+.pv-compose-text {
+  display: block;
+  width: 100%;
+  min-height: 44px;
+  max-height: 40vh;
+  padding: 10px 10px 4px;
+  resize: none;
+  background: transparent;
+  border: 0;
+  outline: none;
+  box-shadow: none;
+  color: var(--k-t1);
+  font-size: 15px;
+  line-height: 1.5;
+}
+.pv-compose-text::placeholder { color: var(--k-t3); }
+.pv-compose-row {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  min-height: 36px;
+}
+.pv-compose-spacer { flex: 1; min-width: 0; }
+.pv-compose-error { padding: 4px 10px 2px; font-size: 12.5px; color: var(--k-danger-text); }
+.pv-compose-queued { display: flex; flex-direction: column; gap: 8px; margin-bottom: 4px; }
+
+/* Quiet round buttons in the row. */
+.pv-cbtn {
+  position: relative;
+  appearance: none;
+  border: 0;
+  flex-shrink: 0;
+  height: 36px;
+  min-width: 36px;
+  padding: 0 8px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--k-t2);
+  cursor: pointer;
+  transition: background-color 0.12s, color 0.12s;
+}
+.pv-cbtn:hover:enabled, .pv-cbtn[data-state="open"] { background: var(--k-s3); color: var(--k-t1); }
+.pv-cbtn:focus-visible { outline: 2px solid var(--k-acc); outline-offset: 1px; }
+.pv-cbtn:disabled { opacity: 0.35; cursor: not-allowed; }
+.pv-cbtn svg { width: 19px; height: 19px; }
+.pv-composebox[data-touch="true"] .pv-cbtn { height: 40px; min-width: 40px; }
+/* The round main button: Send / Stop / 👍 / Resume — always the same
+   neutral fill; the icon says what it does. */
+.pv-cbtn[data-main="true"] {
+  width: 36px;
+  padding: 0;
+  margin-left: 4px;
+  background: var(--k-t1);
+  color: #15161a;
+}
+.pv-cbtn[data-main="true"]:hover:enabled { background: #fff; color: #15161a; }
+.pv-cbtn[data-main="true"]:disabled { opacity: 0.4; }
+.pv-cbtn[data-main="true"] svg { width: 17px; height: 17px; }
+.pv-cbtn[data-main="true"][data-action="stop"] svg { width: 13px; height: 13px; fill: currentColor; }
+.pv-composebox[data-touch="true"] .pv-cbtn[data-main="true"] { width: 40px; }
+.pv-cbtn[data-tone="danger"] { color: var(--k-danger-text); }
+
+/* Stop's feedback after a press (Stopping → Stopped / Cancelled / …). */
+.pv-cchip {
+  flex-shrink: 0;
+  height: 32px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 12px;
+  border-radius: 999px;
+  background: var(--k-s3);
+  color: var(--k-t2);
+  font-size: 12.5px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.pv-cchip svg { width: 15px; height: 15px; }
+
+/* Voice mode, on: the button widens into a chip that is the status. */
+.pv-voice-chip {
+  flex-shrink: 0;
+  height: 36px;
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 0 3px 0 4px;
+  border-radius: 999px;
+  background: var(--k-s3);
+  font-size: 12.5px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.pv-voice-chip > button {
+  appearance: none;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  height: 30px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 8px;
+  border-radius: 999px;
+  font: inherit;
+}
+.pv-voice-chip > button:enabled { cursor: pointer; }
+.pv-voice-chip > button:enabled:hover { background: rgba(255, 255, 255, 0.08); }
+.pv-voice-chip > button:last-child { padding: 0; width: 30px; justify-content: center; color: var(--k-t2); }
+.pv-voice-chip svg { width: 16px; height: 16px; }
+
+/* ── Recording: the chip in the row, controls on the right ── */
+.pv-rec-chip {
+  min-width: 0;
+  height: 36px;
+  margin-left: 6px;
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+  padding: 0 14px 0 12px;
+  border-radius: 999px;
+  background: rgba(229, 72, 77, 0.12);
+  box-shadow: inset 0 0 0 1px rgba(229, 72, 77, 0.28);
+  color: var(--k-t1);
+  font-size: 13.5px;
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+}
+.pv-rec-chip > :not(.pv-rec-hint) { flex-shrink: 0; }
+.pv-rec-dot { width: 9px; height: 9px; border-radius: 999px; background: #ff5c5c; }
+.pv-rec-dot[data-tone="off"] { background: #888; }
+.pv-rec-dot[data-tone="send"] { background: var(--k-t1); }
+.pv-rec-time { color: var(--k-t2); font-weight: 500; font-variant-numeric: tabular-nums; }
+.pv-rec-hint { min-width: 0; overflow: hidden; text-overflow: ellipsis; color: var(--k-t3); font-weight: 400; font-size: 12.5px; }
+.pv-rec-chip [data-testid="mic-waveform"] { color: #ff8a82; }
+.pv-composebox[data-touch="true"] .pv-rec-chip { gap: 7px; padding: 0 10px; }
+.pv-cbtn[data-holding="true"] { background: rgba(229, 72, 77, 0.18); color: #ff8a82; }
+
+/* ── Agent memory: a small pie. Grey while there's room, amber from 45%, red from 78% ── */
+.pv-mem { padding: 0 8px; font: 650 12.5px/1 var(--font-sans); font-variant-numeric: tabular-nums; }
+.pv-mem-pie {
+  width: 17px;
+  height: 17px;
+  border-radius: 999px;
+  box-shadow: inset 0 0 0 1.5px currentColor;
+  background: conic-gradient(currentColor calc(var(--pv-mem-p, 0) * 1%), transparent 0);
+}
+.pv-mem[data-band="amber"], .pv-mem[data-band="red"] { padding: 0 11px 0 9px; }
+.pv-mem[data-band="amber"] { color: var(--pv-amber); background: rgba(240, 181, 61, 0.12); }
+.pv-mem[data-band="amber"]:hover:enabled { color: var(--pv-amber); background: rgba(240, 181, 61, 0.2); }
+.pv-mem[data-band="red"] { color: var(--pv-red); background: rgba(255, 107, 94, 0.15); animation: pv-mem-alert 2.4s ease-in-out infinite; }
+.pv-mem[data-band="red"]:hover:enabled { color: var(--pv-red); background: rgba(255, 107, 94, 0.24); }
+@keyframes pv-mem-alert { 0%, 100% { box-shadow: 0 0 0 0 rgba(255, 107, 94, 0); } 50% { box-shadow: 0 0 0 4px rgba(255, 107, 94, 0.18); } }
+.pv-mem-pop {
+  z-index: 600;
+  width: 284px;
+  padding: 14px 14px 12px;
+  background: var(--k-menu);
+  border: 1px solid var(--k-hair2);
+  border-radius: 14px;
+  box-shadow: 0 14px 36px rgba(0, 0, 0, 0.6);
+  color: var(--k-t1);
+  font-family: var(--font-sans);
+}
+.pv-mem-pop h4 { margin: 0 0 2px; font-size: 13px; font-weight: 600; color: var(--k-t2); }
+.pv-mem-pop-big { font-size: 22px; font-weight: 650; letter-spacing: -0.01em; font-variant-numeric: tabular-nums; }
+.pv-mem-pop-bar { height: 6px; border-radius: 999px; background: var(--k-s3); margin: 10px 0; overflow: hidden; }
+.pv-mem-pop-bar > i { display: block; height: 100%; border-radius: inherit; background: #8fa3c8; }
+.pv-mem-pop[data-band="amber"] .pv-mem-pop-bar > i { background: var(--pv-amber); }
+.pv-mem-pop[data-band="red"] .pv-mem-pop-bar > i { background: var(--pv-red); }
+.pv-mem-pop p { margin: 0 0 12px; font-size: 13px; line-height: 1.45; color: var(--k-t2); }
+
+/* ── Messages ── */
+/* The agent: a solid bubble in its own colour. */
+.pv-bubble-agent {
+  position: relative;
+  max-width: 86%;
+  padding: var(--pv-b-py) var(--pv-b-px);
+  background: linear-gradient(180deg, hsl(var(--pv-b-hue, var(--pv-id-hue)), 34%, 21%), hsl(var(--pv-b-hue, var(--pv-id-hue)), 34%, 18%));
+  border: 1px solid hsla(var(--pv-b-hue, var(--pv-id-hue)), 50%, 60%, 0.22);
+  border-radius: 18px;
+  border-top-left-radius: 6px;
+  box-shadow: inset 0 1px 0 hsla(var(--pv-b-hue, var(--pv-id-hue)), 60%, 80%, 0.1), 0 1px 2px rgba(0, 0, 0, 0.4);
+  color: #f1ede4;
+  font-size: var(--pv-b-fs);
+  line-height: var(--pv-b-lh);
+  --tw-prose-invert-body: #f1ede4;
+  --tw-prose-invert-headings: #fff;
+  --tw-prose-invert-bold: #fff;
+  --tw-prose-invert-links: hsl(var(--pv-b-hue, var(--pv-id-hue)), 80%, 78%);
+  --tw-prose-invert-bullets: hsla(var(--pv-b-hue, var(--pv-id-hue)), 40%, 80%, 0.6);
+  --tw-prose-invert-counters: hsla(var(--pv-b-hue, var(--pv-id-hue)), 40%, 85%, 0.7);
+  --tw-prose-invert-quotes: var(--k-t2);
+  --tw-prose-invert-quote-borders: hsla(var(--pv-b-hue, var(--pv-id-hue)), 50%, 60%, 0.4);
+  --tw-prose-invert-th-borders: hsla(var(--pv-b-hue, var(--pv-id-hue)), 40%, 70%, 0.3);
+  --tw-prose-invert-td-borders: hsla(var(--pv-b-hue, var(--pv-id-hue)), 40%, 70%, 0.15);
+  --tw-prose-invert-hr: hsla(var(--pv-b-hue, var(--pv-id-hue)), 40%, 70%, 0.2);
+}
+/* Roleless / multi-role panes keep their neutral / gold looks: index.css
+   paints .pv-hue-surface, which agent bubbles also carry. */
+/* You: a quiet neutral bubble on the right. */
+.pv-bubble-user {
+  position: relative;
+  max-width: 80%;
+  padding: var(--pv-b-py) var(--pv-b-px);
+  background: linear-gradient(180deg, #32353e, #2b2e36);
+  border: 1px solid rgba(255, 255, 255, 0.07);
+  border-radius: 18px;
+  border-top-right-radius: 6px;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06), 0 1px 2px rgba(0, 0, 0, 0.4);
+  color: var(--k-t1);
+  font-size: var(--pv-b-fs);
+  line-height: var(--pv-b-lh);
+  --tw-prose-invert-body: var(--k-t1);
+  --tw-prose-body: var(--k-t1);
+}
+.pv-bubble-user[data-pv-bubble-failed="true"] { background: hsla(0, 60%, 35%, 0.9); border-color: hsla(0, 70%, 50%, 0.85); }
+:is(.pv-bubble-agent, .pv-bubble-user) :is(p, li) { margin-top: var(--pv-b-gap); margin-bottom: var(--pv-b-gap); }
+:is(.pv-bubble-agent, .pv-bubble-user) :is(h1, h2, h3) { font-size: 15.5px; font-weight: 650; margin: 1em 0 0.35em; }
+/* No extra space above the first line or below the last (the speak button
+   can be the bubble's real last child). */
+:is(.pv-bubble-agent, .pv-bubble-user) > :first-child,
+:is(.pv-bubble-agent, .pv-bubble-user) > :first-child > li:first-child { margin-top: 0; }
+:is(.pv-bubble-agent, .pv-bubble-user) > :is(:last-child, :has(+ .pv-speak-btn:last-child)),
+:is(.pv-bubble-agent, .pv-bubble-user) > :is(:last-child, :has(+ .pv-speak-btn:last-child)) > li:last-child { margin-bottom: 0; }
+/* Code: a dark well inside either bubble. */
+:is(.pv-bubble-agent, .pv-bubble-user) pre {
+  margin: 0.5em 0;
+  padding: 11px 13px;
+  background: rgba(8, 9, 12, 0.72);
+  border: 1px solid rgba(255, 255, 255, 0.07);
+  border-radius: 10px;
+  font-size: 13px;
+  line-height: 1.5;
+}
+:is(.pv-bubble-agent, .pv-bubble-user) :not(pre) > code {
+  padding: 1px 5px;
+  border-radius: 5px;
+  background: rgba(0, 0, 0, 0.28);
+  color: #ffd3a8;
+  font-size: 0.88em;
+}
+:is(.pv-bubble-agent, .pv-bubble-user) :not(pre) > code::before,
+:is(.pv-bubble-agent, .pv-bubble-user) :not(pre) > code::after { content: none; }
+
+/* Speak: just outside the agent bubble's bottom-right corner, quiet until
+   hovered; inside the corner on narrow panes. */
+.pv-speak-btn {
+  position: absolute;
+  right: -38px;
+  bottom: 0;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  display: grid;
+  place-items: center;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--k-t2);
+  opacity: 0.35;
+  cursor: pointer;
+  transition: opacity 0.12s, background-color 0.12s;
+}
+.pv-speak-btn svg { width: 15px; height: 15px; }
+.pv-bubble-agent:hover > .pv-speak-btn, .pv-speak-btn:focus-visible { opacity: 0.9; }
+.pv-speak-btn:hover { background: var(--k-s2); color: var(--k-t1); opacity: 1; }
+.pv-speak-btn[data-active="true"] { opacity: 1; color: var(--k-t1); }
+@media (hover: none) { .pv-speak-btn { opacity: 0.6; } }
+[data-pv-narrow="true"] .pv-bubble-agent:has(> .pv-speak-btn) { padding-right: 38px; }
+[data-pv-narrow="true"] .pv-speak-btn { right: 5px; bottom: 5px; color: #f1ede4; opacity: 0.6; }
+
+/* A message sent to YOU over the relay: the sidebar's red envelope on the corner. */
+.pv-envelope {
+  position: absolute;
+  left: -7px;
+  top: -7px;
+  z-index: 2;
+  width: 18px;
+  height: 18px;
+  box-sizing: border-box;
+  display: grid;
+  place-items: center;
+  border-radius: 999px;
+  border: 2px solid #121317;
+  background: var(--pv-envelope);
+  color: #fff;
+}
+.pv-envelope svg { width: 10px; height: 10px; stroke-width: 2.4; }
+
+/* Arrived here from the sidebar's envelope: the message rings briefly. */
+.pv-ring { animation: pv-ring 0.8s ease-out 3; }
+@keyframes pv-ring {
+  0% { box-shadow: 0 0 0 0 rgba(229, 72, 77, 0.65); }
+  100% { box-shadow: 0 0 0 10px rgba(229, 72, 77, 0); }
+}
+
+/* Messages between agents: a quiet neutral card, folded. */
+.pv-agent-card {
+  width: min(78%, 520px);
+  background: linear-gradient(180deg, #1e2025, #1a1c20);
+  border: 1px solid var(--k-hair2);
+  border-radius: 14px;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04), 0 1px 2px rgba(0, 0, 0, 0.4);
+  color: var(--k-t1);
+}
+.pv-agent-card-head {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  border-radius: 13px;
+  cursor: pointer;
+}
+.pv-agent-card-head:hover { background: rgba(255, 255, 255, 0.035); }
+.pv-agent-card-head:focus-visible { outline: 2px solid var(--k-acc); outline-offset: -2px; }
+.pv-agent-card-head > svg { width: 15px; height: 15px; color: var(--k-t3); transition: transform 0.15s; }
+.pv-agent-card-head[aria-expanded="true"] > svg { transform: rotate(90deg); }
+.pv-agent-card-who { display: flex; align-items: center; gap: 5px; min-width: 0; font-size: 13px; color: var(--k-t3); white-space: nowrap; }
+.pv-agent-card-who b { color: var(--k-t1); font-weight: 600; }
+.pv-agent-card-preview { display: block; margin-top: 1px; font-size: 13px; color: var(--k-t3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.pv-agent-card-body {
+  position: relative;
+  margin: 0 10px;
+  padding: 10px 34px 11px 4px;
+  border-top: 1px solid var(--k-hair);
+  font-size: var(--pv-b-fs);
+  line-height: var(--pv-b-lh);
+  color: #e9e5dc;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.pv-agent-card-body .pv-speak-btn { right: -6px; bottom: 8px; opacity: 0.55; }
+.pv-relay-avatar {
+  width: 28px;
+  height: 28px;
+  border-radius: 999px;
+  overflow: hidden;
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: #fff;
+}
+.pv-relay-notsent { color: var(--k-danger-text); font-size: 12px; }
+/* In a relay room, each agent's name sits on top of its bubble. */
+.pv-bubble-name { font-size: 12.5px; font-weight: 650; margin-bottom: 1px; letter-spacing: 0.005em; color: hsl(var(--pv-b-hue, var(--pv-id-hue)), 75%, 80%); }
+
+/* ── Working: an orb in the agent's colour. Only transform / opacity animate. ── */
+.pv-wip { display: inline-flex; align-items: center; gap: 10px; margin-top: 14px; }
+.pv-wip-orb { position: relative; width: 30px; height: 30px; display: grid; place-items: center; }
+.pv-wip-orb::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: 999px;
+  background: conic-gradient(from 0deg, hsla(var(--pv-id-hue), 85%, 70%, 0), hsla(var(--pv-id-hue), 85%, 70%, 0.95) 70%, hsla(var(--pv-id-hue), 85%, 70%, 0) 72%);
+  -webkit-mask: radial-gradient(circle, transparent 10.5px, #000 11px);
+  mask: radial-gradient(circle, transparent 10.5px, #000 11px);
+  animation: pv-wip-spin 1.1s linear infinite;
+}
+.pv-wip-orb::after { content: ""; position: absolute; inset: 0; border-radius: 999px; box-shadow: inset 0 0 0 1.5px hsla(var(--pv-id-hue), 50%, 60%, 0.18); }
+.pv-wip-orb > i { width: 12px; height: 12px; border-radius: 999px; background: hsl(var(--pv-id-hue), 70%, 64%); animation: pv-wip-core 1.6s ease-in-out infinite; }
+.pv-wip-word { font-size: 13px; font-weight: 500; color: var(--k-t2); }
+@keyframes pv-wip-spin { to { transform: rotate(360deg); } }
+@keyframes pv-wip-core { 0%, 100% { transform: scale(0.7); opacity: 0.7; } 50% { transform: scale(1); opacity: 1; } }
+@media (prefers-reduced-motion: reduce) {
+  .pv-wip-orb::before, .pv-wip-orb > i, .pv-mem[data-band="red"] { animation: none; }
+}
+
+/* Load older messages: a small pill like the other floating controls. */
+.pv-load-older {
+  height: 32px;
+  padding: 0 14px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border-radius: 999px;
+  color: var(--k-t2);
+  font-size: 13px;
+  font-weight: 600;
+}
+.pv-load-older svg { width: 15px; height: 15px; }
+.pv-load-older[data-status="error"] { color: var(--k-danger-text); border-color: rgba(255, 107, 94, 0.35); }
+
+/* The agent's task list: a slim card above the composer. */
+.pv-tasks {
+  max-height: 9rem;
+  overflow-y: auto;
+  padding: 6px 12px;
+  background: linear-gradient(180deg, #1e2025, #1a1c20);
+  border: 1px solid var(--k-hair2);
+  border-radius: 14px;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35);
+  font-family: var(--font-sans);
+}

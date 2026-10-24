@@ -34,6 +34,7 @@ import {
   NEUTRAL_HUE,
 } from "@/lib/identity-roles";
 import { AvatarImage } from "@/components/avatar-image";
+import { KitScopeContext, type KitScopeValue } from "@/components/kit/scope";
 import { writeBadgeDragData, type BadgeDragSource } from "@/shell/badge-drag";
 import { writeDesktopDragData } from "@/shell/desktop-drag";
 import {
@@ -61,6 +62,9 @@ export interface TaskPillProps {
 // Each side keeps the pane margin plus room for both round buttons, so the
 // pill can use the rest of the width and stay centered.
 const SIDE_RESERVE_PX = 16 + 8 + 36 + 8 + 36;
+
+// The pill's ⋯ menu takes the kit look, like the sidebar's and pane bars'.
+const PILL_KIT_SCOPE: KitScopeValue = { hue: 220 };
 
 export function TaskPill({
   identityKey,
@@ -143,7 +147,7 @@ export function TaskPill({
       data-testid="pv-task-pill-anchor"
       // inset-x-0 + mx-auto + w-fit centers it while letting it grow up to
       // maxWidth (a left:50% anchor would cap it at half the pane).
-      className="absolute top-4 inset-x-0 mx-auto w-fit z-[101] flex"
+      className="absolute top-3 inset-x-0 mx-auto w-fit z-[101] flex"
       style={{ maxWidth: `calc(100% - ${SIDE_RESERVE_PX * 2}px)` }}
     >
       <div
@@ -153,18 +157,10 @@ export function TaskPill({
         onContextMenu={contextMenu.onContextMenu}
         draggable={isDragSource}
         onDragStart={onDragStart}
-        className="pv-identity-breathe relative flex flex-row items-center gap-2 min-w-0 max-w-full cursor-pointer select-none [-webkit-touch-callout:none] transition-[filter] hover:brightness-110"
-        style={{
-          borderRadius: 22,
-          padding: "5px 6px 5px 5px",
-          // No backdrop-filter: the pill floats over the scrolling chat, so a
-          // blur is re-sampled every scroll frame (iPhone jank). Denser fill.
-          // The breathe is the class's ::after overlay (opacity-only).
-          background: `linear-gradient(160deg, ${tint(45, 25, 0.88)}, ${tint(40, 15, 0.94)})`,
-          border: `1px solid ${tint(65, 55, 0.4)}`,
-          boxShadow: `0 4px 12px rgba(0,0,0,0.4), inset 0 1px 0 rgba(255,220,170,0.14), 0 0 24px ${tint(65, 55, 0.24)}`,
-          color: "#e8e4d8",
-        }}
+        // Solid and neutral (shape-conversation-view), no blur — it floats
+        // over the scrolling chat. The agent's colour is the ring on its
+        // picture; the menu is the kit's ⋯.
+        className="pv-float relative flex flex-row items-center gap-0.5 h-10 min-w-0 max-w-full rounded-full pl-1 pr-1 cursor-pointer select-none [-webkit-touch-callout:none]"
       >
         {/* The pill's primary control for keyboard / screen readers; its
             click bubbles to the pill root, which owns the open. A sibling of
@@ -173,7 +169,7 @@ export function TaskPill({
           type="button"
           aria-label="Open agent info"
           data-testid="pv-task-pill-open"
-          className="flex flex-row items-center gap-2 min-w-0 text-left cursor-pointer rounded-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/50"
+          className="flex flex-row items-center gap-[9px] h-8 min-w-0 pl-0.5 pr-2 text-left cursor-pointer rounded-full hover:bg-white/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/50"
         >
           <AvatarImage
             src={identity.avatarUrl}
@@ -183,7 +179,7 @@ export function TaskPill({
               width: 26,
               height: 26,
               borderRadius: "50%",
-              boxShadow: `0 2px 6px rgba(0,0,0,0.5), 0 0 12px ${tint(65, 55, 0.4)}`,
+              boxShadow: `0 0 0 1.5px ${tint(60, 60, 0.55)}`,
             }}
             initialClassName="shrink-0 inline-flex items-center justify-center font-semibold"
             initialStyle={{
@@ -192,12 +188,13 @@ export function TaskPill({
               borderRadius: "50%",
               fontSize: 12,
               background: tint(45, 35, 0.9),
+              boxShadow: `0 0 0 1.5px ${tint(60, 60, 0.55)}`,
             }}
           />
           <span
             data-testid="pv-task-pill-label"
-            className="truncate min-w-0"
-            style={{ fontSize: 13, fontWeight: 500 }}
+            className="truncate min-w-0 text-[color:var(--k-t1)]"
+            style={{ fontSize: 13.5, fontWeight: 600, letterSpacing: "-0.005em" }}
           >
             {label}
           </span>
@@ -213,12 +210,14 @@ export function TaskPill({
               e.stopPropagation();
             }}
           >
-            <RowKebabMenu
-              items={menuItems}
-              ariaLabel="Agent menu"
-              testId="pv-task-pill-kebab-trigger"
-              triggerClassName="rounded-full"
-            />
+            <KitScopeContext.Provider value={PILL_KIT_SCOPE}>
+              <RowKebabMenu
+                items={menuItems}
+                ariaLabel="Agent menu"
+                testId="pv-task-pill-kebab-trigger"
+                triggerClassName="rounded-full"
+              />
+            </KitScopeContext.Provider>
           </span>
         )}
       </div>
@@ -294,13 +293,13 @@ function SideButton({
       style={
         {
           "--pv-side-hue": hue,
-          width: 36,
-          height: 36,
+          width: 40,
+          height: 40,
           borderRadius: "50%",
           color: "#f4fff8",
           background: `linear-gradient(160deg, hsla(${hue}, 50%, 32%, 0.88), hsla(${hue}, 45%, 20%, 0.92))`,
           border: `1px solid hsla(${hue}, 65%, 52%, 0.6)`,
-          boxShadow: `0 4px 12px rgba(0,0,0,0.4), 0 0 14px hsla(${hue}, 70%, 50%, 0.35)`,
+          boxShadow: `inset 0 1px 0 rgba(255,255,255,0.08), 0 6px 18px rgba(0,0,0,0.45)`,
         } as React.CSSProperties
       }
     >

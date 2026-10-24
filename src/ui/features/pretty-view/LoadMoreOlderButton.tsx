@@ -49,7 +49,6 @@
 
 import { ChevronUp, AlertCircle } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { Button } from "@/components/button";
 
 export interface LoadMoreOlderButtonProps {
   /**
@@ -121,10 +120,12 @@ export function LoadMoreOlderButton({
       aria-label={ariaLabel}
       className={cn("flex justify-center py-2", className)}
     >
-      <Button
-        size="sm"
-        variant="secondary"
-        className="cursor-pointer"
+      <button
+        type="button"
+        // A small pill in the conversation's floating-control family
+        // (conversation.css .pv-float / .pv-load-older).
+        className="pv-float pv-load-older"
+        data-status={status}
         disabled={disabled}
         onClick={onClick}
         aria-label={ariaLabel}
@@ -137,7 +138,7 @@ export function LoadMoreOlderButton({
           // byte-for-byte; the grep gate in 47-02-PLAN.md acceptance
           // criteria § Task 2 verifies both are present.
           <svg
-            className="size-6 animate-spin"
+            className="animate-spin"
             viewBox="0 0 24 24"
             fill="none"
             stroke="currentColor"
@@ -151,16 +152,16 @@ export function LoadMoreOlderButton({
           </svg>
         ) : status === "error" ? (
           <>
-            <AlertCircle className="size-3.5" aria-hidden="true" />
+            <AlertCircle aria-hidden="true" />
             <span>Retry</span>
           </>
         ) : (
           <>
-            <ChevronUp className="size-3.5" aria-hidden="true" />
+            <ChevronUp aria-hidden="true" />
             <span>Load older messages</span>
           </>
         )}
-      </Button>
+      </button>
     </div>
   );
 }

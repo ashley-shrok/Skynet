@@ -296,6 +296,12 @@ export function getUnseenDmAt(k: Key | null): number | null {
   return s !== undefined && s >= dm ? null : dm;
 }
 
+/** The latest DM time this user has seen here, or null if none yet. */
+export function getSeenDmAt(k: Key | null): number | null {
+  if (k === null) return null;
+  return dmSeen.get(k) ?? null;
+}
+
 export function isDmd(k: Key | null): boolean {
   return getUnseenDmAt(k) !== null;
 }

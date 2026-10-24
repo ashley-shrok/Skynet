@@ -1,5 +1,5 @@
 import type { DragEvent as ReactDragEvent } from "react";
-import { Folder, GitPullRequestDraft, Pin } from "lucide-react";
+import { GitPullRequestDraft, Pin } from "lucide-react";
 import { useIdentities } from "@/state/identities-store";
 import { useProjects, usePinnedIds, fleetRowId } from "@/state/conversation-store";
 import { useIsMobile } from "@/hooks/use-mobile";
@@ -185,27 +185,14 @@ export function IdentityBadge({
   // the pattern established for MicButton (ComposeBox.hold-to-mic.test —
   // Test 12 locks the class token). `select-none` already prevents text
   // selection on all platforms; the callout guard is iOS-specific.
-  const rootClassName = `pv-identity-breathe absolute top-4 right-5 z-[101] flex flex-row items-center gap-[11px] select-none [-webkit-touch-callout:none] transition-transform hover:scale-[1.015] active:scale-[0.995] hover:shadow-[0_8px_24px_rgba(0,0,0,0.6),_inset_0_1px_0_rgba(255,220,170,0.22),_0_0_56px_hsla(${hue},65%,55%,0.42)]`;
+  // A relay room's participant: the conversation pill's look (solid, neutral,
+  // the agent's colour as a ring on its picture) — shape-conversation-view.
+  // Roles / project ride in the tooltip so every pill stays one line.
+  const rootClassName = "pv-identity-badge pv-float absolute top-3 right-5 z-[101] flex flex-row items-center gap-[9px] h-10 rounded-full select-none [-webkit-touch-callout:none]";
   const rootStyle: React.CSSProperties = {
-    // Pill shape: border-radius 32 + padding 7 16 7 7 makes a capsule
-    // where the 50px avatar circle sits concentric to the left curve.
-    borderRadius: 32,
     overflow: "hidden",
-    // With a kebab the right padding tightens so the ⋮ sits close to the
-    // pill's right curve.
-    padding: hasMenu ? "7px 10px 7px 7px" : "7px 16px 7px 7px",
-    // No backdrop-filter: the badge floats over the scrolling chat, so a blur
-    // here is re-sampled every scroll frame (iPhone jank). A denser fill keeps
-    // the glass read.
-    background: `linear-gradient(160deg, ${tint(45, 25, 0.88)}, ${tint(40, 15, 0.94)})`,
-    border: `1px solid ${tint(65, 55, 0.4)}`,
-    boxShadow: `0 8px 24px rgba(0,0,0,0.6), inset 0 1px 0 rgba(255,220,170,0.18), 0 0 40px ${tint(65, 55, 0.28)}`,
-    color: "#e8e4d8",
+    padding: hasMenu ? "4px 6px 4px 4px" : "4px 14px 4px 4px",
   };
-  // Phase 68 Plan 04: avatarUrlWithHost deleted — backend bakes hostId into
-  // identity.avatarUrl at emit time. Render directly; the hostId prop is kept
-  // on IdentityBadgeProps for backward-compat with existing call sites but is
-  // no longer used to build the URL here.
   const avatarSrc = identity.avatarUrl;
   // Second line: every role the identity holds — the same label the sidebar
   // row and IdentityModal show. The wire `title` is not consulted: it is empty
@@ -214,10 +201,10 @@ export function IdentityBadge({
   const avatarStyle: React.CSSProperties = {
     position: "relative",
     zIndex: 1,
-    width: 50,
-    height: 50,
+    width: 30,
+    height: 30,
     borderRadius: "50%",
-    boxShadow: `0 4px 12px rgba(0,0,0,0.6), inset 0 2px 0 rgba(255,235,190,0.35), 0 0 24px ${tint(65, 55, 0.4)}`,
+    boxShadow: `0 0 0 1.5px ${tint(60, 60, 0.55)}`,
   };
   const pillMain = (
     <>
@@ -227,46 +214,19 @@ export function IdentityBadge({
         className="object-cover shrink-0"
         style={avatarStyle}
         initialClassName="shrink-0 inline-flex items-center justify-center font-semibold"
-        initialStyle={{ ...avatarStyle, fontSize: 20, color: "#f0ebe0", background: tint(45, 35, 0.9) }}
+        initialStyle={{ ...avatarStyle, fontSize: 13, color: "#f0ebe0", background: tint(45, 35, 0.9) }}
       />
       <div
         className="flex flex-col min-w-0"
         style={{ position: "relative", zIndex: 1 }}
       >
         <span
-          className="font-semibold truncate leading-tight"
-          style={{ fontSize: 13.5, color: "#f0ebe0" }}
+          className="font-semibold truncate leading-tight text-[color:var(--k-t1)]"
+          style={{ fontSize: 13.5 }}
+          title={[roleLine, projectDisplayName].filter(Boolean).join(" · ") || undefined}
         >
           {identity.displayName}
         </span>
-        {roleLine && (
-          <span
-            data-testid="pv-identity-role-line"
-            title={roleLine}
-            className="truncate leading-tight"
-            style={{ fontSize: 10.8, color: "#a89a80" }}
-          >
-            {roleLine}
-          </span>
-        )}
-        {projectDisplayName && (
-          <span
-            data-testid="pv-identity-project-breadcrumb"
-            className="truncate inline-flex items-center gap-1"
-            style={{
-              fontSize: 9,
-              fontWeight: 600,
-              color: tint(40, 78, 0.85),
-              textTransform: "uppercase",
-              letterSpacing: "0.12em",
-              lineHeight: 1,
-              marginTop: 3,
-            }}
-          >
-            <Folder width={9} height={9} aria-hidden="true" />
-            {projectDisplayName}
-          </span>
-        )}
       </div>
     </>
   );

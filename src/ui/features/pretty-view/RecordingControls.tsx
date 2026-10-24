@@ -41,33 +41,17 @@ export function RecordingControls({
   onToggleMute,
 }: RecordingControlsProps) {
   return (
-    <div className="absolute right-1 bottom-0.5 flex items-center gap-1">
-      {/* Mute — off: neutral like append; on: cancel's red tint */}
-      <button
-        type="button"
-        onClick={onToggleMute}
-        aria-label={muted ? "Unmute mic" : "Mute mic"}
-        aria-pressed={muted}
-        title={muted ? "Unmute mic" : "Mute mic"}
-        data-testid="recording-mute"
-        className={
-          muted
-            ? "p-2 text-[hsla(0,72%,72%,0.95)] transition-[color,transform] duration-120 active:scale-95 cursor-pointer"
-            : "p-2 text-[#f0ebe0] opacity-60 hover:opacity-95 transition-[opacity,transform] duration-120 active:scale-95 cursor-pointer"
-        }
-      >
-        {muted ? <MicOff className="size-6" aria-hidden="true" /> : <Mic className="size-6" aria-hidden="true" />}
-      </button>
-
+    <div className="flex items-center gap-0.5">
       {/* Cancel — red-tinted per pv-danger accent (hsla hue-0 = red) */}
       <button
         type="button"
         onClick={onCancel}
         aria-label="Cancel recording"
         title="Cancel recording"
-        className="p-2 text-[hsla(0,72%,72%,0.85)] hover:text-[hsla(0,80%,82%,1)] transition-[color,transform] duration-120 active:scale-95 cursor-pointer"
+        className="pv-cbtn"
+        data-tone="danger"
       >
-        <X className="size-6" strokeWidth={2.25} aria-hidden="true" />
+        <X strokeWidth={2.25} aria-hidden="true" />
       </button>
 
       {/* Append — neutral warm off-white */}
@@ -76,9 +60,9 @@ export function RecordingControls({
         onClick={onAppend}
         aria-label="Append transcript"
         title="Append transcript"
-        className="p-2 text-[#f0ebe0] opacity-60 hover:opacity-95 transition-[opacity,transform] duration-120 active:scale-95 cursor-pointer"
+        className="pv-cbtn"
       >
-        <ArrowDownToLine className="size-6" aria-hidden="true" />
+        <ArrowDownToLine aria-hidden="true" />
       </button>
 
       {/* Send — coral-tinted per pv-coral accent (--color-pv-code-fg = #ffb896) */}
@@ -87,9 +71,10 @@ export function RecordingControls({
         onClick={onSend}
         aria-label="Send transcript"
         title="Send transcript"
-        className="p-2 text-[color:var(--color-pv-code-fg)] hover:text-[hsla(19,100%,80%,1)] transition-[color,transform] duration-120 active:scale-95 cursor-pointer"
+        className="pv-cbtn"
+        data-main="true"
       >
-        <Send className="size-6" aria-hidden="true" />
+        <Send aria-hidden="true" />
       </button>
     </div>
   );

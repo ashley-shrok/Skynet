@@ -372,35 +372,16 @@ export const ChatMessage = React.memo(function ChatMessage({
         // and for OutboundBubble which references the same idiom.
         className={cn(
           "pv-bubble",
-          // Phase 4 Glass: raised-object bubble treatment.
-          "max-w-[90%] [overflow-wrap:anywhere] text-sm leading-relaxed",
-          "rounded-[var(--radius-pv-bubble)]",
-          // Phase 124 Plan 01 (D-03): assistant + feedbackEnabled collapses
-          // the pr-[42px] speak-button pocket to symmetric pr-[12px] because
-          // the in-bubble speak button is not rendered in that branch (it
-          // moves to the strip below). User bubbles and feedback-OFF
-          // assistant bubbles keep today's padding byte-identically (D-02).
-          isUser
-            ? "px-[12px] py-[7px]"
-            : feedbackEnabled
-              ? "pl-[12px] pr-[12px] py-[7px]"
-              : "pl-[12px] pr-[42px] py-[7px]",
-          "border border-white/[0.08]",
-          "shadow-[0_8px_24px_rgba(0,0,0,0.5),_0_1px_0_rgba(255,255,255,0.12)_inset,_0_0_0_0.5px_rgba(255,255,255,0.05)]",
-          // Prose scaffolding (typography plugin).
-          "prose prose-sm max-w-[90%]",
-          "[&>*:first-child]:mt-0 [&>*:last-child]:mb-0 [&>*:has(+.pv-speak-btn)]:mb-0",
-          // Preformatted code blocks: Glass depth (inner shadow + hairline border).
-          "prose-pre:my-2 prose-pre:p-2 prose-pre:rounded",
+          // shape-conversation-view: the agent speaks in a solid bubble in its
+          // own colour (pv-hue-surface keeps the multi-role gold / roleless
+          // grey looks, index.css); you in a neutral bubble on the right.
+          // Look, padding and spacing: conversation.css.
+          isUser ? "pv-bubble-user" : "pv-bubble-agent pv-hue-surface",
+          "[overflow-wrap:anywhere]",
+          // Prose scaffolding (typography plugin): lists, headings, tables.
+          "prose prose-invert max-w-none",
           "prose-pre:font-[JetBrains_Mono_Variable,ui-monospace,monospace]",
-          "prose-pre:bg-[rgba(10,12,20,0.6)] prose-pre:border prose-pre:border-white/[0.06]",
-          "prose-pre:shadow-[inset_0_2px_8px_rgba(0,0,0,0.4)]",
-          // Inline code: warm coral foreground + subtle chip rectangle.
-          "prose-code:before:content-none prose-code:after:content-none",
-          "prose-code:rounded prose-code:px-1 prose-code:py-0.5",
           "prose-code:font-[JetBrains_Mono_Variable,ui-monospace,monospace]",
-          "prose-code:bg-white/[0.08] prose-code:text-[var(--color-pv-code-fg)]",
-          "prose-code:border prose-code:border-white/[0.06]",
           // Tables: the bubble's overflow-wrap:anywhere shrinks every column's
           // min-content to one character, so on a phone auto layout crushes
           // columns into one-letter-per-line stacks. Undo it inside tables and
@@ -409,32 +390,6 @@ export const ChatMessage = React.memo(function ChatMessage({
           "prose-table:[overflow-wrap:normal] prose-table:[word-break:normal]",
           "prose-th:[overflow-wrap:normal] prose-td:[overflow-wrap:normal]",
           "prose-th:min-w-[4.5em] prose-td:min-w-[4.5em] prose-th:whitespace-nowrap",
-          isUser
-            ? cn(
-                // User bubble = mock's original assistant treatment
-                // (translucent mid-blue-gray gradient over the depth). user
-                // is always user, no per-pane variation. Reads as the
-                // stable "not-the-agent" side; assistant bubbles pop against
-                // it with their identity hue.
-                "bg-[linear-gradient(160deg,rgba(35,51,90,0.55),rgba(21,32,62,0.6))]",
-                "text-[#dfe3ee]",
-                "border-[rgba(120,140,180,0.2)]",
-                "shadow-[0_8px_24px_rgba(0,0,0,0.5),_0_1px_0_rgba(255,255,255,0.1)_inset,_0_0_0_0.5px_rgba(120,140,180,0.15)]",
-                "dark:prose-invert",
-              )
-            : cn(
-                // Assistant carries the identity-hue tint — "the identity is
-                // the one speaking these bubbles" semantic. More saturated
-                // than the first pass (28% → 50% sat) per user's "colors
-                // should be more vibrant" round. Rich hue border + hue outer
-                // glow at ~15-20% alpha.
-                "pv-hue-surface",
-                "bg-[linear-gradient(160deg,hsla(var(--pv-id-hue),75%,38%,0.55),hsla(var(--pv-id-hue),67.5%,24%,0.6))]",
-                "text-[#fbf5e8]",
-                "border-[hsla(var(--pv-id-hue),65%,55%,0.32)]",
-                "shadow-[0_8px_24px_rgba(0,0,0,0.5),_0_1px_0_rgba(255,220,170,0.18)_inset,_0_0_0_0.5px_hsla(var(--pv-id-hue),70%,55%,0.2),_0_0_32px_hsla(var(--pv-id-hue),70%,52%,0.18)]",
-                "prose-invert",
-              ),
         )}
       >
         {isQuickReply ? (
@@ -580,23 +535,8 @@ export const ChatMessage = React.memo(function ChatMessage({
                   ? "Resume speaking"
                   : "Speak message"
             }
-            style={{
-              position: "absolute",
-              right: 6,
-              bottom: 6,
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              background: "rgba(0,0,0,0.28)",
-              borderWidth: 1,
-              borderStyle: "solid",
-              borderColor: "rgba(255,255,255,0.10)",
-              color: "rgba(255,220,170,0.72)",
-              opacity: 0.62,
-              cursor: "pointer",
-              transition: "opacity 120ms, background 120ms, transform 80ms",
-            }}
-            className={`pv-speak-btn hover:!opacity-100 hover:!bg-[rgba(0,0,0,0.42)] focus-visible:!opacity-100 active:scale-[0.92] [@media(hover:none)]:!opacity-[0.72]`}
+            data-active={speakState === "playing" || speakState === "paused" ? "true" : undefined}
+            className="pv-speak-btn"
           >
             {speakState === "loading" ? (
               <Loader2 size={16} className="animate-spin" />
@@ -619,7 +559,7 @@ export const ChatMessage = React.memo(function ChatMessage({
         // Resting opacity 0.62 (D-07); hovering anywhere in the group lifts
         // to 100% via Tailwind group-hover (Pattern S-07 option (c)); touch
         // devices sit at 0.72 always-visible baseline (D-08). The strip
-        // buttons all share the .pv-speak-btn CSS class hook so shell
+        // buttons all share the .pv-strip-btn CSS class hook so shell
         // sizing matches the existing speak button (Pattern S-05).
         <div
           data-testid="pv-chat-message-action-strip"
@@ -651,7 +591,7 @@ export const ChatMessage = React.memo(function ChatMessage({
               cursor: "pointer",
               transition: "opacity 120ms, background 120ms, transform 80ms",
             }}
-            className={`pv-speak-btn hover:!opacity-100 hover:!bg-[rgba(0,0,0,0.42)] focus-visible:!opacity-100 active:scale-[0.92] [@media(hover:none)]:!opacity-[0.72]`}
+            className={`pv-strip-btn hover:!opacity-100 hover:!bg-[rgba(0,0,0,0.42)] focus-visible:!opacity-100 active:scale-[0.92] [@media(hover:none)]:!opacity-[0.72]`}
           >
             {speakState === "loading" ? (
               <Loader2 size={16} className="animate-spin" />
@@ -698,7 +638,7 @@ export const ChatMessage = React.memo(function ChatMessage({
               cursor: "pointer",
               transition: "opacity 120ms, background 120ms, transform 80ms",
             }}
-            className={`pv-speak-btn hover:!opacity-100 hover:!bg-[rgba(0,0,0,0.42)] focus-visible:!opacity-100 active:scale-[0.92] [@media(hover:none)]:!opacity-[0.72]`}
+            className={`pv-strip-btn hover:!opacity-100 hover:!bg-[rgba(0,0,0,0.42)] focus-visible:!opacity-100 active:scale-[0.92] [@media(hover:none)]:!opacity-[0.72]`}
           >
             <ThumbsUp size={16} />
           </button>
@@ -737,7 +677,7 @@ export const ChatMessage = React.memo(function ChatMessage({
               cursor: "pointer",
               transition: "opacity 120ms, background 120ms, transform 80ms",
             }}
-            className={`pv-speak-btn hover:!opacity-100 hover:!bg-[rgba(0,0,0,0.42)] focus-visible:!opacity-100 active:scale-[0.92] [@media(hover:none)]:!opacity-[0.72]`}
+            className={`pv-strip-btn hover:!opacity-100 hover:!bg-[rgba(0,0,0,0.42)] focus-visible:!opacity-100 active:scale-[0.92] [@media(hover:none)]:!opacity-[0.72]`}
           >
             <ThumbsDown size={16} />
           </button>

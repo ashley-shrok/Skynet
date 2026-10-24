@@ -247,6 +247,7 @@ import {
 } from "@/features/notifications/open-harness-deep-link";
 import { OPEN_APP_EVENT, type OpenAppDetail } from "./features/apps/app-link";
 import { kitAlert } from "@/components/kit";
+import "@/features/pretty-view/conversation.css";
 // Phase 11 Plan 03 (user "no settings" lock): SettingsRow import RETIRED
 // alongside AppRail — the entire settings-surface tree dies here.
 
@@ -4111,52 +4112,29 @@ export function AppShell({
             )}
             className={
               isTouchDevice
-                ? "fixed flex items-center justify-center rounded-full text-[#f0ebe0] hover:text-white transition-transform hover:scale-[1.03] active:scale-[0.97] cursor-pointer"
-                : "fixed flex items-center justify-center w-8 h-8 text-[color:var(--color-pv-fg-muted)] hover:text-[color:var(--color-pv-fg)] transition-colors cursor-pointer " +
+                ? // The conversation's floating-control family (conversation.css
+                  // .pv-float): level with the task pill, same height.
+                  "pv-float fixed flex items-center justify-center rounded-full cursor-pointer"
+                : "fixed flex items-center justify-center w-8 h-8 text-[color:var(--k-t2)] hover:text-[color:var(--k-t1)] transition-colors cursor-pointer " +
                   (sidebarOpen || sidebarPeekOpen
-                    ? "rounded-r-lg border-y border-r border-[color:var(--color-pv-border-quiet)] bg-[color:var(--color-pv-base)] hover:bg-[rgba(220,225,245,0.06)] hover:border-[color:var(--color-pv-border-quiet-strong)]"
-                    : "rounded-lg border border-[color:var(--color-pv-border-quiet)] bg-[rgba(220,225,245,0.06)] hover:bg-[rgba(220,225,245,0.12)] hover:border-[color:var(--color-pv-border-quiet-strong)]")
+                    ? "rounded-r-lg border-y border-r border-[color:var(--k-hair2)] bg-[#1e2026] hover:bg-[color:var(--k-s3)]"
+                    : "rounded-lg border border-[color:var(--k-hair2)] bg-[#1e2026] hover:bg-[color:var(--k-s3)]")
             }
             style={{
-              // Touch: mirror the identity badge's visual offset so the back
-              // button reads as its left-side counterpart. The badge is
-              // Tailwind `top-4 right-5` inside PrettyView; PrettyView sits
-              // under `safe-area-inset-top` (no extra session-view padding). So
-              // badge-top from viewport = safe-area + 1rem. Reuse the
-              // exact same rem-based math so both offsets scale together
-              // under patch #165's html=24 mobile bump.
+              // Touch: level with the task pill (PrettyView's top-3, under the
+              // safe area).
               top: isTouchDevice
-                ? "calc(max(env(safe-area-inset-top), 8px) + 1rem)"
+                ? "calc(env(safe-area-inset-top, 0px) + 12px)"
                 : "max(env(safe-area-inset-top), 8px)",
               left: !isTouchDevice && (sidebarOpen || sidebarPeekOpen)
                 ? `${sidebarPanelWidth}px`
                 : isTouchDevice
-                  ? "calc(max(env(safe-area-inset-left), 0px) + 1.25rem)"
+                  ? "calc(max(env(safe-area-inset-left), 0px) + 12px)"
                   : "max(env(safe-area-inset-left), 8px)",
               zIndex: sidebarPeekOpen ? 46 : 30,
               transition: sidebarDragging ? "none" : "left 0.2s",
-              // Touch-only hue-glass treatment: identity-avatar-badge visual
-              // language (round, hue-tinted gradient, inset highlight + outer
-              // glow). Patch #272 (user 2026-08-02) — recoloured from the
-              // prior warm-amber (hue 35) that user called "weird yellowish"
-              // to a dark blue/gray drawn from the pv palette family (the
-              // user-bubble mid-blue-gray at hsl~220/28%/16-25% is the seed).
-              // Reads as "part of the scheme" rather than a lone warm accent.
-              // Still ambient — doesn't compete with the identity badge (which
-              // wears the pane's identity colorHue).
-              ...(isTouchDevice
-                ? {
-                    width: 64,
-                    height: 64,
-                    background:
-                      "linear-gradient(160deg, hsla(218, 25%, 22%, 0.94), hsla(218, 25%, 14%, 0.96))",
-                    border: "1px solid hsla(218, 35%, 55%, 0.35)",
-                    boxShadow:
-                      "0 4px 12px rgba(0,0,0,0.6), inset 0 2px 0 rgba(220,225,245,0.3), 0 0 24px hsla(218, 40%, 55%, 0.3)",
-                    // No backdrop-filter: floats over the scrolling chat and
-                    // would re-blur every frame on iPhone.
-                  }
-                : {}),
+              // Touch: 40px round, the task pill's height (look: .pv-float).
+              ...(isTouchDevice ? { width: 40, height: 40 } : {}),
             }}
           >
             <span
@@ -4169,7 +4147,7 @@ export function AppShell({
                 transition: "transform 220ms",
               }}
             >
-              <ChevronLeft className={isTouchDevice ? "size-8" : "size-4"} />
+              <ChevronLeft className={isTouchDevice ? "size-[22px]" : "size-4"} strokeWidth={isTouchDevice ? 2.2 : 2} />
             </span>
           </button>
         )}

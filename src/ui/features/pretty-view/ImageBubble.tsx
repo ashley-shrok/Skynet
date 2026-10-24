@@ -68,31 +68,10 @@ export function ImageBubble({
       <div
         title={new Date(ts).toLocaleString()}
         className={cn(
-          // Layout — 12px padding tighter than ChatMessage per scope_detail.
-          "max-w-[min(85%,640px)]",
-          "rounded-[var(--radius-pv-bubble)] px-3 py-3",
+          // Same bubbles as a text turn (conversation.css): yours neutral on
+          // the right, the agent's in its colour.
+          isUser ? "pv-bubble-user" : "pv-bubble-agent pv-hue-surface",
           "flex flex-col gap-2",
-          // No backdrop blur: one blurred layer per bubble re-blurs on every
-          // scroll frame (iPhone jank). Same call as ChatMessage bubbles.
-          isUser
-            ? cn(
-                // User branch — byte-identical to ChatMessage.tsx:422-425 user
-                // gradient / text / border / shadow so an image-carrying user
-                // turn reads visually the same as a plain user text turn.
-                "bg-[linear-gradient(160deg,rgba(45,55,80,0.55),rgba(28,35,55,0.6))]",
-                "text-[#dfe3ee]",
-                "border border-[rgba(120,140,180,0.2)]",
-                "shadow-[0_8px_24px_rgba(0,0,0,0.5),_0_1px_0_rgba(255,255,255,0.1)_inset,_0_0_0_0.5px_rgba(120,140,180,0.15)]",
-              )
-            : cn(
-                // Assistant / tool_result — identity-hue treatment
-                // (byte-identical to ChatMessage.tsx:434-437 assistant branch).
-                "pv-hue-surface",
-                "bg-[linear-gradient(160deg,hsla(var(--pv-id-hue),50%,38%,0.55),hsla(var(--pv-id-hue),45%,24%,0.6))]",
-                "text-[#fbf5e8]",
-                "border border-[hsla(var(--pv-id-hue),65%,55%,0.32)]",
-                "shadow-[0_8px_24px_rgba(0,0,0,0.5),_0_1px_0_rgba(255,220,170,0.18)_inset,_0_0_0_0.5px_hsla(var(--pv-id-hue),70%,55%,0.2),_0_0_32px_hsla(var(--pv-id-hue),70%,52%,0.18)]",
-              ),
         )}
       >
         {!isUser && (

@@ -7,7 +7,7 @@ import { useSpeakPlayback } from "./useSpeakPlayback";
 import { addressingFor, partyForAddressee, previewLine, type RelayParty } from "./relay-addressing";
 import { useViewingUserMxid } from "@/state/viewing-user-store";
 import { useRelayRoomMembers } from "./relay-room-members";
-import { RelayChatBubble, RelayDmCard } from "./RelayBubbleParts";
+import { RelayChatBubble, RelayDmCard, RelayToYouBubble } from "./RelayBubbleParts";
 
 // RelayOutboundBubble — a relay message this pane's agent sent. Harness view
 // renders a folded RelayDmCard ("Aster → Tina [DM]"). The recipient comes
@@ -91,7 +91,7 @@ export function RelayOutboundBubble({
     body !== null ? (
       body
     ) : (
-      <div className="text-xs italic text-[rgba(232,228,216,0.5)] whitespace-normal">
+      <div className="text-xs italic text-[color:var(--k-t3)] whitespace-normal">
         {sender.name} sent a message here, but its text couldn't be shown.
       </div>
     );
@@ -101,6 +101,16 @@ export function RelayOutboundBubble({
       <RelayChatBubble testIdPrefix="relay-outbound" sender={sender} ts={ts} speak={speak}>
         {content}
       </RelayChatBubble>
+    );
+  }
+
+  const failed = result && !result.ok ? result.error ?? "the send failed" : null;
+  // A message to the user is read in place — never folded behind a header.
+  if (addressing.kind === "dm" && addressing.to.you && !failed) {
+    return (
+      <RelayToYouBubble testIdPrefix="relay-outbound" sender={sender} ts={ts} speak={speak}>
+        {content}
+      </RelayToYouBubble>
     );
   }
 
@@ -114,7 +124,7 @@ export function RelayOutboundBubble({
       open={open}
       onToggle={() => setOpen((v) => !v)}
       speak={speak}
-      failed={result && !result.ok ? result.error ?? "the send failed" : null}
+      failed={failed}
     >
       {content}
     </RelayDmCard>

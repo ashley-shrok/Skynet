@@ -113,25 +113,11 @@ export function OutboundBubble({
         // in the future.
         className={cn(
           "pv-bubble",
-          // Phase 4 Glass: raised-object bubble treatment.
-          "max-w-[90%] [overflow-wrap:anywhere] text-sm leading-relaxed",
-          "rounded-[var(--radius-pv-bubble)]",
-          "px-[12px] py-[7px]",
-          "border border-white/[0.08]",
-          "shadow-[0_8px_24px_rgba(0,0,0,0.5),_0_1px_0_rgba(255,255,255,0.12)_inset,_0_0_0_0.5px_rgba(255,255,255,0.05)]",
-          // Prose scaffolding preserved for parity with ChatMessage's
-          // user-branch rendering — the OutboundBubble renders plain text but the
-          // typography classes ensure any future switch to markdown flow
-          // gets ChatMessage-parity treatment for free.
-          "prose prose-sm max-w-[90%]",
-          "[&>*:first-child]:mt-0 [&>*:last-child]:mb-0",
-          // User-branch gradient (VERBATIM copy from ChatMessage.tsx L466-476
-          // per D-13 — user is always user, no per-pane variation).
-          "bg-[linear-gradient(160deg,rgba(35,51,90,0.55),rgba(21,32,62,0.6))]",
-          "text-[#dfe3ee]",
-          "border-[rgba(120,140,180,0.2)]",
-          "shadow-[0_8px_24px_rgba(0,0,0,0.5),_0_1px_0_rgba(255,255,255,0.1)_inset,_0_0_0_0.5px_rgba(120,140,180,0.15)]",
-          "dark:prose-invert",
+          // Your own message in a relay room: the same neutral bubble as in an
+          // agent conversation (conversation.css .pv-bubble-user).
+          "pv-bubble-user",
+          "[overflow-wrap:anywhere]",
+          "prose prose-invert max-w-none",
         )}
       >
         {attachments && attachments.length > 0 ? (

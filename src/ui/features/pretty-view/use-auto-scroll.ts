@@ -111,6 +111,10 @@ export interface UseAutoScrollResult {
   scrollRef: (el: HTMLElement | null) => void;
   jumpToBottom: () => void;
   onSendFired: () => void;
+  /** The view scrolled itself to show something (not the user): measure and
+   *  let the machine leave at-bottom exactly as a user scroll would, so it
+   *  doesn't chase back to the bottom. */
+  noteScrolledAway: () => void;
   mode: Mode;
   revealed: boolean;
 }
@@ -443,5 +447,11 @@ export function useAutoScroll(paneKey: string): UseAutoScrollResult {
     dispatch({ kind: "send-fired" });
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  return { scrollRef, jumpToBottom, onSendFired, mode, revealed };
+  const noteScrolledAway = useCallback(() => {
+    const el = scrollElRef.current;
+    if (!el) return;
+    dispatch({ kind: "user-input", distanceFromBottom: computeDistance(el), isTouch: false });
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  return { scrollRef, jumpToBottom, onSendFired, noteScrolledAway, mode, revealed };
 }

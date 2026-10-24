@@ -279,7 +279,7 @@ function AgentBadgeCell({
 // inter-cell gap. Cells shrunk to content below AND gap bumped to 13px
 // per user's live-snippet tasting.
 const ROOT_ANCHOR_CLASS =
-  "absolute top-4 right-5 z-[101] flex flex-row-reverse items-start gap-[13px]";
+  "absolute top-3 right-5 z-[101] flex flex-row-reverse items-start gap-2";
 
 // Phase 97 Finding 4/5 UAT follow-up (2026-09-10): the participant cell
 // wrappers were `h-[N] w-[220px]` with `IdentityBadge` absolute-positioned
@@ -294,8 +294,8 @@ const ROOT_ANCHOR_CLASS =
 // breathe overlay stays anchored to the badge)/top/right/z-index so the badge participates in its parent's flex-col flow).
 const CELL_BASE_CLASS =
   "relative shrink-0 flex flex-col items-center " +
-  "[&_.pv-identity-breathe]:relative [&_.pv-identity-breathe]:top-auto " +
-  "[&_.pv-identity-breathe]:right-auto [&_.pv-identity-breathe]:z-auto";
+  "[&_.pv-identity-badge]:relative [&_.pv-identity-badge]:top-auto " +
+  "[&_.pv-identity-badge]:right-auto [&_.pv-identity-badge]:z-auto";
 
 export function MultiBadgeAnchor({
   participants,

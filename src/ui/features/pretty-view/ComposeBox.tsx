@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createLogDedup } from "@/lib/log-dedup";
-import { AudioLines, Ban, Check, LoaderCircle, Mic, MicOff, Paperclip, Pause, Plus, RefreshCw, RotateCcw, Square, ThumbsUp, Volume2, X } from "lucide-react";
+import { AudioLines, Ban, Check, LoaderCircle, Mic, MicOff, Paperclip, Pause, Plus, RefreshCw, Square, ThumbsUp, Volume2, X } from "lucide-react";
 import { Button } from "@/components/button";
 import { Textarea } from "@/components/textarea";
 import { cn } from "@/lib/utils";
@@ -35,6 +35,7 @@ import { MicButton } from "./MicButton";
 import { SkillActionsButton } from "./SkillActionsButton";
 import { RecordingControls } from "./RecordingControls";
 import { HoldFeedbackPill, type HoldFeedback } from "./HoldFeedbackPill";
+import { MemoryGauge, memoryBand } from "./MemoryGauge";
 import { appendVoiceLabel } from "./voice-label";
 
 // Compose-and-send box for the pretty view.
@@ -137,28 +138,6 @@ function composeDraftLsKey(
   const user = getCurrentUser() ?? "__anon";
   return `skynet:compose-draft:${user}:${hostId}:${tmuxSessionKey ?? ""}`;
 }
-
-// Patch #83: segmented meter well with integrated reset cell (one instrument).
-// Phase 9 (09-02): rotated 90° from vertical (28px wide × stretched-tall)
-// to horizontal (160px wide × 28px tall). Segments now fill LEFT→RIGHT;
-// index 0 = leftmost = lowest context %; index SEG_COUNT-1 = rightmost =
-// highest %. The reset cell is now the LEFTMOST cell (was BOTTOMMOST).
-// Drain sweep empties RIGHT→LEFT (rightmost dims first, leftmost last).
-// See UI-SPEC.md § Interaction Contract → Drain-Sweep Animation.
-//
-// SEG_COUNT = 12 (back to the pre-patch-#89 count, per prototype 2026-07-22).
-// Patch #89 bumped 12 → 11 to fix sub-pixel rounding artifacts at ~2.5px/
-// segment in the vertical well. The horizontal orientation at 160px removes
-// that concern: 160px / 12 segments ≈ 13px/segment — no rounding hazard.
-// user endorsed 12 segments in prototype review (UI-SPEC.md § Segment Count).
-//
-// `litCount = round(contextPct / 100 * SEG_COUNT)` — segments 0..litCount-1 are
-// lit, litCount..SEG_COUNT-1 are dim. Color bands by position:
-// green (< 45%), amber (45-77%), red (≥ 78%).
-//
-// CSS custom properties `--seg-count` and `--meter-width` are set on the
-// meter well's inline style for live DevTools tuning without a rebuild.
-const SEG_COUNT = 12;
 
 // ============================================================================
 // Quick 260823-8ji: attachment-path outcome-failure → user-facing string.
@@ -291,6 +270,9 @@ export interface ComposeBoxProps {
   // When omitted the button does not render — read-only PrettyView
   // callers stay clean.
   onInterrupt?: () => void;
+  // The agent is working (PrettyView's working-indicator condition). The
+  // composer's main button is Stop then, while nothing is typed.
+  agentWorking?: boolean;
   // shape-interrupt-button: true while a send is still being delivered (its
   // message has not landed in the transcript yet) — there is nothing in the
   // harness to stop or cancel, so the button is greyed out. Static look only:
@@ -664,14 +646,6 @@ const INTERRUPT_FEEDBACK_LABEL: Record<InterruptFeedback, string> = {
   failed: "Failed",
 };
 
-// Same dark blue-gray Glass treatment as the Stop / ThumbsUp aux buttons.
-const AUX_BUTTON_CLASS = cn(
-  "bg-[linear-gradient(160deg,hsla(218,25%,22%,0.85),hsla(218,25%,14%,0.9))]",
-  "text-[color:var(--color-pv-fg)]",
-  "border-[hsla(218,35%,55%,0.35)]",
-  "shadow-[0_4px_12px_rgba(0,0,0,0.6),inset_0_2px_0_rgba(220,225,245,0.3),0_0_24px_hsla(218,40%,55%,0.3)]",
-);
-
 /**
  * Voice-mode toggle in the aux-button row (2026-10-09, replaced the mic
  * long-press + status pill). Off: an icon button that starts voice mode. On:
@@ -706,23 +680,18 @@ function VoiceModeButton({
 }) {
   if (phase === "off") {
     return (
-      <Button
-        size="icon-sm"
-        variant="secondary"
+      <button
+        type="button"
+        className="pv-cbtn"
         onClick={onStart}
         disabled={disabled}
         aria-label="Start voice mode"
         title={disabled && disabledTitle ? disabledTitle : "Start voice mode"}
         data-testid="voice-mode-button"
         data-phase="off"
-        className={cn(
-          "cursor-pointer max-md:size-9 [&_svg]:max-md:size-[1.125rem]",
-          AUX_BUTTON_CLASS,
-          "hover:brightness-110",
-        )}
       >
-        <AudioLines className="size-4" />
-      </Button>
+        <AudioLines aria-hidden="true" />
+      </button>
     );
   }
   const busy = phase === "starting" || phase === "transcribing";
@@ -743,25 +712,21 @@ function VoiceModeButton({
     <div
       data-testid="voice-mode-button"
       data-phase={phase}
-      data-muted={muted ? "true" : undefined}
-      className={cn(
-        "flex h-7 max-md:h-9 items-center gap-0.5 rounded-[6px] border pl-1.5 pr-0.5 text-xs whitespace-nowrap",
-        AUX_BUTTON_CLASS,
-      )}
-      style={{ color: showMuted ? MUTED_COLOR : VOICE_MODE_COLOR[phase] }}
+      className="pv-voice-chip"
+      style={{ color: VOICE_MODE_COLOR[phase] }}
     >
       <button
         type="button"
-        onClick={speaking ? onSkip : undefined}
-        disabled={!speaking}
-        aria-label={speaking ? "Skip speech" : undefined}
-        title={speaking ? "Skip" : undefined}
-        className="flex items-center gap-1.5 rounded px-0.5 py-1 enabled:cursor-pointer enabled:hover:bg-[rgba(220,225,245,0.12)] disabled:cursor-default"
+        onClick={speaking ? onSkip : muted || done ? onTalk : undefined}
+        disabled={!speaking && !muted && !done}
+        aria-label={speaking ? "Skip speech" : muted ? "Talk" : done ? "Done talking" : undefined}
+        title={
+          speaking ? "Skip" : muted ? "Talk (or press play on your headphones)" : done ? "Done — send and turn the mic off" : undefined
+        }
       >
         <Glyph
           aria-hidden="true"
           className={cn(
-            "size-4",
             busy && "animate-spin",
             (phase === "hearing" || speaking) && "animate-pulse",
           )}
@@ -788,9 +753,8 @@ function VoiceModeButton({
         onClick={onStop}
         aria-label="End voice mode"
         title="End voice mode"
-        className="flex items-center rounded p-1 opacity-70 cursor-pointer hover:opacity-100 hover:bg-[rgba(220,225,245,0.12)]"
       >
-        <X aria-hidden="true" className="size-3.5" />
+        <X aria-hidden="true" />
       </button>
     </div>
   );
@@ -806,13 +770,9 @@ function InterruptFeedbackChip({ feedback }: { feedback: InterruptFeedback }) {
     <div
       data-testid="interrupt-feedback"
       data-feedback={feedback}
-      className={cn(
-        "flex h-7 max-md:h-9 items-center gap-1.5 rounded-[6px] border px-2 text-xs whitespace-nowrap",
-        AUX_BUTTON_CLASS,
-        feedback === "nothing" || feedback === "failed" ? "opacity-80" : undefined,
-      )}
+      className="pv-cchip"
     >
-      <Glyph aria-hidden="true" className={cn("size-4", feedback === "stopping" && "animate-spin")} />
+      <Glyph aria-hidden="true" className={cn(feedback === "stopping" && "animate-spin")} />
       <span aria-hidden="true">{INTERRUPT_FEEDBACK_LABEL[feedback]}</span>
     </div>
   );
@@ -832,6 +792,7 @@ export function ComposeBox({
   identityName,
   onGoodToGo,
   onInterrupt,
+  agentWorking,
   interruptDisabled,
   interruptFeedback,
   restoreRequest,
@@ -1021,6 +982,7 @@ export function ComposeBox({
   // rather than at click-time, so the cell reads as "flushing the well
   // through itself" rather than a naked hover flash.
   const [isDraining, setIsDraining] = useState(false);
+  const heldPctRef = useRef<number | null>(null);
   const [isPulsing, setIsPulsing] = useState(false);
   const drainEndTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pulseOnTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -1524,12 +1486,6 @@ export function ComposeBox({
     };
   }, []);
 
-  // Patch #83: how many meter-well segments should be lit right now.
-  // Null contextPct → 0 (well mounts all-dim so the row geometry is
-  // stable, and role="meter"'s aria-valuenow stays undefined so
-  // assistive tech reports "unknown" rather than "0%").
-  const litCount =
-    contextPct != null ? Math.round((contextPct / 100) * SEG_COUNT) : 0;
 
   // Clear body local state and persisted body draft after a successful primary send.
   // Best-effort: the PUT is fire-and-forget; the 10s retry loop will recover if
@@ -2416,72 +2372,99 @@ export function ComposeBox({
   // it retains its existing RecordingControls swap behavior.
   const showRecordingControls = isPrimaryRecording && !primaryHold.holdInitiatedRef.current;
 
-  // Layout: 2-row shell per UI-SPEC.md § Layout Contract (Phase 9 / 09-01).
-  //
-  //   Row 3 — chip strip (ephemeral): AttachmentChipStrip mounts above Row 1
-  //            when stagedAttachments.length > 0; component returns null when
-  //            empty so no conditional wrapper needed here (UPLOAD-04).
-  //   Retry button — conditional, transient: surfaces above chip strip when
-  //            at least one chip is in error state.
-  //   Row 1 — instrument bar (~32px): meter well (reset cell + segments),
-  //            flex-1 spacer (reserves room for future top-row buttons),
-  //            aux button group (paperclip conditional, ThumbsUp, Queue).
-  //   Row 2 — compose bar: textarea (flex-1, auto-grows 1→6 rows) + Send.
-  //            items-end so Send pins to the textarea's bottom edge as the
-  //            textarea grows.
-  //   Error text — conditional, below Row 2.
+  // Layout (shape-conversation-view): one card — the text on top, every
+  // control on one row under it. Left: attach, skills (harness only), and the
+  // recording chip while dictating. Right: agent memory, voice mode, the mic,
+  // and the round main button, which does the likely next thing — Send while
+  // there's something to send, Stop while the agent works, otherwise 👍
+  // (Resume while an aside is up). With text typed, 👍 (or Stop) steps aside
+  // as a quiet button next to Send so a thumbs-up never needs the draft
+  // cleared. Relay rooms get only the mic and Send.
+  const harness = mode !== "relay";
+  const hasDraft = text.trim() !== "" || hasAttachments || showTranscribingSend;
+  const working = agentWorking === true;
+  const quickDisabled = asideActive === true || recycleActive === true || reconnectingActive === true;
+  const mainAction: "resume" | "send" | "stop" | "thumbs" = asideActive
+    ? "resume"
+    : hasDraft || !harness
+      ? "send"
+      : working && onInterrupt
+        ? "stop"
+        : "thumbs";
+  const asideAction: "stop" | "thumbs" | null =
+    mainAction !== "send" || !harness ? null : working && onInterrupt ? "stop" : "thumbs";
+  // Mic open on this composer (a transcript round-trip is not "recording":
+  // Send shows its spinner then).
+  const recordingHere = voice.state === "starting" || voice.state === "recording";
+  // The card's red edge follows the memory pie, which holds its last reading
+  // through brief dropouts — hold it here the same way.
+  if (isDraining || isHolding === true) heldPctRef.current = null;
+  else if (contextPct != null) heldPctRef.current = contextPct;
+
+  const fireInterrupt = () => {
+    const now = Date.now();
+    if (now - interruptLastFireRef.current < INTERRUPT_THROTTLE_MS) {
+      // Silent no-op — double-tap guard.
+      return;
+    }
+    interruptLastFireRef.current = now;
+    onInterrupt?.();
+  };
+  const fireThumbs = () => {
+    onGoodToGo?.();
+    handleQuickSend("thumbs up");
+  };
+  const renderAction = (action: "stop" | "thumbs", main: boolean) =>
+    action === "stop" ? (
+      interruptFeedback ? (
+        <InterruptFeedbackChip key="stop" feedback={interruptFeedback} />
+      ) : (
+        <button
+          key="stop"
+          type="button"
+          className="pv-cbtn"
+          data-main={main ? "true" : undefined}
+          data-action="stop"
+          disabled={interruptDisabled === true}
+          onClick={fireInterrupt}
+          aria-label="Interrupt"
+          title="Stop"
+        >
+          <Square aria-hidden="true" />
+        </button>
+      )
+    ) : (
+      <button
+        key="thumbs"
+        type="button"
+        className="pv-cbtn"
+        data-main={main ? "true" : undefined}
+        data-action="thumbs"
+        onClick={fireThumbs}
+        disabled={quickDisabled}
+        aria-label="Send 'thumbs up'"
+        title="Send 'thumbs up'"
+      >
+        <ThumbsUp aria-hidden="true" />
+      </button>
+    );
+
   return (
     <div
       ref={composeRootRef}
-      className={cn(
-        // Patch #181: identifies the compose root for the delegated
-        // pointerdown listener (see the useEffect above) that adds a
-        // 250ms `.pv-btn-pressed` window to any button tapped inside.
-        // CSS styles live in src/ui/index.css.
-        "pv-composebox",
-        // Same centered column as PrettyView's message list, so the
-        // compose box lines up under the bubbles on wide panes.
-        "w-full max-w-[860px] mx-auto",
-        // Phase 4 Glass: QUIET compose surround (VISUAL-06) — still no
-        // card, no border, no hard separator; compose does NOT compete
-        // with the chat above for attention. But the previous
-        // pure-black low-alpha gradient (rgba(0,0,0,0.15/0.3)) read as
-        // FLAT SOLID BLACK against every other pretty-view surface
-        // (chat bubbles, panels, badges — all warm-glass). This
-        // revision (patch #79) gives compose the same warm-glass
-        // character as the rest of pretty view: a warm-dark tint
-        // (rgba(38,30,18)/rgba(20,15,8) instead of rgba(0,0,0)) so it
-        // reads as "warm shelf darker than the pane" rather than "hole
-        // in the pane," plus a very faint warm-cream 1px inset top
-        // highlight — the same glass-rim trick used at high alpha on
-        // the send button and at low alpha elsewhere. Deepened top
-        // inset shadow reinforces the shelf depth. Result: textured,
-        // dimensional, but still quiet.
-        "flex flex-col gap-1 px-2 pt-2 pb-[var(--kb-safe-bottom,env(safe-area-inset-bottom))] md:pb-2 shrink-0",
-        // Patch #82 palette shift: warm-brown → cool blue-black to
-        // match the mock. RGB polarity flipped (was R>G>B, now B>R>G)
-        // with the same alpha structure so the shelf still reads at
-        // the same visual weight. Warm-cream inset rim shifted to
-        // cool-cream (220,225,245) to match.
-        "bg-[linear-gradient(180deg,rgba(28,30,40,0.55),rgba(18,20,28,0.62))]",
-        "shadow-[inset_0_1px_0_rgba(220,225,245,0.06),_inset_0_2px_12px_rgba(0,0,0,0.4)]",
-        className,
-      )}
+      // Patch #181: `.pv-composebox` also identifies the compose root for the
+      // delegated pointerdown listener (see the useEffect above) that adds a
+      // 250ms `.pv-btn-pressed` window to any button tapped inside.
+      className={cn("pv-composebox", className)}
+      data-mode={mode}
+      data-touch={isTouchDevice === true ? "true" : undefined}
+      data-memory={harness ? memoryBand(heldPctRef.current) : undefined}
     >
-      {holdFeedback && <HoldFeedbackPill {...holdFeedback} readLevel={voice.readLevel} />}
-      {/* Quick 260802-wxy: chip strip relocated INSIDE the primary textarea
-          wrapper (see the wrapper block at line ~2009 below). Previously
-          rendered as a Row-3 sibling above Row 1; now overlaid absolutely at
-          the top of the textarea so chips visually attach to the message
-          being composed. The retry affordance below STAYS at this Row-3
-          location — it is a compose-level control, not a per-textarea one. */}
-      {/* Phase 05: retry affordance surfaces only when at least one
-          chip is in the error state. Clicking re-issues the upload
-          batch via the parent hook's retryBatch. Kept in-flow (not
-          floating) so it lives inside the ComposeBox chrome and
-          shares its Glass treatment. */}
+      {/* Phase 05: retry affordance surfaces only when at least one chip is
+          in the error state. Clicking re-issues the upload batch via the
+          parent hook's retryBatch. */}
       {hasErroredChip && onRetryBatch && (
-        <div className="px-1">
+        <div className="px-1 pt-1">
           <Button
             type="button"
             size="xs"
@@ -2496,9 +2479,7 @@ export function ComposeBox({
           </Button>
         </div>
       )}
-      {/* Phase 05: hidden file input driven by the paperclip. Kept
-          outside the row wrappers so it doesn't leak flex sizing;
-          `hidden` keeps it out of tab order and layout entirely. */}
+      {/* Phase 05: hidden file input driven by the paperclip. */}
       <input
         ref={fileInputRef}
         type="file"
@@ -2509,340 +2490,10 @@ export function ComposeBox({
         aria-hidden="true"
         tabIndex={-1}
       />
-      {/* Row 1 — instrument bar: meter well + spacer + aux buttons.
-          Touch-target height is gated on `isTouchDevice` (patch #102's
-          touch discriminator: pointer:coarse + hover:none) — min-h-[44px]
-          satisfies WCAG 2.5.5, min-h-8 matches Row 2's rest height on
-          desktop. Paperclip visibility is a SEPARATE concern gated on
-          `showPaperclip`. Patch #123 decoupled the two: `showPaperclip`
-          used to double as the height proxy, which prevented desktop
-          from opting into the paperclip without also inheriting the
-          chunky 44px row.
-
-          Phase 93 D-11: entire Row 1 subtree is hidden monolithically
-          when `mode === "relay"`. Row 2 (below) stays byte-identical
-          (D-12). Default mode is "harness" — harness case renders Row 1
-          unchanged. */}
-      {mode !== "relay" && (
-      <div data-testid="compose-row-1" className={cn("flex items-center gap-2 mb-[3px]", isTouchDevice ? "min-h-[44px]" : "min-h-8")}>
-        {/* Patch #83: cohesive segmented-well meter with integrated reset
-            cell (one instrument). The well ALWAYS mounts (segments show
-            dim when contextPct is null so the row geometry never jitters
-            on first attach).
-            Phase 9 (09-02): rotated 90° to horizontal. Segments fill
-            LEFT→RIGHT (index 0 = leftmost = lowest %; index SEG_COUNT-1 =
-            rightmost = highest %). Reset cell is now the LEFTMOST cell.
-            Drain sweep empties RIGHT→LEFT (rightmost dims first, leftmost
-            dims last — "flushing the well toward the reset cell").
-            SEG_COUNT bumped 11→12 per prototype 2026-07-22 (horizontal
-            orientation moots patch #89's sub-pixel concern at ~13px/seg).
-            CSS vars `--seg-count` and `--meter-width` expose tuning via
-            DevTools without a rebuild. */}
-        <div
-          className="self-stretch w-[var(--meter-width)] min-w-0 rounded-md flex flex-row p-[3px] bg-[rgba(10,12,20,0.6)] border border-[rgba(220,225,245,0.1)] shadow-[inset_0_2px_6px_rgba(0,0,0,0.55),_0_1px_0_rgba(220,225,245,0.05)]"
-          style={{"--seg-count": SEG_COUNT, "--meter-width": "12rem"} as React.CSSProperties}
-          role="meter"
-          aria-label="Context window"
-          aria-valuemin={0}
-          aria-valuemax={100}
-          aria-valuenow={contextPct ?? undefined}
-          title={
-            contextPct != null ? `Context ${contextPct}%` : "Context (unknown)"
-          }
-        >
-          {/* Phase 9 UAT fix (user 2026-07-22): Reset cell moved BEFORE
-              segments so it renders as the LEFTMOST cell of the flex-row
-              well (was rendering rightmost because 09-02 kept the original
-              flex-col child order after flipping to flex-row — segments-
-              then-reset which used to be top-then-bottom now became left-
-              then-right). Divider stays between them. */}
-          <button
-            type="button"
-            onClick={handleResetClick}
-            disabled={canSend === false || asideActive === true || recycleActive === true || reconnectingActive === true || voice.state === "transcribing"}
-            aria-label="Reset context window"
-            title="Reset context window"
-            className={cn(
-              "h-full w-6 rounded-[2px] border-0 flex items-center justify-center p-0 cursor-pointer",
-              "transition-[background,box-shadow,color] duration-[180ms]",
-              "disabled:opacity-40 disabled:cursor-not-allowed",
-              isPulsing
-                ? [
-                    "bg-[linear-gradient(90deg,hsla(155,45%,52%,1),hsla(155,45%,42%,1))]",
-                    "shadow-[0_0_8px_hsla(155,45%,45%,0.6),_inset_0_0_3px_rgba(220,255,235,0.4)]",
-                    "text-[#f0f8f4]",
-                  ]
-                : [
-                    "bg-[hsla(155,35%,20%,0.5)]",
-                    "shadow-[inset_0_0_3px_rgba(0,0,0,0.4)]",
-                    "text-[rgba(220,255,235,0.55)]",
-                    !isDraining &&
-                      "hover:bg-[linear-gradient(90deg,hsla(155,45%,52%,1),hsla(155,45%,42%,1))]",
-                    !isDraining &&
-                      "hover:shadow-[0_0_8px_hsla(155,45%,45%,0.6),_inset_0_0_3px_rgba(220,255,235,0.4)]",
-                    !isDraining && "hover:text-[#f0f8f4]",
-                  ],
-            )}
-          >
-            <RotateCcw className="size-3.5" />
-          </button>
-          <div className="w-px mx-[3px] h-full bg-[rgba(220,225,245,0.09)] shadow-[0_1px_0_rgba(0,0,0,0.55)]" />
-          {/* Segments: flex-row so index 0 renders at the LEFT of the
-              well and index SEG_COUNT-1 at the RIGHT. Phase 9 (09-02)
-              rotation from flex-col-reverse (vertical) to flex-row
-              (horizontal). transitionDelay = (SEG_COUNT - 1 - i) * 35ms
-              so the rightmost segment (i=SEG_COUNT-1) gets 0ms (dims
-              first) and leftmost (i=0) gets the longest delay (dims last)
-              — reads as a right→left drain sweep toward the reset cell.
-              Segment width uses the same explicit-calc-per-segment idiom
-              as patch #89's height fix, but now on the horizontal axis
-              (13px/seg at 160px/12 — no sub-pixel concern).
-
-              Phase 9 UAT fix (user 2026-07-22): color mode is now
-              UNIFORM by current-band, not per-position. All lit segments
-              wear the color of contextPct's band (green <45, amber 45-77,
-              red ≥78). Unlit segments wear a neutral warm-dim. Matches
-              the prototype behavior user endorsed. */}
-          <div className="flex flex-row gap-[2px] min-w-[100px] flex-1 h-full">
-            {Array.from({ length: SEG_COUNT }, (_, i) => {
-              // Band from contextPct (was: from per-segment posPct).
-              const band =
-                contextPct == null
-                  ? "green"
-                  : contextPct >= 78
-                    ? "red"
-                    : contextPct >= 45
-                      ? "amber"
-                      : "green";
-              const litGreenBg =
-                "linear-gradient(90deg, hsla(155,45%,52%,1), hsla(155,45%,42%,1))";
-              const litAmberBg =
-                "linear-gradient(90deg, hsla(38,75%,55%,1), hsla(38,75%,45%,1))";
-              const litRedBg =
-                "linear-gradient(90deg, hsla(0,72%,55%,1), hsla(0,72%,42%,1))";
-              const litGreenShadow =
-                "0 0 5px hsla(155,45%,45%,0.5), inset 0 0 2px rgba(220,255,235,0.45)";
-              const litAmberShadow =
-                "0 0 5px hsla(38,75%,55%,0.55), inset 0 0 2px rgba(255,240,200,0.5)";
-              const litRedShadow =
-                "0 0 6px hsla(0,72%,55%,0.7), inset 0 0 2px rgba(255,220,200,0.5)";
-              // Phase 9 UAT fix (user 2026-07-22): single neutral dim
-              // for all unlit segments (was per-position dim-green/amber/
-              // red). Matches prototype where the well reads as ONE color
-              // per moment, not three-tones-at-once.
-              const dimNeutralBg = "hsla(0,0%,100%,0.06)";
-              // Patch #122: during session recycle (`isHolding` from
-              // PrettyView, flipped synchronously by the meter well's own
-              // Reset click or by the backend `session_holding` WS frame),
-              // lock every segment to unlit so the well reads as `powered
-              // but empty`. The well container, border, glow, and reset-
-              // cell styling stay intact — only the per-segment lit branch
-              // flips off.
-              const isLit =
-                typeof contextPct === "number" &&
-                i < litCount &&
-                !isDraining &&
-                !isHolding;
-              let background: string;
-              let boxShadow: string;
-              if (isLit) {
-                background =
-                  band === "red"
-                    ? litRedBg
-                    : band === "amber"
-                      ? litAmberBg
-                      : litGreenBg;
-                boxShadow =
-                  band === "red"
-                    ? litRedShadow
-                    : band === "amber"
-                      ? litAmberShadow
-                      : litGreenShadow;
-              } else {
-                background = dimNeutralBg;
-                boxShadow = "none";
-              }
-              return (
-                <div
-                  key={i}
-                  className="rounded-[1.5px] transition-[background,box-shadow] duration-[220ms] ease-out"
-                  style={{
-                    // Phase 9 (09-02): explicit calc width per segment,
-                    // same expression for all 12, mirroring patch #89's
-                    // height-calc fix but on the horizontal axis.
-                    // At 160px / 12 segs ≈ 13px/seg the sub-pixel round
-                    // concern that motivated #89's 11-seg odd-count is no
-                    // longer relevant. `flex: "0 0 auto"` disables
-                    // flex-grow/shrink so the explicit width is authoritative.
-                    // height: '100%' fills the well's 28px vertical dimension.
-                    width: `calc((100% - ${(SEG_COUNT - 1) * 2}px) / ${SEG_COUNT})`,
-                    height: '100%',
-                    flex: "0 0 auto",
-                    transitionDelay: `${(SEG_COUNT - 1 - i) * 35}ms`,
-                    background,
-                    boxShadow,
-                  }}
-                />
-              );
-            })}
-          </div>
-        </div>
-        {/* Spacer: reserves horizontal room for future top-row buttons
-            between the meter well and the aux group (UI-SPEC §
-            "fixed-width meter with future-buttons spacer"). Patch #83
-            placed RotateCcw in the meter's reset cell; patch #84 added
-            the Queue button in the aux group — this spacer is where the
-            NEXT batch of top-row controls will accumulate without
-            forcing the meter to shrink. aria-hidden so AT skips it. */}
-        <div className="flex-1" aria-hidden="true" />
-        {/* Aux-button group — Paperclip moved OUT to inside the Row 2
-            textarea (2026-07-30 vtk, mirroring Send on the LEFT); this
-            group hosts Stop, the skill-actions lightning bolt, and
-            ThumbsUp (the Recap button was removed 2026-10-08). Quick
-            260909-cdi retired the Queue-a-message ListPlus button from
-            this row — the queue-a-message affordance is now the pebble-
-            notch QueuePlusTab that rides on the topmost textarea's top
-            edge. Vehicle B (quick 260801-62m) stripped the /queue and
-            /bounty prefix-send buttons.
-            Patch #83 marker: RotateCcw lives in the meter's reset cell. */}
-        <div className="flex flex-row gap-1">
-          {/* Quick 260909-cdi: the aux-row Queue-a-message ListPlus button
-              was removed here. The queue-a-message affordance moved to a
-              pebble-notch plus-tab (QueuePlusTab) that rides on the top
-              edge of whichever textarea is currently topmost in the
-              compose stack — primary when queueSlots is empty; the first
-              QueuedRow (index 0) when slots exist. The tab's onClick
-              PREPENDS a new empty slot at index 0 (locality: click on top
-              adds on top). aria-label "Queue a message" is preserved on
-              the tab so existing selectors keep working. */}
-          {/* Patch #120: Stop button — safety valve for Ctrl-C into the
-              attached tmux session. Shares ThumbsUp's warm-neutral Glass
-              treatment (VISUAL-08 HARD LOCK — Send remains the sole
-              saturated-amber attention grab-point; Stop is a rarely-used
-              safety valve, quiet treatment is correct). NOT gated on
-              canSend — the stop button must be reachable even when the
-              WS is in a half-state; the parent's onInterrupt silently
-              no-ops on WS-not-ready. */}
-          {/* 2026-10-09: voice-mode toggle + status chip, left of Stop.
-              Harness panes only (voiceModeFeed is undefined in relay).
-              start() runs inside the click gesture (getUserMedia + audio). */}
-          {voiceModeFeed && (
-            <VoiceModeButton
-              phase={voiceMode.phase}
-              // voice.state: no second mic capture while dictating (iOS would
-              // end the manual recording's track).
-              disabled={
-                asideActive === true ||
-                recycleActive === true ||
-                reconnectingActive === true ||
-                manualRecordingAnywhere ||
-                (voiceMode.phase === "off" && voiceModeAnywhere)
-              }
-              disabledTitle={
-                voiceModeAnywhere ? VOICE_MODE_ON_TITLE : manualRecordingAnywhere ? MIC_RECORDING_TITLE : undefined
-              }
-              onStart={voiceMode.start}
-              onStop={voiceMode.stop}
-              onSkip={voiceMode.skipSpeech}
-              muted={voiceMode.muted}
-              onToggleMute={voiceMode.toggleMute}
-            />
-          )}
-          {onInterrupt && interruptFeedback && (
-            <InterruptFeedbackChip feedback={interruptFeedback} />
-          )}
-          {onInterrupt && !interruptFeedback && (
-            <Button
-              size="icon-sm"
-              variant="secondary"
-              disabled={interruptDisabled === true}
-              onClick={() => {
-                const now = Date.now();
-                if (now - interruptLastFireRef.current < INTERRUPT_THROTTLE_MS) {
-                  // Silent no-op — double-tap guard.
-                  return;
-                }
-                interruptLastFireRef.current = now;
-                onInterrupt?.();
-              }}
-              aria-label="Interrupt"
-              title="Interrupt"
-              className={cn(
-              "cursor-pointer max-md:size-9 [&_svg]:max-md:size-[1.125rem]",
-              // Same dark blue-gray treatment as the mobile back-to-list
-              // button (AppShell.tsx:1651-1654, patch #272). Hue 218 at
-              // 25% sat — "part of the scheme" per user, ambient chrome
-              // that doesn't compete with blue-190 CTAs.
-              AUX_BUTTON_CLASS,
-              "hover:brightness-110 hover:shadow-[0_6px_16px_rgba(0,0,0,0.65),inset_0_2px_0_rgba(220,225,245,0.35),0_0_28px_hsla(218,40%,55%,0.4)]",
-            )}
-            >
-              <Square className="size-4" />
-            </Button>
-          )}
-          {/* Mounted for as long as the button is, so screen readers hear
-              "Stopping" too — a live region created along with its text is
-              often not announced. */}
-          {onInterrupt && (
-            <span role="status" aria-live="polite" className="sr-only">
-              {interruptFeedback ? INTERRUPT_FEEDBACK_LABEL[interruptFeedback] : ""}
-            </span>
-          )}
-          {/* Phase 4 Glass: ThumbsUp adopts the mock's `.pv-icon-btn`
-              quiet treatment (warm-neutral gradient + hue-tinted hover
-              glow). Send gets a saturated warm-AMBER treatment (fixed
-              hue 38°) — VISUAL-08 HARD LOCK: send is the ONE compose
-              attention grab-point AND it's the USER's button, so it
-              deliberately does NOT wear the assistant's identity hue.
-              Kept vibrant (90% sat + brighter hover) so it still
-              dominates the composer visually. */}
-          {/* Skill-actions menu (shape skill-action-menu): lightning bolt
-              left of ThumbsUp — a skill fires through the same quick-send
-              path, same disabled gates. Renders nothing until the host is
-              known to have skills; never in relay panes. */}
-          <SkillActionsButton
-            hostId={hostId}
-            enabled={mode === "harness"}
-            disabled={asideActive === true || recycleActive === true || reconnectingActive === true}
-            onFire={(skillName) => { onGoodToGo?.(); handleQuickSend(`/${skillName}`); }}
-            buttonClassName={cn(
-              "cursor-pointer max-md:size-9 [&_svg]:max-md:size-[1.125rem]",
-              AUX_BUTTON_CLASS,
-              "hover:brightness-110 hover:shadow-[0_6px_16px_rgba(0,0,0,0.65),inset_0_2px_0_rgba(220,225,245,0.35),0_0_28px_hsla(218,40%,55%,0.4)]",
-            )}
-          />
-          <Button
-            size="icon-sm"
-            variant="secondary"
-            onClick={() => { onGoodToGo?.(); handleQuickSend("thumbs up"); }}
-            disabled={asideActive === true || recycleActive === true || reconnectingActive === true}
-            aria-label="Send 'thumbs up'"
-            title="Send 'thumbs up'"
-            className={cn(
-              "cursor-pointer max-md:size-9 [&_svg]:max-md:size-[1.125rem]",
-              // Same dark blue-gray treatment as the mobile back-to-list
-              // button (AppShell.tsx:1651-1654, patch #272). Hue 218 at
-              // 25% sat — "part of the scheme" per user, ambient chrome
-              // that doesn't compete with blue-190 CTAs.
-              AUX_BUTTON_CLASS,
-              "hover:brightness-110 hover:shadow-[0_6px_16px_rgba(0,0,0,0.65),inset_0_2px_0_rgba(220,225,245,0.35),0_0_28px_hsla(218,40%,55%,0.4)]",
-            )}
-          >
-            <ThumbsUp className="size-4" />
-          </Button>
-        </div>
-      </div>
-      )}
-      {/* Bounty message-queue-in-pretty-view: queue-slot stack.
-          Renders between Row 1 and Row 2. Each slot is an independent
-          textarea with its own Send, Delete (X), and Mic button.
-          Slots stack vertically; newest at top, oldest at bottom
-          (adjacent to the primary Row 2 textarea below). Quick 260909-cdi
-          flipped the ordering — clicking the QueuePlusTab pebble-notch
-          prepends at index 0, so the tab that lives on the topmost
-          textarea's top edge rides up onto the freshly-inserted slot. */}
+      {/* Queued messages saved before "Queue a message" was retired still
+          show (and send) here; nothing adds new ones. */}
       {queueSlots.length > 0 && (
-        <div className="flex flex-col gap-2 mb-1">
+        <div className="pv-compose-queued">
           {queueSlots.map((slot, index) => (
             <QueuedRow
               key={slot.id}
@@ -2882,82 +2533,16 @@ export function ComposeBox({
           ))}
         </div>
       )}
-      {/* Phase 97 Finding 3 Step 2: relay-mode invisible Row 1 skeleton.
-          When Row 1 is hidden monolithically at L2334 (Phase 93 D-11),
-          the vertical envelope above Row 2 disappears — QueuePlusTab's
-          absolute `-top-N` offset (see L3167-3210) then clips against
-          the ComposeBox outer container edge because there's no
-          headroom above the primary wrapper (L2695). This peer sibling
-          reserves byte-identical vertical geometry to the Row 1 outer
-          envelope (same `mb-[3px]`, same `min-h-[44px]` / `min-h-8`
-          conditional on isTouchDevice) so the pebble rides with the
-          same headroom it has in harness mode. `aria-hidden="true"`
-          keeps it out of the a11y tree — it's pure visual scaffolding.
-          Option B from RESEARCH § Finding 3 (preserves geometry
-          byte-for-byte; cleaner than a `pt-N` on the wrapper). */}
-      {mode === "relay" && (
-        <div
-          data-testid="compose-row-1-relay-spacer"
-          aria-hidden="true"
-          // Phase 97 Finding 3 UAT follow-up (2026-09-10): initial ship
-          // used the same min-h envelope as Row 1 (`min-h-[44px]` on touch
-          // / `min-h-8` on desktop) — that overshot by ~3x since the
-          // QueuePlusTab pebble is `absolute top-[-12px]` and only needs a
-          // few px of clear headroom to visually seat above the compose
-          // outer edge. user live-tuned to 3px via console snippet; the
-          // touch branch is dropped (this is a visual spacer, not a touch
-          // target — the pebble has its own touch-friendly size).
-          className={cn("mb-[3px] min-h-[3px]")}
-        />
-      )}
-      {/* Row 2 — compose bar: textarea (flex-1, auto-grows 1→6 rows) +
-          Send button. items-end so Send pins to the textarea bottom edge
-          as the textarea grows. VISUAL-08 HARD LOCK on Send's amber
-          gradient — never change.
-          Phase 93 D-12: Row 2 is byte-identical between mode="harness"
-          and mode="relay" (only Row 1 + Paperclip differ). */}
-      <div data-testid="compose-row-2" className="flex items-end gap-2">
-        {/* Patch #84: textarea wrapper. The wrapper owns flex sizing
-            (`flex-1 self-stretch`) so the pending overlay can position
-            absolute-inset over the Textarea while the Textarea itself
-            fills the wrapper. `relative` is the positioning context for
-            the overlay. */}
-        <div className="relative flex-1 self-stretch" data-testid="compose-primary-wrapper">
-        {/* Quick 260909-cdi: QueuePlusTab — the pebble-notch plus-tab
-            affordance. Rides on the primary wrapper WHEN and only when
-            queueSlots is empty. When slots exist, the tab hops onto the
-            first QueuedRow's outer wrapper instead (see queueSlots.map
-            callsite below → QueuedRow renders it internally gated on
-            isTopmostInStack). Clicking prepends a new empty slot at
-            index 0. Placed BEFORE the chipStripRef div so it visually
-            sits on the topmost edge of the wrapper. */}
-        {queueSlots.length === 0 && (
-          <QueuePlusTab onAdd={handleAddSlotAtTop} />
-        )}
-        {/* Quick 260802-wxy: overlaid chip strip. Renders as an
-            absolutely-positioned child at the TOP of the wrapper (before
-            the Textarea) so it visually attaches to the message being
-            composed. AttachmentChipStrip returns null when the list is
-            empty (UPLOAD-04 mounting rule), so no wrapper conditional is
-            needed — the chipStripRef simply becomes null and the
-            useLayoutEffect resets chipStripHeight to 0, restoring the
-            Textarea's base padding. z-10 keeps chips above the Textarea
-            body; the Send button (right-1 bottom-0.5) and Paperclip
-            (left-1 bottom-0.5) sit at BOTTOM so they never collide with
-            the top-anchored chips. */}
+      <div className="pv-compose-field" data-testid="compose-primary-wrapper">
+        {/* Quick 260802-wxy: chip strip overlaid at the top of the field so
+            chips attach to the message being composed; the textarea's top
+            padding grows with the strip's measured height. Only captures
+            pointer events while it has chips. */}
         <div
           ref={chipStripRef}
           className={cn(
             "absolute top-0 left-0 right-0 z-10 px-2 pt-2",
-            // When no attachments are staged, AttachmentChipStrip returns null
-            // but this wrapper still renders — its `pt-2` creates an 8px
-            // invisible hit-box across the top of the compose wrapper. Same
-            // z-10 as the QueuePlusTab pebble; as the later sibling this div
-            // was winning the stack and swallowing hover on the pebble's
-            // in-wrapper half. Only capture events when the strip has content.
-            (stagedAttachments?.length ?? 0) === 0
-              ? "pointer-events-none"
-              : "pointer-events-auto",
+            (stagedAttachments?.length ?? 0) === 0 ? "pointer-events-none" : "pointer-events-auto",
           )}
         >
           <AttachmentChipStrip
@@ -2965,7 +2550,7 @@ export function ComposeBox({
             onRemove={onRemoveAttachment ?? (() => {})}
           />
         </div>
-        <Textarea
+        <textarea
           ref={textareaRef}
           value={text}
           onChange={(e) => handleTextChange(e.target.value)}
@@ -2975,197 +2560,73 @@ export function ComposeBox({
           enterKeyHint={isTouchDevice === true ? "enter" : "send"}
           placeholder="Write a message…"
           rows={1}
-          // Quick 260802-wxy: dynamic paddingTop grows with the overlaid
-          // chip strip's measured height so composed text never underlaps
-          // the chips. Base `py-3` (12px top) is preserved via the
-          // className below; this inline style only applies when at least
-          // one attachment is staged (chipStripHeight > 0). `+ 12`
-          // preserves the base 12px comfort gap between chips and text.
-          style={
-            chipStripHeight > 0
-              ? { paddingTop: `${chipStripHeight + 12}px` }
-              : undefined
-          }
-          // Phase 4 Glass: recessed textarea well (patch #81) +
-          // identity-hue focus ring (VISUAL-03/VISUAL-07). Fill is a
-          // warm-black rgba(15,10,5,0.42) — sits DEEPER than #79's
-          // warm-glass surround, so the textarea reads as a well
-          // pressed INTO the shelf, not a raised patch ON it. user
-          // 2026-07-19: at rest the textarea should not draw
-          // attention; focus IS the moment attention is wanted, so
-          // brightening on focus reads correctly against the darker
-          // resting state. The 1px warm-cream 7% border is now the
-          // SECONDARY affordance — the darker fill's contrast
-          // against the surround does the primary work of finding
-          // the textarea. Focus reveals a brightened warm-cream
-          // border + identity-hue outer glow — subtle grow-into-
-          // view, not a sudden pop. `focus-visible:ring-0` and
-          // `focus-visible:outline-none` disable the shadcn Textarea's
-          // default focus ring (`focus-visible:border-ring
-          // focus-visible:ring-ring/50 focus-visible:ring-[3px]`) so
-          // our own hue ring wins cleanly.
-          className={cn(
-            "resize-none w-full h-full",
-            // Phase 9 UAT fix (user 2026-07-22): shadcn Textarea base
-            // className carries `min-h-[80px]` (see textarea.tsx L12) —
-            // that's ~2.5 button-heights and floods any `rows={1}` prop
-            // regardless of value. `min-h-8!` (32px = one icon-sm button
-            // height) beats it via Tailwind v4 `!` important suffix, same
-            // #81-fix mechanism as the `bg-[...]!` below (shadcn base
-            // wraps a `dark:*` variant → specificity 0-2-0 → plain
-            // `min-h-8` at 0-1-0 loses without `!`). One-line rest;
-            // auto-grow to 6 rows still works via the useLayoutEffect above (patch #135).
-            "min-h-8!",
-            // Phase 97 UAT follow-up (2026-09-10): in relay mode, Row 1's
-            // vertical envelope is gone (spacer replaces it at 3px), so
-            // the compose region is compact and the 32px textarea reads
-            // as too short. Bumped to 44px at rest for relay mode only
-            // per user's live-tuned value. Harness untouched (never
-            // felt short — Row 1 buttons provide surrounding vertical
-            // envelope). tailwind-merge dedupes min-h-* to keep the
-            // later class → relay branch wins in relay mode.
-            mode === "relay" && "min-h-[44px]!",
-            // `!` (Tailwind v4 important suffix) is required on the bg
-            // arbitrary class: the shadcn `Textarea` wrapper's base
-            // className carries `dark:bg-input/30` (see
-            // src/ui/components/textarea.tsx), which compiles to the
-            // selector `.dark .dark\:bg-input\/30` — specificity 0-2-0.
-            // A plain arbitrary `.bg-\[rgba\(...\)\]` is only 0-1-0 and
-            // silently LOSES the cascade even though it appears later in
-            // the classList (tailwind-merge preserves both because the
-            // variant differs). `!` promotes ours to !important so it
-            // beats the dark: variant. Verified via a DOM diag snippet
-            // 2026-07-19: without `!`, computed bg was
-            // `oklab(1 0 0 / 0.045)` (dark:bg-input/30 winning); with
-            // `!` it resolves to rgba(15,10,5,0.42) as intended.
-            // Border does NOT need `!` — shadcn's base is plain
-            // `border-input` (no dark: variant → same specificity as
-            // ours → tailwind-merge dedupes → later class wins cleanly).
-            // Patch #82 palette shift: warm-black well → cool-black
-            // well (rgba(15,10,5) → rgba(10,12,20)), alpha bumped
-            // 0.42→0.5 to preserve visibility on the cool-tinted
-            // surround. Warm-cream border/focus glow shifted to
-            // cool-cream (220,225,245). `!` load-bearing on bg per
-            // #81-fix (see comment above).
-            "bg-[rgba(10,12,20,0.5)]! text-[#f0ebe0]",
-            "border border-[rgba(220,225,245,0.07)]",
-            "rounded-[10px] px-4 py-3",
-            // Patch #129: right padding reserves space for the
-            // inside-textarea Send button (24×24 icon in a 40×40 hit
-            // target at absolute right-1 bottom-0.5). Placed AFTER
-            // `px-4` so tailwind-merge's later-wins dedupe keeps the
-            // right padding while the 16px left padding survives.
-            // No `!` needed — no dark: variant conflict on padding.
-            // 2026-09-28: bumped 40px→48px so a long unbroken word no
-            // longer visually slides under Send's leftmost 4px (Send
-            // occupies right 4-44px). When MicButton is ALSO present
-            // (showMicButton = mic co-renders at right-11 bottom-0.5,
-            // occupying right 44-84px), reserve 92px so text also clears
-            // the mic — tailwind-merge dedupes pr-*, later wins.
-            "pr-12",
-            showMicButton && "pr-[92px]",
-            // Quick 260730-vtk: mirrors the `pr-10` above on the LEFT
-            // when the inside-textarea Paperclip is present
-            // (showPaperclip=true → 44px matching left padding on the
-            // Textarea so text doesn't underlap the icon at absolute
-            // left-1 bottom-0.5). Quick 260731-ulo: bumped 40px→44px
-            // (pl-10→pl-11) per user for a few more px of clearance.
-            // Phase 97 Finding 3 Step 1: extend the gate with
-            // `mode !== "relay"` — the Paperclip button itself is hidden
-            // in relay mode at L2908 alongside Row 1 (D-11), so the
-            // reserved 44px left gutter would otherwise persist as a
-            // ghost gutter. Same idiom as L2334 (Row 1 gate) and L2908
-            // (Paperclip gate).
-            showPaperclip && mode !== "relay" && "pl-11",
-            "placeholder:text-[var(--color-pv-fg-dim)]",
-            "shadow-[inset_0_2px_6px_rgba(0,0,0,0.4),_0_1px_0_rgba(220,225,245,0.04)]",
-            "transition-[box-shadow,border-color] duration-200",
-            "focus:border-[rgba(220,225,245,0.28)]",
-            "focus:shadow-[inset_0_3px_10px_rgba(0,0,0,0.55),_inset_0_1px_2px_rgba(0,0,0,0.35),_0_1px_0_rgba(220,225,245,0.07),_0_0_0_1px_rgba(220,225,245,0.2),_0_0_22px_rgba(220,225,245,0.12)]",
-            "focus-visible:ring-0 focus-visible:outline-none",
-          )}
-          // Note: NOT disabled when canSend===false — user can compose
-          // during a transient disconnect and send when WS reconnects.
-          // The send button is disabled; the error will surface on attempt.
+          style={chipStripHeight > 0 ? { paddingTop: `${chipStripHeight + 12}px` } : undefined}
+          className="pv-compose-text"
+          // Not disabled when canSend===false — the user can compose during a
+          // transient disconnect and send when the socket reconnects.
         />
-        {/* Quick 260730-vtk: Paperclip attach button moved from Row 1
-            aux group to here per user 2026-07-30. Mirrors Send's
-            inside-textarea pattern on the LEFT (Send is right-1
-            bottom-0.5; Paperclip is left-1 bottom-0.5). Bare <button>
-            not shadcn Button — same reason as Send (#129 wrapper-
-            specificity trap). aria-label / title / onClick preserved
-            verbatim from the old aux-group Paperclip so Tests 3/4/5
-            keep passing.
-            Phase 93 D-11: Paperclip is hidden monolithically when
-            mode === "relay" alongside Row 1 (harness-only chrome). */}
-        {showPaperclip && mode !== "relay" && (
+      </div>
+      <div className="pv-compose-row" data-testid="compose-row">
+        {harness && showPaperclip && (
           <button
             type="button"
+            className="pv-cbtn"
             onClick={() => handleOpenFilePicker("primary")}
             disabled={canSend === false || asideActive === true}
             aria-label="Attach file"
             title="Attach file"
-            className={cn(
-              "absolute left-1 bottom-0.5",
-              "p-2",
-              "text-[#f0ebe0] opacity-30 hover:opacity-90",
-              "disabled:opacity-[0.15]",
-              "disabled:cursor-not-allowed",
-              "transition-[color,opacity,transform] duration-120",
-              "active:scale-95",
-              "cursor-pointer",
-            )}
           >
-            <Paperclip className="size-6" />
+            <Paperclip aria-hidden="true" />
           </button>
         )}
-        {/* Patch #129 + #130-fix: subtle inside-textarea Send button.
-            Bare <button type="button"> (NOT shadcn Button — sidesteps
-            the wrapper-specificity trap that bit patches #81 and #117
-            with the queue button's `!` load-bearing bg classes).
-            Position locked with user 2026-07-23 (DevTools console
-            iteration): the ICON sits at right:12px bottom:10px from the
-            wrapper. Because the button has p-2 (=8px) for a 40×40 hit
-            target around the 24×24 icon, the button itself is offset
-            right:4px bottom:2px (= right-1 bottom-0.5) so the icon
-            centers at 4+8=12, 2+8=10 — user's locked values.
-            Patch #130 fix: #129 originally used lucide's SendHorizontal
-            component, which is a DIFFERENT SVG path (horizontal-
-            pointing plane, plus a M6 12h16 fold line, and lucide's
-            default stroke="currentColor" left the plane double-outlined
-            with a stroked crease). user's console-locked snippet was
-            an inline raw SVG with a SINGLE path — the paper plane
-            pointing up-and-right — with pure fill and no stroke. Also
-            in #129 the button was at right-3 bottom-2.5 without
-            accounting for p-2 offset, so the icon rendered at 20/18
-            instead of 12/10. Both regressions caught on 2026-07-23
-            deploy UAT; #130 replaces the lucide component with the
-            raw inline SVG (verbatim from user's snippet) and moves
-            the button to right-1 bottom-0.5 so the icon lands at 12/10
-            with hit target preserved. NOT the retired amber-Send from
-            patch #121 — user wants ChatGPT/iMessage-quiet here.
-            LEAVE the VISUAL-08 comment block above (~line 1240) ALONE.
-            onClick routes ALL send behavior through the existing
-            handleSend() at line ~652 (attachment branching, newline
-            normalization, Phase 50 D-01 optimistic-bubble seeding,
-            clear-on-success — nothing duplicated). */}
-        {/* Phase 16 + quick 260729-3y1: send-button slot — co-render pattern.
-            The slot hosts RecordingControls ALONE while voice.state==="recording";
-            otherwise the Send/X-for-Resume button ALWAYS renders (at right-1
-            bottom-0.5) AND, when showMicButton is true, MicButton ALSO renders
-            in the same slot (at right-11 bottom-0.5 — one 40px hit-target width
-            to the left of Send). Both are absolutely positioned against the same
-            relative parent, so they coexist without collision (40px separation).
-            user 260729-3y1: mic must stay tappable even when the textarea has
-            typed text or attachments staged. */}
+        {/* Skill-actions menu: a skill fires through the same quick-send path,
+            same disabled gates. Renders nothing until the host is known to
+            have skills; never in relay panes. */}
+        <SkillActionsButton
+          hostId={hostId}
+          enabled={harness}
+          disabled={quickDisabled}
+          onFire={(skillName) => { onGoodToGo?.(); handleQuickSend(`/${skillName}`); }}
+          buttonClassName="pv-cbtn"
+        />
+        {/* Dictating: the recording chip sits in the row, after attach and
+            skills (which stay usable — files get picked mid-sentence). */}
+        {holdFeedback && <HoldFeedbackPill {...holdFeedback} readLevel={voice.readLevel} />}
+        <div className="pv-compose-spacer" aria-hidden="true" />
+        {harness && (
+          <MemoryGauge
+            pct={contextPct ?? null}
+            emptied={isDraining || isHolding === true}
+            resetDisabled={canSend === false || asideActive === true || recycleActive === true || reconnectingActive === true || voice.state === "transcribing"}
+            onStartFresh={() => { void handleResetClick(); }}
+          />
+        )}
+        {/* Hands-free voice mode (harness only). Steps aside while this
+            composer is dictating — a second mic can't open then anyway. */}
+        {voiceModeFeed && !recordingHere && (
+          <VoiceModeButton
+            phase={voiceMode.phase}
+            // voice.state: no second mic capture while dictating (iOS would
+            // end the manual recording's track).
+            disabled={
+              asideActive === true ||
+              recycleActive === true ||
+              reconnectingActive === true ||
+              manualRecordingAnywhere ||
+              (voiceMode.phase === "off" && voiceModeAnywhere)
+            }
+            disabledTitle={
+              voiceModeAnywhere ? VOICE_MODE_ON_TITLE : manualRecordingAnywhere ? MIC_RECORDING_TITLE : undefined
+            }
+            onStart={voiceMode.start}
+            onStop={voiceMode.stop}
+            onSkip={voiceMode.skipSpeech}
+            onTalk={voiceMode.talk}
+            pressToTalk={voiceMode.pressToTalk}
+          />
+        )}
         {showRecordingControls && micTarget === "primary" ? (
-          /* Phase 16: while recording, the three-button controls OWN the slot.
-             RecordingControls is absolutely positioned at right-1 bottom-0.5
-             (same anchor as Send) and handles its own flex layout.
-             No timer or level meter in the slot itself — the recording pill above the compose box carries both (HoldFeedbackPill + MicWaveform).
-             Bounty message-queue-in-pretty-view: micTarget guard ensures
-             RecordingControls only appear on the primary when the primary
-             is the mic target (slot recording is handled in the slot stack above). */
+          // A tapped recording: Cancel · add to text · Send own the right side.
           <RecordingControls
             onCancel={handleVoiceCancel}
             onAppend={() => { void handleVoiceAppend("primary"); }}
@@ -3175,131 +2636,16 @@ export function ComposeBox({
           />
         ) : (
           <>
-            {/* Phase 14 Wave 4 (Task 2): SAME BUTTON, branched attributes.
-                When asideActive=true the button morphs to a Resume affordance —
-                X icon + identity-hue color + onClick fires onAsideDismiss?.()
-                instead of handleSend(). Per PATTERNS.md L186-234, we morph in
-                place (same <button> element) so DOM identity is preserved
-                across the morph transition — focus, keyboard tab order, and
-                parent-CSS selectors don't blink. Do NOT split into two sibling
-                buttons; do NOT wrap in a conditional-render component.
-                Phase 16: showTranscribingSend=true adds disabled={true} during
-                the STT round-trip so rapid-tap cannot double-fire (T-16-16).
-                Patch #181 press-feedback (250ms .pv-btn-pressed class) is
-                driven by the delegated pointerdown listener at the compose
-                root — this button participates by default (no per-button
-                wiring needed). */}
-            <button
-              type="button"
-              // Quick 260814-1hz: onClick is now the SOLE driver for both
-              // branches — the aside-dismiss branch (unchanged) AND the
-              // normal typed-send branch (previously hosted on the
-              // useHoldToRecord hook, now moved onto MicButton per the
-              // bounty). Preserves the "send-button" origin marker from
-              // Phase 35 and the aside-morph Resume/X behavior byte-for-byte.
-              // The hold-to-record pointer handlers live on the MicButton
-              // below (~L2530 primary, ~L2949 slot).
-              onClick={asideActive ? () => onAsideDismiss?.() : () => handleSend(undefined, "send-button")}
-              disabled={asideActive ? false : (sendDisabled || showTranscribingSend)}
-              aria-label={asideActive ? "Resume" : "Send"}
-              title={asideActive ? "Resume" : "Send"}
-              className={cn(
-                "absolute right-1 bottom-0.5",
-                "p-2",
-                // Phase 14 Wave 4 (Task 2): identity-hue color when morphed so
-                // the X visually distinguishes from Send (user 2026-07-26:
-                // "Style change to visually distinguish from send" per
-                // CONTEXT.md § ComposeBox morph). All other positional /
-                // transition classes preserved.
-                asideActive
-                  ? "text-[hsla(var(--pv-id-hue),90%,72%,0.95)] hover:text-[hsla(var(--pv-id-hue),95%,82%,1)]"
-                  : "text-[#f0ebe0] opacity-30 hover:opacity-90",
-                "disabled:opacity-[0.15]",
-                "disabled:cursor-not-allowed",
-                "transition-[color,opacity,transform] duration-120",
-                "active:scale-95",
-                "cursor-pointer",
-              )}
-            >
-              {asideActive ? (
-                /* Phase 14 Wave 4 (Task 2): lucide X sized to match the
-                    paper-plane's 24×24 slot. strokeWidth=2.25 keeps the
-                    mark visually heavy enough at 24px to read as a
-                    dismiss glyph without overpowering the neon aside
-                    bubble above. */
-                <X className="size-6" strokeWidth={2.25} aria-hidden="true" />
-              ) : (
-                /* Raw inline SVG — verbatim from user's DevTools console
-                    snippet 2026-07-23. Single path (paper-plane silhouette
-                    pointing up-and-right), pure fill, NO stroke, NO fold
-                    line. Do NOT swap for lucide's SendHorizontal — that's a
-                    different icon (patch #130 write-up).
-                    Quick 260730-lur: when showTranscribingSend === true a
-                    spinner replaces the paper-plane for the STT round-trip
-                    duration (in-button feedback that Send-transcript
-                    registered). Idle branch keeps the paper-plane byte-for-byte.
-                    Spinner is a twin-90°-arc pair 180° apart — rotationally
-                    symmetric so the visual centroid stays put during the spin
-                    (lucide's Loader2 has a lopsided ~300° arc whose centroid
-                    orbits, reading as wobble). */
-                showTranscribingSend ? (
-                  <svg
-                    className="size-6 animate-spin"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth={2}
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    aria-hidden="true"
-                  >
-                    <path d="M21 12 A9 9 0 0 0 12 3" />
-                    <path d="M3 12 A9 9 0 0 0 12 21" />
-                  </svg>
-                ) : (
-                  <svg
-                    className="size-6"
-                    viewBox="0 0 24 24"
-                    fill="currentColor"
-                    aria-hidden="true"
-                  >
-                    <path d="M14.536 21.686a.5.5 0 0 0 .937-.024l6.5-19a.496.496 0 0 0-.635-.635l-19 6.5a.5.5 0 0 0-.024.937l7.93 3.18a2 2 0 0 1 1.112 1.11z" />
-                  </svg>
-                )
-              )}
-            </button>
-            {/* Quick 260729-3y1: MicButton co-renders LEFT of Send at
-                right-11 bottom-0.5 (one p-2 hit-target width away from Send's
-                right-1 anchor). voice.start() is passed directly (NOT wrapped
-                in async) so the first statement inside is the synchronous
-                getUserMedia call (D-16-02 iOS Safari constraint). Guards are
-                mediaDevices + voice.state==="idle" + !asideActive (see the
-                showMicButton predicate above) — text length and attachment
-                presence no longer factor in. */}
             {showMicButton && (
               <MicButton
-                // Quick 260814-1hz: hold-to-record now lives on MicButton.
-                // primaryHold pointer handlers govern press-and-hold → voice
-                // recording. The onClick below is the tap-to-record path;
-                // the hook's onShortTap ALSO calls beginRecord("primary"),
-                // which is safe because useHoldToRecord's voice.state !== "idle"
-                // guard makes the second call a no-op (belt-and-suspenders
-                // for browsers that fire click without a hook-observable
-                // pointerup pair).
+                variant="row"
+                // Tap records (the hold hook's short tap keeps the recording
+                // too; its voice.state guard makes the second start a no-op).
                 onClick={() => beginRecord("primary")}
-                // quick-260814-o22: setMicTarget MUST fire synchronously BEFORE
-                // the hook's pointerdown. MicButton wraps onPointerDown with
-                // e.preventDefault() (quick-260814-iwy) to suppress iOS Safari's
-                // long-press callout — but preventDefault on pointerdown on a
-                // <button> ALSO suppresses the synthesized click event, so
-                // onClick={() => beginRecord("primary")} never fires on iOS.
-                // Without this wrapper, micTarget stays at its default "primary"
-                // for the primary path (accidental correctness) but NEVER
-                // updates for the slot path — the visible symptom of the bug.
-                // setMicTarget is a synchronous React setState (no microtask),
-                // so this does NOT break D-16-02's iOS Safari sync-gesture
-                // invariant that voice.start() (inside primaryHold.onPointerDown)
-                // must be reachable synchronously from the user gesture.
+                // quick-260814-o22: setMicTarget fires synchronously BEFORE the
+                // hook's pointerdown — MicButton's preventDefault (iOS callout
+                // suppression) also suppresses the synthesized click, so the
+                // target must be set here for the hold path.
                 onPointerDown={(e) => {
                   setMicTarget("primary");
                   primaryHold.onPointerDown(e);
@@ -3312,18 +2658,62 @@ export function ComposeBox({
                 holdRing={primaryHold.holdCommitted ? (primaryHold.holdOutside ? "outside" : "recording") : undefined}
                 disabled={voice.state !== "idle" || voiceModeAnywhere}
                 title={voiceModeAnywhere ? VOICE_MODE_ON_TITLE : undefined}
-                positionClass="right-11 bottom-0.5"
               />
+            )}
+            {!recordingHere && asideAction && renderAction(asideAction, false)}
+            {!recordingHere && (mainAction === "stop" || mainAction === "thumbs") && renderAction(mainAction, true)}
+            {!recordingHere && (mainAction === "send" || mainAction === "resume") && (
+              // Phase 14: SAME button morphs to Resume while an aside is up
+              // (DOM identity preserved across the morph). Phase 16: disabled
+              // with a spinner during this textarea's STT round-trip.
+              <button
+                type="button"
+                className="pv-cbtn"
+                data-main="true"
+                data-action={asideActive ? "resume" : "send"}
+                onClick={asideActive ? () => onAsideDismiss?.() : () => handleSend(undefined, "send-button")}
+                disabled={asideActive ? false : (sendDisabled || showTranscribingSend)}
+                aria-label={asideActive ? "Resume" : "Send"}
+                title={asideActive ? "Resume" : "Send"}
+              >
+                {asideActive ? (
+                  <X strokeWidth={2.25} aria-hidden="true" />
+                ) : showTranscribingSend ? (
+                  // Twin 90° arcs 180° apart — rotationally symmetric, so the
+                  // spinner doesn't wobble.
+                  <svg
+                    className="animate-spin"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth={2}
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    aria-hidden="true"
+                  >
+                    <path d="M21 12 A9 9 0 0 0 12 3" />
+                    <path d="M3 12 A9 9 0 0 0 12 21" />
+                  </svg>
+                ) : (
+                  <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+                    <path d="M14.536 21.686a.5.5 0 0 0 .937-.024l6.5-19a.496.496 0 0 0-.635-.635l-19 6.5a.5.5 0 0 0-.024.937l7.93 3.18a2 2 0 0 1 1.112 1.11z" />
+                  </svg>
+                )}
+              </button>
             )}
           </>
         )}
-        </div>
+        {/* Mounted for as long as Stop can be, so screen readers hear
+            "Stopping" too — a live region created along with its text is
+            often not announced. */}
+        {onInterrupt && (
+          <span role="status" aria-live="polite" className="sr-only">
+            {interruptFeedback ? INTERRUPT_FEEDBACK_LABEL[interruptFeedback] : ""}
+          </span>
+        )}
       </div>
-      {/* Phase 16: displayError merges errorMessage (compose errors) and
-          voice.errorMessage (STT / mic-denied errors) — first non-null wins. */}
-      {displayError && (
-        <div className="text-xs text-[color:var(--color-pv-code-fg)]">{displayError}</div>
-      )}
+      {/* Phase 16: displayError merges compose errors and voice errors. */}
+      {displayError && <div className="pv-compose-error">{displayError}</div>}
     </div>
   );
 }
@@ -3339,51 +2729,6 @@ export function ComposeBox({
 // × corner tab from Task 1 stays a SIBLING of the inner wrapper so it still
 // protrudes OUTSIDE the textarea border.
 // ============================================================================
-
-// ============================================================================
-// Quick 260909-cdi: QueuePlusTab — the pebble-notch plus-tab affordance that
-// replaces the deleted ListPlus aux-row button. Renders as a real
-// <button type="button"> with aria-label "Queue a message" so existing
-// selectors (e.g. hold-to-mic.test.tsx:1132's
-// `getByRole("button", { name: /queue a message/i })`) continue to resolve
-// without change. Visually it's a small pebble absolutely positioned so its
-// bottom overlaps the top edge of the surrounding wrapper (position: relative
-// on the wrapper is a precondition — satisfied by both the primary wrapper
-// and the QueuedRow outer wrapper). Fill blends into the compose surround
-// (--color-pv-base/-base-mid gradient) so the plus glyph is the visible
-// affordance, not the container. Always clickable — no disable rules, matching
-// the deleted button's behavior verbatim.
-// ============================================================================
-function QueuePlusTab({ onAdd }: { onAdd: () => void }) {
-  return (
-    <button
-      type="button"
-      onClick={onAdd}
-      aria-label="Queue a message"
-      title="Queue a message"
-      className={cn(
-        "absolute top-[-12px] left-1/2 -translate-x-1/2 z-10",
-        "w-10 h-[22px] rounded-full",
-        "inline-flex items-center justify-center",
-        "bg-[linear-gradient(180deg,var(--color-pv-base),var(--color-pv-base-mid))]",
-        "border border-[rgba(220,225,245,0.04)]",
-        "text-[color:var(--color-pv-fg-muted)]",
-        "cursor-pointer",
-        "hover:brightness-110 hover:text-[color:var(--color-pv-fg)]",
-        "transition-[filter,color] duration-150",
-        // M2 code-review finding (2026-09-09): the retired ListPlus shadcn Button
-        // carried a visible keyboard focus outline; this bare <button> inherits
-        // none. Add a modest identity-hue focus-visible ring at 1px so
-        // keyboard-only users see focus without breaking "quiet chrome" at rest.
-        "focus-visible:outline-none",
-        "focus-visible:ring-1 focus-visible:ring-[hsla(var(--pv-id-hue,218),70%,55%,0.35)]",
-        "focus-visible:border-[hsla(var(--pv-id-hue,218),70%,60%,0.55)]",
-      )}
-    >
-      <Plus className="size-3" strokeWidth={1.5} aria-hidden="true" />
-    </button>
-  );
-}
 
 interface QueuedRowProps {
   slot: { id: string; text: string };
@@ -3648,13 +2993,6 @@ function QueuedRow(props: QueuedRowProps) {
 
   return (
     <div className="relative flex-1" data-slot-id={slot.id}>
-      {/* Quick 260909-cdi: QueuePlusTab rides on the FIRST QueuedRow only.
-          When multiple slots exist, this is the topmost slot in the stack;
-          when only one slot exists, this row IS the topmost. Gate on
-          isTopmostInStack (parent computes `index === 0`). Placed as the
-          FIRST child of the outer wrapper so it visually notches into the
-          top edge of this row's textarea. */}
-      {isTopmostInStack && <QueuePlusTab onAdd={onAddSlotAtTop} />}
       {/* Quick 260803-05i: Delete × top-left corner tab. SIBLING of the
           inner content wrapper below so it protrudes OUTSIDE the textarea
           border (via -top-2 -left-2). Task 1 introduced this at top-right;
@@ -3806,13 +3144,13 @@ function QueuedRow(props: QueuedRowProps) {
         </button>
         {/* Send / RecordingControls slot — absolute right-1 bottom-0.5 (mutex) */}
         {showSlotRecording ? (
-          <RecordingControls
-            onCancel={handleVoiceCancel}
-            onAppend={() => { void handleVoiceAppend(slot.id); }}
-            onSend={() => { void handleVoiceSend(slot.id); }}
-            muted={voice.muted}
-            onToggleMute={voice.toggleMute}
-          />
+          <div className="absolute right-1 bottom-0.5">
+            <RecordingControls
+              onCancel={handleVoiceCancel}
+              onAppend={() => { void handleVoiceAppend(slot.id); }}
+              onSend={() => { void handleVoiceSend(slot.id); }}
+            />
+          </div>
         ) : (
           <>
             {showSlotSend && (

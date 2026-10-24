@@ -47,6 +47,9 @@ import { RelayOutboundBubble } from "./RelayOutboundBubble";
 import { RelayInboundBubble } from "./RelayInboundBubble";
 import { MalformedBubble } from "./MalformedBubble";
 import { WipBubble } from "./WipBubble";
+import { attentionKey, getSeenDmAt, isDmd } from "@/state/attention-store";
+import "@/components/kit/kit.css";
+import "./conversation.css";
 import { AsideBubble } from "./AsideBubble";
 import { SessionHoldingOverlay } from "./SessionHoldingOverlay";
 import { PrettyViewLoadingOverlay } from "./PrettyViewLoadingOverlay";
@@ -89,8 +92,6 @@ import { useAutoScroll } from "./use-auto-scroll";
 import { ComposeBox, INTERRUPT_THROTTLE_MS, type InterruptFeedback } from "./ComposeBox";
 import { DropOverlay } from "./DropOverlay";
 import { HarnessTasksPanel } from "./HarnessTasksPanel";
-import { BackgroundedAgentsPanel } from "./BackgroundedAgentsPanel";
-import { BackgroundedShellsPanel } from "./BackgroundedShellsPanel";
 import { usePrettyViewUploads } from "./use-pretty-view-uploads";
 import { buildCancelledSendRestore, fetchRestoreFiles } from "./cancelled-send-restore";
 import {
@@ -1725,7 +1726,7 @@ export function PrettyView({
   // Phase 70: two-state position-derived state machine auto-scroll (at-bottom / not-at-bottom).
   // paneKey is passed FOR LOGGING ONLY — the hook does not react to paneKey changes per
   // shape-file § Session re-entry. See use-auto-scroll.ts header + shape-pv-autoscroll-rewrite.md.
-  const { scrollRef, jumpToBottom, onSendFired, mode, revealed } = useAutoScroll(paneKey);
+  const { scrollRef, jumpToBottom, onSendFired, noteScrolledAway, mode, revealed } = useAutoScroll(paneKey);
 
   // ── Load-more scroll anchor (bounty load-more-scroll-and-order-corruption) ─
   // The container has overflow-anchor:none (useAutoScroll owns position), so
@@ -1744,6 +1745,52 @@ export function PrettyView({
     },
     [scrollRef],
   );
+  // Opening a conversation that holds a message to the user they haven't seen
+  // (the sidebar's red envelope): land on the oldest unseen one and ring it,
+  // instead of at the bottom (shape-conversation-view). The seen mark is read
+  // during the first render — before the seen tracker (an effect) clears it.
+  const [dmJumpSince] = useState<number | null>(() => {
+    if (source.kind !== "harness" || !tmuxSession) return null;
+    const k = attentionKey(hostId, tmuxSession.toLowerCase());
+    return isDmd(k) ? (getSeenDmAt(k) ?? 0) : null;
+  });
+  const dmJumpDoneRef = useRef(false);
+  useEffect(() => {
+    if (dmJumpSince === null || dmJumpDoneRef.current || !revealed) return;
+    // Whether a message went to the user is resolved by its bubble (room
+    // members load async), so look for the marked bubbles for a moment.
+    let tries = 0;
+    const timer = window.setInterval(() => {
+      tries += 1;
+      const container = scrollElRef.current;
+      const newer = new Set(
+        effectiveMessages
+          .filter((m) => m.type === "relay_outbound" && typeof m.ts === "number" && m.ts > dmJumpSince)
+          .map((m) => m.eventId),
+      );
+      const target = container
+        ? Array.from(container.querySelectorAll<HTMLElement>("[data-pv-bubble][data-event-id]")).find(
+            (w) => newer.has(w.dataset.eventId ?? "") && w.querySelector('[data-to-you="true"]'),
+          )
+        : undefined;
+      if (target || tries >= 12) {
+        window.clearInterval(timer);
+        dmJumpDoneRef.current = true;
+        if (!target) {
+          console.info({ operation: "pv_dm_jump_none", hostId, tmuxSession, since: dmJumpSince });
+          return;
+        }
+        const bubble = target.querySelector<HTMLElement>('[data-to-you="true"]') ?? target;
+        bubble.scrollIntoView({ block: "center" });
+        noteScrolledAway();
+        bubble.classList.add("pv-ring");
+        window.setTimeout(() => bubble.classList.remove("pv-ring"), 2400);
+        console.info({ operation: "pv_dm_jump", hostId, tmuxSession, eventId: target.dataset.eventId });
+      }
+    }, 250);
+    return () => window.clearInterval(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [dmJumpSince, revealed]);
   const prependAnchorRef = useRef<{ eventId: string; offset: number } | null>(
     null,
   );
@@ -2386,6 +2433,24 @@ export function PrettyView({
   const wsFramesRef = useRef<number>(0);
   const messagesLenRef = useRef<number>(0);
   const pvRootRef = useRef<HTMLDivElement | null>(null);
+  // The composer dock floats over the end of the message list; the list pads
+  // its end by the dock's height (--pv-dock-h on the root) so the last message
+  // clears it. data-pv-narrow tells bubbles there's no margin for the speak
+  // button beside them.
+  const [dockEl, setDockEl] = useState<HTMLDivElement | null>(null);
+  useLayoutEffect(() => {
+    const root = pvRootRef.current;
+    if (!root) return;
+    const measure = () => {
+      root.style.setProperty("--pv-dock-h", `${dockEl?.offsetHeight ?? 0}px`);
+      root.dataset.pvNarrow = root.clientWidth < 860 ? "true" : "false";
+    };
+    measure();
+    const ro = new ResizeObserver(measure);
+    ro.observe(root);
+    if (dockEl) ro.observe(dockEl);
+    return () => ro.disconnect();
+  }, [dockEl]);
   // Patch #148 reconnect state — mirrors Terminal.tsx's pattern.
   // reconnectAttemptsRef: persists across retryKey re-runs; resets on hostId/tmuxSession change
   //   and on visibilitychange:visible. NOT reset on ws.onopen (defeats the cap on rapid cycles).
@@ -4501,6 +4566,18 @@ export function PrettyView({
     oldestLoadedLine > 1 &&
     (capOff || capDroppedRef.current);
 
+  // The agent is working: drives the working orb and the composer's Stop.
+  // A background sub-agent keeps working after the main turn's Stop hook
+  // darkens isWorking, so a running background agent counts too. Shells are
+  // excluded — servers run for hours. The interrupt gate applies to the main
+  // turn only; background agents keep running through an interrupt. Not
+  // while dormant (no live process) or while waiting on the user (the
+  // permission bubble owns that state).
+  const agentWorking =
+    ((isWorking || optimisticWip) &&
+      (!interruptedTail || interruptWipReleased || pendingSends.some((p) => p.state === "sending"))) ||
+    (status === "streaming" && !dormant && waitingFor === null && backgroundedAgents.length > 0);
+
   return (
     <div
       ref={pvRootRef}
@@ -4877,13 +4954,20 @@ export function PrettyView({
               of hugging the pane edges; narrower panes fill as before. The
               scroll container stays full-width so the scrollbar keeps to the
               pane edge. ComposeBox's root carries the same column. */}
-          <div className="mx-auto max-w-[860px]" style={{ visibility: revealed ? "visible" : "hidden" }}>
+          <div
+            className="mx-auto max-w-[780px]"
+            style={{
+              visibility: revealed ? "visible" : "hidden",
+              // Clear the floating composer dock.
+              paddingBottom: "calc(var(--pv-dock-h, 0px) + 8px)",
+            }}
+          >
           {/* Header clearance: the badge / task pill / mobile back button float
               over the top of this scroll container (absolute top-4, badge
               ~66px tall). Always-present spacer so the first bubble starts
               below them — load-older is absent on a fresh conversation, so it
               can't be what provides the gap. */}
-          <div data-testid="pv-header-clearance" aria-hidden="true" style={{ height: 80 }} />
+          <div data-testid="pv-header-clearance" aria-hidden="true" style={{ height: 64 }} />
           <LoadMoreOlderButton
             hasOlder={hasOlderMessages}
             status={loadOlderState}
@@ -5055,12 +5139,7 @@ export function PrettyView({
               agents keep running after the turn ends or is interrupted. Not while dormant (no
               live process, so nothing is running) or while waiting on the
               user (WaitingBubble owns that state). */}
-          {(((isWorking || optimisticWip) &&
-            (turnOverTail === null || turnOverWipReleased || pendingSends.some((p) => p.state === "sending"))) ||
-            (status === "streaming" &&
-              !dormant &&
-              waitingFor === null &&
-              backgroundedAgents.length > 0)) && <WipBubble />}
+          {agentWorking && <WipBubble />}
           {/* Phase 34 Plan 06: WaitingBubble — harness permission/dialog waiting state.
               Mounts when the fleet-status channel reports status='waiting' for this
               session's (hostId, tmuxSession) key. Sibling of WipBubble in the
@@ -5112,322 +5191,289 @@ export function PrettyView({
               re-arm timer needed here. `mode` is reducer-derived from the
               isTrusted scroll listener. */}
           {mode === "not-at-bottom" && effectiveMessages.length > 0 && (
-            <div className="sticky bottom-2 pointer-events-none flex justify-end">
-              <Button
-                size="icon-sm"
-                variant="secondary"
+            // Centred just above the composer dock; same look as the pill.
+            // Solid fill, no blur: it's sticky, so a blur would re-sample
+            // every scroll frame.
+            <div
+              className="sticky pointer-events-none flex justify-center"
+              style={{ bottom: "calc(var(--pv-dock-h, 0px) + 10px)" }}
+            >
+              <button
+                type="button"
                 onClick={jumpToBottom}
                 aria-label="Jump to latest"
                 title="Jump to latest"
-                className={cn(
-                  "pointer-events-auto rounded-full cursor-pointer",
-                  "border border-white/10",
-                  // Denser fill instead of backdrop-blur: this button is
-                  // sticky, so a blur re-samples every scroll frame.
-                  "bg-[linear-gradient(180deg,rgba(70,66,58,0.92),rgba(38,34,28,0.95))]",
-                  "text-[#e8e4d8]",
-                  "shadow-[0_4px_12px_rgba(0,0,0,0.5),_inset_0_1px_0_rgba(255,240,210,0.15)]",
-                  "hover:bg-[linear-gradient(180deg,rgba(100,85,55,0.85),rgba(60,50,32,0.9))]",
-                  "hover:border-[rgba(255,240,215,0.22)]",
-                  "hover:shadow-[0_6px_16px_rgba(0,0,0,0.6),_inset_0_1px_0_rgba(255,240,210,0.22),_0_0_20px_rgba(255,240,215,0.16)]",
-                  // user 2026-09-07: shrink DESKTOP wrapper to 75% of the
-                  // 2026-08-23 baseline (64→48), keeping the 32px arrow
-                  // unchanged. Prior 64×64 matched the mobile back-to-
-                  // conversations button (AppShell.tsx:1800-1801 inline
-                  // `width: 64, height: 64` with `<ChevronLeft className=
-                  // "size-8" />`); the shrunk button is now 48×48 with
-                  // the same 32px arrow — icon-heavy proportions on
-                  // purpose. Mobile line below is untouched.
-                  "size-12 [&_svg]:size-8",
-                  // Bounty jump-to-bottom-button-bigger-on-mobile
-                  // (2026-08-01): mobile-only bump matching the aux row's
-                  // new 75%-of-#165 mobile size (54×54 wrapper + 27px
-                  // icon at html=24 mobile) for a comfortable tap target
-                  // on the floating jump-to-bottom action. user said
-                  // mobile was okay, so this stays unchanged.
-                  "max-md:size-9 [&_svg]:max-md:size-[1.125rem]",
-                )}
+                className="pv-float pv-float-round pointer-events-auto"
               >
-                <ArrowDown />
-              </Button>
+                <ArrowDown aria-hidden="true" />
+              </button>
             </div>
           )}
           </div>
         </div>
       )}
 
-      {errorMessage && status === "streaming" && (
-        <div className="border-t border-white/[0.08] bg-[rgba(255,240,215,0.04)] text-[color:var(--color-pv-code-fg)] text-xs px-3 py-1">
-          {errorMessage}
-        </div>
-      )}
-
-      {/* ComposeBox mounts only when onSend is provided (caller is wiring
-          a live terminal WS) AND status is "streaming" (a Claude session
-          is confirmed active). When status is "inactive" or "error", the
-          compose box is intentionally absent — the inactive branch renders
-          nothing (fallback banner retired 2026-08-31). */}
-      {/* Harness tasks panel — mounts directly above the compose area,
-          in-flow (takes real layout space, not an overlay). Filtered to
-          active tasks only (pending + in_progress); when the filtered list
-          is empty the panel does NOT render, so no chrome / no empty state.
-          Read-only for v1 — Claude Code owns writes to ~/.claude/tasks/. */}
-      {status === "streaming" &&
-        (() => {
-          const active = harnessTasks.filter(
-            (t) => t.status !== "completed",
-          );
-          return active.length > 0 ? (
-            <HarnessTasksPanel tasks={active} />
-          ) : null;
-        })()}
-
-      {/* Backgrounded-agents panel — sibling to HarnessTasksPanel, mounts
-          BELOW it (agents are causally downstream of tasks — a task can
-          spawn an agent). Mounts only when the currently-running-agents
-          list is non-empty; the backend already filters completed
-          invocations out via tool_result correlation (patch #61). */}
-      {status === "streaming" && backgroundedAgents.length > 0 && (
-        <BackgroundedAgentsPanel agents={backgroundedAgents} />
-      )}
-
-      {/* Backgrounded-shells panel — sibling to BackgroundedAgentsPanel, mounts
-          directly below it (patch #68). Scope: Bash{run_in_background:true}
-          ONLY — Monitor invocations are excluded by the backend. Mounts only
-          when the currently-running-shells list is non-empty; the backend
-          filters completed shells via task-notification correlation. */}
-      {status === "streaming" && backgroundedShells.length > 0 && (
-        <BackgroundedShellsPanel shells={backgroundedShells} />
-      )}
+      {/* Background sub-agents and shells are no longer shown (shape-
+          conversation-view); PrettyView still tracks them — a running
+          background agent still lights the working orb. */}
       </div>
       {/* Patch #108 wrapper closes here — ComposeBox stays a peer of the
           wrapper (below it in flex-col), so it's outside the IdentityModal's
           coverage area. */}
 
-      {/* Phase 30 ComposeBox mount gate: same shape as Phase 29, only the
-          `renderedState === ...` names differ from the old `phase === ...`.
-          `status === "streaming"` preserved (post-resolve active).
-          `status === "error"` retained so ComposeBox stays mounted during
-          the transient WS reconnect window (bubbles preserved, Send
-          disabled per patch #339). `renderedState === "error"` covers the
-          terminal-ladder-exhausted case (PrettyViewErrorOverlay up).
-          `renderedState === "dormant"` mounts the reduced-state ComposeBox
-          during the sleep window. `renderedState === "active"` (patch #491)
-          closes the wake-transition unmount gap: on a cold-dormant page
-          (fresh page load onto a dormant pane, backend's dormant-poll path
-          at claude-session-server.ts § L2570 emits {type:"dormant"} +
-          pane_state:"dormant" WITHOUT ever sending a session frame, so
-          status stays "connecting" client-side), when wake completes the
-          dormant-poll seam fires pane_state:"active" (§ L6387) BEFORE the
-          supervisor's fresh claude launches and hits the "Active path"
-          (§ L6025) that finally emits the session frame. Without the
-          `active` clause, the mount gate flips false in that window and
-          unmounts ComposeBox — destroying useVoiceRecording state (mid-
-          flight MediaRecorder + MediaStream), textarea drafts, and any
-          in-flight compose gesture. user 2026-08-23 verbatim: "as I'm
-          waking up, I start recording a message with the mic, but when
-          it actually wakes up, for some reason, the mic just stops, and
-          it goes back to as if I'm not recording, and so I lose that
-          recording." Regression locked by "Test 4 (cold-dormant→active
-          preserves compose state)" below. */}
-      {/* LOAD-BEARING INVARIANT (Phase 76 post-review): this gate deliberately
-          EXCLUDES `renderedState === "holding"` — during holding, Claude is
-          being relaunched and the pane cannot receive input. The pane_state
-          WS handler at ~L1815 relies on this: it maps `pane_state:"holding"`
-          to `setDormant(false)` (because holding is not asleep-at-send-time),
-          which is only safe because no send can arm during holding. If a
-          future change adds "holding" to this mount gate, the WS handler's
-          holding branch must be reconsidered — otherwise a send armed during
-          holding would take the 20s branch even though the pane is
-          transiently unavailable. */}
-      {/* 2026-09-25 (tina): added `renderedState === "inactive"` to unstrand
-          panes where backend discovery timed out (returns pane_state:"inactive"
-          → resolveRenderedState maps to "inactive"). Previously the gate
-          matched none of {active,dormant,error} so ComposeBox never mounted
-          (domNodeCount:6). On a busy target (workstation load 60+ / 1500+
-          shells / 750+ claude procs) 7 of 8 concurrent discoveries hit the
-          15s timeout on rapid multi-pane reload, leaving those panes
-          permanently uncomposable. Treating "inactive" the same as "dormant"
-          for the mount decision is correct: both are "backend says no live
-          claude for this pane"; on send, the invisible-wake path handles it. */}
-      {(onSend || source.kind === "relay") && (status === "streaming" || status === "error" || renderedState === "error" || renderedState === "dormant" || renderedState === "active" || renderedState === "inactive" || source.kind === "relay") && (
-        <ComposeBox
-          // Phase 93 D-11: pass mode based on source.kind — "relay" hides
-          // Row 1 + Paperclip monolithically; "harness" (default) preserves
-          // the full instrument bar. ChatSurfaceSource.kind is exactly
-          // `"harness" | "relay"` which matches ComposeBox's mode prop.
-          mode={source.kind}
-          onSend={handleComposeSend}
-          // 2026-10-06: hands-free voice mode (mic long-press) — harness only;
-          // relay rooms have no working signal and keep hold-to-send.
-          voiceModeFeed={source.kind === "relay" ? undefined : voiceModeFeed}
-          // Phase 50 D-01: seed a pending bubble synchronously with the
-          // WS write; PrettyView owns the FIFO pendingSends queue.
-          // Phase 93 Slice 6 (post-close fix): NOT seeded in relay mode — the
-          // relay adapter owns its own optimistic-bubble tracking (mqid FIFO
-          // head-matched against Matrix's `unsigned.transaction_id` echo per
-          // Pitfall 4). Passing `handleOptimisticSend` in relay mode would
-          // seed a SECOND local pending that the harness ingestion effect —
-          // gated off in relay — never head-matches, producing a duplicate
-          // bubble that flips red at the 20s timeout.
-          onOptimisticSend={source.kind === "relay" ? undefined : handleOptimisticSend}
-          // Phase 50 D-03 failure-path repopulate — set by flipToFailed
-          // to the failed pending's content; ComposeBox populates the
-          // textarea and acks via onOverrideTextConsumed on the same tick.
-          overrideText={composeOverrideText}
-          onOverrideTextConsumed={handleOverrideTextConsumed}
-          onResetClicked={onResetClicked}
-          // Phase 60 finish-line fix (2026-08-29): Phase 60 widened the
-          // ComposeBox MOUNT gate above to include `renderedState === "dormant"`
-          // (invisible-wake target) and `renderedState === "active"` (cold-
-          // dormant→wake transition — see mount comment above), and removed
-          // the compose-side `dormantActive` disable — but this canSend gate
-          // stayed `status === "streaming"` only, so on a dormant pane the
-          // child ComposeBox's `sendDisabled` predicate at ComposeBox.tsx:1817
-          // still flipped true via `(canSend === false && !hasAttachments)`.
-          // Net: user typed/pasted into a dormant compose box and the Send
-          // button stayed disabled — defeating the whole Phase 60 point.
-          // Widened to also enable for the two Phase 60 renderedStates so
-          // Send works when the ComposeBox is intentionally mounted for
-          // wake-triggering. `renderedState === "error"` deliberately NOT
-          // included (an errored WS should not accept new sends until it
-          // recovers). user UAT 2026-08-29: "sometimes typing into the
-          // main text area of the compose box or pasting stuff in there
-          // doesn't enable the send button."
-          canSend={
-            // Phase 93 Slice 6 (post-close fix): relay mode is always sendable
-            // when the compose is mounted — harness `status`/`renderedState`
-            // both derive from the harness ingestion effect, which is gated
-            // off in relay mode, so they never leave the initial "connecting"
-            // state. Without this term, `canSend` stayed false in relay and
-            // the Send button rendered visually disabled. Enter-to-send still
-            // fired via ComposeBox.handleKeyDown (which bypasses canSend),
-            // which is why the relay-source tests didn't catch it.
-            // 2026-09-25 (tina): `inactive` mirrors `dormant` in the mount
-            // gate above (see comment there), so also enable Send here so
-            // the user can type/send even when discovery is inactive —
-            // otherwise mounting the ComposeBox with a disabled Send button
-            // partially re-creates the "can't compose" trap the mount-gate
-            // widening was meant to close.
-            source.kind === "relay" ||
-            status === "streaming" ||
-            renderedState === "dormant" ||
-            renderedState === "active" ||
-            renderedState === "inactive"
-          }
-          // Phase 53 Plan 03 — isHolding now derives from `isRecycling`
-          // (working-store Axis E) — one source for all three ComposeBox +
-          // overlay recycle sites per CONTEXT.md scope-lock. Previously
-          // derived from `renderedState === "holding"` (Phase 30 PS30-04).
-          // quick 260905-d79: updated to effectiveRecycling (= isRecycling ||
-          // optimisticRecycling) so controls disable optimistically on dispatch
-          // success, preventing the user from hammering reset again mid-recycle.
-          isHolding={effectiveRecycling}
-          // Phase 53 Plan 03 — recycleActive now derives from `isRecycling`
-          // (same source as isHolding above and the overlay mount). Semantic
-          // preserved (WS-side-effecting controls disabled while the holding
-          // overlay is up). Previously derived from `renderedState === "holding"`.
-          // quick 260905-d79: updated to effectiveRecycling — same source as
-          // isHolding and overlay mount gate per "one source for all three sites".
-          recycleActive={effectiveRecycling}
-          // Phase 30: reconnectingActive derives from `status === "error"
-          // || renderedState === "error"`. status="error" covers the
-          // transient reconnect window (WS onclose fired, retry ladder
-          // in-flight); renderedState="error" covers the terminal ladder-
-          // exhausted state.
-          reconnectingActive={status === "error" || renderedState === "error"}
-          // Phase 56 (2026-08-23): dormantActive prop DELETED. Compose stays
-          // enabled on dormant panes — send triggers invisible wake at the
-          // backend send-path (Plan 56-01) with widened watchdog (Plan 56-02).
-          contextPct={contextPct}
-          hostId={hostId}
-          tmuxSession={tmuxSession}
-          // Phase 97 Finding 6 (D-14) originally case-branched identityName
-          // so the placeholder in the relay case read `Message room…`
-          // instead of falling back to `Message Claude…`. The placeholder
-          // is now universal ("Write a message…") and no longer consumes
-          // identityName, so the placeholder rationale is retired. The
-          // case-branch is kept because identityName still feeds the send
-          // funnel's stamped-log attribution + present/empty gating (see
-          // useComposeSend); the "room" sentinel keeps relay sends
-          // non-empty-gated the same way an identity displayName does.
-          identityName={source.kind === "relay" ? "room" : pvIdentity?.displayName}
-          onGoodToGo={jumpToBottom}
-          onInterrupt={onInterrupt ? handleInterrupt : undefined}
-          interruptFeedback={interruptFeedback}
-          interruptDisabled={pendingSends.some((p) => p.state === "sending")}
-          restoreRequest={restoreRequest}
-          onRestoreApplied={handleRestoreApplied}
-          // Phase 05 upload wiring — all sourced from the local
-          // usePrettyViewUploads hook. Patch #123 split the old single
-          // paperclip-visibility-equals-touch-device line into two
-          // independent props: paperclip is now shown universally
-          // (desktop-visible too, after patch #121 freed aux-row space)
-          // and the Row 1 min-h-[44px] WCAG touch target is gated
-          // separately on the touch-device peer prop. The
-          // useIsTouchDevice() hook (patch #102) is still the sole
-          // mobile-vs-desktop discriminator, just no longer conflated
-          // with paperclip visibility.
-          stagedAttachments={uploads.stagedAttachments}
-          onRemoveAttachment={uploads.removeAttachment}
-          showPaperclip={true}
-          isTouchDevice={isTouchDevice}
-          // Quick 260802-wxy: wrap the target-aware hook API in a
-          // ComposeBox-compatible (files-only) callback that always targets
-          // "primary" — the paperclip picker and paste path in the main
-          // composebox always stage to primary in Quick A. Quick B added
-          // per-slot paperclips (below via onAttachFilesForTarget) but the
-          // legacy callback stays for the paste path + backward-compat.
-          onAttachFiles={(files) => uploads.stageAttachments("primary", files)}
-          // Quick 260803-05i: target-aware wiring for the queued-row per-slot
-          // paperclip + per-slot chip strip overlay (Task 2) + per-slot
-          // clear-on-delete (Task 1). Legacy primary-only wiring above stays
-          // in place — the target-aware props are additive.
-          onAttachFilesForTarget={(target, files) => uploads.stageAttachments(target, files)}
-          getStagedAttachmentsForTarget={uploads.getStagedAttachments}
-          clearStagedForTarget={uploads.clearStagedForTarget}
-          // Phase 14 quick-task 260726-vbd: widened asideActive predicate
-          // covers both the GENERATION phase (asidePending=true, from /btw
-          // submit through aside_ready arrival) and the DISPLAY phase
-          // (asideText !== null, post-aside_ready pre-dismiss). Same visual
-          // state for both phases — ComposeBox aux buttons disabled + send
-          // button morphs to X/Resume. Same Escape-based dismiss primitive
-          // cancels an in-flight /btw or clears a displayed aside.
-          asideActive={asideText !== null || asidePending}
-          onAsideDismiss={handleAsideDismiss}
-          onSendWithAttachments={async (caption, target) => {
-            // quick-260823-8ji: Promise-returning — ComposeBox awaits this
-            // outcome to gate the textarea + attachment-chip clear on a
-            // genuine success signal from the batch lifecycle
-            // (upload_ready_to_inject → { ok: true }). On failure /
-            // timeout / ws-drop the compose state is preserved and an
-            // inline error surfaces, mirroring the non-attachment path's
-            // Phase 50 D-20 / D-56 posture. See ComposeBox.tsx handleSend
-            // attachment branch + use-pretty-view-uploads.ts BatchOutcome
-            // for the full contract.
-            // quick-260829-nt9: target forwarded to startBatch — defaults to
-            // "primary" inside startBatch when undefined; queued-slot
-            // producers pass "queued:<slotId>" per quick-260829-nt9.
-            const ret = await uploads.startBatch(caption, target);
-            if (!ret) {
-              // startBatch returns null when no attachments are staged —
-              // the compose surface guards this branch on hasAttachments
-              // upstream, but defensively surface as an upload_failed so
-              // ComposeBox never sees an unresolved outcome.
-              return {
-                ok: false as const,
-                reason: "upload_failed" as const,
-                message: "No attachments staged",
-              };
+      {/* Top fade: messages darken as they slide under the pill. A gradient,
+          not a blur — nothing re-samples the page while it scrolls. */}
+      <div className="pv-fade-top" aria-hidden="true" />
+      {/* The dock: the task list and the composer float over the end of the
+          message list on a darkening fade (shape-conversation-view). Above
+          the recycle overlay (z-99) so the composer stays usable for
+          pre-drafting; below the pill (z-101). */}
+      <div ref={setDockEl} className="pv-dock" data-touch={isTouchDevice ? "true" : undefined} data-testid="pv-dock">
+        {errorMessage && status === "streaming" && (
+          <div className="pv-compose-error text-center">
+            {errorMessage}
+          </div>
+        )}
+
+        {/* Harness tasks panel — a slim card directly above the composer. Filtered to
+            active tasks only (pending + in_progress); when the filtered list
+            is empty the panel does NOT render, so no chrome / no empty state.
+            Read-only for v1 — Claude Code owns writes to ~/.claude/tasks/. */}
+        {status === "streaming" &&
+          (() => {
+            const active = harnessTasks.filter(
+              (t) => t.status !== "completed",
+            );
+            return active.length > 0 ? (
+              <HarnessTasksPanel tasks={active} />
+            ) : null;
+          })()}
+        {/* Phase 30 ComposeBox mount gate: same shape as Phase 29, only the
+            `renderedState === ...` names differ from the old `phase === ...`.
+            `status === "streaming"` preserved (post-resolve active).
+            `status === "error"` retained so ComposeBox stays mounted during
+            the transient WS reconnect window (bubbles preserved, Send
+            disabled per patch #339). `renderedState === "error"` covers the
+            terminal-ladder-exhausted case (PrettyViewErrorOverlay up).
+            `renderedState === "dormant"` mounts the reduced-state ComposeBox
+            during the sleep window. `renderedState === "active"` (patch #491)
+            closes the wake-transition unmount gap: on a cold-dormant page
+            (fresh page load onto a dormant pane, backend's dormant-poll path
+            at claude-session-server.ts § L2570 emits {type:"dormant"} +
+            pane_state:"dormant" WITHOUT ever sending a session frame, so
+            status stays "connecting" client-side), when wake completes the
+            dormant-poll seam fires pane_state:"active" (§ L6387) BEFORE the
+            supervisor's fresh claude launches and hits the "Active path"
+            (§ L6025) that finally emits the session frame. Without the
+            `active` clause, the mount gate flips false in that window and
+            unmounts ComposeBox — destroying useVoiceRecording state (mid-
+            flight MediaRecorder + MediaStream), textarea drafts, and any
+            in-flight compose gesture. user 2026-08-23 verbatim: "as I'm
+            waking up, I start recording a message with the mic, but when
+            it actually wakes up, for some reason, the mic just stops, and
+            it goes back to as if I'm not recording, and so I lose that
+            recording." Regression locked by "Test 4 (cold-dormant→active
+            preserves compose state)" below. */}
+        {/* LOAD-BEARING INVARIANT (Phase 76 post-review): this gate deliberately
+            EXCLUDES `renderedState === "holding"` — during holding, Claude is
+            being relaunched and the pane cannot receive input. The pane_state
+            WS handler at ~L1815 relies on this: it maps `pane_state:"holding"`
+            to `setDormant(false)` (because holding is not asleep-at-send-time),
+            which is only safe because no send can arm during holding. If a
+            future change adds "holding" to this mount gate, the WS handler's
+            holding branch must be reconsidered — otherwise a send armed during
+            holding would take the 20s branch even though the pane is
+            transiently unavailable. */}
+        {/* 2026-09-25 (tina): added `renderedState === "inactive"` to unstrand
+            panes where backend discovery timed out (returns pane_state:"inactive"
+            → resolveRenderedState maps to "inactive"). Previously the gate
+            matched none of {active,dormant,error} so ComposeBox never mounted
+            (domNodeCount:6). On a busy target (workstation load 60+ / 1500+
+            shells / 750+ claude procs) 7 of 8 concurrent discoveries hit the
+            15s timeout on rapid multi-pane reload, leaving those panes
+            permanently uncomposable. Treating "inactive" the same as "dormant"
+            for the mount decision is correct: both are "backend says no live
+            claude for this pane"; on send, the invisible-wake path handles it. */}
+        {(onSend || source.kind === "relay") && (status === "streaming" || status === "error" || renderedState === "error" || renderedState === "dormant" || renderedState === "active" || renderedState === "inactive" || source.kind === "relay") && (
+          <ComposeBox
+            // Phase 93 D-11: pass mode based on source.kind — "relay" hides
+            // Row 1 + Paperclip monolithically; "harness" (default) preserves
+            // the full instrument bar. ChatSurfaceSource.kind is exactly
+            // `"harness" | "relay"` which matches ComposeBox's mode prop.
+            mode={source.kind}
+            onSend={handleComposeSend}
+            // 2026-10-06: hands-free voice mode (mic long-press) — harness only;
+            // relay rooms have no working signal and keep hold-to-send.
+            voiceModeFeed={source.kind === "relay" ? undefined : voiceModeFeed}
+            // Phase 50 D-01: seed a pending bubble synchronously with the
+            // WS write; PrettyView owns the FIFO pendingSends queue.
+            // Phase 93 Slice 6 (post-close fix): NOT seeded in relay mode — the
+            // relay adapter owns its own optimistic-bubble tracking (mqid FIFO
+            // head-matched against Matrix's `unsigned.transaction_id` echo per
+            // Pitfall 4). Passing `handleOptimisticSend` in relay mode would
+            // seed a SECOND local pending that the harness ingestion effect —
+            // gated off in relay — never head-matches, producing a duplicate
+            // bubble that flips red at the 20s timeout.
+            onOptimisticSend={source.kind === "relay" ? undefined : handleOptimisticSend}
+            // Phase 50 D-03 failure-path repopulate — set by flipToFailed
+            // to the failed pending's content; ComposeBox populates the
+            // textarea and acks via onOverrideTextConsumed on the same tick.
+            overrideText={composeOverrideText}
+            onOverrideTextConsumed={handleOverrideTextConsumed}
+            onResetClicked={onResetClicked}
+            // Phase 60 finish-line fix (2026-08-29): Phase 60 widened the
+            // ComposeBox MOUNT gate above to include `renderedState === "dormant"`
+            // (invisible-wake target) and `renderedState === "active"` (cold-
+            // dormant→wake transition — see mount comment above), and removed
+            // the compose-side `dormantActive` disable — but this canSend gate
+            // stayed `status === "streaming"` only, so on a dormant pane the
+            // child ComposeBox's `sendDisabled` predicate at ComposeBox.tsx:1817
+            // still flipped true via `(canSend === false && !hasAttachments)`.
+            // Net: user typed/pasted into a dormant compose box and the Send
+            // button stayed disabled — defeating the whole Phase 60 point.
+            // Widened to also enable for the two Phase 60 renderedStates so
+            // Send works when the ComposeBox is intentionally mounted for
+            // wake-triggering. `renderedState === "error"` deliberately NOT
+            // included (an errored WS should not accept new sends until it
+            // recovers). user UAT 2026-08-29: "sometimes typing into the
+            // main text area of the compose box or pasting stuff in there
+            // doesn't enable the send button."
+            canSend={
+              // Phase 93 Slice 6 (post-close fix): relay mode is always sendable
+              // when the compose is mounted — harness `status`/`renderedState`
+              // both derive from the harness ingestion effect, which is gated
+              // off in relay mode, so they never leave the initial "connecting"
+              // state. Without this term, `canSend` stayed false in relay and
+              // the Send button rendered visually disabled. Enter-to-send still
+              // fired via ComposeBox.handleKeyDown (which bypasses canSend),
+              // which is why the relay-source tests didn't catch it.
+              // 2026-09-25 (tina): `inactive` mirrors `dormant` in the mount
+              // gate above (see comment there), so also enable Send here so
+              // the user can type/send even when discovery is inactive —
+              // otherwise mounting the ComposeBox with a disabled Send button
+              // partially re-creates the "can't compose" trap the mount-gate
+              // widening was meant to close.
+              source.kind === "relay" ||
+              status === "streaming" ||
+              renderedState === "dormant" ||
+              renderedState === "active" ||
+              renderedState === "inactive"
             }
-            return ret.outcome;
-          }}
-          onRetryBatch={() => {
-            void uploads.retryBatch();
-          }}
-          className="shrink-0"
-        />
-      )}
+            // Phase 53 Plan 03 — isHolding now derives from `isRecycling`
+            // (working-store Axis E) — one source for all three ComposeBox +
+            // overlay recycle sites per CONTEXT.md scope-lock. Previously
+            // derived from `renderedState === "holding"` (Phase 30 PS30-04).
+            // quick 260905-d79: updated to effectiveRecycling (= isRecycling ||
+            // optimisticRecycling) so controls disable optimistically on dispatch
+            // success, preventing the user from hammering reset again mid-recycle.
+            isHolding={effectiveRecycling}
+            // Phase 53 Plan 03 — recycleActive now derives from `isRecycling`
+            // (same source as isHolding above and the overlay mount). Semantic
+            // preserved (WS-side-effecting controls disabled while the holding
+            // overlay is up). Previously derived from `renderedState === "holding"`.
+            // quick 260905-d79: updated to effectiveRecycling — same source as
+            // isHolding and overlay mount gate per "one source for all three sites".
+            recycleActive={effectiveRecycling}
+            // Phase 30: reconnectingActive derives from `status === "error"
+            // || renderedState === "error"`. status="error" covers the
+            // transient reconnect window (WS onclose fired, retry ladder
+            // in-flight); renderedState="error" covers the terminal ladder-
+            // exhausted state.
+            reconnectingActive={status === "error" || renderedState === "error"}
+            // Phase 56 (2026-08-23): dormantActive prop DELETED. Compose stays
+            // enabled on dormant panes — send triggers invisible wake at the
+            // backend send-path (Plan 56-01) with widened watchdog (Plan 56-02).
+            contextPct={contextPct}
+            hostId={hostId}
+            tmuxSession={tmuxSession}
+            // Phase 97 Finding 6 (D-14) originally case-branched identityName
+            // so the placeholder in the relay case read `Message room…`
+            // instead of falling back to `Message Claude…`. The placeholder
+            // is now universal ("Write a message…") and no longer consumes
+            // identityName, so the placeholder rationale is retired. The
+            // case-branch is kept because identityName still feeds the send
+            // funnel's stamped-log attribution + present/empty gating (see
+            // useComposeSend); the "room" sentinel keeps relay sends
+            // non-empty-gated the same way an identity displayName does.
+            identityName={source.kind === "relay" ? "room" : pvIdentity?.displayName}
+            onGoodToGo={jumpToBottom}
+            onInterrupt={onInterrupt ? handleInterrupt : undefined}
+            agentWorking={agentWorking}
+            interruptFeedback={interruptFeedback}
+            interruptDisabled={pendingSends.some((p) => p.state === "sending")}
+            restoreRequest={restoreRequest}
+            onRestoreApplied={handleRestoreApplied}
+            // Phase 05 upload wiring — all sourced from the local
+            // usePrettyViewUploads hook. Patch #123 split the old single
+            // paperclip-visibility-equals-touch-device line into two
+            // independent props: paperclip is now shown universally
+            // (desktop-visible too, after patch #121 freed aux-row space)
+            // and the Row 1 min-h-[44px] WCAG touch target is gated
+            // separately on the touch-device peer prop. The
+            // useIsTouchDevice() hook (patch #102) is still the sole
+            // mobile-vs-desktop discriminator, just no longer conflated
+            // with paperclip visibility.
+            stagedAttachments={uploads.stagedAttachments}
+            onRemoveAttachment={uploads.removeAttachment}
+            showPaperclip={true}
+            isTouchDevice={isTouchDevice}
+            // Quick 260802-wxy: wrap the target-aware hook API in a
+            // ComposeBox-compatible (files-only) callback that always targets
+            // "primary" — the paperclip picker and paste path in the main
+            // composebox always stage to primary in Quick A. Quick B added
+            // per-slot paperclips (below via onAttachFilesForTarget) but the
+            // legacy callback stays for the paste path + backward-compat.
+            onAttachFiles={(files) => uploads.stageAttachments("primary", files)}
+            // Quick 260803-05i: target-aware wiring for the queued-row per-slot
+            // paperclip + per-slot chip strip overlay (Task 2) + per-slot
+            // clear-on-delete (Task 1). Legacy primary-only wiring above stays
+            // in place — the target-aware props are additive.
+            onAttachFilesForTarget={(target, files) => uploads.stageAttachments(target, files)}
+            getStagedAttachmentsForTarget={uploads.getStagedAttachments}
+            clearStagedForTarget={uploads.clearStagedForTarget}
+            // Phase 14 quick-task 260726-vbd: widened asideActive predicate
+            // covers both the GENERATION phase (asidePending=true, from /btw
+            // submit through aside_ready arrival) and the DISPLAY phase
+            // (asideText !== null, post-aside_ready pre-dismiss). Same visual
+            // state for both phases — ComposeBox aux buttons disabled + send
+            // button morphs to X/Resume. Same Escape-based dismiss primitive
+            // cancels an in-flight /btw or clears a displayed aside.
+            asideActive={asideText !== null || asidePending}
+            onAsideDismiss={handleAsideDismiss}
+            onSendWithAttachments={async (caption, target) => {
+              // quick-260823-8ji: Promise-returning — ComposeBox awaits this
+              // outcome to gate the textarea + attachment-chip clear on a
+              // genuine success signal from the batch lifecycle
+              // (upload_ready_to_inject → { ok: true }). On failure /
+              // timeout / ws-drop the compose state is preserved and an
+              // inline error surfaces, mirroring the non-attachment path's
+              // Phase 50 D-20 / D-56 posture. See ComposeBox.tsx handleSend
+              // attachment branch + use-pretty-view-uploads.ts BatchOutcome
+              // for the full contract.
+              // quick-260829-nt9: target forwarded to startBatch — defaults to
+              // "primary" inside startBatch when undefined; queued-slot
+              // producers pass "queued:<slotId>" per quick-260829-nt9.
+              const ret = await uploads.startBatch(caption, target);
+              if (!ret) {
+                // startBatch returns null when no attachments are staged —
+                // the compose surface guards this branch on hasAttachments
+                // upstream, but defensively surface as an upload_failed so
+                // ComposeBox never sees an unresolved outcome.
+                return {
+                  ok: false as const,
+                  reason: "upload_failed" as const,
+                  message: "No attachments staged",
+                };
+              }
+              return ret.outcome;
+            }}
+            onRetryBatch={() => {
+              void uploads.retryBatch();
+            }}
+            className="shrink-0"
+          />
+        )}
+      </div>
 
       {/* Phase 05: full-surface drop overlay. Mounts inside data-pv-root
           so its `absolute inset-0` positioning resolves against the

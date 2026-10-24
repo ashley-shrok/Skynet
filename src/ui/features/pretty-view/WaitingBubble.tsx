@@ -41,16 +41,9 @@ export interface WaitingBubbleProps {
   agentName?: string | null;
 }
 
-const bubbleClass = cn(
-  "leading-relaxed",
-  "rounded-[var(--radius-pv-bubble)] px-3 py-2",
-  "pv-hue-surface",
-  "bg-[linear-gradient(160deg,hsla(var(--pv-id-hue),50%,38%,0.55),hsla(var(--pv-id-hue),45%,24%,0.6))]",
-  "text-[#fbf5e8]",
-  "border border-[hsla(var(--pv-id-hue),65%,55%,0.32)]",
-  "shadow-[0_8px_24px_rgba(0,0,0,0.5),_0_1px_0_rgba(255,220,170,0.18)_inset,_0_0_0_0.5px_hsla(var(--pv-id-hue),70%,55%,0.2),_0_0_32px_hsla(var(--pv-id-hue),70%,52%,0.18)]",
-  "text-sm",
-);
+// The agent asking: an agent bubble in its colour (conversation.css
+// .pv-bubble-agent), so it reads as the agent talking — not an alert.
+const bubbleClass = cn("pv-bubble-agent pv-hue-surface", "text-[14px]");
 
 /** "wants to run a command" etc., from the prompt's title line. */
 export function describeAction(title: string): string {
@@ -131,7 +124,7 @@ export function WaitingBubble({
       <div
         role="group"
         aria-label={`Permission needed: ${headline}`}
-        className={cn(bubbleClass, "max-w-[min(720px,80vw)] flex flex-col gap-2")}
+        className={cn(bubbleClass, "max-w-[min(720px,86%)] flex flex-col gap-2.5 py-2.5!")}
       >
         <div className="flex items-start gap-2">
           <Hand className="h-4 w-4 shrink-0 mt-[3px]" aria-hidden="true" />
@@ -140,7 +133,7 @@ export function WaitingBubble({
             {prompt.description && (
               <span className="break-words">“{prompt.description}”</span>
             )}
-            <span className="opacity-80">{describeReason(prompt.reason)}</span>
+            <span className="text-[color:var(--k-t2)]">{describeReason(prompt.reason)}</span>
           </div>
         </div>
 
@@ -152,7 +145,7 @@ export function WaitingBubble({
           <pre
             data-testid="permission-prompt-body"
             className={cn(
-              "whitespace-pre-wrap break-all font-mono text-xs bg-black/30 rounded px-2 py-1",
+              "whitespace-pre-wrap break-all font-mono text-[12.5px] leading-[1.5] bg-[rgba(8,9,12,0.72)] border border-white/[0.07] rounded-[10px] px-3 py-2",
               !showDetails && "max-h-[4.5em] overflow-hidden",
             )}
           >
@@ -168,7 +161,7 @@ export function WaitingBubble({
             type="button"
             disabled={locked}
             onClick={() => onAnswer("allow")}
-            className="rounded-md px-3 py-1 font-medium bg-[#fbf5e8] text-[#2a1a10] disabled:opacity-40"
+            className="h-8 rounded-full px-4 text-[13.5px] font-semibold bg-[color:var(--k-t1)] text-[#15161a] hover:bg-white cursor-pointer disabled:opacity-40 disabled:cursor-default"
           >
             Allow
           </button>
@@ -176,19 +169,19 @@ export function WaitingBubble({
             type="button"
             disabled={locked}
             onClick={() => onAnswer("deny")}
-            className="rounded-md px-3 py-1 font-medium border border-[#fbf5e8]/60 disabled:opacity-40"
+            className="h-8 rounded-full px-4 text-[13.5px] font-semibold bg-black/25 text-[color:var(--k-t1)] hover:bg-black/40 cursor-pointer disabled:opacity-40 disabled:cursor-default"
           >
             Deny
           </button>
           <button
             type="button"
             onClick={() => setShowDetails((v) => !v)}
-            className="text-xs underline opacity-80"
+            className="h-8 px-2 rounded-full text-[12.5px] font-semibold text-[color:var(--k-t2)] hover:text-[color:var(--k-t1)] cursor-pointer"
           >
             {showDetails ? "Show less" : "Show details"}
           </button>
           {secondsLeft !== null && !locked && (
-            <span className="text-xs opacity-80 ml-auto" aria-live="off">
+            <span className="text-[12.5px] text-[color:var(--k-t2)] ml-auto tabular-nums" aria-live="off">
               Auto-denies in {formatCountdown(secondsLeft)}
             </span>
           )}

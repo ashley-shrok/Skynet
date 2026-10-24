@@ -56,6 +56,11 @@ export interface MicButtonProps {
    * cancel. Undefined = no ring.
    */
   holdRing?: "recording" | "outside";
+  /**
+   * "row": a round button in the composer's control row (conversation.css
+   * .pv-cbtn) instead of an icon absolutely placed over a textarea.
+   */
+  variant?: "overlay" | "row";
 }
 
 export function MicButton({
@@ -70,6 +75,7 @@ export function MicButton({
   onPointerLeave,
   dataHoldActive,
   holdRing,
+  variant = "overlay",
 }: MicButtonProps) {
   // quick-260814-iwy Bug 1 fix: wrap onPointerDown with e.preventDefault() so
   // the browser's native long-press gesture layer (iOS Safari callout menu,
@@ -101,7 +107,8 @@ export function MicButton({
       {...(dataHoldActive !== undefined
         ? { "data-hold-active": dataHoldActive ? "true" : "false" }
         : {})}
-      className={cn(
+      data-holding={variant === "row" && holdRing === "recording" ? "true" : undefined}
+      className={variant === "row" ? "pv-cbtn select-none touch-none [-webkit-touch-callout:none]" : cn(
         "absolute",
         positionClass,
         "p-2",
@@ -130,7 +137,7 @@ export function MicButton({
           className={cn("pv-hold-ring", holdRing === "outside" && "pv-hold-ring-outside")}
         />
       )}
-      <Mic className="size-6" aria-hidden="true" />
+      <Mic className={variant === "row" ? undefined : "size-6"} aria-hidden="true" />
     </button>
   );
 }

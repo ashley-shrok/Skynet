@@ -55,6 +55,9 @@ export type BrandingConfig = {
   faviconPath: string;
   // Phase 82: operator-overridable WIP indicator image src (bundled default IS the fallback — no boot gate).
   wipIndicatorPath: string;
+  // The installation supplies its own working image (GET /api/branding adds
+  // this; absent = the bundled one). Unset/false → the chat's built-in orb.
+  wipIndicatorCustom?: boolean;
   pwaIcons: Array<{ src: string; sizes: string; type: string }>;
   // Phase 74 (avatar-style-through-branding-config) — required extended fields.
   // MUST match backend src/backend/branding/branding-config-loader.ts

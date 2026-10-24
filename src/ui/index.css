@@ -423,26 +423,25 @@ html.fs-xl {
   }
 }
 
-/* Per-bubble speak button (ChatMessage). Base 28x28 (unchanged from prior
-   inline style) so desktop hover-reveal density is preserved; on mobile
-   viewports the tap target roughly doubles so the affordance reads as
-   proper touch chrome rather than a fingernail-sized square. */
-.pv-speak-btn {
+/* Feedback-strip buttons under an agent bubble (speak / 👍 / 👎, only when
+   feedback is enabled). Base 28x28; on mobile the tap target roughly doubles.
+   The in-bubble speak button is conversation.css's .pv-speak-btn. */
+.pv-strip-btn {
   width: 28px;
   height: 28px;
   border-radius: 6px;
 }
-.pv-speak-btn svg {
+.pv-strip-btn svg {
   width: 16px;
   height: 16px;
 }
 @media (max-width: 767.98px) {
-  .pv-speak-btn {
+  .pv-strip-btn {
     width: 39px;
     height: 39px;
     border-radius: 8px;
   }
-  .pv-speak-btn svg {
+  .pv-strip-btn svg {
     width: 20px;
     height: 20px;
   }

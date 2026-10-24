@@ -30,44 +30,27 @@ function statusIcon(status: string) {
     // stacking a second animated glyph in the tasks panel was visually
     // ambiguous (user 2026-07-18). Arrow reads as "this is what's being
     // worked on right now" while leaving motion for the working state alone.
-    return <ArrowRight className="size-3.5 shrink-0 text-[color:var(--color-pv-fg)]" />;
+    return <ArrowRight className="size-3.5 shrink-0 mt-[3px] text-[hsl(var(--pv-id-hue),75%,72%)]" />;
   }
   if (status === "completed") {
     // completed shouldn't reach us (parent filters), but render defensively
-    return <CircleDot className="size-3.5 shrink-0 text-[color:var(--color-pv-fg-muted)]" />;
+    return <CircleDot className="size-3.5 shrink-0 mt-[3px] text-[color:var(--k-t3)]" />;
   }
-  return <Circle className="size-3.5 shrink-0 text-[color:var(--color-pv-fg-muted)]" />;
+  return <Circle className="size-3.5 shrink-0 mt-[3px] text-[color:var(--k-t3)]" />;
 }
 
 export function HarnessTasksPanel({ tasks, className }: HarnessTasksPanelProps) {
   const [collapsed, setCollapsed] = useState(false);
   return (
     <div
-      className={cn(
-        // Patch #82 shelf treatment (VISUAL-05 revised): wall-to-wall
-        // cool-black shelf stacked above the compose surround, replacing
-        // the prior floating-card + margin + drop-shadow look. user
-        // 2026-07-19: the floating-card visual implied chat bubbles
-        // could scroll behind it, but layout-wise the panel took its
-        // own vertical space with mx-3 my-1 margin gaps that the chat
-        // couldn't extend into — so the illusion broke. Shelves match
-        // the actual layout: continuous rows above compose that never
-        // overlap chat. Cool-cream 1px top border serves as the divider
-        // between this shelf and whatever's above (chat or another
-        // shelf); the shelf's own bg is a subtle cool-glass gradient.
-        "shrink-0 max-h-40 overflow-y-auto",
-        "px-3 py-1.5",
-        "bg-[linear-gradient(180deg,var(--color-pv-surface-quiet),var(--color-pv-surface-quiet-alt))]",
-        "border-t border-[var(--color-pv-border-quiet)]",
-        "shadow-[var(--shadow-pv-quiet-card)]",
-        className,
-      )}
+      // The agent's checklist: a slim card above the composer (conversation.css).
+      className={cn("pv-tasks", className)}
       aria-label="Harness tasks"
     >
       <button
         type="button"
         onClick={() => setCollapsed((c) => !c)}
-        className="w-full py-1 text-xs font-medium text-[var(--color-pv-fg-muted)] uppercase tracking-wide flex items-center gap-2 cursor-pointer hover:text-[var(--color-pv-fg)] transition-colors"
+        className="w-full py-1 text-[12.5px] font-semibold text-[color:var(--k-t2)] flex items-center gap-2 cursor-pointer hover:text-[color:var(--k-t1)] transition-colors"
         aria-expanded={!collapsed}
       >
         <ChevronDown
@@ -77,9 +60,7 @@ export function HarnessTasksPanel({ tasks, className }: HarnessTasksPanelProps) 
           )}
         />
         <span>Tasks</span>
-        <span className="text-[var(--color-pv-fg-dim)] normal-case font-normal">
-          ({tasks.length})
-        </span>
+        <span className="text-[color:var(--k-t3)] font-normal">{tasks.length}</span>
       </button>
       {!collapsed && (
       <ul className="pb-1 flex flex-col gap-1">
@@ -92,16 +73,15 @@ export function HarnessTasksPanel({ tasks, className }: HarnessTasksPanelProps) 
           return (
             <li
               key={t.id}
-              className="flex items-start gap-2 text-sm leading-snug"
+              className="flex items-start gap-2 text-[13.5px] leading-snug"
               title={t.description && t.description !== t.subject ? t.description : undefined}
             >
               {statusIcon(t.status)}
               <span
                 className={cn(
                   "break-words",
-                  t.status === "in_progress" &&
-                    "text-[var(--color-pv-fg)] font-medium",
-                  t.status === "pending" && "text-[var(--color-pv-fg)]/90",
+                  t.status === "in_progress" && "text-[color:var(--k-t1)] font-medium",
+                  t.status !== "in_progress" && "text-[color:var(--k-t2)]",
                 )}
               >
                 {label}
