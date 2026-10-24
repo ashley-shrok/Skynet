@@ -168,6 +168,9 @@ export interface UseVoiceModeReturn {
   stop: () => void;
   /** Stop the reply currently being read out and drop the queued ones. */
   skipSpeech: () => void;
+  /** The mic is muted: it stays open but hears silence until unmuted. */
+  muted: boolean;
+  toggleMute: () => void;
 }
 
 // ---------------------------------------------------------------------------
@@ -274,6 +277,7 @@ function describeTracks(stream: MediaStream | null): string {
 export function useVoiceMode(args: UseVoiceModeArgs): UseVoiceModeReturn {
   const [phase, setPhaseState] = useState<VoiceModePhase>("off");
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [muted, setMuted] = useState(false);
 
   // Latest args, read from async callbacks without re-binding them.
   const argsRef = useRef(args);
@@ -284,6 +288,8 @@ export function useVoiceMode(args: UseVoiceModeArgs): UseVoiceModeReturn {
   const sessionRef = useRef(0);
   const phaseRef = useRef<VoiceModePhase>("off");
   const streamRef = useRef<MediaStream | null>(null);
+  /** Mute is a state of the mic, not of the draft: tracks are disabled (silence), nothing else changes. */
+  const mutedRef = useRef(false);
   const ctxRef = useRef<AudioContext | null>(null);
   const cuesRef = useRef<VoiceModeCues | null>(null);
   const analyserRef = useRef<AnalyserNode | null>(null);
@@ -1046,8 +1052,10 @@ export function useVoiceMode(args: UseVoiceModeArgs): UseVoiceModeReturn {
       return;
     }
     streamRef.current = stream;
-    console.info(`[voice-mode] stream-attached ${describeMicTrack(stream)} ${tagRef.current}`);
+    console.info(`[voice-mode] stream-attached ${describeMicTrack(stream)} muted=${mutedRef.current} ${tagRef.current}`);
     for (const track of stream.getAudioTracks()) {
+      // A stream re-acquired while muted stays muted.
+      track.enabled = !mutedRef.current;
       // The phone muting the mic (call, Siri, another app taking audio) leaves
       // the track live but silent — log it; recorders may stall without onstop.
       track.onmute = () => console.warn(`[voice-mode] mic-track-muted ${tagRef.current}`);
@@ -1095,6 +1103,8 @@ export function useVoiceMode(args: UseVoiceModeArgs): UseVoiceModeReturn {
     sessionRef.current += 1;
     piecesRef.current = [];
     pieceSpeechRef.current = false;
+    mutedRef.current = false;
+    setMuted(false);
     setErrorMessage(null);
     setPhase("starting");
     const settings = getVoiceModeSettings();
@@ -1124,6 +1134,15 @@ export function useVoiceMode(args: UseVoiceModeArgs): UseVoiceModeReturn {
     acquiringRef.current = true;
     streamPromise.then(attachStreamRef.current, failAcquireRef.current);
   }, [log, setPhase]);
+
+  const toggleMute = useCallback(() => {
+    if (!activeRef.current) return;
+    const next = !mutedRef.current;
+    mutedRef.current = next;
+    setMuted(next);
+    for (const track of streamRef.current?.getAudioTracks() ?? []) track.enabled = !next;
+    log(`mic-${next ? "muted" : "unmuted"} phase=${phaseRef.current} ${describeTracks(streamRef.current)}`);
+  }, [log]);
 
   const skipSpeech = useCallback(() => {
     queueRef.current = [];
@@ -1273,5 +1292,5 @@ export function useVoiceMode(args: UseVoiceModeArgs): UseVoiceModeReturn {
     [teardown],
   );
 
-  return { active: phase !== "off", phase, errorMessage, start, stop, skipSpeech };
+  return { active: phase !== "off", phase, errorMessage, start, stop, skipSpeech, muted: muted && phase !== "off", toggleMute };
 }

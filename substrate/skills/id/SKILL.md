@@ -1315,7 +1315,11 @@ crown, then gear.
   avoids the prompt entirely.
 
 - **Mic (in the compose box) — dictation.** Tap the mic to dictate;
-  hold it to record and release to send.
+  hold it to record and release to send. While a tapped recording runs,
+  the send slot shows four buttons: **mute** (mic icon; crossed out and red
+  while muted — the recording carries on but hears silence until unmuted),
+  cancel (×), append (down-arrow — adds the words to the compose box) and
+  send. Each recording starts unmuted.
   *Agent-side: none.*
 
 - **Stop (square) button — interrupt** (agent conversations). In the row
@@ -1369,7 +1373,12 @@ crown, then gear.
   Tapping one while a reply is being read cuts that reply off.
   While on, the button widens into a small chip that shows the state
   (Starting, Listening, Hearing, Sending, Speaking, Paused); tap the chip
-  while a reply (or speak button) is playing to skip it. The chip's × — or ending a sentence
+  while a reply (or speak button) is playing to skip it. The chip's small
+  **mic** button mutes the mic (crossed out and red while muted; the chip
+  reads Muted while it would be listening): voice mode stays on and replies
+  are still read aloud, but it hears silence until unmuted — what was said
+  before muting is handled as usual, so a draft can still send on the
+  silence. Each voice-mode session starts unmuted. The chip's × — or ending a sentence
   with "stop voice mode" — ends voice mode and throws away anything not yet
   sent. Replies are spoken in the agent's voice —
   its own, else its role's, else the user's **Agent voices** fallback, else

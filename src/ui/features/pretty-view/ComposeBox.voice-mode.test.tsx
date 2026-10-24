@@ -160,6 +160,23 @@ describe("ComposeBox — hands-free voice mode (aux-row button)", () => {
     expect(vm.nextElementSibling).toBe(stop);
   });
 
+  it("the chip's mute toggle shows Muted while listening, and unmutes", async () => {
+    render(<ComposeBox {...props()} />);
+    await startVoiceMode();
+    const mute = screen.getByRole("button", { name: "Mute mic" });
+    expect(mute.getAttribute("aria-pressed")).toBe("false");
+    act(() => {
+      fireEvent.click(mute);
+    });
+    expect(screen.getByRole("status").textContent).toBe("Muted");
+    expect(screen.getByTestId("voice-mode-button").getAttribute("data-muted")).toBe("true");
+    expect(chipPhase()).toBe("listening");
+    act(() => {
+      fireEvent.click(screen.getByRole("button", { name: "Unmute mic" }));
+    });
+    expect(screen.getByRole("status").textContent).toBe("Listening");
+  });
+
   it("the chip does not show the agent-working state (the WIP indicator does)", async () => {
     render(<ComposeBox {...props({ voiceModeFeed: { isWorking: true, messages: [], voices: [] } })} />);
     await startVoiceMode();

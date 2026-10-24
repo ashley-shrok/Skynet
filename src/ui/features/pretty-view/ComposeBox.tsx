@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createLogDedup } from "@/lib/log-dedup";
-import { AudioLines, Ban, Check, LoaderCircle, Mic, Paperclip, Pause, Plus, RefreshCw, RotateCcw, Square, ThumbsUp, Volume2, X } from "lucide-react";
+import { AudioLines, Ban, Check, LoaderCircle, Mic, MicOff, Paperclip, Pause, Plus, RefreshCw, RotateCcw, Square, ThumbsUp, Volume2, X } from "lucide-react";
 import { Button } from "@/components/button";
 import { Textarea } from "@/components/textarea";
 import { cn } from "@/lib/utils";
@@ -646,6 +646,11 @@ const VOICE_MODE_COLOR: Record<VoiceModePhase, string> = {
   paused: "#8a93a6",
 };
 
+/** Voice-mode chip tint while muted. */
+const MUTED_COLOR = "#8a93a6";
+/** A mute toggle that is on — the cancel button's red tint. */
+const MUTE_ON_COLOR = "hsla(0,72%,72%,0.95)";
+
 /** What the Stop button shows after a press (see PrettyView). */
 export type InterruptFeedback = "stopping" | "stopped" | "cancelled" | "nothing" | "failed";
 
@@ -670,8 +675,8 @@ const AUX_BUTTON_CLASS = cn(
  * Voice-mode toggle in the aux-button row (2026-10-09, replaced the mic
  * long-press + status pill). Off: an icon button that starts voice mode. On:
  * the button widens into a chip that IS the status display — phase glyph +
- * label (a tap on it skips speech while the agent is talking) and an × that
- * ends voice mode.
+ * label (a tap on it skips speech while the agent is talking), a mute toggle
+ * and an × that ends voice mode.
  */
 /** Tooltip on mics / voice-mode buttons disabled because voice mode is on. */
 const VOICE_MODE_ON_TITLE = "Voice mode is on";
@@ -685,6 +690,8 @@ function VoiceModeButton({
   onStart,
   onStop,
   onSkip,
+  muted,
+  onToggleMute,
 }: {
   phase: VoiceModePhase;
   disabled: boolean;
@@ -693,6 +700,8 @@ function VoiceModeButton({
   onStart: () => void;
   onStop: () => void;
   onSkip: () => void;
+  muted: boolean;
+  onToggleMute: () => void;
 }) {
   if (phase === "off") {
     return (
@@ -716,18 +725,29 @@ function VoiceModeButton({
     );
   }
   const busy = phase === "starting" || phase === "transcribing";
-  const Glyph = busy ? LoaderCircle : phase === "speaking" ? Volume2 : phase === "paused" ? Pause : Mic;
-  const label = VOICE_MODE_LABEL[phase];
+  // Muted while it would otherwise be listening: say so instead.
+  const showMuted = muted && (phase === "listening" || phase === "hearing");
+  const Glyph = busy
+    ? LoaderCircle
+    : phase === "speaking"
+      ? Volume2
+      : phase === "paused"
+        ? Pause
+        : showMuted
+          ? MicOff
+          : Mic;
+  const label = showMuted ? "Muted" : VOICE_MODE_LABEL[phase];
   const speaking = phase === "speaking";
   return (
     <div
       data-testid="voice-mode-button"
       data-phase={phase}
+      data-muted={muted ? "true" : undefined}
       className={cn(
         "flex h-7 max-md:h-9 items-center gap-0.5 rounded-[6px] border pl-1.5 pr-0.5 text-xs whitespace-nowrap",
         AUX_BUTTON_CLASS,
       )}
-      style={{ color: VOICE_MODE_COLOR[phase] }}
+      style={{ color: showMuted ? MUTED_COLOR : VOICE_MODE_COLOR[phase] }}
     >
       <button
         type="button"
@@ -746,6 +766,21 @@ function VoiceModeButton({
           )}
         />
         <span role="status" aria-live="polite">{label}</span>
+      </button>
+      <button
+        type="button"
+        onClick={onToggleMute}
+        aria-label={muted ? "Unmute mic" : "Mute mic"}
+        aria-pressed={muted}
+        title={muted ? "Unmute mic" : "Mute mic"}
+        data-testid="voice-mode-mute"
+        className={cn(
+          "flex items-center rounded p-1 cursor-pointer hover:bg-[rgba(220,225,245,0.12)]",
+          !muted && "opacity-70 hover:opacity-100",
+        )}
+        style={muted ? { color: MUTE_ON_COLOR } : undefined}
+      >
+        {muted ? <MicOff aria-hidden="true" className="size-3.5" /> : <Mic aria-hidden="true" className="size-3.5" />}
       </button>
       <button
         type="button"
@@ -2696,6 +2731,8 @@ export function ComposeBox({
               onStart={voiceMode.start}
               onStop={voiceMode.stop}
               onSkip={voiceMode.skipSpeech}
+              muted={voiceMode.muted}
+              onToggleMute={voiceMode.toggleMute}
             />
           )}
           {onInterrupt && interruptFeedback && (
@@ -3120,6 +3157,8 @@ export function ComposeBox({
             onCancel={handleVoiceCancel}
             onAppend={() => { void handleVoiceAppend("primary"); }}
             onSend={() => { void handleVoiceSend("primary"); }}
+            muted={voice.muted}
+            onToggleMute={voice.toggleMute}
           />
         ) : (
           <>
@@ -3758,6 +3797,8 @@ function QueuedRow(props: QueuedRowProps) {
             onCancel={handleVoiceCancel}
             onAppend={() => { void handleVoiceAppend(slot.id); }}
             onSend={() => { void handleVoiceSend(slot.id); }}
+            muted={voice.muted}
+            onToggleMute={voice.toggleMute}
           />
         ) : (
           <>

@@ -120,7 +120,7 @@ class MockMediaRecorder {
   });
 }
 
-const track = { stop: vi.fn(), onended: null as null | (() => void) };
+const track = { stop: vi.fn(), onended: null as null | (() => void), enabled: true };
 const stream = { getTracks: () => [track], getAudioTracks: () => [track] };
 const getUserMedia = vi.fn();
 const wakeLockRelease = vi.fn().mockResolvedValue(undefined);
@@ -190,6 +190,7 @@ beforeEach(() => {
   postSpeakStream.mockResolvedValue({ ok: true, status: 200 });
   getUserMedia.mockReset();
   getUserMedia.mockResolvedValue(stream);
+  track.enabled = true;
   wakeLockRequest.mockReset();
   wakeLockRequest.mockResolvedValue({ release: wakeLockRelease, released: false });
   vi.stubGlobal("AudioContext", MockAudioContext);
@@ -1007,5 +1008,51 @@ describe("useVoiceMode", () => {
       expect(track.stop).toHaveBeenCalled();
       expect(wakeLockRelease).toHaveBeenCalled();
     });
+  });
+});
+
+describe("useVoiceMode — mute", () => {
+  it("mutes by disabling the mic track (voice mode stays on) and unmutes it again", async () => {
+    const { result } = await startVoiceMode();
+    expect(result.current.muted).toBe(false);
+    const stops = track.stop.mock.calls.length;
+    act(() => result.current.toggleMute());
+    expect(result.current.muted).toBe(true);
+    expect(track.enabled).toBe(false);
+    expect(track.stop.mock.calls.length).toBe(stops); // the mic stays open
+    expect(result.current.active).toBe(true);
+    act(() => result.current.toggleMute());
+    expect(result.current.muted).toBe(false);
+    expect(track.enabled).toBe(true);
+  });
+
+  it("keeps a re-acquired mic muted", async () => {
+    const { result, rerender } = await startVoiceMode();
+    act(() => result.current.toggleMute());
+    const track2 = { stop: vi.fn(), onended: null as null | (() => void), enabled: true };
+    getUserMedia.mockResolvedValue({ getTracks: () => [track2], getAudioTracks: () => [track2] });
+    rerender(baseArgs({ suspended: true }));
+    await flush();
+    act(() => track.onended?.());
+    rerender(baseArgs({ suspended: false }));
+    await flush();
+    expect(getUserMedia).toHaveBeenCalledTimes(2);
+    expect(track2.enabled).toBe(false);
+    expect(result.current.muted).toBe(true);
+  });
+
+  it("starts every session unmuted, and is a no-op while off", async () => {
+    const { result } = await startVoiceMode();
+    act(() => result.current.toggleMute());
+    act(() => result.current.stop());
+    await flush();
+    expect(result.current.muted).toBe(false);
+    act(() => result.current.toggleMute());
+    expect(result.current.muted).toBe(false);
+    track.enabled = true;
+    act(() => result.current.start());
+    await flush();
+    expect(result.current.muted).toBe(false);
+    expect(track.enabled).toBe(true);
   });
 });

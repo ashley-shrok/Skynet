@@ -1233,6 +1233,26 @@ describe("useVoiceRecording — silent-mic detection", () => {
     expect(result.current.readLevel()).toBeNull();
   });
 
+  it("muted then silent: 'Couldn't make out any words', not 'Mic was silent'", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    LevelAudioContext.level = 0.0002;
+    vi.stubGlobal("AudioContext", LevelAudioContext);
+    stubEmptyTranscript();
+    const track = { stop: vi.fn(), enabled: true, label: "Mic", readyState: "live", muted: false };
+    (navigator.mediaDevices.getUserMedia as ReturnType<typeof vi.fn>).mockResolvedValue({
+      getTracks: () => [track],
+      getAudioTracks: () => [track],
+    });
+
+    const { result } = renderHook(() => useVoiceRecording());
+    act(() => { result.current.start({ autoCommit: true }); });
+    await waitFor(() => expect(result.current.state).toBe("recording"));
+    act(() => result.current.toggleMute());
+    await act(async () => { vi.advanceTimersByTime(3500); });
+    await act(async () => { await result.current.endSend(""); });
+    expect(result.current.errorMessage).toMatch(/Couldn't make out any words/);
+  });
+
   it("audible mic + empty transcript: 'Couldn't make out any words', no silence warning", async () => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
     LevelAudioContext.level = 0.1;
@@ -1258,5 +1278,50 @@ describe("useVoiceRecording — silent-mic detection", () => {
     await act(async () => { await result.current.endSend(""); });
     expect(result.current.state).toBe("idle");
     expect(result.current.errorMessage).toBe("Couldn't make out any words");
+  });
+});
+
+describe("useVoiceRecording — mute", () => {
+  function stubTrackStream() {
+    const track = { stop: vi.fn(), enabled: true, label: "Mic", readyState: "live", muted: false };
+    const stream = { getTracks: () => [track], getAudioTracks: () => [track] };
+    (navigator.mediaDevices.getUserMedia as ReturnType<typeof vi.fn>).mockResolvedValue(stream);
+    return track;
+  }
+
+  it("mutes by disabling the track while the recorder keeps recording, and unmutes", async () => {
+    const track = stubTrackStream();
+    const { result } = renderHook(() => useVoiceRecording());
+    act(() => { result.current.start({ autoCommit: true }); });
+    await waitFor(() => expect(result.current.state).toBe("recording"));
+    expect(result.current.muted).toBe(false);
+    act(() => result.current.toggleMute());
+    expect(result.current.muted).toBe(true);
+    expect(track.enabled).toBe(false);
+    expect(track.stop).not.toHaveBeenCalled();
+    expect(MockMediaRecorder.instances[0].state).toBe("recording");
+    act(() => result.current.toggleMute());
+    expect(result.current.muted).toBe(false);
+    expect(track.enabled).toBe(true);
+  });
+
+  it("starts each recording unmuted", async () => {
+    stubTrackStream();
+    const { result } = renderHook(() => useVoiceRecording());
+    act(() => { result.current.start({ autoCommit: true }); });
+    await waitFor(() => expect(result.current.state).toBe("recording"));
+    act(() => result.current.toggleMute());
+    await act(async () => { await result.current.cancel(); });
+    const track2 = stubTrackStream();
+    act(() => { result.current.start({ autoCommit: true }); });
+    await waitFor(() => expect(result.current.state).toBe("recording"));
+    expect(result.current.muted).toBe(false);
+    expect(track2.enabled).toBe(true);
+  });
+
+  it("is a no-op with no recording", () => {
+    const { result } = renderHook(() => useVoiceRecording());
+    act(() => result.current.toggleMute());
+    expect(result.current.muted).toBe(false);
   });
 });

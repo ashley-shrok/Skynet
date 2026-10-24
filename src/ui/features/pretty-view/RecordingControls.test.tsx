@@ -1,4 +1,4 @@
-// Tests for RecordingControls — the three-button recording controls component.
+// Tests for RecordingControls — the recording controls (mute, cancel, append, send).
 //
 // Coverage:
 //   - Renders three accessible buttons (cancel, append, send)
@@ -22,6 +22,8 @@ describe("RecordingControls", () => {
         onCancel={vi.fn()}
         onAppend={vi.fn()}
         onSend={vi.fn()}
+        muted={false}
+        onToggleMute={vi.fn()}
       />,
     );
 
@@ -40,6 +42,8 @@ describe("RecordingControls", () => {
         onCancel={onCancel}
         onAppend={onAppend}
         onSend={onSend}
+        muted={false}
+        onToggleMute={vi.fn()}
       />,
     );
 
@@ -62,6 +66,8 @@ describe("RecordingControls", () => {
         onCancel={vi.fn()}
         onAppend={vi.fn()}
         onSend={vi.fn()}
+        muted={false}
+        onToggleMute={vi.fn()}
       />,
     );
 
@@ -76,6 +82,8 @@ describe("RecordingControls", () => {
         onCancel={vi.fn()}
         onAppend={vi.fn()}
         onSend={vi.fn()}
+        muted={false}
+        onToggleMute={vi.fn()}
       />,
     );
 
@@ -90,11 +98,13 @@ describe("RecordingControls", () => {
         onCancel={vi.fn()}
         onAppend={vi.fn()}
         onSend={vi.fn()}
+        muted={false}
+        onToggleMute={vi.fn()}
       />,
     );
 
     const buttons = container.querySelectorAll("button");
-    expect(buttons).toHaveLength(3);
+    expect(buttons).toHaveLength(4);
     buttons.forEach((btn) => {
       expect(btn.getAttribute("type")).toBe("button");
     });
@@ -106,16 +116,34 @@ describe("RecordingControls", () => {
         onCancel={vi.fn()}
         onAppend={vi.fn()}
         onSend={vi.fn()}
+        muted={false}
+        onToggleMute={vi.fn()}
       />,
     );
 
     // Each button should contain an SVG (the lucide icon).
     const buttons = container.querySelectorAll("button");
-    expect(buttons).toHaveLength(3);
+    expect(buttons).toHaveLength(4);
     buttons.forEach((btn) => {
       const svg = btn.querySelector("svg");
       expect(svg).toBeTruthy();
       expect(svg?.getAttribute("aria-hidden")).toBe("true");
     });
+  });
+});
+
+describe("RecordingControls — mute", () => {
+  it("shows Mute mic when unmuted and fires onToggleMute", () => {
+    const onToggleMute = vi.fn();
+    render(<RecordingControls onCancel={vi.fn()} onAppend={vi.fn()} onSend={vi.fn()} muted={false} onToggleMute={onToggleMute} />);
+    const btn = screen.getByLabelText("Mute mic");
+    expect(btn.getAttribute("aria-pressed")).toBe("false");
+    fireEvent.click(btn);
+    expect(onToggleMute).toHaveBeenCalledTimes(1);
+  });
+
+  it("shows Unmute mic, pressed, when muted", () => {
+    render(<RecordingControls onCancel={vi.fn()} onAppend={vi.fn()} onSend={vi.fn()} muted onToggleMute={vi.fn()} />);
+    expect(screen.getByLabelText("Unmute mic").getAttribute("aria-pressed")).toBe("true");
   });
 });

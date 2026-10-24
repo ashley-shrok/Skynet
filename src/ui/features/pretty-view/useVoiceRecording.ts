@@ -131,6 +131,9 @@ export interface UseVoiceRecordingReturn {
   endSend: (currentText: string) => Promise<VoiceRecordingResult | null>;
   /** Live mic input level (RMS 0–1) for the waveform; null when unreadable or not recording. */
   readLevel: () => number | null;
+  /** The recording's mic is muted: still recording, but silence until unmuted. */
+  muted: boolean;
+  toggleMute: () => void;
 }
 
 // ---------------------------------------------------------------------------
@@ -142,6 +145,10 @@ export function useVoiceRecording(
 ): UseVoiceRecordingReturn {
   const [state, setState] = useState<VoiceRecordingState>("idle");
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [muted, setMuted] = useState(false);
+  const mutedRef = useRef(false);
+  /** Muted at some point in this recording — its silence isn't a dead mic. */
+  const mutedDuringRef = useRef(false);
 
   // stateRef mirrors the useState value synchronously so callbacks (cancel,
   // commitStartVisibility, start's .then()) always read the CURRENT state rather
@@ -383,8 +390,9 @@ export function useVoiceRecording(
 
   function reportEmptyTranscript(): void {
     const silent = lastLevelRef.current?.silent ?? null;
-    console.warn(`[voice] empty-transcript micSilent=${silent === null ? "unknown" : silent} ${ctxSuffix}`);
-    setErrorMessage(silent === true ? MIC_SILENT_RESULT_MESSAGE : NO_SPEECH_MESSAGE);
+    const wasMuted = mutedDuringRef.current;
+    console.warn(`[voice] empty-transcript micSilent=${silent === null ? "unknown" : silent} wasMuted=${wasMuted} ${ctxSuffix}`);
+    setErrorMessage(silent === true && !wasMuted ? MIC_SILENT_RESULT_MESSAGE : NO_SPEECH_MESSAGE);
   }
 
   function applyGlue(currentText: string, transcript: string): string {
@@ -465,6 +473,10 @@ export function useVoiceRecording(
 
         streamRef.current = stream;
         chunksRef.current = [];
+        // Each recording starts unmuted.
+        mutedRef.current = false;
+        mutedDuringRef.current = false;
+        setMuted(false);
 
         console.info(`[voice] mic-track ${describeMicTrack(stream)} ${ctxSuffix}`);
         for (const track of micTracks(stream)) {
@@ -477,7 +489,7 @@ export function useVoiceRecording(
         // lines only log when the feed goes / stops being silent.
         levelMonitorRef.current = createMicLevelMonitor(levelCtx, stream, (silent) => {
           if (silent) {
-            console.warn(`[voice] mic-silent-detected ${describeMicTrack(stream)} ${ctxSuffix}`);
+            console.warn(`[voice] mic-silent-detected muted=${mutedRef.current} ${describeMicTrack(stream)} ${ctxSuffix}`);
           } else {
             console.info(`[voice] mic-silent-cleared input-detected ${ctxSuffix}`);
           }
@@ -781,5 +793,16 @@ export function useVoiceRecording(
     return levelMonitorRef.current?.read() ?? null;
   }
 
-  return { state, errorMessage, start, cancel, commitStartVisibility, endAppend, endSend, readLevel };
+  function toggleMute(): void {
+    const stream = streamRef.current;
+    if (!stream) return;
+    const next = !mutedRef.current;
+    mutedRef.current = next;
+    if (next) mutedDuringRef.current = true;
+    setMuted(next);
+    for (const track of micTracks(stream)) track.enabled = !next;
+    console.info(`[voice] mic-${next ? "muted" : "unmuted"} state=${stateRef.current} ${describeMicTrack(stream)} ${ctxSuffix}`);
+  }
+
+  return { state, errorMessage, start, cancel, commitStartVisibility, endAppend, endSend, readLevel, muted, toggleMute };
 }
