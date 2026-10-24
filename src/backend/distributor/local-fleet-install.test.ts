@@ -672,6 +672,7 @@ describe("BR2 — bootstrap patches settings.json + runs gsd-context-monitor cle
     expect(parsed.env.DISABLE_AUTOUPDATER).toBe("1");
     expect(parsed.env.CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS).toBe("1");
     expect(parsed.env.CLAUDE_AUTOCOMPACT_PCT_OVERRIDE).toBe(AUTOCOMPACT_PCT);
+    expect(parsed.env.CLAUDE_CODE_AUTO_COMPACT_WINDOW).toBe("1000000");
     expect(parsed.env.DISABLE_AUTO_COMPACT).toBeUndefined();
     expect(parsed.idleCompaction).toBe(false);
     // Hooks stored as LITERAL $HOME (bash-single-quote parity with SSH path).
@@ -737,6 +738,7 @@ describe("BR2 — bootstrap patches settings.json + runs gsd-context-monitor cle
     );
     expect(parsed.env.DISABLE_AUTO_COMPACT).toBeUndefined();
     expect(parsed.env.CLAUDE_AUTOCOMPACT_PCT_OVERRIDE).toBe(AUTOCOMPACT_PCT);
+    expect(parsed.env.CLAUDE_CODE_AUTO_COMPACT_WINDOW).toBe("1000000");
     expect(parsed.env.SOME_OTHER).toBe("x");
     expect(parsed.idleCompaction).toBe(false);
   });
@@ -794,6 +796,7 @@ describe("BR2 — bootstrap patches settings.json + runs gsd-context-monitor cle
         DISABLE_AUTOUPDATER: "1",
         CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS: "1",
         CLAUDE_AUTOCOMPACT_PCT_OVERRIDE: AUTOCOMPACT_PCT,
+        CLAUDE_CODE_AUTO_COMPACT_WINDOW: "1000000",
       },
       idleCompaction: false,
       skipDangerousModePermissionPrompt: true,
@@ -876,6 +879,7 @@ describe("BR2 — bootstrap patches settings.json + runs gsd-context-monitor cle
         DISABLE_AUTOUPDATER: "1",
         CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS: "1",
         CLAUDE_AUTOCOMPACT_PCT_OVERRIDE: AUTOCOMPACT_PCT,
+        CLAUDE_CODE_AUTO_COMPACT_WINDOW: "1000000",
       },
       idleCompaction: false,
       skipDangerousModePermissionPrompt: true,
@@ -1053,6 +1057,7 @@ describe("BR2 — bootstrap patches settings.json + runs gsd-context-monitor cle
         DISABLE_AUTOUPDATER: "1",
         CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS: "1",
         CLAUDE_AUTOCOMPACT_PCT_OVERRIDE: AUTOCOMPACT_PCT,
+        CLAUDE_CODE_AUTO_COMPACT_WINDOW: "1000000",
       },
       idleCompaction: false,
       skipDangerousModePermissionPrompt: true,

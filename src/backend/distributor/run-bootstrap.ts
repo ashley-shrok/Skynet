@@ -26,6 +26,10 @@
  *        - env.CLAUDE_AUTOCOMPACT_PCT_OVERRIDE: AUTOCOMPACT_PCT (near-limit
  *          compaction fires at 95% of the 1M window, i.e. 95% on the app's
  *          context meter — see AUTOCOMPACT_PCT)
+ *        - env.CLAUDE_CODE_AUTO_COMPACT_WINDOW: "1000000" (pins the window
+ *          AUTOCOMPACT_PCT is computed against; env outranks the
+ *          /autocompact setting, server-sent and experiment windows, and
+ *          suppresses the harness's "shrink your window" offer)
  *        - env.DISABLE_AUTO_COMPACT removed (it also kills near-limit
  *          compaction; superseded by idleCompaction: false)
  *        - skipDangerousModePermissionPrompt: true
@@ -361,7 +365,9 @@ function logRolesKeyMigration(
  * min(floor(effective * pct / 100), effective - 13000). So 95% of the meter is
  * 950000 / 980000 = 96.9388% of the harness's scale (floor -> 950,000 tokens).
  * Without the override it fires at 967,000 (96.7% on the meter). The override
- * can only lower the trigger, never raise it. Read from the 2.1.302 and
+ * can only lower the trigger, never raise it. The 1M window is pinned by
+ * env.CLAUDE_CODE_AUTO_COMPACT_WINDOW (otherwise /autocompact, the server or
+ * an experiment could shrink it and drag the trigger down). Read from the 2.1.302 and
  * 2.1.310 binaries; re-check on any pin bump.
  */
 export const AUTOCOMPACT_PCT = "96.9388";
@@ -369,7 +375,7 @@ export const AUTOCOMPACT_PCT = "96.9388";
 export const SETTINGS_MERGE_JQ =
   `.permissions = ((.permissions // {}) | .deny = (((.deny // []) + ["AskUserQuestion"]) | unique))` +
   `  | .askUserQuestionTimeout = "never"` +
-  `  | .env = ((.env // {}) | .DISABLE_AUTOUPDATER = "1" | .CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS = "1" | .CLAUDE_AUTOCOMPACT_PCT_OVERRIDE = "${AUTOCOMPACT_PCT}" | del(.DISABLE_AUTO_COMPACT))` +
+  `  | .env = ((.env // {}) | .DISABLE_AUTOUPDATER = "1" | .CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS = "1" | .CLAUDE_AUTOCOMPACT_PCT_OVERRIDE = "${AUTOCOMPACT_PCT}" | .CLAUDE_CODE_AUTO_COMPACT_WINDOW = "1000000" | del(.DISABLE_AUTO_COMPACT))` +
   `  | .idleCompaction = false` +
   `  | .skipDangerousModePermissionPrompt = true` +
   `  | .crossSessionInbound = "refuse"` +
@@ -398,6 +404,7 @@ export const SETTINGS_CHECK_JQ =
   `  and (.env.DISABLE_AUTOUPDATER == "1")` +
   `  and (.env.CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS == "1")` +
   `  and (.env.CLAUDE_AUTOCOMPACT_PCT_OVERRIDE == "${AUTOCOMPACT_PCT}")` +
+  `  and (.env.CLAUDE_CODE_AUTO_COMPACT_WINDOW == "1000000")` +
   `  and (.env.DISABLE_AUTO_COMPACT == null)` +
   `  and (.idleCompaction == false)` +
   `  and ((.hooks.UserPromptSubmit // []) | any(.[]?.hooks[]?.command // ""; test("task-field-check")))` +
@@ -906,6 +913,7 @@ export async function runBootstrapForHost(
   //           - env.CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS: "1"
   //           - idleCompaction: false
   //           - env.CLAUDE_AUTOCOMPACT_PCT_OVERRIDE: AUTOCOMPACT_PCT
+  //           - env.CLAUDE_CODE_AUTO_COMPACT_WINDOW: "1000000"
   //           - env.DISABLE_AUTO_COMPACT absent
   //           - skipDangerousModePermissionPrompt: true
   //           - crossSessionInbound: "refuse"

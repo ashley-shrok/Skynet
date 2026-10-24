@@ -301,6 +301,7 @@ describe("runBootstrapForHost", () => {
     expect(settingsCmd).toContain(`.DISABLE_AUTOUPDATER = "1"`);
     expect(settingsCmd).toContain(`.CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS = "1"`);
     expect(settingsCmd).toContain(`.CLAUDE_AUTOCOMPACT_PCT_OVERRIDE = "${AUTOCOMPACT_PCT}"`);
+    expect(settingsCmd).toContain(`.CLAUDE_CODE_AUTO_COMPACT_WINDOW = "1000000"`);
     expect(settingsCmd).toContain(`del(.DISABLE_AUTO_COMPACT)`);
     expect(settingsCmd).toContain(`.idleCompaction = false`);
     expect(settingsCmd).toContain(`.skipDangerousModePermissionPrompt = true`);
@@ -334,6 +335,7 @@ describe("runBootstrapForHost", () => {
     expect(settingsCmd).toContain(`.env.DISABLE_AUTOUPDATER == "1"`);
     expect(settingsCmd).toContain(`.env.CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS == "1"`);
     expect(settingsCmd).toContain(`.env.CLAUDE_AUTOCOMPACT_PCT_OVERRIDE == "${AUTOCOMPACT_PCT}"`);
+    expect(settingsCmd).toContain(`.env.CLAUDE_CODE_AUTO_COMPACT_WINDOW == "1000000"`);
     expect(settingsCmd).toContain(`.env.DISABLE_AUTO_COMPACT == null`);
     expect(settingsCmd).toContain(`.idleCompaction == false`);
     // task-field-check idempotency predicate — the CHECK side must recognize
