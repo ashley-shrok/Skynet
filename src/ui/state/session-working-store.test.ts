@@ -1590,7 +1590,7 @@ describe("session-working-store (Phase 62 Plan 04): direct-signal predicate", ()
       publishFleetStatusSessionState(
         "h1",
         makeState({
-          status: "idle",
+          status: "busy",
           activityMtime: 1000,
           stoppedMtime: null,
         }),
@@ -1598,6 +1598,44 @@ describe("session-working-store (Phase 62 Plan 04): direct-signal predicate", ()
     });
     rerender();
     // Activity observed, no stop yet → row deserves user's attention.
+    expect(result.current).toBe(true);
+  });
+
+  // A stray activity touch after the Stop hook (harness background work) must
+  // not light the indicator while the harness itself reports idle.
+  it("harness status idle overrides activity > stopped (stray post-Stop activity)", () => {
+    const { result, rerender } = renderHook(() =>
+      useSessionIsWorking("h1:s1"),
+    );
+    act(() => {
+      publishFleetStatusSessionState(
+        "h1",
+        makeState({ status: "busy", activityMtime: 1000, stoppedMtime: 500 }),
+      );
+    });
+    rerender();
+    expect(result.current).toBe(true);
+    act(() => {
+      publishFleetStatusSessionState(
+        "h1",
+        makeState({ status: "idle", activityMtime: 2000, stoppedMtime: 1500 }),
+      );
+    });
+    rerender();
+    expect(result.current).toBe(false);
+  });
+
+  it("dormant (source-B) idle frames keep the marker-only verdict", () => {
+    const { result, rerender } = renderHook(() =>
+      useSessionIsWorking("h1:s1"),
+    );
+    act(() => {
+      publishFleetStatusSessionState(
+        "h1",
+        makeState({ sessionId: "__dormant__", pid: null, status: "idle", activityMtime: 2000, stoppedMtime: 1000 }),
+      );
+    });
+    rerender();
     expect(result.current).toBe(true);
   });
 
@@ -1801,7 +1839,7 @@ describe("session-working-store (Phase 62 Plan 04): Axis H/I preservation + expl
       publishFleetStatusSessionState(
         "h1",
         makeState({
-          status: "idle",
+          status: "busy",
           activityMtime: 1000,
           stoppedMtime: 500,
         }),
@@ -1821,7 +1859,7 @@ describe("session-working-store (Phase 62 Plan 04): Axis H/I preservation + expl
     act(() => {
       publishFleetStatusSessionState(
         "h1",
-        makeState({ status: "idle" }),
+        makeState({ status: "busy" }),
       );
     });
 

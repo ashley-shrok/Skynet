@@ -378,6 +378,14 @@ export function publishFleetStatusSessionState(
       // both were non-null, so the ! assertions are safe).
       isWorking = (activityMtime as number) > (stoppedMtime as number);
     }
+    // The harness's own "idle" (waiting for the user) beats a stray activity
+    // touch: harness background work can fire an activity hook after the
+    // Stop hook, which would otherwise light the indicator until the next
+    // turn. Live frames only — source-B frames (sessionId "__dormant__")
+    // always say idle and carry no live status.
+    if (isWorking && state_arg.status === "idle" && state_arg.sessionId !== "__dormant__") {
+      isWorking = false;
+    }
   } else {
     // Fallback branch (unupgraded box): byte-for-byte the Phase 59 predicate,
     // INCLUDING the `bg` term — Option-1 rollout requires zero behavior
@@ -1100,6 +1108,17 @@ export function getSessionLastMessageAt(sessionKey: string | null): number | nul
  */
 export function useSessionLastMessageAt(sessionKey: string | null): number | null {
   const getSnapshot = (): number | null => getSessionLastMessageAt(sessionKey);
+  return useSyncExternalStore(subscribe, getSnapshot, getSnapshot);
+}
+
+/**
+ * React hook — the session's cached activity-marker mtime (ms, the agent
+ * box's clock), or null when unknown. Lets a view tell whether new activity
+ * started after a given transcript timestamp from the same box.
+ */
+export function useSessionActivityMtime(sessionKey: string | null): number | null {
+  const getSnapshot = (): number | null =>
+    sessionKey === null ? null : (state.map.get(sessionKey)?.activityMtime ?? null);
   return useSyncExternalStore(subscribe, getSnapshot, getSnapshot);
 }
 

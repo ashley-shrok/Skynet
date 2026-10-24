@@ -277,6 +277,7 @@ type StreamEvent =
       ts: number;
       line: number;
       interrupted?: true;
+      turnEnd?: true;
     }
   | {
       type: "image";
@@ -342,6 +343,7 @@ export function reshapeParsedLineToWireFrame(
         ts: parsed.ts,
         line,
         ...(parsed.interrupted ? { interrupted: true as const } : {}),
+        ...(parsed.turnEnd ? { turnEnd: true as const } : {}),
       };
     case "image":
       return {

@@ -224,7 +224,9 @@ export const ACTIVITY_HOOK_SCRIPT_CONTENTS = `#!/bin/bash
 # The predicate the Plan 62-03 backend evaluates:
 #   activity_marker_mtime > stopped_marker_mtime → working (affordance lit)
 # is what this script feeds. No smoothing, no state machine — just a fresh
-# mtime on every activity event.
+# mtime on every activity event. It also overwrites
+# \${HOME}/.claude/fleet-status/hooks/<sid>/activity-last with the event name,
+# tool and sub-agent id of the latest touch, for diagnosing stray touches.
 #
 # MUST NOT block Claude Code — the hook fires synchronously during the turn
 # lifecycle. All work is wrapped in \`timeout 2 bash -c '...' || true\` so a full
@@ -258,6 +260,14 @@ timeout 2 bash -c '
     session_dir="'"\${MARKER_ROOT}"'/\${sid}"
     mkdir -p "\$session_dir"
     touch "\${session_dir}/activity"
+    # Diagnostic: which event last lit the marker. Overwritten each time, so
+    # after a turn it names whatever touched the marker last — e.g. harness
+    # background work firing a hook after the Stop hook.
+    ev=""; tool=""; agent=""
+    [[ "\$payload" =~ \\"hook_event_name\\"[[:space:]]*:[[:space:]]*\\"([A-Za-z]+)\\" ]] && ev="\${BASH_REMATCH[1]}"
+    [[ "\$payload" =~ \\"tool_name\\"[[:space:]]*:[[:space:]]*\\"([A-Za-z0-9_.-]+)\\" ]] && tool="\${BASH_REMATCH[1]}"
+    [[ "\$payload" =~ \\"agent_id\\"[[:space:]]*:[[:space:]]*\\"([A-Za-z0-9_-]+)\\" ]] && agent="\${BASH_REMATCH[1]}"
+    printf "%s event=%s tool=%s agent=%s\\n" "\$(date -u +%Y-%m-%dT%H:%M:%S.%3NZ)" "\$ev" "\$tool" "\$agent" > "\${session_dir}/activity-last"
   fi
 ' || true
 exit 0

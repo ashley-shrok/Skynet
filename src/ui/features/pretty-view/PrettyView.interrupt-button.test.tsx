@@ -115,6 +115,10 @@ vi.mock("./sources/use-chat-surface-adapter", () => ({
 }));
 
 import { PrettyView } from "./PrettyView";
+import {
+  publishFleetStatusSessionState,
+  __resetForTest as resetWorkingStore,
+} from "@/state/session-working-store";
 
 function flipToStreaming(ws: WsStub) {
   act(() => {
@@ -463,5 +467,58 @@ describe("PrettyView — interrupt button (shape-interrupt-button)", () => {
     sendWsFrame(ws, { type: "message", role: "assistant", content: "Interrupted", eventId: "m6", ts: 1, interrupted: true });
     expect(container.querySelectorAll('[data-event-id^="pending-"]')).toHaveLength(1);
     expect(interruptBtn(container).disabled).toBe(true);
+  });
+  describe("turn-ending message turns the work indicator off at once", () => {
+    const working = (activityMtime: number, stoppedMtime: number) =>
+      act(() => {
+        publishFleetStatusSessionState("1", {
+          hostId: "1",
+          tmuxSession: "s1",
+          sessionId: "sess-1",
+          pid: 42,
+          status: "busy",
+          backgroundTasks: [],
+          updatedAt: 1,
+          activityMtime,
+          stoppedMtime,
+        });
+      });
+
+    beforeEach(() => resetWorkingStore());
+    afterEach(() => resetWorkingStore());
+
+    it("a mid-turn message keeps it on; the end_turn message turns it off while the signal still says working", async () => {
+      const { container, ws } = await mount();
+      working(1000, 500);
+      await waitFor(() => expect(container.querySelector(WIP_SELECTOR)).not.toBeNull());
+
+      sendWsFrame(ws, { type: "message", role: "assistant", content: "Looking…", eventId: "a1", ts: 1500 });
+      expect(container.querySelector(WIP_SELECTOR)).not.toBeNull();
+
+      sendWsFrame(ws, { type: "message", role: "assistant", content: "Done.", eventId: "a2", ts: 2000, turnEnd: true });
+      await waitFor(() => expect(bubble(container, "a2")).not.toBeNull());
+      expect(container.querySelector(WIP_SELECTOR)).toBeNull();
+    });
+
+    it("comes back when the agent's activity moves past the turn-ending message", async () => {
+      const { container, ws } = await mount();
+      working(1000, 500);
+      sendWsFrame(ws, { type: "message", role: "assistant", content: "Done.", eventId: "a3", ts: 2000, turnEnd: true });
+      await waitFor(() => expect(bubble(container, "a3")).not.toBeNull());
+      expect(container.querySelector(WIP_SELECTOR)).toBeNull();
+
+      working(3000, 500);
+      await waitFor(() => expect(container.querySelector(WIP_SELECTOR)).not.toBeNull());
+    });
+
+    it("comes back when the user's next message is the latest", async () => {
+      const { container, ws } = await mount();
+      working(1000, 500);
+      sendWsFrame(ws, { type: "message", role: "assistant", content: "Done.", eventId: "a4", ts: 2000, turnEnd: true });
+      await waitFor(() => expect(container.querySelector(WIP_SELECTOR)).toBeNull());
+
+      sendWsFrame(ws, { type: "message", role: "user", content: "next", eventId: "u9", ts: 2500 });
+      await waitFor(() => expect(container.querySelector(WIP_SELECTOR)).not.toBeNull());
+    });
   });
 });

@@ -123,6 +123,7 @@ import {
   // isHolding, ComposeBox recycleActive — all three fed from the same
   // isRecycling boolean (CONTEXT.md "one source for both surfaces" scope-lock).
   useSessionIsRecycling,
+  useSessionActivityMtime,
 } from "@/state/session-working-store";
 import { useSessionWaitingFor } from "@/state/session-waiting-store";
 // Phase 126 Plan 02 (D-01, D-02, D-03, D-22) — per-row armed:boolean latch.
@@ -936,22 +937,22 @@ export function PrettyView({
   );
   const effectiveMessages: StreamEvent[] =
     source.kind === "relay" ? chatSurfaceAdapter.messages : harnessVisibleMessages;
-  // shape-interrupt-button: the harness's interrupted line is the latest thing
-  // in the conversation → the turn is over, whatever the working signal says.
-  const interruptedTailId = (() => {
+  // The latest message says the turn is over — the harness's interrupted line
+  // (shape-interrupt-button) or the assistant message that ended its turn
+  // (stop_reason end_turn) — so the work indicator goes off at once, whatever
+  // the working signal says until it catches up.
+  const turnOverTail = (() => {
     for (let i = effectiveMessages.length - 1; i >= 0; i--) {
-      const m = effectiveMessages[i] as { type?: string; interrupted?: true; eventId?: string };
-      if (m.type === "message" || m.type === "image") return m.interrupted === true ? (m.eventId ?? null) : null;
+      const m = effectiveMessages[i] as { type?: string; interrupted?: true; turnEnd?: true; eventId?: string; ts?: number };
+      if (m.type === "message" || m.type === "image") {
+        return m.interrupted === true || m.turnEnd === true
+          ? { eventId: m.eventId ?? "", ts: typeof m.ts === "number" ? m.ts : 0 }
+          : null;
+      }
     }
     return null;
   })();
-  const interruptedTail = (() => {
-    for (let i = effectiveMessages.length - 1; i >= 0; i--) {
-      const m = effectiveMessages[i] as { type?: string; interrupted?: true };
-      if (m.type === "message" || m.type === "image") return m.interrupted === true;
-    }
-    return false;
-  })();
+  const turnOverTailId = turnOverTail?.eventId ?? null;
   // ── Phase 47 (load-more button) — per-pane state slots ────────────────
   // capOff: once flipped true (via handleLoadOlder — first click), cap
   //   enforcement in the ws.onmessage switch stops for this pane's
@@ -2202,17 +2203,30 @@ export function PrettyView({
   // single colon, not the double-colon paneKey used for auto-scroll.
   const sessionWorkingKey = `${hostId}:${tmuxSession ?? ""}`;
   const isWorking = useSessionIsWorking(sessionWorkingKey);
-  // shape-interrupt-button: while "Interrupted" is the latest message the work
-  // indicator stays off — until the working signal turns on again AFTER it
-  // (a new turn started, e.g. from a prompt the view never shows).
-  const [interruptWipReleasedFor, setInterruptWipReleasedFor] = useState<string | null>(null);
-  const prevWorkingForInterruptRef = useRef<boolean>(isWorking);
+  // While a turn-over message is the latest one the work indicator stays off —
+  // until new work starts after it: the working signal turns on again (e.g. a
+  // prompt the view never shows), or the agent's activity marker moves past
+  // the message's time (a new turn that began before the signal ever went
+  // idle). Both times come from the agent's box.
+  const activityMtime = useSessionActivityMtime(sessionWorkingKey);
+  const [turnOverWipReleasedFor, setTurnOverWipReleasedFor] = useState<string | null>(null);
+  const prevWorkingForTurnOverRef = useRef<boolean>(isWorking);
   useEffect(() => {
-    const was = prevWorkingForInterruptRef.current;
-    prevWorkingForInterruptRef.current = isWorking;
-    if (!was && isWorking && interruptedTailId !== null) setInterruptWipReleasedFor(interruptedTailId);
-  }, [isWorking, interruptedTailId]);
-  const interruptWipReleased = interruptedTailId !== null && interruptWipReleasedFor === interruptedTailId;
+    const was = prevWorkingForTurnOverRef.current;
+    prevWorkingForTurnOverRef.current = isWorking;
+    if (!was && isWorking && turnOverTailId !== null) {
+      setTurnOverWipReleasedFor(turnOverTailId);
+      console.info(`[pv-turn-over] release eventId=${turnOverTailId} reason=working-edge`);
+    }
+  }, [isWorking, turnOverTailId]);
+  useEffect(() => {
+    if (turnOverTailId !== null) console.info(`[pv-turn-over] tail eventId=${turnOverTailId} isWorking=${isWorking}`);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- log once per tail
+  }, [turnOverTailId]);
+  const turnOverWipReleased =
+    turnOverTail !== null &&
+    (turnOverWipReleasedFor === turnOverTail.eventId ||
+      (activityMtime !== null && turnOverTail.ts > 0 && activityMtime > turnOverTail.ts));
   // Optimistic WIP handoff on the false→true edge only (see the
   // optimisticWip declaration for why a level check is wrong). Armed while
   // already working: the flag simply rides along until the next edge,
@@ -5130,12 +5144,12 @@ export function PrettyView({
           {/* A background sub-agent keeps working after the main turn's Stop
               hook darkens isWorking, so a running Agents-panel entry also
               lights the bubble. Shells are excluded — servers run for hours.
-              The interrupt gate applies to the main turn only; background
-              agents keep running through an interrupt. Not while dormant (no
+              The turn-over gate applies to the main turn only; background
+              agents keep running after the turn ends or is interrupted. Not while dormant (no
               live process, so nothing is running) or while waiting on the
               user (WaitingBubble owns that state). */}
           {(((isWorking || optimisticWip) &&
-            (!interruptedTail || interruptWipReleased || pendingSends.some((p) => p.state === "sending"))) ||
+            (turnOverTail === null || turnOverWipReleased || pendingSends.some((p) => p.state === "sending"))) ||
             (status === "streaming" &&
               !dormant &&
               waitingFor === null &&

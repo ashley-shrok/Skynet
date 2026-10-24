@@ -207,6 +207,12 @@ export type MessageEvent = {
    * the latest message the work indicator is forced off.
    */
   interrupted?: true;
+  /**
+   * The assistant message that ends its turn (the harness's
+   * `stop_reason: "end_turn"`). While it is the latest message the work
+   * indicator is off, without waiting for the working signal to catch up.
+   */
+  turnEnd?: true;
 };
 
 // shape-interrupt-button — server -> client. Prompts the transcript shows were

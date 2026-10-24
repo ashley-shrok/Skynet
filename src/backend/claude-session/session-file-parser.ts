@@ -129,6 +129,8 @@ export type ConversationalMessage = {
   ts: number;
   /** The harness's interrupt marker, rendered as an agent-side "Interrupted". */
   interrupted?: true;
+  /** Assistant message that ends its turn (`stop_reason: "end_turn"`). */
+  turnEnd?: true;
 };
 
 export type ImageBlock = {
@@ -1765,12 +1767,14 @@ export function parseSessionLine(line: string, sessionId?: string): ParsedLine {
     };
   }
 
-  sessionParserLogger.info(`[session-parser] classify result=message role=${role} contentLen=${content.length} eventId=${eventId}`, { operation: "session_classify" });
+  const turnEnd = isAssistant && msg.stop_reason === "end_turn";
+  sessionParserLogger.info(`[session-parser] classify result=message role=${role} contentLen=${content.length} turnEnd=${turnEnd} eventId=${eventId}`, { operation: "session_classify" });
   return {
     kind: "message",
     role,
     content,
     eventId,
     ts,
+    ...(turnEnd ? { turnEnd: true as const } : {}),
   };
 }

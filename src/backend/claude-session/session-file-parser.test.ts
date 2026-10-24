@@ -1972,3 +1972,23 @@ describe("parseSessionLine — interrupt marker renders as an agent-side Interru
     expect(parseSessionLine(line)).toMatchObject({ kind: "message", role: "user" });
   });
 });
+
+describe("parseSessionLine — turn-ending assistant message is flagged turnEnd", () => {
+  const assistant = (stopReason: string | null) =>
+    JSON.stringify({
+      type: "assistant",
+      uuid: "a-1",
+      timestamp: "2026-10-24T00:41:49.544Z",
+      message: { role: "assistant", stop_reason: stopReason, content: [{ type: "text", text: "Done." }] },
+    });
+
+  it("stop_reason end_turn → turnEnd: true", () => {
+    expect(parseSessionLine(assistant("end_turn"))).toMatchObject({ kind: "message", role: "assistant", turnEnd: true });
+  });
+
+  it("stop_reason tool_use (mid-turn) → no turnEnd", () => {
+    const r = parseSessionLine(assistant("tool_use"));
+    expect(r).toMatchObject({ kind: "message", role: "assistant" });
+    expect(r).not.toHaveProperty("turnEnd");
+  });
+});
