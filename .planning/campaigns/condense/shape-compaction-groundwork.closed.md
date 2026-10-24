@@ -85,3 +85,7 @@ Every fleet box moves to a Claude Code version that has a separate switch for id
 ### Notes
 
 One divergence (leftover wrong notes) was an unintended omission, fixed in a follow-up commit; a re-sweep found nothing else. Not evaluated by the reviewer: the 2.1.310 binary's separate "precompute" threshold path.
+
+### Post-close addition (from code review)
+
+The fleet settings also pin the window Claude Code measures its trigger against to the full 1M. Without that, turning auto-compaction back on would let a server value, an experiment, or Claude Code's own "shrink your window" offer move the trigger far below 95%. This strengthens "configured from one place" and doesn't change any agreed behavior.
