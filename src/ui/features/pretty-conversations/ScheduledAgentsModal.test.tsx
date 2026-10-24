@@ -267,6 +267,27 @@ describe("ScheduledAgentsModal: opening and reading", () => {
     }
   });
 
+  it("a task that goes away mid-edit keeps the edits on screen, says why, and can't save", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      const once = makeRow({ schedule: { type: "one_shot", at: "2026-11-01T09:00:00Z" } });
+      listScheduledAgentsMock.mockResolvedValueOnce([once, makeRow({ slug: "other", name: "Other" })]);
+      renderModal();
+      await openTask("morning-triage");
+      fireEvent.change(promptField(), { target: { value: "half-written" } });
+      // It fires and retires; its machine answers without it.
+      listScheduledAgentsMock.mockResolvedValue([makeRow({ slug: "other", name: "Other" })]);
+      await act(async () => {
+        vi.advanceTimersByTime(30_000);
+      });
+      expect(await screen.findByTestId("scheduled-task-gone")).toHaveTextContent(/has run/);
+      expect(promptField().value).toBe("half-written");
+      expect(saveButton()).toBeDisabled();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("a failed load shows the error banner", async () => {
     listScheduledAgentsMock.mockRejectedValueOnce(new Error("fleet unreachable"));
     renderModal();
@@ -507,7 +528,7 @@ describe("ScheduledAgentsModal: the on/off switch is pessimistic", () => {
     expect(updateScheduledAgentMock).not.toHaveBeenCalled();
   });
 
-  it("Save waits while the On switch is still saving, and then writes the new on/off", async () => {
+  it("Save waits while the On switch is still saving, and leaves the on/off to the switch", async () => {
     listScheduledAgentsMock.mockResolvedValueOnce([makeRow({ enabled: true })]);
     let finishToggle: () => void = () => {};
     toggleScheduledAgentEnabledMock.mockReturnValueOnce(new Promise<void>((r) => (finishToggle = r)));
@@ -524,7 +545,8 @@ describe("ScheduledAgentsModal: the on/off switch is pessimistic", () => {
     await waitFor(() => expect(saveButton()).not.toBeDisabled());
     fireEvent.click(saveButton());
     await waitFor(() => expect(updateScheduledAgentMock).toHaveBeenCalledTimes(1));
-    expect(updateScheduledAgentMock.mock.calls[0][2].enabled).toBe(false);
+    // The edit doesn't carry the switch — the server keeps what's on disk.
+    expect(updateScheduledAgentMock.mock.calls[0][2]).not.toHaveProperty("enabled");
   });
 
   it("a failed On switch in the task view shows the error there and stays put", async () => {
@@ -1000,7 +1022,12 @@ describe("ScheduledAgentsModal: editing", () => {
     await waitFor(() => expect(updateScheduledAgentMock).toHaveBeenCalledTimes(1));
     const [slug, hostId, spec] = updateScheduledAgentMock.mock.calls[0];
     expect([slug, hostId]).toEqual(["morning-triage", 1]);
-    expect(spec).toMatchObject({ name: "Morning triage", prompt: "new prompt", roles: ["assistant"], enabled: true });
+    expect(spec).toMatchObject({ name: "Morning triage", prompt: "new prompt", roles: ["assistant"] });
+    expect(spec).not.toHaveProperty("enabled");
+    // What the task read as when opened rides along, for the server's
+    // changed-elsewhere check.
+    expect(updateScheduledAgentMock.mock.calls[0][3]).toMatchObject({ roles: ["assistant"] });
+    expect(updateScheduledAgentMock.mock.calls[0][3].prompt).not.toBe("new prompt");
     const row = await screen.findByTestId(ROW("morning-triage"));
     expect(row).toHaveTextContent("new prompt");
     expect(row).not.toHaveTextContent("old prompt");

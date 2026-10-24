@@ -151,6 +151,9 @@ export function IdentityModal({
   // Tab data — WS one-shot fetches.
   const [identityFileState, setIdentityFileState] = useState<TabState<string>>({ status: "loading" });
   const [identityWakeupsState, setIdentityWakeupsState] = useState<TabState<Wakeup[]>>({ status: "loading" });
+  // The open wake-up as last seen, and whether its view holds unsaved edits.
+  const lastWakeup = useRef<Wakeup | undefined>(undefined);
+  const [wakeupDirty, setWakeupDirty] = useState(false);
   // Bumped by every wake-up write so an older background refresh can't
   // overwrite the list that write returned (sensors shape 2 refresh).
   const wakeupsWriteGen = useRef(0);
@@ -995,10 +998,18 @@ export function IdentityModal({
       />
     );
     if (deep.view === "wakeup" || deep.view === "new-wakeup") {
-      const wakeup =
+      const liveWakeup =
         deep.view === "wakeup" && identityWakeupsState.status === "ready"
           ? identityWakeupsState.data.find((w) => w.slug === deep.slug)
           : undefined;
+      // Gone while being edited (a one-time one that fired, or deleted
+      // elsewhere): keep the edits on screen to copy instead of dropping them.
+      const goneWakeup =
+        deep.view === "wakeup" && !liveWakeup && wakeupDirty && lastWakeup.current?.slug === deep.slug
+          ? lastWakeup.current
+          : undefined;
+      const wakeup = liveWakeup ?? goneWakeup;
+      if (liveWakeup) lastWakeup.current = liveWakeup;
       deepView =
         deep.view === "wakeup" && !wakeup ? (
           <>
@@ -1023,6 +1034,14 @@ export function IdentityModal({
               onDone={() => void back()}
               registerGuard={registerGuard}
               registerEscape={registerEscape}
+              onDirtyChange={setWakeupDirty}
+              gone={
+                goneWakeup
+                  ? (goneWakeup.schedule as { type?: unknown } | null)?.type === "one_shot"
+                    ? "ran"
+                    : "deleted"
+                  : undefined
+              }
             />
           </>
         );

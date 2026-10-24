@@ -40,6 +40,7 @@ import {
   runScheduledAgentNow,
   toggleScheduledAgentEnabled,
   updateScheduledAgent,
+  type ScheduledAgentExpected,
   type ScheduledAgentListItem,
   type ScheduledAgentSpecWire,
 } from "@/api/scheduled-agents-api";
@@ -246,9 +247,17 @@ export function ScheduledAgentsModal({
   const machineAnswered = deep?.view === "task" && (items ?? []).some((r) => r.hostId === deep.hostId);
   const staleDeepRow =
     deep?.view === "task" && !machineAnswered && lastDeepRow && keyOf(lastDeepRow) === keyOf(deep) ? lastDeepRow : null;
+  // Gone while being edited (a one-time task that ran, or deleted elsewhere):
+  // keep the edits on screen to copy instead of dropping them.
+  const [deepDirty, setDeepDirty] = useState(false);
+  const goneDeepRow =
+    deep?.view === "task" && !liveDeepRow && !staleDeepRow && deepDirty && lastDeepRow && keyOf(lastDeepRow) === keyOf(deep)
+      ? lastDeepRow
+      : null;
   const deepRow =
     liveDeepRow ??
-    (staleDeepRow?.sensor ? { ...staleDeepRow, sensor: sensorStatusUnreachable(staleDeepRow.sensor) } : staleDeepRow);
+    (staleDeepRow?.sensor ? { ...staleDeepRow, sensor: sensorStatusUnreachable(staleDeepRow.sensor) } : staleDeepRow) ??
+    goneDeepRow;
 
   // ── Navigation ─────────────────────────────────────────────────────────
   // The task view registers its own leave guard (unsaved edits) and may use
@@ -437,8 +446,9 @@ export function ScheduledAgentsModal({
     row: ScheduledAgentListItem,
     spec: ScheduledAgentSpecWire,
     project: ProjectRowFields,
+    expected: ScheduledAgentExpected,
   ): Promise<void> => {
-    await updateScheduledAgent(row.slug, row.hostId, spec);
+    await updateScheduledAgent(row.slug, row.hostId, spec, expected);
     spliceIn({
       ...row,
       schedule: spec.schedule,
@@ -648,7 +658,15 @@ export function ScheduledAgentsModal({
           onToggle={(enabled) => toggle(deepRow, enabled)}
           onRunNow={() => void runNow(deepRow)}
           runNowPending={runNowPending.has(keyOf(deepRow))}
-          onSave={(spec, project) => save(deepRow, spec, project)}
+          onSave={(spec, project, expected) => save(deepRow, spec, project, expected)}
+          onDirtyChange={setDeepDirty}
+          gone={
+            goneDeepRow
+              ? (goneDeepRow.schedule as { type?: unknown } | null)?.type === "one_shot"
+                ? "ran"
+                : "deleted"
+              : undefined
+          }
           onDelete={async () => {
             await deleteScheduledAgent(deepRow.slug, deepRow.hostId);
             setItems((cur) => (cur ?? []).filter((r) => keyOf(r) !== keyOf(deepRow)));

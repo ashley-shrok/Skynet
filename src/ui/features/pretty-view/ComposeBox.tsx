@@ -2402,13 +2402,16 @@ export function ComposeBox({
       : working && onInterrupt
         ? "stop"
         : "thumbs";
+  // Stop is never out of reach: beside 👍 and beside Resume it shows whenever
+  // the agent can be interrupted, since "working" can lag or miss a turn
+  // (one started by a relay message, an aside over a running turn).
   const asideAction: "stop" | "thumbs" | null = !harness
     ? null
     : mainAction === "send"
       ? working && onInterrupt
         ? "stop"
         : "thumbs"
-      : mainAction === "thumbs" && agentWaiting === true && onInterrupt
+      : (mainAction === "thumbs" || mainAction === "resume") && onInterrupt
         ? "stop"
         : null;
   // Mic open on this composer (a transcript round-trip is not "recording":

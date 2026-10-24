@@ -68,6 +68,12 @@ export interface WakeupViewProps {
   onDone: () => void;
   registerGuard: (g: LeaveGuard | null) => void;
   registerEscape: (h: EscapeHandler | null) => void;
+  /** Whether there are unsaved edits — the window keeps an edit on screen
+   *  if its wake-up goes away under it. */
+  onDirtyChange?: (dirty: boolean) => void;
+  /** The wake-up went away while being edited (a one-time one that fired,
+   *  or one deleted elsewhere). The edits stay to copy; nothing can save. */
+  gone?: "ran" | "deleted";
 }
 
 export function WakeupView({
@@ -79,6 +85,8 @@ export function WakeupView({
   onDone,
   registerGuard,
   registerEscape,
+  onDirtyChange,
+  gone,
 }: WakeupViewProps): JSX.Element {
   const isNew = !wakeup;
   const detectedTz = useMemo(detectBrowserTimezone, []);
@@ -126,6 +134,7 @@ export function WakeupView({
   const validation = isSensor ? null : validateForm(fs);
   const canSubmit =
     !saving &&
+    !gone &&
     validation === null &&
     name.trim() !== "" &&
     normalizeSlug(name) !== "" &&
@@ -149,6 +158,7 @@ export function WakeupView({
   // Leaving with unsaved changes asks first; the window asks on every route out.
   const dirtyRef = useRef(dirty);
   dirtyRef.current = dirty;
+  useEffect(() => onDirtyChange?.(dirty), [dirty, onDirtyChange]);
   // While a save, create or delete is on its way, nothing leaves the view —
   // it goes back by itself once the server answers.
   const busyRef = useRef(false);
@@ -241,6 +251,13 @@ export function WakeupView({
     <>
       <div className="flex-1 min-h-0 overflow-y-auto px-6 max-sm:px-5 pb-6 pt-1">
         <div className="max-w-[620px] mx-auto flex flex-col gap-5" data-testid="wakeup-view">
+          {gone && (
+            <KitBanner tone="warn" data-testid="wakeup-gone">
+              {gone === "ran"
+                ? "This one-time wake-up has fired, so it's gone and these edits can't be saved. Copy anything you want to keep."
+                : "This wake-up was deleted elsewhere, so these edits can't be saved. Copy anything you want to keep."}
+            </KitBanner>
+          )}
           <KitSettingsGroup>
             <KitSettingsRow
               label="On"

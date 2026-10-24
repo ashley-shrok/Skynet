@@ -47,11 +47,17 @@ describe("ComposeBox — interrupt button availability", () => {
     expect(onInterrupt).toHaveBeenCalledTimes(1);
   });
 
-  // shape-conversation-view: Stop is only offered while the agent works.
-  it("not offered while the agent is idle — the thumbs-up is the main button", () => {
+  // Stop is never out of reach: "working" can lag or miss a turn.
+  it("while idle: the thumbs-up is the main button, with a quiet Stop beside it", () => {
     render(<ComposeBox {...baseProps({ onInterrupt: vi.fn(), agentWorking: false })} />);
-    expect(screen.queryByRole("button", { name: "Interrupt" })).toBeNull();
+    expect(screen.getByRole("button", { name: "Interrupt" }).getAttribute("data-main")).toBeNull();
     expect(screen.getByRole("button", { name: "Send 'thumbs up'" }).getAttribute("data-main")).toBe("true");
+  });
+
+  it("while an aside is up: Resume is the main button, with a quiet Stop beside it", () => {
+    render(<ComposeBox {...baseProps({ onInterrupt: vi.fn(), asideActive: true })} />);
+    expect(screen.getByRole("button", { name: "Resume" }).getAttribute("data-main")).toBe("true");
+    expect(screen.getByRole("button", { name: "Interrupt" }).getAttribute("data-main")).toBeNull();
   });
 
   it("while working: Stop is the main button with nothing typed, and steps aside next to Send while typing", () => {

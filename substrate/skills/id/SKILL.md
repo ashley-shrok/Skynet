@@ -1277,7 +1277,7 @@ crown, then gear.
   back until it's done. ✕ or Cancel closes as usual. Bigger modals (skills,
   an agent's modal — new wake-up included — the roles window — new role
   included — preferences, search, files) still fill the phone
-  screen.
+  screen. While the on-screen keyboard is up, a sheet sits on top of it.
 
 - **Confirms are Skynet's own dialogs.** Every "are you sure?", "type a
   name" and "something went wrong" moment — archive, delete, discard
@@ -1510,9 +1510,9 @@ crown, then gear.
   attached, **Stop** (square) while the agent is working, otherwise a
   **thumbs-up** (sends "thumbs up"). With text typed, the thumbs-up — or
   Stop, while the agent works — sits as a small grey button just left of
-  Send, so a thumbs-up never needs the draft cleared. While Claude Code is
-  waiting on a dialog (e.g. a permission prompt), a small grey Stop sits
-  beside the thumbs-up. Background sub-agents don't count as working here
+  Send, so a thumbs-up never needs the draft cleared. With nothing typed,
+  a small grey Stop always sits beside the thumbs-up (and beside Resume
+  while an aside is up), so Stop is never out of reach. Background sub-agents don't count as working here
   (they run on through a Stop). In a relay room only
   the mic and Send show.
 
@@ -1557,7 +1557,7 @@ crown, then gear.
 - **Stop (square) button — interrupt** (agent conversations). The
   composer's round main button while the agent's main turn is working and
   nothing is typed; with text typed, a small grey square just left of Send;
-  while a dialog is waiting, a small grey square beside the thumbs-up. One
+  otherwise a small grey square beside the thumbs-up (or beside Resume). One
   press does whichever of
   these fits the moment:
   - **Still being delivered** (the message hasn't reached the agent yet):
@@ -2212,7 +2212,12 @@ the sidebar footer, beside the gear. It opens the scheduled tasks window:
   and an **Archive if nothing to report** switch. **Delete scheduled
   task…** at the bottom; Cancel and Save at the foot. A sensor-fired task
   shows "When its sensor fires" and its sensor's details read-only,
-  including the last error lines when broken.
+  including the last error lines when broken. Save never changes the On
+  switch, and is refused (with a note to reopen the task) if the task was
+  changed elsewhere since it was opened. If the task goes away while it's
+  being edited (a one-time task that ran, or one deleted elsewhere), the
+  edits stay on screen under a note saying so, to copy; Save is off. The
+  same goes for an agent's wake-up being edited.
 - **New scheduled task**: the same view, blank, with **Create**. It asks
   which machine when more than one can run agents; roles come from that
   machine, and Create waits until roles or **No roles** are picked;

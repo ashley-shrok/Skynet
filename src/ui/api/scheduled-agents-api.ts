@@ -163,15 +163,23 @@ export async function createScheduledAgent(
  * rejects renames with 400 — see RESEARCH.md Pitfall #5). Renaming is a
  * delete-and-recreate workflow.
  */
+/** The form's fields as they read when it opened — the server refuses the
+ *  save (409) if the task changed elsewhere since. */
+export type ScheduledAgentExpected = Pick<
+  ScheduledAgentListItem,
+  "prompt" | "roles" | "schedule" | "archive_if_nothing_to_report" | "project"
+>;
+
 export async function updateScheduledAgent(
   slug: string,
   host: number,
   spec: ScheduledAgentSpecWire,
+  expected?: ScheduledAgentExpected,
 ): Promise<{ slug: string; host: number; spec: ScheduledAgentSpecWire }> {
   try {
     const response = await authApi.patch(
       `/scheduled-agents/${encodeURIComponent(slug)}`,
-      { host, spec },
+      expected ? { host, spec, expected } : { host, spec },
     );
     return response.data as {
       slug: string;

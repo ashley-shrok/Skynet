@@ -39,6 +39,7 @@ import {
 } from "@/components/kit";
 import {
   listScheduledAgentProjects,
+  type ScheduledAgentExpected,
   type ScheduledAgentListItem,
   type ScheduledAgentProjectOption,
   type ScheduledAgentSpecWire,
@@ -72,8 +73,13 @@ function statusOf(err: unknown): number | undefined {
   return undefined;
 }
 
-function interpretError(err: unknown, rawName: string): string {
+function interpretError(err: unknown, rawName: string, isNew: boolean): string {
   const status = statusOf(err);
+  // An edit's 409: the task changed elsewhere since it was opened (the
+  // server's message says so); a new task's: the name is taken.
+  if (status === 409 && !isNew) {
+    return err instanceof Error && err.message ? err.message : "This task was changed elsewhere — open it again.";
+  }
   if (status === 409) return `A scheduled task named "${rawName}" already exists on this machine — pick a different name.`;
   if (status === 400) {
     const msg = err instanceof Error ? err.message : "";
@@ -103,13 +109,20 @@ export interface ScheduledTaskViewProps {
   onToggle?: (enabled: boolean) => Promise<void>;
   onRunNow?: () => void;
   runNowPending?: boolean;
-  onSave?: (spec: ScheduledAgentSpecWire, project: ProjectRowFields) => Promise<void>;
+  /** `expected`: the edited fields as they read when the view opened. */
+  onSave?: (spec: ScheduledAgentSpecWire, project: ProjectRowFields, expected: ScheduledAgentExpected) => Promise<void>;
   onCreate?: (hostId: number, spec: ScheduledAgentSpecWire, project: ProjectRowFields) => Promise<void>;
   onDelete?: () => Promise<void>;
   /** Back to the list (after Cancel, a save, a create or a delete). */
   onDone: () => void;
   registerGuard: (g: LeaveGuard | null) => void;
   registerEscape: (h: EscapeHandler | null) => void;
+  /** Whether there are unsaved edits — the window keeps an edit on screen
+   *  if its task goes away under it. */
+  onDirtyChange?: (dirty: boolean) => void;
+  /** The task went away while being edited: a one-time task that ran, or one
+   *  deleted elsewhere. The edits stay on screen to copy; nothing can save. */
+  gone?: "ran" | "deleted";
 }
 
 export function ScheduledTaskView({
@@ -125,6 +138,8 @@ export function ScheduledTaskView({
   onDone,
   registerGuard,
   registerEscape,
+  onDirtyChange,
+  gone,
 }: ScheduledTaskViewProps): JSX.Element {
   const { t } = useTranslation();
   const isNew = !task;
@@ -146,6 +161,19 @@ export function ScheduledTaskView({
     }),
     // eslint-disable-next-line react-hooks/exhaustive-deps -- the starting point only
     [],
+  );
+  // The task as it read when the view opened — a save is refused if it has
+  // changed elsewhere since (an agent's edit would otherwise be undone).
+  const openedAs = useRef<ScheduledAgentExpected | null>(
+    task
+      ? {
+          prompt: task.prompt,
+          roles: task.roles,
+          schedule: task.schedule,
+          archive_if_nothing_to_report: task.archive_if_nothing_to_report,
+          project: task.project,
+        }
+      : null,
   );
   const [name, setName] = useState(initial.name);
   const [prompt, setPrompt] = useState(initial.prompt);
@@ -236,8 +264,9 @@ export function ScheduledTaskView({
   const canSubmit =
     !saving &&
     !deleting &&
-    // The update writes the on/off too — wait for a switch still saving.
+    // Wait for a switch still saving: the edit keeps the on/off on disk.
     !toggling &&
+    !gone &&
     validation === null &&
     name.trim() !== "" &&
     prompt.trim() !== "" &&
@@ -260,6 +289,7 @@ export function ScheduledTaskView({
   // Leaving with unsaved changes asks first; the window asks on every route out.
   const dirtyRef = useRef(dirty);
   dirtyRef.current = dirty;
+  useEffect(() => onDirtyChange?.(dirty), [dirty, onDirtyChange]);
   // While a save, create or delete is on its way, nothing leaves the view —
   // it goes back by itself once the server answers.
   const busyRef = useRef(false);
@@ -296,7 +326,9 @@ export function ScheduledTaskView({
         prompt: prompt.trim(),
         schedule: isSensor ? (task!.schedule as Record<string, unknown>) : buildSchedule(fs, effectiveTz),
         roles: noRoles ? [] : roles,
-        enabled: isNew ? newEnabled : task!.enabled,
+        // An edit leaves the switch to its own route (and the box, which may
+        // have switched a tripped task off since this view opened).
+        ...(isNew ? { enabled: newEnabled } : {}),
         archive_if_nothing_to_report: archive,
         ...(project !== null ? { project } : {}),
       };
@@ -311,14 +343,14 @@ export function ScheduledTaskView({
         await onCreate?.(hostId, spec, projectRow);
         console.info({ operation: "scheduled_task_created", hostId, name: trimmedName });
       } else {
-        await onSave?.(spec, projectRow);
+        await onSave?.(spec, projectRow, openedAs.current!);
         console.info({ operation: "scheduled_task_saved", hostId, slug: task!.slug });
       }
       dirtyRef.current = false;
       busyRef.current = false;
       onDone();
     } catch (e) {
-      setError(interpretError(e, trimmedName));
+      setError(interpretError(e, trimmedName, isNew));
     } finally {
       busyRef.current = false;
       setSaving(false);
@@ -423,6 +455,13 @@ export function ScheduledTaskView({
     <>
       <div className="flex-1 min-h-0 overflow-y-auto px-6 max-sm:px-5 pb-6 pt-1">
         <div className="max-w-[620px] mx-auto flex flex-col gap-5" data-testid="scheduled-task-view">
+          {gone && (
+            <KitBanner tone="warn" data-testid="scheduled-task-gone">
+              {gone === "ran"
+                ? "This one-time task has run, so it's gone and these edits can't be saved. Copy anything you want to keep."
+                : "This task was deleted elsewhere, so these edits can't be saved. Copy anything you want to keep."}
+            </KitBanner>
+          )}
           <KitSettingsGroup>
             <KitSettingsRow
               label="On"

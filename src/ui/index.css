@@ -373,6 +373,16 @@ html.kb-open body {
 html.kb-open {
   --kb-safe-bottom: 0px;
 }
+/* A phone sheet is pinned to the screen's bottom edge, which the keyboard
+ * covers (the layout viewport doesn't shrink for it) — sit it on top of the
+ * keyboard instead, no taller than what's left. --kb-inset is the keyboard's
+ * height, set by the same hook. */
+@media (max-width: 639.98px) {
+  html.kb-open [data-slot="modal-content"][data-sheet] {
+    bottom: var(--kb-inset, 0px) !important;
+    max-height: calc(var(--app-height, 100dvh) - 12px) !important;
+  }
+}
 
 /* Font size scale applied to html element */
 html.fs-xs {

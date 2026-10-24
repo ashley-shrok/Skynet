@@ -1031,6 +1031,41 @@ describe("buildPatchWritePayload (helper)", () => {
     expect(buildPatchWritePayload(spec, null)).not.toHaveProperty("users");
     expect(buildPatchWritePayload(spec, "not-an-object")).not.toHaveProperty("users");
   });
+  it("an edit without `enabled` keeps the switch as it is on disk; one with it wins", async () => {
+    const { buildPatchWritePayload } = await import("./scheduled-agents-write.js");
+    expect(buildPatchWritePayload({ name: "x" }, { name: "x", enabled: false }).enabled).toBe(false);
+    expect(buildPatchWritePayload({ name: "x", enabled: true }, { name: "x", enabled: false }).enabled).toBe(true);
+    expect(buildPatchWritePayload({ name: "x" }, { name: "x" })).not.toHaveProperty("enabled");
+  });
+});
+
+describe("specChangedSince (helper)", () => {
+  const disk = {
+    name: "x",
+    prompt: "p",
+    roles: ["a"],
+    schedule: { type: "daily", at: "09:00", timezone: "UTC" },
+    enabled: false,
+  };
+  it("matches what the list showed (key order, defaults); the switch doesn't count", async () => {
+    const { specChangedSince } = await import("./scheduled-agents-write.js");
+    const expected = {
+      prompt: "p",
+      roles: ["a"],
+      schedule: { timezone: "UTC", at: "09:00", type: "daily" },
+      archive_if_nothing_to_report: false,
+      project: null,
+    };
+    expect(specChangedSince(expected, disk)).toBe(false);
+    expect(specChangedSince(undefined, disk)).toBe(false);
+  });
+  it("any edited field changed on disk is a conflict", async () => {
+    const { specChangedSince } = await import("./scheduled-agents-write.js");
+    const expected = { prompt: "p", roles: ["a"], schedule: disk.schedule, archive_if_nothing_to_report: false, project: null };
+    expect(specChangedSince(expected, { ...disk, prompt: "agent fixed it" })).toBe(true);
+    expect(specChangedSince(expected, { ...disk, project: "skynet" })).toBe(true);
+    expect(specChangedSince(expected, { ...disk, schedule: { type: "daily", at: "10:00", timezone: "UTC" } })).toBe(true);
+  });
 });
 
 // ---------------------------------------------------------------------------

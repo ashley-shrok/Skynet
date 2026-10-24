@@ -36,10 +36,12 @@ export function useKeyboardViewportLock(enabled: boolean): void {
       const nowOpen = window.innerHeight - vv.height > KEYBOARD_MIN_PX;
       if (nowOpen) {
         root.style.setProperty("--app-height", `${Math.round(vv.height)}px`);
+        root.style.setProperty("--kb-inset", `${Math.max(0, Math.round(window.innerHeight - vv.height - vv.offsetTop))}px`);
         root.classList.add("kb-open");
         if (window.scrollY !== 0 || vv.offsetTop !== 0) window.scrollTo(0, 0);
       } else if (open) {
         root.style.removeProperty("--app-height");
+        root.style.removeProperty("--kb-inset");
         root.classList.remove("kb-open");
         if (window.scrollY !== 0) window.scrollTo(0, 0);
       }
@@ -64,6 +66,7 @@ export function useKeyboardViewportLock(enabled: boolean): void {
       vv.removeEventListener("scroll", schedule);
       window.removeEventListener("scroll", schedule);
       root.style.removeProperty("--app-height");
+      root.style.removeProperty("--kb-inset");
       root.classList.remove("kb-open");
     };
   }, [enabled]);

@@ -312,6 +312,11 @@ export function buildPatchWritePayload(
 ): Record<string, unknown> {
   const payload: Record<string, unknown> = { ...spec };
   if (diskParsed !== null && typeof diskParsed === "object") {
+    // An edit that leaves `enabled` out keeps the switch as it is on disk —
+    // the box may have switched the task off (a tripped sensor) since the
+    // editor loaded it. The switch has its own route.
+    const diskEnabled = (diskParsed as Record<string, unknown>).enabled;
+    if (spec.enabled === undefined && typeof diskEnabled === "boolean") payload.enabled = diskEnabled;
     const diskUsers = (diskParsed as Record<string, unknown>).users;
     if (
       Array.isArray(diskUsers) &&
@@ -322,6 +327,48 @@ export function buildPatchWritePayload(
   }
   return payload;
 }
+
+/** The fields an edit form shows, as they read when it opened. */
+const EDITED_FIELDS = ["prompt", "roles", "schedule", "archive_if_nothing_to_report", "project"] as const;
+
+function canonical(v: unknown): unknown {
+  if (Array.isArray(v)) return v.map(canonical);
+  if (v !== null && typeof v === "object") {
+    return Object.fromEntries(
+      Object.keys(v as Record<string, unknown>)
+        .sort()
+        .map((k) => [k, canonical((v as Record<string, unknown>)[k])]),
+    );
+  }
+  return v;
+}
+
+function fieldValue(spec: Record<string, unknown>, key: (typeof EDITED_FIELDS)[number]): string {
+  const v = spec[key];
+  // Read the way the list reads them (scheduled-agents-list.ts specToRow).
+  if (key === "archive_if_nothing_to_report") return JSON.stringify(v === true);
+  if (key === "prompt") return JSON.stringify(typeof v === "string" ? v : "");
+  if (key === "project") return JSON.stringify(typeof v === "string" && v !== "" ? v : null);
+  if (key === "roles") return JSON.stringify(canonical(Array.isArray(v) ? v : []));
+  return JSON.stringify(canonical(v ?? null));
+}
+
+/**
+ * True when the spec on disk no longer matches what the editor opened
+ * (`expected`, the form's fields at open): someone — an agent, another tab —
+ * changed it meanwhile, and saving would silently undo that. Absent
+ * `expected` (older clients) never conflicts.
+ */
+export function specChangedSince(expected: unknown, diskParsed: unknown): boolean {
+  if (expected === null || typeof expected !== "object") return false;
+  if (diskParsed === null || typeof diskParsed !== "object") return false;
+  const e = expected as Record<string, unknown>;
+  const d = diskParsed as Record<string, unknown>;
+  return EDITED_FIELDS.some((k) => fieldValue(e, k) !== fieldValue(d, k));
+}
+
+const CHANGED_ELSEWHERE =
+  "This task was changed elsewhere since you opened it. Go back and open it again to see the latest.";
 
 /** Parse + validate hostId from the JSON body. Returns null + writes response
  *  when invalid; returns the hostId when good. */
@@ -784,6 +831,11 @@ router.patch(
             responded = true;
             return;
           }
+          if (specChangedSince((req.body as { expected?: unknown }).expected, diskParsed)) {
+            res.status(409).json({ error: CHANGED_ELSEWHERE });
+            responded = true;
+            return;
+          }
           // Preserve any on-disk `users` tag onto the write body so a
           // full-spec PATCH doesn't clobber a disk-side visibility gate.
           // Uses a shallow-copy write payload so `validSpec` itself stays
@@ -879,6 +931,11 @@ router.patch(
             error:
               "spec.name differs from the stored name — renames must go through DELETE + CREATE",
           });
+          responded = true;
+          return;
+        }
+        if (specChangedSince((req.body as { expected?: unknown }).expected, diskParsed)) {
+          res.status(409).json({ error: CHANGED_ELSEWHERE });
           responded = true;
           return;
         }
