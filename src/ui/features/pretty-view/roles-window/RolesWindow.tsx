@@ -285,7 +285,7 @@ export function RolesWindow({
     if (!open) return;
     const onKey = (e: KeyboardEvent): void => {
       if (e.key !== "Escape" || e.defaultPrevented) return;
-      if (escBelongsElsewhere(e)) return;
+      if (escBelongsElsewhere(e, document.querySelector("[data-testid='roles-window']"))) return;
       if (escapeRef.current?.()) {
         e.preventDefault();
         e.stopPropagation();

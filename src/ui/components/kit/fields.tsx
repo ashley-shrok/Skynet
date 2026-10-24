@@ -190,7 +190,8 @@ export const KitSearch = React.forwardRef<HTMLInputElement, KitSearchProps>(
         <SearchIcon aria-hidden="true" />
         <input
           ref={ref}
-          type="search"
+          // A search box clears itself on Esc — only when we claim Esc too.
+          type={clearable ? "search" : "text"}
           value={value}
           placeholder={placeholder}
           onChange={(e) => onValueChange(e.target.value)}

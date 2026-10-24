@@ -219,7 +219,7 @@ export function AppTile({ app, onOpenApp, onArchive, variant = "desktop" }: AppT
       // with the fix the user can act on.
       title={app.isHealthy ? undefined : unhealthyTooltip(app.healthMessage)}
       // A draggable tile would turn a press-and-hold into a drag on phones.
-      draggable={!isMobile && !isCoarsePointer()}
+      draggable={!isCoarsePointer()}
       onDragStart={onTileDragStart}
       onClick={onTileClick}
       {...touch.handlers}

@@ -219,7 +219,9 @@ export function buildDiffScript(
   repoPath: string,
   req: DiffRequest,
 ): string {
-  const diffFlags = "--no-color --no-ext-diff --no-textconv -M";
+  // Fixed a/ b/ prefixes: the parser matches paths on them, and a host's
+  // diff.mnemonicPrefix / diff.noprefix config would otherwise change them.
+  const diffFlags = "--no-color --no-ext-diff --no-textconv -M --src-prefix=a/ --dst-prefix=b/";
   const body =
     req.diff === "commit"
       ? [

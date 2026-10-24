@@ -98,6 +98,9 @@ export function useRowTouchGestures({ onHold, onSwipeArchive }: RowTouchGestureO
         setOffset(0);
         return;
       }
+      // A swipe whose lift never reached us (the element under the finger
+      // was replaced) left the row part-way out — put it back.
+      if (mode.current === "swipe") setOffset(0);
       const t = e.touches[0];
       start.current = { x: t.clientX, y: t.clientY, t: e.timeStamp };
       last.current = { x: t.clientX, t: e.timeStamp };

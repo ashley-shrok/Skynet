@@ -1527,8 +1527,7 @@ export function ComposeBox({
   // clipped because wrapped visual lines never added a \n. We set height
   // imperatively from scrollHeight, capped at 15 line-heights (bumped from 6
   // on user request 2026-09-28 — long messages felt cramped in the old cap),
-  // with overflow-y switching to 'auto' only at the cap so a scrollbar
-  // appears there.
+  // with overflow-y switching to 'auto' once the text no longer fits.
   // Setting height='auto' first is REQUIRED — without it, scrollHeight only
   // grows (never shrinks) as text is deleted.
   useLayoutEffect(() => {
@@ -1541,7 +1540,10 @@ export function ComposeBox({
     el.style.height = "auto";
     const clamped = Math.min(el.scrollHeight, maxHeightPxRef.current);
     el.style.height = clamped + "px";
-    el.style.overflowY = clamped >= maxHeightPxRef.current ? "auto" : "hidden";
+    // Scroll whenever the text doesn't fit as drawn — the stylesheet's
+    // max-height (a share of the window) can cut in below the 15-line cap.
+    const shown = el.clientHeight || clamped;
+    el.style.overflowY = el.scrollHeight > shown + 1 ? "auto" : "hidden";
   }, [text, chipStripHeight]);
 
   // Quick 260802-wxy: measure the overlaid chip strip's rendered height so

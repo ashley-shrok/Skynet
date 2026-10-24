@@ -10,7 +10,7 @@
 // marks are cleared, so a conversation that was unread as it came on screen
 // is held in its list position instead of sliding out from under the click.
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { markSeen, subscribeAttention } from "./attention-store";
 import { setVisibleConversationIds } from "./conversation-store";
 
@@ -42,18 +42,27 @@ export function useSeenTracker(targets: readonly SeenTarget[], screenShowsConver
     ? targets.map((t) => `${t.id}|${t.hostId}|${t.identityName}`).join("\n")
     : "";
 
+  // When each conversation came on screen — kept per conversation, so
+  // opening another pane doesn't restart the clock for ones already showing.
+  const shownAtRef = useRef(new Map<string, number>());
+
   useEffect(() => {
     const seen = looking ? targets : [];
     setVisibleConversationIds(seen.map((t) => t.id));
-    if (seen.length === 0) return;
     // The user "arrives" at a conversation when it comes on screen; a read
     // state that loads within a few seconds of that still counts as arriving
     // (a reload straight into a conversation). After that, new marks land
     // while they're watching.
-    const shownAt = Date.now();
+    const now = Date.now();
+    const prev = shownAtRef.current;
+    const shownAt = new Map(seen.map((t) => [t.id, prev.get(t.id) ?? now] as const));
+    shownAtRef.current = shownAt;
+    if (seen.length === 0) return;
     const markAll = () => {
-      const arrived = Date.now() - shownAt < ARRIVAL_WINDOW_MS;
-      for (const t of seen) markSeen(t.hostId, t.identityName, arrived);
+      for (const t of seen) {
+        const arrived = Date.now() - (shownAt.get(t.id) ?? 0) < ARRIVAL_WINDOW_MS;
+        markSeen(t.hostId, t.identityName, arrived);
+      }
     };
     markAll();
     // A turn that finishes while the user is watching is seen as it lands.

@@ -933,11 +933,24 @@ describe("AppTile — shape-sidebar press-and-hold + draggable", () => {
     tileTouch(tile, "touchEnd", [], 60);
   });
 
-  it("tile is draggable on desktop but not on mobile", () => {
+  it("tile is draggable with a mouse at any width, not on a touch screen", () => {
+    const withCoarsePointer = (coarse: boolean) => {
+      const original = window.matchMedia;
+      window.matchMedia = ((q: string) =>
+        ({ matches: coarse && q.includes("coarse"), media: q, addEventListener() {}, removeEventListener() {} }) as unknown as MediaQueryList);
+      return { mockRestore: () => { window.matchMedia = original; } };
+    };
+    const mouse = withCoarsePointer(false);
     const d = render(<AppTile app={makeApp()} variant="desktop" />);
     expect(d.getByTestId("pv-app-tile").getAttribute("draggable")).toBe("true");
     d.unmount();
+    const narrow = render(<AppTile app={makeApp()} variant="mobile" />);
+    expect(narrow.getByTestId("pv-app-tile").getAttribute("draggable")).toBe("true");
+    narrow.unmount();
+    mouse.mockRestore();
+    const touch = withCoarsePointer(true);
     const m = render(<AppTile app={makeApp()} variant="mobile" />);
     expect(m.getByTestId("pv-app-tile").getAttribute("draggable")).toBe("false");
+    touch.mockRestore();
   });
 });

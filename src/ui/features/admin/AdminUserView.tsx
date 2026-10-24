@@ -259,13 +259,18 @@ function PhoneGroup({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
+  // What was last saved here — the user list's refresh can lag or fail.
+  const [savedNumber, setSavedNumber] = useState<string | null>(null);
 
   useEffect(() => {
     setDraft(user.phoneE164 ?? "");
+    setSavedNumber(null);
   }, [user.phoneE164]);
 
   const trimmed = draft.trim();
-  const dirty = trimmed !== (user.phoneE164 ?? "");
+  // An empty field can't be saved (only the user removes their number), so
+  // it isn't an unsaved change.
+  const dirty = trimmed !== "" && trimmed !== (savedNumber ?? user.phoneE164 ?? "");
   useEffect(() => onDirtyChange(dirty), [dirty, onDirtyChange]);
 
   const save = async () => {
@@ -275,6 +280,7 @@ function PhoneGroup({
     setSaved(false);
     try {
       await setUserPhone(user.id, trimmed);
+      setSavedNumber(trimmed);
       setSaved(true);
       await onUserChanged();
     } catch (err) {
@@ -326,7 +332,7 @@ function PhoneGroup({
                 onKeyDown={(e) => {
                   if (e.key === "Escape" && dirty) {
                     e.preventDefault();
-                    setDraft(user.phoneE164 ?? "");
+                    setDraft(savedNumber ?? user.phoneE164 ?? "");
                     setError(null);
                   }
                 }}

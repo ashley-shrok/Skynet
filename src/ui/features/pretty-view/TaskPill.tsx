@@ -61,7 +61,8 @@ export interface TaskPillProps {
 
 // Each side keeps the pane margin plus room for both round buttons, so the
 // pill can use the rest of the width and stay centered.
-const SIDE_RESERVE_PX = 16 + 8 + 36 + 8 + 36;
+const SIDE_BUTTON_PX = 40;
+const SIDE_RESERVE_PX = 16 + 8 + SIDE_BUTTON_PX + 8 + SIDE_BUTTON_PX;
 
 // The pill's ⋯ menu takes the kit look, like the sidebar's and pane bars'.
 const PILL_KIT_SCOPE: KitScopeValue = { hue: 220 };
@@ -293,8 +294,8 @@ function SideButton({
       style={
         {
           "--pv-side-hue": hue,
-          width: 40,
-          height: 40,
+          width: SIDE_BUTTON_PX,
+          height: SIDE_BUTTON_PX,
           borderRadius: "50%",
           color: "#f4fff8",
           background: `linear-gradient(160deg, hsla(${hue}, 50%, 32%, 0.88), hsla(${hue}, 45%, 20%, 0.92))`,

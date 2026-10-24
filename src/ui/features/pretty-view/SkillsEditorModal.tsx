@@ -777,6 +777,40 @@ export default function SkillsEditorModal({
     ],
   );
 
+  // The open file's view is remounted per file, so its unsaved edits go with
+  // it: ask first, then forget them. False = the user kept editing.
+  const leaveActiveFile = useCallback(
+    async (path: string): Promise<boolean> => {
+      if (activeTab == null || path === activeTab) return true;
+      if (!dirtySet.has(activeTab) && !binaryDrafts.has(activeTab)) return true;
+      const ok = await kitConfirm({
+        title: "Discard your changes?",
+        body: `Your edits to ${activeTab} haven't been saved.`,
+        confirmLabel: "Discard",
+        destructive: true,
+      });
+      if (!ok) return false;
+      const left = activeTab;
+      setDirtySet((prev) => {
+        const n = new Set(prev);
+        n.delete(left);
+        return n;
+      });
+      setDrafts((prev) => {
+        const n = new Map(prev);
+        n.delete(left);
+        return n;
+      });
+      setBinaryDrafts((prev) => {
+        const n = new Map(prev);
+        n.delete(left);
+        return n;
+      });
+      return true;
+    },
+    [activeTab, dirtySet, binaryDrafts],
+  );
+
   const handleAddFile = useCallback(async (): Promise<void> => {
     if (apiHostId == null || selectedSkillName == null) return;
     const raw = await kitPrompt({
@@ -790,6 +824,7 @@ export default function SkillsEditorModal({
     if (raw == null) return;
     const relPath = raw.trim();
     if (relPath.length === 0) return;
+    if (!(await leaveActiveFile(relPath))) return;
     try {
       await createSkillFile(apiHostId, selectedSkillName, relPath);
       const entries = await enumerateSkillFiles(apiHostId, selectedSkillName);
@@ -804,7 +839,7 @@ export default function SkillsEditorModal({
           : `Couldn't create "${relPath}".`;
       void kitAlert({ title: "Couldn't create the file", body: msg });
     }
-  }, [apiHostId, selectedSkillName]);
+  }, [apiHostId, selectedSkillName, leaveActiveFile]);
 
   // New-skill handler — chained kitPrompt (name → description); slugify
   // client-side; an empty slug or empty description is refused in place by
@@ -1070,36 +1105,12 @@ export default function SkillsEditorModal({
 
   const switchFile = useCallback(
     async (path: string) => {
-      if (activeTab != null && path !== activeTab && (dirtySet.has(activeTab) || binaryDrafts.has(activeTab))) {
-        const ok = await kitConfirm({
-          title: "Discard your changes?",
-          body: `Your edits to ${activeTab} haven't been saved.`,
-          confirmLabel: "Discard",
-          destructive: true,
-        });
-        if (!ok) return;
-        const left = activeTab;
-        setDirtySet((prev) => {
-          const n = new Set(prev);
-          n.delete(left);
-          return n;
-        });
-        setDrafts((prev) => {
-          const n = new Map(prev);
-          n.delete(left);
-          return n;
-        });
-        setBinaryDrafts((prev) => {
-          const n = new Map(prev);
-          n.delete(left);
-          return n;
-        });
-      }
+      if (!(await leaveActiveFile(path))) return;
       setActiveTab(path);
       // On a phone the list stands in for the editor; picking a file returns to it.
       if (fullscreen) setFilesOpen(false);
     },
-    [activeTab, dirtySet, binaryDrafts, fullscreen],
+    [leaveActiveFile, fullscreen],
   );
 
   // ── Library rows ───────────────────────────────────────────────────────

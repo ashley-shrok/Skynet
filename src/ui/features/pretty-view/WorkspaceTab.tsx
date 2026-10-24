@@ -1213,6 +1213,7 @@ function WorkspaceListView({
                 pendingNew === "folder" ? "New folder name" : "New file name"
               }
               aria-label={pendingNew === "folder" ? "New folder name" : "New file name"}
+              data-modal-esc-local
               onKeyDown={(e) => {
                 if (e.key === "Escape") {
                   setPendingNew(null);
@@ -1363,6 +1364,7 @@ function WorkspaceListView({
                       value={renameValue}
                       onChange={(e) => setRenameValue(e.target.value)}
                       aria-label={`New name for ${entry.name}`}
+                      data-modal-esc-local
                       onKeyDown={(e) => {
                         if (e.key === "Escape") {
                           setRenamingFor(null);

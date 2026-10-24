@@ -396,6 +396,13 @@ export function useRowKebabContextMenu(
 ): RowKebabContextMenu {
   const [pos, setPos] = React.useState<{ x: number; y: number } | null>(null);
   const enabled = items.length > 0;
+  // Where focus was when the menu opened (the row, for the keyboard's menu
+  // key) — it goes back there when the menu closes.
+  const opener = React.useRef<HTMLElement | null>(null);
+  const noteOpener = () => {
+    const a = document.activeElement;
+    opener.current = a instanceof HTMLElement && a !== document.body ? a : null;
+  };
 
   const onContextMenu = React.useCallback(
     (e: React.MouseEvent) => {
@@ -408,6 +415,7 @@ export function useRowKebabContextMenu(
       e.preventDefault();
       // Innermost kebab surface wins when surfaces nest.
       e.stopPropagation();
+      noteOpener();
       setPos({ x: e.clientX, y: e.clientY });
     },
     [enabled],
@@ -446,9 +454,12 @@ export function useRowKebabContextMenu(
               // the right-click doesn't land on — and select — the first item.
               sideOffset={2}
               alignOffset={2}
-              // The anchor unmounts on close; don't bounce focus to it.
+              // The anchor unmounts on close; focus goes back to where it was.
               onCloseAutoFocus={(e) => {
                 e.preventDefault();
+                const el = opener.current;
+                opener.current = null;
+                if (el?.isConnected) el.focus({ preventScroll: true });
               }}
             />
           </DropdownMenu>,
@@ -457,7 +468,9 @@ export function useRowKebabContextMenu(
 
   const openAt = React.useCallback(
     (x: number, y: number) => {
-      if (enabled) setPos({ x, y });
+      if (!enabled) return;
+      noteOpener();
+      setPos({ x, y });
     },
     [enabled],
   );

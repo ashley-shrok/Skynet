@@ -301,10 +301,18 @@ describe("format v2 — switchScheduleKind", () => {
     expect(switchScheduleKind(from, "one_shot").type).toBe("one_shot");
   });
 
-  it("carries the days gate across repeating kinds only", () => {
+  it("carries the days gate only into kinds that show it", () => {
     const from: FormSchedule = { type: "daily", at: ["09:00", "10:00"], days: ["mon"], count: 3 };
     expect(switchScheduleKind(from, "interval")).toEqual({ type: "interval", n: 30, u: "m", days: ["mon"] });
+    expect(switchScheduleKind(from, "weekly")).toHaveProperty("days", ["mon"]);
+    expect(switchScheduleKind(from, "monthly")).not.toHaveProperty("days");
+    expect(switchScheduleKind(from, "yearly")).not.toHaveProperty("days");
     expect(switchScheduleKind(from, "one_shot")).not.toHaveProperty("days");
+  });
+
+  it("re-picking the current kind keeps the schedule as it is", () => {
+    const from: FormSchedule = { type: "weekly", day: "fri", at: ["07:30", "18:00"], every: 2, start: "2026-11-06T00:00:00", count: 10 };
+    expect(switchScheduleKind(from, "weekly")).toBe(from);
   });
 });
 

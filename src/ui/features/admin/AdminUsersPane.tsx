@@ -68,7 +68,8 @@ export function AdminUsersPane({
 
   return (
     <div className="flex flex-col" data-testid="admin-users-pane">
-      {users.length > SEARCH_FROM && (
+      {/* Still shown while a search is on, so a list that shrank under it can be cleared. */}
+      {(users.length > SEARCH_FROM || query !== "") && (
         <KitSearch
           value={query}
           onValueChange={onQueryChange}

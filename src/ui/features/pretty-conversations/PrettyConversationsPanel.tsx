@@ -79,9 +79,11 @@ import AdminModal from "@/features/admin/AdminModal";
 import { RolesWindow, type RolesWindowStart } from "@/features/pretty-view/roles-window/RolesWindow";
 import {
   NEW_CONVERSATION_REQUEST_EVENT,
+  takeNewConversationRequest,
   type NewConversationRequest,
 } from "@/lib/new-conversation-request";
 import { useTranslation } from "react-i18next";
+import { isCoarsePointer } from "./row-touch-gestures";
 import { useDragPreviewClaim } from "@/shell/drag-preview-session";
 import {
   BADGE_MIME,
@@ -992,6 +994,10 @@ export function PrettyConversationsPanel({
   //
   // Phase 104 Plan 03: bounty-count poller mount retired alongside the wire.
   // The trapped-work poller below is now the sole per-identity polling loop.
+
+  // Agents ("hostId::identityKey") whose swipe-archive Undo bar is up.
+  const [swipePending, setSwipePending] = useState<ReadonlySet<string>>(() => new Set());
+  const swipePendingRef = useRef<ReadonlySet<string>>(swipePending);
   const pinnedRowsRef = useRef(pinned);
   // Phase 41 Plan 01: refs for the new three-zone shape. `middleRef` replaces
   // `groupedRef`; `rdpGroupRef` is new. Both stay bumped on every render.
@@ -1194,8 +1200,8 @@ export function PrettyConversationsPanel({
   // "Start a conversation" from a role (the roles window, wherever it was
   // opened): the new-conversation dialog opens with that role picked.
   useEffect(() => {
-    const onRequest = (e: Event): void => {
-      const { hostId: reqHostId, role } = (e as CustomEvent<NewConversationRequest>).detail;
+    const answer = (req: NewConversationRequest): void => {
+      const { hostId: reqHostId, role } = req;
       const host = hostTree
         ? (collectHostsFromFolder(hostTree).find((h) => parseInt(h.id, 10) === reqHostId) ?? null)
         : null;
@@ -1205,6 +1211,11 @@ export function PrettyConversationsPanel({
       setChainPrefill({ host, role, roles: [role] });
       setNewSessionDialogOpen(true);
     };
+    const onRequest = (): void => {
+      const req = takeNewConversationRequest();
+      if (req) answer(req);
+    };
+    onRequest(); // asked while this list wasn't mounted
     window.addEventListener(NEW_CONVERSATION_REQUEST_EVENT, onRequest);
     return () => window.removeEventListener(NEW_CONVERSATION_REQUEST_EVENT, onRequest);
   }, [hostTree]);
@@ -1435,21 +1446,28 @@ export function PrettyConversationsPanel({
   // Pre-Phase-117 tests that never seed projectSections see
   // pinnedUnassigned === pinned (identical arrays via the store's derived
   // selector) so the switch is a no-op for them.
-  const displayedPinned = anyFilterOn
-    ? pinnedUnassigned.filter(matchesFilterForRow)
+  // A swiped row waiting out its Undo bar stays hidden — including the copy
+  // an open pane keeps in the list (the pane only closes on commit).
+  const notSwipePending = (row: ConversationRowShape): boolean =>
+    swipePending.size === 0 || !row.host || !row.targetTmuxSession ||
+    !swipePending.has(`${parseInt(row.host.id, 10)}::${row.targetTmuxSession}`);
+  const keepRow = (row: ConversationRowShape): boolean =>
+    notSwipePending(row) && (!anyFilterOn || matchesFilterForRow(row));
+  const displayedPinned = anyFilterOn || swipePending.size > 0
+    ? pinnedUnassigned.filter(keepRow)
     : pinnedUnassigned;
-  const displayedMiddle = anyFilterOn
-    ? middle.filter(matchesFilterForRow)
+  const displayedMiddle = anyFilterOn || swipePending.size > 0
+    ? middle.filter(keepRow)
     : middle;
   const displayedRdpGroup = rdpGroup;
   // Phase 117 Plan 117-08: filter each project section's rows through the
   // bounty-count filter when active. Sections stay in the derived selector's
   // alphabetical order (D-15) regardless of filter state — empty sections
   // continue to render as header-only per D-11.
-  const displayedProjectSections = anyFilterOn
+  const displayedProjectSections = anyFilterOn || swipePending.size > 0
     ? projectSections.map((s) => ({
         ...s,
-        rows: s.rows.filter(matchesFilterForRow),
+        rows: s.rows.filter(keepRow),
       }))
     : projectSections;
 
@@ -2007,6 +2025,16 @@ export function PrettyConversationsPanel({
     const target = archiveTarget(row);
     if (target === null) return;
     const { hostIdNum, identityKey, label } = target;
+    const pendingKey = `${hostIdNum}::${identityKey}`;
+    if (swipePendingRef.current.has(pendingKey)) return; // one Undo bar per agent
+    const setPending = (on: boolean) => {
+      const next = new Set(swipePendingRef.current);
+      if (on) next.add(pendingKey);
+      else next.delete(pendingKey);
+      swipePendingRef.current = next;
+      setSwipePending(next);
+    };
+    setPending(true);
     const undoRemove = optimisticArchiveRemove(hostIdNum, identityKey, identityKey);
     const logCtx = { operation: "swipe_archive", hostId: hostIdNum, identityKey };
     systemLogger.info("swipe-archive pending", { ...logCtx, event: "pending" });
@@ -2016,12 +2044,14 @@ export function PrettyConversationsPanel({
       settled = true;
       systemLogger.info("swipe-archive commit", { ...logCtx, event: "commit" });
       if (activeSetRef.current.has(row.id)) handleRowDeactivate(row);
+      setPending(false);
       void commitArchive(hostIdNum, identityKey, undoRemove);
     };
     const undo = () => {
       if (settled) return;
       settled = true;
       systemLogger.info("swipe-archive undo", { ...logCtx, event: "undo" });
+      setPending(false);
       undoRemove();
     };
     toast(`Archived "${label}"`, {
@@ -3091,7 +3121,11 @@ export function PrettyConversationsPanel({
       const movedMembers = moved
         .flatMap((s) => s.rows)
         .filter((r) => r.rdpHostRow !== true);
-      const identityMembers = movedMembers.filter((r) => !isRoomRow(r));
+      // Agents are archived only if the confirm counted them — one moved in
+      // while it was up just falls back to the unassigned list. (Rooms only
+      // lose their tag, so every room inside is released.)
+      const countedIds = new Set(members.map((r) => r.id));
+      const identityMembers = movedMembers.filter((r) => !isRoomRow(r) && countedIds.has(r.id));
       const relayRoomMembers = movedMembers.filter(isRoomRow);
       // 5. Member ops in one Promise.allSettled batch. Identity members get
       //    the same optimistic removal as a single-row archive (pending mark
@@ -3357,7 +3391,14 @@ export function PrettyConversationsPanel({
                   aria-label="New conversation"
                   title="New conversation"
                   data-testid="pv-header-new-agent-button"
-                  onClick={() => setNewSessionDialogOpen(true)}
+                  onClick={() => {
+                    // A plain new conversation: no project or chain left over
+                    // from an earlier open that didn't close through the dialog.
+                    setNewSessionPendingProjectSlug(null);
+                    setNewSessionPendingProjectHostId(null);
+                    setChainPrefill(null);
+                    setNewSessionDialogOpen(true);
+                  }}
                 >
                   <SquarePen size={18} />
                 </button>
@@ -3658,7 +3699,9 @@ export function PrettyConversationsPanel({
                   className="pv-pinned-empty pv-section-note"
                   data-testid="pretty-conversations-pinned-empty"
                 >
-                  Drag a conversation here to pin.
+                  {isCoarsePointer()
+                    ? "Press and hold a conversation to pin it."
+                    : "Drag a conversation here to pin."}
                 </div>
               ) : (
                 searchedPinned.map((row) => (
@@ -3839,7 +3882,9 @@ export function PrettyConversationsPanel({
                               className="pv-project-empty pv-section-note"
                               data-testid="pretty-conversations-project-empty"
                             >
-                              Create a new conversation, or drag one here.
+                              {isCoarsePointer()
+                                ? "Create a new conversation, or move one here from its menu."
+                                : "Create a new conversation, or drag one here."}
                             </div>
                           ) : null
                         ) : (
@@ -4261,6 +4306,8 @@ export function PrettyConversationsPanel({
           if (rolesWindow.hop) {
             newRoleHopRef.current = null;
             setCreateRoleInitialHost(null);
+            setNewSessionPendingProjectSlug(null);
+            setNewSessionPendingProjectHostId(null);
           }
         }}
         start={rolesWindow.start}

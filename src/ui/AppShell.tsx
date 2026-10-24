@@ -248,6 +248,7 @@ import {
 import { OPEN_APP_EVENT, type OpenAppDetail } from "./features/apps/app-link";
 import { kitAlert } from "@/components/kit";
 import "@/features/pretty-view/conversation.css";
+import { NEW_CONVERSATION_REQUEST_EVENT } from "@/lib/new-conversation-request";
 // Phase 11 Plan 03 (user "no settings" lock): SettingsRow import RETIRED
 // alongside AppRail — the entire settings-surface tree dies here.
 
@@ -578,6 +579,16 @@ export function AppShell({
     } else {
       setSidebarOpen(sidebarOpenBeforeMobile.current);
     }
+  }, [isMobile, isTouchDevice]);
+
+  // "Start a conversation" from a role is answered by the conversation list.
+  // In a narrow mouse window the list lives in a slide-out that isn't mounted
+  // while closed — open it; the list takes the held request as it mounts.
+  useEffect(() => {
+    if (isTouchDevice || !isMobile) return;
+    const onRequest = (): void => setSidebarOpen(true);
+    window.addEventListener(NEW_CONVERSATION_REQUEST_EVENT, onRequest);
+    return () => window.removeEventListener(NEW_CONVERSATION_REQUEST_EVENT, onRequest);
   }, [isMobile, isTouchDevice]);
 
   useEffect(() => {
@@ -2637,7 +2648,8 @@ export function AppShell({
     confirmAndArchiveIdentityPane({
       ...target,
       label: resolved?.task || resolved?.displayName || target.identityKey,
-      closePane: () => doCloseTab(badge.tabId),
+      // Latest close: tabs may change while the confirm is up.
+      closePane: () => doCloseTabRef.current(badge.tabId),
     });
   }
 

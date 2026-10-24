@@ -158,9 +158,11 @@ export function AdminSignInPane({ oidcInUse }: { oidcInUse: boolean }) {
   const timeoutDirty = timeout !== null && parsedTimeout !== timeout;
 
   // Leaving the section (or closing the window) with a valid change still
-  // saves it — focus can go away without the box ever losing it.
+  // saves it — focus can go away without the box ever losing it. Not after a
+  // save that failed (the error was shown; a silent retry would surprise).
+  // Esc in the box puts the saved value back instead.
   const pending = useRef<number | null>(null);
-  pending.current = timeoutValid && timeoutDirty && !timeoutBusy ? parsedTimeout : null;
+  pending.current = timeoutValid && timeoutDirty && !timeoutBusy && !timeoutError ? parsedTimeout : null;
   useEffect(
     () => () => {
       if (pending.current !== null) {
@@ -270,6 +272,14 @@ export function AdminSignInPane({ oidcInUse }: { oidcInUse: boolean }) {
                       setTimeoutError(null);
                     }}
                     onBlur={() => void saveTimeout()}
+                    {...(timeoutDirty ? { "data-modal-esc-local": "" } : {})}
+                    onKeyDown={(e) => {
+                      if (e.key === "Escape" && timeoutDirty && timeout !== null) {
+                        e.preventDefault();
+                        setTimeoutDraft(String(timeout));
+                        setTimeoutError(null);
+                      }
+                    }}
                     className="w-20 text-right"
                   />
                   <span className="text-[14px] text-[var(--k-t2)]">{timeoutBusy ? "saving…" : "hours"}</span>

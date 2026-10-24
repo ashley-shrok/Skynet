@@ -347,6 +347,7 @@ export function RoleSkillView({
     });
     const relPath = raw?.trim();
     if (!relPath) return;
+    if (!(await leaveActiveFile(relPath))) return;
     try {
       await createRoleSkillFile(hostId, roleName, skill, relPath);
       console.debug("[RoleSkillView] add-file", { path: relPath });
@@ -419,19 +420,36 @@ export function RoleSkillView({
     }
   };
 
+  // The open file's view is remounted per file, so its unsaved edits go with
+  // it: ask first, then forget them. False = the user kept editing.
+  const leaveActiveFile = async (path: string): Promise<boolean> => {
+    if (activeTab == null || path === activeTab) return true;
+    if (!dirtySet.has(activeTab) && !binaryDrafts.has(activeTab)) return true;
+    const ok = await kitConfirm({
+      title: "Discard your changes?",
+      body: `Your edits to ${activeTab} haven't been saved.`,
+      confirmLabel: "Discard",
+      destructive: true,
+    });
+    if (!ok) return false;
+    const left = activeTab;
+    const drop = <V,>(prev: Map<string, V>): Map<string, V> => {
+      const n = new Map(prev);
+      n.delete(left);
+      return n;
+    };
+    setDrafts(drop);
+    setBinaryDrafts(drop);
+    setDirtySet((prev) => {
+      const n = new Set(prev);
+      n.delete(left);
+      return n;
+    });
+    return true;
+  };
+
   const switchFile = async (path: string): Promise<void> => {
-    if (
-      activeTab != null &&
-      path !== activeTab &&
-      binaryDrafts.has(activeTab) &&
-      !(await kitConfirm({
-        title: "Discard unsaved changes to this PDF?",
-        body: "Your annotations haven't been saved.",
-        confirmLabel: "Discard",
-        destructive: true,
-      }))
-    )
-      return;
+    if (!(await leaveActiveFile(path))) return;
     setActiveTab(path);
     if (fullscreen) setFilesOpen(false);
   };

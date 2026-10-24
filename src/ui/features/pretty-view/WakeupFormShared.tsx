@@ -363,8 +363,10 @@ export function hydrateFormSchedule(sched: unknown): FormSchedule {
 }
 
 /** Fresh form state for a kind picked in a type switcher. The day-of-week
- *  gate carries across repeating kinds; everything else resets. */
+ *  gate carries across the kinds that offer it (interval, daily, weekly);
+ *  everything else resets. */
 export function switchScheduleKind(prev: FormSchedule, next: FormSchedule["type"]): FormSchedule {
+  if (next === prev.type) return prev;
   if (next === "one_shot") return { type: "one_shot", at: defaultOneShotAt() };
   let fresh: RepeatingFormSchedule;
   if (next === "interval") fresh = { type: "interval", n: 30, u: "m" };
@@ -372,7 +374,8 @@ export function switchScheduleKind(prev: FormSchedule, next: FormSchedule["type"
   else if (next === "monthly") fresh = { type: "monthly", day: 1, at: "09:00" };
   else if (next === "yearly") fresh = { type: "yearly", date: defaultYearlyDate(), at: "09:00" };
   else fresh = { type: "daily", at: "09:00" };
-  if (prev.type !== "one_shot" && prev.days !== undefined) fresh.days = prev.days;
+  const offersDays = next === "interval" || next === "daily" || next === "weekly";
+  if (offersDays && prev.type !== "one_shot" && prev.days !== undefined) fresh.days = prev.days;
   return fresh;
 }
 
@@ -1305,7 +1308,7 @@ export function ScheduleWhenFields({
         </>
       )}
 
-      {(fs.type === "interval" || fs.type === "daily" || fs.type === "weekly") && (
+      {(fs.type === "interval" || fs.type === "daily" || fs.type === "weekly" || fs.days !== undefined) && (
         <RestrictToDaysChips days={fs.days} onChange={(next) => onChange({ ...fs, days: next })} slug={idPrefix} />
       )}
 

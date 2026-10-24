@@ -117,12 +117,25 @@ async function sharedSkillNames(): Promise<string[]> {
  */
 async function hideSharedFromNonAdmins(req: Request, res: Response, next: express.NextFunction): Promise<void> {
   if (isInstanceScope(req)) return next();
-  const raw = (req.query as Record<string, unknown>).skill ?? ((req.body ?? {}) as Record<string, unknown>).skill;
-  if (typeof raw !== "string" || raw.length === 0) return next();
+  // Every skill name the request carries — query and body alike, since each
+  // route reads its own — counts; a rename's target name too.
+  const body = (req.body ?? {}) as Record<string, unknown>;
+  const names = [(req.query as Record<string, unknown>).skill, body.skill, body.newName].filter(
+    (v): v is string => typeof v === "string" && v.length > 0,
+  );
+  if (names.length === 0) return next();
   let hidden = false;
+  let raw = names[0];
   try {
     const userId = (req as AuthenticatedRequest).userId;
-    hidden = !(await callerIsAdmin(userId)) && (await sharedSkillNames()).includes(raw);
+    if (!(await callerIsAdmin(userId))) {
+      const shared = await sharedSkillNames();
+      const hit = names.find((n) => shared.includes(n));
+      if (hit !== undefined) {
+        hidden = true;
+        raw = hit;
+      }
+    }
   } catch (err) {
     // Same posture as the list: if the check can't run, don't block the route.
     sshLogger.warn("skills-editor: shared-skill check failed", {
@@ -1258,6 +1271,7 @@ router.post(
   "/skill",
   authenticateJWT, // BEFORE body parser — see /read for rationale
   express.json({ limit: "32kb" }),
+  hideSharedFromNonAdmins,
   async (req: Request, res: Response): Promise<void> => {
     const userId = (req as AuthenticatedRequest).userId;
     if (isInstanceScope(req)) {
@@ -1457,6 +1471,7 @@ router.post(
   "/rename",
   authenticateJWT, // BEFORE body parser — see /read for rationale
   express.json({ limit: "32kb" }),
+  hideSharedFromNonAdmins,
   async (req: Request, res: Response): Promise<void> => {
     const userId = (req as AuthenticatedRequest).userId;
     if (isInstanceScope(req)) {

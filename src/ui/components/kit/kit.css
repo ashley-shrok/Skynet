@@ -678,10 +678,12 @@
 
   /* ── Dialogs (confirm / name it / notice) ────────────────────────────── */
 
-  .k-dialog-body { text-align: center; padding: 22px 20px 16px; display: flex; flex-direction: column; gap: 6px; }
+  .k-dialog-body { text-align: center; padding: 22px 20px 16px; display: flex; flex-direction: column; gap: 6px; min-height: 0; }
   [data-sheet] .k-dialog-body { touch-action: none; }
   .k-dialog-title { font-weight: 700; font-size: 16px; color: var(--k-t1); margin: 0; }
-  .k-dialog-text { font-size: 13.5px; color: var(--k-t2); margin: 0; line-height: 1.45; white-space: pre-line; overflow-wrap: anywhere; }
+  /* A long message scrolls on its own; the title and buttons stay in view. */
+  .k-dialog-text { font-size: 13.5px; color: var(--k-t2); margin: 0; line-height: 1.45; white-space: pre-line; overflow-wrap: anywhere; min-height: 0; overflow-y: auto; }
+  [data-sheet] .k-dialog-text { touch-action: pan-y; }
   .k-dialog-field { margin-top: 10px; text-align: left; }
   .k-dialog-acts { display: flex; gap: 8px; margin-top: 12px; }
   .k-dialog-acts > .k-btn { flex: 1; }

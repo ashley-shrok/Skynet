@@ -707,9 +707,9 @@ function PrettyConversationRowImpl({
       <div
         role="button"
         tabIndex={0}
-        // Phones drag nothing (split view is desktop-only), and a draggable
-        // row would turn a press-and-hold into a drag.
-        draggable={!isMobile && !isCoarsePointer()}
+        // Touch screens drag nothing (a draggable row would turn a
+        // press-and-hold into a drag); a narrow mouse window still drags.
+        draggable={!isCoarsePointer()}
         aria-pressed={selected}
         onClick={onBodyClick}
         {...touch.handlers}

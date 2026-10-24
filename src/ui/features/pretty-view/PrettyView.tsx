@@ -1763,14 +1763,15 @@ export function PrettyView({
     const unsubscribe = subscribeDmArrival(attentionKey(hostId, tmuxSession), (since) => {
       stop();
       // Whether a message went to the user is resolved by its bubble (room
-      // members load async), and the list may still be landing — look for a
-      // moment.
+      // members load async), and the list may still be landing (a cold
+      // reload) — keep looking for a while.
+      const MAX_TRIES = 60;
       let tries = 0;
       timer = window.setInterval(() => {
         tries += 1;
         const container = scrollElRef.current;
         if (!revealedRef.current || !container) {
-          if (tries >= 20) stop();
+          if (tries >= MAX_TRIES) stop();
           return;
         }
         const newer = new Set(
@@ -1781,7 +1782,7 @@ export function PrettyView({
         const target = Array.from(container.querySelectorAll<HTMLElement>("[data-pv-bubble][data-event-id]")).find(
           (w) => newer.has(w.dataset.eventId ?? "") && w.querySelector('[data-to-you="true"]'),
         );
-        if (!target && tries < 20) return;
+        if (!target && tries < MAX_TRIES) return;
         stop();
         if (!target) {
           console.info({ operation: "pv_dm_jump_none", hostId, tmuxSession, since });

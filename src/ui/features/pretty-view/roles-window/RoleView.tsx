@@ -168,15 +168,28 @@ export function RoleView({
   const fileReady = roleFile.status === "ready";
   const description = fileReady ? readRoleFrontmatterValue(roleFile.data, "description") : null;
 
-  /** Merge frontmatter keys into the current file and save it. */
+  /** Merge frontmatter keys into the current file and save it. Saves run one
+   *  at a time, each merging into the file the previous one wrote, so quick
+   *  successive changes (description, then colour, then voice) all land. */
+  const frontmatterQueue = useRef<Promise<unknown>>(Promise.resolve());
+  const [frontmatterSaving, setFrontmatterSaving] = useState(0);
   const saveFrontmatter = useCallback(
-    async (patch: RoleFrontmatterPatch, cleared?: string[]): Promise<string> => {
-      const current = roleFileRef.current;
-      if (current.status !== "ready") throw new Error("The role file hasn't loaded yet — try again in a moment.");
-      const merged = mergeRoleFrontmatter(current.data, patch, cleared ? new Set(cleared) : undefined);
-      const res = await updateRoleFileByName(name, hostId, merged);
-      setRoleFile({ status: "ready", data: res.markdown });
-      return res.markdown;
+    (patch: RoleFrontmatterPatch, cleared?: string[]): Promise<string> => {
+      const run = async (): Promise<string> => {
+        const current = roleFileRef.current;
+        if (current.status !== "ready") throw new Error("The role file hasn't loaded yet — try again in a moment.");
+        const merged = mergeRoleFrontmatter(current.data, patch, cleared ? new Set(cleared) : undefined);
+        const res = await updateRoleFileByName(name, hostId, merged);
+        const next: TabState<string> = { status: "ready", data: res.markdown };
+        roleFileRef.current = next;
+        setRoleFile(next);
+        return res.markdown;
+      };
+      setFrontmatterSaving((n) => n + 1);
+      const result = frontmatterQueue.current.then(run, run);
+      frontmatterQueue.current = result.catch(() => {});
+      void result.finally(() => setFrontmatterSaving((n) => n - 1)).catch(() => {});
+      return result;
     },
     [name, hostId],
   );
@@ -896,6 +909,9 @@ export function RoleView({
             </>
           ) : (
             <KitButton
+              // A details save in flight would land under the draft and be
+              // put back by the editor's Save.
+              disabled={frontmatterSaving > 0}
               onClick={() => {
                 setDraft(roleFile.data);
                 setBaseline(roleFile.data);

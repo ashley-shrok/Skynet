@@ -119,10 +119,18 @@ function escHandledLocally(target: EventTarget | null): boolean {
  * True when an Esc a window would act on (leave an editor, go back a level)
  * belongs to something on top of it instead: a field using Esc itself, an
  * in-app dialog or menu, or one of the rich editor's own pop-ups (link,
- * block type, frontmatter) — those close themselves on Esc.
+ * block type, frontmatter) — those close themselves on Esc. Pass the
+ * window's own content element as `own` to also step aside for a window
+ * stacked above it.
  */
-export function escBelongsElsewhere(e: KeyboardEvent): boolean {
+export function escBelongsElsewhere(e: KeyboardEvent, own?: Element | null): boolean {
   if (escHandledLocally(e.target)) return true;
+  // A window stacked on top of this one (e.g. a file opened from a Files tab)
+  // handles its own Esc, unsaved-changes check included.
+  if (own && e.target instanceof Element) {
+    const box = e.target.closest("[data-slot='modal-content']");
+    if (box && box !== own) return true;
+  }
   return (
     document.querySelector(
       ".k-dialog-body, [role='menu'], .mdxeditor-popup-container [role='dialog'], .mdxeditor-popup-container [role='listbox']",
@@ -179,6 +187,9 @@ function Modal({
         onPointerDown: (e) => {
           const t = e.target as Element;
           if (e.button !== 0 || t.closest(DRAG_EXCLUDE) || !t.closest(DRAG_HANDLE)) return;
+          // A dialog message long enough to scroll keeps the finger for itself.
+          const text = t.closest(".k-dialog-text");
+          if (text && text.scrollHeight > text.clientHeight) return;
           drag.current = { y0: e.clientY, t0: e.timeStamp, dy: 0, id: e.pointerId };
           (e.currentTarget as HTMLElement).setPointerCapture?.(e.pointerId);
         },

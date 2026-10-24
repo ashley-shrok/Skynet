@@ -3199,7 +3199,14 @@ describe("PrettyConversationRow (shape-sidebar): unread dot + no pin glyph", () 
 });
 
 describe("PrettyConversationRow (shape-sidebar): draggable only on desktop", () => {
-  it("mobile row body is not draggable; desktop row body is", () => {
+  it("row body drags with a mouse at any width, not on a touch screen", () => {
+    const withCoarsePointer = (coarse: boolean) => {
+      const original = window.matchMedia;
+      window.matchMedia = ((q: string) =>
+        ({ matches: coarse && q.includes("coarse"), media: q, addEventListener() {}, removeEventListener() {} }) as unknown as MediaQueryList);
+      return { mockRestore: () => { window.matchMedia = original; } };
+    };
+    const touch = withCoarsePointer(true);
     const mobile = render(
       <PrettyConversationRow
         row={makeRow()}
@@ -3211,6 +3218,19 @@ describe("PrettyConversationRow (shape-sidebar): draggable only on desktop", () 
     );
     expect(rowBody(mobile.container).getAttribute("draggable")).toBe("false");
     mobile.unmount();
+    touch.mockRestore();
+    const mouse = withCoarsePointer(false);
+    const narrow = render(
+      <PrettyConversationRow
+        row={makeRow()}
+        selected={false}
+        pinned={false}
+        variant="mobile"
+        onSelect={vi.fn()}
+      />,
+    );
+    expect(rowBody(narrow.container).getAttribute("draggable")).toBe("true");
+    narrow.unmount();
 
     const desktop = render(
       <PrettyConversationRow
@@ -3222,6 +3242,7 @@ describe("PrettyConversationRow (shape-sidebar): draggable only on desktop", () 
       />,
     );
     expect(rowBody(desktop.container).getAttribute("draggable")).toBe("true");
+    mouse.mockRestore();
   });
 });
 

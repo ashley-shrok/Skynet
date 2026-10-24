@@ -80,35 +80,49 @@ export function PreferencesVoicePane({
     setSpeed(next);
   }, [userPrefs.ttsPlaybackRate]);
 
-  useEffect(
-    () => () => {
+  // 1.0 is stored as null so the user tracks the default.
+  const mounted = useRef(true);
+  const saveSpeed = useCallback((next: number) => {
+    const wire = next === TTS_PLAYBACK_RATE_DEFAULT ? null : next;
+    saveUserPreferences({ ttsPlaybackRate: wire })
+      .then(() => {
+        lastSavedSpeed.current = next;
+        onPrefsChangedRef.current?.({ ttsPlaybackRate: wire });
+      })
+      .catch(() => {
+        if (!mounted.current) return;
+        setSpeed(lastSavedSpeed.current);
+        setSpeedError("Couldn't save your speed preference — please try again.");
+      });
+  }, []);
+  const pendingSpeed = useRef<number | null>(null);
+
+  // Leaving the section (or closing) inside the settle time still saves.
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
       if (speedSaveTimer.current) clearTimeout(speedSaveTimer.current);
-    },
-    [],
-  );
+      speedSaveTimer.current = null;
+      if (pendingSpeed.current !== null) saveSpeed(pendingSpeed.current);
+      pendingSpeed.current = null;
+    };
+  }, [saveSpeed]);
 
   // Update the readout immediately; persist after the slider settles.
-  // 1.0 is stored as null so the user tracks the default.
   const handleSpeedChange = useCallback(
     (next: number) => {
       setSpeed(next);
       setSpeedError(null);
+      pendingSpeed.current = next;
       if (speedSaveTimer.current) clearTimeout(speedSaveTimer.current);
       speedSaveTimer.current = setTimeout(() => {
         speedSaveTimer.current = null;
-        const wire = next === TTS_PLAYBACK_RATE_DEFAULT ? null : next;
-        saveUserPreferences({ ttsPlaybackRate: wire })
-          .then(() => {
-            lastSavedSpeed.current = next;
-            onUserPrefsChanged?.({ ttsPlaybackRate: wire });
-          })
-          .catch(() => {
-            setSpeed(lastSavedSpeed.current);
-            setSpeedError("Couldn't save your speed preference — please try again.");
-          });
+        pendingSpeed.current = null;
+        saveSpeed(next);
       }, SPEED_SAVE_DEBOUNCE_MS);
     },
-    [onUserPrefsChanged],
+    [saveSpeed],
   );
 
   // ---- Voice mode: when to send ------------------------------------------

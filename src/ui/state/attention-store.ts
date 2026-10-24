@@ -305,6 +305,10 @@ export function isDmd(k: Key | null): boolean {
 // jumps to the oldest message it hasn't seen. `since` is the seen mark before
 // this clear. Not raised for DMs that land while the user is already watching.
 const dmArrivalListeners = new Map<Key, Set<(since: number) => void>>();
+// An arrival raised before the conversation's view was there to hear it (its
+// code still loading): handed to the view when it subscribes, if still fresh.
+const pendingDmArrival = new Map<Key, { since: number; at: number }>();
+const PENDING_DM_ARRIVAL_MS = 15_000;
 
 export function subscribeDmArrival(k: Key, cb: (since: number) => void): () => void {
   let set = dmArrivalListeners.get(k);
@@ -313,6 +317,11 @@ export function subscribeDmArrival(k: Key, cb: (since: number) => void): () => v
     dmArrivalListeners.set(k, set);
   }
   set.add(cb);
+  const pending = pendingDmArrival.get(k);
+  if (pending) {
+    pendingDmArrival.delete(k);
+    if (Date.now() - pending.at < PENDING_DM_ARRIVAL_MS) cb(pending.since);
+  }
   return () => {
     set!.delete(cb);
     if (set!.size === 0) dmArrivalListeners.delete(k);
@@ -334,7 +343,9 @@ export function markSeen(hostId: string | number, identityName: string, arrived 
   if (dm !== null && advanceMax(dmSeen, k, dm)) {
     changed = true;
     if (arrived) {
-      for (const cb of dmArrivalListeners.get(k) ?? []) {
+      const listeners = dmArrivalListeners.get(k);
+      if (!listeners || listeners.size === 0) pendingDmArrival.set(k, { since: seenBefore, at: Date.now() });
+      for (const cb of listeners ?? []) {
         try {
           cb(seenBefore);
         } catch (err) {
@@ -358,6 +369,7 @@ export function markSeen(hostId: string | number, identityName: string, arrived 
 
 export function __resetAttentionForTest(): void {
   finishes.clear();
+  pendingDmArrival.clear();
   seen.clear();
   dms.clear();
   dmSeen.clear();

@@ -25,7 +25,7 @@
  * section, going back on a phone, Esc, the X).
  */
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { FileText, LogIn, Server, SlidersHorizontal, Users } from "lucide-react";
 import {
   Modal,
@@ -178,12 +178,18 @@ export default function AdminModal({ open, onOpenChange, currentUserId }: AdminM
     />
   );
 
+  // A new level starts at the top, not at the list's scroll position. The
+  // body stays mounted across levels so the hosts list keeps what it loaded.
+  const paneRef = useRef<HTMLDivElement>(null);
+  useLayoutEffect(() => {
+    if (paneRef.current) paneRef.current.scrollTop = 0;
+  }, [selectedUserId, selectedHostKey]);
+
   const body =
     tab === "instance-file" ? (
       <AdminInstanceFilePane hero={hero} registerLeaveGuard={registerLeaveGuard} onEditingChange={setEditingFile} />
     ) : (
-      // A new level starts at the top, not at the list's scroll position.
-      <ModalBody key={`${tab}:${selectedUserId ?? ""}:${selectedHostKey ?? ""}`} data-testid="admin-modal-pane" className="pt-1 pb-7">
+      <ModalBody key={tab} ref={paneRef} data-testid="admin-modal-pane" className="pt-1 pb-7">
         <div className="max-w-[600px] mx-auto">
           {hero}
           {tab === "users" &&

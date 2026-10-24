@@ -57,6 +57,7 @@ let queue: Request[] = [];
 let nextId = 1;
 const listeners = new Set<() => void>();
 let hostEl: HTMLElement | null = null;
+let hostRoot: ReturnType<typeof createRoot> | null = null;
 
 function emit(): void {
   for (const l of listeners) l();
@@ -66,11 +67,14 @@ function ensureHost(): void {
   if (typeof document === "undefined") return;
   // Re-mount if something (a test cleanup) detached the host.
   if (hostEl && document.body.contains(hostEl)) return;
+  // The old root's dialog portals into document.body, so it must go too.
+  hostRoot?.unmount();
   const el = document.createElement("div");
   hostEl = el;
   el.setAttribute("data-kit-dialog-host", "");
   document.body.appendChild(el);
-  createRoot(el).render(<KitDialogHost />);
+  hostRoot = createRoot(el);
+  hostRoot.render(<KitDialogHost />);
 }
 
 /** Test-only auto-answer: when set, dialogs resolve immediately without
@@ -95,13 +99,34 @@ function push(req: Request): void {
     return;
   }
   ensureHost();
+  noteOpener();
   queue = [...queue, req];
   emit();
+}
+
+// Where focus was when the dialogs were asked for. The browser's pop-ups put
+// focus back there on close; Radix can't (there's no trigger), so we do. Kept
+// across a chain of questions (name → description), where the second is
+// asked after the first has gone and focus sits nowhere.
+let opener: HTMLElement | null = null;
+
+function noteOpener(): void {
+  if (typeof document === "undefined") return;
+  const a = document.activeElement;
+  if (a instanceof HTMLElement && a !== document.body && !a.closest("[data-kit-dialog-host]")) opener = a;
 }
 
 function settle(id: number): void {
   queue = queue.filter((r) => r.id !== id);
   emit();
+  if (queue.length > 0) return;
+  // After Radix's own close focus handling has run.
+  setTimeout(() => {
+    if (queue.length > 0) return;
+    const el = opener;
+    opener = null;
+    if (el?.isConnected) el.focus({ preventScroll: true });
+  }, 0);
 }
 
 /** Identical text-only requests share one dialog: unlike the browser's
@@ -169,6 +194,14 @@ function DialogView({ req }: { req: Request }): JSX.Element {
   );
   const [error, setError] = React.useState<string | null>(null);
   const done = React.useRef(false);
+  // Like the browser's prompt: the starting text is selected, so typing
+  // replaces it (a rename starts from the old name).
+  const inputRef = React.useRef<HTMLInputElement>(null);
+  React.useEffect(() => {
+    // After the dialog's own open focus handling, which puts the caret last.
+    const t = setTimeout(() => inputRef.current?.select(), 0);
+    return () => clearTimeout(t);
+  }, []);
 
   const finish = (result: "ok" | "cancel") => {
     if (done.current) return;
@@ -229,6 +262,7 @@ function DialogView({ req }: { req: Request }): JSX.Element {
             error={error}
           >
             <KitInput
+              ref={inputRef}
               autoFocus
               value={value}
               mono={req.opts.mono}

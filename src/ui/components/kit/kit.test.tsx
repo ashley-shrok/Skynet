@@ -90,6 +90,7 @@ describe("kit dialogs (replace window.confirm / prompt / alert)", () => {
     });
     const input = (await screen.findByTestId("kit-prompt-input")) as HTMLInputElement;
     expect(input.value).toBe("notes");
+    await waitFor(() => expect([input.selectionStart, input.selectionEnd]).toEqual([0, 5]));
     fireEvent.change(input, { target: { value: "a/b" } });
     fireEvent.click(screen.getByTestId("kit-dialog-confirm"));
     expect(await screen.findByText("No slashes.")).toBeInTheDocument();
@@ -120,6 +121,19 @@ describe("kit dialogs (replace window.confirm / prompt / alert)", () => {
     expect(await screen.findByText("Second")).toBeInTheDocument();
     fireEvent.click(screen.getByTestId("kit-dialog-confirm"));
     await b;
+  });
+
+  it("puts focus back on what opened it", async () => {
+    render(<button data-testid="opener">Delete</button>);
+    const opener = screen.getByTestId("opener");
+    opener.focus();
+    let p!: Promise<boolean>;
+    act(() => {
+      p = kitConfirm({ title: "Delete it?" });
+    });
+    fireEvent.click(await screen.findByTestId("kit-dialog-cancel"));
+    await p;
+    await waitFor(() => expect(document.activeElement).toBe(opener));
   });
 });
 
