@@ -552,7 +552,9 @@ describe("IdentityBadge — Phase 104 trapped-work indicator", () => {
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Project-breadcrumb row — identity.project slug → projects list displayName.
+// Project — identity.project slug → projects list displayName. Since
+// shape-conversation-view the pill stays one line: the project (and the role
+// line) ride in the title tooltip on the name instead of their own rows.
 // ─────────────────────────────────────────────────────────────────────────────
 
 // Fixture with hostId + project set, so the projects-list lookup can resolve.
@@ -572,7 +574,7 @@ const PROJECT_FIXTURE: Identity = {
   project: "fleet-substrate",
 };
 
-describe("IdentityBadge — project breadcrumb", () => {
+describe("IdentityBadge — project (in the name tooltip)", () => {
   const useIdentitiesMock = vi.mocked(useIdentities);
 
   afterEach(() => {
@@ -588,7 +590,7 @@ describe("IdentityBadge — project breadcrumb", () => {
     vi.clearAllMocks();
   });
 
-  it("renders the breadcrumb when identity.project slug resolves against the projects list on the same hostId", () => {
+  it("puts the project in the name's tooltip when identity.project slug resolves against the projects list on the same hostId", () => {
     useIdentitiesMock.mockReturnValue({
       identities: [PROJECT_FIXTURE],
       byKey: new Map([["tina", PROJECT_FIXTURE]]),
@@ -606,19 +608,21 @@ describe("IdentityBadge — project breadcrumb", () => {
       },
     ];
     render(<IdentityBadge identityKey="tina" hostId={7} />);
-    const crumb = screen.getByTestId("pv-identity-project-breadcrumb");
-    expect(crumb.textContent).toContain("Fleet Substrate");
+    // No breadcrumb row any more — the pill stays one line.
+    expect(screen.queryByTestId("pv-identity-project-breadcrumb")).toBeNull();
+    expect(screen.getByText("Tina").getAttribute("title")).toBe("Fleet Substrate");
   });
 
-  it("omits the breadcrumb when identity.project is null", () => {
+  it("omits the project when identity.project is null", () => {
     // Default FIXTURE has project: null.
     render(<IdentityBadge identityKey="tina" />);
     expect(
       screen.queryByTestId("pv-identity-project-breadcrumb"),
     ).toBeNull();
+    expect(screen.getByText("Tina").getAttribute("title") ?? "").not.toContain("Fleet Substrate");
   });
 
-  it("omits the breadcrumb when the projects list has no matching slug on the identity's hostId (unknown / cross-host project)", () => {
+  it("omits the project when the projects list has no matching slug on the identity's hostId (unknown / cross-host project)", () => {
     useIdentitiesMock.mockReturnValue({
       identities: [PROJECT_FIXTURE],
       byKey: new Map([["tina", PROJECT_FIXTURE]]),
@@ -637,13 +641,13 @@ describe("IdentityBadge — project breadcrumb", () => {
       },
     ];
     render(<IdentityBadge identityKey="tina" hostId={7} />);
-    expect(
-      screen.queryByTestId("pv-identity-project-breadcrumb"),
-    ).toBeNull();
+    expect(screen.getByText("Tina").getAttribute("title")).toBeNull();
   });
 });
 
-describe("IdentityBadge — role line", () => {
+describe("IdentityBadge — role line (in the name tooltip)", () => {
+  // Since shape-conversation-view the pill is one line: no role-line row; the
+  // roles ride in the name's title tooltip.
   const useIdentitiesMock = vi.mocked(useIdentities);
   const renderWith = (overrides: Partial<Identity>) => {
     const identity = { ...FIXTURE, ...overrides } as Identity;
@@ -655,7 +659,8 @@ describe("IdentityBadge — role line", () => {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     } as any);
     render(<IdentityBadge identityKey="tina" />);
-    return screen.queryByTestId("pv-identity-role-line");
+    expect(screen.queryByTestId("pv-identity-role-line")).toBeNull();
+    return screen.getByText("Tina").getAttribute("title");
   };
 
   it("shows the role's displayName, not the identity's own title", () => {
@@ -665,24 +670,24 @@ describe("IdentityBadge — role line", () => {
         role: "box-maintainer",
         roles: ["box-maintainer"],
         roleDefaults: { displayName: "Skynet" },
-      })?.textContent,
+      }),
     ).toBe("Skynet");
   });
 
   it("falls back to the title-cased slug for a role with no displayName", () => {
     expect(
-      renderWith({ title: null, role: "general-purpose", roles: ["general-purpose"], roleDefaults: {} })
-        ?.textContent,
+      renderWith({ title: null, role: "general-purpose", roles: ["general-purpose"], roleDefaults: {} }),
     ).toBe("General Purpose");
   });
 
-  it("lists every role for a multi-role identity, with the full list on hover", () => {
-    const line = renderWith({ title: null, role: null, roles: ["box-maintainer", "sky-uat"], roleDefaults: null });
-    expect(line?.textContent).toBe("Box Maintainer, Sky Uat");
-    expect(line?.getAttribute("title")).toBe("Box Maintainer, Sky Uat");
+  it("lists every role for a multi-role identity", () => {
+    expect(renderWith({ title: null, role: null, roles: ["box-maintainer", "sky-uat"], roleDefaults: null })).toBe(
+      "Box Maintainer, Sky Uat",
+    );
   });
 
-  it("renders no role line when there is no title and no role", () => {
+  it("no tooltip when there is no title, no role and no project", () => {
     expect(renderWith({ title: null, role: null, roles: [] })).toBeNull();
   });
 });
+

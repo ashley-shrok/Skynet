@@ -38,9 +38,11 @@ describe("HoldFeedbackPill", () => {
     expect(screen.getByTestId("hold-feedback-pill").textContent).toBe("Cancelled");
   });
 
-  it("is right-aligned in the compose box", () => {
+  it("is an inline chip for the composer's control row, not a floating pill", () => {
     render(<HoldFeedbackPill committed outside={false} outcome={null} />);
-    expect(screen.getByTestId("hold-feedback-pill").className).toContain("right-4");
+    const pill = screen.getByTestId("hold-feedback-pill");
+    expect(pill.className).toContain("pv-rec-chip");
+    expect(pill.className).not.toMatch(/\babsolute\b/);
   });
 
   it("tap recording: Recording + timer, no hold hints", () => {

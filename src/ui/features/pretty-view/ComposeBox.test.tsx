@@ -18,6 +18,16 @@ vi.mock("@/api/compose-drafts-api", () => ({
 }));
 
 import { ComposeBox, type ComposeBoxProps } from "./ComposeBox";
+import { getComposeDraft } from "@/api/compose-drafts-api";
+
+// "Queue a message" was retired (shape-conversation-view): nothing adds new
+// queued slots any more, but slots saved in a restored draft still render
+// and send. Tests seed them through the draft-load mock before rendering.
+function seedQueuedSlots(
+  slots: Array<{ id: string; text: string }> = [{ id: "q1", text: "" }],
+): void {
+  vi.mocked(getComposeDraft).mockResolvedValueOnce({ body: "", queueSlots: slots });
+}
 
 function baseProps(overrides: Partial<ComposeBoxProps> = {}): ComposeBoxProps {
   return {
@@ -170,11 +180,11 @@ describe("ComposeBox — Phase 05 upload wiring", () => {
     );
     const strip = screen.getByTestId("attachment-chip-strip");
     const textarea = screen.getByPlaceholderText(/message/i);
-    // Walk up until we hit the `relative flex-1 self-stretch` wrapper —
-    // the same one that contains the Textarea and the Send button.
-    const stripWrapper = strip.closest("div.relative.flex-1.self-stretch");
+    // Walk up to the composer's text field — the same one that contains
+    // the textarea (shape-conversation-view: one card, text on top).
+    const stripWrapper = strip.closest('[data-testid="compose-primary-wrapper"]');
     const textareaWrapper = textarea.closest(
-      "div.relative.flex-1.self-stretch",
+      '[data-testid="compose-primary-wrapper"]',
     );
     expect(stripWrapper).not.toBeNull();
     expect(textareaWrapper).not.toBeNull();
@@ -209,7 +219,7 @@ describe("ComposeBox — Phase 05 upload wiring", () => {
     expect(screen.getByLabelText(/attach file/i)).toBeTruthy();
   });
 
-  it("Test 4b: paperclip renders INSIDE the textarea wrapper (sibling of Send), not in the Row 1 aux group", () => {
+  it("Test 4b: paperclip renders in the control row (with the main button), not in the text field", () => {
     render(
       <ComposeBox
         {...baseProps({
@@ -221,15 +231,12 @@ describe("ComposeBox — Phase 05 upload wiring", () => {
       />,
     );
     const paperclip = screen.getByLabelText(/attach file/i);
-    const sendButton = screen.getByRole("button", { name: "Send" });
-    // Regression guard: paperclip and send must share the same
-    // `.relative.flex-1` textarea wrapper ancestor. If a future
-    // refactor moves paperclip back to Row 1 or into a separate
-    // wrapper, `.closest` returns null OR the ancestor won't
-    // contain the send button — either way this test fails.
-    const wrapper = paperclip.closest(".relative.flex-1");
-    expect(wrapper).not.toBeNull();
-    expect(wrapper?.contains(sendButton)).toBe(true);
+    // shape-conversation-view: one card — text on top, every control on one
+    // row underneath. With nothing typed the main button is the thumbs-up.
+    const row = screen.getByTestId("compose-row");
+    expect(row.contains(paperclip)).toBe(true);
+    expect(row.contains(screen.getByRole("button", { name: "Send 'thumbs up'" }))).toBe(true);
+    expect(screen.getByTestId("compose-primary-wrapper").contains(paperclip)).toBe(false);
   });
 
   it("Test 5: paperclip click opens the file picker (native input.click)", () => {
@@ -379,8 +386,10 @@ describe("ComposeBox — Phase 05 upload wiring", () => {
         })}
       />,
     );
-    const sendBtnB = screen.getByRole("button", { name: "Send" }) as HTMLButtonElement;
-    expect(sendBtnB.disabled).toBe(true);
+    // shape-conversation-view: with nothing to send, the main button is the
+    // thumbs-up — Send isn't rendered at all.
+    expect(screen.queryByRole("button", { name: "Send" })).toBeNull();
+    expect(screen.getByRole("button", { name: "Send 'thumbs up'" })).toBeTruthy();
   });
 
   it("Test 13: existing behavior preserved — Enter still sends text-only messages via onSend, Shift-Enter still inserts newline", () => {
@@ -445,29 +454,15 @@ describe("ComposeBox — Phase 05 upload wiring", () => {
   // Patch #129 — inside-textarea send button (user-locked visual)
   // ============================================================
 
-  it("inside-textarea send button: renders as a bare <button> inside the textarea wrapper", () => {
+  it("main Send button: a bare <button> in the control row, rendered once there is something to send", () => {
     render(<ComposeBox {...baseProps()} />);
+    // shape-conversation-view: nothing typed → no Send (the thumbs-up is main).
+    expect(screen.queryByRole("button", { name: "Send" })).toBeNull();
+    fireEvent.change(screen.getByPlaceholderText(/message/i), { target: { value: "hi" } });
     const sendBtn = screen.getByRole("button", { name: "Send" });
-    expect(sendBtn).toBeTruthy();
-    // Bare <button>, not a shadcn <Button> composition. shadcn Button
-    // resolves to a <button> too, but the plan requires a bare element
-    // — assert tagName so any accidental Button-wrapping regresses loudly.
     expect(sendBtn.tagName).toBe("BUTTON");
-
-    // Walk up until we hit the textarea's flex-1 self-stretch wrapper.
-    // Must contain BOTH the textarea and the button.
-    let wrapper: Element | null = sendBtn.parentElement;
-    while (wrapper) {
-      const cls = wrapper.className || "";
-      if (typeof cls === "string" && /relative/.test(cls) && /flex-1/.test(cls)) {
-        break;
-      }
-      wrapper = wrapper.parentElement;
-    }
-    expect(wrapper).not.toBeNull();
-    const textarea = screen.getByPlaceholderText(/message/i);
-    expect(wrapper!.contains(textarea)).toBe(true);
-    expect(wrapper!.contains(sendBtn)).toBe(true);
+    expect(sendBtn.getAttribute("data-main")).toBe("true");
+    expect(screen.getByTestId("compose-row").contains(sendBtn)).toBe(true);
   });
 
   it("inside-textarea send button: short-tap with text present calls onSend with trimmed payload and clears the textarea (Phase 50 D-18)", async () => {
@@ -690,22 +685,21 @@ describe("ComposeBox — Phase 05 upload wiring", () => {
     }
   });
 
-  it("inside-textarea send button: disabled state — button reports disabled and click is a no-op", () => {
-    // Case A: empty text, no attachments, canSend not set → disabled.
+  it("main Send button: disabled state — relay mode with empty text reports disabled and click is a no-op", () => {
+    // Relay rooms always render Send (mic + Send only), disabled while empty.
     const onSendA = vi.fn(() => true);
-    const { unmount } = render(<ComposeBox {...baseProps({ onSend: onSendA })} />);
+    const { unmount } = render(<ComposeBox {...baseProps({ onSend: onSendA, mode: "relay" })} />);
     const btnA = screen.getByRole("button", { name: "Send" }) as HTMLButtonElement;
     expect(btnA.disabled).toBe(true);
     fireEvent.click(btnA);
     expect(onSendA).not.toHaveBeenCalled();
     unmount();
 
-    // Case B: canSend=false, no attachments, empty text → disabled.
+    // Harness mode, canSend=false, empty text → no Send at all (thumbs-up is
+    // the main button) — so nothing can dispatch.
     const onSendB = vi.fn(() => true);
     render(<ComposeBox {...baseProps({ onSend: onSendB, canSend: false })} />);
-    const btnB = screen.getByRole("button", { name: "Send" }) as HTMLButtonElement;
-    expect(btnB.disabled).toBe(true);
-    fireEvent.click(btnB);
+    expect(screen.queryByRole("button", { name: "Send" })).toBeNull();
     expect(onSendB).not.toHaveBeenCalled();
   });
 });
@@ -760,32 +754,14 @@ describe("queue slots (bounty: message-queue-in-pretty-view)", () => {
     });
   }
 
-  // QS 1: Plus button appends a queue slot with empty text
-  it("QS 1 — Plus button appends a queue slot with empty textarea", async () => {
-    render(<ComposeBox {...baseProps()} />);
-    await flushMountEffect();
-
-    const plusBtn = screen.getByRole("button", { name: /queue a message/i });
-    expect(plusBtn).toBeTruthy();
-
-    fireEvent.click(plusBtn);
-
-    // After clicking Plus, a new queue slot textarea should appear
-    // (in addition to the primary textarea)
-    const allTextareas = screen.getAllByRole("textbox");
-    // Should have primary + at least 1 queue slot
-    expect(allTextareas.length).toBeGreaterThanOrEqual(2);
-  });
-
   // QS 2: Typing into a queue slot updates that slot's text
   it("QS 2 — typing into a queue slot textarea updates its text", async () => {
+    seedQueuedSlots();
     render(<ComposeBox {...baseProps()} />);
     await flushMountEffect();
 
-    fireEvent.click(screen.getByRole("button", { name: /queue a message/i }));
-
     const allTextareas = screen.getAllByRole("textbox") as HTMLTextAreaElement[];
-    // The FIRST textarea is the newly added queue slot (queue slot stack renders above
+    // The FIRST textarea is the restored queue slot (queue slot stack renders above
     // Row 2 primary textarea in DOM order — slot = index 0, primary = last)
     const slotTextarea = allTextareas[0];
 
@@ -795,18 +771,14 @@ describe("queue slots (bounty: message-queue-in-pretty-view)", () => {
 
   // QS 3: X button on a queue slot removes only that slot
   it("QS 3 — clicking the X (delete) button on a slot removes only that slot", async () => {
+    seedQueuedSlots([
+      { id: "q1", text: "" },
+      { id: "q2", text: "" },
+    ]);
     render(<ComposeBox {...baseProps()} />);
     await flushMountEffect();
 
-    // Quick 260909-cdi: the "Queue a message" affordance is now the
-    // QueuePlusTab pebble-notch. It re-parents between the primary wrapper
-    // and the first QueuedRow when slots exist, so the DOM node found before
-    // the first click is unmounted after the first click. Re-query on each
-    // click to get the currently-mounted tab.
-    fireEvent.click(screen.getByRole("button", { name: /queue a message/i }));
-    fireEvent.click(screen.getByRole("button", { name: /queue a message/i }));
-
-    // Should have 2 queue slots now (plus primary = 3 total textareas)
+    // 2 restored queue slots plus primary = 3 total textareas
     expect(screen.getAllByRole("textbox").length).toBe(3);
 
     // Delete the first queue slot
@@ -826,12 +798,9 @@ describe("queue slots (bounty: message-queue-in-pretty-view)", () => {
     const restore = withMediaDevicesStub();
     try {
       const onSend = vi.fn(() => true);
+      seedQueuedSlots();
       render(<ComposeBox {...baseProps({ onSend })} />);
       await flushMountEffect();
-
-      await act(async () => {
-        fireEvent.click(screen.getByRole("button", { name: /queue a message/i }));
-      });
 
       const allTextareas = screen.getAllByRole("textbox") as HTMLTextAreaElement[];
       // Slot renders ABOVE primary in DOM: slot = index 0, primary = last.
@@ -861,12 +830,9 @@ describe("queue slots (bounty: message-queue-in-pretty-view)", () => {
     const restore = withMediaDevicesStub();
     try {
       const onSend = vi.fn(() => false);
+      seedQueuedSlots();
       render(<ComposeBox {...baseProps({ onSend })} />);
       await flushMountEffect();
-
-      await act(async () => {
-        fireEvent.click(screen.getByRole("button", { name: /queue a message/i }));
-      });
 
       const allTextareas = screen.getAllByRole("textbox") as HTMLTextAreaElement[];
       // Slot renders ABOVE primary in DOM: slot = index 0, primary = last.
@@ -894,12 +860,9 @@ describe("queue slots (bounty: message-queue-in-pretty-view)", () => {
 
   // QS 6: Send slot disabled when empty
   it("QS 6 — slot Send button is disabled when slot.text.trim() is empty", async () => {
+    seedQueuedSlots();
     render(<ComposeBox {...baseProps()} />);
     await flushMountEffect();
-
-    await act(async () => {
-      fireEvent.click(screen.getByRole("button", { name: /queue a message/i }));
-    });
 
     const slotSendBtn = screen.getByRole("button", { name: /send queued message/i }) as HTMLButtonElement;
     expect(slotSendBtn.disabled).toBe(true);
@@ -930,12 +893,9 @@ describe("queue slots (bounty: message-queue-in-pretty-view)", () => {
   // falls through to browser-default newline insertion.
   it("QS 6b — plain Enter in a queue-slot textarea sends and removes the slot; Shift+Enter does NOT send", async () => {
     const onSend = vi.fn(() => true);
+    seedQueuedSlots();
     render(<ComposeBox {...baseProps({ onSend })} />);
     await flushMountEffect();
-
-    await act(async () => {
-      fireEvent.click(screen.getByRole("button", { name: /queue a message/i }));
-    });
 
     const allTextareas = screen.getAllByRole("textbox") as HTMLTextAreaElement[];
     // Slot renders ABOVE primary in DOM: slot = index 0, primary = last.
@@ -966,12 +926,9 @@ describe("queue slots (bounty: message-queue-in-pretty-view)", () => {
   // only) must NOT dispatch onSend, matching the slot Send button predicate.
   it("QS 6c — plain Enter in an empty queue-slot textarea does NOT dispatch onSend", async () => {
     const onSend = vi.fn(() => true);
+    seedQueuedSlots();
     render(<ComposeBox {...baseProps({ onSend })} />);
     await flushMountEffect();
-
-    await act(async () => {
-      fireEvent.click(screen.getByRole("button", { name: /queue a message/i }));
-    });
 
     const allTextareas = screen.getAllByRole("textbox") as HTMLTextAreaElement[];
     const slotTextarea = allTextareas[0];
@@ -1008,14 +965,11 @@ describe("queue slots (bounty: message-queue-in-pretty-view)", () => {
   });
 
   // QS 8: Autosave — putComposeDraft called with queueSlots after 400ms debounce
-  it("QS 8 — adding a slot schedules putComposeDraft with queueSlots after 400ms debounce", async () => {
+  it("QS 8 — editing a restored slot schedules putComposeDraft with queueSlots after 400ms debounce", async () => {
+    seedQueuedSlots();
     render(<ComposeBox {...baseProps()} />);
     await flushMountEffect();
     putComposeDraftMock.mockClear();
-
-    await act(async () => {
-      fireEvent.click(screen.getByRole("button", { name: /queue a message/i }));
-    });
 
     // Type in the new slot. Slot renders ABOVE primary in DOM: slot = index 0.
     const allTextareas = screen.getAllByRole("textbox") as HTMLTextAreaElement[];
@@ -1043,13 +997,12 @@ describe("queue slots (bounty: message-queue-in-pretty-view)", () => {
 
   // QS 9: localStorage mirror — extended payload {body, queueSlots}
   it("QS 9 — after autosave, localStorage contains extended {body, queueSlots} payload", async () => {
+    seedQueuedSlots();
     render(<ComposeBox {...baseProps({ hostId: 99, tmuxSession: "ls-test" })} />);
 
     await act(async () => {
       await Promise.resolve();
     });
-
-    fireEvent.click(screen.getByRole("button", { name: /queue a message/i }));
 
     // Slot renders ABOVE primary in DOM: slot = index 0, primary = last.
     const allTextareas = screen.getAllByRole("textbox") as HTMLTextAreaElement[];
@@ -1088,9 +1041,9 @@ describe("queue slots (bounty: message-queue-in-pretty-view)", () => {
       configurable: true,
     });
 
+    seedQueuedSlots();
     render(<ComposeBox {...baseProps()} />);
-
-    fireEvent.click(screen.getByRole("button", { name: /queue a message/i }));
+    await flushMountEffect();
 
     // Should have a mic button on the slot (aria-label "Record voice for queued slot" or similar)
     // The key assertion: a Record voice button appears associated with the slot
@@ -1142,11 +1095,9 @@ describe("ComposeBox — Quick B: queued-row per-slot paperclip + top-left delet
   // ── Task 1: paperclip + top-left delete tab + padding parity ────────────
 
   it("QB-1: queued row renders a paperclip attach button at absolute left-1 bottom-0.5 with 30% opacity default", async () => {
+    seedQueuedSlots();
     render(<ComposeBox {...baseProps()} />);
     await flushMountEffect();
-    await act(async () => {
-      fireEvent.click(screen.getByRole("button", { name: /queue a message/i }));
-    });
     const paperclip = screen.getByRole("button", {
       name: /attach file to queued message/i,
     });
@@ -1162,15 +1113,13 @@ describe("ComposeBox — Quick B: queued-row per-slot paperclip + top-left delet
 
   it("QB-2: paperclip click on queued slot routes file-picker output to onAttachFilesForTarget(`queued:${slotId}`, files) — NOT primary", async () => {
     const onAttachFilesForTarget = vi.fn();
+    seedQueuedSlots();
     render(
       <ComposeBox
         {...baseProps({ onAttachFilesForTarget })}
       />,
     );
     await flushMountEffect();
-    await act(async () => {
-      fireEvent.click(screen.getByRole("button", { name: /queue a message/i }));
-    });
     // Click the queued paperclip — arms activeStagingTargetRef with the
     // slot's target BEFORE opening the hidden file input.
     await act(async () => {
@@ -1197,11 +1146,9 @@ describe("ComposeBox — Quick B: queued-row per-slot paperclip + top-left delet
   });
 
   it("QB-3: queued row renders a delete × in the top-left corner OUTSIDE the textarea wrapper (tab protrudes via -top-* + -left-*)", async () => {
+    seedQueuedSlots();
     render(<ComposeBox {...baseProps()} />);
     await flushMountEffect();
-    await act(async () => {
-      fireEvent.click(screen.getByRole("button", { name: /queue a message/i }));
-    });
     const deleteBtn = screen.getByRole("button", {
       name: /delete queued message/i,
     });
@@ -1216,13 +1163,11 @@ describe("ComposeBox — Quick B: queued-row per-slot paperclip + top-left delet
 
   it("QB-4: clicking the delete × removes the slot AND calls clearStagedForTarget for that slot's target", async () => {
     const clearStagedForTarget = vi.fn();
+    seedQueuedSlots();
     render(
       <ComposeBox {...baseProps({ clearStagedForTarget })} />,
     );
     await flushMountEffect();
-    await act(async () => {
-      fireEvent.click(screen.getByRole("button", { name: /queue a message/i }));
-    });
     expect(screen.getAllByRole("textbox").length).toBe(2); // slot + primary
     await act(async () => {
       fireEvent.click(
@@ -1235,11 +1180,9 @@ describe("ComposeBox — Quick B: queued-row per-slot paperclip + top-left delet
   });
 
   it("QB-5: queued textarea className carries pl-11 (padding parity for the left-side paperclip clearance)", async () => {
+    seedQueuedSlots();
     render(<ComposeBox {...baseProps()} />);
     await flushMountEffect();
-    await act(async () => {
-      fireEvent.click(screen.getByRole("button", { name: /queue a message/i }));
-    });
     // Slot renders BEFORE primary in DOM order.
     const allTextareas = screen.getAllByRole("textbox") as HTMLTextAreaElement[];
     const slotTextarea = allTextareas[0];
@@ -1247,11 +1190,9 @@ describe("ComposeBox — Quick B: queued-row per-slot paperclip + top-left delet
   });
 
   it("QB-6: the old left-1 bottom-0.5 delete × is GONE — the delete button now lives at the top-left corner (className MUST NOT contain 'left-1'; `-left-2` is fine, that's the corner-tab protrusion, distinct from the `left-1 bottom-0.5` bottom-left in-textarea position)", async () => {
+    seedQueuedSlots();
     render(<ComposeBox {...baseProps()} />);
     await flushMountEffect();
-    await act(async () => {
-      fireEvent.click(screen.getByRole("button", { name: /queue a message/i }));
-    });
     const deleteBtn = screen.getByRole("button", {
       name: /delete queued message/i,
     });
@@ -1266,6 +1207,7 @@ describe("ComposeBox — Quick B: queued-row per-slot paperclip + top-left delet
         ? [mkAtt("q1", "queued-file-1.txt"), mkAtt("q2", "queued-file-2.txt")]
         : [],
     );
+    seedQueuedSlots();
     render(
       <ComposeBox
         {...baseProps({
@@ -1275,9 +1217,6 @@ describe("ComposeBox — Quick B: queued-row per-slot paperclip + top-left delet
       />,
     );
     await flushMountEffect();
-    await act(async () => {
-      fireEvent.click(screen.getByRole("button", { name: /queue a message/i }));
-    });
     // At least one chip strip should render — inside the slot.
     const strips = screen.getAllByTestId("attachment-chip-strip");
     expect(strips.length).toBeGreaterThanOrEqual(1);
@@ -1299,15 +1238,13 @@ describe("ComposeBox — Quick B: queued-row per-slot paperclip + top-left delet
 
   it("QB-8: queued slot with NO staged attachments renders no chip strip in that slot (empty state adds no DOM element)", async () => {
     const getStagedAttachmentsForTarget = vi.fn(() => []);
+    seedQueuedSlots();
     render(
       <ComposeBox
         {...baseProps({ getStagedAttachmentsForTarget })}
       />,
     );
     await flushMountEffect();
-    await act(async () => {
-      fireEvent.click(screen.getByRole("button", { name: /queue a message/i }));
-    });
     const strips = screen.queryAllByTestId("attachment-chip-strip");
     // Primary is also empty (baseProps doesn't set stagedAttachments), so
     // AttachmentChipStrip's return-null-when-empty contract yields 0 total.
@@ -1329,9 +1266,9 @@ describe("ComposeBox — Quick B: queued-row per-slot paperclip + top-left delet
     await flushMountEffect();
     const strip = screen.getByTestId("attachment-chip-strip");
     const textarea = screen.getByPlaceholderText(/message/i);
-    const stripWrapper = strip.closest("div.relative.flex-1.self-stretch");
+    const stripWrapper = strip.closest('[data-testid="compose-primary-wrapper"]');
     const textareaWrapper = textarea.closest(
-      "div.relative.flex-1.self-stretch",
+      '[data-testid="compose-primary-wrapper"]',
     );
     expect(stripWrapper).not.toBeNull();
     expect(textareaWrapper).not.toBeNull();
@@ -1353,92 +1290,48 @@ describe("ComposeBox — Phase 9 layout", () => {
     );
   });
 
-  // Helper: walk el.parentElement upward until a parent's className matches
-  // pattern, or return null if we reach the document root without a match.
-  function closestFlexRowAncestor(el: Element, pattern: RegExp): Element | null {
-    let current: Element | null = el.parentElement;
-    while (current) {
-      if (pattern.test(current.className)) return current;
-      current = current.parentElement;
-    }
-    return null;
-  }
-
-  it("Phase 9 Layout: aux button group renders in a row that precedes the Send button's row", () => {
+  it("Layout: one card — text field on top, one control row underneath with thumbs-up stepping aside next to Send while typing", () => {
     render(<ComposeBox {...baseProps()} />);
-    // Patch #14-04 test-fix: aria-label was renamed to "Send 'thumbs up'"
-    // (see ComposeBox.tsx around L1245); the regex needed refreshing.
-    const thumbsUp = screen.getByLabelText(/send 'thumbs up'/i);
-    // Patch #129: selector updated per Test 7 rationale. The new inside-
-    // textarea Send button lives in Row 2's textarea wrapper (line ~1250);
-    // Row 1's aux-group (ThumbsUp) still precedes it in DOM order — the
-    // assertion holds; only the selector needed refreshing.
-    const sendBtn = screen.getByRole("button", { name: "Send" });
-
-    const pattern = /flex items-(?:center|end) gap-2/;
-    const thumbsUpRow = closestFlexRowAncestor(thumbsUp, pattern);
-    const sendRow = closestFlexRowAncestor(sendBtn, pattern);
-
-    expect(thumbsUpRow).not.toBeNull();
-    expect(sendRow).not.toBeNull();
-    // The two rows must be distinct DOM nodes.
-    expect(thumbsUpRow).not.toBe(sendRow);
-    // Row 1 (thumbsUp) must precede Row 2 (send) in document order.
-    // Node.DOCUMENT_POSITION_FOLLOWING (0x04): sendRow comes after thumbsUpRow.
+    const field = screen.getByTestId("compose-primary-wrapper");
+    const row = screen.getByTestId("compose-row");
+    // Text field precedes the control row in document order.
     // eslint-disable-next-line no-bitwise
-    expect(thumbsUpRow!.compareDocumentPosition(sendRow!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(field.compareDocumentPosition(row) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    // Nothing typed: the thumbs-up is the main button; no Send.
+    const thumbsMain = screen.getByRole("button", { name: "Send 'thumbs up'" });
+    expect(thumbsMain.getAttribute("data-main")).toBe("true");
+    expect(screen.queryByRole("button", { name: "Send" })).toBeNull();
+
+    // Text typed: Send becomes the main button; the thumbs-up steps aside as
+    // a quiet button just before it, in the same row.
+    fireEvent.change(screen.getByPlaceholderText(/message/i), { target: { value: "hi" } });
+    const send = screen.getByRole("button", { name: "Send" });
+    const thumbsAside = screen.getByRole("button", { name: "Send 'thumbs up'" });
+    expect(send.getAttribute("data-main")).toBe("true");
+    expect(thumbsAside.getAttribute("data-main")).toBeNull();
+    expect(row.contains(send)).toBe(true);
+    expect(row.contains(thumbsAside)).toBe(true);
+    // eslint-disable-next-line no-bitwise
+    expect(thumbsAside.compareDocumentPosition(send) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 
-  it("Phase 9 Layout: meter is horizontal — role='meter' present with flex-row", () => {
+  it("Layout: agent memory is the MemoryGauge pie (a button that reads its level) in the control row", () => {
     render(<ComposeBox {...baseProps({ contextPct: 50 })} />);
-    const meter = screen.getByRole("meter");
-    expect(meter.className).toContain("flex-row");
-    expect(meter.className).not.toContain("flex-col");
+    const meter = screen.getByRole("button", { name: "Agent memory: 50% used" });
+    expect(meter.getAttribute("data-testid")).toBe("memory-gauge");
+    expect(meter.getAttribute("data-pct")).toBe("50");
+    expect(meter.getAttribute("data-band")).toBe("amber");
+    expect(screen.getByTestId("compose-row").contains(meter)).toBe(true);
   });
 
-  it("Phase 9 Layout: mobile touch target — top row carries min-h-[44px] when isTouchDevice=true", () => {
-    render(
-      <ComposeBox
-        {...baseProps({
-          isTouchDevice: true,
-          showPaperclip: true,
-          onAttachFiles: vi.fn(),
-          stagedAttachments: [],
-          onRemoveAttachment: vi.fn(),
-        })}
-      />,
+  it("Layout: touch devices flag the composer root (data-touch) so CSS sizes touch targets", () => {
+    const { container, rerender } = render(
+      <ComposeBox {...baseProps({ isTouchDevice: true })} />,
     );
-    // Quick 260730-vtk: Paperclip moved OUT of Row 1 into the Row 2
-    // textarea wrapper — so we can no longer use the paperclip as the
-    // Row 1 anchor here. Use ThumbsUp (aria-label "Send 'thumbs up'")
-    // instead, which still lives in Row 1's aux group — same anchor as
-    // the sibling desktop test just below.
-    const thumbsUp = screen.getByLabelText(/send 'thumbs up'/i);
-    const row1 = closestFlexRowAncestor(thumbsUp, /flex items-center gap-2/);
-    expect(row1).not.toBeNull();
-    expect(row1!.className).toContain("min-h-[44px]");
-    expect(row1!.className).not.toContain("min-h-8");
-  });
-
-  it("Phase 9 Layout: desktop top row carries min-h-8 when isTouchDevice=false", () => {
-    render(
-      <ComposeBox
-        {...baseProps({
-          isTouchDevice: false,
-          showPaperclip: false,
-          onAttachFiles: vi.fn(),
-          stagedAttachments: [],
-          onRemoveAttachment: vi.fn(),
-        })}
-      />,
-    );
-    // Patch #14-04 test-fix: aria-label was renamed to "Send 'thumbs up'"
-    // (see ComposeBox.tsx around L1245); the regex needed refreshing.
-    const thumbsUp = screen.getByLabelText(/send 'thumbs up'/i);
-    const row1 = closestFlexRowAncestor(thumbsUp, /flex items-center gap-2/);
-    expect(row1).not.toBeNull();
-    expect(row1!.className).toContain("min-h-8");
-    expect(row1!.className).not.toContain("min-h-[44px]");
+    const root = container.querySelector(".pv-composebox")!;
+    expect(root.getAttribute("data-touch")).toBe("true");
+    rerender(<ComposeBox {...baseProps({ isTouchDevice: false })} />);
+    expect(container.querySelector(".pv-composebox")!.getAttribute("data-touch")).toBeNull();
   });
 
   it("Phase 9 Layout: textarea rows starts at 1 with empty text", () => {

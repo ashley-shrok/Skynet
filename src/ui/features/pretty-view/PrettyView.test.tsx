@@ -28,7 +28,7 @@
 // regression tests.
 
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { render, act, fireEvent, waitFor } from "@testing-library/react";
+import { render, act, fireEvent, waitFor, screen } from "@testing-library/react";
 
 // Patch #148: wsStubs array — accumulates each WS stub created by the factory
 // across retries. Tests index into this array to assert new stubs were created
@@ -226,10 +226,19 @@ describe("PrettyView — Phase 05 drop overlay + hook wiring", () => {
     // Patch #148 reconnect tests that need fake timers live in their own
     // separate describe block below.
     wsStubs.length = 0;
+    // jsdom has no ResizeObserver; PrettyView measures the composer dock
+    // with one from mount (shape-conversation-view).
+    vi.stubGlobal(
+      "ResizeObserver",
+      vi.fn(function () {
+        return { observe: vi.fn(), unobserve: vi.fn(), disconnect: vi.fn() };
+      }),
+    );
   });
 
   afterEach(() => {
     vi.restoreAllMocks();
+    vi.unstubAllGlobals();
   });
 
   it("Test 9: drop event on data-pv-root stages the dropped files", async () => {
@@ -744,9 +753,10 @@ describe("PrettyView — Phase 14 Wave 5 aside integration (frontend-arm + morph
     const ws = getCurrentWs();
     flipToStreaming(ws);
 
-    // Pre-condition: Send button present, no aside note yet, no Resume button.
+    // Pre-condition: main button present (thumbs-up — nothing typed;
+    // shape-conversation-view), no aside note yet, no Resume button.
     await waitFor(() => {
-      expect(getByRole("button", { name: "Send" })).toBeTruthy();
+      expect(getByRole("button", { name: "Send 'thumbs up'" })).toBeTruthy();
     });
     expect(queryByRole("note")).toBeNull();
     expect(queryByRole("button", { name: "Resume" })).toBeNull();
@@ -768,18 +778,20 @@ describe("PrettyView — Phase 14 Wave 5 aside integration (frontend-arm + morph
       const note = container.querySelector('[role="note"]');
       expect(note).toBeTruthy();
       expect(note?.textContent).toContain("the agent is refactoring the auth flow");
-      // ComposeBox morphed: Send is gone, Resume is present.
+      // ComposeBox morphed: the main button is Resume (no Send / thumbs-up).
       expect(queryByRole("button", { name: "Send" })).toBeNull();
+      expect(queryByRole("button", { name: "Send 'thumbs up'" })).toBeNull();
       expect(getByRole("button", { name: "Resume" })).toBeTruthy();
     });
 
-    // Aux button disabled — pick the reset button (canonical aux gate; other
-    // aux buttons follow the same pattern per Wave 4 Task 1).
-    const resetBtn = container.querySelector(
-      'button[aria-label*="reset context window" i]',
-    ) as HTMLButtonElement | null;
-    expect(resetBtn).toBeTruthy();
-    expect(resetBtn!.disabled).toBe(true);
+    // Aux control disabled — pick Start fresh in the memory gauge's pop-over
+    // (canonical aux gate; other aux controls follow the same pattern per
+    // Wave 4 Task 1).
+    act(() => {
+      fireEvent.click(container.querySelector('[data-testid="memory-gauge"]')!);
+    });
+    const resetBtn = (await screen.findByRole("button", { name: "Start fresh" })) as HTMLButtonElement;
+    expect(resetBtn.disabled).toBe(true);
 
     // Textarea remains editable — per CONTEXT.md § ComposeBox morph verbatim.
     const textarea = container.querySelector("textarea") as HTMLTextAreaElement | null;
@@ -826,10 +838,11 @@ describe("PrettyView — Phase 14 Wave 5 aside integration (frontend-arm + morph
     expect(outbound!.hostId).toBe(42);
     expect(outbound!.tmuxSession).toBe("tina@main");
 
-    // Optimistic clear: role="note" gone; Send restored; Resume gone.
+    // Optimistic clear: role="note" gone; main button back to thumbs-up
+    // (nothing typed); Resume gone.
     await waitFor(() => {
       expect(container.querySelector('[role="note"]')).toBeNull();
-      expect(getByRole("button", { name: "Send" })).toBeTruthy();
+      expect(getByRole("button", { name: "Send 'thumbs up'" })).toBeTruthy();
       expect(queryByRole("button", { name: "Resume" })).toBeNull();
     });
   });
@@ -1130,11 +1143,11 @@ describe("PrettyView — Fix B: session_holding_cleared self-clear (quick 260730
 
     // Overlay gone:
     expect(container.querySelector('[role="status"]')).toBeNull();
-    // contextPct value is surfaced via aria-valuenow on the context bar
-    // (ComposeBox renders it with aria-valuenow={contextPct ?? undefined}).
+    // contextPct value is surfaced via data-pct on the memory gauge
+    // (shape-conversation-view; MemoryGauge renders data-pct={pct}).
     // Fleet-status is authoritative; session_holding_cleared does not clear
     // the meter reading (it never did, but the source is now fleet-status).
-    const ctxBar = container.querySelector('[aria-valuenow="42"]');
+    const ctxBar = container.querySelector('[data-testid="memory-gauge"][data-pct="42"]');
     expect(ctxBar).toBeTruthy();
 
     __resetSessionContextPctForTests();
@@ -1191,8 +1204,15 @@ describe("PrettyView — reconnect window preserves bubbles and disables Send", 
     // Bubble present in streaming state.
     expect(container.textContent).toContain('hello from before the reconnect');
     // ComposeBox mounted, Send enabled (canSend=true, no reconnectingActive).
+    // shape-conversation-view: Send renders once there's something to send.
+    act(() => {
+      fireEvent.change(container.querySelector('textarea[placeholder="Write a message…"]')!, {
+        target: { value: 'draft' },
+      });
+    });
     const sendBefore = container.querySelector('button[aria-label="Send"]') as HTMLButtonElement;
     expect(sendBefore).toBeTruthy();
+    expect(sendBefore.disabled).toBe(false);
 
     // Fire close → status flips to "error" and the retry timer schedules.
     fireClose(ws);
@@ -1959,17 +1979,21 @@ describe("Phase 56: invisible dormancy (no user-facing wake surface)", () => {
     expect(paneText).not.toMatch(/session is asleep/i);
     expect(paneText).not.toMatch(/waking up/i);
 
-    // Compose textarea + Send button are BOTH present and ENABLED.
+    // Compose textarea + main button are BOTH present and ENABLED.
     const textarea = container.querySelector('textarea') as HTMLTextAreaElement | null;
     expect(textarea).not.toBeNull();
     expect(textarea!.disabled).toBe(false);
-    const sendBtn = container.querySelector('button[aria-label="Send"]') as HTMLButtonElement | null;
-    expect(sendBtn).not.toBeNull();
-    // Send may be disabled purely on "empty textarea" — type something and
-    // confirm it becomes enabled (the dormant state is NOT gating it).
+    // shape-conversation-view: with nothing typed the main button is the
+    // thumbs-up; type something and Send appears enabled (the dormant state
+    // is NOT gating it).
+    const thumbsBtn = container.querySelector('button[aria-label="Send \'thumbs up\'"]') as HTMLButtonElement | null;
+    expect(thumbsBtn).not.toBeNull();
+    expect(thumbsBtn!.disabled).toBe(false);
     act(() => {
       fireEvent.change(textarea!, { target: { value: 'hello' } });
     });
+    const sendBtn = container.querySelector('button[aria-label="Send"]') as HTMLButtonElement | null;
+    expect(sendBtn).not.toBeNull();
     expect(sendBtn!.disabled).toBe(false);
   });
 
@@ -2070,10 +2094,10 @@ describe("PrettyView — Phase 90 Wave 0 mechanical D-03 waiver regression", () 
       );
     });
 
-    // The meter is rendered by ComposeBox with aria-valuenow={contextPct}.
+    // The memory gauge is rendered by ComposeBox with data-pct={contextPct}.
     // Since contextPct is now sourced from the fleet-status hook, the meter
     // reflects 42 without any WS `context_pct` frame having been sent.
-    const ctxBar = container.querySelector('[aria-valuenow="42"]');
+    const ctxBar = container.querySelector('[data-testid="memory-gauge"][data-pct="42"]');
     expect(ctxBar).toBeTruthy();
 
     __resetSessionContextPctForTests();
@@ -2099,14 +2123,14 @@ describe("PrettyView — Phase 90 Wave 0 mechanical D-03 waiver regression", () 
       );
     });
 
-    expect(container.querySelector('[aria-valuenow="20"]')).toBeTruthy();
+    expect(container.querySelector('[data-testid="memory-gauge"][data-pct="20"]')).toBeTruthy();
 
     // Publish a new value; meter re-renders.
     act(() => {
       __setSessionContextPctForTests("7", "swap-reactive", 65);
     });
-    expect(container.querySelector('[aria-valuenow="65"]')).toBeTruthy();
-    expect(container.querySelector('[aria-valuenow="20"]')).toBeNull();
+    expect(container.querySelector('[data-testid="memory-gauge"][data-pct="65"]')).toBeTruthy();
+    expect(container.querySelector('[data-testid="memory-gauge"][data-pct="20"]')).toBeNull();
 
     __resetSessionContextPctForTests();
   });
@@ -2131,7 +2155,7 @@ describe("PrettyView — Phase 90 Wave 0 mechanical D-03 waiver regression", () 
       );
     });
 
-    expect(container.querySelector('[aria-valuenow="55"]')).toBeTruthy();
+    expect(container.querySelector('[data-testid="memory-gauge"][data-pct="55"]')).toBeTruthy();
 
     // Fire a `context_pct` WS frame — the handler is a no-op post-swap. This
     // MUST NOT throw, MUST NOT crash the component, and MUST NOT overwrite
@@ -2148,8 +2172,8 @@ describe("PrettyView — Phase 90 Wave 0 mechanical D-03 waiver regression", () 
     }).not.toThrow();
 
     // Meter STILL reads 55 (fleet-status is authoritative — 99 does NOT win).
-    expect(container.querySelector('[aria-valuenow="55"]')).toBeTruthy();
-    expect(container.querySelector('[aria-valuenow="99"]')).toBeNull();
+    expect(container.querySelector('[data-testid="memory-gauge"][data-pct="55"]')).toBeTruthy();
+    expect(container.querySelector('[data-testid="memory-gauge"][data-pct="99"]')).toBeNull();
 
     __resetSessionContextPctForTests();
   });

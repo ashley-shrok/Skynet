@@ -29,6 +29,14 @@ vi.mock("@/api/compose-drafts-api", () => ({
 }));
 
 import { ComposeBox } from "./ComposeBox";
+import { getComposeDraft } from "@/api/compose-drafts-api";
+
+// "Queue a message" was retired (shape-conversation-view): nothing adds new
+// queued slots, but slots saved in a restored draft still render and send.
+// Seed one through the draft-load mock before rendering.
+function seedQueuedSlot(id = "slot-1"): void {
+  vi.mocked(getComposeDraft).mockResolvedValueOnce({ body: "", queueSlots: [{ id, text: "" }] });
+}
 
 // ---------------------------------------------------------------------------
 // Shared helpers
@@ -169,6 +177,7 @@ describe("ComposeBox — queued-slot attachment send (quick-260829-nt9)", () => 
       target === slotTarget ? [mkAtt("f1", "doc.pdf")] : [],
     );
 
+    seedQueuedSlot();
     render(
       <ComposeBox
         {...baseProps({
@@ -181,11 +190,6 @@ describe("ComposeBox — queued-slot attachment send (quick-260829-nt9)", () => 
       />,
     );
     await flushMountEffect();
-
-    // Add one slot.
-    await act(async () => {
-      fireEvent.click(screen.getByRole("button", { name: /queue a message/i }));
-    });
 
     // Capture the auto-generated slot ID so the mock returns an attachment for it.
     const slotContainer = document.querySelector("[data-slot-id]") as HTMLElement;
@@ -244,6 +248,7 @@ describe("ComposeBox — queued-slot attachment send (quick-260829-nt9)", () => 
       target === slotTarget ? [mkAtt("f1", "doc.pdf")] : [],
     );
 
+    seedQueuedSlot();
     render(
       <ComposeBox
         {...baseProps({
@@ -256,10 +261,6 @@ describe("ComposeBox — queued-slot attachment send (quick-260829-nt9)", () => 
       />,
     );
     await flushMountEffect();
-
-    await act(async () => {
-      fireEvent.click(screen.getByRole("button", { name: /queue a message/i }));
-    });
 
     // Capture slot ID after render.
     const slotContainer2 = document.querySelector("[data-slot-id]") as HTMLElement;
@@ -306,6 +307,7 @@ describe("ComposeBox — queued-slot attachment send (quick-260829-nt9)", () => 
       target.includes("queued:") ? [mkAtt("f1", "doc.pdf")] : [],
     );
 
+    seedQueuedSlot();
     render(
       <ComposeBox
         {...baseProps({
@@ -318,11 +320,6 @@ describe("ComposeBox — queued-slot attachment send (quick-260829-nt9)", () => 
       />,
     );
     await flushMountEffect();
-
-    // Add one slot.
-    await act(async () => {
-      fireEvent.click(screen.getByRole("button", { name: /queue a message/i }));
-    });
 
     // Tap the slot's MicButton to start recording.
     // Multiple "Record voice" buttons may be present (primary + slot).
@@ -386,6 +383,7 @@ describe("ComposeBox — queued-slot attachment send (quick-260829-nt9)", () => 
     // No attachments for any target.
     const getStagedAttachmentsForTarget = vi.fn(() => []);
 
+    seedQueuedSlot();
     render(
       <ComposeBox
         {...baseProps({
@@ -397,10 +395,6 @@ describe("ComposeBox — queued-slot attachment send (quick-260829-nt9)", () => 
       />,
     );
     await flushMountEffect();
-
-    await act(async () => {
-      fireEvent.click(screen.getByRole("button", { name: /queue a message/i }));
-    });
 
     const allTextareas = screen.getAllByRole("textbox") as HTMLTextAreaElement[];
     const slotTextarea = allTextareas[0];
@@ -493,12 +487,9 @@ describe("ComposeBox — queued-slot attachment send (quick-260829-nt9)", () => 
       onRemoveAttachment: vi.fn(),
     });
 
+    seedQueuedSlot();
     const { rerender } = render(<ComposeBox {...props} />);
     await flushMountEffect();
-
-    await act(async () => {
-      fireEvent.click(screen.getByRole("button", { name: /queue a message/i }));
-    });
 
     const slotSendBtn = () =>
       screen.getByRole("button", { name: /send queued message/i }) as HTMLButtonElement;

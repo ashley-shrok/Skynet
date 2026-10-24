@@ -59,6 +59,14 @@ vi.mock("@/api/compose-drafts-api", () => ({
 }));
 
 import { ComposeBox } from "./ComposeBox";
+import { getComposeDraft } from "@/api/compose-drafts-api";
+
+// "Queue a message" was retired (shape-conversation-view): nothing adds new
+// queued slots, but slots saved in a restored draft still render. Seed one
+// through the draft-load mock before rendering.
+function seedQueuedSlot(id = "slot-1"): void {
+  vi.mocked(getComposeDraft).mockResolvedValueOnce({ body: "", queueSlots: [{ id, text: "" }] });
+}
 
 // ---------------------------------------------------------------------------
 // Test helpers
@@ -1110,14 +1118,12 @@ describe("ComposeBox — 260814-1hz hold-to-record gesture (primary mic button)"
     // hiding the "Send" button — so the "Send button still present" assertion
     // would also fail.
     const onSend = vi.fn(() => true);
+    seedQueuedSlot();
     render(<ComposeBox {...baseProps({ onSend })} />);
 
-    // Flush the compose-drafts draft-load useEffect (see ComposeBox.tsx L694)
-    // BEFORE clicking Queue-a-message. The draft-load's async .then() calls
-    // setQueueSlots(hydratedSlots) — if it lands AFTER our click, it clobbers
-    // the just-added slot with [] (the mocked draft) and no slot renders.
-    // Walking 50ms of fake time + a few microtasks lets the mocked
-    // Promise.resolve() chain settle before we mutate queueSlots.
+    // Flush the compose-drafts draft-load useEffect so the restored slot
+    // (seeded above) hydrates. Walking 50ms of fake time + a few microtasks
+    // lets the mocked Promise.resolve() chain settle.
     await act(async () => {
       await vi.advanceTimersByTimeAsync(50);
       await Promise.resolve();
@@ -1126,13 +1132,6 @@ describe("ComposeBox — 260814-1hz hold-to-record gesture (primary mic button)"
       await Promise.resolve();
     });
 
-    // Add a queue slot via the "Queue a message" button (aria-label at
-    // ComposeBox.tsx L2048).
-    await act(async () => {
-      fireEvent.click(screen.getByRole("button", { name: /queue a message/i }));
-      await Promise.resolve();
-      await Promise.resolve();
-    });
 
     // Two mic buttons now render: one for the primary compose area and one
     // for the slot. The slot's mic is the one INSIDE a [data-slot-id]
@@ -1152,9 +1151,9 @@ describe("ComposeBox — 260814-1hz hold-to-record gesture (primary mic button)"
     const slotId = slotContainer.getAttribute("data-slot-id");
     expect(slotId).toBeTruthy();
 
-    // Baseline: primary send button IS present (proves the primary is not
-    // in RecordingControls mode). Query by aria-label "Send".
-    expect(screen.getByRole("button", { name: "Send" })).toBeTruthy();
+    // Baseline: the primary main button (thumbs-up — nothing typed) IS
+    // present (proves the primary is not in RecordingControls mode).
+    expect(screen.getByRole("button", { name: "Send 'thumbs up'" })).toBeTruthy();
 
     // Short-tap the SLOT mic: pointerdown → 100ms → pointerup (< 250ms
     // HOLD_THRESHOLD_MS). Hook's short-tap-keep branch runs
@@ -1198,11 +1197,13 @@ describe("ComposeBox — 260814-1hz hold-to-record gesture (primary mic button)"
     expect(cancelParentSlot).not.toBeNull();
     expect(cancelParentSlot?.getAttribute("data-slot-id")).toBe(slotId);
 
-    // Assertion 2 — Corollary: primary send button is STILL present. Proves
-    // the primary compose area did NOT swap into RecordingControls. Under
-    // the bug this assertion would fail because showRecordingControls on the
-    // primary would replace the send button with RecordingControls.
-    expect(screen.getByRole("button", { name: "Send" })).toBeTruthy();
+    // Assertion 2 — Corollary: the primary control row did NOT swap into
+    // RecordingControls. Under the bug, showRecordingControls on the primary
+    // would put a Cancel recording button into the primary row.
+    expect(screen.getByTestId("compose-row").contains(cancelBtn)).toBe(false);
+    expect(
+      screen.getByTestId("compose-row").querySelector('button[aria-label="Cancel recording"]'),
+    ).toBeNull();
 
     // Assertion 3 — Exactly one getUserMedia call (no double-arm, no
     // cancel+restart). Matches Test 1's tightened invariant under
@@ -1249,6 +1250,8 @@ describe("ComposeBox — 260814-1hz hold-to-record gesture (primary mic button)"
       await vi.advanceTimersByTimeAsync(300);
     });
     expect(screen.getByTestId("hold-feedback-pill").textContent).toContain("Recording");
+    // shape-conversation-view: the recording chip sits in the control row.
+    expect(screen.getByTestId("compose-row").contains(screen.getByTestId("hold-feedback-pill"))).toBe(true);
     expect(screen.getByTestId("mic-hold-ring").className).not.toContain("pv-hold-ring-outside");
 
     fireEvent.pointerMove(button, { pointerId: 1, clientX: 200, clientY: 200 });

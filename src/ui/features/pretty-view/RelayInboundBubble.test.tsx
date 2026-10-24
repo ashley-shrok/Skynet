@@ -83,14 +83,16 @@ function renderHarness(props: Partial<React.ComponentProps<typeof RelayInboundBu
   );
 }
 
-describe("RelayInboundBubble — harness view (folded DM card)", () => {
+describe("RelayInboundBubble — harness view (folded card)", () => {
   it("starts folded: who-line + preview, no body", () => {
     renderHarness();
     const who = screen.getByTestId("relay-who-line");
     expect(who.textContent).toContain("Tina");
     expect(who.textContent).toContain("→");
     expect(who.textContent).toContain("Aster");
-    expect(who.textContent).toContain("DM");
+    // shape-conversation-view: no DM tag, no ⓘ explainer, no "notified".
+    expect(who.textContent).not.toContain("DM");
+    expect(who.textContent).not.toContain("notified");
     expect(screen.getByTestId("relay-inbound-preview").textContent).toBe(
       "Yep, it went out this morning.",
     );
@@ -169,8 +171,8 @@ describe("RelayInboundBubble — harness view (folded DM card)", () => {
     ]);
     renderHarness();
     const who = screen.getByTestId("relay-who-line").textContent ?? "";
-    expect(who).toContain("Pixel");
-    expect(who).toContain("DM");
+    expect(who).toMatch(/Tina\s*→\s*Pixel/);
+    expect(who).not.toContain("DM");
   });
 
   it("members known, three in room → 'group with' and no DM tag", () => {
@@ -187,11 +189,10 @@ describe("RelayInboundBubble — harness view (folded DM card)", () => {
     expect(who).not.toContain("DM");
   });
 
-  it("DM explainer toggles on tap without folding/unfolding the card", () => {
+  it("no DM explainer (ⓘ) on the card", () => {
     renderHarness();
-    fireEvent.click(screen.getByTestId("relay-dm-explainer"));
-    expect(screen.getByRole("tooltip").textContent).toMatch(/Agents can DM each other/);
-    expect(screen.queryByTestId("relay-inbound-body")).toBeNull();
+    expect(screen.queryByTestId("relay-dm-explainer")).toBeNull();
+    expect(screen.queryByRole("tooltip")).toBeNull();
   });
 
   it("no member lookup in relay-source view", () => {

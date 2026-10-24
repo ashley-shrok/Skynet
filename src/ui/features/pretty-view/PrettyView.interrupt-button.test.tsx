@@ -64,6 +64,18 @@ vi.mock("@/features/terminal/IdentityBadge", () => ({
   IdentityBadge: () => null,
 }));
 
+// shape-conversation-view: Stop only renders while the agent is working, so
+// these tests hold the session's working signal on (tests that need it off
+// flip workingRef.value).
+const { workingRef } = vi.hoisted(() => ({ workingRef: { value: true } }));
+vi.mock("@/state/session-working-store", async (importOriginal) => {
+  const orig = (await importOriginal()) as Record<string, unknown>;
+  return {
+    ...orig,
+    useSessionIsWorking: () => workingRef.value,
+  };
+});
+
 vi.mock("@/hooks/use-is-touch-device", () => ({
   useIsTouchDevice: vi.fn(() => false),
 }));
@@ -186,6 +198,7 @@ describe("PrettyView — interrupt button (shape-interrupt-button)", () => {
     );
     vi.useRealTimers();
     localStorage.clear();
+    workingRef.value = true;
   });
 
   afterEach(() => {

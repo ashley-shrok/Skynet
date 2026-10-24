@@ -141,6 +141,21 @@ function countConfirmedBubbles(container: HTMLElement): number {
   return count;
 }
 
+// shape-conversation-view: the reset is Start fresh in the memory gauge's
+// pop-over (tap the gauge, then Start fresh).
+async function startFresh(container: HTMLElement): Promise<void> {
+  const gauge = container.querySelector('[data-testid="memory-gauge"]') as HTMLButtonElement | null;
+  expect(gauge).not.toBeNull();
+  act(() => {
+    fireEvent.click(gauge!);
+  });
+  const btn = (await screen.findByRole("button", { name: "Start fresh" })) as HTMLButtonElement;
+  expect(btn.disabled).toBe(false);
+  act(() => {
+    fireEvent.click(btn);
+  });
+}
+
 // Silence unused reference — countConfirmedBubbles is scaffolded for future
 // use; sendWsFrame is used by Test 5's WS-frame parse so no suppression needed.
 void countConfirmedBubbles;
@@ -336,15 +351,7 @@ describe("ComposeBox — send funnel (Phase 68 Plan 01)", () => {
         expect(container.querySelector('textarea[placeholder="Write a message…"]')).not.toBeNull();
       });
 
-      const resetBtn = container.querySelector(
-        'button[aria-label="Reset context window"]',
-      ) as HTMLButtonElement | null;
-      expect(resetBtn).not.toBeNull();
-      expect(resetBtn!.disabled).toBe(false);
-
-      act(() => {
-        fireEvent.click(resetBtn!);
-      });
+      await startFresh(container);
 
       // Assertion 1: POST /agent-reset/1/s1 called with body { body: "" }
       // (empty textarea → trimmed empty body).
@@ -413,17 +420,12 @@ describe("ComposeBox — send funnel (Phase 68 Plan 01)", () => {
       flipToStreaming(ws);
 
       await waitFor(() =>
-        expect(container.querySelector('button[aria-label="Reset context window"]')).not.toBeNull(),
+        expect(container.querySelector('[data-testid="memory-gauge"]')).not.toBeNull(),
       );
 
       expect(screen.queryByText(/Session recycling/i)).toBeNull();
 
-      const resetBtn = container.querySelector(
-        'button[aria-label="Reset context window"]',
-      ) as HTMLButtonElement;
-      act(() => {
-        fireEvent.click(resetBtn);
-      });
+      await startFresh(container);
 
       // Overlay mounts once the promise resolves — onResetClicked fired.
       await waitFor(() => {
@@ -451,17 +453,12 @@ describe("ComposeBox — send funnel (Phase 68 Plan 01)", () => {
       flipToStreaming(ws);
 
       await waitFor(() =>
-        expect(container.querySelector('button[aria-label="Reset context window"]')).not.toBeNull(),
+        expect(container.querySelector('[data-testid="memory-gauge"]')).not.toBeNull(),
       );
 
       expect(screen.queryByText(/Session recycling/i)).toBeNull();
 
-      const resetBtn = container.querySelector(
-        'button[aria-label="Reset context window"]',
-      ) as HTMLButtonElement;
-      act(() => {
-        fireEvent.click(resetBtn);
-      });
+      await startFresh(container);
 
       // Wait for the promise rejection to be flushed.
       await new Promise((r) => setTimeout(r, 30));
@@ -494,25 +491,19 @@ describe("ComposeBox — send funnel (Phase 68 Plan 01)", () => {
       flipToStreaming(ws);
 
       await waitFor(() =>
-        expect(container.querySelector('button[aria-label="Reset context window"]')).not.toBeNull(),
+        expect(container.querySelector('[data-testid="memory-gauge"]')).not.toBeNull(),
       );
 
-      const resetBtn = container.querySelector(
-        'button[aria-label="Reset context window"]',
-      ) as HTMLButtonElement;
-      act(() => {
-        fireEvent.click(resetBtn);
-      });
+      await startFresh(container);
 
-      // The drain-sweep manipulates the segmented meter's segment DOM. The
-      // meter has role="meter" (aria-label="Context window"). Its presence
-      // + not-erroring is proof enough that the sync-fx path didn't crash;
-      // the button still exists and is not disabled (draining is a visual
-      // effect, not a state that disables the button).
-      const meter = container.querySelector('[role="meter"][aria-label="Context window"]');
-      expect(meter).not.toBeNull();
-      // The reset button is still in the DOM (not unmounted by the click).
-      expect(container.querySelector('button[aria-label="Reset context window"]')).not.toBeNull();
+      // The drain plays on the memory gauge (it shows as emptied). Its
+      // presence + not-erroring is proof enough that the sync-fx path didn't
+      // crash; the gauge is not unmounted by the click.
+      await waitFor(() => {
+        const gauge = container.querySelector('[data-testid="memory-gauge"]');
+        expect(gauge).not.toBeNull();
+        expect(gauge!.getAttribute("aria-label")).toMatch(/^Agent memory/);
+      });
     },
   );
 
@@ -549,12 +540,7 @@ describe("ComposeBox — send funnel (Phase 68 Plan 01)", () => {
 
       // Click reset — endpoint is invoked with the trimmed body, success
       // path clears the textarea.
-      const resetBtn = container.querySelector(
-        'button[aria-label="Reset context window"]',
-      ) as HTMLButtonElement;
-      act(() => {
-        fireEvent.click(resetBtn);
-      });
+      await startFresh(container);
 
       await waitFor(() => {
         expect(textarea.value).toBe("");
@@ -596,12 +582,7 @@ describe("ComposeBox — send funnel (Phase 68 Plan 01)", () => {
       });
       expect(textarea.value).toBe("should stay");
 
-      const resetBtn = container.querySelector(
-        'button[aria-label="Reset context window"]',
-      ) as HTMLButtonElement;
-      act(() => {
-        fireEvent.click(resetBtn);
-      });
+      await startFresh(container);
 
       // Wait for the rejection to flush.
       await waitFor(() => {

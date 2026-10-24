@@ -48,7 +48,7 @@ describe("ComposeBox — interrupt button double-tap throttle", () => {
 
   it("rapid double-click within 2500ms fires onInterrupt exactly once", () => {
     const onInterrupt = vi.fn();
-    render(<ComposeBox {...baseProps({ onInterrupt })} />);
+    render(<ComposeBox {...baseProps({ onInterrupt, agentWorking: true })} />);
     const btn = screen.getByRole("button", { name: "Interrupt" });
 
     fireEvent.click(btn);
@@ -63,7 +63,7 @@ describe("ComposeBox — interrupt button double-tap throttle", () => {
 
   it("button stays clickable across the throttle window (no disabled attribute)", () => {
     const onInterrupt = vi.fn();
-    render(<ComposeBox {...baseProps({ onInterrupt })} />);
+    render(<ComposeBox {...baseProps({ onInterrupt, agentWorking: true })} />);
     const btn = screen.getByRole("button", { name: "Interrupt" });
 
     fireEvent.click(btn);
@@ -79,7 +79,7 @@ describe("ComposeBox — interrupt button double-tap throttle", () => {
 
   it("second click AFTER the 2500ms window fires onInterrupt a second time", () => {
     const onInterrupt = vi.fn();
-    render(<ComposeBox {...baseProps({ onInterrupt })} />);
+    render(<ComposeBox {...baseProps({ onInterrupt, agentWorking: true })} />);
     const btn = screen.getByRole("button", { name: "Interrupt" });
 
     fireEvent.click(btn);
@@ -94,7 +94,7 @@ describe("ComposeBox — interrupt button double-tap throttle", () => {
 
   it("triple-click within 2500ms still fires onInterrupt exactly once", () => {
     const onInterrupt = vi.fn();
-    render(<ComposeBox {...baseProps({ onInterrupt })} />);
+    render(<ComposeBox {...baseProps({ onInterrupt, agentWorking: true })} />);
     const btn = screen.getByRole("button", { name: "Interrupt" });
 
     fireEvent.click(btn);

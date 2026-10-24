@@ -117,10 +117,10 @@ describe("useComposeSend — universal send-log hook (Phase 85 Plan 06)", () => 
   it("Test 2: reset button click fires exactly one stamp + one advance", async () => {
     render(<ComposeBox {...baseProps()} />);
 
-    // Reset button is aria-label="Reset context window".
-    const resetBtn = screen.getByRole("button", {
-      name: /reset context window/i,
-    });
+    // shape-conversation-view: the reset is Start fresh in the memory
+    // gauge's pop-over.
+    fireEvent.click(screen.getByTestId("memory-gauge"));
+    const resetBtn = await screen.findByRole("button", { name: "Start fresh" });
 
     act(() => {
       fireEvent.click(resetBtn);

@@ -55,12 +55,17 @@ describe("ComposeBox — skill-actions menu", () => {
     listSkillsMock.mockResolvedValue(SKILLS);
   });
 
-  it("button appears left of thumbs-up once the host's skills are known", async () => {
+  it("button appears on the left of the control row (before the spacer and the thumbs-up) once the host's skills are known", async () => {
     render(<ComposeBox {...baseProps()} />);
     const btn = await findButton();
     expect(btn.getAttribute("aria-label")).toBe("Skills");
+    // shape-conversation-view: left side holds attach + skills; the spacer
+    // pushes memory / voice mode / mic / main button to the right.
+    expect(screen.getByTestId("compose-row").contains(btn)).toBe(true);
+    expect(btn.nextElementSibling?.classList.contains("pv-compose-spacer")).toBe(true);
     const thumbs = screen.getByLabelText("Send 'thumbs up'");
-    expect(btn.nextElementSibling).toBe(thumbs);
+    // eslint-disable-next-line no-bitwise
+    expect(btn.compareDocumentPosition(thumbs) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(listSkillsMock).toHaveBeenCalledWith(1);
   });
 
@@ -182,11 +187,18 @@ describe("ComposeBox — skill-actions menu", () => {
   it.each([
     ["recycleActive", { recycleActive: true }],
     ["reconnectingActive", { reconnectingActive: true }],
-    ["asideActive", { asideActive: true }],
   ])("disabled exactly like thumbs-up while %s", async (_label, extra) => {
     render(<ComposeBox {...baseProps(extra)} />);
     const btn = await findButton();
     expect(btn.disabled).toBe(true);
     expect((screen.getByLabelText("Send 'thumbs up'") as HTMLButtonElement).disabled).toBe(true);
+  });
+
+  it("disabled while asideActive (the thumbs-up steps away for Resume then)", async () => {
+    render(<ComposeBox {...baseProps({ asideActive: true })} />);
+    const btn = await findButton();
+    expect(btn.disabled).toBe(true);
+    expect(screen.queryByLabelText("Send 'thumbs up'")).toBeNull();
+    expect(screen.getByRole("button", { name: "Resume" })).toBeTruthy();
   });
 });

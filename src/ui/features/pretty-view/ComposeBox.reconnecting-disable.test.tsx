@@ -62,9 +62,12 @@ describe("ComposeBox — reconnectingActive gating", () => {
     expect(screen.queryByLabelText("Resume")).toBeNull();
   });
 
-  it("R2: reconnectingActive=true — aux WS-side-effect buttons (reset, ThumbsUp) all disabled", () => {
+  it("R2: reconnectingActive=true — aux WS-side-effect buttons (reset, ThumbsUp) all disabled", async () => {
     render(<ComposeBox {...baseProps({ reconnectingActive: true })} />);
-    const resetBtn = screen.getByLabelText("Reset context window") as HTMLButtonElement;
+    // shape-conversation-view: the reset is Start fresh in the memory
+    // gauge's pop-over.
+    fireEvent.click(screen.getByTestId("memory-gauge"));
+    const resetBtn = (await screen.findByRole("button", { name: "Start fresh" })) as HTMLButtonElement;
     const thumbsUpBtn = screen.getByLabelText("Send 'thumbs up'") as HTMLButtonElement;
     expect(resetBtn.disabled).toBe(true);
     expect(thumbsUpBtn.disabled).toBe(true);

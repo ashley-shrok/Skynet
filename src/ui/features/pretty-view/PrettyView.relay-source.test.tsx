@@ -355,7 +355,7 @@ describe("PrettyView relay source (Phase 93 Slice 3 Task 3)", () => {
     expect(firstMqid).not.toBe(secondMqid);
   });
 
-  it("Test 5 (ComposeBox mode wiring, D-11): PrettyView passes mode={source.kind} to ComposeBox — relay hides Row 1", () => {
+  it("Test 5 (ComposeBox mode wiring, D-11): PrettyView passes mode={source.kind} to ComposeBox — relay hides the harness controls", () => {
     adapterMock.mockReturnValue(defaultAdapterState({ isReady: true }));
     const { container } = render(
       <PrettyView
@@ -366,15 +366,19 @@ describe("PrettyView relay source (Phase 93 Slice 3 Task 3)", () => {
         onSend={() => true}
       />,
     );
-    // In relay case, Row 1 (compose-row-1) MUST NOT render (Task 2 D-11).
-    expect(container.querySelector('[data-testid="compose-row-1"]')).toBeNull();
-    // Row 2 (compose-row-2) MUST render (D-12).
+    // In relay case, the harness controls (memory gauge, thumbs-up) MUST
+    // NOT render (Task 2 D-11) and the composer reports relay mode.
+    expect(container.querySelector('.pv-composebox')?.getAttribute("data-mode")).toBe("relay");
+    expect(container.querySelector('[data-testid="memory-gauge"]')).toBeNull();
+    expect(container.querySelector('button[aria-label="Send \'thumbs up\'"]')).toBeNull();
+    // The text field and control row MUST render (D-12).
     expect(
-      container.querySelector('[data-testid="compose-row-2"]'),
+      container.querySelector('[data-testid="compose-primary-wrapper"]'),
     ).not.toBeNull();
+    expect(container.querySelector('[data-testid="compose-row"]')).not.toBeNull();
   });
 
-  it("Test 5b (ComposeBox mode wiring, harness path): PrettyView passes mode='harness' — Row 1 renders as normal", () => {
+  it("Test 5b (ComposeBox mode wiring, harness path): PrettyView passes mode='harness' — harness controls render as normal", () => {
     sessionMatchKeyMock.mockReturnValue("tina");
     adapterMock.mockReturnValue(defaultAdapterState({ isReady: true }));
     const { container } = render(
@@ -387,13 +391,14 @@ describe("PrettyView relay source (Phase 93 Slice 3 Task 3)", () => {
       />,
     );
     // In harness case, if ComposeBox is mounted (which requires status ===
-    // "streaming" || "error" etc.), Row 1 renders. In the initial mount,
-    // ComposeBox may not be mounted yet — but if any Row 2 exists it must
-    // co-exist with a Row 1 in harness mode.
-    const row2 = container.querySelector('[data-testid="compose-row-2"]');
-    if (row2 !== null) {
+    // "streaming" || "error" etc.), the harness controls render. In the
+    // initial mount, ComposeBox may not be mounted yet — but if the control
+    // row exists it must carry the memory gauge in harness mode.
+    const row = container.querySelector('[data-testid="compose-row"]');
+    if (row !== null) {
+      expect(container.querySelector('.pv-composebox')?.getAttribute("data-mode")).toBe("harness");
       expect(
-        container.querySelector('[data-testid="compose-row-1"]'),
+        row.querySelector('[data-testid="memory-gauge"]'),
       ).not.toBeNull();
     }
   });

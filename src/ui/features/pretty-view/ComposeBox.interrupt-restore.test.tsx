@@ -30,21 +30,62 @@ describe("ComposeBox — interrupt button availability", () => {
 
   it("greyed out while a send is being delivered: disabled, click does nothing, label unchanged", () => {
     const onInterrupt = vi.fn();
-    render(<ComposeBox {...baseProps({ onInterrupt, interruptDisabled: true })} />);
+    render(<ComposeBox {...baseProps({ onInterrupt, agentWorking: true, interruptDisabled: true })} />);
     const btn = screen.getByRole("button", { name: "Interrupt" }) as HTMLButtonElement;
     expect(btn.disabled).toBe(true);
-    expect(btn.getAttribute("title")).toBe("Interrupt");
+    expect(btn.getAttribute("title")).toBe("Stop");
     fireEvent.click(btn);
     expect(onInterrupt).not.toHaveBeenCalled();
   });
 
   it("available otherwise", () => {
     const onInterrupt = vi.fn();
-    render(<ComposeBox {...baseProps({ onInterrupt, interruptDisabled: false })} />);
+    render(<ComposeBox {...baseProps({ onInterrupt, agentWorking: true, interruptDisabled: false })} />);
     const btn = screen.getByRole("button", { name: "Interrupt" }) as HTMLButtonElement;
     expect(btn.disabled).toBe(false);
     fireEvent.click(btn);
     expect(onInterrupt).toHaveBeenCalledTimes(1);
+  });
+
+  // shape-conversation-view: Stop is only offered while the agent works.
+  it("not offered while the agent is idle — the thumbs-up is the main button", () => {
+    render(<ComposeBox {...baseProps({ onInterrupt: vi.fn(), agentWorking: false })} />);
+    expect(screen.queryByRole("button", { name: "Interrupt" })).toBeNull();
+    expect(screen.getByRole("button", { name: "Send 'thumbs up'" }).getAttribute("data-main")).toBe("true");
+  });
+
+  it("while working: Stop is the main button with nothing typed, and steps aside next to Send while typing", () => {
+    render(<ComposeBox {...baseProps({ onInterrupt: vi.fn(), agentWorking: true })} />);
+    expect(screen.getByRole("button", { name: "Interrupt" }).getAttribute("data-main")).toBe("true");
+    expect(screen.queryByRole("button", { name: "Send 'thumbs up'" })).toBeNull();
+    fireEvent.change(primary(), { target: { value: "more" } });
+    expect(screen.getByRole("button", { name: "Send" }).getAttribute("data-main")).toBe("true");
+    expect(screen.getByRole("button", { name: "Interrupt" }).getAttribute("data-main")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Send 'thumbs up'" })).toBeNull();
+  });
+
+  it("while Claude Code waits on a dialog: a quiet Stop sits before the thumbs-up", () => {
+    render(<ComposeBox {...baseProps({ onInterrupt: vi.fn(), agentWaiting: true })} />);
+    const stop = screen.getByRole("button", { name: "Interrupt" });
+    const thumbs = screen.getByRole("button", { name: "Send 'thumbs up'" });
+    expect(stop.getAttribute("data-main")).toBeNull();
+    expect(thumbs.getAttribute("data-main")).toBe("true");
+    // eslint-disable-next-line no-bitwise
+    expect(stop.compareDocumentPosition(thumbs) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it("the Stop feedback chip keeps Stop's place after working drops", () => {
+    const { rerender } = render(
+      <ComposeBox {...baseProps({ onInterrupt: vi.fn(), agentWorking: true })} />,
+    );
+    // The press is answered: working drops while the feedback shows.
+    rerender(
+      <ComposeBox {...baseProps({ onInterrupt: vi.fn(), agentWorking: false, interruptFeedback: "stopped" })} />,
+    );
+    expect(screen.getByTestId("interrupt-feedback").getAttribute("data-feedback")).toBe("stopped");
+    expect(screen.queryByRole("button", { name: "Interrupt" })).toBeNull();
+    // The thumbs-up does not take the main slot under a second tap.
+    expect(screen.queryByRole("button", { name: "Send 'thumbs up'" })).toBeNull();
   });
 });
 

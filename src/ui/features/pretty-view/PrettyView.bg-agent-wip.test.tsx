@@ -98,7 +98,9 @@ vi.mock("@/hooks/use-is-touch-device", () => ({
 import { PrettyView } from "./PrettyView";
 
 // A background sub-agent keeps working after the main turn ends; the WIP
-// bubble stays lit while the Agents panel has entries (shells don't count).
+// bubble stays lit while background agents are tracked (shells don't count).
+// shape-conversation-view: the Agents / Shells panels are no longer shown,
+// but the tracking underneath stays — background agents still light the orb.
 
 function sendWsFrame(ws: WsStub, frame: unknown) {
   act(() => {
@@ -168,9 +170,11 @@ describe("PrettyView — WIP bubble while a background sub-agent runs", () => {
       type: "backgrounded_shells",
       shells: [{ toolUseId: "toolu_s", description: "Serve", command: "python3 -m http.server", ts: 1 }],
     });
-    await waitFor(() =>
-      expect(container.querySelector('[aria-label="Backgrounded shells"]')).not.toBeNull(),
-    );
+    // Let the frame settle; the shells panel is no longer rendered.
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 20));
+    });
+    expect(container.querySelector('[aria-label="Backgrounded shells"]')).toBeNull();
     expect(container.querySelector(WIP_SELECTOR)).toBeNull();
   });
 
@@ -181,9 +185,15 @@ describe("PrettyView — WIP bubble while a background sub-agent runs", () => {
       type: "backgrounded_agents",
       agents: [{ toolUseId: "toolu_d", subagentType: "Explore", description: "x", startedAt: 1 }],
     });
-    await waitFor(() =>
-      expect(container.querySelector('[aria-label="Backgrounded agents"]')).not.toBeNull(),
-    );
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 20));
+    });
+    // The agents panel is no longer rendered, and dormant keeps the orb off.
+    expect(container.querySelector('[aria-label="Backgrounded agents"]')).toBeNull();
     expect(container.querySelector(WIP_SELECTOR)).toBeNull();
+
+    // The agent is still tracked underneath: waking lights the orb.
+    sendWsFrame(ws, { type: "dormant", dormant: false });
+    await waitFor(() => expect(container.querySelector(WIP_SELECTOR)).not.toBeNull());
   });
 });

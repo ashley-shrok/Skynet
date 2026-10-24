@@ -24,6 +24,14 @@ vi.mock("@/api/compose-drafts-api", () => ({
 }));
 
 import { ComposeBox } from "./ComposeBox";
+import { getComposeDraft } from "@/api/compose-drafts-api";
+
+// "Queue a message" was retired (shape-conversation-view): nothing adds new
+// queued slots, but slots saved in a restored draft still render. Seed one
+// through the draft-load mock before rendering.
+function seedQueuedSlot(id = "slot-1"): void {
+  vi.mocked(getComposeDraft).mockResolvedValueOnce({ body: "", queueSlots: [{ id, text: "" }] });
+}
 
 // ---------------------------------------------------------------------------
 // Shared helpers
@@ -129,6 +137,7 @@ describe("ComposeBox — queued-slot paste routing (quick-260829-oxo)", () => {
     const onAttachFiles = vi.fn();
     const onAttachFilesForTarget = vi.fn();
 
+    seedQueuedSlot();
     render(
       <ComposeBox
         {...baseProps({
@@ -138,11 +147,6 @@ describe("ComposeBox — queued-slot paste routing (quick-260829-oxo)", () => {
       />,
     );
     await flushMountEffect();
-
-    // Add one queued slot.
-    await act(async () => {
-      fireEvent.click(screen.getByRole("button", { name: /queue a message/i }));
-    });
 
     // Capture the auto-generated slot ID via data-slot-id.
     const slotContainer = document.querySelector("[data-slot-id]") as HTMLElement;
@@ -181,6 +185,7 @@ describe("ComposeBox — queued-slot paste routing (quick-260829-oxo)", () => {
     const onAttachFiles = vi.fn();
     const onAttachFilesForTarget = vi.fn();
 
+    seedQueuedSlot();
     render(
       <ComposeBox
         {...baseProps({
@@ -190,11 +195,6 @@ describe("ComposeBox — queued-slot paste routing (quick-260829-oxo)", () => {
       />,
     );
     await flushMountEffect();
-
-    // Add one queued slot.
-    await act(async () => {
-      fireEvent.click(screen.getByRole("button", { name: /queue a message/i }));
-    });
 
     // Capture slot ID.
     const slotContainer = document.querySelector("[data-slot-id]") as HTMLElement;
@@ -271,6 +271,7 @@ describe("ComposeBox — queued-slot paste routing (quick-260829-oxo)", () => {
 
     const onAttachFilesForTarget = vi.fn();
 
+    seedQueuedSlot();
     render(
       <ComposeBox
         {...baseProps({
@@ -279,11 +280,6 @@ describe("ComposeBox — queued-slot paste routing (quick-260829-oxo)", () => {
       />,
     );
     await flushMountEffect();
-
-    // Add one queued slot.
-    await act(async () => {
-      fireEvent.click(screen.getByRole("button", { name: /queue a message/i }));
-    });
 
     // Capture slot ID.
     const slotContainer = document.querySelector("[data-slot-id]") as HTMLElement;

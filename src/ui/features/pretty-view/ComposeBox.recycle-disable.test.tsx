@@ -83,7 +83,7 @@ describe("ComposeBox — quick 260729-j8l recycleActive gating", () => {
     expect(screen.queryByLabelText("Resume")).toBeNull();
   });
 
-  it("B2: recycleActive=true — aux WS-side-effect buttons (reset, thumbs-up) disabled", () => {
+  it("B2: recycleActive=true — aux WS-side-effect buttons (reset, thumbs-up) disabled", async () => {
     render(
       <ComposeBox
         {...baseProps({
@@ -93,7 +93,10 @@ describe("ComposeBox — quick 260729-j8l recycleActive gating", () => {
         })}
       />,
     );
-    const resetBtn = screen.getByLabelText("Reset context window") as HTMLButtonElement;
+    // shape-conversation-view: the reset is Start fresh in the memory
+    // gauge's pop-over.
+    fireEvent.click(screen.getByTestId("memory-gauge"));
+    const resetBtn = (await screen.findByRole("button", { name: "Start fresh" })) as HTMLButtonElement;
     const thumbsUpBtn = screen.getByLabelText("Send 'thumbs up'") as HTMLButtonElement;
     expect(resetBtn.disabled).toBe(true);
     expect(thumbsUpBtn.disabled).toBe(true);

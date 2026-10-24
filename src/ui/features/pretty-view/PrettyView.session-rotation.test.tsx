@@ -114,6 +114,21 @@ vi.mock("@/hooks/use-is-touch-device", () => ({
 
 import { PrettyView } from "./PrettyView";
 
+// shape-conversation-view: the reset is Start fresh in the memory gauge's
+// pop-over — tap the gauge, then Start fresh (synchronous, so it also works
+// under fake timers).
+function clickStartFresh(container: HTMLElement): void {
+  const gauge = container.querySelector('[data-testid="memory-gauge"]') as HTMLButtonElement | null;
+  expect(gauge).not.toBeNull();
+  act(() => {
+    fireEvent.click(gauge!);
+  });
+  const btn = screen.getByRole("button", { name: "Start fresh" }) as HTMLButtonElement;
+  act(() => {
+    fireEvent.click(btn);
+  });
+}
+
 function sendSessionFrame(ws: WsStub, sessionFile: string): void {
   act(() => {
     ws.onopen?.();
@@ -478,9 +493,9 @@ describe("PrettyView — quick 260905-d79 optimistic session-recycling overlay",
     // Open WS and send session frame so the compose box is available.
     sendSessionFrame(ws, "/tmp/d1.jsonl");
 
-    // Wait for the reset button to appear.
+    // Wait for the memory gauge (home of Start fresh) to appear.
     await waitFor(() => {
-      const btn = container.querySelector('button[aria-label="Reset context window"]');
+      const btn = container.querySelector('[data-testid="memory-gauge"]');
       expect(btn).not.toBeNull();
     });
 
@@ -488,12 +503,7 @@ describe("PrettyView — quick 260905-d79 optimistic session-recycling overlay",
     expect(screen.queryByText(/Session recycling/i)).toBeNull();
 
     // Click reset.
-    const resetBtn = container.querySelector(
-      'button[aria-label="Reset context window"]',
-    ) as HTMLButtonElement;
-    act(() => {
-      fireEvent.click(resetBtn);
-    });
+    clickStartFresh(container);
 
     // Overlay mounts immediately — optimistic slot flipped on dispatch success.
     await waitFor(() => {
@@ -514,17 +524,12 @@ describe("PrettyView — quick 260905-d79 optimistic session-recycling overlay",
     sendSessionFrame(ws, "/tmp/d2.jsonl");
 
     await waitFor(() => {
-      const btn = container.querySelector('button[aria-label="Reset context window"]');
+      const btn = container.querySelector('[data-testid="memory-gauge"]');
       expect(btn).not.toBeNull();
     });
 
     // Click reset — optimistic slot set.
-    const resetBtn = container.querySelector(
-      'button[aria-label="Reset context window"]',
-    ) as HTMLButtonElement;
-    act(() => {
-      fireEvent.click(resetBtn);
-    });
+    clickStartFresh(container);
 
     await waitFor(() => {
       expect(screen.queryByText(/Session recycling/i)).not.toBeNull();
@@ -575,18 +580,15 @@ describe("PrettyView — quick 260905-d79 optimistic session-recycling overlay",
     // Advance timers to let any delay-arm effects settle (resolving spinner guard etc.)
     act(() => { vi.advanceTimersByTime(500); });
 
-    // Reset button should now be present (streaming state → canSend=true → not disabled).
-    const resetBtn = container.querySelector(
-      'button[aria-label="Reset context window"]',
-    ) as HTMLButtonElement | null;
-    expect(resetBtn).not.toBeNull();
+    // The memory gauge (home of Start fresh) should now be present.
+    expect(container.querySelector('[data-testid="memory-gauge"]')).not.toBeNull();
 
-    // Click reset — under Phase 90 rewire this fires an authApi.post; the
+    // Start fresh — under Phase 90 rewire this fires an authApi.post; the
     // optimistic slot is set inside the .then() handler when the promise
     // resolves with {ok:true}. Under fake timers, the promise still
     // resolves via microtask flush — need an explicit await + advance to
     // let the .then chain complete.
-    act(() => { fireEvent.click(resetBtn!); });
+    clickStartFresh(container);
 
     // Flush pending microtasks (the authApi.post promise resolution) —
     // vi.useFakeTimers doesn't block microtasks by default, but an

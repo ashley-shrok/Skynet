@@ -1,8 +1,11 @@
 /**
  * RelayOutboundBubble — a relay message the pane's agent sent.
  *
- * Folded DM card "Aster → Tina [DM]" when the room's members are known,
- * "Aster sent a DM" when not. The raw send command is never rendered.
+ * Folded card "Aster → Tina" (no DM tag — shape-conversation-view) when the
+ * room's members are known, "Aster sent a DM" in plain words when not. A
+ * message to the viewing user is an open agent bubble (RelayToYouBubble):
+ * the sidebar's red envelope when it went out, a "⚠ not sent" mark when it
+ * failed. The raw send command is never rendered.
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import "@testing-library/jest-dom/vitest";
@@ -80,8 +83,8 @@ describe("RelayOutboundBubble", () => {
     renderOut();
     const who = screen.getByTestId("relay-who-line").textContent ?? "";
     expect(who).toContain("Aster");
-    expect(who).toContain("sent a");
-    expect(who).toContain("DM");
+    // Unresolvable addressing still reads as plain words.
+    expect(who).toContain("sent a DM");
     expect(screen.getByTestId("relay-outbound-preview").textContent).toBe(
       "Hey Tina, is the fix deployed yet?",
     );
@@ -93,7 +96,7 @@ describe("RelayOutboundBubble", () => {
     expect(membersMock).toHaveBeenCalledWith("!abc:t1000.example", 42);
   });
 
-  it("members known → 'Aster → Tina' DM", () => {
+  it("members known → 'Aster → Tina', no DM tag", () => {
     membersMock.mockReturnValue([
       { mxid: "@aster:t1000.example", kind: "agent", displayName: null },
       { mxid: "@tina:t1000.example", kind: "agent", displayName: null },
@@ -101,30 +104,45 @@ describe("RelayOutboundBubble", () => {
     renderOut();
     const who = screen.getByTestId("relay-who-line").textContent ?? "";
     expect(who).toMatch(/Aster\s*→\s*Tina/);
-    expect(who).toContain("DM");
+    expect(who).not.toContain("DM");
+    expect(screen.queryByTestId("relay-dm-explainer")).toBeNull();
   });
 
-  it("DM to the viewing user → 'You' + notified marker", () => {
+  // A message to the viewing user is read in place: an open agent bubble,
+  // never a folded card (shape-conversation-view).
+  function expectToYouBubble() {
+    const bubble = screen.getByTestId("relay-outbound-bubble");
+    expect(bubble).toHaveAttribute("data-to-you", "true");
+    expect(screen.getByTestId("relay-envelope")).toBeTruthy();
+    expect(screen.getByTestId("relay-outbound-body").textContent).toContain("Hey Tina, is the fix deployed yet?");
+    // No who-line / header / preview / "notified" label.
+    expect(screen.queryByTestId("relay-who-line")).toBeNull();
+    expect(screen.queryByTestId("relay-outbound-header")).toBeNull();
+    expect(screen.queryByTestId("relay-outbound-preview")).toBeNull();
+    expect(bubble.textContent ?? "").not.toContain("notified");
+  }
+
+  it("DM to the viewing user → an open bubble with the red envelope", () => {
     membersMock.mockReturnValue([
       { mxid: "@aster:t1000.example", kind: "agent", displayName: null },
       { mxid: "@robin:t1000.example", kind: "you", displayName: "Robin" },
     ]);
     renderOut();
-    const who = screen.getByTestId("relay-who-line").textContent ?? "";
-    expect(who).toMatch(/Aster\s*→\s*You/);
-    expect(who).toContain("notified");
+    expectToYouBubble();
+    expect(screen.getByTestId("relay-envelope")).toHaveAttribute("role", "img");
+    expect(screen.getByTestId("relay-envelope").getAttribute("aria-label")).toMatch(/^Also sent to your phone/);
+    // Speak sits with the bubble.
+    expect(screen.getByRole("button", { name: "Speak message" })).toBeTruthy();
   });
 
-  it("relay-mcp send to the viewer's mxid (no room) → 'You' + notified marker", () => {
+  it("relay-mcp send to the viewer's mxid (no room) → open bubble with the envelope", () => {
     renderOut({ room: null, to: "@robin:t1000.example" });
-    const who = screen.getByTestId("relay-who-line").textContent ?? "";
-    expect(who).toMatch(/Aster\s*→\s*You/);
-    expect(who).toContain("notified");
+    expectToYouBubble();
   });
 
-  it("relay-mcp send to the viewer by bare name → 'You'", () => {
+  it("relay-mcp send to the viewer by bare name → open bubble with the envelope", () => {
     renderOut({ room: null, to: "Robin" });
-    expect(screen.getByTestId("relay-who-line").textContent ?? "").toMatch(/Aster\s*→\s*You/);
+    expectToYouBubble();
   });
 
   it("relay-mcp send to an agent by identity name → that agent, no notified marker", () => {
@@ -134,16 +152,42 @@ describe("RelayOutboundBubble", () => {
     expect(who).not.toContain("notified");
   });
 
-  it("failed relay-mcp send to the viewer → 'not sent', never 'notified'", () => {
+  it("failed relay-mcp send to the viewer → still an open bubble, no envelope, '⚠ not sent' with the reason on tap", () => {
     renderOut({
       room: null,
       to: "@robin:t1000.example",
       result: { type: "relay_send_result", toolUseId: "t1", ok: false, roomId: null, error: "relay error: boom", eventId: "r1", ts: 0 },
     });
-    const who = screen.getByTestId("relay-who-line").textContent ?? "";
-    expect(who).toMatch(/Aster\s*→\s*You/);
-    expect(who).not.toContain("notified");
+    const bubble = screen.getByTestId("relay-outbound-bubble");
+    // Never folded — the words stay readable.
+    expect(screen.getByTestId("relay-outbound-body").textContent).toContain("Hey Tina, is the fix deployed yet?");
+    expect(screen.queryByTestId("relay-who-line")).toBeNull();
+    // It never reached the phone: no envelope, no data-to-you.
+    expect(bubble).not.toHaveAttribute("data-to-you");
+    expect(screen.queryByTestId("relay-envelope")).toBeNull();
+    expect(bubble.textContent ?? "").not.toContain("notified");
+    // "⚠ not sent" — tap to read why.
+    const notSent = screen.getByTestId("relay-not-sent-reason");
+    const btn = screen.getByRole("button", { name: "⚠ not sent" });
+    expect(btn).toHaveAttribute("title", "relay error: boom");
+    expect(btn).toHaveAttribute("aria-expanded", "false");
+    expect(notSent.textContent).not.toContain("relay error: boom");
+    fireEvent.click(btn);
+    expect(btn).toHaveAttribute("aria-expanded", "true");
+    expect(notSent.textContent).toContain("relay error: boom");
+  });
+
+  it("failed relay-mcp send to an agent → folded card marked '⚠ not sent' (reason on hover), reason in the opened body", () => {
+    renderOut({
+      room: null,
+      to: "tina",
+      result: { type: "relay_send_result", toolUseId: "t1", ok: false, roomId: null, error: "relay error: boom", eventId: "r1", ts: 0 },
+    });
+    expect(screen.getByTestId("relay-who-line").textContent ?? "").toMatch(/Aster\s*→\s*Tina/);
     expect(screen.getByTestId("relay-not-sent")).toHaveAttribute("title", "relay error: boom");
+    expect(screen.queryByTestId("relay-not-sent-reason")).toBeNull();
+    fireEvent.click(screen.getByTestId("relay-outbound-header"));
+    expect(screen.getByTestId("relay-not-sent-reason")).toBeTruthy();
   });
 
   it("successful relay-mcp send → members looked up for the result's room", () => {

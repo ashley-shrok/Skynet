@@ -53,16 +53,17 @@ describe("WaitingBubble — assistant-aligned outer container", () => {
 
 // ─── Test 4 ───────────────────────────────────────────────────────────────────
 
-describe("WaitingBubble — Phase 4 Glass className tokens", () => {
-  it("bubble div includes the Phase 4 Glass tokens: rounded-[var(--radius-pv-bubble)], hsla(var(--pv-id-hue), no backdrop blur", () => {
-    const { container } = render(<WaitingBubble reason="dialog open" />);
+describe("WaitingBubble — agent bubble look", () => {
+  it("bubble div is the agent's solid bubble (pv-bubble-agent + pv-hue-surface), no backdrop blur", () => {
+    render(<WaitingBubble reason="dialog open" />);
     // The bubble is the inner div (role="status") — grab it by role.
+    // shape-conversation-view: the agent speaks in solid bubbles in its own
+    // colour; the look lives in conversation.css.
     const bubble = screen.getByRole("status");
     const cls = bubble.className;
-    expect(cls).toContain("rounded-[var(--radius-pv-bubble)]");
+    expect(cls).toContain("pv-bubble-agent");
+    expect(cls).toContain("pv-hue-surface");
     expect(cls).not.toContain("backdrop-blur");
-    // gradient uses hsla(var(--pv-id-hue) — check as substring.
-    expect(cls).toContain("hsla(var(--pv-id-hue)");
   });
 });
 

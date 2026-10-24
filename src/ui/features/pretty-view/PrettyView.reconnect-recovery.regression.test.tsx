@@ -194,10 +194,12 @@ describe("PrettyView — reconnect recovery regression (commit 4a28b005)", () =>
 
     // Send button should now be disabled (reconnectingActive=true derives
     // from status==="error").
-    // Assert Reset button is disabled (its disabled gate is reconnectingActive
-    // alone — cleaner than Send, which is ALSO disabled by empty-textarea).
+    // Assert the thumbs-up (the main button with nothing typed) is disabled —
+    // its disabled gate is reconnectingActive (plus recycle / aside), cleaner
+    // than Send, which isn't rendered with an empty textarea.
+    // (shape-conversation-view moved the reset behind the memory gauge.)
     const resetBtnErrored = (await screen.findByRole("button", {
-      name: /Reset context window/,
+      name: "Send 'thumbs up'",
     })) as HTMLButtonElement;
     expect(resetBtnErrored.disabled).toBe(true);
 
@@ -205,10 +207,10 @@ describe("PrettyView — reconnect recovery regression (commit 4a28b005)", () =>
     // error-frame path).
     sendFrame(ws, { type: "pane_state", state: "dormant" });
 
-    // After the fix, status flips back to "streaming" → Reset re-enables.
+    // After the fix, status flips back to "streaming" → thumbs-up re-enables.
     await waitFor(() => {
       const resetBtnRecovered = screen.getByRole("button", {
-        name: /Reset context window/,
+        name: "Send 'thumbs up'",
       }) as HTMLButtonElement;
       expect(resetBtnRecovered.disabled).toBe(false);
     });
@@ -232,7 +234,7 @@ describe("PrettyView — reconnect recovery regression (commit 4a28b005)", () =>
     sendFrame(ws, { type: "error", message: "test-error" });
 
     const resetBtn = (await screen.findByRole("button", {
-      name: /Reset context window/,
+      name: "Send 'thumbs up'",
     })) as HTMLButtonElement;
     expect(resetBtn.disabled).toBe(true);
 
@@ -240,7 +242,7 @@ describe("PrettyView — reconnect recovery regression (commit 4a28b005)", () =>
 
     await waitFor(() => {
       const recovered = screen.getByRole("button", {
-        name: /Reset context window/,
+        name: "Send 'thumbs up'",
       }) as HTMLButtonElement;
       expect(recovered.disabled).toBe(false);
     });
@@ -264,19 +266,19 @@ describe("PrettyView — reconnect recovery regression (commit 4a28b005)", () =>
     sendFrame(ws, { type: "error", message: "test-error" });
 
     const resetBtn = (await screen.findByRole("button", {
-      name: /Reset context window/,
+      name: "Send 'thumbs up'",
     })) as HTMLButtonElement;
     expect(resetBtn.disabled).toBe(true);
 
-    // A pane_state:error must NOT recover Reset — the fix's condition
+    // A pane_state:error must NOT recover the controls — the fix's condition
     // `parsed.state !== "error"` guards this. Regression: dropping that
     // guard would falsely recover controls when the pane is actually errored.
     sendFrame(ws, { type: "pane_state", state: "error" });
 
-    // Give React a beat to process; Reset should STAY disabled.
+    // Give React a beat to process; thumbs-up should STAY disabled.
     await new Promise((r) => setTimeout(r, 50));
     const stillDisabled = screen.getByRole("button", {
-      name: /Reset context window/,
+      name: "Send 'thumbs up'",
     }) as HTMLButtonElement;
     expect(stillDisabled.disabled).toBe(true);
   });

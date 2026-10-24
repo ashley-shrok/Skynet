@@ -7,9 +7,10 @@
  * covers the BODY consumption:
  *
  *   Task 1: aux button `disabled` predicates extended with `|| asideActive === true`
- *     - reset button (leftmost cell of the meter well) — disabled when asideActive
+ *     - Start fresh (in the memory gauge's pop-over) — disabled when asideActive
  *     - paperclip button — disabled when asideActive
- *     - thumbs-up (Send 'thumbs up') button — disabled when asideActive
+ *     - thumbs-up (Send 'thumbs up') — not offered while an aside is up
+ *       (shape-conversation-view: the main button is Resume then)
  *     - textarea's own `disabled` prop is NOT extended (per CONTEXT.md § ComposeBox morph:
  *       "Textarea remains editable. Any partial draft text is preserved verbatim")
  *
@@ -18,7 +19,8 @@
  *     - aria-label + title: "Send" ↔ "Resume"
  *     - onClick: handleSend ↔ onAsideDismiss?.()
  *     - disabled: sendDisabled ↔ false (always clickable when morphed)
- *     - className: default color ↔ identity-hue color
+ *     - data-action: send ↔ resume (always the neutral main button —
+ *       shape-conversation-view: controls never borrow the agent's colour)
  *
  * Zero-regression contract: when asideActive is undefined/false, ComposeBox
  * behavior is byte-preserved.
@@ -26,6 +28,12 @@
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, fireEvent } from "@testing-library/react";
+
+// The reset is Start fresh in the memory gauge's pop-over.
+async function openStartFresh(): Promise<HTMLButtonElement> {
+  fireEvent.click(screen.getByTestId("memory-gauge"));
+  return (await screen.findByRole("button", { name: "Start fresh" })) as HTMLButtonElement;
+}
 
 vi.mock("@/api/compose-drafts-api", () => ({
   getComposeDraft: vi.fn().mockResolvedValue({ body: "" }),
@@ -51,7 +59,7 @@ describe("ComposeBox — Phase 14 Wave 4 aside morph (Task 1: aux button disable
     localStorage.clear();
   });
 
-  it("Task 1 Test 1: reset button becomes disabled when asideActive=true", () => {
+  it("Task 1 Test 1: Start fresh becomes disabled when asideActive=true", async () => {
     render(
       <ComposeBox
         {...baseProps({
@@ -59,17 +67,17 @@ describe("ComposeBox — Phase 14 Wave 4 aside morph (Task 1: aux button disable
         })}
       />,
     );
-    const resetBtn = screen.getByLabelText(/reset context window/i);
+    const resetBtn = await openStartFresh();
     expect((resetBtn as HTMLButtonElement).disabled).toBe(true);
   });
 
-  it("Task 1 Test 2: reset button stays enabled when asideActive is undefined (backward-compat)", () => {
+  it("Task 1 Test 2: Start fresh stays enabled when asideActive is undefined (backward-compat)", async () => {
     render(
       <ComposeBox
         {...baseProps({})}
       />,
     );
-    const resetBtn = screen.getByLabelText(/reset context window/i);
+    const resetBtn = await openStartFresh();
     // canSend=true, no aside → not disabled
     expect((resetBtn as HTMLButtonElement).disabled).toBe(false);
   });
@@ -88,7 +96,7 @@ describe("ComposeBox — Phase 14 Wave 4 aside morph (Task 1: aux button disable
     expect((paperclipBtn as HTMLButtonElement).disabled).toBe(true);
   });
 
-  it("Task 1 Test 4: thumbs-up (thumbs up) button becomes disabled when asideActive=true", () => {
+  it("Task 1 Test 4: thumbs-up (thumbs up) is not offered when asideActive=true — Resume is the main button", () => {
     render(
       <ComposeBox
         {...baseProps({
@@ -96,8 +104,8 @@ describe("ComposeBox — Phase 14 Wave 4 aside morph (Task 1: aux button disable
         })}
       />,
     );
-    const thumbsUpBtn = screen.getByLabelText(/send 'thumbs up'/i);
-    expect((thumbsUpBtn as HTMLButtonElement).disabled).toBe(true);
+    expect(screen.queryByLabelText(/send 'thumbs up'/i)).toBeNull();
+    expect(screen.getByRole("button", { name: "Resume" }).getAttribute("data-main")).toBe("true");
   });
 
   it("Task 1 Test 5 (Vehicle C): aux-row Queue button is REMOVED — per-textarea arm-idle replaces it", () => {
@@ -148,7 +156,9 @@ describe("ComposeBox — Phase 14 Wave 4 aside morph (Task 2: Send button morph)
     render(
       <ComposeBox {...baseProps({})} />,
     );
-    // The inside-textarea Send button (paper-plane) — pre-morph identity.
+    // shape-conversation-view: Send renders once there's something to send.
+    fireEvent.change(screen.getByRole("textbox"), { target: { value: "hi" } });
+    // The main Send button (paper-plane) — pre-morph identity.
     const sendBtn = screen.getByRole("button", { name: "Send" });
     expect(sendBtn).toBeTruthy();
   });
@@ -267,7 +277,7 @@ describe("ComposeBox — Phase 14 Wave 4 aside morph (Task 2: Send button morph)
     expect(onAsideDismiss).toHaveBeenCalledTimes(1);
   });
 
-  it("Task 2 Test 7: Send button uses identity-hue color class when asideActive=true", () => {
+  it("Task 2 Test 7: the main button reports the resume action when asideActive=true", () => {
     render(
       <ComposeBox
         {...baseProps({
@@ -276,8 +286,9 @@ describe("ComposeBox — Phase 14 Wave 4 aside morph (Task 2: Send button morph)
       />,
     );
     const resumeBtn = screen.getByRole("button", { name: "Resume" });
-    // Identity-hue color per PATTERNS.md L220-223.
-    expect(resumeBtn.className).toMatch(/hsla\(var\(--pv-id-hue\),90%,72%,0\.95\)/);
+    // Same neutral main button; the icon (and data-action) says what it does.
+    expect(resumeBtn.getAttribute("data-action")).toBe("resume");
+    expect(resumeBtn.getAttribute("data-main")).toBe("true");
   });
 
   it("Task 2 Test 8: Send button renders an X icon (SVG) when asideActive=true", () => {

@@ -171,6 +171,13 @@ afterEach(() => {
 // Tests
 // ---------------------------------------------------------------------------
 
+// shape-conversation-view: the reset is Start fresh in the memory gauge's
+// pop-over. Opens the pop-over and returns the Start fresh button.
+async function openStartFresh(): Promise<HTMLButtonElement> {
+  fireEvent.click(screen.getByTestId("memory-gauge"));
+  return (await screen.findByRole("button", { name: "Start fresh" })) as HTMLButtonElement;
+}
+
 describe("ComposeBox — Phase 16 voice flow", () => {
 
   it("Test 1: MicButton is present when text is empty, asideActive is false, and no attachments", () => {
@@ -184,14 +191,14 @@ describe("ComposeBox — Phase 16 voice flow", () => {
     // MicButton renders with aria-label "Record voice" in the slot.
     const micBtn = screen.getByRole("button", { name: "Record voice" });
     expect(micBtn).toBeTruthy();
-    // Quick 260729-3y1: after the co-render refactor, Send button IS present
-    // in the empty-text state (rendered disabled — nothing to send), because
-    // the slot no longer uses a mutually-exclusive swap. Truth table row:
-    // "idle, empty text | mic shown | Send shown (disabled — nothing to send)".
-    expect(screen.getByRole("button", { name: "Send" })).toBeTruthy();
+    // shape-conversation-view: with nothing typed the main button is the
+    // thumbs-up (Send renders once there's something to send); the mic sits
+    // beside it either way.
+    expect(screen.getByRole("button", { name: "Send 'thumbs up'" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Send" })).toBeNull();
   });
 
-  it("Test 2 (user 260729-3y1 lock: mic always reachable): mic + Send coexist regardless of textarea content", async () => {
+  it("Test 2 (user 260729-3y1 lock: mic always reachable): mic + main button coexist regardless of textarea content", async () => {
     // user UX rule: mic must stay reachable regardless of textarea contents
     // so voice capture can start without clearing input first.
     render(<ComposeBox {...baseProps()} />);
@@ -206,7 +213,7 @@ describe("ComposeBox — Phase 16 voice flow", () => {
     fireEvent.change(textarea, { target: { value: "" } });
     await waitFor(() => {
       expect(screen.getByRole("button", { name: "Record voice" })).toBeTruthy();
-      expect(screen.getByRole("button", { name: "Send" })).toBeTruthy();
+      expect(screen.getByRole("button", { name: "Send 'thumbs up'" })).toBeTruthy();
     });
   });
 
@@ -381,7 +388,7 @@ describe("ComposeBox — Phase 16 voice flow", () => {
     });
   });
 
-  it("Test 10: mic + Send coexist regardless of text length (260729-3y1 lock)", async () => {
+  it("Test 10: mic + main button coexist regardless of text length (260729-3y1 lock)", async () => {
     // Regression guard against the pre-260729-3y1 swap-in-single-slot
     // pattern (mic OR send depending on text length) — both must coexist
     // whether the textarea is empty or non-empty.
@@ -390,7 +397,7 @@ describe("ComposeBox — Phase 16 voice flow", () => {
 
     await waitFor(() => {
       expect(screen.getByRole("button", { name: "Record voice" })).toBeTruthy();
-      expect(screen.getByRole("button", { name: "Send" })).toBeTruthy();
+      expect(screen.getByRole("button", { name: "Send 'thumbs up'" })).toBeTruthy();
     });
 
     fireEvent.change(textarea, { target: { value: "hello" } });
@@ -453,6 +460,8 @@ describe("ComposeBox — Phase 16 voice flow", () => {
     // snippet (patch #130). Proves the spinner is scoped to the transcribing
     // branch and the paper-plane path is preserved byte-for-byte.
     render(<ComposeBox {...baseProps()} />);
+    // Send renders once there's something to send.
+    fireEvent.change(screen.getByPlaceholderText(/message/i), { target: { value: "hi" } });
     const sendBtn = await screen.findByRole("button", { name: "Send" });
     // Paper-plane path present.
     const paperPlanePath = sendBtn.querySelector('path[d^="M14.536 21.686"]');
@@ -497,8 +506,7 @@ describe("ComposeBox — Phase 16 voice flow", () => {
       recorder.emitData(new Blob(["audio"], { type: "audio/webm" }));
     });
 
-    const resetBtn = screen.getByRole("button", { name: "Reset context window" });
-    fireEvent.click(resetBtn);
+    fireEvent.click(await openStartFresh());
 
     // quick 260905-d79 (updated Phase 90 rewire): onResetClicked now fires
     // on dispatch SUCCESS from the authApi.post promise resolution (inside
@@ -557,8 +565,7 @@ describe("ComposeBox — Phase 16 voice flow", () => {
       recorder.emitData(new Blob(["audio"], { type: "audio/webm" }));
     });
 
-    const resetBtn = screen.getByRole("button", { name: "Reset context window" });
-    fireEvent.click(resetBtn);
+    fireEvent.click(await openStartFresh());
 
     // KEY assertion: reset dispatches with the EXISTING textarea body —
     // NOT plain "/id reset", NOT a silent no-op. Under Phase 90 rewire the
@@ -577,7 +584,7 @@ describe("ComposeBox — Phase 16 voice flow", () => {
     expect(onResetClicked).toHaveBeenCalled();
   });
 
-  it("Test 15 (quick 260803-7vf): transcribing state disables the reset button", async () => {
+  it("Test 15 (quick 260803-7vf): transcribing state disables Start fresh", async () => {
     // Locked design decision #5: transcribing gate mirrors the send-button
     // transcribing-disable pattern to prevent double-fire. Freeze the
     // transcribing state with a never-resolving fetch (mirrors Test 11).
@@ -597,12 +604,14 @@ describe("ComposeBox — Phase 16 voice flow", () => {
 
     fireEvent.click(sendTranscriptBtn);
 
-    // With fetch frozen the hook stays in "transcribing" — the reset button
-    // must render disabled.
+    // With fetch frozen the hook stays in "transcribing" — wait for the
+    // transcribing Send spinner, then Start fresh must render disabled.
     await waitFor(() => {
-      const btn = screen.getByRole("button", { name: "Reset context window" }) as HTMLButtonElement;
-      expect(btn.disabled).toBe(true);
+      const send = screen.getByRole("button", { name: "Send" }) as HTMLButtonElement;
+      expect(send.querySelector("svg.animate-spin")).not.toBeNull();
     });
+    const btn = await openStartFresh();
+    expect(btn.disabled).toBe(true);
   });
 
   it("Test 16: Append with empty transcript + empty textarea leaves textarea empty (no lone space)", async () => {

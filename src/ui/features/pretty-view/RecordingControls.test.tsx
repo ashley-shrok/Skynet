@@ -60,8 +60,8 @@ describe("RecordingControls", () => {
     expect(onSend).toHaveBeenCalledTimes(1);
   });
 
-  it("Test 3: cancel button has a red-ish class (hsla hue-0 red signature)", () => {
-    const { container } = render(
+  it("Test 3: cancel button is the red-toned row button (data-tone='danger')", () => {
+    render(
       <RecordingControls
         onCancel={vi.fn()}
         onAppend={vi.fn()}
@@ -72,11 +72,13 @@ describe("RecordingControls", () => {
     );
 
     const cancelBtn = screen.getByLabelText("Cancel recording");
-    // The cancel button uses hsla(0, ...) which is the hue-0 red signature.
-    expect(cancelBtn.className).toMatch(/hsla\(0/);
+    // shape-conversation-view: Cancel (red ✕) is a control-row button; its
+    // red comes from conversation.css via data-tone.
+    expect(cancelBtn.className).toContain("pv-cbtn");
+    expect(cancelBtn.getAttribute("data-tone")).toBe("danger");
   });
 
-  it("Test 4: send button has a coral class referencing pv-code-fg or ffb896", () => {
+  it("Test 4: send button is the off-white main button (data-main), the others are quiet row buttons", () => {
     render(
       <RecordingControls
         onCancel={vi.fn()}
@@ -88,8 +90,14 @@ describe("RecordingControls", () => {
     );
 
     const sendBtn = screen.getByLabelText("Send transcript");
-    // The send button uses --color-pv-code-fg (the coral #ffb896 token).
-    expect(sendBtn.className).toMatch(/color-pv-code-fg|ffb896/);
+    expect(sendBtn.className).toContain("pv-cbtn");
+    expect(sendBtn.getAttribute("data-main")).toBe("true");
+    expect(screen.getByLabelText("Append transcript").getAttribute("data-main")).toBeNull();
+    expect(screen.getByLabelText("Cancel recording").getAttribute("data-main")).toBeNull();
+    // Row buttons, not absolutely positioned over the textarea.
+    for (const label of ["Cancel recording", "Append transcript", "Send transcript"]) {
+      expect(screen.getByLabelText(label).className).not.toMatch(/\babsolute\b/);
+    }
   });
 
   it("Test 5: all three buttons have type='button' to prevent form submission", () => {

@@ -63,9 +63,10 @@ describe("ComposeBox — reset button confirm gate", () => {
     const dialogs = autoAnswerKitDialogs({ confirm: false });
     render(<ComposeBox {...baseProps()} />);
 
-    const resetBtn = screen.getByRole("button", {
-      name: /reset context window/i,
-    });
+    // shape-conversation-view: the reset is Start fresh in the memory
+    // gauge's pop-over.
+    fireEvent.click(screen.getByTestId("memory-gauge"));
+    const resetBtn = await screen.findByRole("button", { name: "Start fresh" });
 
     act(() => {
       fireEvent.click(resetBtn);
@@ -86,9 +87,10 @@ describe("ComposeBox — reset button confirm gate", () => {
     const dialogs = autoAnswerKitDialogs({ confirm: true });
     render(<ComposeBox {...baseProps()} />);
 
-    const resetBtn = screen.getByRole("button", {
-      name: /reset context window/i,
-    });
+    // shape-conversation-view: the reset is Start fresh in the memory
+    // gauge's pop-over.
+    fireEvent.click(screen.getByTestId("memory-gauge"));
+    const resetBtn = await screen.findByRole("button", { name: "Start fresh" });
 
     act(() => {
       fireEvent.click(resetBtn);

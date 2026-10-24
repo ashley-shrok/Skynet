@@ -136,13 +136,19 @@ describe("TaskPill", () => {
       expect(screen.getByTestId("pv-task-pill-label").textContent).toBe("Willow");
     });
 
-    it("is tinted with the role hue, falling back to 35", () => {
+    it("is solid and neutral, with the role hue as a ring on the picture (falling back to 35)", () => {
+      // shape-conversation-view: the pill takes the floating family's look
+      // (pv-float, no hue fill, no breathe); the agent's colour is the ring.
       const { unmount } = renderPill();
-      expect(screen.getByTestId("pv-task-pill").getAttribute("style")).toContain("hsla(200,");
+      const pill = screen.getByTestId("pv-task-pill");
+      expect(pill.getAttribute("style") ?? "").not.toContain("hsla(");
+      expect(pill.className).toContain("pv-float");
+      expect(pill.className).not.toContain("pv-identity-breathe");
+      expect(pill.querySelector("img")?.getAttribute("style")).toContain("hsla(200,");
       unmount();
       currentIdentity = { ...FIXTURE, colorHue: null };
       renderPill();
-      expect(screen.getByTestId("pv-task-pill").getAttribute("style")).toContain("hsla(35,");
+      expect(screen.getByTestId("pv-task-pill").querySelector("img")?.getAttribute("style")).toContain("hsla(35,");
     });
 
     it("renders a task containing markup as literal text", () => {

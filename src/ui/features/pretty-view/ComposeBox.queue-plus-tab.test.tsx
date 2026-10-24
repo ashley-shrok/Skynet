@@ -1,22 +1,13 @@
-// Quick 260909-cdi — behavioral coverage for the new pebble-notch plus-tab
-// affordance that replaces the old ListPlus "Queue a message" aux-row button.
+// "Queue a message" retired (shape-conversation-view).
 //
-// The plus-tab visually notches into the top edge of whichever textarea is
-// currently topmost in the compose stack:
-//   - When queueSlots.length === 0, the tab rides on the primary textarea
-//     wrapper ([data-testid="compose-primary-wrapper"]).
-//   - When queueSlots.length > 0, the tab rides on the FIRST QueuedRow
-//     (the slot at index 0 of queueSlots), NOT on the primary.
-//
-// Clicking the tab PREPENDS a new empty slot to queueSlots (index 0) — an
-// inversion of today's append-at-end behavior on the deleted ListPlus button.
-//
-// The tab preserves the aria-label "Queue a message" of the old button so that
-// existing tests (notably ComposeBox.hold-to-mic.test.tsx:1132) can continue
-// to locate it via `getByRole("button", { name: /queue a message/i })`.
+// The pebble-notch plus-tab (quick 260909-cdi) that added queued-message
+// textareas is gone entirely — nothing can add a new queued slot. Slots saved
+// in a restored draft before the retirement still render (and send) above
+// the composer's text field, in their saved order. These tests lock both
+// halves: no add affordance anywhere, restored slots still shown.
 
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { render, screen, fireEvent, act } from "@testing-library/react";
+import { render, screen, act } from "@testing-library/react";
 import type { ComposeBoxProps } from "./ComposeBox";
 
 // Mock the compose-drafts API BEFORE importing ComposeBox so the module's
@@ -71,83 +62,35 @@ async function flushDraftHydration() {
   });
 }
 
-describe("ComposeBox queue plus-tab (260909-cdi)", () => {
-  it("Test A: renders on primary wrapper when queueSlots is empty", async () => {
+describe("ComposeBox — Queue a message retired (shape-conversation-view)", () => {
+  it("no 'Queue a message' button when there are no queued slots", async () => {
     render(<ComposeBox {...baseProps()} />);
     await flushDraftHydration();
-
-    const tab = screen.getByRole("button", { name: /queue a message/i });
-    expect(tab).toBeTruthy();
-
-    // The tab's closest primary-wrapper ancestor is truthy — the tab is
-    // parented under the primary textarea wrapper when no slots exist.
-    expect(tab.closest("[data-testid='compose-primary-wrapper']")).not.toBeNull();
-
-    // And critically, it is NOT parented under any [data-slot-id] container,
-    // because no QueuedRow exists in the tree yet.
-    expect(tab.closest("[data-slot-id]")).toBeNull();
+    expect(screen.queryByRole("button", { name: /queue a message/i })).toBeNull();
+    expect(document.querySelector("[data-slot-id]")).toBeNull();
   });
 
-  it("Test B: renders on the first (topmost) QueuedRow when slots exist", async () => {
-    // Pre-seed two draft slots so we can prove the tab rides on the FIRST
-    // slot (index 0), not the second. slot-A must come before slot-B in
-    // queueSlots order.
+  it("restored queued slots still render, in saved order, above the text field — with no add button on them", async () => {
     vi.mocked(getComposeDraft).mockResolvedValueOnce({
       body: "",
       queueSlots: [
-        { id: "slot-A", text: "" },
-        { id: "slot-B", text: "" },
+        { id: "slot-A", text: "first" },
+        { id: "slot-B", text: "second" },
       ],
     });
 
-    render(<ComposeBox {...baseProps()} />);
-    await flushDraftHydration();
-
-    const tab = screen.getByRole("button", { name: /queue a message/i });
-    const slotContainer = tab.closest("[data-slot-id]");
-    expect(slotContainer).not.toBeNull();
-    // The tab must live inside slot-A (index 0), not slot-B.
-    expect(slotContainer?.getAttribute("data-slot-id")).toBe("slot-A");
-
-    // And the tab must NOT be parented under the primary wrapper.
-    expect(tab.closest("[data-testid='compose-primary-wrapper']")).toBeNull();
-  });
-
-  it("Test C: clicking the tab PREPENDS a new empty slot (not append)", async () => {
     const { container } = render(<ComposeBox {...baseProps()} />);
     await flushDraftHydration();
 
-    // First click: from empty state → one slot exists. That slot's id is
-    // the "first-created" id; the tab now rides on it.
-    await act(async () => {
-      fireEvent.click(screen.getByRole("button", { name: /queue a message/i }));
-      await Promise.resolve();
-      await Promise.resolve();
-    });
-
-    let slots = container.querySelectorAll("[data-slot-id]");
-    expect(slots.length).toBe(1);
-    const firstCreatedId = slots[0]!.getAttribute("data-slot-id");
-    expect(firstCreatedId).toBeTruthy();
-
-    // Second click: another slot is PREPENDED — DOM order should now be
-    // [new, first-created]. If the wiring accidentally appended instead of
-    // prepended, the first-created slot would come first and this test
-    // would fail.
-    await act(async () => {
-      fireEvent.click(screen.getByRole("button", { name: /queue a message/i }));
-      await Promise.resolve();
-      await Promise.resolve();
-    });
-
-    slots = container.querySelectorAll("[data-slot-id]");
-    expect(slots.length).toBe(2);
-    // The FIRST slot in DOM order is the newly-prepended one (its id
-    // differs from firstCreatedId); the SECOND slot in DOM order is the
-    // first-created one.
-    const domFirstId = slots[0]!.getAttribute("data-slot-id");
-    const domSecondId = slots[1]!.getAttribute("data-slot-id");
-    expect(domFirstId).not.toBe(firstCreatedId);
-    expect(domSecondId).toBe(firstCreatedId);
+    const slots = container.querySelectorAll("[data-slot-id]");
+    expect(Array.from(slots).map((el) => el.getAttribute("data-slot-id"))).toEqual(["slot-A", "slot-B"]);
+    // Above the text field in document order.
+    const field = screen.getByTestId("compose-primary-wrapper");
+    // eslint-disable-next-line no-bitwise
+    expect(slots[1]!.compareDocumentPosition(field) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    // Nothing offers to add another.
+    expect(screen.queryByRole("button", { name: /queue a message/i })).toBeNull();
+    // Each restored slot still has its own Send.
+    expect(screen.getAllByRole("button", { name: /send queued message/i })).toHaveLength(2);
   });
 });

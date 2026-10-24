@@ -153,11 +153,17 @@ describe("ComposeBox — hands-free voice mode (aux-row button)", () => {
     expect(screen.getByRole("button", { name: "Start voice mode" })).toBeTruthy();
   });
 
-  it("the voice-mode button sits left of Stop in the aux row", () => {
-    render(<ComposeBox {...props({ onInterrupt: vi.fn() })} />);
+  it("the voice-mode button sits between the memory gauge and the mic / Stop in the control row", () => {
+    render(<ComposeBox {...props({ onInterrupt: vi.fn(), agentWorking: true })} />);
+    const gauge = screen.getByTestId("memory-gauge");
     const vm = screen.getByTestId("voice-mode-button");
+    const micBtn = screen.getByRole("button", { name: "Record voice" });
     const stop = screen.getByRole("button", { name: "Interrupt" });
-    expect(vm.nextElementSibling).toBe(stop);
+    expect(screen.getByTestId("compose-row").contains(vm)).toBe(true);
+    expect(gauge.nextElementSibling).toBe(vm);
+    expect(vm.nextElementSibling).toBe(micBtn);
+    // eslint-disable-next-line no-bitwise
+    expect(micBtn.compareDocumentPosition(stop) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 
   it("the chip's mute toggle shows Muted while listening, and unmutes", async () => {
@@ -278,7 +284,7 @@ describe("ComposeBox — hands-free voice mode (aux-row button)", () => {
     expect((screen.getByRole("button", { name: "Start voice mode" }) as HTMLButtonElement).disabled).toBe(false);
   });
 
-  it("the start button is disabled while a manual recording is running", async () => {
+  it("the voice-mode button steps aside while this composer is recording", async () => {
     render(<ComposeBox {...props()} />);
     const btn = mic();
     await act(async () => {
@@ -287,7 +293,9 @@ describe("ComposeBox — hands-free voice mode (aux-row button)", () => {
     });
     await flush(50);
     expect(screen.getByRole("button", { name: "Cancel recording" })).toBeTruthy();
-    expect((screen.getByRole("button", { name: "Start voice mode" }) as HTMLButtonElement).disabled).toBe(true);
+    // shape-conversation-view: voice mode (and the main button) step aside
+    // for Cancel · add to text · Send while dictating here.
+    expect(screen.queryByTestId("voice-mode-button")).toBeNull();
   });
 
   it("a manual recording in one pane disables the voice-mode button in other panes", async () => {

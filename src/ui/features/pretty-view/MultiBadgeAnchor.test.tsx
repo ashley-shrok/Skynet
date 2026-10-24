@@ -236,7 +236,7 @@ describe("MultiBadgeAnchor (Phase 93 Slice 2 Task 2)", () => {
     expect(humanCell?.querySelector('[data-appendage="true"]')).toBeNull();
   });
 
-  it("Test 5 (D-01 position): root container has 'absolute top-4 right-5 z-[101]'", () => {
+  it("Test 5 (D-01 position): root container has 'absolute top-3 right-5 z-[101]' (the pill row's top inset)", () => {
     const { container } = render(
       <MultiBadgeAnchor
         participants={{ humans: makeHumans(), agents: [] }}
@@ -252,7 +252,7 @@ describe("MultiBadgeAnchor (Phase 93 Slice 2 Task 2)", () => {
     // Position parity with harness single-badge (per D-01) — same anchor
     // classes as PrettyView.tsx:3349-3366's IdentityBadge.
     expect(anchor?.className).toContain("absolute");
-    expect(anchor?.className).toContain("top-4");
+    expect(anchor?.className).toContain("top-3");
     expect(anchor?.className).toContain("right-5");
     expect(anchor?.className).toContain("z-[101]");
   });

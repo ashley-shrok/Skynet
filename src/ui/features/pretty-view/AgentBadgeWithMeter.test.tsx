@@ -3,9 +3,10 @@
  *
  * AgentBadgeWithMeter is a byte-preserving port of Slice D's agent badge
  * with appendage (Phase 93 Slice 4 retired the source). Renders the plain
- * IdentityBadge + a shrunk meter appendage (sourced via Wave 0
- * `useSessionContextPct`) + a reset button (dispatches to Wave 0
- * `POST /agent-reset` endpoint).
+ * IdentityBadge + the agent-memory pie (MemoryGauge, sourced via Wave 0
+ * `useSessionContextPct`) whose pop-over's Start fresh dispatches to Wave 0
+ * `POST /agent-reset` (shape-conversation-view replaced the segmented meter
+ * + reset button).
  *
  * ## D-10 correctness regression gates (ported verbatim from Slice D)
  *   - Test 2 (READ SIDE — working-state key format): asserts
@@ -97,6 +98,14 @@ const mockedUseSessionContextPct =
   useSessionContextPct as unknown as ReturnType<typeof vi.fn>;
 const mockedPost = authApi.post as unknown as ReturnType<typeof vi.fn>;
 
+// The reset now lives behind the memory pie: tap the gauge, then Start fresh.
+async function clickStartFresh(): Promise<HTMLButtonElement> {
+  fireEvent.click(screen.getByTestId("memory-gauge"));
+  const btn = (await screen.findByRole("button", { name: "Start fresh" })) as HTMLButtonElement;
+  fireEvent.click(btn);
+  return btn;
+}
+
 const DEFAULT_PROPS = {
   identityKey: "nelly",
   mxid: "@nelly:matrix.example.com",
@@ -126,11 +135,8 @@ afterEach(() => {
 describe("AgentBadgeWithMeter (Phase 93 Slice 2 Task 1 — byte-preserving port)", () => {
   it("Test 1: renders the plain IdentityBadge for the given identityKey", () => {
     render(<AgentBadgeWithMeter {...DEFAULT_PROPS} />);
-    // IdentityBadge renders the coordinator watermark (if coordinator) OR
-    // the avatar image. The mock identity is non-coordinator, so no
-    // watermark; assert via the pv-identity-breathe class (root of the
-    // IdentityBadge).
-    const badge = document.querySelector(".pv-identity-breathe");
+    // Assert via the pv-identity-badge class (root of the IdentityBadge).
+    const badge = document.querySelector(".pv-identity-badge");
     expect(badge).not.toBeNull();
   });
 
@@ -148,57 +154,45 @@ describe("AgentBadgeWithMeter (Phase 93 Slice 2 Task 1 — byte-preserving port)
     expect(mockedUseSessionContextPct).toHaveBeenCalledWith(5, "nelly");
   });
 
-  it("Test 4: contextPct=30 → green band lit segments render", () => {
+  it("Test 4: contextPct=30 → grey band (silent while there's room)", () => {
     mockedUseSessionContextPct.mockReturnValue(30);
     render(<AgentBadgeWithMeter {...DEFAULT_PROPS} />);
-    const meter = screen.getByRole("meter");
-    expect(meter).toHaveAttribute("aria-valuenow", "30");
+    const meter = screen.getByTestId("memory-gauge");
+    expect(meter).toHaveAttribute("data-pct", "30");
+    expect(meter).toHaveAttribute("aria-label", "Agent memory: 30% used");
+    expect(meter).toHaveAttribute("data-band", "grey");
   });
 
   it("Test 5: contextPct=50 → amber band (threshold 45)", () => {
     mockedUseSessionContextPct.mockReturnValue(50);
     render(<AgentBadgeWithMeter {...DEFAULT_PROPS} />);
-    const meter = screen.getByRole("meter");
-    expect(meter).toHaveAttribute("aria-valuenow", "50");
-    // Use data-band (jsdom-stable) not style.background (jsdom normalizes
-    // hsla → rgba per Plan 02 Deviation 2).
-    const segments = meter.querySelectorAll("[data-seg]");
-    let amberCount = 0;
-    segments.forEach((seg) => {
-      if (seg.getAttribute("data-band") === "amber") amberCount++;
-    });
-    expect(amberCount).toBeGreaterThan(0);
+    const meter = screen.getByTestId("memory-gauge");
+    expect(meter).toHaveAttribute("data-pct", "50");
+    expect(meter).toHaveAttribute("aria-label", "Agent memory: 50% used");
+    expect(meter).toHaveAttribute("data-band", "amber");
   });
 
   it("Test 6: contextPct=80 → red band (threshold 78)", () => {
     mockedUseSessionContextPct.mockReturnValue(80);
     render(<AgentBadgeWithMeter {...DEFAULT_PROPS} />);
-    const meter = screen.getByRole("meter");
-    expect(meter).toHaveAttribute("aria-valuenow", "80");
-    const segments = meter.querySelectorAll("[data-seg]");
-    let redCount = 0;
-    segments.forEach((seg) => {
-      if (seg.getAttribute("data-band") === "red") redCount++;
-    });
-    expect(redCount).toBeGreaterThan(0);
+    const meter = screen.getByTestId("memory-gauge");
+    expect(meter).toHaveAttribute("data-pct", "80");
+    expect(meter).toHaveAttribute("aria-label", "Agent memory: 80% used");
+    expect(meter).toHaveAttribute("data-band", "red");
   });
 
-  it("Test 7: contextPct=null → meter aria-valuenow absent + tooltip 'Context (unknown)'", () => {
+  it("Test 7: contextPct=null → no reading (data-pct absent) + label 'Agent memory'", () => {
     mockedUseSessionContextPct.mockReturnValue(null);
     render(<AgentBadgeWithMeter {...DEFAULT_PROPS} />);
-    const meter = screen.getByRole("meter");
-    // valuenow may be absent OR undefined
-    expect(meter.getAttribute("aria-valuenow")).toBeNull();
-    expect(meter).toHaveAttribute("title", "Context (unknown)");
+    const meter = screen.getByTestId("memory-gauge");
+    expect(meter.getAttribute("data-pct")).toBeNull();
+    expect(meter).toHaveAttribute("title", "Agent memory");
   });
 
   it("Test 8 (D-10 WRITE-SIDE regression gate): reset click fires authApi.post with /agent-reset/${hostId}/${encodeURIComponent(tmuxSessionName)}", async () => {
     mockedPost.mockResolvedValueOnce({ status: 200, data: { ok: true } });
     render(<AgentBadgeWithMeter {...DEFAULT_PROPS} />);
-    const resetBtn = screen.getByRole("button", {
-      name: /reset context window/i,
-    });
-    fireEvent.click(resetBtn);
+    await clickStartFresh();
     await waitFor(() => {
       expect(mockedPost).toHaveBeenCalledTimes(1);
     });
@@ -211,10 +205,7 @@ describe("AgentBadgeWithMeter (Phase 93 Slice 2 Task 1 — byte-preserving port)
     // Override the default beforeEach stub with false.
     const dialogs = autoAnswerKitDialogs({ confirm: false });
     render(<AgentBadgeWithMeter {...DEFAULT_PROPS} />);
-    const resetBtn = screen.getByRole("button", {
-      name: /reset context window/i,
-    });
-    fireEvent.click(resetBtn);
+    await clickStartFresh();
     await waitFor(() => expect(dialogs.calls).toHaveLength(1));
     expect(dialogs.calls[0].kind).toBe("confirm");
     await new Promise((r) => setTimeout(r, 0));
@@ -230,10 +221,7 @@ describe("AgentBadgeWithMeter (Phase 93 Slice 2 Task 1 — byte-preserving port)
         tmuxSessionName="agent name with spaces"
       />,
     );
-    const resetBtn = screen.getByRole("button", {
-      name: /reset context window/i,
-    });
-    fireEvent.click(resetBtn);
+    await clickStartFresh();
     await waitFor(() => {
       expect(mockedPost).toHaveBeenCalledTimes(1);
     });
@@ -244,8 +232,8 @@ describe("AgentBadgeWithMeter (Phase 93 Slice 2 Task 1 — byte-preserving port)
     );
   });
 
-  it("Test 9: reset button disabled while in-flight (prevents double-fire)", async () => {
-    // Never-resolving promise so the button stays in-flight.
+  it("Test 9: Start fresh disabled while in-flight (prevents double-fire)", async () => {
+    // Never-resolving promise so the reset stays in-flight.
     let resolvePost: (v: unknown) => void = () => {};
     mockedPost.mockReturnValueOnce(
       new Promise((r) => {
@@ -253,21 +241,19 @@ describe("AgentBadgeWithMeter (Phase 93 Slice 2 Task 1 — byte-preserving port)
       }),
     );
     render(<AgentBadgeWithMeter {...DEFAULT_PROPS} />);
-    const resetBtn = screen.getByRole("button", {
-      name: /reset context window/i,
-    });
-    fireEvent.click(resetBtn);
-    // Immediately after click, the button should be disabled.
-    await waitFor(() => {
-      expect(resetBtn).toBeDisabled();
-    });
+    await clickStartFresh();
+    await waitFor(() => expect(mockedPost).toHaveBeenCalledTimes(1));
+    // The pop-over closes on Start fresh; reopen it — the button is disabled.
+    fireEvent.click(screen.getByTestId("memory-gauge"));
+    const again = (await screen.findByRole("button", { name: "Start fresh" })) as HTMLButtonElement;
+    expect(again).toBeDisabled();
     // Rapid second click — must NOT fire the request again.
-    fireEvent.click(resetBtn);
+    fireEvent.click(again);
     expect(mockedPost).toHaveBeenCalledTimes(1);
     // Resolve the request — button re-enables.
     resolvePost({ status: 200, data: { ok: true } });
     await waitFor(() => {
-      expect(resetBtn).not.toBeDisabled();
+      expect(screen.getByRole("button", { name: "Start fresh" })).not.toBeDisabled();
     });
   });
 
@@ -275,10 +261,7 @@ describe("AgentBadgeWithMeter (Phase 93 Slice 2 Task 1 — byte-preserving port)
     const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
     mockedPost.mockRejectedValueOnce(new Error("network failed"));
     render(<AgentBadgeWithMeter {...DEFAULT_PROPS} />);
-    const resetBtn = screen.getByRole("button", {
-      name: /reset context window/i,
-    });
-    fireEvent.click(resetBtn);
+    await clickStartFresh();
     await waitFor(() => {
       expect(warnSpy).toHaveBeenCalled();
     });
@@ -293,78 +276,20 @@ describe("AgentBadgeWithMeter (Phase 93 Slice 2 Task 1 — byte-preserving port)
     warnSpy.mockRestore();
   });
 
-  it("Test 11: isRecycling=true → meter renders in a draining/holding style (all segments unlit)", () => {
+  it("Test 11: isRecycling=true → the pie shows as emptied (unknown, grey) regardless of contextPct", () => {
     mockedUseSessionIsRecycling.mockReturnValue(true);
     mockedUseSessionContextPct.mockReturnValue(50);
     render(<AgentBadgeWithMeter {...DEFAULT_PROPS} />);
-    const meter = screen.getByRole("meter");
-    const segments = meter.querySelectorAll("[data-seg]");
-    // Every segment should carry data-lit="false" when recycling (the
-    // isDrainingLike gate flips every segment unlit regardless of contextPct).
-    let neutralCount = 0;
-    segments.forEach((seg) => {
-      if (seg.getAttribute("data-lit") === "false") neutralCount++;
-    });
-    expect(neutralCount).toBe(segments.length);
+    const meter = screen.getByTestId("memory-gauge");
+    expect(meter.getAttribute("data-pct")).toBeNull();
+    expect(meter).toHaveAttribute("data-band", "grey");
   });
 
   it("Test 12: appendage container carries data-appendage='true' (D-09 humans-no-appendage discriminator preserved)", () => {
     render(<AgentBadgeWithMeter {...DEFAULT_PROPS} />);
     const appendage = document.querySelector("[data-appendage='true']");
     expect(appendage).not.toBeNull();
-  });
-
-  it("Test 13: --meter-width CSS custom property set to a shrunk 6rem value", () => {
-    render(<AgentBadgeWithMeter {...DEFAULT_PROPS} />);
-    const meter = screen.getByRole("meter");
-    const style = meter.getAttribute("style") ?? "";
-    // shrunk value expected — 6rem (vs pane-wide 12rem per PATTERNS.md § meter well)
-    expect(style).toMatch(/--meter-width:\s*6rem/);
-  });
-
-  // ─── Phase 97 Finding 5: drawer chrome regression gates ──────────────────
-  //
-  // The appendage div is now wrapped by a `data-drawer="true"` container per
-  // Variant A of meter-tasting.html (margin-top: -8px tuck, z-index: 1 behind
-  // pill, padding-top: 10px above meter body). The meter-well's corner + border
-  // tokens are adjusted: `rounded-b-md` (bottom corners only) + `border-t-0`
-  // (no top border) — the tuck edge reads invisible.
-
-  it("Test 14 (Phase 97 F-5): drawer wrapper (data-drawer='true') wraps the appendage div and carries the tuck geometry (-mt-2 + pt-[10px] + zIndex:1)", () => {
-    render(<AgentBadgeWithMeter {...DEFAULT_PROPS} />);
-    const drawer = document.querySelector("[data-drawer='true']");
-    expect(drawer).not.toBeNull();
-    const drawerClass = drawer!.getAttribute("class") ?? "";
-    // Tailwind tokens matching prototype meter-tasting.html:164-168.
-    expect(drawerClass).toMatch(/-mt-2/);
-    expect(drawerClass).toMatch(/pt-\[10px\]/);
-    // Inline style carries zIndex: 1 (behind pill's implicit stacking).
-    const drawerStyle = drawer!.getAttribute("style") ?? "";
-    expect(drawerStyle).toMatch(/z-index:\s*1/);
-    // Drawer must be the parent of the appendage div.
-    const appendage = drawer!.querySelector("[data-appendage='true']");
-    expect(appendage).not.toBeNull();
-  });
-
-  it("Test 15 (Phase 97 F-5): meter-well corners squared at top + rounded at bottom + no top border (`rounded-b-md` + `border-t-0`; no `rounded-md` or `rounded-t-md`)", () => {
-    render(<AgentBadgeWithMeter {...DEFAULT_PROPS} />);
-    const meter = screen.getByRole("meter");
-    const meterClass = meter.getAttribute("class") ?? "";
-    expect(meterClass).toMatch(/\brounded-b-md\b/);
-    expect(meterClass).toMatch(/\bborder-t-0\b/);
-    // Full-round or top-rounded tokens must NOT be present — the meter-well
-    // must read as tucked-under-a-pill, not free-floating.
-    expect(meterClass).not.toMatch(/\brounded-md\b/);
-    expect(meterClass).not.toMatch(/\brounded-t-md\b/);
-  });
-
-  it("Test 16 (Phase 97 F-5): appendage className no longer carries the old `mt-1` (spacer role replaced by drawer's `-mt-2` + `pt-[10px]` geometry)", () => {
-    render(<AgentBadgeWithMeter {...DEFAULT_PROPS} />);
-    const appendage = document.querySelector("[data-appendage='true']");
-    expect(appendage).not.toBeNull();
-    const appendageClass = appendage!.getAttribute("class") ?? "";
-    // The 4px `mt-1` spacer that used to sit between the pill and the
-    // appendage is REMOVED — the drawer's -mt-2 + pt-[10px] replaces it.
-    expect(appendageClass).not.toMatch(/\bmt-1\b/);
+    // The memory pie lives inside it.
+    expect(appendage!.querySelector("[data-testid='memory-gauge']")).not.toBeNull();
   });
 });

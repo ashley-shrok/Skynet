@@ -839,16 +839,25 @@ describe("cleanup", () => {
 // ===========================================================================
 
 describe("API surface", () => {
-  it("T14: hook result has exactly {scrollRef, jumpToBottom, onSendFired, mode, revealed} — no legacy props", () => {
+  it("T14: hook result has exactly {scrollRef, jumpToBottom, onSendFired, noteScrolledAway, noteLayoutChanged, mode, revealed} — no legacy props", () => {
     const { result } = renderHook(() => useAutoScroll("pane-A"));
 
     const keys = Object.keys(result.current).sort();
     // This exact-key-set assertion is the single source of truth for the hook's
     // API surface. Any legacy prop would cause a key-mismatch failure here — the
-    // allowed set is exhaustive (jumpToBottom, mode, onSendFired, revealed, scrollRef).
+    // allowed set is exhaustive (jumpToBottom, mode, noteLayoutChanged,
+    // noteScrolledAway, onSendFired, revealed, scrollRef).
     // No additional per-prop assertions are needed; the toEqual check already
     // enforces the absence of any legacy identifiers.
-    expect(keys).toEqual(["jumpToBottom", "mode", "onSendFired", "revealed", "scrollRef"]);
+    expect(keys).toEqual([
+      "jumpToBottom",
+      "mode",
+      "noteLayoutChanged",
+      "noteScrolledAway",
+      "onSendFired",
+      "revealed",
+      "scrollRef",
+    ]);
   });
 });
 

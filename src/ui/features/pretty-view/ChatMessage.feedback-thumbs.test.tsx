@@ -74,7 +74,7 @@ describe("ChatMessage feedback-thumbs (shape 3)", () => {
 
   // ─── D-53 case 1: Feedback OFF rendering ────────────────────────────────
 
-  it("Test 1: feedback OFF renders in-bubble speak; no strip, no thumbs; bubble has pr-[42px]", () => {
+  it("Test 1: feedback OFF renders the speak button beside the agent bubble; no strip, no thumbs", () => {
     vi.mocked(useFeedbackEnabled).mockReturnValue(false);
 
     const { container } = render(
@@ -86,10 +86,13 @@ describe("ChatMessage feedback-thumbs (shape 3)", () => {
     const inBubbleSpeak = container.querySelector(".pv-speak-btn");
     expect(inBubbleSpeak).not.toBeNull();
 
-    // Bubble div retains the pr-[42px] pocket for the in-bubble speak button.
+    // shape-conversation-view: the agent bubble's look and padding live in
+    // conversation.css (pv-bubble-agent); the speak button carries no inline
+    // style (it sits just outside the bubble's corner via CSS).
     const bubble = container.querySelector(".pv-bubble") as HTMLElement | null;
     expect(bubble).not.toBeNull();
-    expect(bubble!.className).toContain("pr-[42px]");
+    expect(bubble!.className).toContain("pv-bubble-agent");
+    expect((inBubbleSpeak as HTMLElement).getAttribute("style")).toBeNull();
 
     // No strip. No thumbs.
     expect(screen.queryByTestId("pv-chat-message-action-strip")).toBeNull();
@@ -99,19 +102,18 @@ describe("ChatMessage feedback-thumbs (shape 3)", () => {
 
   // ─── D-53 case 2: Feedback ON rendering ─────────────────────────────────
 
-  it("Test 2: feedback ON renders strip with speak+thumbsUp+thumbsDown; bubble has symmetric pr-[12px]", () => {
+  it("Test 2: feedback ON renders strip with speak+thumbsUp+thumbsDown (pv-strip-btn); no speak button beside the bubble", () => {
     vi.mocked(useFeedbackEnabled).mockReturnValue(true);
 
     const { container } = render(
       <ChatMessage role="assistant" content="hello" eventId="e1" />,
     );
 
-    // Bubble padding collapsed to symmetric pr-[12px], not pr-[42px].
+    // The speak button moves into the strip — none beside the bubble.
     const bubble = container.querySelector(".pv-bubble") as HTMLElement | null;
     expect(bubble).not.toBeNull();
-    expect(bubble!.className).toContain("pl-[12px]");
-    expect(bubble!.className).toContain("pr-[12px]");
-    expect(bubble!.className).not.toContain("pr-[42px]");
+    expect(bubble!.className).toContain("pv-bubble-agent");
+    expect(container.querySelector(".pv-speak-btn")).toBeNull();
 
     // Strip present; three children in left-to-right order.
     const strip = screen.getByTestId("pv-chat-message-action-strip");
@@ -120,6 +122,7 @@ describe("ChatMessage feedback-thumbs (shape 3)", () => {
     expect(buttons[0].getAttribute("data-testid")).toBe("pv-chat-message-speak");
     expect(buttons[1].getAttribute("data-testid")).toBe("pv-chat-message-thumbs-up");
     expect(buttons[2].getAttribute("data-testid")).toBe("pv-chat-message-thumbs-down");
+    buttons.forEach((b) => expect(b.className).toContain("pv-strip-btn"));
   });
 
   // ─── D-53 case 3: Thumbs-up flow ────────────────────────────────────────
@@ -256,7 +259,7 @@ describe("ChatMessage feedback-thumbs (shape 3)", () => {
 
   // ─── D-53 case 10 (ChatMessage-scope slice): user bubble unaffected ─────
 
-  it("Test 8: role='user' with feedback ON does not render strip/thumbs and keeps px-[12px] padding", () => {
+  it("Test 8: role='user' with feedback ON does not render strip/thumbs and stays the neutral user bubble", () => {
     // INTENTIONAL OVERLAP: Plan 02's PrettyView-scope Test 8 verifies the
     // same D-53 case 10 from the PrettyView angle (full tree + user-message
     // fixture). This ChatMessage-scope test verifies the same case at the
@@ -273,13 +276,11 @@ describe("ChatMessage feedback-thumbs (shape 3)", () => {
     expect(screen.queryByTestId("pv-chat-message-thumbs-up")).toBeNull();
     expect(screen.queryByTestId("pv-chat-message-thumbs-down")).toBeNull();
 
-    // User bubble keeps its px-[12px] py-[7px] padding — not the
-    // assistant's pl-[12px] pr-[42px] pocket, and not the feedback-ON
-    // symmetric pl-[12px] pr-[12px].
+    // User bubble is the neutral one (pv-bubble-user), not the agent's.
     const bubble = container.querySelector(".pv-bubble") as HTMLElement | null;
     expect(bubble).not.toBeNull();
-    expect(bubble!.className).toContain("px-[12px]");
-    expect(bubble!.className).not.toContain("pr-[42px]");
+    expect(bubble!.className).toContain("pv-bubble-user");
+    expect(bubble!.className).not.toContain("pv-bubble-agent");
   });
 
   // ─── Defensive: missing eventId is a no-op ──────────────────────────────
