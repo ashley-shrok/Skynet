@@ -14,8 +14,8 @@ import { refreshSkillActions, useSkillActions, type SkillActionEntry } from "./s
 // of the host's skills (the Skills editor's set, minus agent-only skills —
 // `user-invocable: false`, which the harness won't run from `/<name>`); picking one fires it at
 // once as `/<name>` through the same quick-send path ThumbsUp uses. Hidden
-// until the host is known to have at least one skill. Deliberately no
-// curation, grouping, search, or arguments in v1.
+// until the host is known to have at least one skill. No curation,
+// grouping, or arguments.
 
 // Kit pop-over (shape-conversation-view): a search field on top, a lettered
 // tile in each skill's own steady colour, two-line descriptions.
@@ -144,8 +144,12 @@ export function SkillActionsButton({
                   return;
                 }
                 if (e.key === "Enter") {
+                  // Mid-composition Enter picks the IME's candidate, not a skill.
+                  if (e.nativeEvent.isComposing || e.keyCode === 229) return;
                   e.preventDefault();
-                  if (shown[0]) {
+                  // Only a typed search picks its top match — a reflex Enter
+                  // on an opened menu sends nothing.
+                  if (query.trim() !== "" && shown[0]) {
                     fire(shown[0].name);
                     setOpenList(null);
                     setQuery("");

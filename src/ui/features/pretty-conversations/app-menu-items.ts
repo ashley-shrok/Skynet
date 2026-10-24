@@ -93,7 +93,10 @@ export function buildAppMenuItems(
             slug: app.slug,
             errMessage,
           });
-          window.alert(`Couldn't ask the agent to move "${app.title}" to the sidebar: ${errMessage}`);
+          void kitAlert({
+            title: "Couldn't move it to the sidebar",
+            body: `Couldn't ask the agent to move "${app.title}" to the sidebar: ${errMessage}`,
+          });
         }
       },
     },

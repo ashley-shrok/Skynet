@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import {
+  frontmatterName,
   isModelInvocationDisabled,
   isUserInvocationDisabled,
   setModelInvocationDisabled,
@@ -83,11 +84,22 @@ describe("skill-frontmatter", () => {
 
 describe("frontmatterName", () => {
   it("reads plain, quoted and commented names; null when absent", async () => {
-    const { frontmatterName } = await import("./skill-frontmatter");
     expect(frontmatterName("---\nname: build\n---\n")).toBe("build");
     expect(frontmatterName("---\nname: \"build\" \n---\n")).toBe("build");
     expect(frontmatterName("---\nname: build # x\n---\n")).toBe("build");
     expect(frontmatterName("---\ndescription: x\n---\nname: body\n")).toBeNull();
     expect(frontmatterName("# no frontmatter\n")).toBeNull();
+  });
+
+  it("finds the block past a byte-order mark, spaced fences and a mixed-ending body", () => {
+    const bom = "\uFEFF---\nname: x\n---\nbody\n";
+    expect(setUserInvocationDisabled(bom, true)).toBe("\uFEFF---\nname: x\nuser-invocable: false\n---\nbody\n");
+    expect(frontmatterName(bom)).toBe("x");
+    expect(setUserInvocationDisabled("---\nname: x\n---\nline\r\nmore\n", true)).toBe(
+      "---\nname: x\nuser-invocable: false\n---\nline\r\nmore\n",
+    );
+    expect(setUserInvocationDisabled("--- \nname: x\n---  \nb\n---\nrule\n", true)).toBe(
+      "---\nname: x\nuser-invocable: false\n---\nb\n---\nrule\n",
+    );
   });
 });

@@ -28,14 +28,19 @@ export function ArchivedRolesView({
   archived,
   onBack,
   onRestored,
+  restored,
 }: {
   hostId: number;
   hostName: string;
   archived: TabState<ArchivedRoleListEntry[]>;
   onBack: () => void;
-  onRestored: () => void;
+  onRestored: (name: string) => void;
+  /** Roles restored earlier while this window was open (still listed by the server until they land). */
+  restored?: ReadonlySet<string>;
 }): JSX.Element {
-  const [state, setState] = useState<Record<string, "restoring" | "restored">>({});
+  const [state, setState] = useState<Record<string, "restoring" | "restored">>(() =>
+    Object.fromEntries([...(restored ?? [])].map((n) => [n, "restored" as const])),
+  );
 
   const restore = (entry: ArchivedRoleListEntry): void => {
     setState((s) => ({ ...s, [entry.name]: "restoring" }));
@@ -43,7 +48,7 @@ export function ArchivedRolesView({
       .then(() => {
         console.info({ operation: "role_unarchive_requested", hostId, roleName: entry.name });
         setState((s) => ({ ...s, [entry.name]: "restored" }));
-        onRestored();
+        onRestored(entry.name);
       })
       .catch((err: unknown) => {
         setState((s) => {

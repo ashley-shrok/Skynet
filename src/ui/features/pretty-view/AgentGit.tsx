@@ -48,7 +48,7 @@ import { splitPatch, type PatchFile } from "./git-patch";
 /** What a diff view shows: one file of the working tree, or a patch already in hand. */
 export type GitDiffSource =
   | { source: "working"; repoPath: string; path: string | null }
-  | { source: "patch"; patch: string };
+  | { source: "patch"; patch: string; truncated?: boolean };
 
 /** Shared state for every git view of one agent: remote checks + refresh. */
 export interface AgentGitState {
@@ -340,7 +340,9 @@ export function AgentGitCommit({
               <KitButton
                 size="sm"
                 variant="plain"
-                onClick={() => onOpenDiff({ source: "patch", patch: state.data.patch }, commit.subject, `${short} · every file`)}
+                onClick={() =>
+                  onOpenDiff({ source: "patch", patch: state.data.patch, truncated: state.data.truncated }, commit.subject, `${short} · every file`)
+                }
                 data-testid="agent-git-commit-all"
               >
                 View all
@@ -348,13 +350,21 @@ export function AgentGitCommit({
             </span>
           }
         >
-          {files.map((f) => (
+          {files.map((f, i) => (
             <KitSettingsRow
-              key={f.path}
+              // A path that changes type (file ↔ symlink) is two entries.
+              key={`${i}:${f.path}`}
               data-testid="git-commit-file-row"
               label={<span className="font-mono text-[13px] font-normal break-all">{f.oldPath ? `${f.oldPath} → ${f.path}` : f.path}</span>}
               value={<FileCounts file={f} />}
-              onClick={() => onOpenDiff({ source: "patch", patch: f.patch }, f.path, `${short} · ${commit.subject}`)}
+              // A cut-short patch ends partway through its last file.
+              onClick={() =>
+                onOpenDiff(
+                  { source: "patch", patch: f.patch, truncated: state.data.truncated && i === files.length - 1 },
+                  f.path,
+                  `${short} · ${commit.subject}`,
+                )
+              }
             />
           ))}
         </KitSettingsGroup>
@@ -393,7 +403,7 @@ export function AgentGitDiff({ git, source }: { git: AgentGitState; source: GitD
       </div>
       <div className={`flex-1 min-h-0 overflow-auto ${PAD} pb-4`}>
         {source.source === "patch" ? (
-          <PatchBody patch={source.patch} truncated={false} layout={layout} />
+          <PatchBody patch={source.patch} truncated={source.truncated === true} layout={layout} />
         ) : (
           <WorkingDiff git={git} source={source} layout={layout} />
         )}
@@ -431,6 +441,16 @@ function WorkingDiff({
   }, [state, source.path]);
   if (state.status === "loading") return <KitLoading label="Loading changes…" />;
   if (state.status === "error") return <ErrorBanner errorClass={state.errorClass} />;
+  // A file listed as changed but missing from the diff fell past its limits
+  // (the first 50 new files; the first 2 MB) — say so, not "no differences".
+  if (source.path !== null && patch.trim() === "" && state.data.patch.trim() !== "") {
+    return (
+      <KitEmpty
+        title="This file's changes aren't shown."
+        body="The changes view covers the first 50 new files and the first 2 MB of changes."
+      />
+    );
+  }
   return <PatchBody patch={patch} truncated={state.data.truncated} layout={layout} />;
 }
 

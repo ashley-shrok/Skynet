@@ -9,8 +9,10 @@
 // A key's indented continuation lines belong to it: replacing or clearing
 // an owned key takes them along; other keys keep theirs.
 
-// The block may be empty (`---\n---\n`).
-const FM_RE = /^---\r?\n(?:([\s\S]*?)\r?\n)?---(?:\r?\n|$)/;
+// The block may be empty (`---\n---\n`). A leading byte-order mark and
+// trailing spaces on the `---` lines are tolerated, as the server's
+// migrations do.
+const FM_RE = /^\uFEFF?---[ \t]*\r?\n(?:([\s\S]*?)\r?\n)?---[ \t]*(?:\r?\n|$)/;
 const KEY_RE = /^([A-Za-z_][A-Za-z0-9_-]*)\s*:\s*(.*)$/;
 
 /** Keys the roles window writes. Anything else in the frontmatter is kept. */
@@ -75,8 +77,9 @@ export function mergeRoleFrontmatter(
     if (val !== undefined && val !== "") out.push(`${key}: ${yamlScalar(val)}`);
   }
   // Without a frontmatter block the whole input is body.
-  const body = found ? rest : currentBody;
-  return `---\n${out.join("\n")}${out.length ? "\n" : ""}---\n` + body;
+  const bom = currentBody.startsWith("\uFEFF") ? "\uFEFF" : "";
+  const body = found ? rest : currentBody.slice(bom.length);
+  return `${bom}---\n${out.join("\n")}${out.length ? "\n" : ""}---\n` + body;
 }
 
 // Words YAML would read as something other than a string.

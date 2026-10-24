@@ -393,7 +393,10 @@ export function PreferencesAboutYouPane({
     ) : null;
 
   let main: React.ReactNode;
-  if (agentHosts.length === 0) {
+  if (hostTree === null) {
+    // The machine list hasn't arrived yet (first load, nothing cached).
+    main = <KitLoading label="Loading machines…" className="py-10" />;
+  } else if (agentHosts.length === 0) {
     main = (
       <KitEmpty
         className="py-10"

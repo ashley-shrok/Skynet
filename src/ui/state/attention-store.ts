@@ -305,6 +305,7 @@ export function isDmd(k: Key | null): boolean {
 // jumps to the oldest message it hasn't seen. `since` is the seen mark before
 // this clear. Not raised for DMs that land while the user is already watching.
 const dmArrivalListeners = new Map<Key, Set<(since: number) => void>>();
+const DM_TIME_SLACK_MS = 60_000;
 // An arrival raised before the conversation's view was there to hear it (its
 // code still loading): handed to the view when it subscribes, if still fresh.
 const pendingDmArrival = new Map<Key, { since: number; at: number }>();
@@ -339,7 +340,11 @@ export function markSeen(hostId: string | number, identityName: string, arrived 
   let changed = false;
   // DMs need no baseline: a DM in the map is always one to clear.
   const dm = getUnseenDmAt(k);
-  const seenBefore = dmSeen.get(k) ?? 0;
+  // No seen mark yet (a conversation whose DMs predate tracking): count only
+  // the latest DM as unseen — with a little slack, since its time comes from
+  // the relay and the message's own from the transcript — not the whole
+  // history back to the first message to the user.
+  const seenBefore = dmSeen.get(k) ?? (dm !== null ? Math.max(0, dm - DM_TIME_SLACK_MS) : 0);
   if (dm !== null && advanceMax(dmSeen, k, dm)) {
     changed = true;
     if (arrived) {

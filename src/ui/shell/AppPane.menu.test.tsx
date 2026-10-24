@@ -264,14 +264,14 @@ describe("AppPane bar menu — conversation app", () => {
 
   it("a failed request is reported and the item comes back", async () => {
     vi.mocked(requestAppPromotion).mockRejectedValueOnce(new Error("Host unreachable"));
-    const alert = vi.spyOn(window, "alert").mockImplementation(() => {});
+    const dialogs = autoAnswerKitDialogs();
     vi.spyOn(console, "warn").mockImplementation(() => {});
     const { container } = render(
       <AppPane hostId={1} slug="tally" tabId="t1" isVisible onCloseTab={vi.fn()} />,
     );
     clickItem(await openKebab(container), "Move to sidebar");
-    await vi.waitFor(() => expect(alert).toHaveBeenCalled());
-    expect(String(alert.mock.calls[0][0])).toContain("Host unreachable");
+    await vi.waitFor(() => expect(dialogs.calls.some((c) => c.kind === "alert")).toBe(true));
+    expect(String(dialogs.calls.find((c) => c.kind === "alert")?.opts.body)).toContain("Host unreachable");
     cleanup();
     const again = render(
       <AppPane hostId={1} slug="tally" tabId="t1" isVisible onCloseTab={vi.fn()} />,

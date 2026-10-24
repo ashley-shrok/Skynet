@@ -82,10 +82,15 @@ export function MdxEditorImpl({
   const editorRef = useRef<MDXEditorMethods>(null);
   const lastKnownRef = useRef<string>(content);
   const rootRef = useRef<HTMLDivElement>(null);
+  // The file as loaded and the editor's own re-serialised form of it. When an
+  // edit comes back to exactly that form (type then undo), the file as loaded
+  // is passed on instead — it's unchanged, not an edit.
+  const loadedFormRef = useRef<{ raw: string; normalized: string } | null>(null);
 
   useEffect(() => {
     if (content === lastKnownRef.current) return;
     lastKnownRef.current = content;
+    loadedFormRef.current = null;
     editorRef.current?.setMarkdown(content);
   }, [content]);
 
@@ -132,9 +137,14 @@ export function MdxEditorImpl({
         // final newline). That isn't an edit: passing it on would mark the
         // file changed just by opening it (or switching to Formatted) and
         // rewrite its formatting on the next save.
-        if (initialMarkdownNormalize) return;
-        lastKnownRef.current = md;
-        onChange(md);
+        if (initialMarkdownNormalize) {
+          loadedFormRef.current = { raw: lastKnownRef.current, normalized: md };
+          return;
+        }
+        const loaded = loadedFormRef.current;
+        const next = loaded && md === loaded.normalized ? loaded.raw : md;
+        lastKnownRef.current = next;
+        onChange(next);
       }}
       readOnly={disabled || readOnly}
       // Disable the mdast-util-mdx-jsx extension so bare `<thing>` /

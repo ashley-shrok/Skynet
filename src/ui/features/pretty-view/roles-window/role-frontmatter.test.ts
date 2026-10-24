@@ -194,4 +194,10 @@ describe("multi-line values and YAML edge cases", () => {
   it("an empty frontmatter block is merged into, not stacked on", () => {
     expect(mergeRoleFrontmatter("---\n---\nbody\n", { voice: "Danielle" })).toBe("---\nvoice: Danielle\n---\nbody\n");
   });
+
+  it("keeps a byte-order mark and reads past spaced fences", () => {
+    const md = "\uFEFF--- \ndisplayName: X\n---\nbody\n";
+    expect(mergeRoleFrontmatter(md, { colorHue: 120 })).toBe("\uFEFF---\ndisplayName: X\ncolorHue: '120'\n---\nbody\n");
+    expect(readRoleFrontmatterValue(md, "displayName")).toBe("X");
+  });
 });

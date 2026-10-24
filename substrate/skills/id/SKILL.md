@@ -612,8 +612,8 @@ own web origin under the wildcard cert.
 ## The app's user interface — what the user sees, how you drive it
 
 The user reaches you through an app whose main surface is a chat client:
-a **conversation list** down the side (a sidebar on desktop, a top strip
-on mobile), and the **content area** on the right where individual
+a **conversation list** down the side (a sidebar on desktop, its own
+full screen on a phone), and the **content area** on the right where individual
 conversations open. Everything below is a mapping so that:
 
 - when the user asks "how do I do X in the app?", you can point her at
@@ -645,8 +645,8 @@ menu in the header and no "new group conversation" control in the app.
 - **✏️ Pencil-on-paper — new conversation.** Opens the **New
   conversation** dialog. Admins first see an **Agent / Shell** switch at
   the top (anyone else never does, and has no way to open a plain shell);
-  Shell shows the machine list with a search box, an optional name and a
-  path, as before. For an agent:
+  Shell shows the machine list with a search box (no list when there's
+  only one machine), an optional name and a path. For an agent:
   - **Roles** is a list right in the dialog: each role's picture, name
     ("· on every host" for a role kept on every host), its one-line
     description and a check when picked. It's grouped by machine —
@@ -664,7 +664,8 @@ menu in the header and no "new group conversation" control in the app.
     opens the roles window (drama masks) straight on its new-role form
     (on the machine of the roles already picked, if any) and, once the
     role is made, comes back with the earlier picks plus the new role;
-    backing out comes back as the user left it.
+    backing out (back or Cancel) comes back as the user left it; closing
+    the roles window with its ✕ drops the picks instead.
   - **Name** is always shown, already filled with a suggested name
     ("Suggested — change it if you like."); typing replaces it, and a
     name that's taken on that machine or in Skynet says so. A roleless
@@ -688,7 +689,7 @@ placeholder.
 **Typing filters the sidebar in place.** As the user types, every section
 (Apps / Pinned / Projects / Conversations) filters to just the rows whose
 text matches. The match is case-insensitive substring against every string
-that COULD render on either of a row's two lines — not just what's visible.
+that COULD render for a row (its title, name, role, machine, project) — not just what's visible.
 That means typing an identity's name still finds it when the row is
 currently showing that identity's task frontmatter on the primary line,
 and typing a role name still finds every agent holding that role even when
@@ -706,8 +707,7 @@ blank sidebar.
 **The `everywhere ↗` escalation.** Once the input has any content, a small
 `everywhere ↗` text link fades in on the right side of the input. Clicking
 it — or pressing Enter from anywhere in the input — opens the full search
-view (the same modal that used to live behind the retired magnifier icon)
-with the current query already filled in. The full view reaches into
+view with the current query already filled in. The full view reaches into
 things the sidebar doesn't hold: archived conversations, message content
 across every conversation.
 
@@ -735,9 +735,8 @@ doesn't exist while archived.
 **Escape clears + blurs.** Escape empties the input, the everywhere link
 fades back out, and focus leaves.
 
-**Same behavior on desktop and mobile.** No keyboard shortcut yet
-(⌘K / Ctrl-K is a candidate for later); the input has to be clicked to
-focus. Filter query does NOT persist across app reloads — it's a quick-find
+**Same behavior on desktop and mobile.** There is no keyboard shortcut;
+the input has to be clicked to focus. Filter query does NOT persist across app reloads — it's a quick-find
 tool, not a saved view.
 
 *Agent-side: none.* The sidebar filter is the user's navigation shortcut,
@@ -800,8 +799,10 @@ not something agents drive.
 
 - **Conversation rows.** On desktop each row is one line: the agent's
   picture and the conversation's title, the open conversation tinted in
-  that agent's colour. On a phone each row is two lines (title, then the
-  role or machine), and each run of rows sits on one rounded panel. An
+  that agent's colour. On a phone each row is two lines — for an agent with
+  a task line, the title, then the role or machine; otherwise the agent's
+  name with its role in brackets, then the conversation's generated title
+  (if any) — and each run of rows sits on one rounded panel. An
   **unread** conversation (the agent finished a turn the user hasn't seen)
   shows a small dot in the agent's colour at the row's end and a brighter
   title; a **red envelope** on the picture means the agent sent the user a
@@ -841,9 +842,10 @@ not something agents drive.
   - **Archive** — retires the identity, after a confirm. See § On `/id
     archive`.
 
-  The same menu CONTENT appears on the conversation's **task pill** in the
-  open conversation view (top-center) — its own three-dots button, or
-  right-click — plus **Close** (desktop only), which closes that pane.
+  Much the same menu appears on the conversation's **task pill** in the
+  open conversation view (top-center) — its own ⋯ button, or right-click —
+  with **Move to new tab** in place of Open in new tab, plus **Close**
+  (desktop only), which closes that pane (§ Conversation view).
 
 - **Projects section (below Pinned).** A **Projects** super-header
   with a **➕ plus** on its right; every project sits indented beneath it.
@@ -967,8 +969,8 @@ not something agents drive.
   they act only on the page inside that app, never on Skynet or any other
   pane, and back/forward grey out when there's nowhere to go. Going back
   or forward loads that page fresh (it isn't restored mid-scroll). On a
-  phone the bar is a little taller and starts with a round grey **back to
-  conversations** (←) button — the same job as the one that floats at the
+  touch screen the bar is a little taller and starts with a round grey **back to
+  conversations** (‹) button — the same job as the one that floats at the
   top left of a conversation — which returns to the conversation list without moving
   the app off its current page. On a phone, pages inside an app don't
   build up the browser's history: the phone's back gesture (or browser
@@ -1003,9 +1005,9 @@ not something agents drive.
   (terminal icon for telnet) and the machine's name. Right: the **⋯**
   menu — **Move to new tab** (opens the session in a new Skynet tab and
   closes this pane) and **Close** — also on right-click; both are desktop
-  only, so on a phone there is no ⋯. On a phone the bar is taller and
-  starts with the round **back to conversations** (←) button, same as an
-  app's. The **whole bar is the drag handle**: drop it on the drop lane's
+  only, so on a phone there is no ⋯. On a touch screen the bar is taller
+  and starts with the round **back to conversations** (‹) button, same as
+  an app's. The **whole bar is the drag handle**: drop it on the drop lane's
   Close, onto another pane to rearrange, or into another Skynet window
   (that window connects fresh and this pane closes). Not draggable on a
   phone. While a remote session is open, its machine's row stays in the
@@ -1040,7 +1042,8 @@ not something agents drive.
   aloud is in ⋯. The Formatted / Plain text switch is one
   choice for every markdown editor in the browser; in editors inside other
   windows (agent file, role file, About you, …) it sits at the right end of
-  the formatting toolbar, and when a file has markup the formatted view
+  the formatting toolbar while editing formatted, and in its own row above
+  the text otherwise; when a file has markup the formatted view
   can't show, Formatted is greyed out and the file opens as plain text.
   *Agent-side:* see § Sending files to the user (Round-trip semantics).
 
@@ -1127,8 +1130,10 @@ crown, then gear.
     `~/fleet/roles/<slug>/` except the role file itself, which has its own
     tab) and **Git** when the folder holds a repo. The **⋯** menu has
     **Start a conversation** (opens the new-conversation dialog with this
-    role picked) and **Archive role…** — one confirm naming the agents
-    that hold it, which are archived with it; greyed out for a shared role.
+    role picked), for admins **Make instance-wide…** / **Stop sharing…**,
+    and **Archive role…** — one confirm naming the agents that hold it,
+    which are archived with it; greyed out on a shared role ("Stop sharing
+    it first").
   - **A role skill** (click one under Skills): one level deeper; back
     reads the role's name; its name heads it with its description under
     it, as a skill does in the Skills window. It opens on its `SKILL.md`,
@@ -1176,7 +1181,7 @@ crown, then gear.
   - **One skill** (click a row's name): **‹ Skills** goes back; the name and
     description head it, the same two switches sit under that ("In my
     Skills button", "Agents can use it" — they wait while SKILL.md has
-    unsaved edits), and a **three-dots (⋮) menu** holds **Rename…** and
+    unsaved edits), and a **⋯ menu** holds **Rename…** and
     **Delete skill…**. Rename changes the skill's folder (so `/<name>`
     changes) and the `name:` in its SKILL.md together. Editing `name:` in
     SKILL.md by hand doesn't save as is: Save offers to rename the skill to
@@ -1262,7 +1267,7 @@ crown, then gear.
   with a back arrow (‹ Preferences) to return.
 
 - **Small modals on a phone are sheets.** Short dialogs — new
-  conversation, new project, new role, add wake-up, the feedback form,
+  conversation, new project, the feedback form,
   and every confirm / "name it" / notice dialog — slide up from the bottom
   of a phone, only as tall as their content, with a grab bar on top and the
   app dimmed above, their buttons stacked full-width with the main one on
@@ -1270,7 +1275,8 @@ crown, then gear.
   something's been typed a swipe springs it back instead, so nothing is
   lost by a slip, and a sheet that's busy (e.g. creating an agent) springs
   back until it's done. ✕ or Cancel closes as usual. Bigger modals (skills,
-  an agent's modal, preferences, search, files) still fill the phone
+  an agent's modal — new wake-up included — the roles window — new role
+  included — preferences, search, files) still fill the phone
   screen.
 
 - **Confirms are Skynet's own dialogs.** Every "are you sure?", "type a
@@ -1330,13 +1336,14 @@ crown, then gear.
   **identity modal** (below). A **⋯ button** at the pill's
   right end — always visible, and the way in on a phone — opens the
   conversation menu; right-clicking the pill opens the same menu: **Move to
-  new tab** (desktop only), **Rename…**, **Move to** (Pinned + projects),
+  new tab** (desktop only), for admins **Switch to terminal view** / **Switch
+  to chat view**, **Rename…**, **Move to** (Pinned + projects),
   **Close** (desktop only), **Archive**. Drag = see § Drag & drop (drop
   lane, filing into sidebar sections); not draggable on a phone. Hovering
   shows the agent's name, roles and project. On a phone the round **back to
   conversations** (←) button floats level with it at the top left, in the
-  same solid dark look. (Relay rooms show a pill per participant instead,
-  each with that agent's memory pie under it.)
+  same solid dark look. (Relay rooms show a badge per participant instead;
+  each agent's badge has its memory pie under it.)
   *Agent-side:* keep `task:` current, silently. Rules already covered.
 
 - **Round buttons beside the task pill.** Just to the right of the pill,
@@ -1463,7 +1470,8 @@ crown, then gear.
     project without asking an agent — so a file can appear in your
     project folder that no agent put there. Nothing notifies members when
     the folder changes; look in the folder when the work calls for it.
-    An empty folder says "No files yet".
+    An empty project folder says "No files yet"; an empty folder inside
+    it says "Empty folder".
 
 - **Messages.** The agent speaks in solid bubbles in its own colour (the
   colour is how the user tells agents apart); the user's own messages are a
@@ -1506,7 +1514,7 @@ crown, then gear.
   waiting on a dialog (e.g. a permission prompt), a small grey Stop sits
   beside the thumbs-up. Background sub-agents don't count as working here
   (they run on through a Stop). In a relay room only
-  the mic and Send show. (There is no "Queue a message" button any more.)
+  the mic and Send show.
 
 - **Agent memory (the pie in the composer's row).** Shows how full the
   agent's context window is — the same "runway left" the agent's own
@@ -1638,7 +1646,7 @@ crown, then gear.
   (fleet-distributed ones stay out), alphabetical, each with a lettered
   tile and its description (up to two lines). A search field on top
   (focused on open, except on touch screens) filters by name and
-  description; Enter runs the top match. Tapping a skill sends `/<skill-name>` at once,
+  description; after typing a search, Enter runs the top match. Tapping a skill sends `/<skill-name>` at once,
   exactly like thumbs-up sends its reply: no arguments, anything the user
   had typed stays in the compose box. The button is hidden until the app
   knows the box has at least one such skill. To give the user a new
@@ -1796,7 +1804,7 @@ nothing more to do), OFFER — don't self-execute. The standard shape is
 the user handing you the trigger explicitly ("archive yourself when the
 deploy is green," "you can archive after that lands"), often bundled with
 the last piece of work. A scheduled task with **Archive if nothing to
-report** ticked is the same thing given ahead of time: the agent it spawns
+report** switched on is the same thing given ahead of time: the agent it spawns
 is told to archive itself after a smooth run (§ Scheduled tasks).
 
 ### When invoked
@@ -1862,7 +1870,7 @@ See also: **§ On /id archive** for the archive-direction pattern.
 
 The agent-side counterpart to the user's new-conversation button (see
 § The app's user interface). Where the button gives the user a role
-picker and auto-names the new agent, the file-drop mechanism below lets
+picker and a suggested name, the file-drop mechanism below lets
 you spawn with a full initial prompt attached — which the button cannot
 do.
 
@@ -2180,7 +2188,7 @@ the sidebar footer, beside the gear. It opens the scheduled tasks window:
   its project when it has one (`SKYNET › later`, or an amber **Project
   missing: <slug>** when that project is gone), one line of its
   instructions, and an on/off switch. Right-click a row
-  for **Run now**, **Open** and **Delete…**. A sensor-fired task has no
+  for **Run now** (not on one-time tasks), **Open** and **Delete…**. A sensor-fired task has no
   Next: its line reads `📡 Sensor · <status> · Last fired 3h ago` (or
   `Never fired`), plus why when it has tripped — same statuses as the
   identity modal's Wake-ups tab
@@ -2191,15 +2199,16 @@ the sidebar footer, beside the gear. It opens the scheduled tasks window:
   its line says the schedule, when it last ran and when it runs next),
   then a **Run now** button that starts a conversation for it right away
   (not on one-time tasks). Then Name (fixed — to rename, delete and
-  recreate), Roles (or an explicit **No roles**), When (Daily / Weekly /
-  Monthly / Yearly / Every… / Once, with several times a day, "Only on"
-  days, every-N weeks/months, an interval window and start, and an end
-  date or run count), Time zone (blank = the user's own, or the machine's
-  own for a task saved without one), **Project** (a dropdown: **No
-  project**, the default, then every project on the task's machine,
+  recreate), Roles (or an explicit **No roles**), **Project** (a dropdown:
+  **No project**, the default, then every project on the task's machine,
   sub-projects indented as in the sidebar — where each conversation it
   starts is filed; a project that no longer exists stays picked, marked
-  missing, until another is picked), Instructions,
+  missing, until another is picked), When (Daily / Weekly / Monthly /
+  Yearly / Every… / Once, with several times a day, "Only on" days,
+  every-N weeks/months, an interval window and start, and an end date or
+  run count) with its Time zone (blank = the user's own, or the machine's
+  own for a task saved without one; fire times are in that zone, start
+  and end dates in the user's own), Instructions,
   and an **Archive if nothing to report** switch. **Delete scheduled
   task…** at the bottom; Cancel and Save at the foot. A sensor-fired task
   shows "When its sensor fires" and its sensor's details read-only,
@@ -2260,7 +2269,7 @@ difference is what happens on fire.
 "first fire = anchor + every" rule works) and `<slug>.last` is written
 each time the spec actually fires. These are distinct files — a spec can
 have an `.anchored` without a `.last` (brand-new, never fired yet), and
-the UI uses that to show just "Next" with no misleading "Last" chip.
+the UI uses that to say the task hasn't run yet.
 
 ### What happens on fire
 

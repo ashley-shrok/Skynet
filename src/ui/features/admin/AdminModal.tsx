@@ -94,15 +94,25 @@ export default function AdminModal({ open, onOpenChange, currentUserId }: AdminM
   }, []);
   const mayLeave = useCallback(async () => (leaveGuard.current ? leaveGuard.current() : true), []);
 
-  const loadUsers = useCallback(async () => {
+  /** False when the list couldn't be loaded (the Users list shows why). */
+  const loadUsers = useCallback(async (): Promise<boolean> => {
     try {
       const { users: list } = await getUserList();
       setUsers(list);
       setUsersError(null);
+      return true;
     } catch (err) {
       setUsersError(adminErrorMessage(err, "Failed to load users."));
+      return false;
     }
   }, []);
+  // A user page's change was saved; it reads the result from the list, so a
+  // list that won't load is its error to show.
+  const refreshAfterUserChange = useCallback(async () => {
+    if (!(await loadUsers())) {
+      throw new Error("Saved, but the user list couldn't be reloaded — close and reopen Admin to see the change.");
+    }
+  }, [loadUsers]);
 
   useEffect(() => {
     if (!open) {
@@ -202,7 +212,7 @@ export default function AdminModal({ open, onOpenChange, currentUserId }: AdminM
                 oidcInUse={oidcInUse}
                 onBack={() => void leaveUser()}
                 registerLeaveGuard={registerLeaveGuard}
-                onUserChanged={loadUsers}
+                onUserChanged={refreshAfterUserChange}
                 onUserDeleted={() => {
                   setSelectedUserId(null);
                   void loadUsers();

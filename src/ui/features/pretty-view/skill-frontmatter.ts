@@ -16,18 +16,30 @@ function keyLine(key: string): RegExp {
   return new RegExp(`^${key}\\s*:\\s*([^#]*?)\\s*(?:#.*)?$`);
 }
 
-type Split = { eol: string; fm: string[] | null; body: string };
+type Split = { bom: string; eol: string; fm: string[] | null; body: string };
 
+// Tolerant the way the server's migrations are: a leading byte-order mark is
+// kept aside, `---` lines may carry trailing spaces, and the line ending is
+// the first line's (a body pasted from elsewhere may use the other kind).
 function split(content: string): Split {
-  const eol = content.includes("\r\n") ? "\r\n" : "\n";
-  const lines = content.split(eol);
-  if (lines[0] !== "---") return { eol, fm: null, body: content };
-  const close = lines.indexOf("---", 1);
-  if (close === -1) return { eol, fm: null, body: content };
+  const bom = content.startsWith("\uFEFF") ? "\uFEFF" : "";
+  const text = content.slice(bom.length);
+  const nl = text.indexOf("\n");
+  const eol = nl > 0 && text[nl - 1] === "\r" ? "\r\n" : "\n";
+  const lines: Array<{ text: string; end: number }> = [];
+  const re = /([^\r\n]*)(\r?\n|$)/g;
+  for (let m = re.exec(text); m && m[0] !== ""; m = re.exec(text)) {
+    lines.push({ text: m[1], end: re.lastIndex });
+  }
+  const isFence = (l: string) => l.trimEnd() === "---";
+  if (lines.length === 0 || !isFence(lines[0].text)) return { bom, eol, fm: null, body: text };
+  const close = lines.findIndex((l, i) => i > 0 && isFence(l.text));
+  if (close === -1) return { bom, eol, fm: null, body: text };
   return {
+    bom,
     eol,
-    fm: lines.slice(1, close),
-    body: lines.slice(close + 1).join(eol),
+    fm: lines.slice(1, close).map((l) => l.text),
+    body: text.slice(lines[close].end),
   };
 }
 
@@ -44,12 +56,12 @@ function hasBool(content: string, key: string, value: boolean): boolean {
 
 /** Drop `key` from the frontmatter, then append `key: value` when value is non-null. */
 function setKey(content: string, key: string, value: boolean | null): string {
-  const { eol, fm, body } = split(content);
+  const { bom, eol, fm, body } = split(content);
   const re = keyLine(key);
   const kept = (fm ?? []).filter((line) => !re.test(line));
   if (value !== null) kept.push(`${key}: ${value}`);
   if (!fm && kept.length === 0) return content;
-  return ["---", ...kept, "---"].join(eol) + eol + (fm ? body : content);
+  return bom + ["---", ...kept, "---"].join(eol) + eol + body;
 }
 
 export function isModelInvocationDisabled(content: string): boolean {

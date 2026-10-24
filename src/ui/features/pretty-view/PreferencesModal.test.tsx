@@ -228,7 +228,7 @@ describe("PreferencesModal", () => {
 
   it("(c) clicking About you shows its header and, with no agent-capable machine, says so", async () => {
     const user = userEvent.setup();
-    render(<PreferencesModal {...defaultProps} open={true} />);
+    render(<PreferencesModal {...defaultProps} hostTree={{ name: "root", children: [] } as unknown as HostFolder} open={true} />);
     await user.click(screen.getByTestId("preferences-nav-about-you"));
     expect(screen.getByTestId("preferences-modal-pane")).toBeTruthy();
     expect(screen.getByTestId("preferences-section-hero").textContent).toContain("About you");

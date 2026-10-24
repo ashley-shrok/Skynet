@@ -1248,6 +1248,7 @@ export function ScheduleWhenFields({
   const oneShotPast =
     fs.type === "one_shot" && fs.at !== "" && !Number.isNaN(new Date(fs.at).getTime()) && new Date(fs.at).getTime() < Date.now();
   const validation = validateForm(fs);
+  const gateDays = fs.type === "one_shot" ? undefined : (fs as { days?: Weekday[] }).days;
   return (
     <div className="flex flex-col gap-4" data-testid={testIds.when}>
       <ScheduleKindField value={fs.type} onChange={(kind) => onChange(switchScheduleKind(fs, kind))} testIdPrefix={testIds.kind} />
@@ -1308,8 +1309,14 @@ export function ScheduleWhenFields({
         </>
       )}
 
-      {(fs.type === "interval" || fs.type === "daily" || fs.type === "weekly" || fs.days !== undefined) && (
-        <RestrictToDaysChips days={fs.days} onChange={(next) => onChange({ ...fs, days: next })} slug={idPrefix} />
+      {/* Offered on interval / daily / weekly; shown on another kind only
+          when its stored schedule already carries a days gate. */}
+      {(fs.type === "interval" || fs.type === "daily" || fs.type === "weekly" || gateDays !== undefined) && (
+        <RestrictToDaysChips
+          days={gateDays}
+          onChange={(next) => onChange({ ...fs, days: next } as FormSchedule)}
+          slug={idPrefix}
+        />
       )}
 
       {fs.type !== "one_shot" && <ScheduleRepeatFields fs={fs} onChange={onChange} idPrefix={idPrefix} />}
@@ -1334,9 +1341,10 @@ export function ScheduleWhenFields({
           label="Time zone"
           htmlFor={`${idPrefix}-tz`}
           help={
+            // Start / end dates are entered and saved in the browser's zone.
             blankIsMachine
-              ? "Times above are in this zone. Blank means the machine's own time zone."
-              : `Times above are in this zone. Leave it blank for yours (${detectedTz}).`
+              ? `Fire times above are in this zone; start and end dates in yours (${detectedTz}). Blank means the machine's own time zone.`
+              : `Fire times above are in this zone; start and end dates in yours. Leave it blank for yours (${detectedTz}).`
           }
         >
           <KitInput

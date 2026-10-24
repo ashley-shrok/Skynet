@@ -1198,7 +1198,7 @@ describe("ScheduledAgentsModal: schedule round-trips", () => {
     const tz = screen.getByTestId("scheduled-task-tz") as HTMLInputElement;
     expect(tz.value).toBe("");
     expect(tz.placeholder).toBe("The machine's time zone");
-    expect(screen.getByText("Times above are in this zone. Blank means the machine's own time zone.")).toBeInTheDocument();
+    expect(screen.getByText(/Fire times above are in this zone; start and end dates in yours \(.+\)\. Blank means the machine's own time zone\./)).toBeInTheDocument();
     // An unrelated edit doesn't write this browser's zone in.
     fireEvent.change(promptField(), { target: { value: "check inbox twice" } });
     expect(await savedSchedule()).toEqual({ type: "daily", at: "09:00" });

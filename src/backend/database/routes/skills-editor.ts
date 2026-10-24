@@ -137,7 +137,8 @@ async function hideSharedFromNonAdmins(req: Request, res: Response, next: expres
       }
     }
   } catch (err) {
-    // Same posture as the list: if the check can't run, don't block the route.
+    // If the check can't run, don't block the route: the host is the caller's
+    // own, so this hide is a visibility rule, not an access boundary.
     sshLogger.warn("skills-editor: shared-skill check failed", {
       operation: "skills_editor_shared_check",
       error: err instanceof Error ? err.message : "Unknown",
@@ -550,7 +551,8 @@ router.get(
       // Shared (instance-wide) skills are agent-only for non-admins: left out
       // here, so they reach neither the skills window nor the Skills menu.
       const parsed = parseSkillListOutput(output);
-      const isAdmin = await callerIsAdmin(userId);
+      // A failed admin check lists the non-admin view rather than failing the list.
+      const isAdmin = await callerIsAdmin(userId).catch(() => false);
       const shared = isAdmin ? new Set<string>() : new Set(await sharedSkillNames());
       const showDistributed = req.query.includeDistributed === "1" && isAdmin;
       const skills = parsed.filter(

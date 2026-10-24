@@ -170,7 +170,7 @@ describe("AgentGitCommit", () => {
     fireEvent.click(rows[1]);
     expect(onOpenDiff).toHaveBeenCalledTimes(1);
     const [source, title, subtitle] = onOpenDiff.mock.calls[0];
-    expect(source).toEqual({ source: "patch", patch: PATCH_B });
+    expect(source).toEqual({ source: "patch", patch: PATCH_B, truncated: false });
     expect(title).toBe("notes.md");
     expect(subtitle).toBe("a1b2c3d · Add login form");
   });
@@ -180,7 +180,7 @@ describe("AgentGitCommit", () => {
     const onOpenDiff = vi.fn();
     render(<Commit onOpenDiff={onOpenDiff} />);
     fireEvent.click(await screen.findByTestId("agent-git-commit-all"));
-    expect(onOpenDiff.mock.calls[0][0]).toEqual({ source: "patch", patch: TWO_FILE_PATCH });
+    expect(onOpenDiff.mock.calls[0][0]).toEqual({ source: "patch", patch: TWO_FILE_PATCH, truncated: false });
   });
 });
 

@@ -203,6 +203,12 @@ export function RolesWindow({
 
   const [archived, setArchived] = useState<TabState<ArchivedRoleListEntry[]>>({ status: "loading" });
   const [archivedKey, setArchivedKey] = useState(0);
+  // Un-archived while the window is open: they leave the count at once, and
+  // keep their "on its way back" line if the list is reopened.
+  const [restoredNames, setRestoredNames] = useState<ReadonlySet<string>>(() => new Set());
+  useEffect(() => {
+    setRestoredNames(new Set());
+  }, [open, hostId]);
   useEffect(() => {
     if (!open || hostId == null) return;
     let cancelled = false;
@@ -338,7 +344,7 @@ export function RolesWindow({
         onHostChange={setHostId}
         roles={roles}
         instanceWide={instanceWide}
-        archivedCount={archived.status === "ready" ? archived.data.length : 0}
+        archivedCount={archived.status === "ready" ? archived.data.filter((r) => !restoredNames.has(r.name)).length : 0}
         agentsFor={(r) => agentsHolding(r).length}
         avatarBusts={avatarBusts}
         onOpenRole={(role) => void go({ view: "role", role })}
@@ -453,7 +459,11 @@ export function RolesWindow({
         hostName={hostName(hostId)}
         archived={archived}
         onBack={() => void goBack()}
-        onRestored={() => setRolesKey((k) => k + 1)}
+        restored={restoredNames}
+        onRestored={(name) => {
+          setRestoredNames((prev) => new Set(prev).add(name));
+          setRolesKey((k) => k + 1);
+        }}
       />
     );
   }
