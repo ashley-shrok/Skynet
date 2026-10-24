@@ -276,3 +276,54 @@ describe("ChatMessage speak button (patch #237 streaming)", () => {
     expect(getButtonSpeechState()).toBeNull();
   });
 });
+
+describe("ChatMessage speak button — in-bubble controls are not read aloud", () => {
+  // jsdom has no innerText. Stand-in: text of every node not under an
+  // element hidden with display:none — what the browser's innerText skips.
+  function visibleText(node: Node): string {
+    if (node.nodeType === Node.TEXT_NODE) return node.textContent ?? "";
+    if (node instanceof HTMLElement && node.style.display === "none") return "";
+    return Array.from(node.childNodes).map(visibleText).join("");
+  }
+
+  beforeEach(() => {
+    Object.defineProperty(HTMLElement.prototype, "innerText", {
+      configurable: true,
+      get(this: HTMLElement) {
+        return visibleText(this);
+      },
+    });
+  });
+
+  afterEach(() => {
+    delete (HTMLElement.prototype as { innerText?: string }).innerText;
+  });
+
+  it("quote, code and long-diff blocks speak their content but not Copy / Show all", async () => {
+    const diffLines = Array.from({ length: 20 }, (_, i) => `+added line ${i}`).join("\n");
+    const content = [
+      "Before the quote.",
+      "> quoted words",
+      "```\ncode words\n```",
+      "```diff\n@@ -0,0 +1,20 @@\n" + diffLines + "\n```",
+    ].join("\n\n");
+    render(<ChatMessage role="assistant" content={content} />);
+    expect(screen.getAllByTestId("copyable-block-copy").length).toBeGreaterThanOrEqual(3);
+    expect(screen.getByTestId("chat-diff-toggle").textContent).toMatch(/Show all/);
+
+    fireEvent.click(screen.getByLabelText(/speak message/i));
+    await waitFor(() => expect(mockedPostSpeakStream).toHaveBeenCalled());
+
+    const spoken = mockedPostSpeakStream.mock.calls.map((c) => c[0]).join(" ");
+    expect(spoken).toContain("quoted words");
+    expect(spoken).toContain("code words");
+    expect(spoken).toContain("added line 0");
+    expect(spoken).not.toMatch(/\bCop(y|ied)\b/);
+    expect(spoken).not.toMatch(/Show all|Show less/);
+    // Controls are restored after the read.
+    for (const btn of screen.getAllByTestId("copyable-block-copy")) {
+      expect(btn.style.display).toBe("");
+    }
+    expect(screen.getByTestId("chat-diff-toggle").style.display).toBe("");
+  });
+});

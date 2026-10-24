@@ -133,6 +133,7 @@ export function ChatDiffBlock({ text, patch }: { text: string; patch: ParsedPatc
           type="button"
           onClick={() => setExpanded((v) => !v)}
           data-testid="chat-diff-toggle"
+          data-speak-skip=""
           className="w-full px-2 py-1 text-[11.5px] text-left text-[#a89a80] hover:text-[#e8e4d8] border-t border-white/[0.06] hover:bg-white/[0.04]"
         >
           {expanded ? "Show less" : `Show all ${total} lines`}

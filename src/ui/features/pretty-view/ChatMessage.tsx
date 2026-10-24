@@ -16,6 +16,7 @@ import { AttachmentChipStrip } from "./AttachmentChipStrip";
 import { CopyableBlock } from "./CopyableBlock";
 import { ChatDiffBlock, chatDiffFromPre } from "./ChatDiffBlock";
 import { useSpeakPlayback } from "./useSpeakPlayback";
+import { readSpeakableText } from "./speakable-text";
 import { handleCleanCopy } from "./clean-copy";
 import { useEditableFileEligibility } from "./use-editable-file-eligibility";
 import { FileChip } from "./FileChip";
@@ -161,14 +162,15 @@ export const ChatMessage = React.memo(function ChatMessage({
 
   // Speak apparatus (state, pause/resume, cross-bubble preempt) — shared
   // with RelayInboundBubble and the file viewer. Reads the rendered text at
-  // click time. 2026-09-28 cutoff investigation: speak-start logs innerText
-  // vs the raw prop, so a DOM hiding text from the speak path shows in logs.
+  // click time, skipping in-bubble controls (copy button, diff toggle).
+  // 2026-09-28 cutoff investigation: speak-start logs innerText vs the raw
+  // prop, so a DOM hiding text from the speak path shows in logs.
   const speakLensRef = useRef("");
   const { speakState, onSpeakClick } = useSpeakPlayback({
     ownerName: "speak-bubble",
     voices: speakVoices,
     getText: () => {
-      const innerText = containerRef.current?.innerText;
+      const innerText = containerRef.current ? readSpeakableText(containerRef.current) : undefined;
       speakLensRef.current = `contentLen=${content?.length ?? 0} innerTextLen=${innerText?.length ?? -1}`;
       return innerText ?? content;
     },

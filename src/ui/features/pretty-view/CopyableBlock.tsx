@@ -80,6 +80,7 @@ export function CopyableBlock({
         type="button"
         aria-label={copied ? "Copied" : "Copy"}
         data-testid="copyable-block-copy"
+        data-speak-skip=""
         onClick={handleCopy}
         className={cn(
           // Position: top-right corner inside the block.
