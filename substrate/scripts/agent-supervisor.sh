@@ -238,26 +238,21 @@ ensure_inotifywait() {
   return 0
 }
 
-# ---- source-of-truth prompt + auto-compact skipping ----
+# ---- source-of-truth prompt skipping ----
 # Modern Claude Code fires two blocking prompts on the resume path that the scrape loop in drive()
-# has to answer by hand, PLUS runs an auto-compact operation that eats restored context:
+# has to answer by hand:
 #   (1) folder-trust ("Is this a project you created or one you trust?") — regression vs a fresh
 #       launch, where --dangerously-skip-permissions covers it. Answered at source via the
 #       per-workdir .projects[<cwd>].hasTrustDialogAccepted flag in ~/.claude.json.
 #   (2) resume-summary ("Resuming the full session will consume …") — fires when session age >
 #       CLAUDE_CODE_RESUME_THRESHOLD_MINUTES (default 70) or token-count > CLAUDE_CODE_RESUME_TOKEN_THRESHOLD
 #       (default 100000). Answered at source via the two env vars below.
-#   (3) auto-compact on resume — a KNOWN regression on 1M-context models (GH #56271 closed
-#       "not planned", #64923 dupe): compact fires at ~50-76k tokens with 900k+ headroom due
-#       to a server-side/UI token-count mismatch. WAS previously fought post-hoc with a
-#       ~6s Ctrl-C train in drive(); now killed at source by CLAUDE_AUTOCOMPACT_PCT_OVERRIDE=99
-#       (verified in the 2.1.150 binary via `strings`), which pins the threshold high enough
-#       that the buggy trigger never fires. Auto-compact was never desired for supervised
-#       /id sessions anyway — context-watch recycles the session fresh at 90% displayed,
-#       which is lossless vs a lossy in-place summary.
+# Compaction is NOT configured here: the fleet settings.json written by the distributor
+# (run-bootstrap.ts SETTINGS_MERGE_JQ) is the one place — idle compaction off, near-limit
+# compaction at 95% of the 1M window.
 # Scrape kept as defense-in-depth for (1) and (2): if a future release changes env-var names or
 # the config key, the scrape still catches the prompt.
-CLAUDE_LAUNCH_ENV="CLAUDE_CODE_RESUME_THRESHOLD_MINUTES=99999999 CLAUDE_CODE_RESUME_TOKEN_THRESHOLD=99999999 CLAUDE_AUTOCOMPACT_PCT_OVERRIDE=99"
+CLAUDE_LAUNCH_ENV="CLAUDE_CODE_RESUME_THRESHOLD_MINUTES=99999999 CLAUDE_CODE_RESUME_TOKEN_THRESHOLD=99999999"
 
 # Flags passed to every `claude` launch. Consolidated so all 4 launch sites (redrive+drive × resume+fresh)
 # stay in sync — an inline-per-site spelling means a flag can silently fall off some but not others
@@ -3154,9 +3149,7 @@ drive() {
   if [ -n "$resume" ]; then
     # RESUME path. The working dir is already trusted (this identity ran here before), so there's no
     # folder-trust dialog to clear — hence NO Enter blind-drive and NO /id (the identity is already
-    # in the restored context). CLAUDE_LAUNCH_ENV pins CLAUDE_AUTOCOMPACT_PCT_OVERRIDE=99 which stops
-    # the known resume-auto-compact bug (GH #56271 / #64923) at source, so the historical Ctrl-C
-    # train that fought it post-hoc is gone — ~9s wall-time savings per wake.
+    # in the restored context).
     # bash command-scoped assignment — vars apply to this claude only, not the shell.
     timeout -k 5 10 tmux send-keys -t "$sess" -l "$MEMORY_WRAPPER env FLEET_IDENTITY=$name $(compute_mcp_env "$name") $CLAUDE_LAUNCH_ENV $CLAUDE --resume $resume $CLAUDE_LAUNCH_FLAGS $(compute_mcp_flags)" 2>/dev/null
     timeout -k 5 10 tmux send-keys -t "$sess" Enter 2>/dev/null
@@ -3190,8 +3183,7 @@ drive() {
     #   - resume-summary: CLAUDE_CODE_RESUME_THRESHOLD_MINUTES + CLAUDE_CODE_RESUME_TOKEN_THRESHOLD
     #     both pinned to 99999999 in CLAUDE_LAUNCH_ENV
     # The 15s scrape loop was pure "in case a future release renames those keys" paranoia and ran
-    # empty on every wake. Ctrl-C train (which came after) was already dropped by the same commit
-    # for the same reason: CLAUDE_AUTOCOMPACT_PCT_OVERRIDE=99 kills the auto-compact bug at source.
+    # empty on every wake.
     # SAFETY NET: the post-drive scrape below still fires as an observable-outcome check — if a
     # regression puts one of those prompts back on screen, we WARN in the log so a stuck agent is
     # findable rather than silently relay-deaf. (Agent will hang until we notice + re-enable the

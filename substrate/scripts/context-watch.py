@@ -15,8 +15,8 @@ How it measures: runs `~/.local/bin/pv-context-pct-sweep --identities <name>` â€
 same distributor-shipped script the app's context meter uses â€” and reads its
 `context_pct`. That script finds this identity's session JSONL (the newest one whose
 first turn is `/id <name>`, so a recycled or resumed session is picked up on the next
-poll) and divides the last assistant turn's input + cache tokens by the 1M window. The
-fleet runs with DISABLE_AUTO_COMPACT=1, so no autocompact buffer is subtracted. One
+poll) and divides the last assistant turn's input + cache tokens by the raw 1M window
+(no autocompact buffer subtracted). One
 formula, one place: the nudge fires at exactly the % the user sees on the meter.
 
 Load-bearing rules from earlier experience running this:

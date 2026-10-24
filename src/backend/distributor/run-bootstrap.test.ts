@@ -72,6 +72,7 @@ import {
   RETIRED_SUBSTRATE_DIRS,
   RETIRED_SUBSTRATE_TREES,
   RETIRED_USER_UNITS,
+  AUTOCOMPACT_PCT,
 } from "./run-bootstrap.js";
 import { systemLogger } from "../utils/logger.js";
 import { ROLES_KEY_MIGRATION_SENTINEL } from "./roles-key-migration.js";
@@ -299,7 +300,9 @@ describe("runBootstrapForHost", () => {
     expect(settingsCmd).toContain(`.askUserQuestionTimeout = "never"`);
     expect(settingsCmd).toContain(`.DISABLE_AUTOUPDATER = "1"`);
     expect(settingsCmd).toContain(`.CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS = "1"`);
-    expect(settingsCmd).toContain(`.DISABLE_AUTO_COMPACT = "1"`);
+    expect(settingsCmd).toContain(`.CLAUDE_AUTOCOMPACT_PCT_OVERRIDE = "${AUTOCOMPACT_PCT}"`);
+    expect(settingsCmd).toContain(`del(.DISABLE_AUTO_COMPACT)`);
+    expect(settingsCmd).toContain(`.idleCompaction = false`);
     expect(settingsCmd).toContain(`.skipDangerousModePermissionPrompt = true`);
     expect(settingsCmd).toContain(`.crossSessionInbound = "refuse"`);
     expect(settingsCmd).toContain(`.enableArtifact = false`);
@@ -330,7 +333,9 @@ describe("runBootstrapForHost", () => {
     expect(settingsCmd).toContain(`.permissions.deny // []) | contains(["AskUserQuestion"])`);
     expect(settingsCmd).toContain(`.env.DISABLE_AUTOUPDATER == "1"`);
     expect(settingsCmd).toContain(`.env.CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS == "1"`);
-    expect(settingsCmd).toContain(`.env.DISABLE_AUTO_COMPACT == "1"`);
+    expect(settingsCmd).toContain(`.env.CLAUDE_AUTOCOMPACT_PCT_OVERRIDE == "${AUTOCOMPACT_PCT}"`);
+    expect(settingsCmd).toContain(`.env.DISABLE_AUTO_COMPACT == null`);
+    expect(settingsCmd).toContain(`.idleCompaction == false`);
     // task-field-check idempotency predicate — the CHECK side must recognize
     // an already-present entry so we don't rewrite the file every sweep.
     expect(settingsCmd).toContain(`.hooks.UserPromptSubmit // []`);

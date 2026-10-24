@@ -37,6 +37,7 @@ import path from "path";
 import os from "os";
 import fs from "fs/promises";
 import type { CatalogEntry } from "./catalog.js";
+import { AUTOCOMPACT_PCT } from "./run-bootstrap.js";
 
 vi.mock("../utils/logger.js", () => ({
   systemLogger: {
@@ -670,7 +671,9 @@ describe("BR2 — bootstrap patches settings.json + runs gsd-context-monitor cle
     expect(parsed.permissions.deny).toContain("AskUserQuestion");
     expect(parsed.env.DISABLE_AUTOUPDATER).toBe("1");
     expect(parsed.env.CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS).toBe("1");
-    expect(parsed.env.DISABLE_AUTO_COMPACT).toBe("1");
+    expect(parsed.env.CLAUDE_AUTOCOMPACT_PCT_OVERRIDE).toBe(AUTOCOMPACT_PCT);
+    expect(parsed.env.DISABLE_AUTO_COMPACT).toBeUndefined();
+    expect(parsed.idleCompaction).toBe(false);
     // Hooks stored as LITERAL $HOME (bash-single-quote parity with SSH path).
     const upsCommands = parsed.hooks.UserPromptSubmit.flatMap(
       (g: { hooks?: Array<{ command?: string }> }) =>
@@ -713,6 +716,29 @@ describe("BR2 — bootstrap patches settings.json + runs gsd-context-monitor cle
     const statSecond = await fs.stat(settingsPath);
     expect(statSecond.mtimeMs).toBe(statFirst.mtimeMs);
     writeFileSpy.mockRestore();
+  });
+
+  it("settings.json has the old all-compaction-off env → merge removes it, sets idle compaction off + the 95% trigger, other env preserved", async () => {
+    process.env.SKYNET_PUBLIC_URL = "https://skynet.example.com";
+    const claudeDir = path.join(tmpRoot, ".claude");
+    await fs.mkdir(claudeDir, { recursive: true });
+    await fs.writeFile(
+      path.join(claudeDir, "settings.json"),
+      JSON.stringify({ env: { DISABLE_AUTO_COMPACT: "1", SOME_OTHER: "x" } }, null, 2),
+    );
+
+    const { bootstrapFleetSubstrateLocally } = await importFresh();
+    const result = await bootstrapFleetSubstrateLocally(host);
+
+    expect(result.hadError).toBe(false);
+    expect(result.settingsPatchOk).toBe(true);
+    const parsed = JSON.parse(
+      await fs.readFile(path.join(claudeDir, "settings.json"), "utf-8"),
+    );
+    expect(parsed.env.DISABLE_AUTO_COMPACT).toBeUndefined();
+    expect(parsed.env.CLAUDE_AUTOCOMPACT_PCT_OVERRIDE).toBe(AUTOCOMPACT_PCT);
+    expect(parsed.env.SOME_OTHER).toBe("x");
+    expect(parsed.idleCompaction).toBe(false);
   });
 
   it("settings.json has crossSessionInbound: accept → merge forces it back to refuse, other keys preserved", async () => {
@@ -767,8 +793,9 @@ describe("BR2 — bootstrap patches settings.json + runs gsd-context-monitor cle
       env: {
         DISABLE_AUTOUPDATER: "1",
         CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS: "1",
-        DISABLE_AUTO_COMPACT: "1",
+        CLAUDE_AUTOCOMPACT_PCT_OVERRIDE: AUTOCOMPACT_PCT,
       },
+      idleCompaction: false,
       skipDangerousModePermissionPrompt: true,
       hooks: {
         UserPromptSubmit: [
@@ -848,8 +875,9 @@ describe("BR2 — bootstrap patches settings.json + runs gsd-context-monitor cle
       env: {
         DISABLE_AUTOUPDATER: "1",
         CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS: "1",
-        DISABLE_AUTO_COMPACT: "1",
+        CLAUDE_AUTOCOMPACT_PCT_OVERRIDE: AUTOCOMPACT_PCT,
       },
+      idleCompaction: false,
       skipDangerousModePermissionPrompt: true,
       hooks: {
         UserPromptSubmit: [
@@ -1024,8 +1052,9 @@ describe("BR2 — bootstrap patches settings.json + runs gsd-context-monitor cle
       env: {
         DISABLE_AUTOUPDATER: "1",
         CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS: "1",
-        DISABLE_AUTO_COMPACT: "1",
+        CLAUDE_AUTOCOMPACT_PCT_OVERRIDE: AUTOCOMPACT_PCT,
       },
+      idleCompaction: false,
       skipDangerousModePermissionPrompt: true,
       hooks: {
         UserPromptSubmit: [

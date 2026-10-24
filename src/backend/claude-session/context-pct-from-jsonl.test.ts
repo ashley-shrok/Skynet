@@ -153,7 +153,7 @@ describe("readContextPctFromJsonl", () => {
   });
 
   // ── Case (e) NO AUTOCOMPACT BUFFER ──────────────────────────────────────
-  // The fleet runs with DISABLE_AUTO_COMPACT=1, so the full window counts.
+  // The meter divides by the raw window — no autocompact buffer subtracted.
   // sum = 835_000 → round(83.5) = 84 (a 16.5% buffer would have pinned 100).
   it("CASE e: no autocompact buffer — 835k tokens → 84, not 100", async () => {
     const tail = buildTail([

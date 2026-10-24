@@ -15,10 +15,10 @@ import { sshLogger } from "../utils/logger.js";
  * FORMULA
  * ─────────────────────────────────────────────────────────────────────
  * pct = (input + cache_creation + cache_read tokens of the last assistant
- * turn) / MODEL_CONTEXT_WINDOW. The fleet runs with DISABLE_AUTO_COMPACT=1,
- * so no part of the window is reserved for an autocompact buffer and the
- * whole window is usable — this matches the `Tokens: N / 1m (P%)` line
- * Claude Code's own `/context` prints.
+ * turn) / MODEL_CONTEXT_WINDOW — the raw window, no autocompact buffer
+ * subtracted. This matches the `Tokens: N / 1m (P%)` line Claude Code's own
+ * `/context` prints. The fleet's near-limit compaction is tuned to fire at
+ * 95% on this scale (AUTOCOMPACT_PCT in distributor/run-bootstrap.ts).
  *
  * MODEL WINDOW
  * ─────────────────────────────────────────────────────────────────────

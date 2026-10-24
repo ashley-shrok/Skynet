@@ -93,8 +93,7 @@ TAIL_EXPANSION_STEPS = [10_000, 50_000, 200_000, 512_000]
 
 # ---------------------------------------------------------------------------
 # context_pct window — port of context-pct-from-jsonl.ts MODEL_CONTEXT_WINDOW.
-# The fleet runs with DISABLE_AUTO_COMPACT=1, so the whole window is usable;
-# no autocompact buffer is subtracted.
+# The raw window — no autocompact buffer is subtracted.
 # ---------------------------------------------------------------------------
 
 # 2026-08-08 fleet lock: every model in the harness is 1M-token window.

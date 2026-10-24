@@ -442,8 +442,9 @@ interface PidCacheEntry {
   // advances lastMessageAt.
   // On reaching STALE_TAIL_REDISCOVERY_THRESHOLD, invalidate `jsonlPath`
   // so the next tick re-fires discovery — defense against Claude Code
-  // JSONL rotation mid-session (a resume/compaction event can rotate the
-  // active file, leaving the cached path pointing at a stale JSONL).
+  // JSONL rotation mid-session (a resume can rotate the active file,
+  // leaving the cached path pointing at a stale JSONL; compaction stays in
+  // the same file and sessionId).
   //
   // IMPORTANT (tightened condition, revised from a prior draft):
   // sessions with a NULL cached `lastMessageAt` (genuinely no message-
@@ -952,8 +953,9 @@ function isRealUserTurn(rawLine: string): { ok: true; ts: number } | { ok: false
  * discovery path and re-scan `~/.claude/projects/*​/`.
  *
  * This is a defense against Claude Code JSONL rotation mid-session (a
- * resume/compaction event can rotate the active file, leaving the cached
- * path pointing at a stale JSONL that has stopped growing). See
+ * resume can rotate the active file, leaving the cached path pointing at a
+ * stale JSONL that has stopped growing; compaction stays in the same file
+ * and sessionId). See
  * 44-CONTEXT.md § ssh-poll-orchestrator.ts swap.
  *
  * Sessions with NO cached lastMessageAt do NOT tick this counter — the
@@ -966,13 +968,13 @@ const STALE_TAIL_REDISCOVERY_THRESHOLD = 5;
 // → constructed path) has been removed. It built the JSONL path via
 // `~/.claude/projects/<slug>/<sessionId>.jsonl` from sessionJson fields;
 // that derivation was fragile against cwd drift and
-// Claude Code sessionId rotation on compaction/resume (a live session
+// Claude Code sessionId rotation on resume (a live session
 // could silently point at a stale JSONL that had stopped growing). The
 // orchestrator now derives the JSONL path via
 // `discoverIdentityJsonlPathViaChannel` (Phase 32 byte-pattern
 // mechanism) — mtime-newest JSONL under `~/.claude/projects/*​/` whose
 // first user-role line matches `/id <identityName>`. Stable across
-// compaction + resume. See 44-CONTEXT.md § ssh-poll-orchestrator.ts swap.
+// resume. See 44-CONTEXT.md § ssh-poll-orchestrator.ts swap.
 
 /**
  * Parse a JSONL blob (the raw stdout of a `tail -c 262144 <jsonl-path>` exec)
@@ -3429,7 +3431,7 @@ export function createSshPollOrchestrator(
     // (Research § Common Pitfalls Pitfall 4).
     //
     // A PID whose sessionJson.sessionId has ROTATED since the previous poll
-    // (Claude Code compaction/resume rotates sessionId in-place) is
+    // (a Claude Code resume rotates sessionId in-place) is
     // effectively a fresh session for stop-gate purposes even though isNew is
     // false. Reset the three mtime axes back to null; the new sessionId's
     // per-session files may not exist yet.
@@ -3444,7 +3446,7 @@ export function createSshPollOrchestrator(
       derivedStoppedMtime = null;
       // Phase 111 Plan 03: appearance is deliberately NOT reset on sessionId
       // rotation. Appearance is IDENTITY-scoped, not session-scoped: a
-      // compaction/resume does not change what the agent looks like. The
+      // resume does not change what the agent looks like. The
       // block's shape (resetting the three mtime axes) invites adding every
       // new axis here — that would be wrong for appearance.
     }

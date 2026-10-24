@@ -14,8 +14,12 @@
  *
  * Skynet never carries the harness bytes: each host fetches them straight
  * from Anthropic via Anthropic's own installer (see harness-script.ts).
+ *
+ * FLOOR: 2.1.290. The fleet settings' `idleCompaction: false` and the
+ * AUTOCOMPACT_PCT trigger math (run-bootstrap.ts) depend on it; re-check both
+ * on any bump.
  */
-export const HARNESS_PIN = "2.1.286";
+export const HARNESS_PIN = "2.1.310";
 
 /** Exact `MAJOR.MINOR.PATCH` — the only pin shape the reconciler accepts. */
 export const HARNESS_PIN_PATTERN = /^\d+\.\d+\.\d+$/;
