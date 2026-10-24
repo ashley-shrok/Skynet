@@ -101,6 +101,32 @@ function RelayAvatar({
   );
 }
 
+/**
+ * "⚠ not sent" — tap (or focus + Enter) to read why; the reason was only a
+ * hover title before, out of reach on touch and for screen readers.
+ */
+function NotSent({ reason }: { reason: string }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <span data-testid="relay-not-sent-reason" className="pv-relay-notsent block mt-1">
+      <button
+        type="button"
+        className="underline decoration-dotted underline-offset-2 cursor-pointer"
+        aria-expanded={open}
+        title={reason}
+        onClick={(e) => {
+          e.stopPropagation();
+          setOpen((v) => !v);
+        }}
+        onKeyDown={(e) => e.stopPropagation()}
+      >
+        ⚠ not sent
+      </button>
+      {open && <span className="block whitespace-normal">{reason}</span>}
+    </span>
+  );
+}
+
 function PartyName({ party }: { party: RelayParty }) {
   return <b>{party.name}</b>;
 }
@@ -116,6 +142,8 @@ function WhoLine({
   /** The send failed (error text, shown on hover): a "not sent" marker. */
   failed?: string | null;
 }) {
+  // In the card's header (itself the open/close control) just the mark; the
+  // reason shows in the opened card.
   const notSent = failed ? (
     <span data-testid="relay-not-sent" title={failed} className="pv-relay-notsent">
       ⚠ not sent
@@ -223,6 +251,7 @@ export function RelayDmCard({
         {open && (
           <div data-testid={`${testIdPrefix}-body`} className="pv-agent-card-body">
             {children}
+            {failed && <NotSent reason={failed} />}
             {speak && <RelaySpeakButton speakState={speak.speakState} onClick={speak.onClick} />}
           </div>
         )}
@@ -260,16 +289,18 @@ export function RelayToYouBubble({ testIdPrefix, sender, ts, children, speak, fa
         style={{ ["--pv-b-hue" as string]: String(hue) }}
       >
         {failed ? null : (
-          <span className="pv-envelope" title={`Also sent to your phone${when}`} data-testid="relay-envelope">
+          <span
+            className="pv-envelope"
+            role="img"
+            aria-label={`Also sent to your phone${when}`}
+            title={`Also sent to your phone${when}`}
+            data-testid="relay-envelope"
+          >
             <Mail aria-hidden="true" />
           </span>
         )}
         <div data-testid={`${testIdPrefix}-body`}>{children}</div>
-        {failed && (
-          <div data-testid="relay-not-sent" title={failed} className="pv-relay-notsent mt-1">
-            ⚠ not sent
-          </div>
-        )}
+        {failed && <NotSent reason={failed} />}
         {speak && <RelaySpeakButton speakState={speak.speakState} onClick={speak.onClick} />}
       </div>
     </div>

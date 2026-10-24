@@ -47,7 +47,7 @@ import { RelayOutboundBubble } from "./RelayOutboundBubble";
 import { RelayInboundBubble } from "./RelayInboundBubble";
 import { MalformedBubble } from "./MalformedBubble";
 import { WipBubble } from "./WipBubble";
-import { attentionKey, getSeenDmAt, isDmd } from "@/state/attention-store";
+import { attentionKey, subscribeDmArrival } from "@/state/attention-store";
 import "@/components/kit/kit.css";
 import "./conversation.css";
 import { AsideBubble } from "./AsideBubble";
@@ -1726,7 +1726,7 @@ export function PrettyView({
   // Phase 70: two-state position-derived state machine auto-scroll (at-bottom / not-at-bottom).
   // paneKey is passed FOR LOGGING ONLY — the hook does not react to paneKey changes per
   // shape-file § Session re-entry. See use-auto-scroll.ts header + shape-pv-autoscroll-rewrite.md.
-  const { scrollRef, jumpToBottom, onSendFired, noteScrolledAway, mode, revealed } = useAutoScroll(paneKey);
+  const { scrollRef, jumpToBottom, onSendFired, noteScrolledAway, noteLayoutChanged, mode, revealed } = useAutoScroll(paneKey);
 
   // ── Load-more scroll anchor (bounty load-more-scroll-and-order-corruption) ─
   // The container has overflow-anchor:none (useAutoScroll owns position), so
@@ -1745,39 +1745,46 @@ export function PrettyView({
     },
     [scrollRef],
   );
-  // Opening a conversation that holds a message to the user they haven't seen
-  // (the sidebar's red envelope): land on the oldest unseen one and ring it,
-  // instead of at the bottom (shape-conversation-view). The seen mark is read
-  // during the first render — before the seen tracker (an effect) clears it.
-  const [dmJumpSince] = useState<number | null>(() => {
-    if (source.kind !== "harness" || !tmuxSession) return null;
-    const k = attentionKey(hostId, tmuxSession.toLowerCase());
-    return isDmd(k) ? (getSeenDmAt(k) ?? 0) : null;
-  });
-  const dmJumpDoneRef = useRef(false);
+  // Arriving at a conversation that holds a message to the user they haven't
+  // seen (the sidebar's red envelope): land on the oldest unseen one and ring
+  // it, instead of at the bottom (shape-conversation-view). The seen tracker
+  // raises the arrival as it clears the envelope; same key as the sidebar.
+  const messagesRef = useRef(effectiveMessages);
+  messagesRef.current = effectiveMessages;
+  const revealedRef = useRef(revealed);
+  revealedRef.current = revealed;
   useEffect(() => {
-    if (dmJumpSince === null || dmJumpDoneRef.current || !revealed) return;
-    // Whether a message went to the user is resolved by its bubble (room
-    // members load async), so look for the marked bubbles for a moment.
-    let tries = 0;
-    const timer = window.setInterval(() => {
-      tries += 1;
-      const container = scrollElRef.current;
-      const newer = new Set(
-        effectiveMessages
-          .filter((m) => m.type === "relay_outbound" && typeof m.ts === "number" && m.ts > dmJumpSince)
-          .map((m) => m.eventId),
-      );
-      const target = container
-        ? Array.from(container.querySelectorAll<HTMLElement>("[data-pv-bubble][data-event-id]")).find(
-            (w) => newer.has(w.dataset.eventId ?? "") && w.querySelector('[data-to-you="true"]'),
-          )
-        : undefined;
-      if (target || tries >= 12) {
-        window.clearInterval(timer);
-        dmJumpDoneRef.current = true;
+    if (source.kind !== "harness" || !tmuxSession) return;
+    let timer: number | null = null;
+    const stop = () => {
+      if (timer !== null) window.clearInterval(timer);
+      timer = null;
+    };
+    const unsubscribe = subscribeDmArrival(attentionKey(hostId, tmuxSession), (since) => {
+      stop();
+      // Whether a message went to the user is resolved by its bubble (room
+      // members load async), and the list may still be landing — look for a
+      // moment.
+      let tries = 0;
+      timer = window.setInterval(() => {
+        tries += 1;
+        const container = scrollElRef.current;
+        if (!revealedRef.current || !container) {
+          if (tries >= 20) stop();
+          return;
+        }
+        const newer = new Set(
+          messagesRef.current
+            .filter((m) => m.type === "relay_outbound" && typeof m.ts === "number" && m.ts > since)
+            .map((m) => m.eventId),
+        );
+        const target = Array.from(container.querySelectorAll<HTMLElement>("[data-pv-bubble][data-event-id]")).find(
+          (w) => newer.has(w.dataset.eventId ?? "") && w.querySelector('[data-to-you="true"]'),
+        );
+        if (!target && tries < 20) return;
+        stop();
         if (!target) {
-          console.info({ operation: "pv_dm_jump_none", hostId, tmuxSession, since: dmJumpSince });
+          console.info({ operation: "pv_dm_jump_none", hostId, tmuxSession, since });
           return;
         }
         const bubble = target.querySelector<HTMLElement>('[data-to-you="true"]') ?? target;
@@ -1786,11 +1793,14 @@ export function PrettyView({
         bubble.classList.add("pv-ring");
         window.setTimeout(() => bubble.classList.remove("pv-ring"), 2400);
         console.info({ operation: "pv_dm_jump", hostId, tmuxSession, eventId: target.dataset.eventId });
-      }
-    }, 250);
-    return () => window.clearInterval(timer);
+      }, 250);
+    });
+    return () => {
+      unsubscribe();
+      stop();
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [dmJumpSince, revealed]);
+  }, [hostId, tmuxSession, source.kind]);
   const prependAnchorRef = useRef<{ eventId: string; offset: number } | null>(
     null,
   );
@@ -2441,9 +2451,18 @@ export function PrettyView({
   useLayoutEffect(() => {
     const root = pvRootRef.current;
     if (!root) return;
+    let lastDockH = -1;
     const measure = () => {
-      root.style.setProperty("--pv-dock-h", `${dockEl?.offsetHeight ?? 0}px`);
+      const dockH = dockEl?.offsetHeight ?? 0;
+      root.style.setProperty("--pv-dock-h", `${dockH}px`);
       root.dataset.pvNarrow = root.clientWidth < 860 ? "true" : "false";
+      // The list pads its end by the dock's height; when that changes (a
+      // multi-line draft, the task list appearing) keep the newest message
+      // clear of the composer if the list is following the bottom.
+      if (dockH !== lastDockH) {
+        if (lastDockH !== -1) noteLayoutChanged();
+        lastDockH = dockH;
+      }
     };
     measure();
     const ro = new ResizeObserver(measure);
@@ -4573,9 +4592,11 @@ export function PrettyView({
   // turn only; background agents keep running through an interrupt. Not
   // while dormant (no live process) or while waiting on the user (the
   // permission bubble owns that state).
+  const mainTurnWorking =
+    (isWorking || optimisticWip) &&
+    (!interruptedTail || interruptWipReleased || pendingSends.some((p) => p.state === "sending"));
   const agentWorking =
-    ((isWorking || optimisticWip) &&
-      (!interruptedTail || interruptWipReleased || pendingSends.some((p) => p.state === "sending"))) ||
+    mainTurnWorking ||
     (status === "streaming" && !dormant && waitingFor === null && backgroundedAgents.length > 0);
 
   return (
@@ -5398,7 +5419,9 @@ export function PrettyView({
             identityName={source.kind === "relay" ? "room" : pvIdentity?.displayName}
             onGoodToGo={jumpToBottom}
             onInterrupt={onInterrupt ? handleInterrupt : undefined}
-            agentWorking={agentWorking}
+            // Stop is for the main turn — background agents run on through it.
+            agentWorking={mainTurnWorking}
+            agentWaiting={waitingFor !== null}
             interruptFeedback={interruptFeedback}
             interruptDisabled={pendingSends.some((p) => p.state === "sending")}
             restoreRequest={restoreRequest}

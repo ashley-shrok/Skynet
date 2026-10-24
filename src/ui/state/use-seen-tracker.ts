@@ -14,6 +14,8 @@ import { useEffect, useState } from "react";
 import { markSeen, subscribeAttention } from "./attention-store";
 import { setVisibleConversationIds } from "./conversation-store";
 
+const ARRIVAL_WINDOW_MS = 10_000;
+
 export type SeenTarget = { id: string; hostId: string; identityName: string };
 
 function pageIsVisible(): boolean {
@@ -44,8 +46,14 @@ export function useSeenTracker(targets: readonly SeenTarget[], screenShowsConver
     const seen = looking ? targets : [];
     setVisibleConversationIds(seen.map((t) => t.id));
     if (seen.length === 0) return;
+    // The user "arrives" at a conversation when it comes on screen; a read
+    // state that loads within a few seconds of that still counts as arriving
+    // (a reload straight into a conversation). After that, new marks land
+    // while they're watching.
+    const shownAt = Date.now();
     const markAll = () => {
-      for (const t of seen) markSeen(t.hostId, t.identityName);
+      const arrived = Date.now() - shownAt < ARRIVAL_WINDOW_MS;
+      for (const t of seen) markSeen(t.hostId, t.identityName, arrived);
     };
     markAll();
     // A turn that finishes while the user is watching is seen as it lands.

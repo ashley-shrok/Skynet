@@ -1480,14 +1480,18 @@ crown, then gear.
   user by relay DM) appear as ordinary agent bubbles, always open, with a
   small red **envelope** on the top-left corner ("Also sent to your
   phone") — the same envelope the sidebar puts on the conversation until
-  the user opens it. Opening a conversation that has one the user hasn't
-  seen lands on the oldest unseen one and briefly rings it, instead of the
-  bottom. Messages **between agents** show as quiet grey cards, folded:
+  the user opens it. One that failed to send shows open too, with a
+  "⚠ not sent" mark (tap it for the reason) and no envelope. Coming to a
+  conversation that has one the user hasn't seen lands on the oldest unseen
+  one and briefly rings it, instead of the bottom. Messages **between agents** show as quiet grey cards, folded:
   the sender's picture, "Finch → Bilbo" and a one-line preview; tap to
   read. In a **relay room** the user opened, each agent's messages are
   bubbles in its colour with its name on top.
-  *Agent-side:* a message you relay to the user shows in your own
-  conversation as one of your bubbles — no need to repeat it in your reply.
+  *Agent-side:* a message you relay to the user normally shows in your own
+  conversation as one of your bubbles. While the room's members are still
+  loading, or when the recipient can't be worked out, it shows as a folded
+  "<you> sent a DM" card instead — so still say in your reply that you sent
+  it.
 
 - **Composer (bottom of the conversation).** One rounded card floating
   over the end of the message list: the text on top, every control on one
@@ -1498,7 +1502,10 @@ crown, then gear.
   attached, **Stop** (square) while the agent is working, otherwise a
   **thumbs-up** (sends "thumbs up"). With text typed, the thumbs-up — or
   Stop, while the agent works — sits as a small grey button just left of
-  Send, so a thumbs-up never needs the draft cleared. In a relay room only
+  Send, so a thumbs-up never needs the draft cleared. While Claude Code is
+  waiting on a dialog (e.g. a permission prompt), a small grey Stop sits
+  beside the thumbs-up. Background sub-agents don't count as working here
+  (they run on through a Stop). In a relay room only
   the mic and Send show. (There is no "Queue a message" button any more.)
 
 - **Agent memory (the pie in the composer's row).** Shows how full the
@@ -1540,9 +1547,10 @@ crown, then gear.
   *Agent-side: none.*
 
 - **Stop (square) button — interrupt** (agent conversations). The
-  composer's round main button while the agent is working and nothing is
-  typed; with text typed, a small grey square just left of Send. One press
-  does whichever of
+  composer's round main button while the agent's main turn is working and
+  nothing is typed; with text typed, a small grey square just left of Send;
+  while a dialog is waiting, a small grey square beside the thumbs-up. One
+  press does whichever of
   these fits the moment:
   - **Still being delivered** (the message hasn't reached the agent yet):
     the button is greyed out — there is nothing to stop.
@@ -1553,12 +1561,13 @@ crown, then gear.
   - **Stop** (the agent had started): the agent stops, the user's message
     stays, and an agent-side bubble reading **Interrupted** confirms it;
     the work indicator goes off.
-  - Pressed when the agent is already idle, it does nothing.
+  - Pressed when there turns out to be nothing running, it does nothing.
   On a press the button at once turns into a small chip with a spinner and
   **Stopping** (deciding on a cancel takes about a second and a half),
   then shows what happened for two seconds — **Stopped**, **Cancelled** or
-  **Nothing to stop** (**Failed** if the press didn't go through)
-  — before going back to the square.
+  **Nothing to stop** (**Failed** if the press didn't go through). The chip
+  holds Stop's place until then — the round button doesn't turn into the
+  thumbs-up under a second tap.
   The same conversation open elsewhere drops a cancelled bubble too; only
   the device that pressed gets the words back.
   *Agent-side:* a cancelled message never reaches you. A stop arrives as

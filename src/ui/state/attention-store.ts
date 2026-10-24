@@ -296,28 +296,52 @@ export function getUnseenDmAt(k: Key | null): number | null {
   return s !== undefined && s >= dm ? null : dm;
 }
 
-/** The latest DM time this user has seen here, or null if none yet. */
-export function getSeenDmAt(k: Key | null): number | null {
-  if (k === null) return null;
-  return dmSeen.get(k) ?? null;
-}
-
 export function isDmd(k: Key | null): boolean {
   return getUnseenDmAt(k) !== null;
+}
+
+// A DM cleared because the user just arrived at the conversation (it came on
+// screen, or its read state loaded right after it did): the conversation view
+// jumps to the oldest message it hasn't seen. `since` is the seen mark before
+// this clear. Not raised for DMs that land while the user is already watching.
+const dmArrivalListeners = new Map<Key, Set<(since: number) => void>>();
+
+export function subscribeDmArrival(k: Key, cb: (since: number) => void): () => void {
+  let set = dmArrivalListeners.get(k);
+  if (!set) {
+    set = new Set();
+    dmArrivalListeners.set(k, set);
+  }
+  set.add(cb);
+  return () => {
+    set!.delete(cb);
+    if (set!.size === 0) dmArrivalListeners.delete(k);
+  };
 }
 
 /**
  * The user is looking at this conversation: mark its latest finished turn
  * and its latest DM seen, locally at once and on the server (which tells the
- * user's other tabs). No-op when there's nothing new.
+ * user's other tabs). No-op when there's nothing new. `arrived`: the user
+ * has just come to it (see subscribeDmArrival).
  */
-export function markSeen(hostId: string | number, identityName: string): void {
+export function markSeen(hostId: string | number, identityName: string, arrived = false): void {
   const k = attentionKey(hostId, identityName);
   let changed = false;
   // DMs need no baseline: a DM in the map is always one to clear.
   const dm = getUnseenDmAt(k);
+  const seenBefore = dmSeen.get(k) ?? 0;
   if (dm !== null && advanceMax(dmSeen, k, dm)) {
     changed = true;
+    if (arrived) {
+      for (const cb of dmArrivalListeners.get(k) ?? []) {
+        try {
+          cb(seenBefore);
+        } catch (err) {
+          console.warn({ operation: "attention_dm_arrival_listener_threw", error: err instanceof Error ? err.message : String(err) });
+        }
+      }
+    }
     console.info({ operation: "attention_mark_dm_seen", hostId: String(hostId), identityName, seenDmAt: dm });
     postDmSeen(k, String(hostId), identityName, dm);
   }

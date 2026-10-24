@@ -49,7 +49,7 @@ button.pv-float:focus-visible { outline: 2px solid var(--k-acc); outline-offset:
   top: 0;
   left: 0;
   right: 0;
-  height: calc(env(safe-area-inset-top, 0px) + 76px);
+  height: 76px;
   z-index: 100;
   pointer-events: none;
   background: linear-gradient(180deg, rgba(11, 12, 15, 0.92) 0%, rgba(11, 12, 15, 0.72) 45%, rgba(11, 12, 15, 0) 100%);
@@ -112,6 +112,12 @@ button.pv-float:focus-visible { outline: 2px solid var(--k-acc); outline-offset:
 .pv-compose-spacer { flex: 1; min-width: 0; }
 .pv-compose-error { padding: 4px 10px 2px; font-size: 12.5px; color: var(--k-danger-text); }
 .pv-compose-queued { display: flex; flex-direction: column; gap: 8px; margin-bottom: 4px; }
+
+/* The press flash (index.css .pv-btn-pressed) keeps its squeeze but not its
+   amber tint on these round buttons. */
+.pv-composebox .pv-cbtn.pv-btn-pressed { box-shadow: none; }
+.pv-composebox .pv-cbtn:not([data-main]).pv-btn-pressed { background: var(--k-s3); }
+.pv-composebox .pv-cbtn[data-main="true"].pv-btn-pressed { background: #fff; }
 
 /* Quiet round buttons in the row. */
 .pv-cbtn {
@@ -242,9 +248,21 @@ button.pv-float:focus-visible { outline: 2px solid var(--k-acc); outline-offset:
 .pv-mem[data-band="amber"], .pv-mem[data-band="red"] { padding: 0 11px 0 9px; }
 .pv-mem[data-band="amber"] { color: var(--pv-amber); background: rgba(240, 181, 61, 0.12); }
 .pv-mem[data-band="amber"]:hover:enabled { color: var(--pv-amber); background: rgba(240, 181, 61, 0.2); }
-.pv-mem[data-band="red"] { color: var(--pv-red); background: rgba(255, 107, 94, 0.15); animation: pv-mem-alert 2.4s ease-in-out infinite; }
+.pv-mem[data-band="red"] { color: var(--pv-red); background: rgba(255, 107, 94, 0.15); }
+/* The red pulse: a halo that fades in and out — opacity only, so it costs
+   nothing per frame however long memory stays red. */
+.pv-mem[data-band="red"]::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  box-shadow: 0 0 0 4px rgba(255, 107, 94, 0.18);
+  pointer-events: none;
+  opacity: 0;
+  animation: pv-mem-alert 2.4s ease-in-out infinite;
+}
 .pv-mem[data-band="red"]:hover:enabled { color: var(--pv-red); background: rgba(255, 107, 94, 0.24); }
-@keyframes pv-mem-alert { 0%, 100% { box-shadow: 0 0 0 0 rgba(255, 107, 94, 0); } 50% { box-shadow: 0 0 0 4px rgba(255, 107, 94, 0.18); } }
+@keyframes pv-mem-alert { 0%, 100% { opacity: 0; } 50% { opacity: 1; } }
 .pv-mem-pop {
   z-index: 600;
   width: 284px;
@@ -461,7 +479,7 @@ button.pv-float:focus-visible { outline: 2px solid var(--k-acc); outline-offset:
 @keyframes pv-wip-spin { to { transform: rotate(360deg); } }
 @keyframes pv-wip-core { 0%, 100% { transform: scale(0.7); opacity: 0.7; } 50% { transform: scale(1); opacity: 1; } }
 @media (prefers-reduced-motion: reduce) {
-  .pv-wip-orb::before, .pv-wip-orb > i, .pv-mem[data-band="red"] { animation: none; }
+  .pv-wip-orb::before, .pv-wip-orb > i, .pv-mem[data-band="red"]::after { animation: none; }
 }
 
 /* Load older messages: a small pill like the other floating controls. */

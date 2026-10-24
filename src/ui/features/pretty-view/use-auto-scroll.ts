@@ -115,6 +115,9 @@ export interface UseAutoScrollResult {
    *  let the machine leave at-bottom exactly as a user scroll would, so it
    *  doesn't chase back to the bottom. */
   noteScrolledAway: () => void;
+  /** Something outside the list changed how much of it shows (the floating
+   *  composer grew or shrank): re-pin to the bottom if following it. */
+  noteLayoutChanged: () => void;
   mode: Mode;
   revealed: boolean;
 }
@@ -453,5 +456,9 @@ export function useAutoScroll(paneKey: string): UseAutoScrollResult {
     dispatch({ kind: "user-input", distanceFromBottom: computeDistance(el), isTouch: false });
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  return { scrollRef, jumpToBottom, onSendFired, noteScrolledAway, mode, revealed };
+  const noteLayoutChanged = useCallback(() => {
+    dispatch({ kind: "container-resized" });
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  return { scrollRef, jumpToBottom, onSendFired, noteScrolledAway, noteLayoutChanged, mode, revealed };
 }

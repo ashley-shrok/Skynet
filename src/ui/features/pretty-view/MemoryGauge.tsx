@@ -54,12 +54,10 @@ export function MemoryGauge({ pct, emptied = false, resetDisabled = false, onSta
           className="pv-cbtn pv-mem"
           data-testid="memory-gauge"
           data-band={band}
+          // A button (it opens the pop-over); the reading is in its label.
           aria-label={label}
           title={label}
-          role="meter"
-          aria-valuemin={0}
-          aria-valuemax={100}
-          aria-valuenow={shown ?? undefined}
+          data-pct={shown ?? undefined}
         >
           <i className="pv-mem-pie" style={{ ["--pv-mem-p" as string]: String(shown ?? 0) }} aria-hidden="true" />
           {band !== "grey" && <span>{shown}%</span>}

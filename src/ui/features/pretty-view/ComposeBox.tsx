@@ -270,9 +270,13 @@ export interface ComposeBoxProps {
   // When omitted the button does not render — read-only PrettyView
   // callers stay clean.
   onInterrupt?: () => void;
-  // The agent is working (PrettyView's working-indicator condition). The
-  // composer's main button is Stop then, while nothing is typed.
+  // The agent's main turn is working (background sub-agents don't count —
+  // they run on through a Stop). The composer's main button is Stop then,
+  // while nothing is typed.
   agentWorking?: boolean;
+  // Claude Code is waiting on a dialog (permission prompt etc.): a quiet Stop
+  // sits beside the thumbs-up so an interrupt is always reachable.
+  agentWaiting?: boolean;
   // shape-interrupt-button: true while a send is still being delivered (its
   // message has not landed in the transcript yet) — there is nothing in the
   // harness to stop or cancel, so the button is greyed out. Static look only:
@@ -793,6 +797,7 @@ export function ComposeBox({
   onGoodToGo,
   onInterrupt,
   agentWorking,
+  agentWaiting,
   interruptDisabled,
   interruptFeedback,
   restoreRequest,
@@ -2382,7 +2387,11 @@ export function ComposeBox({
   // cleared. Relay rooms get only the mic and Send.
   const harness = mode !== "relay";
   const hasDraft = text.trim() !== "" || hasAttachments || showTranscribingSend;
-  const working = agentWorking === true;
+  // Stop stays where it is while its press is being answered (Stopping →
+  // Stopped / Cancelled / …): working drops within milliseconds of a Stop,
+  // and the same round button turning into 👍 under a second tap would
+  // restart the agent that was just stopped.
+  const working = agentWorking === true || interruptFeedback != null;
   const quickDisabled = asideActive === true || recycleActive === true || reconnectingActive === true;
   const mainAction: "resume" | "send" | "stop" | "thumbs" = asideActive
     ? "resume"
@@ -2391,8 +2400,15 @@ export function ComposeBox({
       : working && onInterrupt
         ? "stop"
         : "thumbs";
-  const asideAction: "stop" | "thumbs" | null =
-    mainAction !== "send" || !harness ? null : working && onInterrupt ? "stop" : "thumbs";
+  const asideAction: "stop" | "thumbs" | null = !harness
+    ? null
+    : mainAction === "send"
+      ? working && onInterrupt
+        ? "stop"
+        : "thumbs"
+      : mainAction === "thumbs" && agentWaiting === true && onInterrupt
+        ? "stop"
+        : null;
   // Mic open on this composer (a transcript round-trip is not "recording":
   // Send shows its spinner then).
   const recordingHere = voice.state === "starting" || voice.state === "recording";
@@ -2660,9 +2676,14 @@ export function ComposeBox({
                 title={voiceModeAnywhere ? VOICE_MODE_ON_TITLE : undefined}
               />
             )}
-            {!recordingHere && asideAction && renderAction(asideAction, false)}
-            {!recordingHere && (mainAction === "stop" || mainAction === "thumbs") && renderAction(mainAction, true)}
-            {!recordingHere && (mainAction === "send" || mainAction === "resume") && (
+            {/* While the mic is held, the buttons to its right keep their
+                space (hidden, not removed): the row is right-aligned, so
+                removing them would slide the mic out from under the finger
+                and turn the release into a cancel. */}
+            <span className="contents" style={recordingHere ? { visibility: "hidden" } : undefined} aria-hidden={recordingHere || undefined}>
+            {asideAction && renderAction(asideAction, false)}
+            {(mainAction === "stop" || mainAction === "thumbs") && renderAction(mainAction, true)}
+            {(mainAction === "send" || mainAction === "resume") && (
               // Phase 14: SAME button morphs to Resume while an aside is up
               // (DOM identity preserved across the morph). Phase 16: disabled
               // with a spinner during this textarea's STT round-trip.
@@ -2701,6 +2722,7 @@ export function ComposeBox({
                 )}
               </button>
             )}
+            </span>
           </>
         )}
         {/* Mounted for as long as Stop can be, so screen readers hear
