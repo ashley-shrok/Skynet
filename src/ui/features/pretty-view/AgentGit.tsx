@@ -441,13 +441,14 @@ function WorkingDiff({
   }, [state, source.path]);
   if (state.status === "loading") return <KitLoading label="Loading changes…" />;
   if (state.status === "error") return <ErrorBanner errorClass={state.errorClass} />;
-  // A file listed as changed but missing from the diff fell past its limits
-  // (the first 50 new files; the first 2 MB) — say so, not "no differences".
+  // A file listed as changed but missing from the diff most likely fell past
+  // its limits (the first 50 new files; the first 2 MB) — say so, not "no
+  // differences".
   if (source.path !== null && patch.trim() === "" && state.data.patch.trim() !== "") {
     return (
       <KitEmpty
         title="This file's changes aren't shown."
-        body="The changes view covers the first 50 new files and the first 2 MB of changes."
+        body="The changes view only covers the first 50 new files and the first 2 MB of changes, so this one may be past that."
       />
     );
   }

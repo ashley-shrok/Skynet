@@ -378,6 +378,13 @@ export function RolesWindow({
             prev.status === "ready" ? { status: "ready", data: prev.data.filter((r) => r.name !== nav.role.name) } : prev,
           );
           setArchivedKey((k) => k + 1);
+          // Restored earlier and archived again: it counts as archived.
+          setRestoredNames((prev) => {
+            if (!prev.has(nav.role.name)) return prev;
+            const next = new Set(prev);
+            next.delete(nav.role.name);
+            return next;
+          });
           void go({ view: "library" });
         }}
         onOpenScheduledTasks={async () => {

@@ -1756,9 +1756,12 @@ export function PrettyView({
   useEffect(() => {
     if (source.kind !== "harness" || !tmuxSession) return;
     let timer: number | null = null;
+    // Once the user starts moving around themselves, the jump is off.
+    const USER_MOVES = ["wheel", "touchmove", "keydown", "pointerdown"] as const;
     const stop = () => {
       if (timer !== null) window.clearInterval(timer);
       timer = null;
+      for (const ev of USER_MOVES) window.removeEventListener(ev, stop, true);
     };
     const unsubscribe = subscribeDmArrival(attentionKey(hostId, tmuxSession), (since) => {
       stop();
@@ -1767,6 +1770,7 @@ export function PrettyView({
       // reload) — keep looking for a while.
       const MAX_TRIES = 60;
       let tries = 0;
+      for (const ev of USER_MOVES) window.addEventListener(ev, stop, true);
       timer = window.setInterval(() => {
         tries += 1;
         const container = scrollElRef.current;

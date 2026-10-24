@@ -150,7 +150,11 @@ async function hideSharedFromNonAdmins(req: Request, res: Response, next: expres
       path: req.path,
       skill: raw,
     });
-    res.status(404).json({ error: "skill not found" });
+    // A name being taken (a new skill, a rename's target) reads as taken,
+    // the same answer a skill of the user's own by that name gives.
+    const isNewName = (req.method === "POST" && req.path === "/skill") || raw === body.newName;
+    if (isNewName) res.status(409).json({ error: "skill exists" });
+    else res.status(404).json({ error: "skill not found" });
     return;
   }
   next();

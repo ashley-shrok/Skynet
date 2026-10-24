@@ -1212,6 +1212,9 @@ export function PrettyConversationsPanel({
       setNewSessionDialogOpen(true);
     };
     const onRequest = (): void => {
+      // Hold it until the machines are known, so the dialog opens on the
+      // asked-for machine (this re-runs when the tree arrives).
+      if (!hostTree) return;
       const req = takeNewConversationRequest();
       if (req) answer(req);
     };

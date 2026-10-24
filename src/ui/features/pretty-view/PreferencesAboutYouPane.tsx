@@ -103,6 +103,15 @@ export function PreferencesAboutYouPane({
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
 
+  // The list normally lands in a moment; if it never does (the load failed
+  // with nothing cached), say so rather than spin.
+  const [machinesSlow, setMachinesSlow] = useState(false);
+  useEffect(() => {
+    if (hostTree !== null) return;
+    const t = setTimeout(() => setMachinesSlow(true), 15_000);
+    return () => clearTimeout(t);
+  }, [hostTree]);
+
   const agentHosts = useMemo(
     () =>
       collectAllHosts(hostTree?.children ?? []).filter((h) => h.canHostAgents === true),
@@ -393,9 +402,17 @@ export function PreferencesAboutYouPane({
     ) : null;
 
   let main: React.ReactNode;
-  if (hostTree === null) {
+  if (hostTree === null && !machinesSlow) {
     // The machine list hasn't arrived yet (first load, nothing cached).
     main = <KitLoading label="Loading machines…" className="py-10" />;
+  } else if (hostTree === null) {
+    main = (
+      <KitEmpty
+        className="py-10"
+        title="Couldn't load your machines"
+        body="Reload the page to try again."
+      />
+    );
   } else if (agentHosts.length === 0) {
     main = (
       <KitEmpty

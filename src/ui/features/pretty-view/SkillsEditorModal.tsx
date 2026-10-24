@@ -824,12 +824,12 @@ export default function SkillsEditorModal({
     if (raw == null) return;
     const relPath = raw.trim();
     if (relPath.length === 0) return;
-    if (!(await leaveActiveFile(relPath))) return;
     try {
       await createSkillFile(apiHostId, selectedSkillName, relPath);
       const entries = await enumerateSkillFiles(apiHostId, selectedSkillName);
       setFiles({ status: "ready", data: entries });
-      setActiveTab(relPath);
+      // Created either way; it opens unless the user keeps editing this one.
+      if (await leaveActiveFile(relPath)) setActiveTab(relPath);
     } catch (err) {
       const msg =
         err instanceof SkillFileAlreadyExistsError

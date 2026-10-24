@@ -347,11 +347,12 @@ export function RoleSkillView({
     });
     const relPath = raw?.trim();
     if (!relPath) return;
-    if (!(await leaveActiveFile(relPath))) return;
     try {
       await createRoleSkillFile(hostId, roleName, skill, relPath);
       console.debug("[RoleSkillView] add-file", { path: relPath });
       await refreshFiles();
+      // Created either way; it opens unless the user keeps editing this one.
+      if (!(await leaveActiveFile(relPath))) return;
       setActiveTab(relPath);
       if (fullscreen) setFilesOpen(false);
     } catch (err) {
