@@ -1026,6 +1026,21 @@ describe("useVoiceMode — mute", () => {
     expect(track.enabled).toBe(true);
   });
 
+  it("muted time doesn't count toward the timed turn end: muting mid-message doesn't send it", async () => {
+    const send = vi.fn(() => true);
+    const { result } = await startVoiceMode(baseArgs({ send }));
+    transcribeReturns("half a thought");
+    await sayPiece();
+    act(() => result.current.toggleMute());
+    await flush(TIMED_END_MS * 3);
+    expect(send).not.toHaveBeenCalled();
+    act(() => result.current.toggleMute());
+    await flush(500);
+    expect(send).not.toHaveBeenCalled();
+    await flush(TIMED_END_MS);
+    expect(send).toHaveBeenCalledWith("half a thought");
+  });
+
   it("keeps a re-acquired mic muted", async () => {
     const { result, rerender } = await startVoiceMode();
     act(() => result.current.toggleMute());

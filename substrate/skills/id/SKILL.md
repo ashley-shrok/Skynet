@@ -1376,9 +1376,10 @@ crown, then gear.
   while a reply (or speak button) is playing to skip it. The chip's small
   **mic** button mutes the mic (crossed out and red while muted; the chip
   reads Muted while it would be listening): voice mode stays on and replies
-  are still read aloud, but it hears silence until unmuted — what was said
-  before muting is handled as usual, so a draft can still send on the
-  silence. Each voice-mode session starts unmuted. The chip's × — or ending a sentence
+  are still read aloud, but it hears silence until unmuted. Muted time
+  doesn't count toward the three-second turn end, so muting mid-message
+  never sends it; after unmuting the count carries on where it was. Each
+  voice-mode session starts unmuted. The chip's × — or ending a sentence
   with "stop voice mode" — ends voice mode and throws away anything not yet
   sent. Replies are spoken in the agent's voice —
   its own, else its role's, else the user's **Agent voices** fallback, else

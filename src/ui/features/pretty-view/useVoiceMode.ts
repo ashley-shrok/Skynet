@@ -288,8 +288,14 @@ export function useVoiceMode(args: UseVoiceModeArgs): UseVoiceModeReturn {
   const sessionRef = useRef(0);
   const phaseRef = useRef<VoiceModePhase>("off");
   const streamRef = useRef<MediaStream | null>(null);
-  /** Mute is a state of the mic, not of the draft: tracks are disabled (silence), nothing else changes. */
+  /**
+   * Mute is a state of the mic: tracks are disabled (silence). Muted time
+   * doesn't count toward the timed turn end, so muting mid-message never
+   * sends it.
+   */
   const mutedRef = useRef(false);
+  /** performance.now() when the current mute began. */
+  const mutedAtRef = useRef(0);
   const ctxRef = useRef<AudioContext | null>(null);
   const cuesRef = useRef<VoiceModeCues | null>(null);
   const analyserRef = useRef<AnalyserNode | null>(null);
@@ -598,6 +604,7 @@ export function useVoiceMode(args: UseVoiceModeArgs): UseVoiceModeReturn {
       // real speech, so short noises (keys, a door) can't postpone it.
       const last = piecesRef.current[piecesRef.current.length - 1];
       if (
+        !mutedRef.current &&
         getVoiceModeSettings().endOfTurn === "timed" &&
         last !== undefined &&
         last.endsTurn === undefined &&
@@ -1141,7 +1148,18 @@ export function useVoiceMode(args: UseVoiceModeArgs): UseVoiceModeReturn {
     mutedRef.current = next;
     setMuted(next);
     for (const track of streamRef.current?.getAudioTracks() ?? []) track.enabled = !next;
-    log(`mic-${next ? "muted" : "unmuted"} phase=${phaseRef.current} ${describeTracks(streamRef.current)}`);
+    const now = performance.now();
+    let mutedMs = 0;
+    if (next) mutedAtRef.current = now;
+    else {
+      // The timed turn end picks up where it was when the mute began.
+      mutedMs = now - mutedAtRef.current;
+      lastSpeechAtRef.current += mutedMs;
+    }
+    log(
+      `mic-${next ? "muted" : "unmuted"} phase=${phaseRef.current} draftPieces=${piecesRef.current.length}` +
+        `${next ? "" : ` mutedMs=${Math.round(mutedMs)}`} ${describeTracks(streamRef.current)}`,
+    );
   }, [log]);
 
   const skipSpeech = useCallback(() => {
