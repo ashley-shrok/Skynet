@@ -106,9 +106,9 @@ export function RelayOutboundBubble({
 
   const failed = result && !result.ok ? result.error ?? "the send failed" : null;
   // A message to the user is read in place — never folded behind a header.
-  if (addressing.kind === "dm" && addressing.to.you && !failed) {
+  if (addressing.kind === "dm" && addressing.to.you) {
     return (
-      <RelayToYouBubble testIdPrefix="relay-outbound" sender={sender} ts={ts} speak={speak}>
+      <RelayToYouBubble testIdPrefix="relay-outbound" sender={sender} ts={ts} speak={speak} failed={failed}>
         {content}
       </RelayToYouBubble>
     );

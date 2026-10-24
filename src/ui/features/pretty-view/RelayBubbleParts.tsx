@@ -237,14 +237,17 @@ export interface RelayToYouBubbleProps {
   ts?: number;
   children: React.ReactNode;
   speak?: { speakState: SpeakState; onClick: (e: React.MouseEvent) => void } | null;
+  /** The send failed (error text, shown on hover): no envelope — it never
+   *  reached the phone — and a "not sent" mark instead. */
+  failed?: string | null;
 }
 
 /**
  * The agent messaged YOU over the relay (it also reached your phone): just an
  * agent bubble in the sender's colour, always open, with the sidebar's red
- * envelope on its corner.
+ * envelope on its corner. Never folded — even a failed send stays readable.
  */
-export function RelayToYouBubble({ testIdPrefix, sender, ts, children, speak }: RelayToYouBubbleProps) {
+export function RelayToYouBubble({ testIdPrefix, sender, ts, children, speak, failed = null }: RelayToYouBubbleProps) {
   const hue = sender.hue ?? FALLBACK_HUE;
   const when = ts !== undefined ? ` · ${new Date(ts).toLocaleString()}` : "";
   return (
@@ -252,14 +255,21 @@ export function RelayToYouBubble({ testIdPrefix, sender, ts, children, speak }: 
       <div
         data-testid={`${testIdPrefix}-bubble`}
         data-bubble-hue={hue}
-        data-to-you="true"
+        data-to-you={failed ? undefined : "true"}
         className="pv-bubble-agent pv-hue-surface whitespace-pre-wrap [overflow-wrap:anywhere]"
         style={{ ["--pv-b-hue" as string]: String(hue) }}
       >
-        <span className="pv-envelope" title={`Also sent to your phone${when}`} data-testid="relay-envelope">
-          <Mail aria-hidden="true" />
-        </span>
+        {failed ? null : (
+          <span className="pv-envelope" title={`Also sent to your phone${when}`} data-testid="relay-envelope">
+            <Mail aria-hidden="true" />
+          </span>
+        )}
         <div data-testid={`${testIdPrefix}-body`}>{children}</div>
+        {failed && (
+          <div data-testid="relay-not-sent" title={failed} className="pv-relay-notsent mt-1">
+            ⚠ not sent
+          </div>
+        )}
         {speak && <RelaySpeakButton speakState={speak.speakState} onClick={speak.onClick} />}
       </div>
     </div>
