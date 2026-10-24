@@ -3157,7 +3157,7 @@ drive() {
     # send-keys drops bytes into the pane and returns 0 whether or not they became a viable command.
     # A terminal Device Attributes response echoing at the shell prompt as literal `1;2c0;276;0c`
     # got prefixed onto the env-claude line; bash parsed with `;` as command separators, `0c` became
-    # the command name, claude never launched, then the compaction-cancel + prompt scrape below all
+    # the command name, claude never launched, then the prompt scrape below
     # ran against a bare bash prompt (and, while the re-arm nudge still existed, it was pasted into
     # bash). Fix:
     # check the pane's tty for the claude/node process (reuses claude_running()) — if it's not there

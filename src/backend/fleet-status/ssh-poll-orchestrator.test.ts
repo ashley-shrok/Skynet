@@ -7036,7 +7036,7 @@ describe("ssh-poll-orchestrator Phase 62 Plan 03 — activityMtime + stoppedMtim
   // Tick 1: sessionId "test-session-id" with activityMtime + stoppedMtime
   //         populated. Cached in PidCacheEntry keyed by pid=12345.
   // Tick 2: SAME pid=12345 but sessionId rotated to "rotated-session-id"
-  //         (Claude Code compaction rotates sessionId in-place, Phase 44
+  //         (a Claude Code resume rotates sessionId in-place, Phase 44
   //         L328-335). The new session's marker files may not exist yet.
   //         BOTH new axes MUST reset to null on the rotation-detection
   //         branch, matching lastStopAt's rotation reset at line 1193.
@@ -9588,7 +9588,7 @@ describe("Phase 111 Plan 03 — appearance axis at both publish sources", () => 
     await orchestrator.start();
     const afterTick1Len = deps.registry.publishedStates.length;
 
-    // Tick 2: same PID, ROTATED sessionId (compaction/resume), same appearance
+    // Tick 2: same PID, ROTATED sessionId (resume), same appearance
     const tick2 = makeSweepJsonl({
       identities: [{
         identity: "pixel",
