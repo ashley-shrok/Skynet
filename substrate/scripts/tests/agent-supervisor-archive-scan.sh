@@ -1935,18 +1935,82 @@ test_dep_cleanup_ignored_env_file_dir_kept() {
   teardown_scratch "$scratch"
 }
 
-test_dep_cleanup_git_only_names_in_repo_and_outside() {
+test_dep_cleanup_build_output_names_never_deleted() {
   local scratch; scratch=$(setup_scratch)
   local ws="$scratch/tina/workspace"
   make_safe_fixture_repo "$ws/skynet"
-  ( cd "$ws/skynet" && printf 'dist/\n' > .gitignore ) >/dev/null 2>&1
+  ( cd "$ws/skynet" && printf 'dist/\nbuild/\n' > .gitignore ) >/dev/null 2>&1
   make_dep_tree "$ws/skynet/dist"
-  make_dep_tree "$ws/scratch/build"   # not in any repo
+  make_dep_tree "$ws/skynet/build"
+  make_dep_tree "$ws/scratch/target"
   ( _source_supervisor "$scratch"
     clean_workspace_dependency_dirs tina "$scratch/tina" ) >/dev/null 2>&1
-  assert_nofile "$ws/skynet/dist" "ignored dist inside repo must be deleted"
-  assert_file   "$ws/scratch/build/pkg/index.js" "build outside any repo must remain (ambiguous name)"
+  assert_file "$ws/skynet/dist/pkg/index.js" "ignored dist inside repo must remain"
+  assert_file "$ws/skynet/build/pkg/index.js" "ignored build inside repo must remain"
+  assert_file "$ws/scratch/target/pkg/index.js" "target outside any repo must remain"
   teardown_scratch "$scratch"
+}
+
+# make_local_only_repo <dir> — a repo with a commit and no remote (local-only work).
+make_local_only_repo() {
+  mkdir -p "$1"
+  ( cd "$1" && git init -q && git config user.email t@t && git config user.name t && \
+    printf 'work\n' > work && git add work && git commit -q -m work ) >/dev/null 2>&1
+}
+
+test_dep_cleanup_nested_repo_in_ignored_node_modules_kept() {
+  local scratch; scratch=$(setup_scratch)
+  local repo="$scratch/tina/workspace/web"
+  make_safe_fixture_repo "$repo"
+  ( cd "$repo" && printf 'node_modules/\n' > .gitignore ) >/dev/null 2>&1
+  make_local_only_repo "$repo/node_modules/forked"
+  local out
+  out=$( _source_supervisor "$scratch"
+         clean_workspace_dependency_dirs tina "$scratch/tina" 2>&1 )
+  assert_file "$repo/node_modules/forked/work" "fork cloned into node_modules must remain"
+  assert_grep "contains-git-repo" "$out" "nested repo: reason must be logged"
+  teardown_scratch "$scratch"
+}
+
+test_dep_cleanup_nested_repo_in_non_repo_venv_kept() {
+  local scratch; scratch=$(setup_scratch)
+  local ws="$scratch/tina/workspace"
+  make_local_only_repo "$ws/py/venv/src/mylib"   # pip install -e git+... checkout
+  ( _source_supervisor "$scratch"
+    clean_workspace_dependency_dirs tina "$scratch/tina" ) >/dev/null 2>&1
+  assert_file "$ws/py/venv/src/mylib/work" "pip -e checkout inside venv must remain"
+  teardown_scratch "$scratch"
+}
+
+test_dep_cleanup_ls_files_failure_fails_closed() {
+  local scratch; scratch=$(setup_scratch)
+  local repo="$scratch/tina/workspace/skynet"
+  make_safe_fixture_repo "$repo"
+  ( cd "$repo" && printf 'node_modules/\n' > .gitignore ) >/dev/null 2>&1
+  make_dep_tree "$repo/node_modules"
+  local bin="$scratch/bin" real_git; real_git=$(command -v git)
+  mkdir -p "$bin"
+  printf '#!/bin/sh\nfor a in "$@"; do [ "$a" = ls-files ] && exit 128; done\nexec %s "$@"\n' \
+    "$real_git" > "$bin/git"
+  chmod +x "$bin/git"
+  local out
+  out=$( PATH="$bin:$PATH"
+         _source_supervisor "$scratch"
+         clean_workspace_dependency_dirs tina "$scratch/tina" 2>&1 )
+  assert_file "$repo/node_modules/pkg/index.js" "ls-files failure: node_modules must remain"
+  assert_grep "ls-files-failed" "$out" "ls-files failure: reason must be logged"
+  teardown_scratch "$scratch"
+}
+
+test_dep_cleanup_runs_between_repo_cleanup_and_move() {
+  local repo_line dep_line move_line
+  repo_line=$(grep -nE '^[[:space:]]*clean_workspace_repos "\$name" "\$iddir"' "$SUPERVISOR" | head -1 | cut -d: -f1)
+  dep_line=$(grep -nE '^[[:space:]]*clean_workspace_dependency_dirs "\$name" "\$iddir"' "$SUPERVISOR" | head -1 | cut -d: -f1)
+  move_line=$(grep -n 'STEP 4b' "$SUPERVISOR" | tail -1 | cut -d: -f1)
+  if [ -z "$repo_line" ] || [ -z "$dep_line" ] || [ -z "$move_line" ] || \
+     [ "$dep_line" -le "$repo_line" ] || [ "$dep_line" -ge "$move_line" ]; then
+    fail "clean_workspace_dependency_dirs must run after clean_workspace_repos and before STEP 4b (repo=$repo_line dep=$dep_line move=$move_line)"
+  fi
 }
 
 test_dep_cleanup_non_repo_node_modules_deleted() {
@@ -1984,14 +2048,10 @@ test_dep_cleanup_symlinked_dep_dir_not_followed() {
   ( _source_supervisor "$scratch"
     clean_workspace_dependency_dirs tina "$scratch/tina" ) >/dev/null 2>&1
   assert_file "$scratch/elsewhere/pkg/index.js" "symlink target outside workspace must remain"
+  [ -L "$ws/app/node_modules" ] || fail "symlinked node_modules itself must remain"
   teardown_scratch "$scratch"
 }
 
-test_dep_cleanup_hook_fires_in_retire() {
-  if ! grep -qE '^[[:space:]]*clean_workspace_dependency_dirs "\$name" "\$iddir"' "$SUPERVISOR"; then
-    fail "retire_identity must call clean_workspace_dependency_dirs"
-  fi
-}
 
 run_test test_bash_syntax
 run_test test_shellcheck_clean
@@ -2097,11 +2157,14 @@ run_test test_dep_cleanup_kept_repo_ignored_node_modules_deleted
 run_test test_dep_cleanup_not_ignored_node_modules_kept
 run_test test_dep_cleanup_tracked_node_modules_kept
 run_test test_dep_cleanup_ignored_env_file_dir_kept
-run_test test_dep_cleanup_git_only_names_in_repo_and_outside
+run_test test_dep_cleanup_build_output_names_never_deleted
+run_test test_dep_cleanup_nested_repo_in_ignored_node_modules_kept
+run_test test_dep_cleanup_nested_repo_in_non_repo_venv_kept
+run_test test_dep_cleanup_ls_files_failure_fails_closed
 run_test test_dep_cleanup_non_repo_node_modules_deleted
 run_test test_dep_cleanup_broken_repo_fails_closed
 run_test test_dep_cleanup_symlinked_dep_dir_not_followed
-run_test test_dep_cleanup_hook_fires_in_retire
+run_test test_dep_cleanup_runs_between_repo_cleanup_and_move
 
 printf '\n===============================\n'
 printf 'PASS: %s  FAIL: %s\n' "$PASS" "$FAIL"

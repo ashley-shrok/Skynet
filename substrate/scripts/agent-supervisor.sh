@@ -1064,18 +1064,19 @@ clean_workspace_repos() {
 # can still hold re-downloadable dependency trees — a kept repo's node_modules is ~1.5 GB of
 # nothing anyone could lose. Delete those so they don't inflate the archived folder.
 #
-# A folder is deleted only when its NAME is a known re-downloadable kind AND:
+# A folder is deleted only when its NAME is a known re-downloadable kind, it holds no git repo
+# of its own (a fork cloned into node_modules, a `pip install -e` checkout under venv/src), AND:
 #   - inside a git repo: git reports it ignored AND it holds no tracked files. The ignore check
-#     proves no work is in it; a force-added (tracked) node_modules is left alone. Build-output
-#     names (dist/build/target) are only considered here, since outside git they're ambiguous.
-#   - outside any git repo: the name alone decides, from the unambiguous list only.
+#     proves no work is in it; a force-added (tracked) node_modules is left alone.
+#   - outside any git repo: the name alone decides.
 #
 # Never follows symlinks, never descends into a matched folder or .git. Never blocks retire.
 #
 # Return: 0 always.
+# Build-output names (dist/build/target) are deliberately absent: they can hold artifacts
+# nothing can rebuild.
 _WS_DEP_DIR_NAMES=(node_modules .venv venv __pycache__ .pytest_cache .mypy_cache .ruff_cache
                    .tox .next .nuxt .svelte-kit .turbo .parcel-cache)
-_WS_DEP_DIR_NAMES_GIT_ONLY=(dist build target)
 
 clean_workspace_dependency_dirs() {
   local name="$1"
@@ -1090,7 +1091,7 @@ clean_workspace_dependency_dirs() {
   local git_tmo=(timeout -k 5 20)
   local -a name_expr=()
   local n
-  for n in "${_WS_DEP_DIR_NAMES[@]}" "${_WS_DEP_DIR_NAMES_GIT_ONLY[@]}"; do
+  for n in "${_WS_DEP_DIR_NAMES[@]}"; do
     [ "${#name_expr[@]}" -gt 0 ] && name_expr+=(-o)
     name_expr+=(-name "$n")
   done
@@ -1106,12 +1107,22 @@ clean_workspace_dependency_dirs() {
 
   [ "${#matches[@]}" -eq 0 ] && return 0
 
-  local dir base top rel reason
+  local dir top rel reason tracked nested
   for dir in "${matches[@]}"; do
     [ -L "$dir" ] && continue
     [ -d "$dir" ] || continue
-    base="${dir##*/}"
     reason=""
+    # A repo nested inside (fork in node_modules, pip -e checkout in venv/src) may hold local-only
+    # work the parent's ignore rules know nothing about. Fail closed if the scan itself fails.
+    if ! nested=$(timeout -k 5 60 find "$dir" -name .git -print -quit 2>/dev/null); then
+      reason="nested-scan-failed"
+    elif [ -n "$nested" ]; then
+      reason="contains-git-repo"
+    fi
+    if [ -n "$reason" ]; then
+      log "'$name' workspace-cleanup: kept dependency dir at $dir — $reason"
+      continue
+    fi
     top=$("${git_tmo[@]}" git -C "${dir%/*}" rev-parse --show-toplevel 2>/dev/null) || top=""
     if [ -z "$top" ]; then
       # git found no repo — but if a .git sits between here and the workspace, git just failed
@@ -1134,18 +1145,14 @@ clean_workspace_dependency_dirs() {
       rel="${dir#"$top"/}"
       if ! "${git_tmo[@]}" git -C "$top" check-ignore -q -- "$rel" 2>/dev/null; then
         reason="not-gitignored"
-      elif [ -n "$("${git_tmo[@]}" git -C "$top" ls-files -- "$rel" 2>/dev/null | head -n 1)" ]; then
+      elif ! tracked=$("${git_tmo[@]}" git -C "$top" --literal-pathspecs ls-files -- "$rel" 2>/dev/null); then
+        reason="ls-files-failed"
+      elif [ -n "$tracked" ]; then
         reason="has-tracked-files"
       fi
-    else
-      reason="name-needs-git"
-      for n in "${_WS_DEP_DIR_NAMES[@]}"; do
-        [ "$base" = "$n" ] && { reason=""; break; }
-      done
     fi
     if [ -n "$reason" ]; then
-      [ "$reason" = "name-needs-git" ] || \
-        log "'$name' workspace-cleanup: kept dependency dir at $dir — $reason"
+      log "'$name' workspace-cleanup: kept dependency dir at $dir — $reason"
       continue
     fi
     if rm -rf "$dir" 2>/dev/null; then
