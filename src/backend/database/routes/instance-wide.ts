@@ -93,8 +93,6 @@ router.get("/items", authenticateJWT, async (req: Request, res: Response) => {
     const items = [];
     for (const st of await engine.status()) {
       if (kindFilter && st.kind !== kindFilter) continue;
-      // A shared skill is agent-only for non-admins — it isn't theirs to see.
-      if (st.kind === "skill" && !isAdmin) continue;
       const mainFile = st.kind === "skill" ? "SKILL.md" : `${st.name}.md`;
       let fm: Record<string, unknown> = {};
       try {

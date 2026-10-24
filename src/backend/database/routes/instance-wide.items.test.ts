@@ -86,11 +86,11 @@ afterEach(async () => {
 });
 
 describe("GET /instance-wide/items", () => {
-  it("leaves shared skills out for a non-admin (roles still listed)", async () => {
+  it("lists shared skills for a non-admin too (everyone sees and uses them)", async () => {
     (callerIsAdmin as Mock).mockResolvedValue(false);
     const res = await get("/instance-wide/items");
     expect(res.status).toBe(200);
-    expect(res.body.items.map((i) => `${i.kind}/${i.name}`)).toEqual(["role/helper"]);
+    expect(res.body.items.map((i) => `${i.kind}/${i.name}`).sort()).toEqual(["role/helper", "skill/house-style"]);
   });
 
   it("lists shared skills for an admin with their invocation settings", async () => {

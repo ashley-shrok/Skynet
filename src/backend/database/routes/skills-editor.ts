@@ -68,7 +68,7 @@ import yaml from "js-yaml";
 import type { Request, Response } from "express";
 import { AuthManager } from "../../utils/auth-manager.js";
 import { callerIsAdmin } from "../../instance-wide/admin.js";
-import { getInstanceWide } from "../../instance-wide/production.js";
+import { getInstanceWide, machineForHostRow } from "../../instance-wide/production.js";
 import { invocationFlagsOf, type InvocationFlags } from "../../utils/skill-invocation.js";
 import { resolveHostById } from "../../ssh/host-resolver.js";
 import { connectOneShot } from "../../ssh/ssh-one-shot.js";
@@ -110,54 +110,60 @@ async function sharedSkillNames(): Promise<string[]> {
 }
 
 /**
- * A shared (instance-wide) skill is agent-only for non-admins, so the per-host
- * routes treat it as absent for them (404) — the list already leaves it out;
- * this keeps a direct call from reading or changing the host's copy. Runs
- * after auth (and the body parser, where the skill name rides in the body).
+ * True when this host row reaches the home folder instance-wide sync keeps in
+ * step — the synced row itself, or another row logging into the same account
+ * on that box. Other accounts on the box, and boxes outside sync, hold only
+ * their users' own skills, whatever their names.
  */
-async function hideSharedFromNonAdmins(req: Request, res: Response, next: express.NextFunction): Promise<void> {
+async function hostReceivesShared(hostId: number, userId: string): Promise<boolean> {
+  const machine = await machineForHostRow(hostId);
+  if (!machine) return false;
+  if (machine.record.id === String(hostId)) return true;
+  const row = await resolveHostById(hostId, userId);
+  const syncedUser = (machine.record._connDetails as { username?: unknown }).username;
+  return !!row && typeof syncedUser === "string" && (row as { username?: unknown }).username === syncedUser;
+}
+
+export const SHARED_SKILL_REFUSAL = "this skill is shared to every machine — only an admin can change it";
+
+/**
+ * Shared (instance-wide) skills are managed by admins: everyone can see and
+ * use them, but a non-admin's change to the host's copy would only be put back
+ * at the next sync — refuse it. Only where the folder really is the shared
+ * copy (a host that receives shared skills); elsewhere a same-named skill is
+ * the user's own. Runs after auth and the body parser (the name may ride in
+ * the body). A rename's target and a new skill's name aren't checked here: on
+ * a host that receives shared skills that folder already exists, and the
+ * route says the name is taken.
+ */
+async function refuseSharedSkillWrites(req: Request, res: Response, next: express.NextFunction): Promise<void> {
   if (isInstanceScope(req)) return next();
-  // Every skill name the request carries — query and body alike, since each
-  // route reads its own — counts; a rename's target name too.
   const body = (req.body ?? {}) as Record<string, unknown>;
-  const names = [(req.query as Record<string, unknown>).skill, body.skill, body.newName].filter(
-    (v): v is string => typeof v === "string" && v.length > 0,
-  );
+  const query = req.query as Record<string, unknown>;
+  // Every name the request carries counts — each route reads its own.
+  const names = [query.skill, body.skill].filter((v): v is string => typeof v === "string" && v.length > 0);
   if (names.length === 0) return next();
-  let hidden = false;
-  let raw = names[0];
+  const userId = (req as AuthenticatedRequest).userId;
   try {
-    const userId = (req as AuthenticatedRequest).userId;
-    if (!(await callerIsAdmin(userId))) {
-      const shared = await sharedSkillNames();
-      const hit = names.find((n) => shared.includes(n));
-      if (hit !== undefined) {
-        hidden = true;
-        raw = hit;
-      }
-    }
+    const shared = await sharedSkillNames();
+    const hit = names.find((n) => shared.includes(n));
+    if (hit === undefined || (await callerIsAdmin(userId))) return next();
+    const hostId = Number(query.hostId ?? body.hostId);
+    if (!Number.isInteger(hostId) || hostId <= 0 || !(await hostReceivesShared(hostId, userId))) return next();
+    sshLogger.info("skills-editor: non-admin change to a shared skill refused", {
+      operation: "skills_editor_shared_write_refused",
+      path: req.path,
+      hostId,
+      skill: hit,
+    });
+    res.status(403).json({ error: SHARED_SKILL_REFUSAL, code: "instance_wide" });
   } catch (err) {
-    // If the check can't run, don't block the route: the host is the caller's
-    // own, so this hide is a visibility rule, not an access boundary.
     sshLogger.warn("skills-editor: shared-skill check failed", {
       operation: "skills_editor_shared_check",
       error: err instanceof Error ? err.message : "Unknown",
     });
+    res.status(503).json({ error: "couldn't check whether this skill is shared — try again" });
   }
-  if (hidden) {
-    sshLogger.info("skills-editor: shared skill hidden from non-admin", {
-      operation: "skills_editor_shared_hidden",
-      path: req.path,
-      skill: raw,
-    });
-    // A name being taken (a new skill, a rename's target) reads as taken,
-    // the same answer a skill of the user's own by that name gives.
-    const isNewName = (req.method === "POST" && req.path === "/skill") || raw === body.newName;
-    if (isNewName) res.status(409).json({ error: "skill exists" });
-    else res.status(404).json({ error: "skill not found" });
-    return;
-  }
-  next();
 }
 
 const router = express.Router();
@@ -552,16 +558,19 @@ router.get(
       // Instance-wide skills sit in the same folder and are listed here too
       // (the skill-actions menu needs every skill on the box); the skills
       // window moves them into its instance-wide section client-side.
-      // Shared (instance-wide) skills are agent-only for non-admins: left out
-      // here, so they reach neither the skills window nor the Skills menu.
       const parsed = parseSkillListOutput(output);
-      // A failed admin check lists the non-admin view rather than failing the list.
-      const isAdmin = await callerIsAdmin(userId).catch(() => false);
-      const shared = isAdmin ? new Set<string>() : new Set(await sharedSkillNames());
-      const showDistributed = req.query.includeDistributed === "1" && isAdmin;
-      const skills = parsed.filter(
-        (s) => (showDistributed || !s.distributed) && !shared.has(s.name),
-      );
+      // Fleet-distributed skills are admin-only; a failed admin check lists
+      // without them rather than failing the list.
+      const isAdmin =
+        req.query.includeDistributed === "1" ? await callerIsAdmin(userId).catch(() => false) : false;
+      // A skill counts as the shared one only where this host receives
+      // shared skills; elsewhere a same-named skill is the user's own.
+      const shared = (await hostReceivesShared(hostId, userId).catch(() => false))
+        ? new Set(await sharedSkillNames())
+        : new Set<string>();
+      const skills = parsed
+        .filter((s) => isAdmin || !s.distributed)
+        .map((s) => (shared.has(s.name) ? { ...s, shared: true as const } : s));
 
       sshLogger.info("skills-editor skills: listed", {
         operation: "skills_editor_skills_listed",
@@ -571,7 +580,6 @@ router.get(
         withDescription: skills.filter((s) => s.description !== undefined).length,
         agentOnly: skills.filter((s) => s.userInvocable === false).length,
         userOnly: skills.filter((s) => s.modelInvocable === false).length,
-        hiddenShared: parsed.filter((s) => shared.has(s.name)).length,
       });
       res.json({ skills });
     } catch (err) {
@@ -608,7 +616,6 @@ router.get(
 router.get(
   "/files",
   authenticateJWT,
-  hideSharedFromNonAdmins,
   async (req: Request, res: Response): Promise<void> => {
     const userId = (req as AuthenticatedRequest).userId;
     if (isInstanceScope(req)) {
@@ -728,7 +735,6 @@ router.post(
   // sending the 401.
   authenticateJWT,
   express.json({ limit: "32kb" }), // hostId + skill + path only
-  hideSharedFromNonAdmins,
   async (req: Request, res: Response): Promise<void> => {
     const userId = (req as AuthenticatedRequest).userId;
     if (isInstanceScope(req)) {
@@ -879,7 +885,7 @@ router.put(
   "/write",
   authenticateJWT, // BEFORE body parser — see /read for rationale (unauth attackers shouldn't get to send 4MB bodies before we reject them)
   express.json({ limit: "4mb" }), // matches nginx client_max_body_size
-  hideSharedFromNonAdmins,
+  refuseSharedSkillWrites,
   async (req: Request, res: Response): Promise<void> => {
     const userId = (req as AuthenticatedRequest).userId;
     if (isInstanceScope(req)) {
@@ -1099,7 +1105,7 @@ router.post(
   "/create",
   authenticateJWT, // BEFORE body parser — see /read for rationale
   express.json({ limit: "32kb" }),
-  hideSharedFromNonAdmins,
+  refuseSharedSkillWrites,
   async (req: Request, res: Response): Promise<void> => {
     const userId = (req as AuthenticatedRequest).userId;
     if (isInstanceScope(req)) {
@@ -1277,7 +1283,6 @@ router.post(
   "/skill",
   authenticateJWT, // BEFORE body parser — see /read for rationale
   express.json({ limit: "32kb" }),
-  hideSharedFromNonAdmins,
   async (req: Request, res: Response): Promise<void> => {
     const userId = (req as AuthenticatedRequest).userId;
     if (isInstanceScope(req)) {
@@ -1477,7 +1482,7 @@ router.post(
   "/rename",
   authenticateJWT, // BEFORE body parser — see /read for rationale
   express.json({ limit: "32kb" }),
-  hideSharedFromNonAdmins,
+  refuseSharedSkillWrites,
   async (req: Request, res: Response): Promise<void> => {
     const userId = (req as AuthenticatedRequest).userId;
     if (isInstanceScope(req)) {
@@ -1715,7 +1720,7 @@ router.delete(
   "/file",
   authenticateJWT, // BEFORE body parser — see /read for rationale
   express.json({ limit: "32kb" }),
-  hideSharedFromNonAdmins,
+  refuseSharedSkillWrites,
   async (req: Request, res: Response): Promise<void> => {
     const userId = (req as AuthenticatedRequest).userId;
     if (isInstanceScope(req)) {
@@ -1858,7 +1863,7 @@ router.delete(
   "/skill",
   authenticateJWT, // BEFORE body parser — see /read for rationale (extra important on the rm -rf endpoint)
   express.json({ limit: "32kb" }),
-  hideSharedFromNonAdmins,
+  refuseSharedSkillWrites,
   async (req: Request, res: Response): Promise<void> => {
     const userId = (req as AuthenticatedRequest).userId;
     if (isInstanceScope(req)) {
@@ -1979,7 +1984,6 @@ router.delete(
 router.get(
   "/download",
   authenticateJWT,
-  hideSharedFromNonAdmins,
   async (req: Request, res: Response): Promise<void> => {
     const userId = (req as AuthenticatedRequest).userId;
     if (isInstanceScope(req)) {
@@ -2041,7 +2045,7 @@ router.put(
   "/write-binary",
   authenticateJWT, // BEFORE the body parser (see /read)
   express.raw({ type: "application/octet-stream", limit: MAX_BINARY_WRITE_BYTES }),
-  hideSharedFromNonAdmins,
+  refuseSharedSkillWrites,
   async (req: Request, res: Response): Promise<void> => {
     const userId = (req as AuthenticatedRequest).userId;
     if (isInstanceScope(req)) {

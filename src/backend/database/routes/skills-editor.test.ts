@@ -84,11 +84,18 @@ vi.mock("../../instance-wide/admin.js", () => ({
 
 // Shared (instance-wide) skill names; tests set `mockSharedNames`.
 let mockSharedNames: string[] = [];
+// Host rows that receive shared skills (the synced row of a sync machine);
+// tests set `mockSyncedHostIds`.
+let mockSyncedHostIds: number[] = [];
 vi.mock("../../instance-wide/production.js", () => ({
   getInstanceWide: () => ({
     listNames: async () => mockSharedNames,
     isInstanceWide: async (_kind: string, name: string) => mockSharedNames.includes(name),
   }),
+  machineForHostRow: async (hostId: number) =>
+    mockSyncedHostIds.includes(hostId)
+      ? { machineId: String(hostId), hostName: "box", record: { id: String(hostId), _connDetails: {} } }
+      : null,
 }));
 
 vi.mock("../../claude-session/identity-artifact-reader.js", () => ({
@@ -403,6 +410,7 @@ describe("GET /skills-editor/skills", () => {
   describe("shared skills", () => {
     beforeEach(() => {
       mockSharedNames = ["house-style"];
+      mockSyncedHostIds = [1];
       (execCommand as Mock).mockImplementation(
         async (_conn: unknown, cmd: string) => {
           if (cmd === "echo $HOME") return "/home/testuser\n";
@@ -414,50 +422,62 @@ describe("GET /skills-editor/skills", () => {
     });
     afterEach(() => {
       mockSharedNames = [];
+      mockSyncedHostIds = [];
     });
 
-    it("are left out for a non-admin — agent-only, not theirs to see", async () => {
+    it("are listed for everyone, marked shared on a host that receives them", async () => {
       (callerIsAdmin as Mock).mockResolvedValue(false);
       const res = await httpRequest(server, { method: "GET", path: "/skills-editor/skills?hostId=1" });
       expect(res.status).toBe(200);
-      expect((res.body as { skills: unknown[] }).skills).toEqual([{ name: "build" }]);
+      expect((res.body as { skills: unknown[] }).skills).toEqual([
+        { name: "build" },
+        { name: "house-style", shared: true },
+      ]);
     });
 
-    it("can't be read directly by a non-admin either — 404 before any SSH", async () => {
+    it("on a host outside sync a same-named skill is the user's own — not marked", async () => {
       (callerIsAdmin as Mock).mockResolvedValue(false);
-      const res = await httpRequest(server, {
+      mockSyncedHostIds = [];
+      const res = await httpRequest(server, { method: "GET", path: "/skills-editor/skills?hostId=1" });
+      expect((res.body as { skills: unknown[] }).skills).toEqual([{ name: "build" }, { name: "house-style" }]);
+    });
+
+    it("can be read by a non-admin", async () => {
+      (callerIsAdmin as Mock).mockResolvedValue(false);
+      await httpRequest(server, {
         method: "POST",
         path: "/skills-editor/read",
         body: JSON.stringify({ hostId: 1, skill: "house-style", path: "SKILL.md" }),
       });
-      expect(res.status).toBe(404);
-      expect(connectOneShot).not.toHaveBeenCalled();
+      expect(connectOneShot).toHaveBeenCalled();
     });
 
-    it("can't be changed directly by a non-admin — write 404s before any SSH", async () => {
+    it("can't be changed by a non-admin where it's the shared copy — 403 before any SSH", async () => {
       (callerIsAdmin as Mock).mockResolvedValue(false);
       const res = await httpRequest(server, {
         method: "PUT",
         path: "/skills-editor/write",
         body: JSON.stringify({ hostId: 1, skill: "house-style", path: "SKILL.md", content: "x", expectedMtime: 1 }),
       });
-      expect(res.status).toBe(404);
+      expect(res.status).toBe(403);
       expect(connectOneShot).not.toHaveBeenCalled();
     });
 
-    it("the host's own skills stay reachable for a non-admin", async () => {
+    it("a same-named skill on a host outside sync stays the user's to change", async () => {
       (callerIsAdmin as Mock).mockResolvedValue(false);
-      await httpRequest(server, { method: "GET", path: "/skills-editor/files?hostId=1&skill=build" });
+      mockSyncedHostIds = [];
+      await httpRequest(server, {
+        method: "PUT",
+        path: "/skills-editor/write",
+        body: JSON.stringify({ hostId: 1, skill: "house-style", path: "SKILL.md", content: "x", expectedMtime: 1 }),
+      });
       expect(connectOneShot).toHaveBeenCalled();
     });
 
-    it("the shared master copy (hostId 0) is empty and unreadable for a non-admin", async () => {
+    it("the shared master copy (hostId 0) is readable by a non-admin", async () => {
       (callerIsAdmin as Mock).mockResolvedValue(false);
       const list = await httpRequest(server, { method: "GET", path: "/skills-editor/skills?hostId=0" });
-      expect(list.status).toBe(200);
-      expect((list.body as { skills: unknown[] }).skills).toEqual([]);
-      const files = await httpRequest(server, { method: "GET", path: "/skills-editor/files?hostId=0&skill=house-style" });
-      expect(files.status).toBe(404);
+      expect(list.status).not.toBe(404);
     });
 
     it("are listed for an admin", async () => {
@@ -466,7 +486,7 @@ describe("GET /skills-editor/skills", () => {
       expect(res.status).toBe(200);
       expect((res.body as { skills: unknown[] }).skills).toEqual([
         { name: "build" },
-        { name: "house-style" },
+        { name: "house-style", shared: true },
       ]);
     });
   });

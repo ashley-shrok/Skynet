@@ -275,7 +275,7 @@ describe("SkillsEditorModal — shared to every host", () => {
 
   it("admin: a shared skill also present in the host's folder shows only in the shared section", async () => {
     vi.mocked(iwApi.listInstanceWide).mockResolvedValue({ isAdmin: true, items: [IW_ITEM] });
-    vi.mocked(skillsApi.listSkills).mockResolvedValueOnce([{ name: "build" }, { name: "shared-skill" }]);
+    vi.mocked(skillsApi.listSkills).mockResolvedValueOnce([{ name: "build" }, { name: "shared-skill", shared: true }]);
     renderModal();
     const shared = await screen.findByTestId("skills-editor-modal-section-shared");
     const own = await screen.findByTestId("skills-editor-modal-section-own");
@@ -342,12 +342,21 @@ describe("SkillsEditorModal — shared to every host", () => {
     expect(String(dialogs.calls[0].opts.body)).toMatch(/3 hosts/);
   });
 
-  it("non-admin: no shared section, even if the list somehow carries one", async () => {
+  it("non-admin: sees the shared section, read-only (marks, not switches)", async () => {
     vi.mocked(iwApi.listInstanceWide).mockResolvedValue({ isAdmin: false, items: [IW_ITEM] });
     renderModal();
-    await screen.findByRole("button", { name: "Open build" });
-    expect(screen.queryByTestId("skills-editor-modal-section-shared")).toBeNull();
-    expect(screen.queryByRole("button", { name: "Open shared-skill" })).toBeNull();
+    const shared = await screen.findByTestId("skills-editor-modal-section-shared");
+    expect(within(shared).getByRole("button", { name: "Open shared-skill" })).toBeTruthy();
+    expect(screen.queryByTestId("skills-editor-modal-switch-agents-shared-skill")).toBeNull();
+    expect(screen.getByTestId("skills-editor-modal-mark-agents-shared-skill")).toBeTruthy();
+  });
+
+  it("non-admin on a host outside sync: a same-named skill is their own", async () => {
+    vi.mocked(iwApi.listInstanceWide).mockResolvedValue({ isAdmin: false, items: [IW_ITEM] });
+    vi.mocked(skillsApi.listSkills).mockResolvedValueOnce([{ name: "build" }, { name: "shared-skill" }]);
+    renderModal();
+    const own = await screen.findByTestId("skills-editor-modal-section-own");
+    expect(within(own).getByRole("button", { name: "Open shared-skill" })).toBeTruthy();
   });
 
   it("non-admin: no Share to every host on their own skills", async () => {

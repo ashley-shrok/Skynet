@@ -169,13 +169,13 @@ export default function SkillsEditorModal({
   const selectedIwItem = selectedIsInstance
     ? iwItems.find((i) => i.name === selectedSkillName) ?? null
     : null;
-  // The host list includes instance-wide skills (they sit in the same folder
-  // on disk); this window shows them only in the instance-wide section.
+  // On a host that receives shared skills, the host list includes their
+  // copies (same folder on disk); this window shows them only in the shared
+  // section. Elsewhere a same-named skill is the user's own and stays here.
   const hostSkills = useMemo(() => {
     if (skills.status !== "ready") return [];
-    const iwNames = new Set(iwItems.map((i) => i.name));
-    return skills.data.filter((s) => !iwNames.has(s.name));
-  }, [skills, iwItems]);
+    return skills.data.filter((s) => !s.shared);
+  }, [skills]);
   // Fleet-distributed skills (admins only — the backend leaves them out for
   // everyone else) get their own section and are always read-only: the
   // distributor overwrites them from the Skynet repo on every sweep.
@@ -1114,14 +1114,13 @@ export default function SkillsEditorModal({
   );
 
   // ── Library rows ───────────────────────────────────────────────────────
-  // Admins: shared skills, the host's own, fleet-distributed. Everyone else:
-  // the host's own only (the server leaves the rest out for them).
+  // Shared skills (everyone sees and uses them; only admins change them), the
+  // host's own, and — admins only, the server leaves them out for everyone
+  // else — fleet-distributed.
   const libraryRows = useMemo<LibraryRow[]>(() => {
     const rows: LibraryRow[] = [];
-    if (isAdmin) {
-      for (const i of iwItems) {
-        rows.push({ name: i.name, description: i.description, section: "shared", instance: true, readOnly: false, flags: flagsOf(i) });
-      }
+    for (const i of iwItems) {
+      rows.push({ name: i.name, description: i.description, section: "shared", instance: true, readOnly: !isAdmin, flags: flagsOf(i) });
     }
     for (const s of ownSkills) {
       rows.push({ name: s.name, description: s.description, section: "own", instance: false, readOnly: false, flags: flagsOf(s) });
@@ -1340,7 +1339,13 @@ export default function SkillsEditorModal({
             />
           </div>
           <ModalBody className="pt-1" data-testid="skills-editor-modal-library">
-            {section("shared", "Shared to every host", "One copy, kept in step on every host. Changes here reach every host.")}
+            {section(
+              "shared",
+              "Shared to every host",
+              isAdmin
+                ? "One copy, kept in step on every host. Changes here reach every host."
+                : "One copy, kept in step on every host by an admin. Use them like your own; only an admin can change them.",
+            )}
             {section("own", "Your skills")}
             {section(
               "distributed",
@@ -1506,7 +1511,7 @@ export default function SkillsEditorModal({
       <KitBanner tone="info" data-testid="skills-editor-modal-readonly-banner">
         {selectedRow.section === "distributed"
           ? "Fleet-distributed — installed on every machine from the Skynet repo. Change it there; here it's view-only."
-          : "Kept in step on every host by an admin — view-only."}
+          : "Shared to every host and kept in step by an admin — use it like your own; only an admin can change it."}
       </KitBanner>
     ) : (
       <div className="flex flex-row flex-wrap items-center gap-x-5 gap-y-2.5">

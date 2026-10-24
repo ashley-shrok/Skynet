@@ -4,9 +4,9 @@
  * request carries hostId=0 (the "instance-wide" section of the skills window),
  * so the editor UI talks one contract for both.
  *
- * Admin-only end to end: to everyone else a shared skill is agent-only, so it
- * doesn't exist in the skills window (reads 404, the list is empty). Writes land
- * in the master copy, which the engine then pushes to every machine.
+ * Reads are open to every signed-in user (shared skills are everyone's to see
+ * and use); writes are admin-only and land in the master copy, which the
+ * engine then pushes to every machine.
  */
 import path from "path";
 import type { Request, Response } from "express";
@@ -61,10 +61,6 @@ function args(req: Request): Record<string, unknown> {
 
 async function skillOr404(req: Request, res: Response, skill: unknown): Promise<string | null> {
   const engine = getInstanceWide();
-  if (!(await callerIsAdmin((req as AuthenticatedRequest).userId))) {
-    res.status(404).json({ error: "skill not found" });
-    return null;
-  }
   if (!isValidItemName(skill)) {
     res.status(400).json({ error: "invalid skill name" });
     return null;
@@ -84,11 +80,7 @@ async function masterText(skill: string): Promise<string> {
 }
 
 // GET /skills
-export async function listInstanceSkills(req: Request, res: Response): Promise<void> {
-  if (!(await callerIsAdmin((req as AuthenticatedRequest).userId))) {
-    res.json({ skills: [] });
-    return;
-  }
+export async function listInstanceSkills(_req: Request, res: Response): Promise<void> {
   const engine = engineOr503(res);
   if (!engine) return;
   const skills = [];
@@ -231,6 +223,22 @@ export async function createInstanceSkill(req: Request, res: Response, seed: (sl
   const slug = a.skill;
   if (await engine.isInstanceWide("skill", slug)) {
     res.status(409).json({ error: "skill exists" });
+    return;
+  }
+  // The next sync would replace any same-named skill a machine already has,
+  // with no copy kept. Making one of those shared (promote) shows the clash
+  // list first; a brand-new one just refuses.
+  const { clashes, unreachable } = await engine.findClashes("skill", slug);
+  if (clashes.length > 0 || unreachable.length > 0) {
+    res.status(409).json({
+      error:
+        clashes.length > 0
+          ? `a skill named "${slug}" already exists on ${clashes.join(", ")} — sharing a new one would replace it; pick another name or make that one shared instead`
+          : `couldn't check ${unreachable.join(", ")} for a skill named "${slug}" — try again when it's reachable`,
+      code: "clashes",
+      clashes,
+      unreachable,
+    });
     return;
   }
   await engine.createItem("skill", slug, new Map([["SKILL.md", Buffer.from(seed(slug, a.description), "utf-8")]]));

@@ -22,6 +22,9 @@ export type SkillEntry = {
   /** `disable-model-invocation: true` — agents won't use it on their own. */
   modelInvocable?: false;
   distributed?: true;
+  /** This folder is the host's copy of a shared skill (only set on hosts
+   *  that receive shared skills). */
+  shared?: true;
 };
 
 export type SkillFileEntry = { path: string };

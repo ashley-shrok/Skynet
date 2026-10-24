@@ -20,7 +20,7 @@ So: this artifact deliberately does NOT list Apple design principles, and no ses
 - The modals read as one family.
 - The result looks like Skynet, not an Apple look-alike.
 - Every modal works on a phone as well as on a desktop.
-- No modal loses anything it can do today, including read-only states (fleet-distributed skills; shared roles for non-admins stay view-only all the way into the editor). Shared skills are invisible to non-admins and agent-only for them (Ashley, 2026-10-18).
+- No modal loses anything it can do today, including read-only states (fleet-distributed skills; shared roles for non-admins stay view-only all the way into the editor). Shared skills are visible and usable by everyone (skills window, Skills button, /name, agents) and changeable only by admins — read-only for everyone else, like shared roles (Ashley, 2026-10-24, correcting the 2026-10-18 "invisible + agent-only" record, which was a misunderstanding). A skill counts as the shared copy only on hosts that receive shared skills.
 - Admins can share a skill or role to a chosen set of hosts, kept in sync across exactly those, or to "every host", which also reaches hosts added later; ticking all of today's hosts one by one does NOT include future hosts. Non-admins see none of this.
 - The id skill describes every non-admin-visible change as it ships (admin-only features stay out of it).
 - After the modals, the sidebar, the conversation view and the pane bar (apps, remote desktops, files) have had the same pass.

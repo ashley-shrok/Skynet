@@ -1178,6 +1178,10 @@ crown, then gear.
     already set to neither on disk shows "Nobody can use this". **New
     skill** (top right) asks for a name and a description, then opens the
     new skill.
+    Skills **shared to every host** (kept in step by an admin) have their
+    own section at the top: everyone uses them like their own (Skills
+    button, `/<name>`, agents), but only an admin can change them — for
+    anyone else they're view-only, with ticks in place of the switches.
   - **One skill** (click a row's name): **‹ Skills** goes back; the name and
     description head it, the same two switches sit under that ("In my
     Skills button", "Agents can use it" — they wait while SKILL.md has
