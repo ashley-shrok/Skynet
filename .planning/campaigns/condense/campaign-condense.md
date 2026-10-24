@@ -22,7 +22,7 @@ Today two half-working mechanisms shrink an agent's context: the id skill's "res
 
 Ordering: groundwork first (everything else assumes compaction behaves as configured), then re-grounding (Condense is unsafe without it), then the operation itself, then the chat view.
 
-- **[declared] shape-compaction-groundwork** — Upgrade Claude Code fleet-wide to a version with a separate idle-compaction switch; turn idle compaction off; keep near-limit compaction on with its trigger at 95% (aligned with what the app's context meter calls 95%); remove the setting that never did anything and the wrong comments around it. — in_progress
+- **[declared] shape-compaction-groundwork** — Upgrade Claude Code fleet-wide to a version with a separate idle-compaction switch; turn idle compaction off; keep near-limit compaction on with its trigger at 95% (aligned with what the app's context meter calls 95%); remove the setting that never did anything and the wrong comments around it. — closed
 - **[declared] shape-reground-after-compaction** — After every compaction, put the current id skill, role file(s), identity file and project file back into the agent's context in full, and tell the summarizer to leave out what those files hold. — in_progress
 - **[declared] shape-condense-operation** — Replace reset with Condense end to end: agent-triggered request file now compacts instead of restarting; the button next to the context meter gets the new name and an inward-arrows icon; the id skill, build skill and campaign skill speak Condense; the broken context watch and its 90% nudge are retired (or replaced, depending on what groundwork settles); what's-new note. — in_progress
 - **[declared] shape-compaction-divider** — In the chat view, a compaction shows as a slim divider with the summary collapsed and expandable instead of a user bubble; fixes the summary wrongly clearing a pending sent message. — in_progress
@@ -30,13 +30,18 @@ Ordering: groundwork first (everything else assumes compaction behaves as config
 ## Other work
 
 - Cross-session "load more" (paging back into an earlier session's transcript) — dropped: with Condense keeping one continuous transcript, only crashes produce new sessions; revisit only if a second harness arrives. — dropped
-- The app's context meter scales usage against an older auto-compaction buffer figure; check during groundwork that "95%" means the same thing to the meter and to the trigger. — noted-only (folded into shape-compaction-groundwork)
+- The app's context meter scales usage against an older auto-compaction buffer figure; check during groundwork that "95%" means the same thing to the meter and to the trigger. — done (the meter reads the raw 1M window; the trigger is tuned to fire at 950,000 tokens, and the window it's measured against is pinned so it can't drift)
+- **Campaign-close handoff:** agents running at deploy time keep today's no-compaction behavior until their next session start (agreed: no forced restarts). — noted-only (say it at campaign close)
+- **Campaign-close handoff, needs Ashley's call:** during rollout each healthy box gets the new settings a few minutes before its new harness version, and any agent started in that gap runs the old version with idle compaction on until its next restart. That's the same kind of exposure Ashley accepted for boxes that fail to upgrade; lean: accept and mention it. — noted-only (ask at campaign close)
+- **Campaign-close deploy check:** on the first upgraded box, confirm from Claude Code's own debug output that the window it measures against is 980,000 and the trigger 950,000 for every model the fleet uses, before relying on it fleet-wide. — noted-only (do at campaign close)
 
 ## Lingerers (explicitly approved)
 
 ## Open questions
 
+- **Background summary.** With auto-compaction back on, Claude Code also starts writing the compaction summary in the background at about 78% on the meter, then uses it when the 95% trigger fires. Re-grounding (shape 2) needs to know whether that early summary honors the "leave out what the files hold" instructions, and whether to switch it off. To settle in shape-reground-after-compaction.
+
 - **Re-grounding has a size problem.** Claude Code caps what a hook can put into context at about 10,000 characters; the id skill alone is about 120,000 and the box-maintainer role file about 20,000. "Verbatim, in full" therefore can't go through a hook as-is. Candidates: have the supervisor re-run the identity load after each compaction (which puts the whole id skill in context the same way loading does), or the hook points at files to read. To settle in shape-reground-after-compaction.
 - **Mid-turn compaction.** Automatic compaction can fire in the middle of an agent's work; anything the supervisor types into the session only lands after that turn ends. Whether that gap matters, and how the re-grounding covers it, to settle in shape-reground-after-compaction.
-- **Who pulls the 95% trigger** — the harness's own threshold setting (simplest, works mid-turn) or a Skynet watcher that sends the compact command when the agent is idle (harness-agnostic, but rebuilds the watcher that never worked). Lean: harness threshold, with the watcher retired. To settle in shape-compaction-groundwork.
-- **How Claude Code gets upgraded on fleet boxes** and whether the newer idle-compaction switch behaves as documented (the two doc pages disagree on what turning it on means).
+- ~~Who pulls the 95% trigger~~ — settled in groundwork: Claude Code's own threshold; the context watch is retired in shape 3.
+- ~~How Claude Code gets upgraded on fleet boxes~~ — settled in groundwork: Skynet's pinned version moves every box on the next sweep (pin now 2.1.310). Turning off the idle switch really stops idle compaction; turning it "on" does nothing, so the docs don't conflict.
