@@ -1625,6 +1625,20 @@ describe("session-working-store (Phase 62 Plan 04): direct-signal predicate", ()
     expect(result.current).toBe(false);
   });
 
+  it("idle with activity well past the stop (background sub-agent tools) still counts as work", () => {
+    const { result, rerender } = renderHook(() =>
+      useSessionIsWorking("h1:s1"),
+    );
+    act(() => {
+      publishFleetStatusSessionState(
+        "h1",
+        makeState({ status: "idle", activityMtime: 60_000, stoppedMtime: 1000 }),
+      );
+    });
+    rerender();
+    expect(result.current).toBe(true);
+  });
+
   it("dormant (source-B) idle frames keep the marker-only verdict", () => {
     const { result, rerender } = renderHook(() =>
       useSessionIsWorking("h1:s1"),

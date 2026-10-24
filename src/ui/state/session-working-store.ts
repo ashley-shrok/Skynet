@@ -208,6 +208,10 @@ let state: State = {
   map: new Map<string, WorkingRecord>(),
 };
 
+// How long after a Stop an activity touch on an idle session is treated as
+// harness background noise rather than work (see the direct-signal branch).
+const STRAY_ACTIVITY_WINDOW_MS = 15_000;
+
 let snapshotVersion = 0;
 
 const listeners = new Set<() => void>();
@@ -379,11 +383,20 @@ export function publishFleetStatusSessionState(
       isWorking = (activityMtime as number) > (stoppedMtime as number);
     }
     // The harness's own "idle" (waiting for the user) beats a stray activity
-    // touch: harness background work can fire an activity hook after the
-    // Stop hook, which would otherwise light the indicator until the next
-    // turn. Live frames only — source-B frames (sessionId "__dormant__")
-    // always say idle and carry no live status.
-    if (isWorking && state_arg.status === "idle" && state_arg.sessionId !== "__dormant__") {
+    // touch just after the Stop hook: harness background work fires an
+    // activity hook a few seconds after Stop (seen at +2s and +4s), which
+    // would otherwise light the indicator until the next turn. Only within
+    // STRAY_ACTIVITY_WINDOW_MS of the stop, so a background sub-agent whose
+    // tool calls keep touching the marker after Stop still counts as work.
+    // Live frames only — source-B frames (sessionId "__dormant__") always say
+    // idle and carry no live status.
+    if (
+      isWorking &&
+      state_arg.status === "idle" &&
+      state_arg.sessionId !== "__dormant__" &&
+      stoppedMtime !== null &&
+      (activityMtime as number) - stoppedMtime <= STRAY_ACTIVITY_WINDOW_MS
+    ) {
       isWorking = false;
     }
   } else {

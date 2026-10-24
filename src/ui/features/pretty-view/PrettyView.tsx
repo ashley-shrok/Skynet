@@ -946,7 +946,7 @@ export function PrettyView({
       const m = effectiveMessages[i] as { type?: string; interrupted?: true; turnEnd?: true; eventId?: string; ts?: number };
       if (m.type === "message" || m.type === "image") {
         return m.interrupted === true || m.turnEnd === true
-          ? { eventId: m.eventId ?? "", ts: typeof m.ts === "number" ? m.ts : 0 }
+          ? { eventId: m.eventId ?? `idx-${i}`, ts: typeof m.ts === "number" ? m.ts : 0 }
           : null;
       }
     }
@@ -2204,10 +2204,12 @@ export function PrettyView({
   const sessionWorkingKey = `${hostId}:${tmuxSession ?? ""}`;
   const isWorking = useSessionIsWorking(sessionWorkingKey);
   // While a turn-over message is the latest one the work indicator stays off —
-  // until new work starts after it: the working signal turns on again (e.g. a
-  // prompt the view never shows), or the agent's activity marker moves past
-  // the message's time (a new turn that began before the signal ever went
-  // idle). Both times come from the agent's box.
+  // until new work starts after it: the agent's activity marker moves past the
+  // message's time (both times come from the agent's box). Where the marker
+  // only has whole-second precision (legacy poll path) a same-second turn
+  // can't be told apart that way, so there the working signal turning on
+  // again also releases it. Not on the millisecond path: a lagging frame
+  // taken mid-turn would re-light the indicator after the turn has ended.
   const activityMtime = useSessionActivityMtime(sessionWorkingKey);
   const [turnOverWipReleasedFor, setTurnOverWipReleasedFor] = useState<string | null>(null);
   const prevWorkingForTurnOverRef = useRef<boolean>(isWorking);
@@ -2223,9 +2225,10 @@ export function PrettyView({
     if (turnOverTailId !== null) console.info(`[pv-turn-over] tail eventId=${turnOverTailId} isWorking=${isWorking}`);
     // eslint-disable-next-line react-hooks/exhaustive-deps -- log once per tail
   }, [turnOverTailId]);
+  const activityWholeSecond = activityMtime === null || activityMtime % 1000 === 0;
   const turnOverWipReleased =
     turnOverTail !== null &&
-    (turnOverWipReleasedFor === turnOverTail.eventId ||
+    ((activityWholeSecond && turnOverWipReleasedFor === turnOverTail.eventId) ||
       (activityMtime !== null && turnOverTail.ts > 0 && activityMtime > turnOverTail.ts));
   // Optimistic WIP handoff on the false→true edge only (see the
   // optimisticWip declaration for why a level check is wrong). Armed while

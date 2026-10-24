@@ -511,6 +511,15 @@ describe("PrettyView — interrupt button (shape-interrupt-button)", () => {
       await waitFor(() => expect(container.querySelector(WIP_SELECTOR)).not.toBeNull());
     });
 
+    it("a lagging working frame taken before the turn-ending message doesn't re-light it", async () => {
+      const { container, ws } = await mount();
+      working(400, 500); // idle
+      sendWsFrame(ws, { type: "message", role: "assistant", content: "Done.", eventId: "a5", ts: 2000, turnEnd: true });
+      await waitFor(() => expect(bubble(container, "a5")).not.toBeNull());
+      working(1500, 500); // rising edge, but the activity predates the message
+      expect(container.querySelector(WIP_SELECTOR)).toBeNull();
+    });
+
     it("comes back when the user's next message is the latest", async () => {
       const { container, ws } = await mount();
       working(1000, 500);

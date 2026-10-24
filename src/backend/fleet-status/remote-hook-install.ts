@@ -267,7 +267,7 @@ timeout 2 bash -c '
     [[ "\$payload" =~ \\"hook_event_name\\"[[:space:]]*:[[:space:]]*\\"([A-Za-z]+)\\" ]] && ev="\${BASH_REMATCH[1]}"
     [[ "\$payload" =~ \\"tool_name\\"[[:space:]]*:[[:space:]]*\\"([A-Za-z0-9_.-]+)\\" ]] && tool="\${BASH_REMATCH[1]}"
     [[ "\$payload" =~ \\"agent_id\\"[[:space:]]*:[[:space:]]*\\"([A-Za-z0-9_-]+)\\" ]] && agent="\${BASH_REMATCH[1]}"
-    printf "%s event=%s tool=%s agent=%s\\n" "\$(date -u +%Y-%m-%dT%H:%M:%S.%3NZ)" "\$ev" "\$tool" "\$agent" > "\${session_dir}/activity-last"
+    printf "%s event=%s tool=%s agent=%s\\n" "\$(date -u +%Y-%m-%dT%H:%M:%S.%3NZ)" "\$ev" "\$tool" "\$agent" > "\${session_dir}/activity-last.\$\$" && mv "\${session_dir}/activity-last.\$\$" "\${session_dir}/activity-last"
   fi
 ' || true
 exit 0
