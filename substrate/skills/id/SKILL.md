@@ -1321,30 +1321,31 @@ crown, then gear.
 
 - **Task pill (top-center of the open conversation).** The conversation's
   handle, and the only thing at the top of an agent conversation — the same
-  in chat view and terminal view. It looks and behaves like that
-  conversation's sidebar row: the agent's avatar, then the one-line
-  description of what the agent is working on — the identity's `task:`
-  frontmatter (§ Loading an existing identity), or the agent's name when
-  there is none, the same string as the row's title. Click = opens the
-  **identity modal** (below). A **three-dots (⋮) button** at the pill's
+  in chat view and terminal view. A solid dark pill floating over the top of
+  the chat (messages scroll under it, fading to dark): the agent's picture
+  with a thin ring in the agent's colour, then the one-line description of
+  what the agent is working on — the identity's `task:` frontmatter
+  (§ Loading an existing identity), or the agent's name when there is none,
+  the same string as the sidebar row's title. Click = opens the
+  **identity modal** (below). A **⋯ button** at the pill's
   right end — always visible, and the way in on a phone — opens the
   conversation menu; right-clicking the pill opens the same menu: **Move to
   new tab** (desktop only), **Rename…**, **Move to** (Pinned + projects),
   **Close** (desktop only), **Archive**. Drag = see § Drag & drop (drop
   lane, filing into sidebar sections); not draggable on a phone. Hovering
-  shows the agent's name, roles and project. (There is no identity badge in
-  an agent conversation any more; relay rooms still show a badge per
-  participant.)
+  shows the agent's name, roles and project. On a phone the round **back to
+  conversations** (←) button floats level with it at the top left, in the
+  same solid dark look. (Relay rooms show a pill per participant instead,
+  each with that agent's memory pie under it.)
   *Agent-side:* keep `task:` current, silently. Rules already covered.
 
 - **Round buttons beside the task pill.** Just to the right of the pill,
   shown only while their condition is true, each a shortcut into the
   identity modal: a green **monitor** button while the agent's virtual
   desktop is running (opens the Desktop tab), and an amber button while the
-  agent has local work not pushed to any remote (opens the Git tab). They
-  pulse briefly when they appear, then hold a steady color. On desktop
-  the green button can also be dragged into the content area to open the
-  desktop as its own pane (§ Desktop bar).
+  agent has local work not pushed to any remote (opens the Git tab). Both
+  are the pill's height. They pulse briefly when they appear, then hold a
+  steady color.
   *Agent-side:* starting your desktop (`desktop` skill) makes the green
   button appear for the user within a few seconds; stopping it removes it.
 
@@ -1464,20 +1465,58 @@ crown, then gear.
     the folder changes; look in the folder when the work calls for it.
     An empty folder says "No files yet".
 
-- **Context meter (above the compose box).** Shows how full the agent's
-  context window is — the same "runway left" the agent's own
-  context-watch (§ Ambient plumbing) tracks. Next to it is a **reset
-  button** the user can click when now feels like a good moment to
-  cycle; clicking it just types `/id reset` into the harness — same
-  command, same effect (§ On `/id reset`).
-  *Agent-side: none.* If the user hits reset before your ~90% nudge
+- **Messages.** The agent speaks in solid bubbles in its own colour (the
+  colour is how the user tells agents apart); the user's own messages are a
+  neutral grey bubble on the right. A faint **speak** button sits just
+  outside each agent bubble's bottom-right corner (inside it on narrow
+  panes). While the agent works, an **orb** in its colour spins beside the
+  word "Working" (an installation with its own working image in its branding
+  shows that instead). **Load older messages** is a small pill at the top
+  of the list; **Jump to latest** (↓) floats centred just above the
+  composer once the user has scrolled up. The agent's **task list** (its
+  checklist while it works through steps) sits as a slim card just above
+  the composer; background sub-agents and shells are not shown.
+  Messages the agent sent **to the user over the relay** (§ Reaching the
+  user by relay DM) appear as ordinary agent bubbles, always open, with a
+  small red **envelope** on the top-left corner ("Also sent to your
+  phone") — the same envelope the sidebar puts on the conversation until
+  the user opens it. Opening a conversation that has one the user hasn't
+  seen lands on the oldest unseen one and briefly rings it, instead of the
+  bottom. Messages **between agents** show as quiet grey cards, folded:
+  the sender's picture, "Finch → Bilbo" and a one-line preview; tap to
+  read. In a **relay room** the user opened, each agent's messages are
+  bubbles in its colour with its name on top.
+  *Agent-side:* a message you relay to the user shows in your own
+  conversation as one of your bubbles — no need to repeat it in your reply.
+
+- **Composer (bottom of the conversation).** One rounded card floating
+  over the end of the message list: the text on top, every control on one
+  row under it. Left: the **paperclip** (attach files) and the **⚡ Skills**
+  menu. Right: the **agent memory** pie, the **sound-wave** (voice mode),
+  the **mic** (dictation), and one round off-white **main button** that does
+  the likely next thing — **Send** while there's something typed or
+  attached, **Stop** (square) while the agent is working, otherwise a
+  **thumbs-up** (sends "thumbs up"). With text typed, the thumbs-up — or
+  Stop, while the agent works — sits as a small grey button just left of
+  Send, so a thumbs-up never needs the draft cleared. In a relay room only
+  the mic and Send show. (There is no "Queue a message" button any more.)
+
+- **Agent memory (the pie in the composer's row).** Shows how full the
+  agent's context window is — the same "runway left" the agent's own
+  context-watch (§ Ambient plumbing) tracks. Grey with no number while
+  there's room; **amber** with the percentage from 45%; **red** from 78%,
+  with a gentle pulse and a thin red line along the composer's edge. Tapping
+  it opens a small pop-over — how full, what that means, and **Start fresh**,
+  which (after a confirm) types `/id reset` into the harness — same command,
+  same effect (§ On `/id reset`).
+  *Agent-side: none.* If the user starts fresh before your ~90% nudge
   fires, it arrives as a real `/id reset` — save + recycle sentinel +
   stop, same as always.
 
 - **Permission bubble (in the conversation, below the last message).**
   When Claude Code stops to ask the user's OK for a tool call (a safety
   check the fleet's auto-allow can't skip, e.g. a risky `rm`), the
-  conversation shows a bubble with a hand icon saying what the agent wants
+  conversation shows a bubble in the agent's colour, with a hand icon, saying what the agent wants
   to do ("<agent> wants to run a command"), the tool's one-line description,
   the actual command, and why it was flagged, with **Allow** and **Deny**
   buttons and **Show details** (the full command plus Claude Code's exact
@@ -1492,16 +1531,18 @@ crown, then gear.
   rewriting it so the check doesn't fire (e.g. `"${VAR:?}"` in `rm` paths)
   avoids the prompt entirely.
 
-- **Mic (in the compose box) — dictation.** Tap the mic to dictate;
-  hold it to record and release to send. While a tapped recording runs,
-  the send slot shows four buttons: **mute** (mic icon; crossed out and red
-  while muted — the recording carries on but hears silence until unmuted),
-  cancel (×), append (down-arrow — adds the words to the compose box) and
-  send. Each recording starts unmuted.
+- **Mic (in the composer's row) — dictation.** Tap the mic to dictate;
+  hold it to record and release to send. While recording, a red-tinted
+  chip in the row shows "Recording", a timer and a live waveform (held:
+  "release to send · slide off to cancel"); the paperclip and Skills stay
+  usable, and a tapped recording puts **Cancel** (red ✕), **add to text**
+  and **Send** on the right.
   *Agent-side: none.*
 
-- **Stop (square) button — interrupt** (agent conversations). In the row
-  of small buttons above the compose box. One press does whichever of
+- **Stop (square) button — interrupt** (agent conversations). The
+  composer's round main button while the agent is working and nothing is
+  typed; with text typed, a small grey square just left of Send. One press
+  does whichever of
   these fits the moment:
   - **Still being delivered** (the message hasn't reached the agent yet):
     the button is greyed out — there is nothing to stop.
@@ -1524,8 +1565,8 @@ crown, then gear.
   "[Request interrupted by user]" in your context.
 
 - **Sound-wave button — hands-free voice mode** (agent conversations
-  only). Sits in the row of small buttons above the compose box, left of
-  the stop (square), lightning-bolt and thumbs-up buttons. Tapping it turns voice mode
+  only). Sits in the composer's row, between the agent-memory pie and the
+  mic. Tapping it turns voice mode
   on: the app listens, sends what the user says when their turn ends, reads
   each new agent reply aloud, then listens again. It hears speech in pieces
   split at short pauses and transcribes each in the background; a piece
@@ -1582,11 +1623,13 @@ crown, then gear.
   *Agent-side: none.*
 
 - **⚡ Lightning bolt — Skills menu** (agent conversations only). Sits
-  in the row of small buttons above the compose box, just left of the
-  thumbs-up. Tapping it opens a menu listing the skills on the box this
-  agent runs on — the skills whose **You** switch is on in the footer's
-  lightning-bolt Skills editor (fleet-distributed ones stay out), alphabetical, each with
-  its one-line description. Tapping a skill sends `/<skill-name>` at once,
+  in the composer's row, just right of the paperclip. Tapping it opens a
+  menu listing the skills on the box this agent runs on — the skills whose
+  **You** switch is on in the footer's lightning-bolt Skills editor
+  (fleet-distributed ones stay out), alphabetical, each with a lettered
+  tile and its description (up to two lines). A search field on top
+  (focused on open, except on touch screens) filters by name and
+  description; Enter runs the top match. Tapping a skill sends `/<skill-name>` at once,
   exactly like thumbs-up sends its reply: no arguments, anything the user
   had typed stays in the compose box. The button is hidden until the app
   knows the box has at least one such skill. To give the user a new
@@ -1625,7 +1668,10 @@ Preferences → Notifications, she gets a notification on her phone.
 Desktop push is not available.
 
 This is a legitimate escape hatch for genuinely important pings when
-she isn't currently looking at your conversation. Rules of use:
+she isn't currently looking at your conversation. In your conversation the
+message shows as one of your ordinary bubbles with a small red envelope on
+it, and the sidebar marks your conversation with the same envelope until she
+opens it (§ Conversation view → Messages). Rules of use:
 
 - **Follow whatever the user has told you about notification
   preferences.** Some don't want it at all; some only want emergencies.
