@@ -2411,7 +2411,7 @@ export function ComposeBox({
         : null;
   // Mic open on this composer (a transcript round-trip is not "recording":
   // Send shows its spinner then).
-  const recordingHere = voice.state === "starting" || voice.state === "recording";
+  const recordingHere = micTarget === "primary" && (voice.state === "starting" || voice.state === "recording");
   // The card's red edge follows the memory pie, which holds its last reading
   // through brief dropouts — hold it here the same way.
   if (isDraining || isHolding === true) heldPctRef.current = null;

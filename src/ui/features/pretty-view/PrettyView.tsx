@@ -2465,6 +2465,7 @@ export function PrettyView({
       }
     };
     measure();
+    if (typeof ResizeObserver === "undefined") return;
     const ro = new ResizeObserver(measure);
     ro.observe(root);
     if (dockEl) ro.observe(dockEl);
