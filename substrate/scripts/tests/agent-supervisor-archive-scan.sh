@@ -1866,6 +1866,133 @@ printf 'stub homeserver: %s\n' "$($HAS_STUB_SERVER && echo available || echo 'UN
 printf '\n'
 
 # --- Static analysis ---
+
+# ---- dependency-folder cleanup ----
+# make_dep_tree <dir> — a fake node_modules-style tree with one file in it.
+make_dep_tree() {
+  mkdir -p "$1/pkg"
+  printf 'x\n' > "$1/pkg/index.js"
+}
+
+test_dep_cleanup_kept_repo_ignored_node_modules_deleted() {
+  local scratch; scratch=$(setup_scratch)
+  local repo="$scratch/tina/workspace/skynet"
+  make_safe_fixture_repo "$repo"
+  ( cd "$repo" && printf 'node_modules/\n' > .gitignore && git add .gitignore && \
+    git commit -q -m ignore && printf 'local\n' > local && git add local && \
+    git commit -q -m local ) >/dev/null 2>&1   # ahead of origin -> repo kept
+  make_dep_tree "$repo/node_modules"
+  make_dep_tree "$repo/packages/a/node_modules"
+  local out
+  out=$( _source_supervisor "$scratch"
+         clean_workspace_repos tina "$scratch/tina"
+         clean_workspace_dependency_dirs tina "$scratch/tina" 2>&1 )
+  assert_file   "$repo/.git" "kept repo: repo itself must remain"
+  assert_file   "$repo/local" "kept repo: local work must remain"
+  assert_nofile "$repo/node_modules" "kept repo: ignored node_modules must be deleted"
+  assert_nofile "$repo/packages/a/node_modules" "kept repo: nested ignored node_modules must be deleted"
+  assert_grep "deleted dependency dir at" "$out" "kept repo: deletion must be logged"
+  teardown_scratch "$scratch"
+}
+
+test_dep_cleanup_not_ignored_node_modules_kept() {
+  local scratch; scratch=$(setup_scratch)
+  local repo="$scratch/tina/workspace/skynet"
+  make_safe_fixture_repo "$repo"
+  make_dep_tree "$repo/node_modules"   # no .gitignore -> untracked, not ignored
+  local out
+  out=$( _source_supervisor "$scratch"
+         clean_workspace_dependency_dirs tina "$scratch/tina" 2>&1 )
+  assert_file "$repo/node_modules/pkg/index.js" "not-ignored node_modules must remain"
+  assert_grep "not-gitignored" "$out" "not-ignored: reason must be logged"
+  teardown_scratch "$scratch"
+}
+
+test_dep_cleanup_tracked_node_modules_kept() {
+  local scratch; scratch=$(setup_scratch)
+  local repo="$scratch/tina/workspace/skynet"
+  make_safe_fixture_repo "$repo"
+  make_dep_tree "$repo/node_modules"
+  ( cd "$repo" && git add -f node_modules && git commit -q -m vendored && \
+    printf 'node_modules/\n' > .gitignore && git add .gitignore && git commit -q -m ignore ) >/dev/null 2>&1
+  local out
+  out=$( _source_supervisor "$scratch"
+         clean_workspace_dependency_dirs tina "$scratch/tina" 2>&1 )
+  assert_file "$repo/node_modules/pkg/index.js" "ignored-but-tracked node_modules must remain"
+  assert_grep "kept dependency dir at" "$out" "tracked: keep must be logged"
+  teardown_scratch "$scratch"
+}
+
+test_dep_cleanup_ignored_env_file_dir_kept() {
+  local scratch; scratch=$(setup_scratch)
+  local repo="$scratch/tina/workspace/skynet"
+  make_safe_fixture_repo "$repo"
+  ( cd "$repo" && printf 'secrets/\nnode_modules/\n' > .gitignore ) >/dev/null 2>&1
+  mkdir -p "$repo/secrets"; printf 'k\n' > "$repo/secrets/.env"
+  ( _source_supervisor "$scratch"
+    clean_workspace_dependency_dirs tina "$scratch/tina" ) >/dev/null 2>&1
+  assert_file "$repo/secrets/.env" "ignored folder not on the name list must remain"
+  teardown_scratch "$scratch"
+}
+
+test_dep_cleanup_git_only_names_in_repo_and_outside() {
+  local scratch; scratch=$(setup_scratch)
+  local ws="$scratch/tina/workspace"
+  make_safe_fixture_repo "$ws/skynet"
+  ( cd "$ws/skynet" && printf 'dist/\n' > .gitignore ) >/dev/null 2>&1
+  make_dep_tree "$ws/skynet/dist"
+  make_dep_tree "$ws/scratch/build"   # not in any repo
+  ( _source_supervisor "$scratch"
+    clean_workspace_dependency_dirs tina "$scratch/tina" ) >/dev/null 2>&1
+  assert_nofile "$ws/skynet/dist" "ignored dist inside repo must be deleted"
+  assert_file   "$ws/scratch/build/pkg/index.js" "build outside any repo must remain (ambiguous name)"
+  teardown_scratch "$scratch"
+}
+
+test_dep_cleanup_non_repo_node_modules_deleted() {
+  local scratch; scratch=$(setup_scratch)
+  local ws="$scratch/tina/workspace"
+  make_dep_tree "$ws/scratch-app/node_modules"
+  make_dep_tree "$ws/py/.venv"
+  mkdir -p "$ws/scratch-app"; printf 'app\n' > "$ws/scratch-app/index.js"
+  ( _source_supervisor "$scratch"
+    clean_workspace_dependency_dirs tina "$scratch/tina" ) >/dev/null 2>&1
+  assert_nofile "$ws/scratch-app/node_modules" "non-repo node_modules must be deleted"
+  assert_nofile "$ws/py/.venv" "non-repo .venv must be deleted"
+  assert_file   "$ws/scratch-app/index.js" "non-repo sibling work must remain"
+  teardown_scratch "$scratch"
+}
+
+test_dep_cleanup_broken_repo_fails_closed() {
+  local scratch; scratch=$(setup_scratch)
+  local ws="$scratch/tina/workspace"
+  mkdir -p "$ws/broken/.git"   # a .git git cannot read
+  make_dep_tree "$ws/broken/node_modules"
+  local out
+  out=$( _source_supervisor "$scratch"
+         clean_workspace_dependency_dirs tina "$scratch/tina" 2>&1 )
+  assert_file "$ws/broken/node_modules/pkg/index.js" "unreadable repo: node_modules must remain"
+  assert_grep "git-check-failed" "$out" "unreadable repo: reason must be logged"
+  teardown_scratch "$scratch"
+}
+
+test_dep_cleanup_symlinked_dep_dir_not_followed() {
+  local scratch; scratch=$(setup_scratch)
+  local ws="$scratch/tina/workspace"
+  make_dep_tree "$scratch/elsewhere"
+  mkdir -p "$ws/app"; ln -s "$scratch/elsewhere" "$ws/app/node_modules"
+  ( _source_supervisor "$scratch"
+    clean_workspace_dependency_dirs tina "$scratch/tina" ) >/dev/null 2>&1
+  assert_file "$scratch/elsewhere/pkg/index.js" "symlink target outside workspace must remain"
+  teardown_scratch "$scratch"
+}
+
+test_dep_cleanup_hook_fires_in_retire() {
+  if ! grep -qE '^[[:space:]]*clean_workspace_dependency_dirs "\$name" "\$iddir"' "$SUPERVISOR"; then
+    fail "retire_identity must call clean_workspace_dependency_dirs"
+  fi
+}
+
 run_test test_bash_syntax
 run_test test_shellcheck_clean
 run_test test_pitfall3_no_equals_prefix_on_kill_session
@@ -1965,6 +2092,16 @@ run_test test_workspace_cleanup_symlinked_workspace_refused
 # Integration with retire_identity
 run_test test_workspace_cleanup_hook_fires_before_folder_move
 run_test test_workspace_cleanup_unsafe_repo_travels_with_archive
+# Dependency-folder cleanup
+run_test test_dep_cleanup_kept_repo_ignored_node_modules_deleted
+run_test test_dep_cleanup_not_ignored_node_modules_kept
+run_test test_dep_cleanup_tracked_node_modules_kept
+run_test test_dep_cleanup_ignored_env_file_dir_kept
+run_test test_dep_cleanup_git_only_names_in_repo_and_outside
+run_test test_dep_cleanup_non_repo_node_modules_deleted
+run_test test_dep_cleanup_broken_repo_fails_closed
+run_test test_dep_cleanup_symlinked_dep_dir_not_followed
+run_test test_dep_cleanup_hook_fires_in_retire
 
 printf '\n===============================\n'
 printf 'PASS: %s  FAIL: %s\n' "$PASS" "$FAIL"

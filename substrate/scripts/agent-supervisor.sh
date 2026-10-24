@@ -1057,6 +1057,107 @@ clean_workspace_repos() {
   return 0
 }
 
+# ---- dependency-folder cleanup at retire time ----
+# clean_workspace_dependency_dirs(name, iddir)
+#
+# Runs after clean_workspace_repos. Repos it kept (local-only work) and plain non-repo folders
+# can still hold re-downloadable dependency trees — a kept repo's node_modules is ~1.5 GB of
+# nothing anyone could lose. Delete those so they don't inflate the archived folder.
+#
+# A folder is deleted only when its NAME is a known re-downloadable kind AND:
+#   - inside a git repo: git reports it ignored AND it holds no tracked files. The ignore check
+#     proves no work is in it; a force-added (tracked) node_modules is left alone. Build-output
+#     names (dist/build/target) are only considered here, since outside git they're ambiguous.
+#   - outside any git repo: the name alone decides, from the unambiguous list only.
+#
+# Never follows symlinks, never descends into a matched folder or .git. Never blocks retire.
+#
+# Return: 0 always.
+_WS_DEP_DIR_NAMES=(node_modules .venv venv __pycache__ .pytest_cache .mypy_cache .ruff_cache
+                   .tox .next .nuxt .svelte-kit .turbo .parcel-cache)
+_WS_DEP_DIR_NAMES_GIT_ONLY=(dist build target)
+
+clean_workspace_dependency_dirs() {
+  local name="$1"
+  local iddir="$2"
+  local wsdir="$iddir/workspace"
+
+  [ -d "$wsdir" ] || return 0
+  [ -L "$wsdir" ] && return 0  # clean_workspace_repos already WARNed
+  # Physical path, so it compares cleanly with git's (symlink-resolved) --show-toplevel.
+  wsdir=$(cd "$wsdir" 2>/dev/null && pwd -P) || return 0
+
+  local git_tmo=(timeout -k 5 20)
+  local -a name_expr=()
+  local n
+  for n in "${_WS_DEP_DIR_NAMES[@]}" "${_WS_DEP_DIR_NAMES_GIT_ONLY[@]}"; do
+    [ "${#name_expr[@]}" -gt 0 ] && name_expr+=(-o)
+    name_expr+=(-name "$n")
+  done
+
+  # Collect first, delete after — deleting mid-find would race the traversal.
+  local -a matches=()
+  local m
+  while IFS= read -r -d '' m; do
+    matches+=("$m")
+  done < <(timeout -k 5 60 find "$wsdir" -maxdepth 8 \
+             \( -name .git -prune \) -o \
+             \( -type d \( "${name_expr[@]}" \) -prune -print0 \) 2>/dev/null)
+
+  [ "${#matches[@]}" -eq 0 ] && return 0
+
+  local dir base top rel reason
+  for dir in "${matches[@]}"; do
+    [ -L "$dir" ] && continue
+    [ -d "$dir" ] || continue
+    base="${dir##*/}"
+    reason=""
+    top=$("${git_tmo[@]}" git -C "${dir%/*}" rev-parse --show-toplevel 2>/dev/null) || top=""
+    if [ -z "$top" ]; then
+      # git found no repo — but if a .git sits between here and the workspace, git just failed
+      # (timeout, safe.directory, corrupt repo). Fail closed: never fall back to name-only there.
+      local up="${dir%/*}"
+      while :; do
+        if [ -e "$up/.git" ]; then reason="git-check-failed"; break; fi
+        [ "$up" = "$wsdir" ] && break
+        up="${up%/*}"
+      done
+    else
+      case "$top/" in
+        "$wsdir/"*) ;;
+        *) reason="repo-outside-workspace" ;;
+      esac
+    fi
+    if [ -n "$reason" ]; then
+      :
+    elif [ -n "$top" ]; then
+      rel="${dir#"$top"/}"
+      if ! "${git_tmo[@]}" git -C "$top" check-ignore -q -- "$rel" 2>/dev/null; then
+        reason="not-gitignored"
+      elif [ -n "$("${git_tmo[@]}" git -C "$top" ls-files -- "$rel" 2>/dev/null | head -n 1)" ]; then
+        reason="has-tracked-files"
+      fi
+    else
+      reason="name-needs-git"
+      for n in "${_WS_DEP_DIR_NAMES[@]}"; do
+        [ "$base" = "$n" ] && { reason=""; break; }
+      done
+    fi
+    if [ -n "$reason" ]; then
+      [ "$reason" = "name-needs-git" ] || \
+        log "'$name' workspace-cleanup: kept dependency dir at $dir — $reason"
+      continue
+    fi
+    if rm -rf "$dir" 2>/dev/null; then
+      log "'$name' workspace-cleanup: deleted dependency dir at $dir"
+    else
+      log "WARN: '$name' workspace-cleanup: rm -rf FAILED at $dir — leaving in place"
+    fi
+  done
+
+  return 0
+}
+
 # ---- retire action (Phase 94 base; Phase 115 reorder) ----
 # retire_identity(name)
 #
@@ -1391,9 +1492,11 @@ retire_identity() {
   # STEP 4a½: Workspace repo cleanup — delete safely-re-clonable repos so they don't inflate the
   # archived folder. Fires uniformly for both trigger paths (dormancy sweep AND sentinel drop).
   # Never blocks retire — unsafe repos and errors log at WARN and are left in place; the folder
-  # move in STEP 4b carries them along.
+  # move in STEP 4b carries them along. Then strip re-downloadable dependency folders
+  # (node_modules etc.) from whatever was kept.
   # =============================================================================================
   clean_workspace_repos "$name" "$iddir"
+  clean_workspace_dependency_dirs "$name" "$iddir"
 
   # =============================================================================================
   # STEP 4b (Phase 115 D-13; was Phase 94 step 1): Move identity folder to archive sibling.
