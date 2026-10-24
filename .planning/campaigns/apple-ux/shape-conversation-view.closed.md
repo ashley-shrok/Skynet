@@ -82,3 +82,56 @@ The chat itself — the screen Ashley spends the most time in — rebuilt in the
 - Removing a visible control means an id-skill edit in the same change (task pill, stop / skills / thumbs-up / voice-mode buttons, context meter + reset, queue, recording, DM display); none of this is admin-only.
 - What's-new: this campaign writes one note at campaign close (Ashley approves the text).
 - The upstream desktop-pane bar (landed 2026-10-23) still needs the pane-bar look at the next rebase.
+
+---
+
+## Close-Out
+
+**Closed:** 2026-10-24
+**Overall verdict:** closed-hit
+
+### Shape features (conformance)
+
+- **What this is** — present · Pill, side buttons, bubbles, relay messages, agent cards, composer, memory, skills, recording, orb, back / jump / load older all restyled.
+- **Header: solid neutral pill, colour ring on the picture, kit ⋯** — present
+- **Header: floating family (side buttons, back, jump, load older)** — drifted · side buttons keep their green / amber fill and arrival glow; Ashley: keep (the colour is the message).
+- **Header: jump to latest centred above the composer** — present
+- **Header: quiet desktop sidebar toggle** — present
+- **Edges: scroll under, darkening fades, no blur** — present
+- **Messages: agent colour bubbles, neutral user bubbles, speaker-side corner, snug spacing, speak beside, code wells** — present
+- **Messages to Ashley over the relay: open bubble + envelope, jump to oldest unseen + ring** — present
+- **Messages between agents: folded neutral card, no DM pill / ⓘ / notified** — present
+- **Relay rooms: name over agent-colour bubbles, pill participants** — present
+- **Composer: one card, row order, neutral main button Send / Stop / 👍, 👍 or Stop beside Send while typing, queue gone** — present
+- **Agent memory: pie bands 45 / 78, red edge, Start fresh pop-over** — present
+- **Skills menu: search, Enter runs top, lettered tiles, two-line descriptions** — present
+- **Recording: chip in the row, attach + skills stay, Cancel / add / Send, held mic red** — present
+- **Working: agent-colour orb, no timer, custom branding image wins** — present
+- **Background work: sub-agent / shell lines hidden, tracking kept; task list card** — present
+- **Philosophy** — present · (side-button colour endorsed as above)
+- **What would make it wrong: agent bubbles lose colour / a control borrows it** — present
+- **What would make it wrong: a message to Ashley folded or hard to find** — present · a failed send was folded; fixed at close (open bubble, "not sent", no envelope).
+- **What would make it wrong: memory nags or stays quiet when full** — present
+- **What would make it wrong: blur or scroll-time repaints** — present
+- **What would make it wrong: recording hides attach or skills** — present
+- **What would make it wrong: thumbs-up needs the draft cleared** — present
+- **What would make it wrong: phone more cramped** — present (by reading)
+- **What would make it wrong: removals take their machinery** — present
+- **Scope edges (out / designed in build / deferred)** — present
+- **Handoff notes** — present · local only; id skill updated in the same change.
+
+### Additions (in the result, not in the shape)
+
+- Previously saved queued messages still show and send (nothing adds new ones) — endorsed-as-drift
+- Relay-room participant pills show picture + name; roles / project in the tooltip — endorsed-as-drift
+- Memory pie with Start fresh under each agent participant in relay rooms (replaces the old meter there) — endorsed-as-drift
+- A failed message to Ashley was a folded "not sent" card — changed at close to an open bubble with a "not sent" mark
+
+### Follow-ups
+
+- Activity words in the working indicator ("Reading files…") — needs the server to report the agent's step; deferred (own piece of work).
+- Desktop-pane bar (upstream 2026-10-23) needs the pane-bar look at the next rebase — deferred.
+
+### Notes
+
+Reviewer: the red memory pulse, the envelope-arrival ring and the side-button arrival glow animate a shadow (brief, on fixed controls, not the scrolling list). Desktop reading column 860 → 780.
