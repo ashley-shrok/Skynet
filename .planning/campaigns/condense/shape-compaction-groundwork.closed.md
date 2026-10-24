@@ -48,3 +48,40 @@ Every fleet box moves to a Claude Code version that has a separate switch for id
 - Identity: blaze-box-maintainer-3. Inside the condense campaign, so the shape ends at "committed, not pushed, not deployed".
 - Re-check the chosen version for the idle switch and the trigger formula before pinning; the formula was read from 2.1.302.
 - No what's-new note: users won't notice this directly. Admin/infra only, so no id skill edit.
+
+---
+
+## Close-Out
+
+**Closed:** 2026-10-24
+**Overall verdict:** closed-hit
+
+### Shape features (conformance)
+
+- **What this is** — present · The fleet pin moves to a version with a separate idle switch; idle compaction is off and near-limit compaction fires at the meter's 95%; wrong settings and notes are removed or corrected.
+- **Shape: the fleet's harness version** — present · The pin moves from 2.1.286 to 2.1.310. The 2.1.310 binary has the idle switch, separate from the main auto-compact switch.
+- **Shape: the fleet's shared harness settings and presence check** — present · "All automatic compaction off" is replaced by idle compaction off plus the lowered trigger; the presence check requires both, and requires the old setting to be gone.
+- **Shape: what 95% means** — present · The trigger value fires at 950,000 tokens, checked against the 2.1.310 formula; the default is 967,000.
+- **Shape: the agent launch line** — present · The do-nothing percentage is removed; the supervisor says the shared settings are the one place compaction is configured.
+- **Shape: corrected explanations** — present · The meter's note, the supervisor's notes, the settings writer's reasoning, and the polling code's assumption are corrected. Two polling-test notes and a stale supervisor note were missed at first and fixed in a follow-up commit.
+- **Philosophy** — present · One place, the harness's own threshold, no watcher, configuration and wording only.
+- **Prior context** — present · The 2.1.290 floor is recorded next to the pin; the newest version was chosen.
+- **Scope edges** — present · All in-scope items are present, including migration tests. Nothing from shapes 2-4, no watcher, no meter rescale, no version-aware settings, no what's-new note.
+- **Handoff notes** — present · Version and formula re-checked against 2.1.302 and 2.1.310; committed, not pushed.
+- **What would make it wrong: Idle compaction still happens on a box that's on the new version** — present · Idle off is written to every box and enforced by the presence check; the binary confirms false stops it.
+- **What would make it wrong: Near-limit compaction fires somewhere other than what the meter calls 95%, or never fires** — present · The old all-off setting is removed and checked for absence; the trigger works out to exactly 950,000.
+- **What would make it wrong: A setting is left that claims to do something it doesn't, or a note still describes compaction wrongly** — present · After the follow-up commit, a full repo sweep finds no wrong compaction note.
+- **What would make it wrong: Compaction can be configured from more than one place** — present · Only the shared settings configure compaction.
+
+### Additions (in the result, not in the shape)
+
+- The presence check also flags a box that still has the old "all compaction off" setting, and the settings writer actively deletes it (a natural reading of "replaced"). — endorsed-as-drift
+
+### Follow-ups
+
+- The campaign-close handoff must say that agents running at deploy time keep the old behavior until their next session start. — deferred
+- The context watch's header still describes it as the guard against drift; retiring it belongs to shape 3. — deferred
+
+### Notes
+
+One divergence (leftover wrong notes) was an unintended omission, fixed in a follow-up commit; a re-sweep found nothing else. Not evaluated by the reviewer: the 2.1.310 binary's separate "precompute" threshold path.
