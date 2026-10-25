@@ -130,6 +130,18 @@ export interface DesktopSession {
   onStreamLost: () => void;
 }
 
+/**
+ * Releases still in flight, per desktop. Every surface's connect waits for
+ * one, so a surface opened as another hands back (e.g. "Open beside
+ * conversation" while in control) doesn't read the lease being dropped and
+ * show the agent as paused.
+ */
+const pendingReleases = new Map<string, Promise<void>>();
+
+function desktopKey(identityKey: string, hostId: number): string {
+  return `${hostId}::${identityKey}`;
+}
+
 export function useDesktopSession({
   identityKey,
   hostId,
@@ -151,6 +163,8 @@ export function useDesktopSession({
   const attemptRef = useRef(0);
   const mountedRef = useRef(true);
   const controlRef = useRef(false);
+  /** Bumped by every connect and hide; an older connect that resumes late bows out. */
+  const connectGenRef = useRef(0);
   const onControlChangeRef = useRef(onControlChange);
   onControlChangeRef.current = onControlChange;
   const opPrefix = logTag.replace(/-/g, "_");
@@ -171,10 +185,16 @@ export function useDesktopSession({
         hostId,
         reason,
       });
-      return releaseDesktopControl(identityKey, hostId).then(
+      const key = desktopKey(identityKey, hostId);
+      const release = releaseDesktopControl(identityKey, hostId).then(
         () => {},
         () => {},
       );
+      pendingReleases.set(key, release);
+      void release.then(() => {
+        if (pendingReleases.get(key) === release) pendingReleases.delete(key);
+      });
+      return release;
     },
     [identityKey, hostId, logTag, opPrefix],
   );
@@ -188,14 +208,17 @@ export function useDesktopSession({
   }, [releaseIfHeld]);
 
   const connect = useCallback(async () => {
-    const release = releaseIfHeld("reconnect-or-hand-back");
+    const gen = ++connectGenRef.current;
+    releaseIfHeld("reconnect-or-hand-back");
     setView({ status: "connecting" });
     try {
-      // Let the release land first, or the connect's status read can still
-      // see our own lease and report the agent as paused.
+      // Let any release of this desktop land first, or the connect's status
+      // read can still see that lease and report the agent as paused.
+      const release = pendingReleases.get(desktopKey(identityKey, hostId));
       if (release) await release;
+      if (!mountedRef.current || gen !== connectGenRef.current) return;
       const conn = await connectDesktop(identityKey, hostId);
-      if (!mountedRef.current) return;
+      if (!mountedRef.current || gen !== connectGenRef.current) return;
       attemptRef.current += 1;
       setView({
         status: "live",
@@ -206,7 +229,7 @@ export function useDesktopSession({
         agentPaused: conn.userHasControl,
       });
     } catch (err) {
-      if (!mountedRef.current) return;
+      if (!mountedRef.current || gen !== connectGenRef.current) return;
       const cls = errorClassOf(err);
       systemLogger.info(`[${logTag}] connect failed`, {
         operation: `${opPrefix}_connect_failed`,
@@ -226,6 +249,7 @@ export function useDesktopSession({
   useEffect(() => {
     if (isVisible) void connect();
     else {
+      connectGenRef.current += 1;
       if (releaseIfHeld("hidden") !== null) toast.info("Handed back to agent");
       setView({ status: "connecting" });
     }
@@ -281,10 +305,12 @@ export function useDesktopSession({
     isVisible && view.status === "live" && !view.control;
   useEffect(() => {
     if (!watching) return;
+    let cancelled = false;
     const timer = setInterval(() => {
       getDesktopStatus(identityKey, hostId)
         .then((s) => {
-          if (!mountedRef.current || !s.available || !s.running) return;
+          if (cancelled || !mountedRef.current) return;
+          if (!s.available || !s.running) return;
           setView((v) => {
             if (v.status !== "live" || v.control) return v;
             if (v.agentPaused === s.userHasControl) return v;
@@ -299,7 +325,10 @@ export function useDesktopSession({
         })
         .catch(() => {});
     }, STATUS_POLL_MS);
-    return () => clearInterval(timer);
+    return () => {
+      cancelled = true;
+      clearInterval(timer);
+    };
   }, [watching, identityKey, hostId, logTag, opPrefix]);
 
   const onStreamLost = useCallback(() => {

@@ -358,6 +358,46 @@ describe("DesktopTab", () => {
       await waitFor(() => expect(connectDesktop).toHaveBeenCalledTimes(2));
     });
 
+    it("another surface opening as this one hands back waits for the release", async () => {
+      connectDesktop.mockResolvedValue(view);
+      takeDesktopControl.mockResolvedValue(drive);
+      let finishRelease: () => void = () => {};
+      releaseDesktopControl.mockImplementation(
+        () => new Promise((r) => (finishRelease = () => r({ ok: true }))),
+      );
+      const { rerender } = render(
+        <DesktopTab identityKey="alice" hostId={7} isVisible />,
+      );
+      fireEvent.click(await screen.findByTestId("desktop-take-control"));
+      await screen.findByTestId("desktop-in-control");
+      // "Open beside conversation": this one hides, a pane opens.
+      rerender(<DesktopTab identityKey="alice" hostId={7} isVisible={false} />);
+      render(<DesktopTab identityKey="alice" hostId={7} isVisible />);
+      await waitFor(() => expect(releaseDesktopControl).toHaveBeenCalled());
+      expect(connectDesktop).toHaveBeenCalledTimes(1);
+      await act(async () => finishRelease());
+      await waitFor(() => expect(connectDesktop).toHaveBeenCalledTimes(2));
+    });
+
+    it("a connect that resumes after the surface hid doesn't go live", async () => {
+      connectDesktop.mockResolvedValue(view);
+      takeDesktopControl.mockResolvedValue(drive);
+      let finishRelease: () => void = () => {};
+      releaseDesktopControl.mockImplementation(
+        () => new Promise((r) => (finishRelease = () => r({ ok: true }))),
+      );
+      const { rerender } = render(
+        <DesktopTab identityKey="alice" hostId={7} isVisible />,
+      );
+      fireEvent.click(await screen.findByTestId("desktop-take-control"));
+      fireEvent.click(await screen.findByTestId("desktop-hand-back"));
+      await waitFor(() => expect(releaseDesktopControl).toHaveBeenCalled());
+      rerender(<DesktopTab identityKey="alice" hostId={7} isVisible={false} />);
+      await act(async () => finishRelease());
+      expect(connectDesktop).toHaveBeenCalledTimes(1);
+      expect(screen.getByText("Connecting to the desktop…")).toBeTruthy();
+    });
+
     it("keeps the paused note current while watching", async () => {
       vi.useFakeTimers({ shouldAdvanceTime: true });
       try {
