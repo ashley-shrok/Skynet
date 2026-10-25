@@ -148,6 +148,22 @@ describe("ComposeBox — giving back a cancelled send", () => {
     expect(onRestoreApplied).toHaveBeenCalledWith("e3", "primary");
   });
 
+  it("a files-only send gives no words back: the draft stays exactly as typed", () => {
+    const onRestoreApplied = vi.fn();
+    const { rerender } = render(<ComposeBox {...baseProps({ onRestoreApplied })} />);
+    fireEvent.change(primary(), { target: { value: "my draft" } });
+    rerender(<ComposeBox {...baseProps({ onRestoreApplied, restoreRequest: { id: "e5", text: "  " } })} />);
+    expect(primary().value).toBe("my draft");
+    expect(onRestoreApplied).toHaveBeenCalledWith("e5", "primary");
+  });
+
+  it("trailing blank lines on the cancelled words don't widen the gap above the draft", () => {
+    const { rerender } = render(<ComposeBox {...baseProps()} />);
+    fireEvent.change(primary(), { target: { value: "new" } });
+    rerender(<ComposeBox {...baseProps({ restoreRequest: { id: "e6", text: "old\n\n\n" } })} />);
+    expect(primary().value).toBe("old\n\nnew");
+  });
+
   it("each request is applied once, even across re-renders", () => {
     const onRestoreApplied = vi.fn();
     const req = { id: "e4", text: "once" };

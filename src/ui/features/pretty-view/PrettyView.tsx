@@ -2615,8 +2615,8 @@ export function PrettyView({
   });
 
   // shape-interrupt-button: ComposeBox put a cancelled send's words in
-  // `target`; stage its attachments (already fetched back from the agent's
-  // machine) on the same box, then retire the request so a remounted
+  // `target` (always the primary box); stage its attachments (already fetched
+  // back from the agent's machine) on the same box, then retire the request so a remounted
   // ComposeBox can never apply it again.
   const handleRestoreApplied = useCallback(
     (id: string, target: string) => {

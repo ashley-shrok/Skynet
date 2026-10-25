@@ -688,4 +688,27 @@ describe("ComposeBox — Phase 16 voice flow", () => {
     expect(textarea.value).toBe("");
     expect(onSend).not.toHaveBeenCalled();
   });
+  it("a cancelled send's words coming back mid-transcription are kept: the transcript lands after the draft as it is now", async () => {
+    let resolveFetch!: (v: unknown) => void;
+    vi.stubGlobal("fetch", vi.fn(() => new Promise((r) => { resolveFetch = r; })));
+    const { rerender } = render(<ComposeBox {...baseProps()} />);
+    const textarea = screen.getByPlaceholderText(/message/i) as HTMLTextAreaElement;
+    fireEvent.change(textarea, { target: { value: "draft" } });
+
+    fireEvent.click(screen.getByRole("button", { name: "Record voice" }));
+    const appendBtn = await screen.findByRole("button", { name: "Append transcript" });
+    act(() => {
+      MockMediaRecorder.instances[0].emitData(new Blob(["audio"], { type: "audio/webm" }));
+    });
+    fireEvent.click(appendBtn);
+    await waitFor(() => expect(fetch).toHaveBeenCalledTimes(1));
+
+    rerender(<ComposeBox {...baseProps({ restoreRequest: { id: "r1", text: "older words" } })} />);
+    expect(textarea.value).toBe("older words\n\ndraft");
+
+    await act(async () => {
+      resolveFetch({ ok: true, status: 200, json: () => Promise.resolve({ text: "hello world" }) });
+    });
+    await waitFor(() => expect(textarea.value).toBe("older words\n\ndraft hello world "));
+  });
 });

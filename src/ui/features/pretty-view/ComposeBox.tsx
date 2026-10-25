@@ -287,9 +287,8 @@ export interface ComposeBoxProps {
   interruptFeedback?: InterruptFeedback | null;
   // shape-interrupt-button: words handed back by a cancelled send. Applied
   // once per id, into the primary box — above anything the user has typed
-  // since (never overwriting it).
-  // onRestoreApplied reports which box received them so the caller can put
-  // the cancelled message's attachments back on the same box.
+  // since (never overwriting it). onRestoreApplied then reports the box
+  // ("primary") so the caller puts the cancelled message's attachments there.
   restoreRequest?: { id: string; text: string } | null;
   onRestoreApplied?: (id: string, target: string) => void;
   // When false, Enter is still accepted for typing (textarea not disabled)
@@ -1168,12 +1167,14 @@ export function ComposeBox({
     if (!restoreRequest || appliedRestoreIdsRef.current.has(restoreRequest.id)) return;
     appliedRestoreIdsRef.current.add(restoreRequest.id);
     const current = latestBodyRef.current;
-    const merged = current.trim() === "" ? restoreRequest.text : `${restoreRequest.text}\n\n${current}`;
+    const words = restoreRequest.text.trimEnd();
+    // A files-only send has no words to give back; the draft stays as typed.
+    const merged = words.trim() === "" ? current : current.trim() === "" ? words : `${words}\n\n${current}`;
     setText(merged);
     latestBodyRef.current = merged;
     scheduleAutosave(merged);
     console.info(
-      `[interrupt-restore] applied id=${restoreRequest.id} target=primary textLen=${restoreRequest.text.length} merged=${merged !== restoreRequest.text} hadAttachments=${hasAttachments}`,
+      `[interrupt-restore] applied id=${restoreRequest.id} target=primary textLen=${words.length} draftLen=${current.length} hadAttachments=${hasAttachments}`,
     );
     onRestoreApplied?.(restoreRequest.id, "primary");
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -1793,6 +1794,16 @@ export function ComposeBox({
   // Voice handlers are target-aware (bounty message-queue-in-pretty-view).
   // target === "primary" → existing behavior; target === slotId → route to slot.
 
+  // The primary box can change while a transcription is in flight (a
+  // cancelled send's words coming back). Re-apply whatever endAppend/endSend
+  // glued onto baseText to the box as it is now, so nothing is overwritten.
+  function rebaseGluedOnPrimary(glued: string, baseText: string): string {
+    const current = latestBodyRef.current;
+    if (current === baseText || !glued.startsWith(baseText)) return glued;
+    console.info(`[compose] voice-rebase baseLen=${baseText.length} currentLen=${current.length}`);
+    return current + glued.slice(baseText.length);
+  }
+
   async function handleVoiceAppend(target: "primary" | string = "primary") {
     // Stop recording, transcribe, append the result to the correct target.
     const baseText = target === "primary"
@@ -1806,7 +1817,7 @@ export function ComposeBox({
         return;
       }
       // Trailing space so the next dictation chunk joins without needing a manual space.
-      const appended = result.glued + " ";
+      const appended = (target === "primary" ? rebaseGluedOnPrimary(result.glued, baseText) : result.glued) + " ";
       if (target === "primary") {
         setText(appended);
         scheduleAutosave(appended, latestQueueSlotsRef.current);
@@ -1838,8 +1849,9 @@ export function ComposeBox({
         return;
       }
       if (target === "primary") {
-        setText(result.glued);
-        scheduleAutosave(result.glued, latestQueueSlotsRef.current);
+        const glued = rebaseGluedOnPrimary(result.glued, baseText);
+        setText(glued);
+        scheduleAutosave(glued, latestQueueSlotsRef.current);
         // Bounty mic-available-when-composebox-disabled (quick 260731-ulo): during recycle, land transcript in textarea but skip auto-send — user sends manually once the overlay clears.
         // Phase 24: same treatment during plan-mode pending — text lands, no auto-send.
         // Reconnect window: same treatment — text lands, no auto-send while WS is between sockets.
@@ -1848,7 +1860,7 @@ export function ComposeBox({
           // D-16-05: route through the SAME handleSend — attachment branching,
           // newline normalization, Phase 50 D-18 optimistic-bubble seeding
           // all still apply.
-          handleSend(result.glued, "queue-item");
+          handleSend(glued, "queue-item");
         }
       } else {
         // For a queue slot: update slot text then send it.
