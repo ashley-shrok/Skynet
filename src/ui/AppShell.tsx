@@ -4037,15 +4037,12 @@ export function AppShell({
           // (useKeyboardViewportLock); otherwise 100dvh as before.
           height: "var(--app-height, 100dvh)",
           paddingTop: "max(env(safe-area-inset-top), 0px)",
-          // Touch conversation screen: continue PrettyView's top-left warm
-          // radial (same ellipse, centred on PrettyView's top edge) up
-          // through the status-bar band, so the band reads as part of the
-          // chat instead of a flat stripe above it.
-          ...(isTouchDevice && !isMobileListScreen
-            ? {
-                backgroundImage:
-                  "radial-gradient(ellipse 800px 400px at 20% max(env(safe-area-inset-top), 0px), rgba(255,240,215,0.08), transparent 60%)",
-              }
+          // Touch: the status-bar band takes the colour of what's right
+          // under it — the conversation's top fade (which starts at full
+          // strength there, conversation.css) or the conversation list — so
+          // there's no stripe above the screen.
+          ...(isTouchDevice
+            ? { backgroundColor: isMobileListScreen ? "#15161a" : "#0b0c0f" }
             : {}),
         }}
       >

@@ -2610,7 +2610,8 @@ export function ComposeBox({
             skills (which stay usable — files get picked mid-sentence). */}
         {holdFeedback && <HoldFeedbackPill {...holdFeedback} readLevel={voice.readLevel} />}
         <div className="pv-compose-spacer" aria-hidden="true" />
-        {harness && (
+        {/* A phone's row is too narrow for the pie beside a recording. */}
+        {harness && !(isTouchDevice === true && recordingHere) && (
           <MemoryGauge
             pct={contextPct ?? null}
             emptied={isDraining || isHolding === true}

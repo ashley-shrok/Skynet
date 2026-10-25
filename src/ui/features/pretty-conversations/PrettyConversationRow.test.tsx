@@ -3335,7 +3335,10 @@ describe("PrettyConversationRow (shape-sidebar): press-and-hold opens the row me
     // the row through the portal) before the click.
     rowTouch(item, "touchStart", [{ x: 60, y: 90 }], 2000);
     rowTouch(item, "touchEnd", [{ x: 60, y: 90 }], 2050);
+    // A real tap comes well after the hold's lift (which is ignored).
+    const clock = vi.spyOn(performance, "now").mockReturnValue(performance.now() + 2000);
     fireEvent.click(item);
+    clock.mockRestore();
     expect(onArchive).toHaveBeenCalledTimes(1);
   });
 

@@ -61,7 +61,7 @@ export function HoldFeedbackPill({ committed, outside, outcome, tap, readLevel }
   return (
     <div data-testid="hold-feedback-pill" className="pv-rec-chip" aria-live="polite">
       <span className={cn("pv-rec-dot", dotTone === "rec" && "pv-hold-dot")} data-tone={dotTone} aria-hidden="true" />
-      <span>{message}</span>
+      <span className="pv-rec-label">{message}</span>
       {elapsed && <span className="pv-rec-time">{elapsed}</span>}
       {committed && readLevel && <MicWaveform read={readLevel} className={outside ? "text-[#888]" : undefined} />}
       {hint && <span className="pv-rec-hint">{hint}</span>}

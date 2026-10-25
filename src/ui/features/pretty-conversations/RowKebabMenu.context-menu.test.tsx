@@ -212,8 +212,16 @@ describe("useRowKebabContextMenu — openAt", () => {
     const items = (await screen.findAllByRole("menuitem")).map((el) => el.textContent);
     expect(items).toEqual(["Rename…", "Archive"]);
 
+    // The lift right after a press-and-hold opened it is ignored…
+    fireEvent.click(screen.getByRole("menuitem", { name: "Archive" }));
+    expect(onArchive).not.toHaveBeenCalled();
+    expect(screen.getByTestId("row-kebab-context-anchor")).toBeTruthy();
+    // …a real pick a moment later goes through.
+    const now = performance.now();
+    const clock = vi.spyOn(performance, "now").mockReturnValue(now + 1000);
     const user = userEvent.setup();
     await user.click(screen.getByRole("menuitem", { name: "Archive" }));
+    clock.mockRestore();
     expect(onArchive).toHaveBeenCalledTimes(1);
     expect(screen.queryByTestId("row-kebab-context-anchor")).toBeNull();
   });

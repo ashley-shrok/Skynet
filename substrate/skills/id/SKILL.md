@@ -1551,7 +1551,9 @@ crown, then gear.
 
 - **Mic (in the composer's row) — dictation.** Tap the mic to dictate;
   hold it to record and release to send. While recording, a red-tinted
-  chip in the row shows "Recording", a timer and a live waveform (held:
+  chip in the row shows "Recording", a timer and a live waveform (on a
+  phone just the dot, timer and waveform, and the memory pie steps aside;
+  held:
   "release to send · slide off to cancel"); the paperclip and Skills stay
   usable, and a tapped recording puts **mute** (mic icon; crossed out and
   red while muted — the recording carries on but hears silence until

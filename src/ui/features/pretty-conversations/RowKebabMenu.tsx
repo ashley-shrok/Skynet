@@ -71,6 +71,7 @@ import {
   DropdownMenuSeparator,
 } from "@/components/dropdown-menu";
 import { cn } from "@/lib/utils";
+import { systemLogger } from "@/lib/frontend-logger";
 
 // ─── Public types ─────────────────────────────────────────────────────────────
 
@@ -149,7 +150,13 @@ function KebabMenuContent({
   items: RowKebabMenuItem[];
 } & Pick<
   React.ComponentProps<typeof DropdownMenuContent>,
-  "sideOffset" | "alignOffset" | "onCloseAutoFocus"
+  | "sideOffset"
+  | "alignOffset"
+  | "onCloseAutoFocus"
+  | "onFocusOutside"
+  | "onPointerDownOutside"
+  | "onEscapeKeyDown"
+  | "onClickCapture"
 >): React.JSX.Element {
   // Inside a modal the menu takes the kit look and the modal's hue (it
   // portals out of the modal's DOM, so it can't inherit either by CSS).
@@ -391,6 +398,13 @@ export interface RowKebabContextMenu {
   openAt: (x: number, y: number) => void;
 }
 
+/** How long after a press-and-hold opens the menu the finger's lift is ignored. */
+const OPEN_SETTLE_MS = 450;
+
+function logDismiss(how: string): void {
+  systemLogger.info(`row menu closed: ${how}`, { operation: "row_menu_dismiss", how });
+}
+
 export function useRowKebabContextMenu(
   items: RowKebabMenuItem[],
 ): RowKebabContextMenu {
@@ -399,6 +413,12 @@ export function useRowKebabContextMenu(
   // Where focus was when the menu opened (the row, for the keyboard's menu
   // key) — it goes back there when the menu closes.
   const opener = React.useRef<HTMLElement | null>(null);
+  // A press-and-hold opens the menu under the finger. Lifting it then can
+  // still bring the browser's follow-up tap (focus moving to the row, a click
+  // on the item now under the finger — iPhone does this): within a moment of
+  // opening, those don't close the menu or pick an item.
+  const openedAt = React.useRef(0);
+  const settling = () => performance.now() - openedAt.current < OPEN_SETTLE_MS;
   const noteOpener = () => {
     const a = document.activeElement;
     opener.current = a instanceof HTMLElement && a !== document.body ? a : null;
@@ -454,6 +474,21 @@ export function useRowKebabContextMenu(
               // the right-click doesn't land on — and select — the first item.
               sideOffset={2}
               alignOffset={2}
+              onFocusOutside={(e) => {
+                if (settling()) e.preventDefault();
+                else logDismiss("focus-outside");
+              }}
+              onPointerDownOutside={(e) => {
+                if (settling()) e.preventDefault();
+                else logDismiss("pointer-outside");
+              }}
+              onEscapeKeyDown={() => logDismiss("escape")}
+              onClickCapture={(e) => {
+                if (!settling()) return;
+                systemLogger.info("row menu: early click ignored", { operation: "row_menu_early_click" });
+                e.preventDefault();
+                e.stopPropagation();
+              }}
               // The anchor unmounts on close; focus goes back to where it was.
               onCloseAutoFocus={(e) => {
                 e.preventDefault();
@@ -470,6 +505,7 @@ export function useRowKebabContextMenu(
     (x: number, y: number) => {
       if (!enabled) return;
       noteOpener();
+      openedAt.current = performance.now();
       setPos({ x, y });
     },
     [enabled],

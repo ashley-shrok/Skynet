@@ -962,11 +962,15 @@
   border-radius: 12px;
   transition: background-color 0.12s;
 }
-.pv-app-tile:hover {
-  background: var(--pv-sb-hover);
+/* Only where a pointer hovers — on a touch screen :hover sticks after a tap. */
+@media (hover: hover) {
+  .pv-app-tile:hover {
+    background: var(--pv-sb-hover);
+  }
 }
+/* Phone: about a home screen's icon size at the usual text sizes. */
 .pv-app-tile.pv-app-tile--mobile {
-  --pv-app-icon: 3.5em;
+  --pv-app-icon: 2.7em;
 }
 
 /* Letter typography for the iconless fallback lives here; the child
@@ -990,8 +994,10 @@
   flex-shrink: 0;
   transition: transform 140ms ease;
 }
-.pv-app-tile:hover .pv-app-icon-slot {
-  transform: translateY(-2px) scale(1.04);
+@media (hover: hover) {
+  .pv-app-tile:hover .pv-app-icon-slot {
+    transform: translateY(-2px) scale(1.04);
+  }
 }
 .pv-app-tile:active .pv-app-icon-slot {
   transform: scale(0.94);

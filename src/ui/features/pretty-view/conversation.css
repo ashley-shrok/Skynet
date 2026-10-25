@@ -22,10 +22,12 @@
 }
 
 /* ── Floating controls: the pill, its round buttons, back, jump, load older ── */
+/* The phone's back button lives in the shell, outside [data-pv-root] — the
+   fallbacks give it the same solid fill. */
 .pv-float {
-  background: var(--pv-float-bg);
+  background: var(--pv-float-bg, linear-gradient(180deg, #24262d, #1e2026));
   border: 1px solid var(--k-hair2);
-  box-shadow: var(--pv-float-shadow);
+  box-shadow: var(--pv-float-shadow, inset 0 1px 0 rgba(255, 255, 255, 0.06), 0 6px 18px rgba(0, 0, 0, 0.45));
   color: var(--k-t1);
 }
 button.pv-float { cursor: pointer; transition: background-color 0.12s; }
@@ -53,6 +55,13 @@ button.pv-float:focus-visible { outline: 2px solid var(--k-acc); outline-offset:
   z-index: 100;
   pointer-events: none;
   background: linear-gradient(180deg, rgba(11, 12, 15, 0.92) 0%, rgba(11, 12, 15, 0.72) 45%, rgba(11, 12, 15, 0) 100%);
+}
+/* On a phone the status-bar band above is the same colour, solid: start the
+   fade at full strength so the two meet without a seam. */
+@media (pointer: coarse) {
+  .pv-fade-top {
+    background: linear-gradient(180deg, rgb(11, 12, 15) 0%, rgba(11, 12, 15, 0.78) 40%, rgba(11, 12, 15, 0) 100%);
+  }
 }
 .pv-dock {
   position: absolute;
@@ -235,6 +244,10 @@ button.pv-float:focus-visible { outline: 2px solid var(--k-acc); outline-offset:
 .pv-rec-hint { min-width: 0; overflow: hidden; text-overflow: ellipsis; color: var(--k-t3); font-weight: 400; font-size: 12.5px; }
 .pv-rec-chip [data-testid="mic-waveform"] { color: #ff8a82; }
 .pv-composebox[data-touch="true"] .pv-rec-chip { gap: 7px; padding: 0 10px; }
+/* A phone's row also holds mute, cancel, add-to-text and Send: while the
+   time is running the chip keeps the red dot, the time and the level, not the
+   word ("Release to cancel", "Sending…" still show). */
+.pv-composebox[data-touch="true"] .pv-rec-chip:has(.pv-rec-time) .pv-rec-label { display: none; }
 .pv-cbtn[data-holding="true"] { background: rgba(229, 72, 77, 0.18); color: #ff8a82; }
 
 /* ── Agent memory: a small pie. Grey while there's room, amber from 45%, red from 78% ── */
