@@ -805,9 +805,9 @@ not something agents drive.
   (if any) — and each run of rows sits on one rounded panel. An
   **unread** conversation (the agent finished a turn the user hasn't seen)
   shows a small dot in the agent's colour at the row's end and a brighter
-  title; a **red envelope** on the picture means the agent sent the user a
-  message; an **amber disc** on the picture means the agent has local work
-  not pushed anywhere.
+  title; a **red envelope** on the picture ("Notified you") means the agent
+  notified the user (§ Notifying the user); an **amber disc** on the
+  picture means the agent has local work not pushed anywhere.
   **Swipe to archive (phone).** Swiping a conversation row to the left
   archives it at once, no confirm: the row slides away and a bar says
   "Archived … · Undo" for about 5 seconds. The archive only happens once
@@ -1232,8 +1232,10 @@ crown, then gear.
     seconds of silence) or *When I say a phrase* (silence never sends;
     ending with the phrase does — "send it" by default, editable, shown
     only when that's chosen). Follows the user's account across devices.
-  - **Notifications** — phone notifications through the user's OWN
-    Telegram bot; each user sets theirs up here, nothing server-side. The
+  - **Notifications** — where notifications from agents (§ Notifying the
+    user) arrive outside the app, through the user's OWN Telegram bot ("When
+    an agent notifies you, it arrives through Telegram."); each user sets
+    theirs up here, nothing server-side. The
     section walks them through three numbered steps: open @BotFather in
     Telegram (**Open BotFather**), send `/newbot`, pick a name and a
     username ending in `bot`, then paste the token BotFather sends and tap
@@ -1487,12 +1489,11 @@ crown, then gear.
   composer once the user has scrolled up. The agent's **task list** (its
   checklist while it works through steps) sits as a slim card just above
   the composer; background sub-agents and shells are not shown.
-  Messages the agent sent **to the user over the relay** (§ Reaching the
-  user by relay DM) appear as ordinary agent bubbles, always open, with a
-  small red **envelope** on the top-left corner ("Also sent to your
-  phone") — the same envelope the sidebar puts on the conversation until
-  the user opens it. One that failed to send shows open too, with a
-  "⚠ not sent" mark (tap it for the reason) and no envelope. Coming to a
+  Messages the agent used to **notify the user** (§ Notifying the user)
+  appear as ordinary agent bubbles, always open, with a small red
+  **envelope** on the top-left corner ("Notified you") — the same envelope
+  the sidebar puts on the conversation until the user opens it. One that
+  failed to send shows open too, with a "⚠ not sent" mark (tap it for the reason) and no envelope. Coming to a
   conversation that has one the user hasn't seen lands on the oldest unseen
   one and briefly rings it, instead of the bottom. Messages **between agents** show as quiet grey cards, folded:
   the sender's picture, "Finch → Bilbo" and a one-line preview; tap to
@@ -1667,28 +1668,33 @@ scaffolding, teardown, templates, and behavior.*
 
 ---
 
-## Reaching the user by relay DM
+## Notifying the user
 
-The user has her own relay account, and it appears in the same Matrix
-homeserver as agent relay accounts. If you DM the user's relay account
-directly and she has set up Telegram under
-Preferences → Notifications, she gets a notification on her phone.
-Desktop push is not available.
+**Notifying the user means DMing her relay account in a one-on-one room.**
+The user has her own relay account on the same Matrix homeserver as agent
+relay accounts; a 1:1 DM to it is the only thing that notifies her. A
+message in a room with three or more participants does not, and neither
+does an ordinary reply in your own conversation.
 
-This is a legitimate escape hatch for genuinely important pings when
-she isn't currently looking at your conversation. In your conversation the
-message shows as one of your ordinary bubbles with a small red envelope on
-it, and the sidebar marks your conversation with the same envelope until she
-opens it (§ Conversation view → Messages). Rules of use:
+**What she experiences.** In the app a notification always stands out from
+an ordinary reply: the message shows as one of your ordinary bubbles with a
+small red envelope on it ("Notified you"), and the sidebar puts the same
+envelope on your conversation and sorts it to the top of its section until
+she opens it (§ Conversation view → Messages). If she has set up Telegram
+under Preferences → Notifications, it also arrives there — usually the more
+prominent of the two.
+
+**The words.** The app calls this being *notified*; you do it by *DMing*
+her. When the user says "notify me when X", she means DM her one-on-one
+when X happens.
+
+It's a legitimate escape hatch for genuinely important pings when she isn't
+looking at your conversation. Rules of use:
 
 - **Follow whatever the user has told you about notification
   preferences.** Some don't want it at all; some only want emergencies.
-  Default to conservative: use it when *not* pinging her would be worse
-  than pinging.
-- **Group-room etiquette (§ Fleet directives) still applies** if the
-  DM room happens to have three or more participants — but a 1:1 DM
-  with the user for a real ping is exactly the case this escape hatch
-  is for.
+  Default to conservative: notify when *not* notifying her would be worse
+  than notifying.
 
 ---
 

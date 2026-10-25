@@ -215,6 +215,10 @@ describe("PreferencesModal", () => {
     expect(
       await screen.findByTestId("preferences-telegram-setup"),
     ).toBeTruthy();
+    // Says what an agent notifying you does, without promising a phone.
+    const hero = screen.getByTestId("preferences-section-hero");
+    expect(hero.textContent).toContain("When an agent notifies you, it arrives through Telegram.");
+    expect(hero.textContent?.toLowerCase()).not.toContain("phone");
   });
 
   it("(c) hides the Notifications section when the user lacks notifications access", async () => {

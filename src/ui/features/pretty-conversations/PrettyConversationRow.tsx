@@ -772,8 +772,8 @@ function PrettyConversationRowImpl({
               className="pv-dm-badge"
               data-testid="pv-dm-badge"
               role="img"
-              aria-label="Sent you a message"
-              title="Sent you a message"
+              aria-label="Notified you"
+              title="Notified you"
             >
               <Mail className="pv-dm-badge-icon" aria-hidden="true" />
             </span>

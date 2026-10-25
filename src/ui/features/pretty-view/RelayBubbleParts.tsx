@@ -266,13 +266,13 @@ export interface RelayToYouBubbleProps {
   ts?: number;
   children: React.ReactNode;
   speak?: { speakState: SpeakState; onClick: (e: React.MouseEvent) => void } | null;
-  /** The send failed (error text, shown on hover): no envelope — it never
-   *  reached the phone — and a "not sent" mark instead. */
+  /** The send failed (error text, shown on hover): no envelope — the user
+   *  was never notified — and a "not sent" mark instead. */
   failed?: string | null;
 }
 
 /**
- * The agent messaged YOU over the relay (it also reached your phone): just an
+ * The agent notified YOU (a one-on-one relay DM): just an
  * agent bubble in the sender's colour, always open, with the sidebar's red
  * envelope on its corner. Never folded — even a failed send stays readable.
  */
@@ -292,8 +292,8 @@ export function RelayToYouBubble({ testIdPrefix, sender, ts, children, speak, fa
           <span
             className="pv-envelope"
             role="img"
-            aria-label={`Also sent to your phone${when}`}
-            title={`Also sent to your phone${when}`}
+            aria-label={`Notified you${when}`}
+            title={`Notified you${when}`}
             data-testid="relay-envelope"
           >
             <Mail aria-hidden="true" />

@@ -3031,6 +3031,7 @@ describe("PrettyConversationsPanel: DM marks", () => {
     expect(row?.getAttribute("data-dm")).toBe("true");
     expect(row?.querySelector(".pv-row--dm")).not.toBeNull();
     expect(row?.querySelector('[data-testid="pv-dm-badge"]')).not.toBeNull();
+    expect(row?.querySelector('[data-testid="pv-dm-badge"]')?.getAttribute("title")).toBe("Notified you");
     const unreadRow = container.querySelector('[data-conversation-id="gamma-row"]');
     expect(unreadRow?.querySelector('[data-testid="pv-dm-badge"]')).toBeNull();
   });

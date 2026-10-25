@@ -130,7 +130,7 @@ describe("RelayOutboundBubble", () => {
     renderOut();
     expectToYouBubble();
     expect(screen.getByTestId("relay-envelope")).toHaveAttribute("role", "img");
-    expect(screen.getByTestId("relay-envelope").getAttribute("aria-label")).toMatch(/^Also sent to your phone/);
+    expect(screen.getByTestId("relay-envelope").getAttribute("aria-label")).toMatch(/^Notified you/);
     // Speak sits with the bubble.
     expect(screen.getByRole("button", { name: "Speak message" })).toBeTruthy();
   });
