@@ -1,27 +1,29 @@
-import { useEffect, useState, type RefObject } from "react";
+import { useEffect, useState } from "react";
 
 /**
- * True once the element has come within a screen of the viewport, and stays
- * true. Heavy blocks (charts, diagrams) wait for it so a long history full of
- * them stays light. Where there's no IntersectionObserver it's true at once.
+ * Whether the element is within `margin` of the viewport. Heavy blocks wait
+ * for it so a long history full of them stays light. `sticky` keeps it true
+ * once seen (diagrams: a drawn picture is cheap to keep); otherwise it follows
+ * the element in and out, so charts far off-screen can let go of their
+ * canvases. Takes the element itself (from a callback ref), so a block whose
+ * box appears later — after a fallback, say — is still watched. Where there's
+ * no IntersectionObserver it's true at once.
  */
-export function useInView(ref: RefObject<Element | null>, margin = "400px"): boolean {
-  const [seen, setSeen] = useState(() => typeof IntersectionObserver === "undefined");
+export function useNearView(el: Element | null, { margin = "400px", sticky = true }: { margin?: string; sticky?: boolean } = {}): boolean {
+  const [near, setNear] = useState(() => typeof IntersectionObserver === "undefined");
+  const settled = sticky && near;
   useEffect(() => {
-    if (seen) return;
-    const el = ref.current;
-    if (!el) return;
+    if (typeof IntersectionObserver === "undefined" || !el || settled) return;
     const io = new IntersectionObserver(
       (entries) => {
-        if (entries.some((e) => e.isIntersecting)) {
-          setSeen(true);
-          io.disconnect();
-        }
+        const now = entries.some((e) => e.isIntersecting);
+        setNear(now);
+        if (now && sticky) io.disconnect();
       },
       { rootMargin: margin },
     );
     io.observe(el);
     return () => io.disconnect();
-  }, [ref, margin, seen]);
-  return seen;
+  }, [el, margin, sticky, settled]);
+  return near;
 }

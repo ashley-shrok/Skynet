@@ -5,8 +5,10 @@
 // own to learn — the agent writes the standard format, the app draws it.
 //
 // The option is data, never code: it's parsed as JSON/YAML (functions can't be
-// expressed), then stripped of the few string-valued settings that would let a
-// block inject markup into a tooltip or load an outside picture.
+// expressed), then every route the library has from option text into the page
+// or out to the network is closed: tooltips always draw on the canvas (never
+// as HTML), click-through links, the toolbox (its data view is HTML) and any
+// picture by URL are dropped, and no string may be a script URL.
 import JSON5 from "json5";
 import { parse as parseYaml } from "yaml";
 
@@ -20,9 +22,20 @@ export type ChartParseResult =
 export const CHART_LANGS = new Set(["chart", "echarts"]);
 
 /** Option keys whose string values are HTML or CSS in the library's tooltip layer. */
-const MARKUP_KEYS = new Set(["formatter", "valueFormatter", "extraCssText", "className"]);
-/** Keys that would reach outside the bubble or the page. */
-const DROPPED_KEYS = new Set(["appendTo", "appendToBody", "renderMode"]);
+const MARKUP_KEYS = new Set(["formatter", "valueFormatter", "extraCssText", "className", "content"]);
+/**
+ * Keys that reach outside the bubble or the page: links opened on click, the
+ * toolbox, pictures (symbols, pattern fills, label backgrounds), the tooltip's
+ * mount point and mode (forced to canvas below).
+ */
+const DROPPED_KEYS = new Set(["appendTo", "appendToBody", "renderMode", "link", "sublink", "target", "subtarget", "toolbox", "image", "lang"]);
+
+/** A tooltip setting (or list of them) that always draws on the canvas. */
+function canvasTooltip(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(canvasTooltip);
+  if (value && typeof value === "object") return { ...(sanitize(value) as object), renderMode: "richText" };
+  return value;
+}
 
 export function parseChartBlock(body: string): ChartParseResult {
   const text = body.trim();
@@ -48,9 +61,11 @@ export function parseChartBlock(body: string): ChartParseResult {
 }
 
 function sanitize(value: unknown, key = ""): unknown {
+  if (key === "tooltip") return canvasTooltip(value);
   if (typeof value === "string") {
-    // Pictures by URL (symbols, backgrounds, graphic images) never load.
-    if (/^image:\/\//i.test(value)) return undefined;
+    // Pictures by URL (symbols, backgrounds, graphic images) never load, and
+    // nothing is ever a script URL.
+    if (/^\s*(image:\/\/|javascript:|vbscript:|data:[\w.+-]+\/[\w.+-]+[;,])/i.test(value)) return undefined;
     if (MARKUP_KEYS.has(key) && /[<>&]/.test(value)) return undefined;
     return value;
   }

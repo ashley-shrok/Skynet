@@ -1,11 +1,11 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { Code2, Shapes } from "lucide-react";
 import { CopyableBlock } from "../CopyableBlock";
 import { SPEAK_SKIP_ATTR } from "../speakable-text";
 import { renderDiagram, type DiagramKind } from "../file-viewers/diagram/diagram-render";
 import { RichFallback } from "./RichFallback";
 import { diagramSpeech } from "./rich-speech";
-import { useInView } from "./use-in-view";
+import { useNearView } from "./use-in-view";
 
 // Diagram source in an agent reply, drawn as the diagram (shape-wealthy-text):
 // flowcharts, sequences, timelines, schedules — whatever the diagram language
@@ -20,11 +20,13 @@ const DARK_GRAPHVIZ =
 /** The source as drawn: the app's dark look unless the diagram picks its own. */
 export function themedSource(kind: DiagramKind, source: string): string {
   if (kind === "mermaid") {
-    if (/%%\{\s*init/.test(source) || /^---[\s\S]*?^\s*theme:/m.test(source)) return source;
-    return DARK_MERMAID + source;
+    const header = source.match(/^---\r?\n[\s\S]*?\r?\n---[ \t]*(\r?\n|$)/)?.[0] ?? "";
+    if (/%%\{\s*init/.test(source) || /^\s*theme:/m.test(header)) return source;
+    // The theme line goes after a title/config header: the header must open the source.
+    return header + DARK_MERMAID + source.slice(header.length);
   }
-  // Defaults go first inside the graph, so the diagram's own attributes win.
-  return source.replace(/\{/, `{ ${DARK_GRAPHVIZ} `);
+  // Defaults go first inside the graph body, so the diagram's own attributes win.
+  return source.replace(/^((?:\s|\/\/[^\n]*\n|#[^\n]*\n|\/\*[\s\S]*?\*\/)*(?:strict\s+)?(?:di)?graph\b(?:\s*(?:"(?:[^"\\]|\\.)*"|[\w.]+))?\s*)\{/i, `$1{ ${DARK_GRAPHVIZ} `);
 }
 
 const MIN_READABLE_WIDTH = 480;
@@ -38,8 +40,8 @@ function renderQueued(kind: DiagramKind, source: string) {
 }
 
 export function RichDiagram({ kind, lang, source }: { kind: DiagramKind; lang: string; source: string }) {
-  const boxRef = useRef<HTMLDivElement | null>(null);
-  const inView = useInView(boxRef);
+  const [box, setBox] = useState<HTMLDivElement | null>(null);
+  const inView = useNearView(box);
   const [state, setState] = useState<{ svg: string; width: number } | { error: string } | null>(null);
   const [showSource, setShowSource] = useState(false);
 
@@ -63,7 +65,7 @@ export function RichDiagram({ kind, lang, source }: { kind: DiagramKind; lang: s
   if (state && "error" in state) return <RichFallback what="diagram" lang={lang} source={source} reason={state.error} />;
   const drawn = state && "svg" in state ? state : null;
   return (
-    <div ref={boxRef} className="pv-rich-panel pv-rich-diagram" data-testid="rich-diagram">
+    <div ref={setBox} className="pv-rich-panel pv-rich-diagram" data-testid="rich-diagram">
       <button
         type="button"
         className="pv-rich-tool pv-rich-diagram-toggle"

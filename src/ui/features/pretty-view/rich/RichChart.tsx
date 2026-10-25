@@ -1,8 +1,8 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { SPEAK_SKIP_ATTR } from "../speakable-text";
 import { chartSpeech, parseChartBlock, type ChartOption } from "./chart-spec";
 import { RichFallback } from "./RichFallback";
-import { useInView } from "./use-in-view";
+import { useNearView } from "./use-in-view";
 
 // A ```chart block drawn as a chart (shape-wealthy-text). The chart library
 // loads on first use and each chart draws only once it scrolls near the
@@ -72,7 +72,8 @@ export function withDefaults(option: ChartOption): ChartOption {
   const series = seriesList(option);
   const out: ChartOption = { ...option };
   const cartesian = "xAxis" in option || "yAxis" in option;
-  if (out.tooltip === undefined) out.tooltip = { trigger: cartesian ? "axis" : "item", confine: true };
+  // Tooltips draw on the canvas, never as page markup (see chart-spec).
+  if (out.tooltip === undefined) out.tooltip = { trigger: cartesian ? "axis" : "item", confine: true, renderMode: "richText" };
   else if (out.tooltip && typeof out.tooltip === "object" && !Array.isArray(out.tooltip)) out.tooltip = { confine: true, ...(out.tooltip as object) };
   // A titled pie sits a little lower so its labels clear the title.
   if (out.title !== undefined && series.some((s) => s.type === "pie" && s.center === undefined)) {
@@ -90,61 +91,73 @@ export function withDefaults(option: ChartOption): ChartOption {
   return out;
 }
 
+// Phone: a tap outside every chart clears the value the last tap showed. One
+// listener for all live charts.
+const liveCharts = new Map<HTMLElement, ChartInstance>();
+function onTapOutside(e: PointerEvent): void {
+  for (const [el, chart] of liveCharts) if (!el.contains(e.target as Node)) chart.dispatchAction({ type: "hideTip" });
+}
+function track(el: HTMLElement, chart: ChartInstance | null): void {
+  if (chart) liveCharts.set(el, chart);
+  else liveCharts.delete(el);
+  if (liveCharts.size === 1 && chart) document.addEventListener("pointerdown", onTapOutside, true);
+  if (liveCharts.size === 0) document.removeEventListener("pointerdown", onTapOutside, true);
+}
+
 export function RichChart({ source }: { source: string }) {
   const parsed = useMemo(() => parseChartBlock(source), [source]);
-  const boxRef = useRef<HTMLDivElement | null>(null);
-  const inView = useInView(boxRef);
-  const [drawError, setDrawError] = useState<string | null>(null);
+  const [box, setBox] = useState<HTMLDivElement | null>(null);
+  // Live only while near the screen: a chart scrolled far away gives its
+  // canvas back (the fixed-height box keeps the layout still) and redraws
+  // when it returns, so a long history of charts stays light on a phone.
+  const near = useNearView(box, { margin: "800px", sticky: false });
+  const [drawError, setDrawError] = useState<{ source: string; message: string } | null>(null);
+  const failed = drawError?.source === source ? drawError.message : null;
 
   useEffect(() => {
-    if (!parsed.ok || !inView || !boxRef.current) return;
-    const el = boxRef.current;
+    if (!parsed.ok || !near || !box || failed) return;
     let chart: ChartInstance | null = null;
     let ro: ResizeObserver | null = null;
     let live = true;
-    const onOutside = (e: PointerEvent) => {
-      if (chart && !el.contains(e.target as Node)) chart.dispatchAction({ type: "hideTip" });
-    };
     loadECharts()
       .then((echarts) => {
         if (!live) return;
         try {
-          chart = echarts.init(el, THEME, { renderer: "canvas" });
+          chart = echarts.init(box, THEME, { renderer: "canvas" });
           chart.setOption(withDefaults(parsed.option));
         } catch (err) {
           const msg = err instanceof Error ? err.message : String(err);
           console.warn(`[rich-chart] draw failed error=${msg.slice(0, 160)}`);
           chart?.dispose();
           chart = null;
-          setDrawError(msg);
+          setDrawError({ source, message: msg });
           return;
         }
         if (typeof ResizeObserver !== "undefined") {
           ro = new ResizeObserver(() => chart?.resize());
-          ro.observe(el);
+          ro.observe(box);
         }
-        // Phone: a tap elsewhere clears the value shown by the last tap.
-        document.addEventListener("pointerdown", onOutside, true);
+        track(box, chart);
       })
       .catch((err: unknown) => {
         const msg = err instanceof Error ? err.message : String(err);
         console.warn(`[rich-chart] chart library failed to load error=${msg}`);
-        if (live) setDrawError(msg);
+        if (live) setDrawError({ source, message: msg });
       });
     return () => {
       live = false;
       ro?.disconnect();
-      document.removeEventListener("pointerdown", onOutside, true);
+      track(box, null);
       chart?.dispose();
     };
-  }, [parsed, inView]);
+  }, [parsed, near, box, failed, source]);
 
-  if (!parsed.ok || drawError) {
-    return <RichFallback what="chart" lang="chart" source={source} reason={parsed.ok ? drawError ?? undefined : parsed.error} />;
+  if (!parsed.ok || failed) {
+    return <RichFallback what="chart" lang="chart" source={source} reason={parsed.ok ? failed ?? undefined : parsed.error} />;
   }
   return (
     <div className="pv-rich-panel pv-rich-chart-wrap" data-testid="rich-chart">
-      <div ref={boxRef} className="pv-rich-chart" aria-hidden="true" {...{ [SPEAK_SKIP_ATTR]: "" }} />
+      <div ref={setBox} className="pv-rich-chart" aria-hidden="true" {...{ [SPEAK_SKIP_ATTR]: "" }} />
       <span className="sr-only">{chartSpeech(parsed.option)}</span>
     </div>
   );

@@ -9,8 +9,9 @@
 //
 // remarkStrictMath — formulas in standard notation draw as math, but only the
 //   strict single-dollar form: the opening $ is followed by a non-space, the
-//   closing $ is preceded by one and not followed by a digit. "$5 to $10" and
-//   "between $5-$10" stay prices. $$…$$ is always a formula.
+//   closing $ is preceded by one and not followed by a digit, letter or path
+//   character. "$5 to $10", "between $5-$10" and "$HOME/$USER" stay text.
+//   $$…$$ is always a formula.
 
 interface MdNode {
   type: string;
@@ -129,7 +130,7 @@ function revertLooseMath(node: MdNode, source: string): void {
         if (raw.startsWith("$") && !raw.startsWith("$$")) {
           const inner = raw.slice(1, -1);
           const next = source.charAt(end);
-          if (/^\s/.test(inner) || /\s$/.test(inner) || /\d/.test(next)) return { type: "text", value: raw };
+          if (/^\s/.test(inner) || /\s$/.test(inner) || /[\w/:]/.test(next)) return { type: "text", value: raw };
         }
       }
       return child;

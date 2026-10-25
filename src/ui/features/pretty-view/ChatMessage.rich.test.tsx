@@ -4,7 +4,7 @@
  * message keeps the plain rendering.
  */
 import { describe, it, expect, vi, afterEach, beforeEach } from "vitest";
-import { render, screen, fireEvent, cleanup, waitFor, within } from "@testing-library/react";
+import { render, screen, fireEvent, cleanup, waitFor, within, act } from "@testing-library/react";
 import { ChatMessage } from "./ChatMessage";
 
 vi.mock("@/api/voice-api", () => ({
@@ -124,6 +124,37 @@ describe("charts", () => {
     expect(chart.dispose).toHaveBeenCalled();
   });
 
+  it("a chart fixed after a broken version draws", async () => {
+    const { rerender } = agent("```chart\n{oops\n```");
+    expect(screen.getByTestId("rich-fallback")).toBeTruthy();
+    rerender(<ChatMessage role="assistant" eventId="e1" content={'```chart\n{"series":[{"type":"pie","data":[1]}]}\n```'} onOpenEditor={vi.fn()} />);
+    await waitFor(() => expect(init).toHaveBeenCalled());
+  });
+
+  it("lets go of a chart scrolled far away and redraws it on return", async () => {
+    const observers: { cb: (e: { isIntersecting: boolean }[]) => void }[] = [];
+    class IO {
+      cb: (e: { isIntersecting: boolean }[]) => void;
+      constructor(cb: (e: { isIntersecting: boolean }[]) => void) { this.cb = cb; observers.push(this); }
+      observe() {}
+      disconnect() {}
+    }
+    vi.stubGlobal("IntersectionObserver", IO);
+    try {
+      agent('```chart\n{"series":[{"type":"pie","data":[1]}]}\n```');
+      expect(init).not.toHaveBeenCalled();
+      act(() => observers.at(-1)!.cb([{ isIntersecting: true }]));
+      await waitFor(() => expect(init).toHaveBeenCalledTimes(1));
+      chart.dispose.mockClear();
+      act(() => observers.at(-1)!.cb([{ isIntersecting: false }]));
+      await waitFor(() => expect(chart.dispose).toHaveBeenCalled());
+      act(() => observers.at(-1)!.cb([{ isIntersecting: true }]));
+      await waitFor(() => expect(init).toHaveBeenCalledTimes(2));
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
   it("an example chart inside another code block stays an example", () => {
     agent('````md\n```chart\n{"series":[{"type":"pie","data":[1]}]}\n```\n````');
     expect(screen.queryByTestId("rich-chart")).toBeNull();
@@ -185,6 +216,12 @@ describe("math", () => {
     expect(text).toContain("costs $5 to $10 or between $5-$10.");
     expect(document.querySelector(".katex")).not.toBeNull();
     expect(screen.getByText("E equals mc squared").className).toContain("sr-only");
+  });
+
+  it("shell variables in prose stay text", () => {
+    const { container } = agent("Set $HOME/$USER and $PATH:$HOME first.");
+    expect(screen.queryByTestId("rich-math")).toBeNull();
+    expect(container.textContent).toContain("$HOME/$USER and $PATH:$HOME");
   });
 
   it("a formula with an error shows its source", async () => {

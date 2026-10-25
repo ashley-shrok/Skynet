@@ -23,13 +23,39 @@ function hastText(n: HastLike | undefined): string {
 const elements = (n: HastLike | undefined, tag?: string) =>
   (n?.children ?? []).filter((c) => c.type === "element" && (!tag || c.tagName === tag));
 
-/** Cell text as a number when it reads as one ("1,204", "$5.50", "12%", "3.2 GB"). */
-export function cellNumber(text: string): number | null {
-  const m = text.trim().match(/^\(?\s*([-+−]?)\s*[$€£¥]?\s*(\d[\d,]*(?:\.\d+)?|\.\d+)\s*(?:%|[a-zA-Zµ]{1,4})?\s*\)?$/);
+const SIZE_UNITS: Record<string, number> = {
+  b: 1, kb: 1e3, mb: 1e6, gb: 1e9, tb: 1e12, pb: 1e15,
+  kib: 2 ** 10, mib: 2 ** 20, gib: 2 ** 30, tib: 2 ** 40, pib: 2 ** 50,
+  k: 1e3,
+};
+
+/** A cell read as a number and its unit ("1,204", "$5.50", "12%", "3.2 GB"). */
+export function cellValue(text: string): { n: number; unit: string } | null {
+  const m = text.trim().match(/^\(?\s*([-+−]?)\s*[$€£¥]?\s*(\d[\d,]*(?:\.\d+)?|\.\d+)\s*(%|[a-zA-Zµ]{1,4})?\s*\)?$/);
   if (!m) return null;
   const n = Number(m[2].replace(/,/g, ""));
   if (!Number.isFinite(n)) return null;
-  return m[1] === "-" || m[1] === "−" || /^\(.*\)$/.test(text.trim()) ? -n : n;
+  const neg = m[1] === "-" || m[1] === "−" || /^\(.*\)$/.test(text.trim());
+  return { n: neg ? -n : n, unit: (m[3] ?? "").toLowerCase() };
+}
+export function cellNumber(text: string): number | null {
+  return cellValue(text)?.n ?? null;
+}
+
+/** Cells that mean "nothing here" and sort with the empties. */
+const PLACEHOLDER = /^(?:[-–—?]|n\/?a|none|null|tbd|unknown)$/i;
+
+/**
+ * Comparable numbers for a whole column, or null when it isn't numeric. Mixed
+ * size units (500 MB vs 2 GB) are converted; any other mix of units sorts as text.
+ */
+function columnNumbers(cells: string[]): (number | null)[] | null {
+  const vals = cells.map((c) => (c && !PLACEHOLDER.test(c) ? cellValue(c) : undefined));
+  if (vals.some((v) => v === null) || vals.every((v) => v === undefined)) return null;
+  const units = new Set(vals.filter((v) => v).map((v) => v!.unit));
+  const bySize = units.size > 1 && [...units].every((u) => u in SIZE_UNITS);
+  if (units.size > 1 && !bySize) return null;
+  return vals.map((v) => (v ? (bySize ? v.n * SIZE_UNITS[v.unit] : v.n) : null));
 }
 
 const collator = new Intl.Collator(undefined, { numeric: true, sensitivity: "base" });
@@ -37,15 +63,13 @@ const collator = new Intl.Collator(undefined, { numeric: true, sensitivity: "bas
 /** Row order for a sort: indices into `rows`. Empty cells always go last. */
 export function sortOrder(rows: string[][], col: number, dir: Dir): number[] {
   const cells = rows.map((r) => (r[col] ?? "").trim());
-  const filled = cells.filter(Boolean);
-  const numeric = filled.length > 0 && filled.every((c) => cellNumber(c) !== null);
+  const nums = columnNumbers(cells);
+  const empty = (i: number) => !cells[i] || PLACEHOLDER.test(cells[i]);
   const idx = rows.map((_, i) => i);
   const sign = dir === "asc" ? 1 : -1;
   return idx.sort((a, b) => {
-    const x = cells[a];
-    const y = cells[b];
-    if (!x || !y) return !x && !y ? a - b : !x ? 1 : -1;
-    const c = numeric ? cellNumber(x)! - cellNumber(y)! : collator.compare(x, y);
+    if (empty(a) || empty(b)) return empty(a) && empty(b) ? a - b : empty(a) ? 1 : -1;
+    const c = nums ? nums[a]! - nums[b]! : collator.compare(cells[a], cells[b]);
     return c !== 0 ? sign * c : a - b;
   });
 }
@@ -53,15 +77,22 @@ export function sortOrder(rows: string[][], col: number, dir: Dir): number[] {
 function oneLine(s: string): string {
   return s.replace(/\s+/g, " ").trim();
 }
+/**
+ * A cell a spreadsheet would run as a formula (=, +, -, @ first) is marked as
+ * text, unless it's simply a number like -5.
+ */
+function inert(s: string): string {
+  return /^[=+\-@]/.test(s) && !/^[-+]?(\d[\d,]*(\.\d+)?|\.\d+)%?$/.test(s) ? `'${s}` : s;
+}
 function escapeHtml(s: string): string {
   return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 }
 export function toTsv(headers: string[], rows: string[][]): string {
-  return [headers, ...rows].map((r) => r.map((c) => oneLine(c).replace(/\t/g, " ")).join("\t")).join("\n");
+  return [headers, ...rows].map((r) => r.map((c) => inert(oneLine(c).replace(/\t/g, " "))).join("\t")).join("\n");
 }
 export function toCsv(headers: string[], rows: string[][]): string {
   const cell = (c: string) => {
-    const v = oneLine(c);
+    const v = inert(oneLine(c));
     return /[",\n\r]/.test(v) ? `"${v.replace(/"/g, '""')}"` : v;
   };
   return [headers, ...rows].map((r) => r.map(cell).join(",")).join("\r\n");

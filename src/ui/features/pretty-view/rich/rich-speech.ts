@@ -191,37 +191,61 @@ function plainCell(s: string): string {
   return s.replace(/[*_`~]/g, "").replace(/\[([^\]]*)\]\([^)]*\)/g, "$1");
 }
 
-/** A closed section is its summary; one written to start open is read in full. */
-function speakDetails(prose: string): string {
-  return prose.replace(/<details(\s[^>]*)?>([\s\S]*?)<\/details>/gi, (_m, attrs: string | undefined, inner: string) => {
-    const summaryRe = /<summary(?:\s[^>]*)?>([\s\S]*?)<\/summary>/i;
-    const summary = stripStop((inner.match(summaryRe)?.[1] ?? "Details").replace(/<[^>]+>/g, "").trim());
-    if (!/\bopen\b/i.test(attrs ?? "")) return ` ${summary}. `;
-    return ` ${summary}. ${inner.replace(summaryRe, "").trim()} `;
-  });
-}
-
 function speakMath(prose: string): string {
   return prose
     .replace(/\$\$([\s\S]+?)\$\$/g, (_m, tex: string) => ` ${mathSpeech(tex)} `)
-    .replace(/\$(?=\S)([^$\n]*?\S)\$(?!\d)/g, (_m, tex: string) => mathSpeech(tex));
+    .replace(/\$(?=\S)([^$\n]*?\S)\$(?![\w/:])/g, (_m, tex: string) => mathSpeech(tex));
+}
+
+const SECTION_TAG = /<details(\s[^>]*)?>|<\/details\s*>|<summary(?:\s[^>]*)?>([\s\S]*?)<\/summary\s*>/gi;
+
+function plainSummary(html: string): string {
+  return stripStop(html.replace(/<[^>]+>/g, "").trim()) || "Details";
+}
+
+function speakFence(seg: Segment): string {
+  if (CHART_LANGS.has(seg.lang)) {
+    const res = parseChartBlock(seg.body);
+    return res.ok ? ` ${chartSpeech(res.option)} ` : seg.raw;
+  }
+  if (MERMAID_LANGS.has(seg.lang) || GRAPHVIZ_LANGS.has(seg.lang)) return ` ${diagramSpeech(seg.lang, seg.body)} `;
+  return seg.raw;
 }
 
 /**
  * Voice mode's view of wealthy text: charts and diagrams become their spoken
- * line, tables their size and headings, collapsed sections their summary,
- * formulas their words. Other code blocks are left for the caller.
+ * line, tables their size and headings, formulas their words. A closed
+ * section is just its summary — everything inside it, code blocks and charts
+ * included, stays silent; one written to start open is read in full. Other
+ * code blocks are left for the caller.
  */
 export function richSpeakable(markdown: string): string {
-  return splitFences(markdown)
-    .map((seg) => {
-      if (!seg.fence) return speakMath(speakDetails(speakTables(seg.raw)));
-      if (CHART_LANGS.has(seg.lang)) {
-        const res = parseChartBlock(seg.body);
-        return res.ok ? ` ${chartSpeech(res.option)} ` : seg.raw;
+  const sections: boolean[] = []; // open flag per enclosing section, outermost first
+  const hidden = (depth = sections.length) => sections.slice(0, depth).some((open) => !open);
+  const parts: string[] = [];
+  for (const seg of splitFences(markdown)) {
+    if (seg.fence) {
+      if (!hidden()) parts.push(speakFence(seg));
+      continue;
+    }
+    let out = "";
+    let last = 0;
+    for (const m of seg.raw.matchAll(SECTION_TAG)) {
+      if (!hidden()) out += seg.raw.slice(last, m.index);
+      last = (m.index ?? 0) + m[0].length;
+      const tag = m[0].toLowerCase();
+      if (tag.startsWith("</details")) {
+        sections.pop();
+        out += " ";
+      } else if (tag.startsWith("<details")) {
+        sections.push(/\bopen\b/i.test(m[1] ?? ""));
+      } else if (!hidden(sections.length - 1)) {
+        // A summary is heard whenever the section around it can be seen.
+        out += ` ${plainSummary(m[2] ?? "")}. `;
       }
-      if (MERMAID_LANGS.has(seg.lang) || GRAPHVIZ_LANGS.has(seg.lang)) return ` ${diagramSpeech(seg.lang, seg.body)} `;
-      return seg.raw;
-    })
-    .join("\n");
+    }
+    if (!hidden()) out += seg.raw.slice(last);
+    parts.push(speakMath(speakTables(out)));
+  }
+  return parts.join("\n");
 }
