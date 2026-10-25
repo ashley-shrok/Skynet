@@ -15,7 +15,8 @@
  *   - other XML-wrapped harness lines (local-command output and the like)
  *   - the supervisor's own slash commands: /id (birth, recycle), /exit,
  *     /compact
- *   - skill-body injections (isMeta) and tool results
+ *   - skill-body injections (isMeta), compaction summaries (written as a
+ *     plain-text user line, before the /compact line) and tool results
  *   - interrupt markers, Ctrl-C noise, the supervisor's resumed sentinel,
  *     agent-team teammate messages
  *
@@ -59,6 +60,7 @@ export function userReplyAt(rawLine: string): number | null {
   if (obj === null || typeof obj !== "object") return null;
   const top = obj as Record<string, unknown>;
   if (top.type !== "user" || top.isMeta === true) return null;
+  if (top.isCompactSummary === true || top.isVisibleInTranscriptOnly === true) return null;
   const msg = top.message;
   if (msg === null || typeof msg !== "object") return null;
   const text = contentText((msg as Record<string, unknown>).content);
@@ -73,7 +75,7 @@ export function userReplyAt(rawLine: string): number | null {
   } else if (t.startsWith("<command-")) {
     const name = COMMAND_NAME.exec(t)?.[1]?.trim() ?? "";
     if (SUPERVISOR_COMMANDS.has(name)) return null;
-  } else if (t.startsWith("<")) {
+  } else if (t.startsWith("<") && t.endsWith(">")) {
     return null;
   }
 
@@ -90,13 +92,15 @@ export function userReplyAt(rawLine: string): number | null {
 /**
  * Newest user reply (unix ms) in a transcript tail, or null when there is none.
  * Transcripts are append-only, so the scan walks back from the end and stops
- * at the first reply; the substring check skips parsing non-user lines.
+ * at the first reply; the substring checks skip parsing non-user lines and
+ * tool results (in the raw JSON line, quotes inside message text are escaped,
+ * so `"type":"tool_result"` only matches the structure).
  */
 export function scanTailForLatestUserReply(tailContents: string): number | null {
   const lines = tailContents.split("\n");
   for (let i = lines.length - 1; i >= 0; i--) {
     const line = lines[i];
-    if (!line.includes('"type":"user"')) continue;
+    if (!line.includes('"type":"user"') || line.includes('"type":"tool_result"')) continue;
     const ts = userReplyAt(line);
     if (ts !== null) return ts;
   }

@@ -1745,6 +1745,10 @@ export function createSshPollOrchestrator(
   // `${hostId}::${identity}` → the finished turn a reply already marked seen,
   // so a reply sitting in the tail costs one store write, not one per tick.
   const replyMarkedFinish = new Map<string, number>();
+  // `${hostId}::${identity}` → when marking failed, so a broken store is
+  // retried (and logged) every 30s rather than every tick.
+  const replyMarkFailedAt = new Map<string, number>();
+  const REPLY_MARK_RETRY_MS = 30_000;
 
   // A user reply (typed in Skynet or relayed by an orchestrator) newer than
   // the agent's last finished turn means the user has answered it: mark that
@@ -1758,12 +1762,15 @@ export function createSshPollOrchestrator(
   ): void => {
     const key = `${hostId}::${identityName}`;
     if (replyMarkedFinish.get(key) === lastFinishAt) return;
+    const failedAt = replyMarkFailedAt.get(key);
+    if (failedAt !== undefined && deps.now() - failedAt < REPLY_MARK_RETRY_MS) return;
     const replyAt = scanTailForLatestUserReply(jsonlTail);
     if (replyAt === null || replyAt <= lastFinishAt) return;
     let users: string[];
     try {
       users = readStateStore().markSeenForAllUsers(hostId, identityName, lastFinishAt);
     } catch (err) {
+      replyMarkFailedAt.set(key, deps.now());
       systemLogger.warn("attention mark-seen-on-reply failed", {
         operation: "attention_mark_seen_on_reply_failed",
         fleetHostId: hostId,
@@ -1775,6 +1782,7 @@ export function createSshPollOrchestrator(
       return;
     }
     replyMarkedFinish.set(key, lastFinishAt);
+    replyMarkFailedAt.delete(key);
     systemLogger.info("attention mark-seen-on-reply", {
       operation: "attention_mark_seen_on_reply",
       fleetHostId: hostId,

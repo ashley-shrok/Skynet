@@ -25,6 +25,7 @@ describe("userReplyAt — counts", () => {
     ["typed text", "thumbs up"],
     ["an orchestrator relay (bare inbox paste)", "Yeah, go ahead and ship it"],
     ["a long message wrapped in pasted_content", '<pasted_content id="4e5b">\nHey, I logged into Skynet on a new browser\n</pasted_content id="4e5b">'],
+    ["a short message that starts with a tag", "<div> is the wrong element here, use a span"],
     ["a skill the user ran", "<command-message>light-review</command-message>\n<command-name>/light-review</command-name>"],
   ])("%s", (_label, content) => {
     expect(userReplyAt(userLine(content))).toBe(TS_MS);
@@ -58,6 +59,14 @@ describe("userReplyAt — does not count", () => {
     expect(userReplyAt(userLine([{ type: "text", text: "Base directory for this skill" }], { isMeta: true }))).toBeNull();
   });
 
+  it("a compaction summary (real shape: plain text, not isMeta)", () => {
+    const line = userLine("This session is being continued from a previous conversation that ran out of context.", {
+      isCompactSummary: true,
+      isVisibleInTranscriptOnly: true,
+    });
+    expect(userReplyAt(line)).toBeNull();
+  });
+
   it("a tool result", () => {
     expect(userReplyAt(userLine([{ type: "tool_result", tool_use_id: "t", content: "ok" }]))).toBeNull();
   });
@@ -79,6 +88,15 @@ describe("scanTailForLatestUserReply", () => {
       "",
     ].join("\n");
     expect(scanTailForLatestUserReply(tail)).toBe(Date.parse("2026-10-25T14:30:00.000Z"));
+  });
+
+  it("a compaction (summary then /compact) after a reply does not count as a newer reply", () => {
+    const tail = [
+      userLine("real reply", {}, "2026-10-25T14:00:00.000Z"),
+      userLine("This session is being continued from a previous conversation.", { isCompactSummary: true, isVisibleInTranscriptOnly: true }, "2026-10-25T15:00:00.000Z"),
+      userLine("<command-name>/compact</command-name>\n<command-message>compact</command-message>", {}, "2026-10-25T15:00:01.000Z"),
+    ].join("\n");
+    expect(scanTailForLatestUserReply(tail)).toBe(Date.parse("2026-10-25T14:00:00.000Z"));
   });
 
   it("is null when the tail has no reply (and survives a cut first line)", () => {
