@@ -41,17 +41,20 @@ export interface ConversationSearchResult {
   task: string | null; // identity's task: line — the row title, as in the sidebar
   roles: Array<{ slug: string; displayName: string | null }>; // every listed role
   avatarUrl: string | null; // live: identity avatar route; archived: role avatar route or null
-  passages: ConversationSearchPassage[]; // up to 3, real conversation before boilerplate
-  matchCount: number; // text-matching lines seen in the passage pass
+  passages: ConversationSearchPassage[]; // up to 3 matching bubbles, transcript order
+  matchCount: number; // matching bubbles seen in the passage pass
   matchCountCapped: boolean; // matchCount hit the scan cap — render as "N+"
 }
 
 export interface ConversationSearchPassage {
-  /** user = the human; agent = the identity; skill = injected skill body;
-   *  command = slash-command echo; event = ambient/relay input. */
-  speaker: "user" | "agent" | "skill" | "command" | "event";
-  text: string; // plain text, ±220 chars around the first match
-  boilerplate: boolean; // skill / command — rendered muted
+  /** Whose bubble matched, as the conversation shows it: user = you; agent =
+   *  the identity; relay = a relay message the agent sent or received. */
+  speaker: "user" | "agent" | "relay";
+  text: string; // the bubble's displayed words, ±220 chars around the first match
+  /** relay only: sender mxid of a received message; null for one the agent sent. */
+  relayFrom?: string | null;
+  /** relay only: who the agent addressed (mxid or name), null when unknown. */
+  relayTo?: string | null;
 }
 
 export interface ConversationSearchResponse {

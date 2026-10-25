@@ -175,7 +175,7 @@ describe("ConversationSearchModal: closed vs open", () => {
     const empty = screen.getByTestId("conversation-search-empty-state");
     expect(empty).toHaveTextContent("Search every conversation");
     expect(empty).toHaveTextContent(
-      "What you, your agents and their tools said — archived conversations too. Type, then press Return.",
+      "What you and your agents said in their conversations — archived conversations too. Type, then press Return.",
     );
     expect(screen.getByTestId("conversation-search-input")).toBeInTheDocument();
   });
@@ -289,15 +289,15 @@ describe("ConversationSearchModal: sidebar-parity look + passages", () => {
     expect(row.querySelector("[data-part='role']")).toHaveTextContent("Skynet, Sky Uat");
   });
 
-  it("T-PASS-1: passages render with speaker labels, every occurrence highlighted, boilerplate muted, and a +N more line", async () => {
+  it("T-PASS-1: passages are labelled as the conversation labels them, every occurrence highlighted, with a +N more line", async () => {
     const row = await renderAndSearch(
       makeRow({
         transcriptPath: "/pass.jsonl",
         displayName: "Soprano",
         passages: [
-          { speaker: "user", text: "foo then FOO again", boilerplate: false },
-          { speaker: "agent", text: "agent says foo", boilerplate: false },
-          { speaker: "skill", text: "skill foo text", boilerplate: true },
+          { speaker: "user", text: "foo then FOO again" },
+          { speaker: "agent", text: "agent says foo" },
+          { speaker: "relay", text: "relay foo in", relayFrom: "@stacy:skynet.example", relayTo: null },
         ],
         matchCount: 5,
         matchCountCapped: false,
@@ -307,8 +307,7 @@ describe("ConversationSearchModal: sidebar-parity look + passages", () => {
     expect(passages).toHaveLength(3);
     expect(passages[0].querySelector("[data-part='speaker']")).toHaveTextContent("You");
     expect(passages[1].querySelector("[data-part='speaker']")).toHaveTextContent("Soprano");
-    expect(passages[2].querySelector("[data-part='speaker']")).toHaveTextContent("Skill text");
-    expect(passages[2]).toHaveAttribute("data-boilerplate", "true");
+    expect(passages[2].querySelector("[data-part='speaker']")).toHaveTextContent("Stacy → Soprano");
     expect(passages[0].querySelectorAll("span[data-part='hit']")).toHaveLength(2);
     expect(row.querySelector("[data-part='more']")).toHaveTextContent(
       "+2 more matches in this conversation",
@@ -321,7 +320,7 @@ describe("ConversationSearchModal: sidebar-parity look + passages", () => {
     const row = await renderAndSearch(
       makeRow({
         transcriptPath: "/cap0.jsonl",
-        passages: [{ speaker: "user", text: "İİİİ foo", boilerplate: false }],
+        passages: [{ speaker: "user", text: "İİİİ foo" }],
         matchCount: 1,
         matchCountCapped: true,
       }),
@@ -336,7 +335,7 @@ describe("ConversationSearchModal: sidebar-parity look + passages", () => {
     const row = await renderAndSearch(
       makeRow({
         transcriptPath: "/cap.jsonl",
-        passages: [{ speaker: "user", text: "foo", boilerplate: false }],
+        passages: [{ speaker: "user", text: "foo" }],
         matchCount: 30,
         matchCountCapped: true,
       }),

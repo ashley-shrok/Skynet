@@ -98,7 +98,6 @@ import {
   discoverIdentitySessionFile,
   parseDiscoveryStdout,
 } from "../../claude-session/discover-identity-session-file.js";
-import { extractText } from "../../claude-session/session-file-parser.js";
 import {
   extractCosmeticsFromFrontmatter,
   extractRoleFromMarkdown,
@@ -107,10 +106,12 @@ import {
 } from "../../claude-session/identity-artifact-reader.js";
 import { listArchivedIdentityKeysOnHost } from "../../claude-session/list-archived-identity-keys.js";
 import {
-  snippetForHit,
-  passageForLine,
+  findQuery,
+  passageForJudged,
+  snippetForJudged,
   type SearchPassage,
 } from "../../claude-session/session-search-snippet.js";
+import { createSearchLineJudge } from "../../claude-session/search-line-judge.js";
 import {
   readIdentityFrontmattersBatch,
   readRoleFrontmattersBatch,
@@ -190,15 +191,13 @@ async function concurrentMap<T, U>(
 const MAX_QUERY_LEN = 500;
 
 /**
- * Max grep hits per file. Headroom above 1 so that when the first N grep
- * matches are inside structural JSON (tool_use params, tool_result
- * content, uuids, field names — see the isUserOrAssistantTextMatch filter
- * in runOneHost), we still have a chance to surface a real user/assistant
- * text match further down the file. Post-filter dedup by transcriptPath
- * enforces the shape file's "one row per conversation" rule regardless of
- * this cap.
+ * Candidate lines kept per file in the row pass. The scan drops lines that can
+ * never be a bubble before counting (see buildGrepScript), so what's left is
+ * mostly real conversation; the headroom covers the rest (harness notices,
+ * hidden user-shaped lines) that only the line judge can rule out. Dedup by
+ * transcriptPath keeps one row per conversation regardless of this cap.
  */
-const MAX_HITS_PER_FILE = 5;
+const MAX_HITS_PER_FILE = 10;
 
 /** Passages shown per result row. */
 const MAX_PASSAGES = 3;
@@ -276,9 +275,9 @@ export interface ConversationSearchResult {
   /** Avatar to paint. Live: the identity avatar route (falls back to the
    *  role's). Archived: the role's avatar route, or null (initial letter). */
   avatarUrl: string | null;
-  /** Up to MAX_PASSAGES matching passages, real conversation before
-   *  boilerplate (skill text / slash commands). Empty when the passage pass
-   *  didn't run for this row (outside the host's top offset+limit). */
+  /** Up to MAX_PASSAGES matching bubbles, in transcript order. Empty when
+   *  the passage pass didn't run for this row (outside the host's top
+   *  offset+limit). */
   passages: SearchPassage[];
   /** Text-matching lines seen in the passage pass (capped at
    *  PASSAGE_SCAN_LINES; `matchCountCapped` marks the cap). */
@@ -315,6 +314,26 @@ function shellSingleQuote(s: string): string {
 }
 
 /**
+ * The scan's structural filter, run on every line grep matched and before the
+ * per-file cap counts it. Drops lines that can never become a conversation
+ * bubble, so hidden text (skill bodies, tool calls and output, thinking,
+ * hook context, bookkeeping records) can't use up the cap ahead of a real
+ * match further down the file. Keeps user / assistant / queue-operation lines,
+ * queued-command attachments, and tool calls that are relay sends. Markers are
+ * the transcript's own JSON keys: quotes inside message text are stored
+ * escaped, so `"type":"tool_result"` only ever matches structure. This is a
+ * coarse cut only — the line judge decides what is actually a match.
+ */
+const SCAN_FILTER_AWK =
+  'index($0, "\\"isMeta\\":true") || index($0, "\\"type\\":\\"tool_result\\"") || ' +
+  'index($0, "\\"type\\":\\"thinking\\"") { next } ' +
+  'index($0, "\\"type\\":\\"tool_use\\"") && !(index($0, "mcp__relay__send") || index($0, "m.room.message")) { next } ' +
+  'index($0, "\\"type\\":\\"attachment\\"") && !index($0, "\\"type\\":\\"queued_command\\"") { next } ' +
+  '!(index($0, "\\"type\\":\\"user\\"") || index($0, "\\"type\\":\\"assistant\\"") || ' +
+  'index($0, "\\"type\\":\\"queue-operation\\"") || index($0, "\\"type\\":\\"queued_command\\"")) { next } ' +
+  "{ print; if (++n >= max) exit }";
+
+/**
  * Build the per-host grep shell script.
  *
  * The script reads QUERY from $1, then reads each transcript path as a
@@ -322,20 +341,14 @@ function shellSingleQuote(s: string): string {
  * the shell parser as syntax — they're consumed as $-referenced argument
  * values, so shell metacharacters in either are inert.
  *
- * Emits: `<mtime>\t<path>\t<lineno>\t<raw-line>\n` per hit.
+ * Emits: `<mtime>\t<path>\t<lineno>\t<raw-line>\n` per kept line.
  *
- * Grep flags:
- *   -F  fixed-string (no regex) — honors D-02 case-insensitive PLAIN substring
- *   -i  case-insensitive — honors D-02
- *   -n  emit line number — used to disambiguate re-hits in the same file
- *   --max-count=N  bound hits per file
- *   --  end of options; anything after is a literal pattern/path
+ *   grep -F -i -n  fixed-string, case-insensitive (D-02), with line numbers
+ *   awk            SCAN_FILTER_AWK, then stop after `maxCount` kept lines
  *
  * Wrapped so that a missing file (`stat` fail) or empty grep result never
- * causes non-zero exit to propagate — `|| true` is not needed at the
- * outer boundary because the whole script exits 0 if every iteration
- * completes; internal 2>/dev/null suppresses per-file "no such file"
- * chatter.
+ * causes non-zero exit to propagate; internal 2>/dev/null suppresses
+ * per-file "no such file" chatter.
  */
 function buildGrepScript(maxCount: number = MAX_HITS_PER_FILE): string {
   return (
@@ -343,12 +356,23 @@ function buildGrepScript(maxCount: number = MAX_HITS_PER_FILE): string {
     'for path in "$@"; do ' +
     '  mtime=$(stat -c "%Y" "$path" 2>/dev/null || echo 0); ' +
     '  [ "$mtime" = "0" ] && continue; ' +
-    `  grep -F -i -n --max-count=${maxCount} -- "$QUERY" "$path" 2>/dev/null | ` +
+    '  grep -F -i -n -- "$QUERY" "$path" 2>/dev/null | ' +
+    `  awk -v max=${maxCount} '${SCAN_FILTER_AWK}' | ` +
     '  while IFS=: read -r lineno content; do ' +
     '    printf "%s\\t%s\\t%s\\t%s\\n" "$mtime" "$path" "$lineno" "$content"; ' +
     '  done; ' +
     "done"
   );
+}
+
+/**
+ * The query as it appears inside the transcript's JSON strings. Transcripts
+ * store quote marks, backslashes and control characters escaped, so the raw
+ * scan looks for the escaped form; the line judge then matches the plain
+ * query against the words each bubble displays.
+ */
+export function queryAsStoredInTranscript(query: string): string {
+  return JSON.stringify(query).slice(1, -1);
 }
 
 /**
@@ -374,11 +398,14 @@ function composeGrepCommand(
     "-c",
     shellSingleQuote(script),
     "--",
-    shellSingleQuote(query),
+    shellSingleQuote(queryAsStoredInTranscript(query)),
     ...paths.map(shellSingleQuote),
   ];
   return parts.join(" ");
 }
+
+/** Test seam: the exact remote command, so a test can run it in a real shell. */
+export const __composeGrepCommandForTests = composeGrepCommand;
 
 // ---------------------------------------------------------------------------
 // Grep-output parser
@@ -642,10 +669,9 @@ async function gateHostRows(
 /**
  * Passage pass: for this host's newest `topN` rows (a superset of whatever
  * lands on the requested page), re-grep just those transcripts with a
- * higher per-file cap and build the multi-passage preview. Real
- * conversation first, boilerplate (skill text / commands) after; each group
- * stays in transcript order. Failure leaves rows with empty passages — the
- * frontend falls back to the single snippet.
+ * higher per-file cap and build the multi-passage preview from the bubbles
+ * the line judge accepts, in transcript order. Failure leaves rows with
+ * empty passages — the frontend falls back to the single snippet.
  */
 async function attachPassages(
   conn: Parameters<typeof discoverIdentitySessionFile>[0],
@@ -678,24 +704,27 @@ async function attachPassages(
     });
     return rows;
   }
-  const byPath = new Map<string, { passages: SearchPassage[]; lines: number }>();
+  const byPath = new Map<
+    string,
+    { passages: SearchPassage[]; lines: number; judge: ReturnType<typeof createSearchLineJudge> }
+  >();
   for (const hit of hits) {
-    const entry = byPath.get(hit.path) ?? { passages: [], lines: 0 };
+    let entry = byPath.get(hit.path);
+    if (!entry) {
+      entry = { passages: [], lines: 0, judge: createSearchLineJudge() };
+      byPath.set(hit.path, entry);
+    }
     entry.lines += 1;
-    const p = passageForLine(hit.rawLine, query);
+    const judged = entry.judge.judge(hit.rawLine);
+    const p = judged ? passageForJudged(judged, query) : null;
     if (p) entry.passages.push(p);
-    byPath.set(hit.path, entry);
   }
   return rows.map((row) => {
     const entry = byPath.get(row.transcriptPath);
     if (!entry || entry.passages.length === 0) return row;
-    const ordered = [
-      ...entry.passages.filter((p) => !p.boilerplate),
-      ...entry.passages.filter((p) => p.boilerplate),
-    ];
     return {
       ...row,
-      passages: ordered.slice(0, MAX_PASSAGES),
+      passages: entry.passages.slice(0, MAX_PASSAGES),
       matchCount: entry.passages.length,
       matchCountCapped: entry.lines >= PASSAGE_SCAN_LINES,
     };
@@ -730,41 +759,28 @@ async function runOneHost(
   const stdout = await execCommand(conn as Parameters<typeof execCommand>[0], cmd);
   const hits = parseGrepOutput(stdout);
 
-  const queryLower = query.toLowerCase();
   const rows: ConversationSearchResult[] = [];
   const seenPaths = new Set<string>();
+  const judges = new Map<string, ReturnType<typeof createSearchLineJudge>>();
   for (const hit of hits) {
     const meta = pathIndex.get(hit.path);
     if (!meta) continue; // grep matched a path we didn't feed in — shouldn't happen
     // Dedup by path — one row per conversation regardless of how many
     // hits grep found in the file.
     if (seenPaths.has(hit.path)) continue;
-    // Match-in-user-or-assistant-text filter: drop grep hits where the
-    // query lives in structural JSON (tool_use params, tool_result
-    // content, uuids, field names, etc.) rather than in a message's
-    // user/assistant text content. Rationale: grep is a fast bulk
-    // pre-filter, but only text-content matches represent a semantically
-    // meaningful "the conversation was about X" hit. Structural matches
-    // (tool call metadata, file paths in toolUseResult, etc.) produce
-    // noisy result rows with unhelpful snippets. `extractText` returns
-    // concatenated text-block content OR the raw string content for
-    // string-shaped user/assistant messages; anything else (tool_use,
-    // tool_result, thinking, system) yields empty and is dropped.
-    let parsed: unknown;
-    try {
-      parsed = JSON.parse(hit.rawLine);
-    } catch {
-      continue; // malformed line — safest to drop
+    // The scan is a coarse pre-filter; the line judge decides. A hit counts
+    // only if it is a bubble the conversation shows AND the query is in the
+    // words that bubble displays (shape-search-matches-conversation).
+    let judge = judges.get(hit.path);
+    if (!judge) {
+      judge = createSearchLineJudge();
+      judges.set(hit.path, judge);
     }
-    const content =
-      parsed !== null && typeof parsed === "object"
-        ? (parsed as { message?: { content?: unknown } }).message?.content
-        : undefined;
-    const text = extractText(content);
-    if (!text.toLowerCase().includes(queryLower)) continue;
+    const judged = judge.judge(hit.rawLine);
+    if (judged === null || findQuery(judged.text, query) === null) continue;
 
     seenPaths.add(hit.path);
-    const { snippet, hitStart, hitLength } = snippetForHit(hit.rawLine, query);
+    const { snippet, hitStart, hitLength } = snippetForJudged(judged, query);
     rows.push({
       transcriptPath: hit.path,
       transcriptMtime: hit.mtime * 1000, // shell emits seconds; contract is ms

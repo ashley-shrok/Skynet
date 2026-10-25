@@ -6,7 +6,7 @@
 // earlier question was replaced before it was answered. The app draws an
 // answer message as an answer bubble and hides the notices.
 import { parse as parseYaml, stringify as stringifyYaml } from "yaml";
-import type { Ask, AskOption, AskQuestion } from "./ask-format";
+import type { Ask, AskOption, AskQuestion } from "./ask-format.js";
 
 export type QuestionAnswer =
   | { kind: "other"; text: string }

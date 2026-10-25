@@ -748,11 +748,19 @@ across every conversation.
 The full search window is titled **Search**, with one box ("Search every
 conversation"). **Return** searches — typing alone never does, and once
 something new is typed the window says "Press Return to search." Before
-any search it says what it covers (what you, your agents and their tools
-said — archived conversations too); while searching, that it can take a
-few seconds; with results, a count line ("12 conversations", "20+
+any search it says what it covers (what you and your agents said in their
+conversations — archived conversations too); while searching, that it can
+take a few seconds; with results, a count line ("12 conversations", "20+
 conversations" when there's more to load) over the results, **Load more**
 at the end. No results says "Try fewer or different words."
+
+Search finds only what a conversation itself shows: messages the user sent
+(including ones sent while the agent was busy), the agent's replies, and relay
+messages in and out. Skill text, compaction summaries, wake-up and sensor
+instructions, background-job notices and other machinery are never matched.
+Each result shows up to three matching messages labelled the way the
+conversation labels them — "You", the agent's name, or a relay message's
+"Finch → Bilbo" — with the words as the bubble shows them.
 
 In the full search window, archived conversations (matching the query but
 whose identity has been archived) render as rows with a three-dots menu on

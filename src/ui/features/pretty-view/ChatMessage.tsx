@@ -11,7 +11,7 @@ import { cn } from "@/lib/utils";
 import { useFeedbackEnabled } from "@/feedback/feedback-store";
 import { preprocessCommandTriplets, splitMarkers } from "./commandTags";
 import { parseInjectedUserTurn } from "@/api/pretty-view-upload-protocol";
-import { stripVoiceLabel } from "./voice-label";
+import { userBubbleContent } from "./bubble-text";
 import { AttachmentChipStrip } from "./AttachmentChipStrip";
 import { CopyableBlock } from "./CopyableBlock";
 import { ChatDiffBlock, chatDiffFromPre } from "./ChatDiffBlock";
@@ -154,7 +154,7 @@ export const ChatMessage = React.memo(function ChatMessage({
   const isUser = role === "user";
   // Voice-mode sends carry a trailing label for the agent, and messages sent
   // while a question was open carry [tray] notices for it; never show either.
-  const content = isUser ? stripTrayNotices(stripVoiceLabel(rawContent)) : rawContent;
+  const content = isUser ? userBubbleContent(rawContent) : rawContent;
   // A tray answer renders as an answer bubble (shape-interactive-responses).
   const answer = useMemo(() => (isUser ? parseAnswerMessage(content) : null), [isUser, content]);
   // The one ask block of this message the tray can hold (its last top-level

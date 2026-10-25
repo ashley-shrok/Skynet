@@ -29,7 +29,20 @@
  */
 
 import { createHash } from "node:crypto";
-import { databaseLogger as sessionParserLogger } from "../utils/logger.js";
+import { databaseLogger } from "../utils/logger.js";
+
+// Bulk readers (conversation search) classify thousands of lines per request;
+// they run the parser quietly so its per-line classify logs don't flood the
+// console log. Synchronous, so a counter is safe.
+let parserQuiet = 0;
+const sessionParserLogger = {
+  info: (...args: Parameters<typeof databaseLogger.info>) => {
+    if (parserQuiet === 0) databaseLogger.info(...args);
+  },
+  debug: (...args: Parameters<typeof databaseLogger.debug>) => {
+    if (parserQuiet === 0) databaseLogger.debug(...args);
+  },
+};
 
 // ---------------------------------------------------------------------------
 // Relay outbound detection — three-signal conjunction. The original URL_RE
@@ -1237,6 +1250,16 @@ export function normalizePastedHarnessEnvelopes(obj: Record<string, unknown>): v
 
 function fallbackEventId(): string {
   return String(Date.now()) + "-" + Math.random().toString(36).slice(2, 8);
+}
+
+/** parseSessionLine without its per-line classify logs (bulk readers). */
+export function parseSessionLineQuietly(line: string, sessionId?: string): ParsedLine {
+  parserQuiet += 1;
+  try {
+    return parseSessionLine(line, sessionId);
+  } finally {
+    parserQuiet -= 1;
+  }
 }
 
 export function parseSessionLine(line: string, sessionId?: string): ParsedLine {

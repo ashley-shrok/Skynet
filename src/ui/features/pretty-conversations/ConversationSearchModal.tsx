@@ -382,7 +382,7 @@ export function ConversationSearchModal({
           <KitEmpty
             icon={<Search aria-hidden="true" />}
             title="Search every conversation"
-            body="What you, your agents and their tools said — archived conversations too. Type, then press Return."
+            body="What you and your agents said in their conversations — archived conversations too. Type, then press Return."
             data-testid="conversation-search-empty-state"
           />
         )}

@@ -15,9 +15,9 @@
  *   (task ?? displayName ?? identityKey); trailing = relative time +
  *   archived chip + three-dot menu; subtitle = "Name · Role[, Role]" then
  *   the passages.
- *   Body: up to 3 passages, each labelled with its speaker ("You", the
- *   agent's name, "Skill text", "Command", "Event"); boilerplate passages
- *   (skill / command) paint muted. Every case-insensitive occurrence of the
+ *   Body: up to 3 passages, each labelled as the conversation labels that
+ *   bubble ("You", the agent's name, or a relay message's "Sender → To" as
+ *   its card reads). Every case-insensitive occurrence of the
  *   query is wrapped in a <span data-part="hit"> — React text
  *   children only, never raw HTML (T-122-FE-01). "+N more matches" when the
  *   backend saw more than it sent.
@@ -47,6 +47,13 @@ import { roleDisplayName } from "@/lib/role-display-name";
 import { NEUTRAL_HUE } from "@/lib/identity-roles";
 import { AvatarImage } from "@/components/avatar-image";
 import { cn } from "@/lib/utils";
+import type { Identity } from "@/api/identities-api";
+import { useIdentities } from "@/state/identities-store";
+import { useViewingUserMxid } from "@/state/viewing-user-store";
+import {
+  partyForAddressee,
+  partyForMxid,
+} from "@/features/pretty-view/relay-addressing";
 import { Loader2 } from "lucide-react";
 import { KitChip, KitListRow } from "@/components/kit";
 import {
@@ -126,21 +133,28 @@ function highlightAll(text: string, query: string): Array<string | JSX.Element> 
   return out;
 }
 
-function speakerLabel(
-  speaker: ConversationSearchPassage["speaker"],
+/** The passage's label, worded the way the conversation labels the bubble:
+ *  relay messages name their parties as the relay cards do. */
+export function speakerLabel(
+  passage: ConversationSearchPassage,
   agentName: string,
+  byKey: Map<string, Identity>,
+  viewerMxid: string | null,
 ): string {
-  switch (speaker) {
+  switch (passage.speaker) {
     case "user":
       return "You";
     case "agent":
       return agentName;
-    case "skill":
-      return "Skill text";
-    case "command":
-      return "Command";
-    case "event":
-      return "Event";
+    case "relay": {
+      if (passage.relayFrom) {
+        return `${partyForMxid(passage.relayFrom, byKey).name} → ${agentName}`;
+      }
+      if (!passage.relayTo) return `${agentName} sent a DM`;
+      const to = partyForAddressee(passage.relayTo, byKey, viewerMxid);
+      // A message to you shows as the agent's own bubble.
+      return to.you ? agentName : `${agentName} → ${to.name}`;
+    }
   }
 }
 
@@ -152,6 +166,8 @@ export function ConversationSearchRow({
   unarchiving = false,
   now,
 }: ConversationSearchRowProps): JSX.Element {
+  const { byKey } = useIdentities();
+  const viewerMxid = useViewingUserMxid();
   const name = result.displayName ?? result.identityKey;
   const title = result.aiTitle ?? result.task ?? name;
   const roles = result.roles ?? [];
@@ -177,18 +193,14 @@ export function ConversationSearchRow({
           <span
             key={i}
             data-part="passage"
-            data-boilerplate={p.boilerplate ? "true" : undefined}
             data-speaker={p.speaker}
-            className={cn(
-              "flex flex-col gap-0.5 pl-2 border-l-2 border-[var(--k-hair2)]",
-              p.boilerplate && "opacity-55 border-dashed",
-            )}
+            className="flex flex-col gap-0.5 pl-2 border-l-2 border-[var(--k-hair2)]"
           >
             <span
               data-part="speaker"
               className="text-[11.5px] font-semibold text-[var(--k-t3)]"
             >
-              {speakerLabel(p.speaker, name)}
+              {speakerLabel(p, name, byKey, viewerMxid)}
             </span>
             <span className={SNIPPET_CLASS}>{highlightAll(p.text, query)}</span>
           </span>

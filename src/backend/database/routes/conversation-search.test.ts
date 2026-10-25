@@ -1315,7 +1315,7 @@ describe("Phase 129: search-surface visibility gate", () => {
     });
   });
 
-  it("Test I: rows carry passages from the passage pass — speaker-labelled, real conversation before skill text, with a match count", async () => {
+  it("Test I: rows carry passages from the passage pass — only bubbles the conversation shows, speaker-labelled, with a match count", async () => {
     mockSearchWithIdentityUsers("muffin");
     mockSearchHits([{ identityKey: "muffin", mtime: 200, content: "cheese platter" }]);
     const skillLine = JSON.stringify({
@@ -1333,7 +1333,7 @@ describe("Phase 129: search-surface visibility gate", () => {
     });
     const baseImpl = execCommandMock.getMockImplementation()!;
     execCommandMock.mockImplementation(async (conn: unknown, cmd: string) => {
-      if (cmd.includes("--max-count=30")) {
+      if (cmd.includes("max=30")) {
         return fakeGrepOutput(
           [skillLine, jsonlLine("cheese platter"), toolLine, agentLine].map((rawLine, i) => ({
             mtime: 200,
@@ -1352,12 +1352,64 @@ describe("Phase 129: search-surface visibility gate", () => {
     expect(res.status).toBe(200);
     const row = (res.body as { results: Array<Record<string, unknown>> }).results[0];
     expect(row.passages).toEqual([
-      { speaker: "user", text: "cheese platter", boilerplate: false },
-      { speaker: "agent", text: "I like cheese too", boilerplate: false },
-      { speaker: "skill", text: "Skill body mentions cheese", boilerplate: true },
+      { speaker: "user", text: "cheese platter" },
+      { speaker: "agent", text: "I like cheese too" },
     ]);
-    expect(row.matchCount).toBe(3); // tool_result line is not a passage
+    expect(row.matchCount).toBe(2); // skill text and tool output are hidden — not matches
     expect(row.matchCountCapped).toBe(false);
+  });
+
+  it("Test I2: a conversation whose only matches are hidden text has no row; a real match behind hidden ones still does", async () => {
+    mockSearchWithIdentityUsers("muffin");
+    mockSearchHits([
+      { identityKey: "muffin", mtime: 200, content: "x" },
+      { identityKey: "scone", mtime: 100, content: "x" },
+    ]);
+    const hidden = (text: string) =>
+      JSON.stringify({
+        type: "user",
+        isMeta: true,
+        message: { role: "user", content: [{ type: "text", text }] },
+      });
+    const summary = "Background job finished: cheese";
+    const baseImpl = execCommandMock.getMockImplementation()!;
+    execCommandMock.mockImplementation(async (conn: unknown, cmd: string) => {
+      if (cmd.includes("grep -F") && !cmd.includes("max=30")) {
+        return fakeGrepOutput([
+          { mtime: 200, path: "/x/muffin.jsonl", lineno: 1, rawLine: hidden("Skill body mentions cheese") },
+          { mtime: 200, path: "/x/muffin.jsonl", lineno: 2, rawLine: jsonlLine(`<task-notification>${summary}</task-notification>`) },
+          { mtime: 100, path: "/x/scone.jsonl", lineno: 1, rawLine: hidden("Skill body mentions cheese") },
+          { mtime: 100, path: "/x/scone.jsonl", lineno: 9, rawLine: jsonlLine("cheese and crackers") },
+        ]);
+      }
+      return baseImpl(conn, cmd);
+    });
+    readIdentityBatchMock.mockImplementation(
+      async () => new Map([["muffin", "---\n---\n"], ["scone", "---\n---\n"]]),
+    );
+    mockUserId = "uid-user";
+    getUsernameForUserIdMock.mockResolvedValue("user");
+
+    const res = await httpPostJson(server, "/conversation-search", { query: "cheese" });
+    const rows = (res.body as { results: Array<Record<string, unknown>> }).results;
+    expect(rows.map((r) => r.identityKey)).toEqual(["scone"]);
+    expect(rows[0].snippet).toBe("cheese and crackers");
+  });
+
+  it("Test I3: the scan looks for the query as transcripts store it (quote marks escaped)", async () => {
+    mockSearchWithIdentityUsers("muffin");
+    mockSearchHits([{ identityKey: "muffin", mtime: 200, content: 'say "cheese" now' }]);
+    mockUserId = "uid-user";
+    getUsernameForUserIdMock.mockResolvedValue("user");
+
+    const res = await httpPostJson(server, "/conversation-search", { query: '"cheese"' });
+    const grepCmd = execCommandMock.mock.calls
+      .map((c) => c[1] as string)
+      .find((c) => c.includes("grep -F"))!;
+    expect(grepCmd).toContain(`'\\"cheese\\"'`);
+    const rows = (res.body as { results: Array<Record<string, unknown>> }).results;
+    expect(rows).toHaveLength(1);
+    expect(rows[0].snippet).toBe('say "cheese" now');
   });
 
   it("Test J: a key with BOTH a live and an archive folder is live — not archived, gated on the LIVE file", async () => {
