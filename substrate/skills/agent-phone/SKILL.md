@@ -20,7 +20,7 @@ If you're about to run this and the message would be fine as a Matrix DM, use th
 agent-phone --to <username> --from "<caller name>" "<message>"
 ```
 
-**Always run it in the background** (Bash with `run_in_background: true`). A call can take up to about 13 minutes, longer than a foreground command is allowed to run, and running it in the background keeps you free while the phone rings. You are notified when it exits; read its output then. Until then, don't reset or recycle your session — that kills the call's helper and the reply is lost.
+**Always run it in the background** (Bash with `run_in_background: true`). A call can take up to about 13 minutes, longer than a foreground command is allowed to run, and running it in the background keeps you free while the phone rings. You are notified when it exits; read its output then. Until then, don't exit or restart your session — that kills the call's helper and the reply is lost.
 
 Three arguments, all required:
 
