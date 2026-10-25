@@ -1533,6 +1533,17 @@ crown, then gear.
   fires, it arrives as a real `/id reset` — save + recycle sentinel +
   stop, same as always.
 
+- **Work indicator (in the conversation, below the last message).** A
+  spinning cube while the agent is working. Beside it, a short line says
+  where the agent is in the job — what's behind it, what it's doing now,
+  what's next — written every minute or so by a small model that reads the
+  agent's recent steps, and only while someone has the conversation open.
+  It shows nothing until the turn's first line is written, uses a shorter
+  version when space is tight, and starts blank again each turn.
+  *Agent-side: none.* You don't write the line and nothing is added to your
+  context; if the user says it described you wrongly, that's the narrator,
+  not something you said.
+
 - **Permission bubble (in the conversation, below the last message).**
   When Claude Code stops to ask the user's OK for a tool call (a safety
   check the fleet's auto-allow can't skip, e.g. a risky `rm`), the

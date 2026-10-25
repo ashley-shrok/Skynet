@@ -32,33 +32,114 @@
 // Deliberately NOT a bubble, so at-a-glance parsing distinguishes "session is
 // busy" from "assistant said something." role="status" + aria-label carry
 // semantics for AT.
+//
+// Work narration (2026-10-25): an optional one-line "where the agent is in
+// the job" from the backend, in a short and a long version. Once the turn's
+// first line arrives it takes the place of "Working" (beside the custom image
+// on installations that have one); the long version shows when it fits on one
+// line, else the short one. Never wraps. A new line fades in over the old one.
 
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useBrandingConfig } from "@/branding/branding-store";
 
-export function WipBubble() {
+const FADE_MS = 200;
+
+type Narration = { short: string; long: string };
+
+function NarrationLine({ line, className }: { line: Narration; className: string }) {
+  // The line on screen. A new line fades out the old one first.
+  const [shown, setShown] = useState(line);
+  const [opaque, setOpaque] = useState(true);
+  useEffect(() => {
+    if (line.short === shown.short && line.long === shown.long) {
+      // Back to the line already on screen mid-fade: make sure it's visible.
+      setOpaque(true);
+      return;
+    }
+    setOpaque(false);
+    const t = setTimeout(() => {
+      setShown(line);
+      setOpaque(true);
+    }, FADE_MS);
+    return () => clearTimeout(t);
+  }, [line, shown]);
+
+  // Long version when it fits on one line in the space available, else short.
+  const slotRef = useRef<HTMLSpanElement>(null);
+  const measureRef = useRef<HTMLSpanElement>(null);
+  const [longFits, setLongFits] = useState(true);
+  useLayoutEffect(() => {
+    const slot = slotRef.current;
+    const measure = measureRef.current;
+    if (!slot || !measure) return;
+    const check = () => setLongFits(measure.offsetWidth <= slot.clientWidth);
+    check();
+    if (typeof ResizeObserver === "undefined") return;
+    const ro = new ResizeObserver(check);
+    ro.observe(slot);
+    return () => ro.disconnect();
+  }, [shown.long]);
+
+  return (
+    <span ref={slotRef} className="relative block min-w-0 flex-1">
+      <span
+        ref={measureRef}
+        aria-hidden="true"
+        className={`pointer-events-none invisible absolute left-0 top-0 whitespace-nowrap ${className}`}
+      >
+        {shown.long}
+      </span>
+      <span
+        data-testid="wip-narration"
+        className={`block overflow-hidden text-ellipsis whitespace-nowrap transition-opacity ${className}`}
+        style={{ opacity: opaque ? 1 : 0, transitionDuration: `${FADE_MS}ms` }}
+      >
+        {longFits ? shown.long : shown.short}
+      </span>
+    </span>
+  );
+}
+
+export function WipBubble({ narration = null }: { narration?: Narration | null }) {
   const { wipIndicatorPath, wipIndicatorCustom } = useBrandingConfig();
   if (wipIndicatorCustom) {
     return (
-      <div className="flex justify-start mt-3">
+      <div className="flex justify-start items-center mt-3">
         <img
           src={wipIndicatorPath}
           alt=""
           role="status"
           aria-label="Claude is working"
-          className="h-[52px] w-[52px]"
+          className="h-[52px] w-[52px] flex-none"
         />
+        {narration && (
+          <span className="ml-2.5 flex min-w-0 flex-1">
+            <NarrationLine line={narration} className="text-sm text-muted-foreground" />
+          </span>
+        )}
       </div>
     );
   }
   return (
     <div className="flex justify-start">
-      <div className="pv-wip" role="status" aria-label="Claude is working" data-testid="pv-wip">
+      <div
+        className="pv-wip"
+        role="status"
+        aria-label="Claude is working"
+        data-testid="pv-wip"
+        // With a line, the indicator spans the row so the line can use the room.
+        style={narration ? { display: "flex", flex: "1 1 auto", minWidth: 0 } : undefined}
+      >
         <span className="pv-wip-orb" aria-hidden="true">
           <i />
         </span>
-        <span className="pv-wip-word" aria-hidden="true">
-          Working
-        </span>
+        {narration ? (
+          <NarrationLine line={narration} className="pv-wip-word" />
+        ) : (
+          <span className="pv-wip-word" aria-hidden="true">
+            Working
+          </span>
+        )}
       </div>
     </div>
   );

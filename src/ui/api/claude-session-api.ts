@@ -303,6 +303,15 @@ export type HarnessTasksEvent = {
   tasks: HarnessTask[]; // raw list — client filters completed for display
 };
 
+// WorkNarrationEvent — server -> client. The latest "where the agent is in
+// the job" line for the work indicator, in a short (phone) and long (desktop)
+// version. Both null = clear (a new turn started).
+export type WorkNarrationEvent = {
+  type: "work_narration";
+  short: string | null;
+  long: string | null;
+};
+
 export type BackgroundedAgent = {
   toolUseId: string;
   subagentType: string; // input.subagent_type; may be ""
@@ -603,6 +612,7 @@ export type ClaudeSessionServerEvent =
   | InactiveEvent
   | ContextPctEvent
   | HarnessTasksEvent
+  | WorkNarrationEvent
   | BackgroundedAgentsEvent
   | BackgroundedShellsEvent
   | SessionHoldingEvent
@@ -674,6 +684,13 @@ export type ConnectToPanePayload = {
 // state (set during connectToPane). Ref: ASIDE-01.
 export type AsideArmPayload = {
   type: "aside_arm";
+};
+
+// NarrationWatchPayload — client -> server. Whether this view is showing the
+// work indicator right now; narration calls only run while some view is.
+export type NarrationWatchPayload = {
+  type: "narration_watch";
+  active: boolean;
 };
 
 // AsideDismissedPayload — client -> server. Sent when user clicks the X

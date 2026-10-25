@@ -334,9 +334,13 @@ describe("Phase 137 Plan 05 — handleWidgetSubmit dispatcher (Behaviors 5-8)", 
       onSubmit("poll-abc", "red");
     });
 
-    // sendInput should have been called once with the synthesized envelope.
-    expect(ws.send).toHaveBeenCalledTimes(1);
-    const sentPayload = JSON.parse(ws.send.mock.calls[0][0] as string) as {
+    // sendInput should have been called once with the synthesized envelope
+    // (ignoring the work-narration watch frame the optimistic WIP triggers).
+    const sends = ws.send.mock.calls.filter(
+      (c) => (JSON.parse(c[0] as string) as { type: string }).type !== "narration_watch",
+    );
+    expect(sends).toHaveLength(1);
+    const sentPayload = JSON.parse(sends[0][0] as string) as {
       type: string;
       data: string;
       messageQueueItemId?: string;

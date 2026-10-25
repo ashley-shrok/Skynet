@@ -70,6 +70,7 @@ import { parseSweepJsonl } from "./pv-sweep-schema.js";
 import { setContextPct } from "../fleet-status/contextpct-store.js";
 import { getSubscriptionRegistry } from "../fleet-status/subscription-registry.js";
 import { execCommand } from "../ssh/tmux-helper.js";
+import { workNarrationHub } from "./work-narration.js";
 import {
   handleUploadStart,
   handleUploadChunk,
@@ -4727,6 +4728,8 @@ wss.on("connection", async (ws: WebSocket, req) => {
       st.armed = false;
       st.displayed = false;
     }
+    // Work narration: this WS no longer watches the prior pane's agent.
+    workNarrationHub.detach(ws);
     // Phase 14 Wave 2: on pane rebind, remove this WS from any prior
     // pane's fan-out registry so a subsequent broadcast doesn't spuriously
     // dismiss on the new pane. The current-pane registration happens
@@ -5261,6 +5264,10 @@ wss.on("connection", async (ws: WebSocket, req) => {
   const onLineTracked = (line: string): void => {
     observeCancelTracker(line);
     onLine(line);
+    // Work narration: the shared narrator for this agent reads the same lines.
+    if (!stopped && ws.readyState === WebSocket.OPEN && sshConn && currentHostId != null && currentTmuxSession != null) {
+      workNarrationHub.observeLine(ws, { key: sessionKey(currentHostId, currentTmuxSession), hostId: currentHostId, conn: sshConn }, line);
+    }
   };
 
   // Tail's onError handler — byte-for-byte preserved from the pre-refactor
@@ -5863,6 +5870,7 @@ wss.on("connection", async (ws: WebSocket, req) => {
     // (e.g. a bug in a future patch). Cheap: activeViewers is small.
     asideState.delete(ws);
     cancelTrackerByWs.delete(ws);
+    workNarrationHub.forget(ws);
     for (const [key, peers] of activeViewers) {
       if (peers.delete(ws) && peers.size === 0) {
         activeViewers.delete(key);
@@ -6425,6 +6433,12 @@ wss.on("connection", async (ws: WebSocket, req) => {
     // `displayed` set, the incoming aside_arm is a no-op — no re-inject
     // of /btw while an aside is armed OR displayed. Bounds the tmux
     // send-keys rate to ONE /btw per aside-cycle-completion per WS.
+    // Work narration: the tab reports whether it is showing the work
+    // indicator. Narration calls only run while some tab says yes.
+    if (msg.type === "narration_watch") {
+      workNarrationHub.setWatching(ws, (msg as { active?: unknown }).active === true);
+      return;
+    }
     if (msg.type === "aside_arm") {
       const state = asideState.get(ws);
       if (!state) return; // defensive — asideState.set(ws) fires at connect init

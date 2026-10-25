@@ -1033,6 +1033,10 @@ export function PrettyView({
   // The panel above the compose box mounts only when the FILTERED list
   // (pending + in_progress) is non-empty.
   const [harnessTasks, setHarnessTasks] = useState<HarnessTask[]>([]);
+  // Work narration: the latest "where the agent is in the job" line for the
+  // work indicator (short for narrow panes, long when it fits). Null = none
+  // yet this turn.
+  const [workNarration, setWorkNarration] = useState<{ short: string; long: string } | null>(null);
   // Currently-running background Agent invocations, derived by the backend
   // from parent-JSONL tool_use/tool_result correlation (patch #61). The
   // backend only sends this list when it CHANGES; unchanged ticks are
@@ -3011,6 +3015,7 @@ export function PrettyView({
       // re-subscribe repopulates the store for this key; a `gone` frame
       // clears the store entry naturally via AppShell's onGone dispatch.
       setHarnessTasks([]);
+      setWorkNarration(null);
       setBackgroundedAgents([]);
       setBackgroundedShells([]);
       // Phase 30 (PS30-04): reset paneState on cold-mount (fresh pane needs
@@ -3282,6 +3287,7 @@ export function PrettyView({
             resetInterruptViewState();
             resetLoadOlderState();
             setHarnessTasks([]);
+            setWorkNarration(null);
             // Phase 90 Plan 00 Wave 0 (D-10 delivery mechanism) — contextPct
             // now lives on fleet-status; no local reset needed. Next
             // fleet-status frame reconciles.
@@ -3704,6 +3710,10 @@ export function PrettyView({
           setHarnessTasks(parsed.tasks);
           break;
         }
+        case "work_narration": {
+          setWorkNarration(parsed.short && parsed.long ? { short: parsed.short, long: parsed.long } : null);
+          break;
+        }
         case "backgrounded_agents": {
           // Phase 34 Plan 06: hasBgWork feeder RETIRED from this case.
           // The fleet-status channel is now the sole source for the composite
@@ -3884,6 +3894,7 @@ export function PrettyView({
           resetInterruptViewState();
           resetLoadOlderState({ sameSocket: true });
           setHarnessTasks([]);
+          setWorkNarration(null);
           // Phase 90 Plan 00 Wave 0 (D-10 delivery mechanism) — contextPct
           // now lives on fleet-status; no local reset needed. Next
           // fleet-status frame reconciles.
@@ -4604,6 +4615,28 @@ export function PrettyView({
   const agentWorking =
     mainTurnWorking ||
     (status === "streaming" && !dormant && waitingFor === null && backgroundedAgents.length > 0);
+  // Work narration: tell the backend whether this view is showing the work
+  // indicator (narration only runs while some view is), and drop the line
+  // when the indicator goes away so the next turn starts blank.
+  // The backend starts each connection at "not watching", so only changes
+  // from that are sent.
+  const narrationWatch = agentWorking && isVisible;
+  const narrationWatchSentRef = useRef<{ ws: WebSocket; active: boolean } | null>(null);
+  useEffect(() => {
+    if (!uploadWs || uploadWs.readyState !== WebSocket.OPEN) return;
+    const last = narrationWatchSentRef.current;
+    const lastActive = last !== null && last.ws === uploadWs ? last.active : false;
+    if (narrationWatch === lastActive) return;
+    try {
+      uploadWs.send(JSON.stringify({ type: "narration_watch", active: narrationWatch }));
+      narrationWatchSentRef.current = { ws: uploadWs, active: narrationWatch };
+    } catch {
+      /* ws may be mid-close */
+    }
+  }, [uploadWs, narrationWatch]);
+  useEffect(() => {
+    if (!agentWorking) setWorkNarration(null);
+  }, [agentWorking]);
 
   return (
     <div
@@ -5166,7 +5199,7 @@ export function PrettyView({
               agents keep running after the turn ends or is interrupted. Not while dormant (no
               live process, so nothing is running) or while waiting on the
               user (WaitingBubble owns that state). */}
-          {agentWorking && <WipBubble />}
+          {agentWorking && <WipBubble narration={workNarration} />}
           {/* Phase 34 Plan 06: WaitingBubble — harness permission/dialog waiting state.
               Mounts when the fleet-status channel reports status='waiting' for this
               session's (hostId, tmuxSession) key. Sibling of WipBubble in the
