@@ -188,7 +188,7 @@ function Toolbar({
   return (
     <KitToolbar className="mx-2.5 mt-1 mb-1.5 shrink-0 flex-nowrap" aria-label="Git">
       {onBack && (
-        <KitIconButton label="Back" size="sm" onClick={onBack}>
+        <KitIconButton label="Back" size="sm" onClick={onBack} data-modal-back="">
           <ChevronLeft />
         </KitIconButton>
       )}

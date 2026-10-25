@@ -1626,6 +1626,7 @@ export default function SkillsEditorModal({
               void backToLibrary();
             }}
             data-testid="skills-editor-modal-back"
+            data-modal-back=""
           >
             <ChevronLeft /> Skills
           </KitButton>

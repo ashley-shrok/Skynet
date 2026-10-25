@@ -617,6 +617,7 @@ export function ScheduledAgentsModal({
           className="max-w-[180px] max-sm:max-w-[44px]"
           aria-label="Back to Scheduled Tasks"
           data-testid="scheduled-agents-modal-back"
+          data-modal-back=""
         >
           <ChevronLeft /> <span className="truncate max-sm:hidden">Scheduled Tasks</span>
         </KitButton>

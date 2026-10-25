@@ -4,6 +4,7 @@ import { ChevronLeft, ChevronRight, XIcon } from "lucide-react";
 
 import { cn } from "@/lib/utils";
 import { KitScopeContext } from "@/components/kit/scope";
+import { useModalSwipeBack } from "@/components/use-modal-swipe-back";
 import "@/components/kit/kit.css";
 
 // Canonical modal container — the shell every app modal composes from, in
@@ -43,6 +44,11 @@ import "@/components/kit/kit.css";
 // lg) are sheets that slide up from the bottom, only as tall as their
 // content, with a grab bar. A swipe down on the sheet's top closes it unless
 // something has been typed in it, in which case it springs back.
+//
+// A full-screen window on a phone goes back one level with a swipe right —
+// its [data-modal-back] control, or a close on its first level
+// (use-modal-swipe-back.ts). Mark a window's "‹ back" control with
+// `data-modal-back` so the swipe finds it.
 
 // ─── Size scale ──────────────────────────────────────────────────────────
 
@@ -176,6 +182,19 @@ function Modal({
     if (open) dirty.current = false;
   }, [open]);
 
+  // Full-screen (not sheet) windows on a phone: swipe right = back / close.
+  const [contentEl, setContentEl] = React.useState<HTMLDivElement | null>(null);
+  const setContentRef = React.useCallback((el: HTMLDivElement | null) => {
+    contentRef.current = el;
+    setContentEl(el);
+  }, []);
+  const swipeClose = React.useCallback(() => onOpenChange?.(false), [onOpenChange]);
+  useModalSwipeBack({
+    enabled: fullscreen && !sheet && open !== false,
+    element: contentEl,
+    onClose: dismissible ? swipeClose : undefined,
+  });
+
   const setOffset = (px: number, animate: boolean) => {
     const el = contentRef.current;
     if (!el) return;
@@ -252,7 +271,7 @@ function Modal({
         />
         <KitScopeContext.Provider value={scope}>
           <DialogPrimitive.Content
-            ref={contentRef}
+            ref={setContentRef}
             data-slot="modal-content"
             data-testid={dataTestId}
             data-sheet={sheet ? "true" : undefined}
@@ -627,6 +646,7 @@ function ModalDrillBack({
         type="button"
         onClick={onBack}
         data-testid={testId}
+        data-modal-back=""
         className="shrink-0 flex items-center gap-0.5 pr-1.5 py-1 text-[15px] cursor-pointer text-[var(--k-acc-text)] rounded-lg focus-visible:outline-2 focus-visible:outline-[var(--k-acc)]"
       >
         <ChevronLeft size={18} aria-hidden="true" />

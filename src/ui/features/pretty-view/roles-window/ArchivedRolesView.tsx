@@ -79,7 +79,7 @@ export function ArchivedRolesView({
         subtitle={<span className="max-sm:hidden">Retired roles. Un-archive one to bring it back to {hostName}.</span>}
         closeTestId="roles-window-close"
         leading={
-          <KitButton variant="plain" size="sm" onClick={onBack} data-testid="roles-window-back">
+          <KitButton variant="plain" size="sm" onClick={onBack} data-testid="roles-window-back" data-modal-back="">
             <ChevronLeft /> Roles
           </KitButton>
         }

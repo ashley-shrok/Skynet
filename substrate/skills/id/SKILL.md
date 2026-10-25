@@ -1283,6 +1283,17 @@ crown, then gear.
   included — preferences, search, files) still fill the phone
   screen. While the on-screen keyboard is up, a sheet sits on top of it.
 
+- **Swipe right in a full-screen window (phone).** In any window that
+  fills a phone's screen, swiping right goes back one level — the same as
+  its ‹ back control (an agent's wake-up back to its tabs, a role skill
+  back to its role, a Git commit back to its repo, a Preferences section
+  back to the list) — and on a window's first level closes it, the same
+  as ✕. The window follows the finger; letting go short springs it back.
+  Unsaved-changes questions ask first, as with the button. It doesn't
+  start on text fields, selected text, sideways-scrolled content, or
+  things that take their own drags (an agent's desktop, a drawing, a
+  zoomable picture). Sheets don't take it — they close with a swipe down.
+
 - **Confirms are Skynet's own dialogs.** Every "are you sure?", "type a
   name" and "something went wrong" moment — archive, delete, discard
   changes, rename, reset context, log out — is an in-app dialog in the

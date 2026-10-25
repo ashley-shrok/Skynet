@@ -127,6 +127,8 @@ export default function DesktopTab({
 
       <div
         className="min-h-0 relative"
+        // The desktop takes its own touches (the window's swipe-back stays off it).
+        data-no-swipe-to-list=""
         style={{
           background: "var(--k-bg, #111)",
           // The identity modal's height follows this body while the tab is

@@ -847,7 +847,7 @@ export function RoleView({
         title={<span className="sr-only">{label}</span>}
         closeTestId="roles-window-close"
         leading={
-          <KitButton variant="plain" size="sm" onClick={onBack} data-testid="roles-window-back">
+          <KitButton variant="plain" size="sm" onClick={onBack} data-testid="roles-window-back" data-modal-back="">
             <ChevronLeft /> Roles
           </KitButton>
         }

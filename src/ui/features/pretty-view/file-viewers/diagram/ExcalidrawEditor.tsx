@@ -91,7 +91,7 @@ export default function ExcalidrawEditor({ filename, src, onBinaryDraft }: FileM
   if (!scene) return <div className="p-6 text-center text-sm text-[#a89a80]">Opening drawing…</div>;
 
   return (
-    <div className="h-full min-h-[420px]" data-testid="excalidraw-editor">
+    <div className="h-full min-h-[420px]" data-testid="excalidraw-editor" data-no-swipe-to-list="">
       <Excalidraw
         initialData={{ elements: scene.elements, appState: { ...scene.appState, theme: "dark" }, files: scene.files, scrollToContent: true }}
         excalidrawAPI={(api) => {

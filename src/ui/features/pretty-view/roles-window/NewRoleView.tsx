@@ -275,7 +275,7 @@ export function NewRoleView({
         subtitle={<span className="max-sm:hidden">A role is expertise your agents adopt.</span>}
         closeTestId="roles-window-close"
         leading={
-          <KitButton variant="plain" size="sm" onClick={onBack} data-testid="roles-window-back">
+          <KitButton variant="plain" size="sm" onClick={onBack} data-testid="roles-window-back" data-modal-back="">
             <ChevronLeft /> {backLabel}
           </KitButton>
         }

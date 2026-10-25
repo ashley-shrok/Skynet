@@ -23,10 +23,14 @@ const Toaster = ({ ...props }: ToasterProps) => {
             "group toast group-[.toaster]:rounded-[var(--radius-pv-card)]! group-[.toaster]:shadow-[0_8px_24px_rgba(0,0,0,0.5),inset_0_1px_0_rgba(220,225,245,0.06)]",
           description:
             "group-[.toast]:text-[color:var(--color-pv-fg-muted)]",
+          // Sonner's own (unlayered) button styles beat Tailwind's layered
+          // utilities, and they colour the label with --normal-bg — a
+          // gradient here, so the label fell back to off-white on an
+          // off-white button. `!` makes ours win.
           actionButton:
-            "group-[.toast]:bg-[hsla(var(--pv-hue,35),55%,45%,0.9)] group-[.toast]:text-[#fbf5e8] group-[.toast]:font-semibold",
+            "bg-[hsla(var(--pv-hue,35),55%,45%,0.9)]! text-[#fbf5e8]! font-semibold!",
           cancelButton:
-            "group-[.toast]:bg-[color:var(--color-pv-surface-quiet)] group-[.toast]:text-[color:var(--color-pv-fg-muted)]",
+            "bg-[color:var(--color-pv-surface-quiet)]! text-[color:var(--color-pv-fg-muted)]!",
         },
       }}
       style={

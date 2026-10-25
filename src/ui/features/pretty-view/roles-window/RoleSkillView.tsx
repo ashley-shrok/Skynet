@@ -540,7 +540,7 @@ export function RoleSkillView({
         subtitle={headDescription ? <span className="line-clamp-2">{headDescription}</span> : "Role skill"}
         closeTestId="roles-window-close"
         leading={
-          <KitButton variant="plain" size="sm" onClick={onBack} className="max-w-[40vw]" data-testid="roles-window-back">
+          <KitButton variant="plain" size="sm" onClick={onBack} className="max-w-[40vw]" data-testid="roles-window-back" data-modal-back="">
             <ChevronLeft /> <span className="truncate">{roleDisplayName(roleName, role.displayName)}</span>
           </KitButton>
         }

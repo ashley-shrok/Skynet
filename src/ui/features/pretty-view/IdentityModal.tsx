@@ -992,6 +992,7 @@ export function IdentityModal({
             onClick={() => void back()}
             className="max-w-[180px] max-sm:max-w-[120px]"
             data-testid="identity-modal-back"
+            data-modal-back=""
           >
             <ChevronLeft /> <span className="truncate">{backLabel}</span>
           </KitButton>

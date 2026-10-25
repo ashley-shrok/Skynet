@@ -101,6 +101,7 @@ export function PreferencesAboutPane(): JSX.Element {
             onClick={() => setSub(null)}
             className="inline-flex items-center gap-0.5 -ml-1 py-1.5 pr-1.5 text-[14px] font-[550] text-[var(--k-acc-text)] cursor-pointer"
             data-testid="preferences-about-back"
+            data-modal-back=""
           >
             <ChevronLeft size={18} aria-hidden="true" />
             About

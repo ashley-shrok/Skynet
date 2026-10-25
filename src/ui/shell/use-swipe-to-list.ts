@@ -29,10 +29,10 @@ export const SWIPE_COMMIT_FRACTION = 0.35;
 export const SWIPE_FLICK_PX_PER_MS = 0.5;
 export const SWIPE_FLICK_MIN_PX = 40;
 export const SWIPE_SLIDE_MS = PEEK_SLIDE_MS;
-const SLIDE_EASING = "cubic-bezier(0.2, 0.8, 0.2, 1)";
+export const SWIPE_SLIDE_EASING = "cubic-bezier(0.2, 0.8, 0.2, 1)";
 const COMMIT_STUCK_MS = 1500;
 // A finger held still this long before lifting isn't a flick.
-const FLICK_MAX_HOLD_MS = 100;
+export const SWIPE_FLICK_MAX_HOLD_MS = 100;
 
 export interface UseSwipeToListOptions {
   /** Touchscreen, conversation screen showing, nothing modal on top. */
@@ -46,6 +46,16 @@ function blockedStart(target: EventTarget | null): string | null {
   if (document.querySelector('[role="dialog"][data-state="open"], [role="menu"][data-state="open"]')) {
     return "dialog-open";
   }
+  return swipeBlockedAt(target);
+}
+
+/**
+ * Why a sideways swipe must not start on `target` (null = it may): a text
+ * field, a text selection, an opted-out element, a control with its own drag
+ * (`touch-action: none`), or content that can still scroll left. Shared with
+ * the windows' swipe-back (components/use-modal-swipe-back.ts).
+ */
+export function swipeBlockedAt(target: EventTarget | null): string | null {
   const sel = window.getSelection();
   if (sel !== null && !sel.isCollapsed) return "text-selection";
   let el = target instanceof Element ? target : null;
@@ -62,6 +72,15 @@ function blockedStart(target: EventTarget | null): string | null {
     }
   }
   return null;
+}
+
+/** Whether a released swipe goes through: far enough, or a flick. A flick
+ *  back to the left cancels, however far out it is. */
+export function swipeCommits(dx: number, width: number, velocity: number): boolean {
+  return (
+    velocity > -SWIPE_FLICK_PX_PER_MS &&
+    (dx >= width * SWIPE_COMMIT_FRACTION || (velocity >= SWIPE_FLICK_PX_PER_MS && dx >= SWIPE_FLICK_MIN_PX))
+  );
 }
 
 export function useSwipeToList({ enabled, layerRef, onCommit }: UseSwipeToListOptions): void {
@@ -90,7 +109,7 @@ export function useSwipeToList({ enabled, layerRef, onCommit }: UseSwipeToListOp
       layer.style.visibility = "visible";
       layer.style.contentVisibility = "visible";
       layer.style.boxShadow = "8px 0 32px rgba(0,0,0,0.55)";
-      layer.style.transition = transitionMs > 0 ? `transform ${transitionMs}ms ${SLIDE_EASING}` : "none";
+      layer.style.transition = transitionMs > 0 ? `transform ${transitionMs}ms ${SWIPE_SLIDE_EASING}` : "none";
       layer.style.transform = `translateX(${offsetPx - width}px)`;
     };
 
@@ -162,12 +181,8 @@ export function useSwipeToList({ enabled, layerRef, onCommit }: UseSwipeToListOp
     const release = (reason: string, forceCancel: boolean, endT: number) => {
       const dt = lastT - prevT;
       // Speed of the last move, unless the finger then rested before lifting.
-      const velocity = dt > 0 && endT - lastT <= FLICK_MAX_HOLD_MS ? (lastX - prevX) / dt : 0;
-      const commit =
-        !forceCancel &&
-        // A flick back to the left cancels, however far out the list is.
-        velocity > -SWIPE_FLICK_PX_PER_MS &&
-        (dx >= width * SWIPE_COMMIT_FRACTION || (velocity >= SWIPE_FLICK_PX_PER_MS && dx >= SWIPE_FLICK_MIN_PX));
+      const velocity = dt > 0 && endT - lastT <= SWIPE_FLICK_MAX_HOLD_MS ? (lastX - prevX) / dt : 0;
+      const commit = !forceCancel && swipeCommits(dx, width, velocity);
       systemLogger.info(`swipe-to-list ${commit ? "commit" : "cancel"}`, {
         operation: "swipe_to_list",
         event: commit ? "commit" : "cancel",
