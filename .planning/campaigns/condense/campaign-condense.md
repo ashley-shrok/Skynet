@@ -25,7 +25,7 @@ Ordering: groundwork first (everything else assumes compaction behaves as config
 - **[declared] shape-compaction-groundwork** — Upgrade Claude Code fleet-wide to a version with a separate idle-compaction switch; turn idle compaction off; keep near-limit compaction on with its trigger at 95% (aligned with what the app's context meter calls 95%); remove the setting that never did anything and the wrong comments around it. — closed
 - **[declared] shape-reground-after-compaction** — After every compaction, put the current id skill, role file(s), identity file and project file back into the agent's context in full, and tell the summarizer to leave out what those files hold. — closed
 - **[declared] shape-condense-operation** — Replace reset with Condense end to end: agent-triggered request file now compacts instead of restarting; the button next to the context meter gets the new name and an inward-arrows icon; the id skill, build skill and campaign skill speak Condense; the broken context watch and its 90% nudge are retired (or replaced, depending on what groundwork settles); what's-new note (dropped — Ashley: none needed). — closed
-- **[declared] shape-compaction-divider** — In the chat view, a compaction shows as a slim divider with the summary collapsed and expandable instead of a user bubble; fixes the summary wrongly clearing a pending sent message. — in_progress
+- **[declared] shape-compaction-divider** — In the chat view, a compaction shows as a slim divider with the summary collapsed and expandable instead of a user bubble; fixes the summary wrongly clearing a pending sent message. — closed
 
 ## Other work
 
