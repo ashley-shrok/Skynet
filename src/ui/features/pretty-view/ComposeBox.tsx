@@ -286,8 +286,8 @@ export interface ComposeBoxProps {
   // back, then the outcome for a moment. Null = the plain Stop button.
   interruptFeedback?: InterruptFeedback | null;
   // shape-interrupt-button: words handed back by a cancelled send. Applied
-  // once per id: into the primary box when it is empty, otherwise into a new
-  // queued box at the top (never overwriting what the user is typing).
+  // once per id, into the primary box — above anything the user has typed
+  // since (never overwriting it).
   // onRestoreApplied reports which box received them so the caller can put
   // the cancelled message's attachments back on the same box.
   restoreRequest?: { id: string; text: string } | null;
@@ -1161,28 +1161,21 @@ export function ComposeBox({
   );
 
   // shape-interrupt-button: give a cancelled send's words back. Applied once
-  // per request id; the primary box only when it holds nothing (no text, no
-  // staged attachments), otherwise a new queued box at the top.
+  // per request id, always into the primary box: on their own when it is
+  // empty, otherwise above what the user has typed since, a blank line between.
   const appliedRestoreIdsRef = useRef<Set<string>>(new Set());
   useEffect(() => {
     if (!restoreRequest || appliedRestoreIdsRef.current.has(restoreRequest.id)) return;
     appliedRestoreIdsRef.current.add(restoreRequest.id);
-    const primaryEmpty = latestBodyRef.current.trim() === "" && !hasAttachments;
-    if (primaryEmpty) {
-      setText(restoreRequest.text);
-      latestBodyRef.current = restoreRequest.text;
-      scheduleAutosave(restoreRequest.text);
-      console.info(`[interrupt-restore] applied id=${restoreRequest.id} target=primary textLen=${restoreRequest.text.length}`);
-      onRestoreApplied?.(restoreRequest.id, "primary");
-      return;
-    }
-    const slotId = makeSlotId();
-    const nextSlots = [{ id: slotId, text: restoreRequest.text }, ...latestQueueSlotsRef.current];
-    latestQueueSlotsRef.current = nextSlots;
-    setQueueSlots(nextSlots);
-    scheduleAutosave(latestBodyRef.current, nextSlots);
-    console.info(`[interrupt-restore] applied id=${restoreRequest.id} target=queued:${slotId} textLen=${restoreRequest.text.length} reason=primary_in_use`);
-    onRestoreApplied?.(restoreRequest.id, `queued:${slotId}`);
+    const current = latestBodyRef.current;
+    const merged = current.trim() === "" ? restoreRequest.text : `${restoreRequest.text}\n\n${current}`;
+    setText(merged);
+    latestBodyRef.current = merged;
+    scheduleAutosave(merged);
+    console.info(
+      `[interrupt-restore] applied id=${restoreRequest.id} target=primary textLen=${restoreRequest.text.length} merged=${merged !== restoreRequest.text} hadAttachments=${hasAttachments}`,
+    );
+    onRestoreApplied?.(restoreRequest.id, "primary");
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [restoreRequest]);
 

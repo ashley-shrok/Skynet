@@ -1573,8 +1573,8 @@ crown, then gear.
     the button is greyed out — there is nothing to stop.
   - **Cancel** (pressed before the agent has done anything with the latest
     message): the message is withdrawn — its bubble disappears and the
-    user's words (and attachments) come back into the compose box, or
-    into a new queued-message box if they had already started typing.
+    user's words (and attachments) come back into the compose box — above
+    anything they had already started typing, with a blank line between.
   - **Stop** (the agent had started): the agent stops, the user's message
     stays, and an agent-side bubble reading **Interrupted** confirms it;
     the work indicator goes off.

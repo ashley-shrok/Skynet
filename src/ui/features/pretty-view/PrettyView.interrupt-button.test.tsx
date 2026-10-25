@@ -262,7 +262,7 @@ describe("PrettyView — interrupt button (shape-interrupt-button)", () => {
     );
   });
 
-  it("cancel verdict while the user is typing → a queued box gets the words", async () => {
+  it("cancel verdict while the user is typing → the words go above the draft in the compose box", async () => {
     const { container, ws } = await mount();
     act(() => {
       fireEvent.change(container.querySelector(PRIMARY)!, { target: { value: "new draft" } });
@@ -270,13 +270,9 @@ describe("PrettyView — interrupt button (shape-interrupt-button)", () => {
     press(container);
     sendWsFrame(ws, { type: "interrupt_result", verdict: "cancelled", eventId: "u3", content: "older words" });
     await waitFor(() =>
-      expect(
-        Array.from(container.querySelectorAll('textarea[placeholder="Queued message…"]')).map(
-          (t) => (t as HTMLTextAreaElement).value,
-        ),
-      ).toEqual(["older words"]),
+      expect((container.querySelector(PRIMARY) as HTMLTextAreaElement).value).toBe("older words\n\nnew draft"),
     );
-    expect((container.querySelector(PRIMARY) as HTMLTextAreaElement).value).toBe("new draft");
+    expect(container.querySelectorAll('textarea[placeholder="Queued message…"]')).toHaveLength(0);
   });
 
   it("a restore is used once: switching conversations never carries the words over", async () => {

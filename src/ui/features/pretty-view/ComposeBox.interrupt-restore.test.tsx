@@ -1,6 +1,6 @@
 // shape-interrupt-button — ComposeBox side: the interrupt button greys out
 // while a send is still being delivered, and a cancelled send's words come
-// back into the primary box when it is empty, else into a new queued box.
+// back into the primary box — above anything typed since, never a queued box.
 
 import { describe, it, expect, vi, afterEach } from "vitest";
 import { render, screen, fireEvent } from "@testing-library/react";
@@ -111,7 +111,7 @@ describe("ComposeBox — giving back a cancelled send", () => {
     expect(onRestoreApplied).toHaveBeenCalledWith("e1", "primary");
   });
 
-  it("user already typing → a new queued box holds the words; the primary box is untouched", () => {
+  it("user already typing → the words go above the draft, a blank line between; no queued box", () => {
     const onRestoreApplied = vi.fn();
     const { rerender } = render(<ComposeBox {...baseProps({ onRestoreApplied })} />);
     fireEvent.change(primary(), { target: { value: "something new" } });
@@ -120,14 +120,13 @@ describe("ComposeBox — giving back a cancelled send", () => {
         {...baseProps({ onRestoreApplied, restoreRequest: { id: "e2", text: "the cancelled words" } })}
       />,
     );
-    expect(primary().value).toBe("something new");
-    expect(queued().map((t) => t.value)).toEqual(["the cancelled words"]);
+    expect(primary().value).toBe("the cancelled words\n\nsomething new");
+    expect(queued()).toHaveLength(0);
     expect(onRestoreApplied).toHaveBeenCalledTimes(1);
-    expect(onRestoreApplied.mock.calls[0][0]).toBe("e2");
-    expect(onRestoreApplied.mock.calls[0][1]).toMatch(/^queued:.+/);
+    expect(onRestoreApplied).toHaveBeenCalledWith("e2", "primary");
   });
 
-  it("staged attachments on the primary box count as in use", () => {
+  it("staged attachments on the primary box stay; the words still land there", () => {
     const onRestoreApplied = vi.fn();
     const staged = [
       { tempId: "t1", file: { name: "a.png", size: 1, type: "image/png" }, status: "staged" as const, bytesUploaded: 0, error: null },
@@ -144,9 +143,9 @@ describe("ComposeBox — giving back a cancelled send", () => {
         })}
       />,
     );
-    expect(primary().value).toBe("");
-    expect(queued().map((t) => t.value)).toEqual(["words"]);
-    expect(onRestoreApplied.mock.calls[0][1]).toMatch(/^queued:/);
+    expect(primary().value).toBe("words");
+    expect(queued()).toHaveLength(0);
+    expect(onRestoreApplied).toHaveBeenCalledWith("e3", "primary");
   });
 
   it("each request is applied once, even across re-renders", () => {
