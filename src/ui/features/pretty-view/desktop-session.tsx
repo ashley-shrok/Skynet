@@ -25,7 +25,9 @@
  *
  * Several surfaces may show the same desktop at once (the tab in one window, a
  * pane in another): the backend shares one tunnel per desktop, and each
- * surface sees `agentPaused` when someone else holds control.
+ * surface sees `agentPaused` when someone else holds control. A watching
+ * surface re-reads that every STATUS_POLL_MS, so it follows control being
+ * taken or handed back elsewhere.
  */
 
 import {
@@ -59,6 +61,8 @@ const START_TIMEOUT_MS = 90_000;
 const START_POLL_MS = 2_000;
 /** Control lease renew interval — well inside the 90s lease. */
 const RENEW_MS = 30_000;
+/** How often a watching surface re-checks whether someone has control. */
+const STATUS_POLL_MS = 15_000;
 
 const DESKTOP_ERROR_COPY: Record<string, WorkspaceErrorCopy> = {
   not_installed: {
@@ -152,12 +156,13 @@ export function useDesktopSession({
   const opPrefix = logTag.replace(/-/g, "_");
 
   /**
-   * Drop the lease if we hold it (fire and forget — it lapses on its own
-   * anyway). Returns whether there was one to drop.
+   * Drop the lease if we hold it. Returns the release request (callers may
+   * await it; it never rejects — the lease lapses on its own anyway), or null
+   * when there was nothing to drop.
    */
   const releaseIfHeld = useCallback(
-    (reason: string): boolean => {
-      if (!controlRef.current) return false;
+    (reason: string): Promise<void> | null => {
+      if (!controlRef.current) return null;
       controlRef.current = false;
       onControlChangeRef.current?.(false);
       systemLogger.info(`[${logTag}] control released`, {
@@ -166,8 +171,10 @@ export function useDesktopSession({
         hostId,
         reason,
       });
-      releaseDesktopControl(identityKey, hostId).catch(() => {});
-      return true;
+      return releaseDesktopControl(identityKey, hostId).then(
+        () => {},
+        () => {},
+      );
     },
     [identityKey, hostId, logTag, opPrefix],
   );
@@ -181,9 +188,12 @@ export function useDesktopSession({
   }, [releaseIfHeld]);
 
   const connect = useCallback(async () => {
-    releaseIfHeld("reconnect-or-hand-back");
+    const release = releaseIfHeld("reconnect-or-hand-back");
     setView({ status: "connecting" });
     try {
+      // Let the release land first, or the connect's status read can still
+      // see our own lease and report the agent as paused.
+      if (release) await release;
       const conn = await connectDesktop(identityKey, hostId);
       if (!mountedRef.current) return;
       attemptRef.current += 1;
@@ -216,7 +226,7 @@ export function useDesktopSession({
   useEffect(() => {
     if (isVisible) void connect();
     else {
-      if (releaseIfHeld("hidden")) toast.info("Handed back to agent");
+      if (releaseIfHeld("hidden") !== null) toast.info("Handed back to agent");
       setView({ status: "connecting" });
     }
   }, [isVisible, connect, releaseIfHeld]);
@@ -264,6 +274,33 @@ export function useDesktopSession({
     }, RENEW_MS);
     return () => clearInterval(timer);
   }, [inControl, identityKey, hostId]);
+
+  // While watching, keep "someone has control" current — control can be
+  // taken or handed back from another surface at any time.
+  const watching =
+    isVisible && view.status === "live" && !view.control;
+  useEffect(() => {
+    if (!watching) return;
+    const timer = setInterval(() => {
+      getDesktopStatus(identityKey, hostId)
+        .then((s) => {
+          if (!mountedRef.current || !s.available || !s.running) return;
+          setView((v) => {
+            if (v.status !== "live" || v.control) return v;
+            if (v.agentPaused === s.userHasControl) return v;
+            systemLogger.info(`[${logTag}] control status changed`, {
+              operation: `${opPrefix}_agent_paused_changed`,
+              identityKey,
+              hostId,
+              agentPaused: s.userHasControl,
+            });
+            return { ...v, agentPaused: s.userHasControl };
+          });
+        })
+        .catch(() => {});
+    }, STATUS_POLL_MS);
+    return () => clearInterval(timer);
+  }, [watching, identityKey, hostId, logTag, opPrefix]);
 
   const onStreamLost = useCallback(() => {
     if (!mountedRef.current) return;

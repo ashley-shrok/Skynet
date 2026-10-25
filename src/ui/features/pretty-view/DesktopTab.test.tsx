@@ -341,6 +341,75 @@ describe("DesktopTab", () => {
         "agent paused",
       );
     });
+
+    it("hand back waits for the release before reconnecting", async () => {
+      connectDesktop.mockResolvedValue(view);
+      takeDesktopControl.mockResolvedValue(drive);
+      let finishRelease: () => void = () => {};
+      releaseDesktopControl.mockImplementation(
+        () => new Promise((r) => (finishRelease = () => r({ ok: true }))),
+      );
+      render(<DesktopTab identityKey="alice" hostId={7} isVisible />);
+      fireEvent.click(await screen.findByTestId("desktop-take-control"));
+      fireEvent.click(await screen.findByTestId("desktop-hand-back"));
+      await waitFor(() => expect(releaseDesktopControl).toHaveBeenCalled());
+      expect(connectDesktop).toHaveBeenCalledTimes(1);
+      await act(async () => finishRelease());
+      await waitFor(() => expect(connectDesktop).toHaveBeenCalledTimes(2));
+    });
+
+    it("keeps the paused note current while watching", async () => {
+      vi.useFakeTimers({ shouldAdvanceTime: true });
+      try {
+        connectDesktop.mockResolvedValue({ ...view, userHasControl: true });
+        const status = {
+          available: true,
+          running: true,
+          display: 100,
+          vncPort: 16000,
+          geometry: "1280x800",
+          userHasControl: false,
+        };
+        getDesktopStatus.mockResolvedValue(status);
+        render(<DesktopTab identityKey="alice" hostId={7} isVisible />);
+        await screen.findByTestId("guac-display");
+        const note = () => screen.getByTestId("desktop-view-only").textContent;
+        expect(note()).toContain("agent paused");
+
+        await act(async () => {
+          await vi.advanceTimersByTimeAsync(16_000);
+        });
+        expect(getDesktopStatus).toHaveBeenCalledWith("alice", 7);
+        expect(note()).not.toContain("agent paused");
+
+        getDesktopStatus.mockResolvedValue({ ...status, userHasControl: true });
+        await act(async () => {
+          await vi.advanceTimersByTimeAsync(16_000);
+        });
+        expect(note()).toContain("agent paused");
+        // Re-reading control never reconnects the stream.
+        expect(connectDesktop).toHaveBeenCalledTimes(1);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it("doesn't poll control status while it has control", async () => {
+      vi.useFakeTimers({ shouldAdvanceTime: true });
+      try {
+        connectDesktop.mockResolvedValue(view);
+        takeDesktopControl.mockResolvedValue(drive);
+        render(<DesktopTab identityKey="alice" hostId={7} isVisible />);
+        fireEvent.click(await screen.findByTestId("desktop-take-control"));
+        await screen.findByTestId("desktop-in-control");
+        await act(async () => {
+          await vi.advanceTimersByTimeAsync(31_000);
+        });
+        expect(getDesktopStatus).not.toHaveBeenCalled();
+      } finally {
+        vi.useRealTimers();
+      }
+    });
   });
 
   describe("open beside conversation", () => {
