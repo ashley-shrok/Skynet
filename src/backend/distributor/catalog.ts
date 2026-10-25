@@ -692,7 +692,7 @@ export const FLEET_SUBSTRATE_CATALOG: readonly CatalogEntry[] = [
   // app-development skill that teaches fleet agents to build user-facing apps
   // under ~/fleet/apps/<slug>/. The skill folder on managed boxes lands at
   // ~/.claude/skills/app-development/. No restart hook — skills are read at
-  // /id load time; new bytes land on the identity's next recycle.
+  // /id load time; new bytes land on the identity's next relaunch.
   // The 20 template files include a pre-generated initial Drizzle migration
   // (SQL + meta journal + meta snapshot) alongside the 17 source files.
   {

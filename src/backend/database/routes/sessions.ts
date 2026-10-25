@@ -132,7 +132,7 @@ const PER_HOST_TIMEOUT_MS = 30_000;
  * confirmed on Tabitha's session file now explicitly rejected:
  * - Ctrl-C kill signal: supervisor delivers "\x03\x03" as plain-string
  *   content; after trimming, stripping all ASCII control chars yields "".
- * - /exit slash-command: agent-supervisor fires `/exit` before recycle;
+ * - /exit slash-command: agent-supervisor fires `/exit` before a dormancy or archive shutdown;
  *   content contains "<command-name>/exit</command-name>".
  * - Resumed-injection sentinel: supervisor injects "Your session was just
  *   resumed by the agent-supervisor…" as a type:"user" turn in some paths.
@@ -164,7 +164,7 @@ function isRealUserTurn(rawLine: string): { ok: true; ts: number } | { ok: false
   const isCommand = t.startsWith("<command-");
   if (!isCommand && isXmlWrapper) return { ok: false };
   // Step 5 (2026-08-29 refinement): drop /exit slash-command injected by agent-supervisor
-  // before recycle. user's own slash-commands (/id, /build, /gsd:*) are unaffected.
+  // before shutting the harness down. user's own slash-commands (/id, /build, /gsd:*) are unaffected.
   if (content.includes("<command-name>/exit</command-name>")) return { ok: false };
   // Step 6 (2026-08-29 refinement): drop control-chars-only content (e.g. Ctrl-C kill
   // signal "\x03\x03"). t is already trimmed of regular whitespace; stripping ASCII
