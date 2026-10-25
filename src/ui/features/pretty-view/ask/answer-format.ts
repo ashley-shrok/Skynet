@@ -21,7 +21,8 @@ export type QuestionAnswer =
 export const TRAY_NOTICE_PREFIX = "[tray] ";
 
 function titleOf(ask: Ask): string {
-  return ask.questions.map((q) => q.question).join(" / ");
+  // One line: a notice must stay a single [tray] line so it strips cleanly.
+  return ask.questions.map((q) => q.question.replace(/\s+/g, " ").trim()).join(" / ");
 }
 
 export function wordsNotice(ask: Ask): string {
@@ -49,6 +50,16 @@ export function withWordsNotice(text: string, open: Ask, replaced: readonly Ask[
   if (text.trimStart().startsWith("/")) return text;
   const notices = [...replaced.map(replacedNotice), wordsNotice(open)];
   return `${notices.join("\n")}\n\n${text}`;
+}
+
+/**
+ * What a send carries while a question is open: the tray's own answer (or a
+ * message already carrying notices) goes as is; anything else is a reply in
+ * words and gets the notices on top.
+ */
+export function trayWrapReply(text: string, open: Ask, replaced: readonly Ask[]): string {
+  if (text.startsWith(TRAY_NOTICE_PREFIX) || parseAnswerMessage(text) !== null) return text;
+  return withWordsNotice(text, open, replaced).trim();
 }
 
 const MONEY_SYMBOL: Record<string, string> = { USD: "$", EUR: "€", GBP: "£", JPY: "¥", CAD: "$", AUD: "$" };

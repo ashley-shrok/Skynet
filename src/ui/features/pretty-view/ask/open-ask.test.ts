@@ -47,3 +47,20 @@ describe("deriveOpenAsk", () => {
     expect(deriveOpenAsk([agent("```ask\nquestion:\n```")], false)).toBeNull();
   });
 });
+
+describe("deriveOpenAsk — review fixes", () => {
+  it("an attachment send (arriving as pictures) closes it", () => {
+    expect(deriveOpenAsk([agent(askMsg("one")), { type: "image", role: "user", eventId: "img1" }], false)).toBeNull();
+  });
+
+  it("re-asking the same question is not a replacement", () => {
+    const open = deriveOpenAsk([agent(askMsg("same")), agent(askMsg("other")), agent(askMsg("same"))], false);
+    expect(open?.ask.id).toBe("same");
+    expect(open?.replaced.map((a) => a.id)).toEqual(["other"]);
+  });
+
+  it("carries at most three replaced notices, the most recent ones", () => {
+    const evs = ["a", "b", "c", "d", "e", "f"].map((id) => agent(askMsg(id)));
+    expect(deriveOpenAsk(evs, false)?.replaced.map((a) => a.id)).toEqual(["c", "d", "e"]);
+  });
+});

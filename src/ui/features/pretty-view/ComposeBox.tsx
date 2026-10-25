@@ -36,7 +36,7 @@ import { HoldFeedbackPill, type HoldFeedback } from "./HoldFeedbackPill";
 import { MemoryGauge, memoryBand } from "./MemoryGauge";
 import { appendVoiceLabel } from "./voice-label";
 import { AskTray } from "./ask/AskTray";
-import { buildAnswerMessage, withWordsNotice, type QuestionAnswer } from "./ask/answer-format";
+import { buildAnswerMessage, trayWrapReply, type QuestionAnswer } from "./ask/answer-format";
 import type { Ask } from "./ask/ask-format";
 import type { OpenAsk } from "./ask/open-ask";
 
@@ -1403,6 +1403,17 @@ export function ComposeBox({
   }, [clearDebounce, hostId, tmuxSessionKey]);
 
   const funnel = useComposeSend({ hostId, tmuxSession, identityName, onSend, onOptimisticSend });
+  // shape-interactive-responses: every send while a question is open — typed,
+  // queued, voice, quick reply, with or without files — is a reply in words
+  // unless it is the tray's own answer; trayWrap adds the notice for the agent.
+  // Read through a ref so long-lived callbacks (voice mode) see the current ask.
+  const openAskRef = useRef(openAsk);
+  openAskRef.current = openAsk;
+  const trayWrap = (payload: string): string => {
+    const open = openAskRef.current;
+    return open ? trayWrapReply(payload, open.ask, open.replaced) : payload;
+  };
+  const funnelSend: typeof funnel.send = (payload, opts) => funnel.send(trayWrap(payload), opts);
 
   // Patch #135: auto-grow the textarea with its CONTENTS (not just newlines).
   // The prior newline-count `rows` heuristic left long single-line messages
@@ -1508,29 +1519,18 @@ export function ComposeBox({
   // of the current `text` state. All other handleSend logic (attachment
   // branching, newline normalization, Phase 50 D-18 optimistic-bubble
   // seeding) still applies.
-  // Set for exactly one handleSend call: the tray's answer, which must not be
-  // wrapped as a reply in words.
-  const answeringRef = useRef(false);
   // The tray's answers: the typed text rides along as the note, then the
   // message goes through the normal send path (attachments, queue, failure).
   function handleAskAnswer(ask: Ask, answers: QuestionAnswer[]) {
     const message = buildAnswerMessage(ask, answers, text, openAsk?.replaced ?? []);
     console.info(`[ask] answer hostId=${hostId} tmuxSession=${tmuxSession ?? "null"} ask=${ask.id} questions=${ask.questions.length} noteLen=${text.trim().length}`);
-    answeringRef.current = true;
     handleSend(message, "send-button");
   }
 
   function handleSend(overridePayload?: string, trigger: "enter-key" | "send-button" | "queue-item" | "unknown" = "unknown") {
     // D-16-05: use override payload if provided (voice send path), otherwise
     // derive from current text state (normal typed-send path).
-    const typed = overridePayload !== undefined ? overridePayload.trim() : text.trim();
-    // A tray answer is already the reply; anything else sent while a question
-    // is open is a reply in words — say so to the agent (shape-interactive-responses).
-    const answering = answeringRef.current;
-    answeringRef.current = false;
-    const trimmed = openAsk && !answering && (typed || hasAttachments)
-      ? withWordsNotice(typed, openAsk.ask, openAsk.replaced).trim()
-      : typed;
+    const trimmed = overridePayload !== undefined ? overridePayload.trim() : text.trim();
 
     // Phase 05 — attachment path: Send routes to onSendWithAttachments
     // whenever at least one attachment is staged. Empty caption is
@@ -1570,7 +1570,7 @@ export function ComposeBox({
       console.info(`[compose] submit-entry hostId=${hostId} tmuxSession=${tmuxSession ?? "null"} bodyLen=${trimmed.length} attachmentCount=${stagedAttachments?.length ?? 0} trigger=${trigger} path=attachment mqid=pending`);
       const runAttachmentSend = async (): Promise<void> => {
         // Definitely defined here — guarded by hasAttachments && onSendWithAttachments above.
-        const outcome = await onSendWithAttachments!(captionPayload);
+        const outcome = await onSendWithAttachments!(trayWrap(captionPayload));
         if (outcome.ok) {
           console.info(`[compose] submit-success hostId=${hostId} tmuxSession=${tmuxSession ?? "null"} bodyLen=${trimmed.length} path=attachment`);
           setText("");
@@ -1607,7 +1607,7 @@ export function ComposeBox({
     // only the per-trigger UI cleanup (setText, clearAfterSend, setErrorMessage
     // on failure per PATTERNS.md § Contract boundary). The trigger label flows
     // through so the submit-entry log line carries the correct trigger field.
-    const dispatched = funnel.send(payload, { trigger });
+    const dispatched = funnelSend(payload, { trigger });
     // Clear the composebox on BOTH dispatched=true and dispatched=false.
     // The red-bordered failed bubble in the transcript is the record of
     // the send in either case — no need to also keep the text in the
@@ -1876,12 +1876,12 @@ export function ComposeBox({
   // dispatch leaves both intact.
   function handleQuickSend(rawQuickText: string, options?: { bubbleTextOverride?: string }) {
     setErrorMessage(null);
-    const quickText = openAsk ? withWordsNotice(rawQuickText, openAsk.ask, openAsk.replaced) : rawQuickText;
+    const quickText = rawQuickText;
     // Phase 68 Plan 02: route through the funnel so quick-replies carry an
     // mqid (D-03 invariant) and seed an optimistic bubble (D-01). The
     // bubbleTextOverride flows through so the thumbs-up wire site can pass
     // "👍" and have the pending bubble display that from birth (D-02).
-    const dispatched = funnel.send(quickText, { trigger: "quick-reply", bubbleTextOverride: options?.bubbleTextOverride });
+    const dispatched = funnelSend(quickText, { trigger: "quick-reply", bubbleTextOverride: options?.bubbleTextOverride });
     if (dispatched) {
       // NOTE: intentionally does NOT setText("") — the user's typed
       // draft stays visible for continued editing (the quick reply
@@ -2001,7 +2001,7 @@ export function ComposeBox({
       if (recycleActive || reconnectingActive) return false;
       const payload = normalizeNewlinesForSend(transcript.trim());
       if (!payload) return true;
-      return funnel.send(appendVoiceLabel(payload), { trigger: "voice-mode" });
+      return funnelSend(appendVoiceLabel(payload), { trigger: "voice-mode" });
     },
     onUndelivered: (transcript) => {
       // Only time voice mode writes to the compose box: a transcript that
@@ -2197,7 +2197,7 @@ export function ComposeBox({
         hostName={hostName}
         onAnswer={handleAskAnswer}
         onOpenFile={onOpenAskFile}
-        disabled={isHolding === true || recycleActive === true}
+        disabled={isHolding === true || recycleActive === true || reconnectingActive === true || canSend === false}
       />
     )}
     <div

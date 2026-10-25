@@ -150,3 +150,29 @@ options:
     expect(d.onAnswer).not.toHaveBeenCalled();
   });
 });
+
+describe("AskTray — review fixes", () => {
+  it("text and date defaults start filled in", () => {
+    const t = mount("question: Draft it\nkind: long-text\ndefault: Dear team,");
+    expect((t.tray.getByLabelText("Draft it") as HTMLTextAreaElement).value).toBe("Dear team,");
+    expect(t.send().disabled).toBe(false);
+  });
+
+  it("a number default counts even on a tab never opened", () => {
+    const t = mount("questions:\n  - question: Name?\n    kind: text\n  - question: Count?\n    kind: number\n    default: 3");
+    act(() => { fireEvent.change(t.tray.getByLabelText("Name?"), { target: { value: "x" } }); });
+    expect(t.send().disabled).toBe(false);
+  });
+
+  it("split takes decimals as typed and refuses negatives", () => {
+    const s = mount("question: Split?\nkind: split\ntotal: 1\nitems: [x, y]");
+    act(() => { fireEvent.change(s.tray.getByLabelText("x"), { target: { value: "0." } }); });
+    expect((s.tray.getByLabelText("x") as HTMLInputElement).value).toBe("0.");
+    act(() => { fireEvent.change(s.tray.getByLabelText("x"), { target: { value: "0.7" } }); });
+    act(() => { fireEvent.change(s.tray.getByLabelText("y"), { target: { value: "0.3" } }); });
+    expect(s.tray.getByText("Adds up to 1")).toBeTruthy();
+    expect(s.send().disabled).toBe(false);
+    act(() => { fireEvent.change(s.tray.getByLabelText("y"), { target: { value: "-0.3" } }); });
+    expect(s.send().disabled).toBe(true);
+  });
+});

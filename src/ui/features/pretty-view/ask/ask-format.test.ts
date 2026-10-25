@@ -165,3 +165,26 @@ describe("the agent-facing skill's examples", () => {
     }
   });
 });
+
+describe("finding asks the way markdown draws them (review fixes)", () => {
+  const ask = "```ask\nid: x\nquestion: Q?\noptions: [a, b]\n```";
+  it("an ask shown as an example inside another code block is not an ask", () => {
+    expect(lastAskIn("Here's the format:\n\n````md\n" + ask + "\n````\n")).toBeNull();
+  });
+  it("asks inside quotes, indented, or with extra info words are not asks", () => {
+    expect(lastAskIn("> ```ask\n> question: Q?\n> options: [a, b]\n> ```")).toBeNull();
+    expect(lastAskIn("    ```ask\n    question: Q?\n    ```")).toBeNull();
+    expect(lastAskIn("```ask yaml\nquestion: Q?\noptions: [a, b]\n```")).toBeNull();
+  });
+  it("an unclosed ask block runs to the end, as markdown draws it", () => {
+    expect(lastAskIn("```ask\nid: open\nquestion: Q?\noptions: [a, b]\n")?.id).toBe("open");
+  });
+  it("a longer closing fence still closes it", () => {
+    expect(lastAskIn("```ask\nid: long\nquestion: Q?\noptions: [a, b]\n`````\n")?.id).toBe("long");
+  });
+  it("rejects colours that aren't colours, and clashing time slots", () => {
+    expect(parseAskBlock('question: c\noptions:\n  - { label: a, color: "url(https://x/y)" }\n  - { label: b, color: "#fff" }').ok).toBe(false);
+    expect(parseAskBlock('question: c\noptions:\n  - { label: a, color: "rgb(1, 2, 3)" }\n  - { label: b, color: teal }').ok).toBe(true);
+    expect(parseAskBlock("question: t\noptions:\n  - { time: 2026-10-27T09:00, value: x }\n  - { time: 2026-10-27T09:00, value: y }").ok).toBe(false);
+  });
+});

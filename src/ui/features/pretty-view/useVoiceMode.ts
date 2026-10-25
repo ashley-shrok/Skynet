@@ -53,7 +53,7 @@
  * the "on" chime are unlocked inside a user gesture.
  */
 
-import { askSpeech, parseAskBlock } from "./ask/ask-format";
+import { askSpeech, lastAskBody, parseAskBlock } from "./ask/ask-format";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { stampedFetch } from "@/lib/stamped-fetch";
 import { postSpeakStream } from "../../api/voice-api";
@@ -221,9 +221,11 @@ export function stripSendPhrase(transcript: string, phrase: string): string | nu
  * read symbol by symbol; links read their label; formatting marks are dropped.
  */
 export function toSpeakableText(markdown: string): string {
+  const trayBody = lastAskBody(markdown)?.trimEnd() ?? null;
   return markdown
     // An ask block is read as its question and choices (shape-interactive-responses).
     .replace(/^ {0,3}```[ \t]*ask[ \t]*\r?\n([\s\S]*?)^ {0,3}```[ \t]*$/gm, (block, body: string) => {
+      if (body.trimEnd() !== trayBody) return block;
       const res = parseAskBlock(body);
       return res.ok ? ` Asked you: ${askSpeech(res.ask)} ` : block;
     })

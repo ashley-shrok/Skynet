@@ -5,6 +5,7 @@ import { describe, expect, it } from "vitest";
 import { render, screen } from "@testing-library/react";
 import { ChatMessage } from "./ChatMessage";
 import { toSpeakableText } from "./useVoiceMode";
+import { formatInjectedUserTurn } from "@/api/pretty-view-upload-protocol";
 
 const ASK = "Ready.\n\n```ask\nid: ship\nquestion: Ship it?\noptions: [Now, Tonight, Hold]\n```\n\nYour call.";
 
@@ -54,5 +55,31 @@ describe("ChatMessage — asks where there is no tray", () => {
     render(<ChatMessage role="assistant" content={ASK} eventId="e4" askTray={false} />);
     expect(screen.queryByTestId("ask-marker")).toBeNull();
     expect(screen.getByTestId("ask-fallback").textContent).toContain("options: [Now, Tonight, Hold]");
+  });
+});
+
+describe("ChatMessage — review fixes", () => {
+  it("only the message's last ask gets a marker; an earlier one reads as plain text", () => {
+    render(
+      <ChatMessage
+        role="assistant"
+        eventId="e5"
+        content={"```ask\nid: one\nquestion: First?\noptions: [a, b]\n```\n\n```ask\nid: two\nquestion: Second?\noptions: [c, d]\n```"}
+      />,
+    );
+    expect(screen.getAllByTestId("ask-marker")).toHaveLength(1);
+    expect(screen.getByTestId("ask-marker").textContent).toContain("Second?");
+    expect(screen.getByTestId("ask-fallback").textContent).toContain("First?");
+  });
+
+  it("a tray answer sent with files draws as an answer bubble above the files", () => {
+    const content = formatInjectedUserTurn({
+      caption: "```answer\nask: ship\nquestion: Ship it?\nanswer: Now\n```",
+      files: [{ filename: "shot.png", size: 10, mimetype: "image/png", landingPath: "/tmp/shot.png", uploadTimestamp: "2026-10-25T00:00:00" }],
+    });
+    const { container } = render(<ChatMessage role="user" content={content} eventId="e6" />);
+    expect(screen.getByTestId("answer-bubble").textContent).toContain("Now");
+    expect(container.textContent).toContain("shot.png");
+    expect(container.textContent).not.toContain("ask: ship");
   });
 });

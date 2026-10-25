@@ -7,7 +7,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { ArrowDown, ArrowUp, Check, ChevronDown, ChevronUp, FileText, MessageCircleQuestion } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { fileNameOfPath } from "../file-url";
-import { faceUrl, initialDraft, isAnswered, type Draft } from "./tray-helpers";
+import { faceUrl, initialDraft, isAnswered, splitLeft, type Draft } from "./tray-helpers";
 import { formatSlotTime, type Ask, type AskOption, type AskQuestion } from "./ask-format";
 import { formatMoney, type QuestionAnswer } from "./answer-format";
 import type { OpenAsk } from "./open-ask";
@@ -389,13 +389,9 @@ function KindBody({ q, draft, hostName, onOpenFile, onPickOne, onDraft, onEnter,
 }
 
 function NumberField({ q, draft, onDraft, onEnter }: { q: AskQuestion; draft: Draft; onDraft: (d: Draft) => void; onEnter: () => void }) {
-  const initial = draft?.kind === "number" ? String(draft.value) : q.default !== undefined ? String(q.default) : "";
-  const [raw, setRaw] = useState(initial);
-  useEffect(() => {
-    // A default counts as the answer until changed.
-    if (draft === null && initial !== "" && Number.isFinite(Number(initial))) onDraft({ kind: "number", value: Number(initial) });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  // The agent's default is already the draft (initialDraft), so it counts as
+  // the answer even on a tab never opened.
+  const [raw, setRaw] = useState(draft?.kind === "number" ? String(draft.value) : "");
   const money = q.kind === "money";
   const prefix = money ? formatMoney(0, q.currency ?? "USD").replace(/[\d.,\s]/g, "") : "";
   return (
@@ -432,33 +428,53 @@ function NumberField({ q, draft, onDraft, onEnter }: { q: AskQuestion; draft: Dr
 
 function SplitField({ q, draft, onDraft }: { q: AskQuestion; draft: Draft; onDraft: (d: Draft) => void }) {
   const total = q.total ?? 0;
-  const parts = draft?.kind === "split" ? draft.parts : q.options.map((item) => ({ item, amount: 0 }));
-  const sum = parts.reduce((s, p) => s + p.amount, 0);
-  const left = Math.round((total - sum) * 1000) / 1000;
-  const set = (i: number, amount: number) => {
-    onDraft({ kind: "split", parts: parts.map((p, j) => (j === i ? { ...p, amount } : p)) });
+  // The typed text per part, so "12." or a cleared field stays as typed.
+  const [raws, setRaws] = useState<string[]>(() =>
+    q.options.map((item) => {
+      const p = draft?.kind === "split" ? draft.parts.find((x) => x.item.value === item.value) : undefined;
+      return p && Number.isFinite(p.amount) && p.amount !== 0 ? String(p.amount) : "";
+    }),
+  );
+  // Empty = 0; anything else must be a number of at least 0 (NaN blocks Send).
+  const amountOf = (r: string): number => {
+    const t = r.trim();
+    if (t === "") return 0;
+    const n = Number(t);
+    return Number.isFinite(n) && n >= 0 ? n : Number.NaN;
+  };
+  const amounts = raws.map(amountOf);
+  const allValid = amounts.every((a) => Number.isFinite(a));
+  const left = splitLeft(total, amounts.map((a) => (Number.isFinite(a) ? a : 0)));
+  const set = (i: number, r: string) => {
+    const next = raws.map((x, j) => (j === i ? r : x));
+    setRaws(next);
+    onDraft({ kind: "split", parts: q.options.map((item, j) => ({ item, amount: amountOf(next[j]) })) });
   };
   return (
     <div className="pv-ask-split">
-      {parts.map((p, i) => (
-        <label key={p.item.value} className="pv-ask-split-row">
-          <span className="pv-ask-split-label">{p.item.label}</span>
+      {q.options.map((item, i) => (
+        <label key={item.value} className="pv-ask-split-row">
+          <span className="pv-ask-split-label">{item.label}</span>
           <input
             className="pv-ask-input"
             inputMode="decimal"
-            aria-label={p.item.label}
-            value={p.amount === 0 && draft?.kind !== "split" ? "" : String(p.amount)}
+            aria-label={item.label}
+            aria-invalid={Number.isFinite(amounts[i]) ? undefined : true}
+            value={raws[i]}
             placeholder="0"
-            onChange={(e) => {
-              const n = Number(e.target.value);
-              set(i, Number.isFinite(n) ? n : 0);
-            }}
+            onChange={(e) => set(i, e.target.value)}
           />
           {q.unit && <span className="pv-ask-affix">{q.unit}</span>}
         </label>
       ))}
-      <div className="pv-ask-split-left" data-ok={left === 0 ? "true" : undefined}>
-        {left === 0 ? `Adds up to ${total}` : left > 0 ? `${left} left to place of ${total}` : `${-left} over ${total}`}
+      <div className="pv-ask-split-left" data-ok={allValid && left === 0 ? "true" : undefined}>
+        {!allValid
+          ? "Amounts must be numbers of 0 or more"
+          : left === 0
+            ? `Adds up to ${total}`
+            : left > 0
+              ? `${left} left to place of ${total}`
+              : `${-left} over ${total}`}
       </div>
     </div>
   );

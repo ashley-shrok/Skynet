@@ -6,15 +6,27 @@ import type { QuestionAnswer } from "./answer-format";
 
 export type Draft = QuestionAnswer | null;
 
-/** The starting answer for kinds that always have one (order, slider). */
+/** The starting answer: the order as given, a slider's position, or the agent's default. */
 export function initialDraft(q: AskQuestion): Draft {
   if (q.kind === "order") return { kind: "order", ordered: q.options.slice() };
+  const d = q.default;
   if (q.kind === "slider") {
-    const min = q.min ?? 0;
-    const d = typeof q.default === "number" ? q.default : Number(q.default);
-    return { kind: "number", value: Number.isFinite(d) ? d : min };
+    const n = typeof d === "number" ? d : Number(d);
+    return { kind: "number", value: d !== undefined && Number.isFinite(n) ? n : q.min ?? 0 };
+  }
+  if (d === undefined || d === "") return null;
+  if (q.kind === "text" || q.kind === "long-text") return { kind: "text", text: String(d) };
+  if (q.kind === "date") return /^\d{4}-\d{2}-\d{2}$/.test(String(d)) ? { kind: "date", value: String(d) } : null;
+  if (q.kind === "number" || q.kind === "money") {
+    const n = typeof d === "number" ? d : Number(String(d).replace(/[,\s$€£¥]/g, ""));
+    return Number.isFinite(n) ? { kind: "number", value: n } : null;
   }
   return null;
+}
+
+/** A split adds up when its parts reach the total (to a millionth). */
+export function splitLeft(total: number, amounts: number[]): number {
+  return Math.round((total - amounts.reduce((s, a) => s + a, 0)) * 1e6) / 1e6;
 }
 
 export function isAnswered(q: AskQuestion, d: Draft): boolean {
@@ -34,7 +46,7 @@ export function isAnswered(q: AskQuestion, d: Draft): boolean {
     case "date":
       return /^\d{4}-\d{2}-\d{2}$/.test(d.value);
     case "split":
-      return Math.abs(d.parts.reduce((s, p) => s + p.amount, 0) - (q.total ?? 0)) < 1e-9;
+      return d.parts.every((p) => Number.isFinite(p.amount) && p.amount >= 0) && splitLeft(q.total ?? 0, d.parts.map((p) => p.amount)) === 0;
   }
 }
 

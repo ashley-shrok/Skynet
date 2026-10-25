@@ -6,6 +6,8 @@
 // replaced by the newer one — the next message the user sends says so.
 import { lastAskIn, type Ask } from "./ask-format";
 
+export const MAX_REPLACED_NOTICES = 3;
+
 export interface OpenAsk {
   ask: Ask;
   /** The agent message the ask came from. */
@@ -30,13 +32,23 @@ export function deriveOpenAsk(
   const found: Array<{ ask: Ask; eventId: string }> = [];
   for (let i = events.length - 1; i >= 0; i--) {
     const e = events[i];
-    if (e.type !== "message" || typeof e.content !== "string") continue;
-    if (e.role === "user") break;
-    if (e.role !== "assistant") continue;
+    // Anything the user sent — a message, or one that arrived as pictures
+    // (an attachment send) — is their reply.
+    if (e.role === "user" && (e.type === "message" || e.type === "image")) break;
+    if (e.type !== "message" || e.role !== "assistant" || typeof e.content !== "string") continue;
     const ask = lastAskIn(e.content);
     if (ask) found.push({ ask, eventId: e.eventId });
   }
   if (found.length === 0) return null;
   const [open, ...older] = found;
-  return { ask: open.ask, eventId: open.eventId, replaced: older.reverse().map((f) => f.ask) };
+  // Re-asking the same question isn't a replacement, and one message never
+  // carries more than a few notices (older ones are long stale anyway).
+  const seen = new Set([open.ask.id]);
+  const replaced: Ask[] = [];
+  for (const f of older) {
+    if (seen.has(f.ask.id)) continue;
+    seen.add(f.ask.id);
+    replaced.push(f.ask);
+  }
+  return { ask: open.ask, eventId: open.eventId, replaced: replaced.slice(0, MAX_REPLACED_NOTICES).reverse() };
 }

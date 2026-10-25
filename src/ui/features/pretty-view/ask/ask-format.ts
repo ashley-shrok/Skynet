@@ -131,7 +131,7 @@ function parseOption(raw: unknown, where: string): AskOption {
       value: str(o.value) ?? (time ?? label),
       description: (str(o.description) ?? str(o.detail)) || undefined,
       recommended: o.recommended === true || undefined,
-      color: str(o.color) ?? str(o.colour),
+      color: validColor(str(o.color) ?? str(o.colour), where),
       image: str(o.image),
       file: str(o.file),
       time,
@@ -141,6 +141,14 @@ function parseOption(raw: unknown, where: string): AskOption {
 }
 
 const SLOT_RE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/;
+
+// A colour face is a colour value only — never anything a style could fetch.
+const COLOR_RE = /^(#[0-9a-f]{3,8}|(rgb|hsl)a?\([\d\s.,%/+-]+\)|[a-z]{3,30})$/i;
+function validColor(c: string | undefined, where: string): string | undefined {
+  if (c === undefined) return undefined;
+  if (!COLOR_RE.test(c)) throw new Error(`${where}: "${c}" is not a colour`);
+  return c;
+}
 
 /** "2026-10-27T14:00" → "Tue Oct 27, 2:00 PM" (local, no timezone shift). */
 export function formatSlot(time: string): string {
@@ -210,6 +218,7 @@ function parseQuestion(raw: unknown, index: number, multi: boolean): AskQuestion
   if (needsItems && options.length < 2) throw new Error(`${where}: needs at least two items`);
   if (kind === "decide" && (choices.length < 2 || choices.length > 4)) throw new Error(`${where}: decide needs two to four choices`);
   if (layout === "week" && !options.every((o) => o.time)) throw new Error(`${where}: every option in a week layout needs a time`);
+  if (layout === "week" && new Set(options.map((o) => o.time)).size !== options.length) throw new Error(`${where}: two options share a time`);
 
   const total = num(q.total);
   if (kind === "split" && total === undefined) throw new Error(`${where}: split needs a total`);
@@ -273,21 +282,51 @@ export function parseAskBlock(body: string): AskParseResult {
   }
 }
 
-/** Every ```ask fenced block in a markdown message, in order (bodies only). */
+/**
+ * Every top-level ```ask fenced block in a markdown message, in order (bodies
+ * only). Walks fences the way markdown does, so an ask shown as an example
+ * inside another code block is not an ask; blocks inside quotes or lists
+ * aren't either (the bubble then shows them as plain text).
+ */
 export function findAskBlocks(markdown: string): string[] {
   const out: string[] = [];
-  const re = /^ {0,3}(`{3,}|~{3,})[ \t]*ask[ \t]*\r?\n([\s\S]*?)^ {0,3}\1[ \t]*$/gm;
-  let m: RegExpExecArray | null;
-  while ((m = re.exec(markdown)) !== null) out.push(m[2]);
+  const lines = markdown.split(/\r?\n/);
+  let open: { char: string; len: number; ask: boolean; body: string[] } | null = null;
+  for (const line of lines) {
+    if (open) {
+      const close = /^ {0,3}(`{3,}|~{3,})[ \t]*$/.exec(line);
+      if (close && close[1][0] === open.char && close[1].length >= open.len) {
+        if (open.ask) out.push(open.body.join("\n") + "\n");
+        open = null;
+      } else {
+        open.body.push(line);
+      }
+      continue;
+    }
+    const start = /^ {0,3}(`{3,}|~{3,})[ \t]*([^\s`]*)/.exec(line);
+    if (start) {
+      // Only a bare "ask" info string makes an ask block.
+      const info = line.replace(/^ {0,3}(`{3,}|~{3,})/, "").trim();
+      open = { char: start[1][0], len: start[1].length, ask: info === "ask", body: [] };
+    }
+  }
+  // An unclosed fence runs to the end of the message, as markdown draws it.
+  if (open?.ask) out.push(open.body.join("\n") + "\n");
   return out;
+}
+
+/** The body of the message's last ask block (readable or not), or null. */
+export function lastAskBody(markdown: string): string | null {
+  if (!markdown.includes("ask")) return null;
+  const blocks = findAskBlocks(markdown);
+  return blocks.length > 0 ? blocks[blocks.length - 1] : null;
 }
 
 /** The message's last readable ask, or null (no block, or the last one is unreadable). */
 export function lastAskIn(markdown: string): Ask | null {
-  if (!markdown.includes("ask")) return null;
-  const blocks = findAskBlocks(markdown);
-  if (blocks.length === 0) return null;
-  const res = parseAskBlock(blocks[blocks.length - 1]);
+  const body = lastAskBody(markdown);
+  if (body === null) return null;
+  const res = parseAskBlock(body);
   return res.ok ? res.ask : null;
 }
 

@@ -30,7 +30,10 @@ tells you they answered in words instead.
   (just ask in words). Most questions should still be plain words.
 - **Only in your own conversation with the user.** Relay messages and relay
   rooms have no tray; a block sent there just shows as plain text.
-- **One ask per reply.** If you need several answers, put up to four
+- **Keep it top-level.** A block inside a quote, a list, or another code block
+  isn't an ask (that's how you show the format without asking).
+- **One ask per reply.** Only the last `ask` block in a reply reaches the tray;
+  any earlier one shows as plain text. If you need several answers, put up to four
   questions in one block; they share one Send.
 - Put the context in your prose above the block (what you found, what each
   choice means). Keep the question itself short.
@@ -149,7 +152,8 @@ Lines starting `[tray]` at the top of a user message are from the app:
   such; it isn't a refusal.
 - `[tray] Your earlier question "…" (ask …) was replaced by a newer one before I answered it.`
   You asked again before they answered. Don't wait for the earlier one; ask
-  again if you still need it.
+  again if you still need it. At most the three most recent replaced questions
+  are mentioned, and re-asking the same `id` doesn't count as replacing it.
 
 ## How long a question stays up
 

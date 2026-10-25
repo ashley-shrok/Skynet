@@ -22,6 +22,7 @@ import { FileChip } from "./FileChip";
 import { AppChip } from "./AppChip";
 import { parseSkynetAppUrl } from "../apps/app-link";
 import { AskMarker, AnswerBubbleBody } from "./ask/AskBubbleParts";
+import { lastAskBody } from "./ask/ask-format";
 import { parseAnswerMessage, stripTrayNotices } from "./ask/answer-format";
 import { buildSkynetFileUrl, encodeFileLinkSpaces, isSkynetFileUrl } from "./file-url";
 
@@ -155,6 +156,10 @@ export const ChatMessage = React.memo(function ChatMessage({
   const content = isUser ? stripTrayNotices(stripVoiceLabel(rawContent)) : rawContent;
   // A tray answer renders as an answer bubble (shape-interactive-responses).
   const answer = useMemo(() => (isUser ? parseAnswerMessage(content) : null), [isUser, content]);
+  // The one ask block of this message the tray can hold (its last top-level
+  // one). Any other ask-looking block reads as plain text, so a marker never
+  // points at a question the tray doesn't have.
+  const trayAskBody = useMemo(() => (isUser || !askTray ? null : lastAskBody(content)), [isUser, askTray, content]);
   const containerRef = useRef<HTMLDivElement>(null);
 
   // Phase 124 Plan 01 (D-39): leaf-level feedback-enabled subscription. When
@@ -205,6 +210,11 @@ export const ChatMessage = React.memo(function ChatMessage({
   const injected = useMemo(
     () => (isUser ? parseInjectedUserTurn(content) : null),
     [isUser, content],
+  );
+  // A tray answer sent with files: the caption is the answer.
+  const captionAnswer = useMemo(
+    () => (injected ? parseAnswerMessage(stripTrayNotices(injected.caption)) : null),
+    [injected],
   );
   // Quick-reply as-a-thumbs-up: a user message whose text is exactly the
   // quick-reply payload "thumbs up" (case-insensitive, ignoring surrounding
@@ -319,7 +329,10 @@ export const ChatMessage = React.memo(function ChatMessage({
       // An agent's ask block: a quiet marker here; the question itself is in
       // the tray above the compose box.
       const askBody = askBodyFromPre(node);
-      if (askBody !== null) return <AskMarker body={askBody} trayShown={askTray} />;
+      if (askBody !== null) {
+        const inTray = trayAskBody !== null && askBody.trimEnd() === trayAskBody.trimEnd();
+        return <AskMarker body={askBody} trayShown={inTray} />;
+      }
       const diff = chatDiffFromPre(node);
       if (diff) return <ChatDiffBlock text={diff.text} patch={diff.patch} />;
       return <CopyableBlock as="pre" {...props}>{children}</CopyableBlock>;
@@ -327,7 +340,7 @@ export const ChatMessage = React.memo(function ChatMessage({
     blockquote: ({ node, children, ...props }) => (
       <CopyableBlock as="blockquote" {...props}>{children}</CopyableBlock>
     ),
-  }), [eventId, onOpenEditor, fileDragOrigin, askTray]);
+  }), [eventId, onOpenEditor, fileDragOrigin, trayAskBody]);
   const titleText = useMemo(
     () => (ts !== undefined ? new Date(ts).toLocaleString() : undefined),
     [ts],
@@ -407,7 +420,7 @@ export const ChatMessage = React.memo(function ChatMessage({
       >
         {isQuickReply ? (
           <ThumbsUp className="size-6" aria-label="quick reply" />
-        ) : answer ? (
+        ) : answer && !injected && !(attachments && attachments.length > 0) ? (
           <AnswerBubbleBody answer={answer} />
         ) : injected ? (
           // Sender-side render of an injected user turn. Caption text sits
@@ -421,7 +434,9 @@ export const ChatMessage = React.memo(function ChatMessage({
           // render when any of those are missing (e.g. relay-source mount,
           // no host context, older messages without eventId hooks).
           <>
-            {injected.caption.length > 0 && (
+            {captionAnswer ? (
+              <div className="mb-2"><AnswerBubbleBody answer={captionAnswer} /></div>
+            ) : injected.caption.length > 0 && (
               <div className="pv-injected-caption whitespace-pre-wrap mb-2">
                 {injected.caption}
               </div>
@@ -500,7 +515,9 @@ export const ChatMessage = React.memo(function ChatMessage({
           // landingPath), different file-shape mapping (PendingSend
           // triple vs ParsedInjectedTurn files), 8 lines of JSX total.
           <>
-            {content.length > 0 && (
+            {answer ? (
+              <div className="mb-2"><AnswerBubbleBody answer={answer} /></div>
+            ) : content.length > 0 && (
               <div className="pv-injected-caption whitespace-pre-wrap mb-2">
                 {content}
               </div>

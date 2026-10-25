@@ -275,3 +275,28 @@ describe("Interactive responses — the tray above the compose box", () => {
     expect(tray()).toBeNull();
   });
 });
+
+describe("Interactive responses — every send path tells the agent (review fix)", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    wsStubs.length = 0;
+    vi.stubGlobal("ResizeObserver", vi.fn(function () {
+      return { observe: vi.fn(), unobserve: vi.fn(), disconnect: vi.fn() };
+    }));
+    localStorage.clear();
+  });
+  afterEach(() => { vi.unstubAllGlobals(); });
+
+  it("a thumbs-up while a question waits carries the replied-in-words notice", async () => {
+    const onSend = vi.fn((_t: string, _m?: string) => true);
+    const r = render(<PrettyView hostId={1} tmuxSession="s1" isVisible={true} onSend={onSend} hostName="box" />);
+    const ws = getCurrentWs();
+    flipToStreaming(ws);
+    await waitFor(() => expect(textarea(r.container)).not.toBeNull());
+    frame(ws, "assistant", SHIP);
+    await waitFor(() => expect(tray()).not.toBeNull());
+    act(() => { fireEvent.click(screen.getByRole("button", { name: "Send 'thumbs up'" })); });
+    expect(onSend.mock.calls[0]![0]).toMatch(/^\[tray\] I replied in words .*\n\nthumbs up$/);
+    expect(tray()).toBeNull();
+  });
+});

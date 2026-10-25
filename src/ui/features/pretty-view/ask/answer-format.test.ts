@@ -148,3 +148,13 @@ describe("tray notices", () => {
     expect(stripTrayNotices("[trayish] hi")).toBe("[trayish] hi");
   });
 });
+
+describe("notices for multi-line questions (review fix)", () => {
+  it("stay one line, so they strip and the answer still reads back", () => {
+    const multi = ask("id: m\nquestion: |\n  First line\n  second line?\noptions: [a, b]");
+    const words = withWordsNotice("ok", ship, [multi]);
+    expect(stripTrayNotices(words)).toBe("ok");
+    const answer = buildAnswerMessage(ship, [{ kind: "options", picked: [ship.questions[0].options[0]] }], "", [multi]);
+    expect(parseAnswerMessage(answer)?.askId).toBe("ship");
+  });
+});
