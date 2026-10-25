@@ -8,10 +8,11 @@ import type { ParsedAnswerMessage } from "./answer-format";
 import { SPEAK_SKIP_ATTR } from "../speakable-text";
 import "./ask.css";
 
-export function AskMarker({ body }: { body: string }) {
+export function AskMarker({ body, trayShown = true }: { body: string; trayShown?: boolean }) {
   const res = parseAskBlock(body);
-  if (!res.ok) {
-    // Unreadable: no tray; show what was asked so it can be answered in words.
+  if (!res.ok || !trayShown) {
+    // Unreadable, or nowhere to answer it (relay rooms have no tray): show
+    // what was asked so it can be answered in words.
     return (
       <div className="pv-ask-fallback" data-testid="ask-fallback">
         {body.replace(/\n$/, "")}

@@ -28,6 +28,8 @@ tells you they answered in words instead.
 - **Don't use it** for chatter, suggestions, "anything else?", "should I
   continue?" after every step, or a question whose answer is open-ended prose
   (just ask in words). Most questions should still be plain words.
+- **Only in your own conversation with the user.** Relay messages and relay
+  rooms have no tray; a block sent there just shows as plain text.
 - **One ask per reply.** If you need several answers, put up to four
   questions in one block; they share one Send.
 - Put the context in your prose above the block (what you found, what each

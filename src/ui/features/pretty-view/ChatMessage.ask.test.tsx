@@ -48,3 +48,11 @@ describe("ChatMessage — asks and answers", () => {
     expect(screen.getByLabelText("quick reply")).toBeTruthy();
   });
 });
+
+describe("ChatMessage — asks where there is no tray", () => {
+  it("shows the ask as plain text in a relay room", () => {
+    render(<ChatMessage role="assistant" content={ASK} eventId="e4" askTray={false} />);
+    expect(screen.queryByTestId("ask-marker")).toBeNull();
+    expect(screen.getByTestId("ask-fallback").textContent).toContain("options: [Now, Tonight, Hold]");
+  });
+});

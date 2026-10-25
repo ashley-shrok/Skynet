@@ -4995,6 +4995,8 @@ export function PrettyView({
                   hostName={hostName}
                   onOpenEditor={handleOpenEditor}
                   fileDragOrigin={fileDragOrigin}
+                  // Relay rooms have no tray: an ask reads as plain text there.
+                  askTray={source.kind !== "relay"}
                   // Phase 124 Plan 02 (shape 3 — message thumbs, D-38):
                   // wire the thumbs callback plumbing ONLY to the
                   // ChatMessage-branch of the message-type conditional.

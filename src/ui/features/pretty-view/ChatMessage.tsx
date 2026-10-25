@@ -86,6 +86,7 @@ export const ChatMessage = React.memo(function ChatMessage({
   pendingState = null,
   attachments,
   hostName,
+  askTray = true,
 }: {
   role: "user" | "assistant";
   content: string;
@@ -130,6 +131,9 @@ export const ChatMessage = React.memo(function ChatMessage({
   // (same click contract as assistant-side chips); when absent, they fall
   // back to the static read-only AttachmentChipStrip render.
   hostName?: string;
+  // shape-interactive-responses: false where no tray exists (relay rooms) —
+  // an ask block then shows as plain text so it can be answered in words.
+  askTray?: boolean;
   // Phase 80 D-15: attachments carried on a pending-with-attachments seed
   // (PendingSend.attachments — populated by Plan 02's onUploadReadyToInject
   // wiring). When present + non-empty AND the existing `injected` branch
@@ -315,7 +319,7 @@ export const ChatMessage = React.memo(function ChatMessage({
       // An agent's ask block: a quiet marker here; the question itself is in
       // the tray above the compose box.
       const askBody = askBodyFromPre(node);
-      if (askBody !== null) return <AskMarker body={askBody} />;
+      if (askBody !== null) return <AskMarker body={askBody} trayShown={askTray} />;
       const diff = chatDiffFromPre(node);
       if (diff) return <ChatDiffBlock text={diff.text} patch={diff.patch} />;
       return <CopyableBlock as="pre" {...props}>{children}</CopyableBlock>;
@@ -323,7 +327,7 @@ export const ChatMessage = React.memo(function ChatMessage({
     blockquote: ({ node, children, ...props }) => (
       <CopyableBlock as="blockquote" {...props}>{children}</CopyableBlock>
     ),
-  }), [eventId, onOpenEditor, fileDragOrigin]);
+  }), [eventId, onOpenEditor, fileDragOrigin, askTray]);
   const titleText = useMemo(
     () => (ts !== undefined ? new Date(ts).toLocaleString() : undefined),
     [ts],
