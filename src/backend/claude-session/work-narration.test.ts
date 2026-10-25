@@ -1,4 +1,8 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { execFileSync } from "child_process";
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "fs";
+import { tmpdir } from "os";
+import { join } from "path";
 import type { WebSocket } from "ws";
 import type { Client } from "ssh2";
 import {
@@ -10,6 +14,7 @@ import {
   buildNarrationInput,
   MIN_INTERVAL_MS,
   SETTLE_MS,
+  AUTH_EXTRACT_PY,
   type NarrationRunner,
 } from "./work-narration.js";
 
@@ -113,11 +118,57 @@ describe("buildNarrationCommand / buildNarrationInput", () => {
   });
 });
 
+describe("sign-in extraction (runs the real script)", () => {
+  const run = (settings: unknown, claudeJson: unknown, shellEnv: Record<string, string> = {}) => {
+    const home = mkdtempSync(join(tmpdir(), "narr-home-"));
+    try {
+      mkdirSync(join(home, ".claude"));
+      writeFileSync(join(home, ".claude", "settings.json"), JSON.stringify(settings));
+      writeFileSync(join(home, ".claude.json"), JSON.stringify(claudeJson));
+      // No tmux session given → the agent's process isn't looked up; this shell's env is the base.
+      return execFileSync("python3", ["-c", AUTH_EXTRACT_PY, ""], {
+        env: { HOME: home, PATH: process.env.PATH ?? "/usr/bin:/bin", ...shellEnv },
+      }).toString();
+    } finally {
+      rmSync(home, { recursive: true, force: true });
+    }
+  };
+
+  it("carries Bedrock sign-in and nothing else", () => {
+    const out = run(
+      {
+        env: { CLAUDE_CODE_USE_BEDROCK: true, AWS_REGION: "us-east-1", DISABLE_AUTO_COMPACT: "1", "ANTHROPIC_\u00c9X": "1", "BAD;x": "1" },
+        awsAuthRefresh: "aws sso login",
+        enabledPlugins: { "x@y": true },
+        remoteControlAtStartup: true,
+      },
+      {},
+    );
+    expect(out).toContain("export CLAUDE_CODE_USE_BEDROCK=1\n");
+    expect(out).toContain("export AWS_REGION=us-east-1\n");
+    expect(out).not.toMatch(/DISABLE_AUTO_COMPACT|BAD|\u00c9X|Plugins|remoteControl/);
+    expect(out).toMatch(/NARR_SETTINGS='\{"awsAuthRefresh": "aws sso login", "disableAllHooks": true, "alwaysThinkingEnabled": false\}'/);
+  });
+
+  it("drops an API key the agent turned down, and unsets it from the shell", () => {
+    const key = "sk-ant-api03-abcdefghijklmnopqrstuvwxyz0123456789";
+    const out = run({ env: { CLAUDE_CODE_OAUTH_TOKEN: "oauth-tok" } }, { customApiKeyResponses: { rejected: [key.slice(-20)] } }, { ANTHROPIC_API_KEY: key });
+    expect(out).toContain("unset ANTHROPIC_API_KEY\n");
+    expect(out).toContain("export CLAUDE_CODE_OAUTH_TOKEN=oauth-tok\n");
+    expect(out).not.toContain(key);
+  });
+
+  it("keeps an API key the agent uses, quoting values safely", () => {
+    const out = run({ env: { ANTHROPIC_API_KEY: "sk-'$(touch /tmp/x)" } }, {});
+    expect(out).toContain(`export ANTHROPIC_API_KEY='sk-'"'"'$(touch /tmp/x)'`);
+  });
+});
+
 describe("WorkNarrationHub", () => {
   let now: number;
   let runner: ReturnType<typeof vi.fn<NarrationRunner>>;
   let hub: WorkNarrationHub;
-  const ctx = (key = "1::agent") => ({ key, hostId: 1, conn });
+  const ctx = (key = "1::agent") => ({ key, hostId: 1, tmuxSession: key.split("::")[1], conn });
 
   beforeEach(() => {
     vi.useFakeTimers();
@@ -150,6 +201,18 @@ describe("WorkNarrationHub", () => {
     expect(input).toContain("Fix the bubbles");
     expect(input).toContain("- Bash: c");
     expect(ws.sent.at(-1)).toEqual({ type: "work_narration", short: "Fixing it", long: "Found the cause, fixing it now" });
+  });
+
+  it("a busy agent's live lines can't hold off the first line forever", async () => {
+    const ws = fakeWs();
+    hub.setWatching(ws, true);
+    hub.observeLine(ws, ctx(), prompt("Go", 0));
+    // A step every second, for 20 seconds — never a 1.5 s pause.
+    for (let i = 1; i <= 20; i++) {
+      hub.observeLine(ws, ctx(), tool(`s${i}`, i * 1000));
+      await vi.advanceTimersByTimeAsync(1000);
+    }
+    expect(runner).toHaveBeenCalled();
   });
 
   it("never calls while no tab is watching", async () => {

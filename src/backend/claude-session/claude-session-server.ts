@@ -5266,7 +5266,7 @@ wss.on("connection", async (ws: WebSocket, req) => {
     onLine(line);
     // Work narration: the shared narrator for this agent reads the same lines.
     if (!stopped && ws.readyState === WebSocket.OPEN && sshConn && currentHostId != null && currentTmuxSession != null) {
-      workNarrationHub.observeLine(ws, { key: sessionKey(currentHostId, currentTmuxSession), hostId: currentHostId, conn: sshConn }, line);
+      workNarrationHub.observeLine(ws, { key: sessionKey(currentHostId, currentTmuxSession), hostId: currentHostId, tmuxSession: currentTmuxSession, conn: sshConn }, line);
     }
   };
 

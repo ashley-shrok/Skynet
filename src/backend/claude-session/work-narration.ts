@@ -31,6 +31,8 @@ export const FIRST_LINE_MIN_STEPS = 3;
 export const MIN_INTERVAL_MS = 45_000;
 /** After a tab attaches, wait for its history replay to go quiet before narrating. */
 export const SETTLE_MS = 1_500;
+/** A tab's replay never delays narration for longer than this. */
+export const REPLAY_MAX_MS = 15_000;
 export const MAX_STEPS_IN_PROMPT = 24;
 /** A line this much older than the newest line seen is replayed history. */
 export const REPLAY_SLACK_MS = 60_000;
@@ -62,6 +64,8 @@ export interface NarrationLine {
 export interface NarrationContext {
   key: string;
   hostId: number;
+  /** The agent's tmux session on that host (used to find its running Claude). */
+  tmuxSession: string;
   conn: Client;
 }
 
@@ -72,45 +76,86 @@ const defaultRunner: NarrationRunner = (conn, command, stdin, timeoutMs) =>
 
 const shellQuote = (s: string): string => `'${s.replace(/'/g, `'\\''`)}'`;
 
-// Runs on the agent's box: prints `export` lines for the sign-in parts of the
-// user's Claude settings env block (subscription token, API key, Bedrock /
-// Vertex switches, AWS / Google settings, proxies) and NARR_SETTINGS — a
-// settings object carrying only the credential helpers plus the narrator's own
-// switches. Everything else in those settings (plugins, remote control, push
-// notifications, hooks, model, permissions) is left behind.
-const AUTH_EXTRACT_PY = [
-  "import json,os,shlex",
-  "try: s=json.load(open(os.path.expanduser('~/.claude/settings.json')))",
-  "except Exception: s={}",
+// Runs on the agent's box (argv[1] = the agent's tmux session) and prints
+// shell lines that give the narrator the agent's sign-in, nothing else:
+//   1. start from the sign-in variables of the agent's own running Claude
+//      process (found under its tmux pane) — or, if it can't be found, of
+//      this shell;
+//   2. overlay the sign-in entries of the user settings' env block (Claude
+//      applies those on top of its environment);
+//   3. drop an API key the agent was asked about and turned down
+//      (~/.claude.json customApiKeyResponses.rejected), as interactive
+//      Claude would — one-shot mode never asks;
+//   4. unset every other sign-in variable this shell has.
+// Plus NARR_SETTINGS: only the credential-helper settings and the narrator's
+// own switches. Plugins, remote control, push notifications, hooks and
+// permissions are left behind. A normal subscription login lives in Claude's
+// credential store and is found without help.
+export const AUTH_EXTRACT_PY = [
+  "import json,os,re,shlex,subprocess,sys",
+  "A=re.compile(r'^(ANTHROPIC_[A-Z0-9_]+|AWS_[A-Z0-9_]+|CLAUDE_CODE_USE_[A-Z0-9_]+|CLAUDE_CODE_SKIP_[A-Z0-9_]+|CLOUD_ML_[A-Z0-9_]+|GOOGLE_[A-Z0-9_]+|VERTEX_[A-Z0-9_]+|CLAUDE_CODE_OAUTH_TOKEN|HTTPS?_PROXY|NO_PROXY|https?_proxy|no_proxy|NODE_EXTRA_CA_CERTS)$')",
+  "def load(p):",
+  "  try: return json.load(open(os.path.expanduser(p)))",
+  "  except Exception: return {}",
+  "def agent_env(sess):",
+  "  try:",
+  "    out=subprocess.run(['tmux','list-panes','-s','-t','='+sess,'-F','#{pane_pid}'],capture_output=True,text=True,timeout=5).stdout",
+  "    todo=[int(x) for x in out.split()]",
+  "    while todo:",
+  "      p=todo.pop(0)",
+  "      try: comm=open('/proc/%d/comm'%p).read().strip()",
+  "      except Exception: continue",
+  "      if comm=='claude':",
+  "        raw=open('/proc/%d/environ'%p,'rb').read().split(b'\\0')",
+  "        return dict(x.decode('utf-8','replace').split('=',1) for x in raw if b'=' in x)",
+  "      try: todo+=[int(c) for c in open('/proc/%d/task/%d/children'%(p,p)).read().split()]",
+  "      except Exception: pass",
+  "  except Exception: pass",
+  "  return None",
+  "def val(v):",
+  "  if isinstance(v,bool): return '1' if v else '0'",
+  "  return v if isinstance(v,str) else str(v) if isinstance(v,(int,float)) else None",
+  "base=agent_env(sys.argv[1]) if len(sys.argv)>1 and sys.argv[1] else None",
+  "if base is None: base=dict(os.environ)",
+  "final={k:v for k,v in base.items() if A.match(k)}",
+  "s=load('~/.claude/settings.json')",
   "e=s.get('env') if isinstance(s.get('env'),dict) else {}",
-  "P=('ANTHROPIC_','AWS_','CLAUDE_CODE_USE_','CLAUDE_CODE_SKIP_','CLOUD_ML_','GOOGLE_','VERTEX_')",
-  "K={'CLAUDE_CODE_OAUTH_TOKEN','HTTPS_PROXY','HTTP_PROXY','NO_PROXY','https_proxy','http_proxy','no_proxy','NODE_EXTRA_CA_CERTS'}",
   "for k,v in e.items():",
-  "  if isinstance(v,(str,int,float)) and k.replace('_','').isalnum() and (k in K or k.startswith(P)): print('export %s=%s'%(k,shlex.quote(str(v))))",
+  "  if isinstance(k,str) and A.match(k) and val(v) is not None: final[k]=val(v)",
+  "rej=(load('~/.claude.json').get('customApiKeyResponses') or {}).get('rejected') or []",
+  "if final.get('ANTHROPIC_API_KEY','')[-20:] in rej: final.pop('ANTHROPIC_API_KEY')",
+  "for k in os.environ:",
+  "  if A.match(k) and k not in final: print('unset %s'%k)",
+  "for k,v in final.items(): print('export %s=%s'%(k,shlex.quote(v)))",
   "f={k:s[k] for k in ('apiKeyHelper','awsAuthRefresh','awsCredentialExport','gcpAuthRefresh','forceLoginMethod','forceLoginOrgUUID') if k in s}",
   "f.update(disableAllHooks=True,alwaysThinkingEnabled=False)",
   "print('NARR_SETTINGS=%s'%shlex.quote(json.dumps(f)))",
 ].join("\n");
 
-export function buildNarrationCommand(): string {
+const TMUX_SESSION_RE = /^[A-Za-z0-9_.-]+$/;
+
+export function buildNarrationCommand(tmuxSession = ""): string {
   // No settings files are loaded (--setting-sources ""): a box's user settings
   // can enable plugins, remote control or push notifications. Instead the call
   // signs in exactly the way the agent does — subscription token, normal
-  // login, API key, Bedrock or Vertex — by carrying over only the sign-in
-  // parts of those settings (see AUTH_EXTRACT_PY). Values travel in the
-  // environment, never on the command line. A normal subscription login lives
-  // in Claude's own credential store and is found without help.
+  // login, API key, Bedrock or Vertex — by mirroring only the agent's sign-in
+  // (see AUTH_EXTRACT_PY). Values travel in the environment, never on the
+  // command line.
   const fallback = JSON.stringify({ disableAllHooks: true, alwaysThinkingEnabled: false });
+  const session = TMUX_SESSION_RE.test(tmuxSession) ? tmuxSession : "";
   return [
     "cd /tmp 2>/dev/null;",
     'C="$HOME/.local/bin/claude"; [ -x "$C" ] || C=$(command -v claude) || exit 127;',
-    `eval "$(python3 -c ${shellQuote(AUTH_EXTRACT_PY)} 2>/dev/null)";`,
+    `eval "$(python3 -c ${shellQuote(AUTH_EXTRACT_PY)} ${shellQuote(session)} 2>/dev/null)";`,
     `[ -n "$NARR_SETTINGS" ] || NARR_SETTINGS=${shellQuote(fallback)};`,
+    // The remote end kills the call itself: an SSH channel closed on timeout
+    // doesn't reliably stop a process with no terminal.
+    'TO=""; command -v timeout >/dev/null 2>&1 && TO="timeout -k 5 55";',
     // Nothing that makes the call think it runs inside an agent's session.
     "env -u CLAUDECODE -u CLAUDE_CODE_ENTRYPOINT -u CLAUDE_CODE_SESSION_ID -u CLAUDE_CODE_CHILD_SESSION",
     "-u CLAUDE_CODE_MESSAGING_SOCKET -u CLAUDE_CODE_MESSAGING_TOKEN",
     "MAX_THINKING_TOKENS=0 CLAUDE_CODE_DISABLE_CLAUDE_MDS=1 CLAUDE_CODE_DISABLE_AUTO_MEMORY=1 DISABLE_AUTOUPDATER=1",
-    '"$C" -p --model haiku --setting-sources "" --strict-mcp-config --tools "" --no-session-persistence --output-format text',
+    '$TO "$C" -p --model haiku --setting-sources "" --strict-mcp-config --tools "" --no-session-persistence --output-format text',
     '--settings "$NARR_SETTINGS"',
     `--system-prompt ${shellQuote(NARRATION_SYSTEM_PROMPT)}`,
   ].join(" ");
@@ -201,6 +246,7 @@ export function isTurnEnd(obj: Record<string, unknown>): boolean {
 interface Narrator {
   key: string;
   hostId: number;
+  tmuxSession: string;
   conns: Map<WebSocket, Client>;
   /** Newest line timestamp seen, and the uuids seen (with their timestamps) within REPLAY_SLACK_MS of it. */
   newest: number;
@@ -223,6 +269,7 @@ export class WorkNarrationHub {
   private narrators = new Map<string, Narrator>();
   private keyByWs = new Map<WebSocket, string>();
   private watching = new Map<WebSocket, boolean>();
+  private replay = new Map<WebSocket, { attachedAt: number; lastAt: number; done: boolean }>();
   private hostChains = new Map<number, Promise<unknown>>();
 
   constructor(
@@ -311,6 +358,7 @@ export class WorkNarrationHub {
   detach(ws: WebSocket): void {
     const key = this.keyByWs.get(ws);
     this.keyByWs.delete(ws);
+    this.replay.delete(ws);
     if (key === undefined) return;
     const n = this.narrators.get(key);
     if (!n) return;
@@ -335,19 +383,31 @@ export class WorkNarrationHub {
     let n = this.narrators.get(ctx.key);
     if (!n) {
       n = {
-        key: ctx.key, hostId: ctx.hostId, conns: new Map(),
+        key: ctx.key, hostId: ctx.hostId, tmuxSession: ctx.tmuxSession, conns: new Map(),
         newest: -Infinity, seen: new Map(), settlingUntil: 0,
         turn: 0, starter: null, steps: [], stepCount: 0, stepsSinceLine: 0,
         line: null, lineAt: 0, retryAt: 0, inFlight: false, timer: null,
       };
       this.narrators.set(ctx.key, n);
     }
+    const now = this.now();
     if (!n.conns.has(ws)) {
       if (n.line) this.sendTo(ws, n.line);
+      this.replay.set(ws, { attachedAt: now, lastAt: now, done: false });
     }
-    // Every line from a tab still replaying history pushes the settle window out;
-    // once its replay goes quiet the narrator may fire.
-    if (!n.conns.has(ws) || this.now() < n.settlingUntil) n.settlingUntil = this.now() + SETTLE_MS;
+    // While a newly attached tab is still replaying history, each of its lines
+    // pushes the settle window out; once its replay goes quiet (or after
+    // REPLAY_MAX_MS, so a busy agent's live lines can't hold it off forever)
+    // the tab counts as caught up and its lines no longer delay narration.
+    const r = this.replay.get(ws);
+    if (r && !r.done) {
+      if (now - r.lastAt >= SETTLE_MS || now - r.attachedAt >= REPLAY_MAX_MS) {
+        r.done = true;
+      } else {
+        r.lastAt = now;
+        n.settlingUntil = Math.max(n.settlingUntil, now + SETTLE_MS);
+      }
+    }
     n.conns.set(ws, ctx.conn);
     this.keyByWs.set(ws, ctx.key);
     return n;
@@ -395,7 +455,7 @@ export class WorkNarrationHub {
         // Queued behind another narrator's call: skip it if the turn moved on meanwhile.
         this.narrators.get(n.key) !== n || n.turn !== turn
           ? Promise.resolve(null)
-          : this.runner(conn, buildNarrationCommand(), Buffer.from(input, "utf-8"), CALL_TIMEOUT_MS),
+          : this.runner(conn, buildNarrationCommand(n.tmuxSession), Buffer.from(input, "utf-8"), CALL_TIMEOUT_MS),
       );
       if (out === null || this.narrators.get(n.key) !== n || n.turn !== turn) return;
       const parsed = parseNarrationOutput(out);
