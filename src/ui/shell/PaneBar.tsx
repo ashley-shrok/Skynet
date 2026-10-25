@@ -9,6 +9,7 @@ import {
   useRowKebabContextMenu,
   type RowKebabMenuItem,
 } from "@/features/pretty-conversations/RowKebabMenu";
+import { isCoarsePointer } from "@/features/pretty-conversations/row-touch-gestures";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { useIsTouchDevice } from "@/hooks/use-is-touch-device";
 import { navigateToList } from "@/lib/mobile-flow";
@@ -156,7 +157,8 @@ export function PaneBar({
   // In a real browser, dragstart fires on the draggable bar even when the
   // press began on one of its buttons — so remember where the press started.
   const pressOnButtonRef = useRef(false);
-  const isDragSource = !isMobile;
+  // Touch screens drag nothing — a press-and-hold there opens the menu.
+  const isDragSource = !isMobile && !isCoarsePointer();
   const onBarDragStart = (e: ReactDragEvent<HTMLDivElement>) => {
     // A press that began on a button never drags the pane.
     if (pressOnButtonRef.current) {
@@ -191,6 +193,7 @@ export function PaneBar({
         onDragStart={isDragSource ? onBarDragStart : undefined}
         onClick={() => onSelectPane?.(tabId)}
         onContextMenu={barContextMenu.onContextMenu}
+        {...barContextMenu.holdProps}
         className={`pane-bar relative z-[1] grid flex-none items-center gap-2.5 px-2 select-none [-webkit-touch-callout:none] ${
           isDragSource ? "cursor-grab active:cursor-grabbing" : ""
         }`}

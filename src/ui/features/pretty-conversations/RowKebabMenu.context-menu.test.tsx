@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, screen, fireEvent, act } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import * as React from "react";
@@ -233,5 +233,89 @@ describe("useRowKebabContextMenu — openAt", () => {
     });
     expect(screen.queryByTestId("row-kebab-context-anchor")).toBeNull();
     expect(screen.queryByRole("menu")).toBeNull();
+  });
+});
+
+function HoldRow({
+  items,
+  onRowClick = () => {},
+}: {
+  items: RowKebabMenuItem[];
+  onRowClick?: () => void;
+}): React.JSX.Element {
+  const ctx = useRowKebabContextMenu(items);
+  return (
+    <div data-testid="row" onClick={onRowClick} onContextMenu={ctx.onContextMenu} {...ctx.holdProps}>
+      <span data-testid="row-label">Row</span>
+      {ctx.menu}
+    </div>
+  );
+}
+
+function hold(el: Element, x = 30, y = 40): void {
+  const t = [{ identifier: 0, clientX: x, clientY: y, target: el }];
+  fireEvent.touchStart(el, { touches: t, changedTouches: t });
+  act(() => {
+    vi.advanceTimersByTime(500);
+  });
+  fireEvent.touchEnd(el, { touches: [], changedTouches: t });
+}
+
+describe("useRowKebabContextMenu — press-and-hold (holdProps)", () => {
+  beforeEach(() => {
+    document.body.innerHTML = "";
+    vi.useFakeTimers();
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("a hold opens the same items at the finger, and the follow-up tap doesn't reach the row", () => {
+    const onRowClick = vi.fn();
+    render(<HoldRow items={[{ label: "Archive", onClick: () => {} }]} onRowClick={onRowClick} />);
+    const label = screen.getByTestId("row-label");
+    hold(label, 30, 40);
+    const anchor = screen.getByTestId("row-kebab-context-anchor");
+    expect(anchor.style.left).toBe("30px");
+    expect(anchor.style.top).toBe("40px");
+    fireEvent.click(label);
+    expect(onRowClick).not.toHaveBeenCalled();
+    expect(screen.getByTestId("row").hasAttribute("data-hold-menu")).toBe(true);
+  });
+
+  it("a hold does nothing when there are no items", () => {
+    render(<HoldRow items={[]} />);
+    hold(screen.getByTestId("row-label"));
+    expect(screen.queryByTestId("row-kebab-context-anchor")).toBeNull();
+    expect(screen.getByTestId("row").hasAttribute("data-hold-menu")).toBe(false);
+  });
+
+  it("RowKebabContextMenuSurface opens on a hold too", () => {
+    render(
+      <RowKebabContextMenuSurface items={[{ label: "Delete", onClick: () => {} }]}>
+        <div data-testid="surface-row">File</div>
+      </RowKebabContextMenuSurface>,
+    );
+    hold(screen.getByTestId("surface-row"));
+    expect(screen.getByTestId("row-kebab-context-anchor")).toBeTruthy();
+  });
+
+  it("the innermost hold surface wins when surfaces nest", () => {
+    function Nested(): React.JSX.Element {
+      const outer = useRowKebabContextMenu([{ label: "Outer", onClick: () => {} }]);
+      const inner = useRowKebabContextMenu([{ label: "Inner", onClick: () => {} }]);
+      return (
+        <div data-testid="outer" {...outer.holdProps}>
+          <div data-testid="inner" {...inner.holdProps}>
+            inner
+          </div>
+          {outer.menu}
+          {inner.menu}
+        </div>
+      );
+    }
+    render(<Nested />);
+    hold(screen.getByTestId("inner"));
+    expect(screen.getAllByTestId("row-kebab-context-anchor")).toHaveLength(1);
   });
 });

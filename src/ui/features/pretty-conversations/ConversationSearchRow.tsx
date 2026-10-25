@@ -245,6 +245,7 @@ export function ConversationSearchRow({
     <KitListRow
       onActivate={onClick}
       onContextMenu={kebabContextMenu.onContextMenu}
+      {...kebabContextMenu.holdProps}
       data-testid={`conversation-search-row-${result.transcriptPath}`}
       data-archived={result.isArchived ? "true" : "false"}
       data-hue={hue}

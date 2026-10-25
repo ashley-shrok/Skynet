@@ -65,6 +65,7 @@ import {
   type DraggedBadge,
 } from "@/shell/badge-drag";
 
+import { isCoarsePointer } from "./row-touch-gestures";
 import {
   RowKebabMenu,
   useRowKebabContextMenu,
@@ -367,8 +368,9 @@ export function PrettyProjectSectionHeader({
   ];
   // Right-click on the header row opens the same kebab menu at the cursor.
   const kebabContextMenu = useRowKebabContextMenu(kebabItems);
+  // Touch screens drag nothing — a press-and-hold there opens the menu.
   const headerDraggable =
-    draggable === true && hostId !== undefined && classifyProjectDrop !== undefined;
+    draggable === true && hostId !== undefined && classifyProjectDrop !== undefined && !isCoarsePointer();
 
   return (
     <div
@@ -399,6 +401,7 @@ export function PrettyProjectSectionHeader({
         tabIndex={0}
         onClick={() => onToggleCollapse(slug)}
         onContextMenu={kebabContextMenu.onContextMenu}
+        {...kebabContextMenu.holdProps}
         onKeyDown={(e) => {
           // WAI-ARIA button pattern: Enter and Space both fire the
           // collapse toggle. preventDefault on Space avoids page scroll.

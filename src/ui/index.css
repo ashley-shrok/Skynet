@@ -690,3 +690,13 @@ body[data-split-dnd] [data-split-divider-handle] {
 [data-split-divider-handle][data-split-meet] {
   cursor: move;
 }
+
+/* Surfaces whose menu opens on press-and-hold (useRowKebabContextMenu): no
+   text selection or iOS callout under the finger on touch screens. */
+@media (pointer: coarse) {
+  [data-hold-menu] {
+    -webkit-touch-callout: none;
+    -webkit-user-select: none;
+    user-select: none;
+  }
+}

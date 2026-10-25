@@ -231,6 +231,7 @@ export function ScheduledAgentsModalRow({
       }
       onClick={() => onOpen(row)}
       onContextMenu={contextMenu.onContextMenu}
+      holdProps={contextMenu.holdProps}
     >
       {contextMenu.menu}
     </KitSettingsRow>

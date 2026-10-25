@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useRef, useState, type CSSProperties, type MouseEvent, type TouchEvent } from "react";
 import { systemLogger } from "@/lib/frontend-logger";
 
-// Touch gestures for sidebar rows and app icons (shape-sidebar):
-//   - press-and-hold opens the item's menu at the finger;
-//   - swiping a row to the left archives it (when the row can be archived).
+// Touch gestures for anything with a row menu (shape-sidebar):
+//   - press-and-hold opens the item's menu at the finger — every surface with
+//     a right-click menu gets this through useRowKebabContextMenu;
+//   - swiping a row to the left archives it (sidebar conversation rows).
 // Touch only — mouse and pen input never reach these handlers' logic, so the
 // desktop keeps right-click + the ⋮ button.
 //
@@ -36,6 +37,11 @@ export function isCoarsePointer(): boolean {
 function isOwnTarget(e: { currentTarget: Element; target: EventTarget | null }): boolean {
   return e.target instanceof Node && e.currentTarget.contains(e.target);
 }
+
+/** Touches already taken by a hold surface. Surfaces can nest (a badge inside
+ *  a bar); the innermost sees the touch first and keeps it, as with
+ *  right-click. */
+const claimedTouches = new WeakSet<Event>();
 
 type Mode = "idle" | "pending" | "held" | "swipe" | "scroll";
 
@@ -88,7 +94,8 @@ export function useRowTouchGestures({ onHold, onSwipeArchive }: RowTouchGestureO
 
   const onTouchStart = useCallback(
     (e: TouchEvent<HTMLElement>) => {
-      if (!isOwnTarget(e)) return;
+      if (!isOwnTarget(e) || claimedTouches.has(e.nativeEvent)) return;
+      if (onHold || onSwipeArchive) claimedTouches.add(e.nativeEvent);
       if (e.touches.length !== 1) {
         // A second finger cancels whatever was going on — a half-done swipe
         // slides back.
@@ -115,12 +122,12 @@ export function useRowTouchGestures({ onHold, onSwipeArchive }: RowTouchGestureO
           if (mode.current !== "pending") return;
           mode.current = "held";
           swallowClick.current = true;
-          systemLogger.info("sidebar hold → menu", { operation: "sidebar_gesture", event: "hold" });
+          systemLogger.info("hold → menu", { operation: "sidebar_gesture", event: "hold" });
           onHold(start.current.x, start.current.y);
         }, HOLD_MS);
       }
     },
-    [onHold],
+    [onHold, onSwipeArchive],
   );
 
   const onTouchMove = useCallback(

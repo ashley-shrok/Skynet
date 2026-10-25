@@ -10,6 +10,7 @@ import {
   useRowKebabContextMenu,
   type RowKebabMenuItem,
 } from "@/features/pretty-conversations/RowKebabMenu";
+import { isCoarsePointer } from "@/features/pretty-conversations/row-touch-gestures";
 // Phase 68 Plan 04: avatarUrlWithHost deleted — backend bakes hostId into identity.avatarUrl.
 // Phase 104 Plan 02: the `hostId` prop below is REACTIVATED for the trapped-
 // work store lookup (superseding the Phase 68 "no longer used" note). Existing
@@ -108,7 +109,8 @@ export function IdentityBadge({
   // on mobile would land on nothing useful. Explicit gate here matches the
   // shell-level mount gate.
   const isMobile = useIsMobile();
-  const isDragSource = !!tabId && !isMobile;
+  // Touch screens drag nothing — a press-and-hold there opens the menu.
+  const isDragSource = !!tabId && !isMobile && !isCoarsePointer();
 
   // Called before the `if (!identity) return null` early return (Rules of
   // Hooks — same discipline as the hooks below).
@@ -412,7 +414,7 @@ export function IdentityBadge({
     : undefined;
 
   const contextMenuProps = hasMenu
-    ? { onContextMenu: kebabContextMenu.onContextMenu }
+    ? { onContextMenu: kebabContextMenu.onContextMenu, ...kebabContextMenu.holdProps }
     : {};
 
   if (onClick) {

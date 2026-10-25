@@ -3569,6 +3569,7 @@ export function PrettyConversationsPanel({
             tabIndex={0}
             onClick={() => setAppsExpanded((v) => !v)}
             onContextMenu={appsHeaderContextMenu.onContextMenu}
+            {...appsHeaderContextMenu.holdProps}
             onKeyDown={(e) => {
               if (e.key === "Enter" || e.key === " ") {
                 e.preventDefault();

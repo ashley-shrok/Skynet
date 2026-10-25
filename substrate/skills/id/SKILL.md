@@ -632,6 +632,14 @@ Icon language matters — when guiding the user, name the icon SHAPE
 ("click the clock icon", "click the drama-masks icon"), not the internal
 name, so she can find it without knowing the app's terminology.
 
+**Right-click = press and hold.** On a touch screen (phone or tablet),
+anything whose menu opens on right-click — sidebar rows and app icons,
+project and Apps headers, task pills and relay-room badges, pane bars,
+Files-tab rows, scheduled-task rows, archived-app rows, search results —
+opens that same menu when held for about half a second. Moving the finger
+cancels the hold, so scrolling never opens one. Nothing on a touch screen
+can be dragged; a hold opens the menu instead.
+
 ### Header of the conversation list
 
 One control sits at the top of the conversation list, beside the app logo.
@@ -775,7 +783,7 @@ not something agents drive.
   - **Archived apps** — opens the **Archived apps** window ("Apps you've
     archived. Un-archive one to put it back in the sidebar."): each app
     with its picture or initial, its name and an **Un-archive** button
-    (right-clicking a row offers the same); un-archiving triggers the
+    (right-clicking or holding a row offers the same); un-archiving triggers the
     supervisor's reconciler on the app's home host and the app returns to
     the sidebar within ~15 seconds. Nothing archived says "No archived
     apps".
@@ -889,7 +897,8 @@ not something agents drive.
   `members:` list holds only the agents directly in it, not those in its
   sub-projects.
   Each project header carries a **kebab menu** (on desktop it appears on
-  hover; also opened by right-clicking the header) with:
+  hover; also opened by right-clicking the header, or holding it on a touch
+  screen) with:
   - **Edit project** — opens the **project modal** (§ Conversation view).
   - **New conversation in this project** — auto-assigns the spawned
     agent to this project.
@@ -907,9 +916,9 @@ not something agents drive.
     sub-project beneath it and every agent in any of them; relay rooms
     anywhere inside move back to Conversations. The confirm names the
     project and counts the sub-projects, agents and rooms first.
-  On desktop a project header can also be dragged: drop it on another
+  With a mouse a project header can also be dragged: drop it on another
   project to move it inside that one, or on the **Projects** super-header
-  to move it back to top level. On a phone, **Move to** is the way.
+  to move it back to top level. On a touch screen, **Move to** is the way.
   *Agent-side:* project membership = the `project:` frontmatter (see
   above). For spawning a fresh agent already scoped to a project, the
   cleanest path is to include a directive in the prompt of the spawn
@@ -988,8 +997,8 @@ not something agents drive.
   reads "Move to sidebar requested" until the page reloads); the agent does
   the move and confirms in its conversation. The **whole bar is the drag handle**, same as a
   conversation's task pill: drag it to the drop lane's Close to close the app,
-  onto another pane to rearrange, or into another Skynet window. On a phone the
-  bar shows but isn't draggable.
+  onto another pane to rearrange, or into another Skynet window. On a touch
+  screen the bar isn't draggable; holding it opens the menu.
   *Agent-side:* the navigation buttons and window actions: none — the app
   never knows it's being navigated from the bar. Rename and Archive are the
   same actions as the sidebar tile's, handled by the `app-development`
@@ -1010,7 +1019,7 @@ not something agents drive.
   an app's. The **whole bar is the drag handle**: drop it on the drop lane's
   Close, onto another pane to rearrange, or into another Skynet window
   (that window connects fresh and this pane closes). Not draggable on a
-  phone. While a remote session is open, its machine's row stays in the
+  touch screen. While a remote session is open, its machine's row stays in the
   sidebar's RDP section (highlighted like an open conversation) instead of
   moving up to Conversations, and clicking that row returns to the open
   session rather than opening a second one.
@@ -1354,7 +1363,8 @@ crown, then gear.
   new tab** (desktop only), for admins **Switch to terminal view** / **Switch
   to chat view**, **Rename…**, **Move to** (Pinned + projects),
   **Close** (desktop only), **Archive**. Drag = see § Drag & drop (drop
-  lane, filing into sidebar sections); not draggable on a phone. Hovering
+  lane, filing into sidebar sections); not draggable on a touch screen,
+  where holding the pill opens the menu instead. Hovering
   shows the agent's name, roles and project. On a phone the round **back to
   conversations** (←) button floats level with it at the top left, in the
   same solid dark look. (Relay rooms show a badge per participant instead;
@@ -1419,7 +1429,8 @@ crown, then gear.
   - **Files** — full workspace explorer for the identity's `workspace/`
     folder: browse, download, upload, create files and folders, and
     open any file in the file window (§ File window) to read or edit it. Each file/folder row has a **three-dots menu** — Rename,
-    Download (files only), Delete — also opened by right-clicking the row.
+    Download (files only), Delete — also opened by right-clicking the row,
+    or holding it on a touch screen.
     A **search box** (magnifier, with a ✕ to clear) on its own row under the toolbar
     finds files and folders by name in the folder being viewed and every
     folder below it — as the user types, case ignored, every word must
@@ -2207,8 +2218,8 @@ the sidebar footer, beside the gear. It opens the scheduled tasks window:
   the schedule and next run (`Daily at 11:30 · Next in 14h`, or `Off`),
   its project when it has one (`SKYNET › later`, or an amber **Project
   missing: <slug>** when that project is gone), one line of its
-  instructions, and an on/off switch. Right-click a row
-  for **Run now** (not on one-time tasks), **Open** and **Delete…**. A sensor-fired task has no
+  instructions, and an on/off switch. Right-click a row (or hold it on a
+  touch screen) for **Run now** (not on one-time tasks), **Open** and **Delete…**. A sensor-fired task has no
   Next: its line reads `📡 Sensor · <status> · Last fired 3h ago` (or
   `Never fired`), plus why when it has tripped — same statuses as the
   identity modal's Wake-ups tab

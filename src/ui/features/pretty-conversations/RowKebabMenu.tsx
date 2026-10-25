@@ -72,6 +72,7 @@ import {
 } from "@/components/dropdown-menu";
 import { cn } from "@/lib/utils";
 import { systemLogger } from "@/lib/frontend-logger";
+import { useRowTouchGestures, type RowTouchGestures } from "./row-touch-gestures";
 
 // ─── Public types ─────────────────────────────────────────────────────────────
 
@@ -365,13 +366,14 @@ export function RowKebabMenu({
 // Convenience gesture: right-clicking a surface that carries a kebab opens the
 // SAME menu (same items, same KebabMenuContent) at the cursor. The ⋮ trigger
 // stays the primary/discoverable affordance — this is not a second menu. A
-// contextmenu event synthesized from a touch long-press is ignored; surfaces
-// that want press-and-hold on touch (sidebar rows and app icons) call
-// `openAt` from their own hold gesture instead (row-touch-gestures.ts).
+// contextmenu event synthesized from a touch long-press is ignored; on touch,
+// press-and-hold opens the menu instead — spread `holdProps` on the surface
+// (row-touch-gestures.ts). Sidebar conversation rows run their own gesture
+// (hold + swipe) and call `openAt` from it.
 //
 // Usage:
 //   const ctx = useRowKebabContextMenu(items);
-//   <div onContextMenu={ctx.onContextMenu}> … <RowKebabMenu items={items}/> {ctx.menu} </div>
+//   <div onContextMenu={ctx.onContextMenu} {...ctx.holdProps}> … <RowKebabMenu items={items}/> {ctx.menu} </div>
 //
 // Mechanics: on contextmenu we record the cursor position and open a
 // controlled DropdownMenu whose trigger is an invisible 0×0 element fixed at
@@ -396,6 +398,10 @@ export interface RowKebabContextMenu {
   menu: React.ReactNode;
   /** Open the menu at a viewport point (press-and-hold on touch). */
   openAt: (x: number, y: number) => void;
+  /** Spread on the surface: press-and-hold on touch opens the menu.
+   *  `data-hold-menu` turns off text selection and the iOS callout there on
+   *  touch screens (index.css). */
+  holdProps: RowTouchGestures["handlers"] & { "data-hold-menu"?: "" };
 }
 
 /** How long after a press-and-hold opens the menu the finger's lift is ignored. */
@@ -511,13 +517,17 @@ export function useRowKebabContextMenu(
     [enabled],
   );
 
-  return { onContextMenu, menu, openAt };
+  const hold = useRowTouchGestures({ onHold: enabled ? openAt : undefined });
+  const holdProps = enabled ? { ...hold.handlers, "data-hold-menu": "" as const } : hold.handlers;
+
+  return { onContextMenu, menu, openAt, holdProps };
 }
 
 /**
  * Component form of useRowKebabContextMenu for surfaces rendered inside a
- * .map() (where a hook can't be called per item). Merges onContextMenu onto
- * its single child element via Slot; the menu itself portals to <body>.
+ * .map() (where a hook can't be called per item). Merges onContextMenu and
+ * press-and-hold onto its single child element via Slot; the menu itself
+ * portals to <body>.
  *
  *   <RowKebabContextMenuSurface items={items}><div …row…/></RowKebabContextMenuSurface>
  */
@@ -528,10 +538,10 @@ export function RowKebabContextMenuSurface({
   items: RowKebabMenuItem[];
   children: React.ReactElement;
 }): React.JSX.Element {
-  const { onContextMenu, menu } = useRowKebabContextMenu(items);
+  const { onContextMenu, menu, holdProps } = useRowKebabContextMenu(items);
   return (
     <>
-      <Slot.Root onContextMenu={onContextMenu}>{children}</Slot.Root>
+      <Slot.Root onContextMenu={onContextMenu} {...holdProps}>{children}</Slot.Root>
       {menu}
     </>
   );

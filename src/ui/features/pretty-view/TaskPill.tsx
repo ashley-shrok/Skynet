@@ -42,6 +42,7 @@ import {
   useRowKebabContextMenu,
   type RowKebabMenuItem,
 } from "@/features/pretty-conversations/RowKebabMenu";
+import { isCoarsePointer } from "@/features/pretty-conversations/row-touch-gestures";
 
 /** Agent-window tabs the round buttons jump to. */
 export type TaskPillJumpTab = "desktop" | "git";
@@ -82,7 +83,8 @@ export function TaskPill({
     ? (byHostKey?.get(`${hostId}::${nameLc}`) ?? byKey.get(nameLc))
     : byKey.get(nameLc);
   const isMobile = useIsMobile();
-  const isDragSource = !!tabId && !isMobile;
+  // Touch screens drag nothing — a press-and-hold there opens the menu.
+  const isDragSource = !!tabId && !isMobile && !isCoarsePointer();
   const contextMenu = useRowKebabContextMenu(menuItems);
   const trappedWork = useTrappedWork(identityKey, hostId);
   const desktopRunning = useSessionDesktopRunning(hostId, tmuxSession);
@@ -156,6 +158,7 @@ export function TaskPill({
         title={tooltip}
         onClick={() => open()}
         onContextMenu={contextMenu.onContextMenu}
+        {...contextMenu.holdProps}
         draggable={isDragSource}
         onDragStart={onDragStart}
         // Solid and neutral (shape-conversation-view), no blur — it floats
