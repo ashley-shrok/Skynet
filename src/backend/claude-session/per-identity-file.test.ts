@@ -275,9 +275,10 @@ describe("writeIdentityFile — relPath whitelist (D-01 filename lock)", () => {
     expect(sftp.writeFile).not.toHaveBeenCalled();
   });
 
-  it("whitelist is exactly {relay.json, .pinned, .archive-requested} — Phase 115 Plan 115-01 swapped .hidden→.archive-requested (D-08/D-21)", () => {
+  it("whitelist is exactly {relay.json, .pinned, .archive-requested, .compact-requested} — Phase 115 Plan 115-01 swapped .hidden→.archive-requested (D-08/D-21); condense added .compact-requested", () => {
     expect(ALLOWED_REL_PATHS).toBeInstanceOf(Set);
-    expect(ALLOWED_REL_PATHS.size).toBe(3);
+    expect(ALLOWED_REL_PATHS.size).toBe(4);
+    expect(ALLOWED_REL_PATHS.has(".compact-requested")).toBe(true);
     expect(ALLOWED_REL_PATHS.has("relay.json")).toBe(true);
     expect(ALLOWED_REL_PATHS.has(".pinned")).toBe(true);
     expect(ALLOWED_REL_PATHS.has(".archive-requested")).toBe(true);
@@ -1141,5 +1142,28 @@ describe("dropIdentityInboxMessage", () => {
       dropIdentityInboxMessage("../etc", "x", { hostId: 999, conn: null }),
     ).rejects.toThrow(/invalid identityKey/);
     expect((fsMod.writeFile as unknown as ReturnType<typeof vi.fn>)).not.toHaveBeenCalled();
+  });
+});
+
+describe("condense: .compact-requested request file", () => {
+  it("writeIdentityFile accepts '.compact-requested' and writes the guidance as its body", async () => {
+    const writeFileMock = fsMod.writeFile as unknown as ReturnType<typeof vi.fn>;
+    const renameMock = fsMod.rename as unknown as ReturnType<typeof vi.fn>;
+    await expect(
+      writeIdentityFile("tina", ".compact-requested", "keep the deploy notes", {
+        hostId: LOCAL_HOST_ID,
+        conn: null,
+      }),
+    ).resolves.toBeUndefined();
+    expect(writeFileMock).toHaveBeenCalledTimes(1);
+    expect(writeFileMock.mock.calls[0][1]).toBe("keep the deploy notes");
+    expect(renameMock).toHaveBeenCalledTimes(1);
+    expect(String(renameMock.mock.calls[0][1])).toMatch(/\/fleet\/identities\/tina\/\.compact-requested$/);
+  });
+
+  it("'.compact-requested.old' is still refused", async () => {
+    await expect(
+      writeIdentityFile("tina", ".compact-requested.old", "", { hostId: LOCAL_HOST_ID, conn: null }),
+    ).rejects.toThrow(/invalid relPath/);
   });
 });

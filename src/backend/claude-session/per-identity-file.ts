@@ -25,9 +25,11 @@
  *   divergence class of bug (loose write vs strict read).
  *
  * relPath whitelist:
- *   ALLOWED_REL_PATHS = { "relay.json", ".pinned", ".archive-requested" } —
- *   bounded to the three file basenames phase callers touch (D-01 filename
- *   lock; Phase 115 D-08 archive-requested lock, `.hidden` retired per D-21).
+ *   ALLOWED_REL_PATHS = { "relay.json", ".pinned", ".archive-requested",
+ *   ".compact-requested" } — bounded to the file basenames callers touch
+ *   (D-01 filename lock; Phase 115 D-08 archive-requested lock, `.hidden`
+ *   retired per D-21; `.compact-requested` is the condense request, its
+ *   contents the guidance).
  *   Any other value throws before I/O — belt-and-suspenders vs identityKey
  *   traversal (the reader regex already excludes `.` and `/` characters).
  *
@@ -87,6 +89,7 @@ export const ALLOWED_REL_PATHS: ReadonlySet<string> = new Set([
   "relay.json",
   ".pinned",
   ".archive-requested",
+  ".compact-requested",
 ]);
 
 // ---------------------------------------------------------------------------
