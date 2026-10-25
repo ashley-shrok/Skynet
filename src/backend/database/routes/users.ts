@@ -795,6 +795,20 @@ router.get("/:id/avatar", authenticateJWT, async (req, res) => {
 // The GET handler does not use multer, so this is inert for GET requests.
 router.use("/:id/avatar", userAvatarMulterErrorHandler);
 
+// Sign-in settings live in the in-memory DB; write them through to disk right
+// away so a restart can't quietly undo a change.
+async function persistSignInSetting(key: string): Promise<void> {
+  try {
+    await DatabaseSaveTrigger.forceSave(`sign-in-setting:${key}`);
+  } catch (saveError) {
+    authLogger.warn("Failed to persist sign-in setting", {
+      operation: "sign_in_setting_save_failed",
+      key,
+      error: saveError instanceof Error ? saveError.message : String(saveError),
+    });
+  }
+}
+
 /**
  * @openapi
  * /users/oidc-config:
@@ -876,6 +890,7 @@ router.post("/oidc-config", authenticateJWT, requireRecentAuth, async (req, res)
         operation: "oidc_disable",
         userId,
       });
+      await persistSignInSetting("oidc_config");
       res.json({ message: "OIDC configuration disabled" });
     } else {
       const config = {
@@ -941,6 +956,7 @@ router.post("/oidc-config", authenticateJWT, requireRecentAuth, async (req, res)
         userId,
         hasUserinfoUrl: !!userinfo_url,
       });
+      await persistSignInSetting("oidc_config");
       res.json({ message: "OIDC configuration updated" });
     }
   } catch (err) {
@@ -978,6 +994,7 @@ router.delete("/oidc-config", authenticateJWT, requireRecentAuth, async (req, re
       operation: "oidc_disable",
       userId,
     });
+    await persistSignInSetting("oidc_config");
     res.json({ message: "OIDC configuration disabled" });
   } catch (err) {
     authLogger.error("Failed to disable OIDC config", err);
@@ -2258,6 +2275,7 @@ router.patch("/registration-allowed", authenticateJWT, requireRecentAuth, async 
         "INSERT INTO settings (key, value) VALUES ('allow_registration', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
       )
       .run(allowed ? "true" : "false");
+    await persistSignInSetting("allow_registration");
     res.json({ allowed });
   } catch (err) {
     authLogger.error("Failed to set registration allowed", err);
@@ -2308,6 +2326,7 @@ router.patch("/oidc-auto-provision", authenticateJWT, requireRecentAuth, async (
         )
         .run(enabled ? "true" : "false");
     }
+    await persistSignInSetting("oidc_auto_provision");
     res.json({ enabled });
   } catch (err) {
     authLogger.error("Failed to set OIDC auto-provision", err);
@@ -2466,6 +2485,7 @@ router.patch("/password-reset-allowed", authenticateJWT, requireRecentAuth, asyn
         "INSERT OR REPLACE INTO settings (key, value) VALUES ('allow_password_reset', ?)",
       )
       .run(allowed ? "true" : "false");
+    await persistSignInSetting("allow_password_reset");
     res.json({ allowed });
   } catch (err) {
     authLogger.error("Failed to set password reset allowed", err);

@@ -71,3 +71,19 @@ describe("only password sign-ins start confirmed", () => {
     expect(before(users, '"OIDC login successful"')).not.toContain("identityConfirmed");
   });
 });
+
+describe("sign-in settings are written to disk straight away", () => {
+  const SETTINGS: Array<[method: string, path: string, saves: number]> = [
+    ["patch", "/registration-allowed", 1],
+    ["patch", "/oidc-auto-provision", 1],
+    ["patch", "/password-reset-allowed", 1],
+    ["post", "/oidc-config", 2],
+    ["delete", "/oidc-config", 1],
+  ];
+  it.each(SETTINGS)("%s %s saves", (method, path, saves) => {
+    const src = readFileSync(join(ROOT, "database/routes/users.ts"), "utf8");
+    const start = src.indexOf(`router.${method}("${path}"`);
+    const body = src.slice(start, src.indexOf("\n});", start));
+    expect(body.split("persistSignInSetting(").length - 1).toBe(saves);
+  });
+});
