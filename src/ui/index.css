@@ -217,6 +217,13 @@ input[type="radio"] {
   * {
     @apply outline-none;
     scrollbar-width: thin;
+    /* Hidden when idle; shown while its area is hovered or being scrolled
+       (lib/scrollbar-reveal.ts sets data-scrollbar-reveal). The gutter keeps
+       its width either way, so nothing shifts when it appears. */
+    scrollbar-color: transparent transparent;
+  }
+  *:hover,
+  [data-scrollbar-reveal] {
     scrollbar-color: oklch(1 0 0 / 20%) transparent;
   }
   *::-webkit-scrollbar {
@@ -227,8 +234,12 @@ input[type="radio"] {
     background: transparent;
   }
   *::-webkit-scrollbar-thumb {
-    background: oklch(1 0 0 / 20%);
+    background: transparent;
     border-radius: 3px;
+  }
+  *:hover::-webkit-scrollbar-thumb,
+  [data-scrollbar-reveal]::-webkit-scrollbar-thumb {
+    background: oklch(1 0 0 / 20%);
   }
   *::-webkit-scrollbar-thumb:hover {
     background: oklch(1 0 0 / 35%);
@@ -395,7 +406,11 @@ html.fs-xl {
 
 @utility thin-scrollbar {
   scrollbar-width: thin;
-  scrollbar-color: oklch(1 0 0 / 15%) transparent;
+  scrollbar-color: transparent transparent;
+  &:hover,
+  &[data-scrollbar-reveal] {
+    scrollbar-color: oklch(1 0 0 / 15%) transparent;
+  }
   &::-webkit-scrollbar {
     width: 4px;
   }
@@ -403,8 +418,12 @@ html.fs-xl {
     background: transparent;
   }
   &::-webkit-scrollbar-thumb {
-    background: oklch(1 0 0 / 15%);
+    background: transparent;
     border-radius: 2px;
+  }
+  &:hover::-webkit-scrollbar-thumb,
+  &[data-scrollbar-reveal]::-webkit-scrollbar-thumb {
+    background: oklch(1 0 0 / 15%);
   }
 }
 

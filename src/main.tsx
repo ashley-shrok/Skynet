@@ -19,6 +19,7 @@ import { snapshotPendingTab } from "@/lib/tab-url";
 import { initConsoleForwarder } from "@/lib/console-forwarder";
 import { startDiagEmitter } from "@/lib/diag-emitter";
 import { startFreezeDiag } from "@/lib/freeze-diag";
+import { installScrollbarReveal } from "@/lib/scrollbar-reveal";
 import { fetchBrandingConfig } from "@/branding/branding-fetch";
 import { useBrandingFavicon } from "@/branding/apply-favicon";
 
@@ -61,6 +62,9 @@ startDiagEmitter();
 // the intermittent "page unresponsive" freezes. Remove once the cause is
 // identified. See src/ui/lib/freeze-diag.ts.
 startFreezeDiag();
+
+// Scrollbars hide when idle and show while scrolled or hovered.
+installScrollbarReveal();
 
 // Preserve ?tab=<spec> across the auth flow. Auth.tsx calls replaceState in
 // several branches that would otherwise strip the query string before

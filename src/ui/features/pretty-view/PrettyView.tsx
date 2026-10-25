@@ -156,6 +156,7 @@ import { toast } from "sonner";
 import { hasNeutralLook, isMultiRole, NEUTRAL_HUE } from "@/lib/identity-roles";
 import { COMMAND_REFUSED_MESSAGE } from "@/types/blocked-commands";
 import { markTextAreaSend, textAreaSendKind, type TextAreaSendKind } from "./text-area-sends";
+import { flashScrollbars } from "@/lib/scrollbar-reveal";
 
 // An OS file drag (upload) — not a FileChip drag, which split view owns even
 // if a browser ever tags it with Files.
@@ -1794,6 +1795,11 @@ export function PrettyView({
   messagesRef.current = effectiveMessages;
   const revealedRef = useRef(revealed);
   revealedRef.current = revealed;
+  // Opening a conversation that runs past the pane flashes its scrollbar so
+  // there's a hint of more above, then it hides until scrolled or hovered.
+  useEffect(() => {
+    if (revealed) flashScrollbars(scrollElRef.current, { descendants: false });
+  }, [revealed, paneKey]);
   useEffect(() => {
     if (source.kind !== "harness" || !tmuxSession) return;
     let timer: number | null = null;

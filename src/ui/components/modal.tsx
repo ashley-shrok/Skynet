@@ -6,6 +6,7 @@ import { cn } from "@/lib/utils";
 import { KitScopeContext } from "@/components/kit/scope";
 import { useModalSwipeBack } from "@/components/use-modal-swipe-back";
 import "@/components/kit/kit.css";
+import { flashScrollbars } from "@/lib/scrollbar-reveal";
 
 // Canonical modal container — the shell every app modal composes from, in
 // the apple-ux campaign's look A: one flat near-black surface, a hairline
@@ -189,6 +190,14 @@ function Modal({
     setContentEl(el);
   }, []);
   const swipeClose = React.useCallback(() => onOpenChange?.(false), [onOpenChange]);
+  // Opening a window flashes the scrollbars of anything in it that runs past
+  // its edge, then they hide until scrolled or hovered. Once after the open
+  // animation, once more for content that loads a moment later.
+  React.useEffect(() => {
+    if (!contentEl || open === false) return;
+    const timers = [150, 600].map((ms) => window.setTimeout(() => flashScrollbars(contentEl), ms));
+    return () => timers.forEach((t) => window.clearTimeout(t));
+  }, [contentEl, open]);
   useModalSwipeBack({
     enabled: fullscreen && !sheet && open !== false,
     element: contentEl,
