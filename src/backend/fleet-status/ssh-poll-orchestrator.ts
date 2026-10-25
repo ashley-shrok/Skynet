@@ -1579,6 +1579,11 @@ export function createSshPollOrchestrator(
   // retried (and logged) every 30s rather than every tick.
   const replyMarkFailedAt = new Map<string, number>();
   const REPLY_MARK_RETRY_MS = 30_000;
+  // `${hostId}::${identity}` → the last tail scanned and what it held. The
+  // scan reads the whole tail through the conversation's own parser (a few
+  // ms), and most ticks see the same tail again; transcripts only grow at
+  // the end, so its length and last bytes tell whether anything changed.
+  const replyScanMemo = new Map<string, { sig: string; replyAt: number | null }>();
 
   // A user reply (typed in Skynet or relayed by an orchestrator) newer than
   // the agent's last finished turn means the user has answered it: mark that
@@ -1594,7 +1599,15 @@ export function createSshPollOrchestrator(
     if (replyMarkedFinish.get(key) === lastFinishAt) return;
     const failedAt = replyMarkFailedAt.get(key);
     if (failedAt !== undefined && deps.now() - failedAt < REPLY_MARK_RETRY_MS) return;
-    const replyAt = scanTailForLatestUserReply(jsonlTail);
+    const sig = `${jsonlTail.length}:${jsonlTail.slice(-256)}`;
+    let replyAt: number | null;
+    const memo = replyScanMemo.get(key);
+    if (memo !== undefined && memo.sig === sig) {
+      replyAt = memo.replyAt;
+    } else {
+      replyAt = scanTailForLatestUserReply(jsonlTail);
+      replyScanMemo.set(key, { sig, replyAt });
+    }
     if (replyAt === null || replyAt <= lastFinishAt) return;
     let users: string[];
     try {

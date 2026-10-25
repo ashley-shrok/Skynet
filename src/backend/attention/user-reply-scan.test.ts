@@ -28,6 +28,9 @@ describe("userReplyAt — counts", () => {
     ["a short message that starts with a tag", "<div> is the wrong element here, use a span"],
     ["a skill the user ran", "<command-message>light-review</command-message>\n<command-name>/light-review</command-name>"],
     ["a message that starts with a word like compact", "/compactor settings look off"],
+    // The conversation draws a command's output in the user's bubble, right
+    // after the command the user ran.
+    ["output of a command the user ran", "<local-command-stdout>Set model to Opus</local-command-stdout>"],
   ])("%s", (_label, content) => {
     expect(userReplyAt(userLine(content))).toBe(TS_MS);
   });
@@ -51,7 +54,6 @@ describe("userReplyAt — does not count", () => {
     ["the /compact prompt as typed, before a condense", "/compact keep the codeword"],
     ["a bare /compact prompt", "/compact"],
     ["a /compact prompt pasted in a pasted_content wrapper", '<pasted_content id="aa11">\n/compact keep it\n</pasted_content id="aa11">'],
-    ["local command output", "<local-command-stdout>Set model to Opus</local-command-stdout>"],
     ["an interrupt marker", "[Request interrupted by user]"],
     ["Ctrl-C noise", "\x03\x03"],
     ["the resumed sentinel", "Your session was just resumed by the agent-supervisor after a restart."],
@@ -105,5 +107,39 @@ describe("scanTailForLatestUserReply", () => {
 
   it("is null when the tail has no reply (and survives a cut first line)", () => {
     expect(scanTailForLatestUserReply('ent":"half a line"}\n' + userLine(ambient))).toBeNull();
+  });
+
+  it("a message the user cancelled is not a reply", () => {
+    const tail = [
+      userLine("kept", { uuid: "u1", parentUuid: "a0" }, "2026-10-25T14:00:00.000Z"),
+      JSON.stringify({ type: "assistant", uuid: "a1", parentUuid: "u1", message: { role: "assistant", content: [{ type: "text", text: "ok" }] }, timestamp: "2026-10-25T14:01:00.000Z" }),
+      // Sent, then cancelled before the agent did anything: the next prompt
+      // branches from the same point.
+      userLine("withdrawn", { uuid: "u2", parentUuid: "a1" }, "2026-10-25T14:30:00.000Z"),
+      userLine(ambient, { uuid: "u3", parentUuid: "a1" }, "2026-10-25T14:40:00.000Z"),
+    ].join("\n");
+    expect(scanTailForLatestUserReply(tail)).toBe(Date.parse("2026-10-25T14:00:00.000Z"));
+  });
+
+  it("the newest message still counts while nothing has followed it", () => {
+    const tail = [
+      JSON.stringify({ type: "assistant", uuid: "a1", parentUuid: null, message: { role: "assistant", content: [{ type: "text", text: "ok" }] }, timestamp: "2026-10-25T14:01:00.000Z" }),
+      userLine("just sent", { uuid: "u2", parentUuid: "a1" }, "2026-10-25T14:30:00.000Z"),
+    ].join("\n");
+    expect(scanTailForLatestUserReply(tail)).toBe(Date.parse("2026-10-25T14:30:00.000Z"));
+  });
+
+  it("a message sent while the agent was busy counts from when it was sent", () => {
+    const tail = [
+      JSON.stringify({ type: "queue-operation", operation: "enqueue", timestamp: "2026-10-25T14:10:00.000Z", content: "and also this" }),
+      JSON.stringify({ type: "queue-operation", operation: "dequeue", timestamp: "2026-10-25T14:20:00.000Z" }),
+      userLine("and also this", { uuid: "u2", parentUuid: "a1" }, "2026-10-25T14:20:00.000Z"),
+    ].join("\n");
+    expect(scanTailForLatestUserReply(tail)).toBe(Date.parse("2026-10-25T14:10:00.000Z"));
+  });
+
+  it("an answer to the agent's question counts", () => {
+    const answer = "```answer\nask: ship\nquestion: Ship it?\nanswer: Ship now\n```";
+    expect(scanTailForLatestUserReply(userLine(answer))).toBe(TS_MS);
   });
 });

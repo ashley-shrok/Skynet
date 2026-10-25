@@ -4919,6 +4919,19 @@ describe("ssh-poll-orchestrator Phase 59 — lastStopAt + lastStatusChangeAt der
       expect(deps.registry.publishedToUser).toEqual([]);
       orchestrator.stop();
     });
+
+    it("a reply that lands after quiet ticks is still noticed", async () => {
+      const before = userLine("earlier answer", 1729999990000) + "\n";
+      const { channel, deps, readStateStore } = setup(before);
+      const orchestrator = createSshPollOrchestrator(deps);
+      await orchestrator.start();
+      await deps.setIntervalFns.find((f) => f.ms === 2000)?.fn();
+      expect(readStateStore.markSeenForAllUsers).not.toHaveBeenCalled();
+      channel.setResponse("discovered.jsonl", before + userLine("go ahead", 1730000005000) + "\n");
+      await deps.setIntervalFns.find((f) => f.ms === 2000)?.fn();
+      expect(readStateStore.markSeenForAllUsers).toHaveBeenCalledWith("host-1", "tina", 1730000000000);
+      orchestrator.stop();
+    });
   });
 
   // ---------------------------------------------------------------------------

@@ -28,6 +28,7 @@ import express from "express";
 import http from "node:http";
 import type { AddressInfo } from "node:net";
 import fs from "node:fs";
+import { execFileSync } from "node:child_process";
 
 // ---------------------------------------------------------------------------
 // Auth manager mock — flips between authenticated and 401 via mockUserId
@@ -1394,6 +1395,71 @@ describe("Phase 129: search-surface visibility gate", () => {
     const rows = (res.body as { results: Array<Record<string, unknown>> }).results;
     expect(rows.map((r) => r.identityKey)).toEqual(["scone"]);
     expect(rows[0].snippet).toBe("cheese and crackers");
+  });
+
+  it("Test I4: a message the user cancelled is not a match — no row from it alone, no passage for it", async () => {
+    mockSearchWithIdentityUsers("muffin");
+    mockSearchHits([
+      { identityKey: "muffin", mtime: 200, content: "x" },
+      { identityKey: "scone", mtime: 100, content: "x" },
+    ]);
+    const u = (uuid: string, parentUuid: string, text: string) =>
+      JSON.stringify({ parentUuid, type: "user", message: { role: "user", content: text }, uuid });
+    const a = (uuid: string, parentUuid: string | null, text: string) =>
+      JSON.stringify({ parentUuid, type: "assistant", message: { role: "assistant", content: [{ type: "text", text }] }, uuid });
+    // muffin: its only cheese is a message withdrawn before the agent started.
+    const muffin = [a("a0", null, "hello"), u("u1", "a0", "cheese please"), u("u2", "a0", "crackers please"), a("a1", "u2", "ok")];
+    // scone: a withdrawn cheese, then the re-sent one and the agent's reply.
+    const scone = [a("a0", null, "hello"), u("u1", "a0", "cheese one"), u("u2", "a0", "cheese two"), a("a1", "u2", "cheese ok")];
+    const tmp = fs.mkdtempSync("/tmp/conv-search-i4-");
+    const real = new Map([
+      ["/x/muffin.jsonl", `${tmp}/muffin.jsonl`],
+      ["/x/scone.jsonl", `${tmp}/scone.jsonl`],
+    ]);
+    fs.writeFileSync(real.get("/x/muffin.jsonl")!, muffin.join("\n") + "\n");
+    fs.writeFileSync(real.get("/x/scone.jsonl")!, scone.join("\n") + "\n");
+    const grep = (path: string, lines: string[]) =>
+      lines
+        .map((rawLine, i) => ({ mtime: path.includes("muffin") ? 200 : 100, path, lineno: i + 1, rawLine }))
+        .filter((h) => h.rawLine.includes("cheese"));
+    const baseImpl = execCommandMock.getMockImplementation()!;
+    const cancelPasses: string[] = [];
+    execCommandMock.mockImplementation(async (conn: unknown, cmd: string) => {
+      if (cmd.includes("grep -F")) {
+        return fakeGrepOutput([...grep("/x/muffin.jsonl", muffin), ...grep("/x/scone.jsonl", scone)]);
+      }
+      if (cmd.includes('ENVIRON["T"]')) {
+        // The real pass, run on the sample transcripts.
+        cancelPasses.push(cmd);
+        let local = cmd;
+        for (const [fake, path] of real) local = local.split(fake).join(path);
+        let out = execFileSync("sh", ["-c", local], { encoding: "utf8" });
+        for (const [fake, path] of real) out = out.split(path).join(fake);
+        return out;
+      }
+      return baseImpl(conn, cmd);
+    });
+    readIdentityBatchMock.mockImplementation(
+      async () => new Map([["muffin", "---\n---\n"], ["scone", "---\n---\n"]]),
+    );
+    mockUserId = "uid-user";
+    getUsernameForUserIdMock.mockResolvedValue("user");
+
+    try {
+      const res = await httpPostJson(server, "/conversation-search", { query: "cheese" });
+      const rows = (res.body as { results: Array<Record<string, unknown>> }).results;
+      expect(rows.map((r) => r.identityKey)).toEqual(["scone"]);
+      expect(rows[0].snippet).toBe("cheese two");
+      expect(rows[0].passages).toEqual([
+        { speaker: "user", text: "cheese two" },
+        { speaker: "agent", text: "cheese ok" },
+      ]);
+      expect(rows[0].matchCount).toBe(2);
+      // The passage pass reuses what the row pass already settled.
+      expect(cancelPasses).toHaveLength(1);
+    } finally {
+      fs.rmSync(tmp, { recursive: true, force: true });
+    }
   });
 
   it("Test I3: the scan looks for the query as transcripts store it (quote marks escaped)", async () => {

@@ -93,6 +93,10 @@ import { connectOneShot } from "../../ssh/ssh-one-shot.js";
 import { getHostSemaphore } from "../../ssh/host-semaphore-registry.js";
 import { execCommand } from "../../ssh/tmux-helper.js";
 import {
+  cancelledFromPassOutput,
+  composeCancelPassCommand,
+} from "./conversation-search-cancels.js";
+import {
   __matchesIdentityFirstTurnForTests,
   buildDiscoveryScript,
   discoverIdentitySessionFile,
@@ -111,7 +115,10 @@ import {
   snippetForJudged,
   type SearchPassage,
 } from "../../claude-session/session-search-snippet.js";
-import { createSearchLineJudge } from "../../claude-session/search-line-judge.js";
+import {
+  createSearchLineJudge,
+  type JudgedLine,
+} from "../../claude-session/search-line-judge.js";
 import {
   readIdentityFrontmattersBatch,
   readRoleFrontmattersBatch,
@@ -673,6 +680,62 @@ async function gateHostRows(
 }
 
 /**
+ * Which matched user messages were cancelled — withdrawn with Stop before the
+ * agent started on them, so the conversation hides them
+ * (conversation-search-cancels.ts). One per host per request; asks the host
+ * only about lines it hasn't settled yet. If the pass fails, the messages
+ * count as not cancelled — they stay findable, as they were before.
+ */
+class CancelVerdicts {
+  private readonly settled = new Map<string, boolean>();
+
+  constructor(
+    private readonly conn: Parameters<typeof discoverIdentitySessionFile>[0],
+    private readonly hostId: number,
+  ) {}
+
+  /** Lines worth asking about: the user's own messages that carry an id. */
+  static askable(judged: JudgedLine, rawLine: string): boolean {
+    return judged.speaker === "user" && rawLine.includes('"uuid":"');
+  }
+
+  async settle(ask: Map<string, number[]>): Promise<void> {
+    const pending = new Map<string, number[]>();
+    for (const [path, lines] of ask) {
+      const left = lines.filter((n) => !this.settled.has(`${path}\t${n}`));
+      if (left.length > 0) pending.set(path, left);
+    }
+    if (pending.size === 0) return;
+    let cancelled: Set<string>;
+    try {
+      const stdout = await execCommand(
+        this.conn as Parameters<typeof execCommand>[0],
+        composeCancelPassCommand(pending),
+      );
+      cancelled = cancelledFromPassOutput(stdout);
+    } catch (err) {
+      systemLogger.warn("conversation-search: cancel pass failed — matches stay findable", {
+        operation: "search_cancel_pass_error",
+        hostId: this.hostId,
+        fileCount: pending.size,
+        error: err instanceof Error ? err.message : String(err),
+      });
+      cancelled = new Set();
+    }
+    for (const [path, lines] of pending) {
+      for (const n of lines) {
+        const key = `${path}\t${n}`;
+        this.settled.set(key, cancelled.has(key));
+      }
+    }
+  }
+
+  isCancelled(path: string, lineno: number): boolean {
+    return this.settled.get(`${path}\t${lineno}`) === true;
+  }
+}
+
+/**
  * Passage pass: for this host's newest `topN` rows (a superset of whatever
  * lands on the requested page), re-grep just those transcripts with a
  * higher per-file cap and build the multi-passage preview from the bubbles
@@ -685,6 +748,7 @@ async function attachPassages(
   rows: ConversationSearchResult[],
   query: string,
   topN: number,
+  cancels: CancelVerdicts,
 ): Promise<ConversationSearchResult[]> {
   const top = [...rows]
     .sort((a, b) => b.transcriptMtime - a.transcriptMtime)
@@ -712,26 +776,42 @@ async function attachPassages(
   }
   const byPath = new Map<
     string,
-    { passages: SearchPassage[]; lines: number; judge: ReturnType<typeof createSearchLineJudge> }
+    {
+      found: Array<{ hit: RawHit; judged: JudgedLine; passage: SearchPassage }>;
+      lines: number;
+      judge: ReturnType<typeof createSearchLineJudge>;
+    }
   >();
+  const ask = new Map<string, number[]>();
   for (const hit of hits) {
     let entry = byPath.get(hit.path);
     if (!entry) {
-      entry = { passages: [], lines: 0, judge: createSearchLineJudge() };
+      entry = { found: [], lines: 0, judge: createSearchLineJudge() };
       byPath.set(hit.path, entry);
     }
     entry.lines += 1;
     const judged = entry.judge.judge(hit.rawLine);
-    const p = judged ? passageForJudged(judged, query) : null;
-    if (p) entry.passages.push(p);
+    const passage = judged ? passageForJudged(judged, query) : null;
+    if (!judged || !passage) continue;
+    entry.found.push({ hit, judged, passage });
+    if (CancelVerdicts.askable(judged, hit.rawLine)) {
+      const list = ask.get(hit.path) ?? [];
+      list.push(hit.lineno);
+      ask.set(hit.path, list);
+    }
   }
+  await cancels.settle(ask);
   return rows.map((row) => {
     const entry = byPath.get(row.transcriptPath);
-    if (!entry || entry.passages.length === 0) return row;
+    if (!entry) return row;
+    const passages = entry.found
+      .filter((f) => !cancels.isCancelled(f.hit.path, f.hit.lineno))
+      .map((f) => f.passage);
+    if (passages.length === 0) return row;
     return {
       ...row,
-      passages: entry.passages.slice(0, MAX_PASSAGES),
-      matchCount: entry.passages.length,
+      passages: passages.slice(0, MAX_PASSAGES),
+      matchCount: passages.length,
       matchCountCapped: entry.lines >= PASSAGE_SCAN_LINES,
     };
   });
@@ -742,6 +822,7 @@ async function runOneHost(
   hostId: number,
   hostName: string,
   query: string,
+  cancels: CancelVerdicts,
 ): Promise<ConversationSearchResult[]> {
   const identities = await resolveIdentityPaths(conn);
   if (identities.length === 0) return [];
@@ -765,18 +846,15 @@ async function runOneHost(
   const stdout = await execCommand(conn as Parameters<typeof execCommand>[0], cmd);
   const hits = parseGrepOutput(stdout);
 
-  const rows: ConversationSearchResult[] = [];
-  const seenPaths = new Set<string>();
+  // The scan is a coarse pre-filter; the line judge decides. A hit counts
+  // only if it is a bubble the conversation shows AND the query is in the
+  // words that bubble displays (shape-search-matches-conversation). Every
+  // hit of a file goes through its judge, in order — the dedup steps are
+  // stateful.
+  const matchesByPath = new Map<string, Array<{ hit: RawHit; judged: JudgedLine }>>();
   const judges = new Map<string, ReturnType<typeof createSearchLineJudge>>();
   for (const hit of hits) {
-    const meta = pathIndex.get(hit.path);
-    if (!meta) continue; // grep matched a path we didn't feed in — shouldn't happen
-    // Dedup by path — one row per conversation regardless of how many
-    // hits grep found in the file.
-    if (seenPaths.has(hit.path)) continue;
-    // The scan is a coarse pre-filter; the line judge decides. A hit counts
-    // only if it is a bubble the conversation shows AND the query is in the
-    // words that bubble displays (shape-search-matches-conversation).
+    if (!pathIndex.has(hit.path)) continue; // grep matched a path we didn't feed in — shouldn't happen
     let judge = judges.get(hit.path);
     if (!judge) {
       judge = createSearchLineJudge();
@@ -784,8 +862,31 @@ async function runOneHost(
     }
     const judged = judge.judge(hit.rawLine);
     if (judged === null || !judgedMatches(judged, query)) continue;
+    const list = matchesByPath.get(hit.path) ?? [];
+    list.push({ hit, judged });
+    matchesByPath.set(hit.path, list);
+  }
 
-    seenPaths.add(hit.path);
+  // A file's row comes from its first match the conversation still shows. The
+  // user's own messages ahead of its first other match might have been
+  // cancelled; settle those before picking.
+  const ask = new Map<string, number[]>();
+  for (const [path, matches] of matchesByPath) {
+    const lines: number[] = [];
+    for (const { hit, judged } of matches) {
+      if (!CancelVerdicts.askable(judged, hit.rawLine)) break;
+      lines.push(hit.lineno);
+    }
+    if (lines.length > 0) ask.set(path, lines);
+  }
+  await cancels.settle(ask);
+
+  const rows: ConversationSearchResult[] = [];
+  for (const [path, matches] of matchesByPath) {
+    const meta = pathIndex.get(path)!;
+    const first = matches.find((m) => !cancels.isCancelled(path, m.hit.lineno));
+    if (!first) continue;
+    const { hit, judged } = first;
     const { snippet, hitStart, hitLength } = snippetForJudged(judged, query);
     rows.push({
       transcriptPath: hit.path,
@@ -953,7 +1054,8 @@ router.post(
               // stalls at any step costs its own rows, never the whole request.
               return await Promise.race<ConversationSearchResult[]>([
                 (async () => {
-                  const rows = await runOneHost(c, hostId, hostName, query);
+                  const cancels = new CancelVerdicts(c, hostId);
+                  const rows = await runOneHost(c, hostId, hostName, query, cancels);
                   // Phase 129 Plan 129-04: D-7 deep-gate seam #4 — batched
                   // frontmatter fetch, fail-CLOSED filter. Applied AFTER
                   // runOneHost so live and archived hits share one pass; BEFORE
@@ -966,6 +1068,7 @@ router.post(
                     gatedRows,
                     query,
                     Math.min(offset + limit, PASSAGE_MAX_ROWS_PER_HOST),
+                    cancels,
                   );
                 })(),
                 new Promise<ConversationSearchResult[]>((_, reject) =>

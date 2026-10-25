@@ -12,6 +12,12 @@
  * One judge per transcript, fed lines in file order — the dedup steps are
  * stateful (a queued send appears twice; a relay message can arrive in more
  * than one envelope).
+ *
+ * One thing a single line can't tell: whether the user later cancelled a
+ * message (the conversation learns that from the next prompt). Callers that
+ * need it run the conversation's cancel tracker too — over the lines they
+ * hold (user-reply-scan.ts) or via search's cancel pass
+ * (conversation-search-cancels.ts).
  */
 
 import { parseSessionLineQuietly } from "./session-file-parser.js";
