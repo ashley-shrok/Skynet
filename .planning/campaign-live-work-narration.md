@@ -13,7 +13,7 @@ While an agent works, the conversation view shows a short line next to the work 
 - While an agent works and its conversation is open, a line next to the work indicator says where it is in the job, readable on its own, without repeating the task title.
 - The line changes at a pace you can read: when the agent's progress actually moves, not on every step.
 - The line stays accurate to what the agent is actually doing.
-- Narration runs on the subscription, never as paid API calls, and only while someone has the conversation open. Nothing runs for conversations nobody is watching.
+- Narration signs in the same way the agent does (subscription token, normal login, API key or Bedrock) and runs only while someone has the conversation open. Nothing runs for conversations nobody is watching. On a paid sign-in it costs a small amount on top of the agent's own usage (decided 2026-10-25).
 - It stays light enough for the smallest supported host (a 4 GB box): narration calls don't pile up.
 - Nothing the agent itself does changes. Agents aren't given extra instructions and their sessions aren't touched.
 

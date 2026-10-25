@@ -99,7 +99,9 @@ describe("buildNarrationCommand / buildNarrationInput", () => {
       expect(cmd).toContain(part);
     }
     expect(cmd).toContain('--setting-sources ""');
-    for (const v of ["ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "ANTHROPIC_BASE_URL", "CLAUDECODE"]) expect(cmd).toContain(`-u ${v}`);
+    expect(cmd).toContain("-u CLAUDECODE");
+    // Signs in the way the agent does — an API key or Bedrock is carried over, not stripped.
+    expect(cmd).not.toContain("-u ANTHROPIC_API_KEY");
     expect(cmd).toContain("CLAUDE_CODE_OAUTH_TOKEN");
     expect(cmd).not.toContain("--bare");
   });

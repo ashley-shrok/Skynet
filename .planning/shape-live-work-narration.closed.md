@@ -145,3 +145,9 @@ While an agent is working and you have its conversation open, a short line appea
 ### Notes
 
 Clean pass on the second review. The first review flagged one divergence: the narrator call loaded the box's normal settings. A survey of the agent boxes showed those settings can enable plugins, remote control at startup and push notifications. So the call now skips every settings file and reads the token on the box itself, as the shape said. The user also ruled that no what's-new note is needed.
+
+---
+
+## Post-close amendment (2026-10-25)
+
+Ashley pointed out that the harness signs in many ways: the year-long subscription token, the shorter normal login, an API key, or AWS Bedrock (most of Stacy's boxes). Reading only the token would leave the narrator without a line on API-key and Bedrock boxes. Decision ("we have to go B"): **the narrator signs in however the agent does**. It carries over only the sign-in parts of the agent's settings (the environment entries for the token, API key, Bedrock or Vertex and AWS or Google, proxies, and the credential-helper settings) and nothing else. Plugins, remote control, push notifications, hooks and the model choice still stay behind. This replaces "it never becomes real API spend": on a paid sign-in, narration costs a small extra on top of what the agent itself costs, paid by whoever pays for the agent. Stacy's ship notice has to say so.

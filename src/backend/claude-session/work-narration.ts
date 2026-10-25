@@ -8,8 +8,8 @@
 // sees each line once. (Claude Code writes some lines a millisecond out of
 // timestamp order, so a strict timestamp watermark would lose real lines.)
 // A small fast model writes the line
-// on the agent's own box (one-shot Claude Code call on the fleet's subscription
-// token, thinking off, no tools, no settings files or hooks, no CLAUDE.md), only while at least
+// on the agent's own box (one-shot Claude Code call signed in the same way the
+// agent is, thinking off, no tools, no settings files or hooks, no CLAUDE.md), only while at least
 // one tab says it is showing the work indicator.
 //
 // Pacing: the first line of a turn once the agent has taken FIRST_LINE_MIN_STEPS
@@ -72,26 +72,46 @@ const defaultRunner: NarrationRunner = (conn, command, stdin, timeoutMs) =>
 
 const shellQuote = (s: string): string => `'${s.replace(/'/g, `'\\''`)}'`;
 
+// Runs on the agent's box: prints `export` lines for the sign-in parts of the
+// user's Claude settings env block (subscription token, API key, Bedrock /
+// Vertex switches, AWS / Google settings, proxies) and NARR_SETTINGS — a
+// settings object carrying only the credential helpers plus the narrator's own
+// switches. Everything else in those settings (plugins, remote control, push
+// notifications, hooks, model, permissions) is left behind.
+const AUTH_EXTRACT_PY = [
+  "import json,os,shlex",
+  "try: s=json.load(open(os.path.expanduser('~/.claude/settings.json')))",
+  "except Exception: s={}",
+  "e=s.get('env') if isinstance(s.get('env'),dict) else {}",
+  "P=('ANTHROPIC_','AWS_','CLAUDE_CODE_USE_','CLAUDE_CODE_SKIP_','CLOUD_ML_','GOOGLE_','VERTEX_')",
+  "K={'CLAUDE_CODE_OAUTH_TOKEN','HTTPS_PROXY','HTTP_PROXY','NO_PROXY','https_proxy','http_proxy','no_proxy','NODE_EXTRA_CA_CERTS'}",
+  "for k,v in e.items():",
+  "  if isinstance(v,(str,int,float)) and k.replace('_','').isalnum() and (k in K or k.startswith(P)): print('export %s=%s'%(k,shlex.quote(str(v))))",
+  "f={k:s[k] for k in ('apiKeyHelper','awsAuthRefresh','awsCredentialExport','gcpAuthRefresh','forceLoginMethod','forceLoginOrgUUID') if k in s}",
+  "f.update(disableAllHooks=True,alwaysThinkingEnabled=False)",
+  "print('NARR_SETTINGS=%s'%shlex.quote(json.dumps(f)))",
+].join("\n");
+
 export function buildNarrationCommand(): string {
-  // No settings files at all (--setting-sources ""): a box's user settings can
-  // enable plugins, remote control or push notifications. The subscription
-  // token normally arrives through those settings' env block, so it is read
-  // out of the same file on the box itself (never passes through the command
-  // line or the server); a box that logs in some other way keeps that login.
-  const readToken =
-    'T=$(python3 -c \'import json,os;print(json.load(open(os.path.expanduser("~/.claude/settings.json"))).get("env",{}).get("CLAUDE_CODE_OAUTH_TOKEN",""))\' 2>/dev/null);' +
-    ' [ -n "$T" ] && export CLAUDE_CODE_OAUTH_TOKEN="$T"; unset T;';
+  // No settings files are loaded (--setting-sources ""): a box's user settings
+  // can enable plugins, remote control or push notifications. Instead the call
+  // signs in exactly the way the agent does — subscription token, normal
+  // login, API key, Bedrock or Vertex — by carrying over only the sign-in
+  // parts of those settings (see AUTH_EXTRACT_PY). Values travel in the
+  // environment, never on the command line. A normal subscription login lives
+  // in Claude's own credential store and is found without help.
+  const fallback = JSON.stringify({ disableAllHooks: true, alwaysThinkingEnabled: false });
   return [
     "cd /tmp 2>/dev/null;",
     'C="$HOME/.local/bin/claude"; [ -x "$C" ] || C=$(command -v claude) || exit 127;',
-    readToken,
-    // Never an API key or another endpoint (that would be paid API spend), and
-    // nothing that makes the call think it runs inside an agent's session.
-    "env -u ANTHROPIC_API_KEY -u ANTHROPIC_AUTH_TOKEN -u ANTHROPIC_BASE_URL -u CLAUDECODE -u CLAUDE_CODE_ENTRYPOINT",
-    "-u CLAUDE_CODE_SESSION_ID -u CLAUDE_CODE_CHILD_SESSION -u CLAUDE_CODE_MESSAGING_SOCKET -u CLAUDE_CODE_MESSAGING_TOKEN",
+    `eval "$(python3 -c ${shellQuote(AUTH_EXTRACT_PY)} 2>/dev/null)";`,
+    `[ -n "$NARR_SETTINGS" ] || NARR_SETTINGS=${shellQuote(fallback)};`,
+    // Nothing that makes the call think it runs inside an agent's session.
+    "env -u CLAUDECODE -u CLAUDE_CODE_ENTRYPOINT -u CLAUDE_CODE_SESSION_ID -u CLAUDE_CODE_CHILD_SESSION",
+    "-u CLAUDE_CODE_MESSAGING_SOCKET -u CLAUDE_CODE_MESSAGING_TOKEN",
     "MAX_THINKING_TOKENS=0 CLAUDE_CODE_DISABLE_CLAUDE_MDS=1 CLAUDE_CODE_DISABLE_AUTO_MEMORY=1 DISABLE_AUTOUPDATER=1",
     '"$C" -p --model haiku --setting-sources "" --strict-mcp-config --tools "" --no-session-persistence --output-format text',
-    `--settings ${shellQuote(JSON.stringify({ disableAllHooks: true, alwaysThinkingEnabled: false }))}`,
+    '--settings "$NARR_SETTINGS"',
     `--system-prompt ${shellQuote(NARRATION_SYSTEM_PROMPT)}`,
   ].join(" ");
 }
