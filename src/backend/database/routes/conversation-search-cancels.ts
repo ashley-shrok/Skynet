@@ -8,15 +8,22 @@
  * this asks the transcript once more for just what the tracker needs to
  * decide — the lines that hang off the message and the lines that branch from
  * the same point after it — then replays them through the conversation's own
- * tracker. One remote awk pass per host, run only on transcripts whose
- * deciding matches are the user's; it stops reading a file once every asked-
- * about message is settled, which is usually a few lines past the last one.
+ * tracker. A remote awk pass, run only on transcripts whose deciding matches
+ * are the user's; it skips ahead to the first asked-about line and stops
+ * reading once every one is settled, usually a few lines past the last.
  *
  * The awk side is a coarse cut, never the judge: it reads each line's own
  * `"uuid":"…"` / `"parentUuid":"…"` keys (one of each per transcript line;
  * quotes inside message text are stored escaped) and stops following a
- * message at its first reply or first branch-mate. Anything it gets wrong
- * leans toward "not cancelled" — the message stays findable, as before.
+ * message at its first reply, its first branch-mate, or the first other
+ * prompt after it (which is where the tracker stops looking too). Its marks
+ * for "attachment", "user" and the keys are substring checks on the raw
+ * line, coarse by design; a miss leans toward "not cancelled" — the message
+ * stays findable, as before.
+ *
+ * Known gap: the conversation also hides a message the moment a Stop press
+ * cancels it live (a server-memory record); search only sees it once the
+ * next prompt lands. Until then it stays findable.
  */
 
 import { InterruptCancelTracker } from "../../claude-session/interrupt-cancel-tracker.js";
@@ -34,7 +41,10 @@ import { InterruptCancelTracker } from "../../claude-session/interrupt-cancel-tr
  *     could be a new prompt (a user line that is not machinery or a tool
  *     result). Those go out whole: the tracker reads a prompt's text to tell
  *     it from a stop marker or command output. Anything else goes out as its
- *     kind and ids.
+ *     kind and ids;
+ *   - the first other line that could be a new prompt, whole, after which
+ *     the message is settled: the tracker only ever compares a message with
+ *     the very next prompt.
  * No single quotes: it is embedded in a single-quoted sh -c script.
  */
 export const CANCEL_PASS_AWK =
@@ -47,16 +57,20 @@ export const CANCEL_PASS_AWK =
   '    "\\",\\"uuid\\":\\"" u "\\",\\"parentUuid\\":" (p == "" ? "null" : "\\"" p "\\"") "}"; ' +
   '  print ENVIRON["P"] "\\t" t "\\t" NR "\\t" l } ' +
   "function settle(t) { if (open[t]) { open[t] = 0; left-- } } " +
-  'BEGIN { n = split(ENVIRON["T"], a, ","); left = 0; last = 0; ' +
-  "  for (i = 1; i <= n; i++) { want[a[i] + 0] = 1; if (a[i] + 0 > last) last = a[i] + 0 } } " +
+  'BEGIN { n = split(ENVIRON["T"], a, ","); left = 0; last = 0; first = 0; ' +
+  "  for (i = 1; i <= n; i++) { v = a[i] + 0; want[v] = 1; if (v > last) last = v; " +
+  "    if (first == 0 || v < first) first = v } } " +
+  "NR < first { next } " +
   '{ u = key("uuid"); if (u == "") { if (NR > last && left == 0) exit; next } ' +
   '  p = key("parentUuid"); ' +
   '  prompt = index($0, "\\"type\\":\\"user\\"") && !index($0, "\\"isMeta\\":true") && ' +
   '    !index($0, "\\"type\\":\\"tool_result\\""); ' +
-  '  if (p != "" && (p in owner)) { t = owner[p]; if (open[t]) { owner[u] = t; out(t, 0); ' +
+  '  split("", seen); ' +
+  '  if (p != "" && (p in owner)) { t = owner[p]; if (open[t]) { owner[u] = t; out(t, 0); seen[t] = 1; ' +
   '    if (!index($0, "\\"type\\":\\"attachment\\"")) settle(t) } } ' +
   '  if (p != "" && (p in mates)) { m = split(mates[p], b, " "); for (j = 1; j <= m; j++) { t = b[j] + 0; ' +
-  "    if (open[t] && t != NR) { out(t, prompt); if (prompt) settle(t) } } } " +
+  "    if (open[t] && t != NR) { out(t, prompt); seen[t] = 1; if (prompt) settle(t) } } } " +
+  "  if (prompt && left > 0) for (t in open) if (open[t] && !(t in seen) && t + 0 != NR) { out(t, 1); settle(t) } " +
   "  if (NR in want) { out(NR, 1); owner[u] = NR; open[NR] = 1; left++; " +
   '    if (p != "") mates[p] = mates[p] " " NR } ' +
   "  if (NR >= last && left == 0) exit }";
@@ -124,25 +138,27 @@ export function cancelledFromPassOutput(stdout: string): Set<string> {
  */
 export function isCancelled(lines: string[]): boolean {
   if (lines.length < 2) return false;
-  let target: string | null = null;
+  const parse = (raw: string): Record<string, unknown> | null => {
+    try {
+      const obj: unknown = JSON.parse(raw);
+      return obj !== null && typeof obj === "object" && !Array.isArray(obj)
+        ? (obj as Record<string, unknown>)
+        : null;
+    } catch {
+      return null;
+    }
+  };
+  const message = parse(lines[0]);
+  if (message === null || typeof message.uuid !== "string") return false;
+  const target = message.uuid;
   const tracker = new InterruptCancelTracker();
   const hidden = new Set<string>();
   for (const raw of lines) {
-    let obj: unknown;
-    try {
-      obj = JSON.parse(raw);
-    } catch {
-      continue;
-    }
-    if (obj === null || typeof obj !== "object" || Array.isArray(obj)) continue;
-    const rec = obj as Record<string, unknown>;
-    if (target === null) {
-      if (typeof rec.uuid !== "string") return false;
-      target = rec.uuid;
-    }
+    const rec = parse(raw);
+    if (rec === null) continue;
     const { hide, unhide } = tracker.observe(rec, null);
     for (const u of hide) hidden.add(u);
     for (const u of unhide) hidden.delete(u);
   }
-  return target !== null && hidden.has(target);
+  return hidden.has(target);
 }

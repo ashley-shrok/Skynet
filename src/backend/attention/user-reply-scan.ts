@@ -15,13 +15,20 @@
  * /exit and /compact, skill bodies, condense summaries, tool results and
  * interrupt markers never count, and a long pasted message, an answered
  * question, an upload or a slash command the user ran always does — exactly
- * as the conversation draws them.
+ * as the conversation draws them. One deliberate exception: a command's
+ * output, which the conversation draws in the user's bubble but the harness
+ * wrote, doesn't count (the command before it already did).
+ *
+ * A message stopped live counts until the next prompt shows it was cancelled
+ * (the conversation also knows sooner, from a server-memory record).
  *
  * The timestamp is the transcript's own, written on the agent's machine —
  * the same clock as the Stop-file mtime it is compared against.
  */
 import { createSearchLineJudge } from "../claude-session/search-line-judge.js";
 import { InterruptCancelTracker } from "../claude-session/interrupt-cancel-tracker.js";
+
+const LOCAL_COMMAND_OUTPUT = /^\s*<local-command-(stdout|stderr|caveat)>/;
 
 function timestampOf(obj: Record<string, unknown>): number | null {
   if (typeof obj.timestamp !== "string") return null;
@@ -57,7 +64,13 @@ export function scanTailForLatestUserReply(tailContents: string): number | null 
     const { hide, unhide } = tracker.observe(rec, null);
     for (const uuid of hide) cancelled.add(uuid);
     for (const uuid of unhide) cancelled.delete(uuid);
-    if (judge.judge(line)?.speaker !== "user") continue;
+    const judged = judge.judge(line);
+    if (judged?.speaker !== "user") continue;
+    // A command's output sits in the user's bubble but is the harness
+    // talking; the command the user typed already counted. Skipping it also
+    // keeps the supervisor's own commands (dormancy /exit) from ever
+    // counting through their output, whatever text it prints.
+    if (LOCAL_COMMAND_OUTPUT.test(judged.text)) continue;
     const at = timestampOf(rec);
     if (at === null) continue;
     replies.push({ uuid: typeof rec.uuid === "string" ? rec.uuid : null, at });

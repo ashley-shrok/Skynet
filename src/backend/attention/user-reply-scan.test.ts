@@ -28,9 +28,6 @@ describe("userReplyAt — counts", () => {
     ["a short message that starts with a tag", "<div> is the wrong element here, use a span"],
     ["a skill the user ran", "<command-message>light-review</command-message>\n<command-name>/light-review</command-name>"],
     ["a message that starts with a word like compact", "/compactor settings look off"],
-    // The conversation draws a command's output in the user's bubble, right
-    // after the command the user ran.
-    ["output of a command the user ran", "<local-command-stdout>Set model to Opus</local-command-stdout>"],
   ])("%s", (_label, content) => {
     expect(userReplyAt(userLine(content))).toBe(TS_MS);
   });
@@ -54,6 +51,10 @@ describe("userReplyAt — does not count", () => {
     ["the /compact prompt as typed, before a condense", "/compact keep the codeword"],
     ["a bare /compact prompt", "/compact"],
     ["a /compact prompt pasted in a pasted_content wrapper", '<pasted_content id="aa11">\n/compact keep it\n</pasted_content id="aa11">'],
+    // Shown in the user's bubble, but the harness wrote it; the command
+    // before it is what counts.
+    ["a command's output", "<local-command-stdout>Set model to Opus</local-command-stdout>"],
+    ["a changed goodbye after the supervisor's /exit", "<local-command-stdout>Later!</local-command-stdout>"],
     ["an interrupt marker", "[Request interrupted by user]"],
     ["Ctrl-C noise", "\x03\x03"],
     ["the resumed sentinel", "Your session was just resumed by the agent-supervisor after a restart."],

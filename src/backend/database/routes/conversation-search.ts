@@ -679,12 +679,20 @@ async function gateHostRows(
   return visibleRows;
 }
 
+/** Ceiling on one cancel pass; it normally takes well under a second. */
+const CANCEL_PASS_MAX_MS = 8_000;
+/** Budget kept back for the visibility gate and passage pass after it. */
+const CANCEL_PASS_RESERVE_MS = 5_000;
+/** Below this there's no point starting the pass. */
+const CANCEL_PASS_MIN_MS = 500;
+
 /**
  * Which matched user messages were cancelled — withdrawn with Stop before the
  * agent started on them, so the conversation hides them
  * (conversation-search-cancels.ts). One per host per request; asks the host
- * only about lines it hasn't settled yet. If the pass fails, the messages
- * count as not cancelled — they stay findable, as they were before.
+ * only about lines it hasn't settled yet — at most twice (row pass, then the
+ * passage pass's extra lines). If the pass fails or runs out of time, the
+ * messages count as not cancelled — they stay findable, as before.
  */
 class CancelVerdicts {
   private readonly settled = new Map<string, boolean>();
@@ -692,6 +700,10 @@ class CancelVerdicts {
   constructor(
     private readonly conn: Parameters<typeof discoverIdentitySessionFile>[0],
     private readonly hostId: number,
+    /** When the host's search budget runs out (ms since epoch). The pass gets
+     *  what's left minus a reserve for the steps after it, so a slow host
+     *  loses the check, never its rows. */
+    private readonly deadlineAt: number,
   ) {}
 
   /** Lines worth asking about: the user's own messages that carry an id. */
@@ -708,9 +720,15 @@ class CancelVerdicts {
     if (pending.size === 0) return;
     let cancelled: Set<string>;
     try {
+      const timeoutMs = Math.min(
+        CANCEL_PASS_MAX_MS,
+        this.deadlineAt - Date.now() - CANCEL_PASS_RESERVE_MS,
+      );
+      if (timeoutMs < CANCEL_PASS_MIN_MS) throw new Error("no time left in the host budget");
       const stdout = await execCommand(
         this.conn as Parameters<typeof execCommand>[0],
         composeCancelPassCommand(pending),
+        { timeoutMs },
       );
       cancelled = cancelledFromPassOutput(stdout);
     } catch (err) {
@@ -1054,7 +1072,7 @@ router.post(
               // stalls at any step costs its own rows, never the whole request.
               return await Promise.race<ConversationSearchResult[]>([
                 (async () => {
-                  const cancels = new CancelVerdicts(c, hostId);
+                  const cancels = new CancelVerdicts(c, hostId, Date.now() + perHostTimeoutMs);
                   const rows = await runOneHost(c, hostId, hostName, query, cancels);
                   // Phase 129 Plan 129-04: D-7 deep-gate seam #4 — batched
                   // frontmatter fetch, fail-CLOSED filter. Applied AFTER

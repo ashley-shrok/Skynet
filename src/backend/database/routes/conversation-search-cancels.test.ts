@@ -78,6 +78,15 @@ beforeAll(() => {
     agent("a1", "u1", "cheese coming"),
     user("u2", "a0", "start over"),
   ]);
+  transcript("elsewhere", [
+    agent("a0", null, "hello"),
+    agent("b0", null, "earlier point"),
+    user("u1", "a0", "cheese please"), //              3  next prompt went elsewhere: kept
+    attachment("x1", "u1"),
+    user("u2", "b0", "back up a bit"),
+    agent("b1", "u2", "ok"),
+    user("u3", "a0", "and from here"),
+  ]);
   transcript("queued", [agent("a0", null, "hello"), enqueue("cheese queued"), user("u1", "a0", "cheese queued")]);
   variants = awkVariants();
 });
@@ -140,6 +149,7 @@ describe("conversation-search cancel pass", () => {
           twice: [2, 3, 4],
           revived: [2],
           rewound: [2],
+          elsewhere: [3],
           queued: [3],
         },
         pathDir,
