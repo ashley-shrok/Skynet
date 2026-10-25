@@ -59,3 +59,69 @@ Today an agent gets more room by being reset: it saves notes, its session is kil
 - The supervisor's existing paste pattern and the ambient monitor's event envelope are the models for sending the compaction and the nudge. The archive path shares the restart code's exit step by copy, so it must keep working when restart goes.
 - Retiring the context watch from boxes needs a cleanup step in the distributor, like earlier retired helpers.
 - Prove end to end on the new version: the button on an awake and on a sleeping agent, an agent-requested compaction, a message sent mid-condense, and an agent that had asked a question staying put after the nudge.
+
+---
+
+## Close-Out
+
+**Closed:** 2026-10-25
+**Overall verdict:** closed-hit
+
+### Shape features (conformance)
+
+- **What this is** — present · Reset is replaced by Condense everywhere in the repo: compacted in place, same conversation, a turn afterwards, users see Condense conversation, agents are taught compaction, context watch retired.
+- **Shape: One way in: the condense request** — present · One request, used both by the agent and by the button's route; nothing else sends a compaction; the automatic 95% compaction is untouched.
+- **Shape: The supervisor carries it out** — drifted (endorsed) · Wakes a sleeping agent through its inbox, waits for an awake one to be at rest, sends the compaction with the guidance. It sends the nudge once the compaction has landed rather than straight after (an event in the envelope is delivered at once, even ahead of a queued compaction, so waiting is what keeps "Compaction done" true). Ashley endorsed this, including the quiet give-up after 15 minutes if a compaction never lands.
+- **Shape: The nudge is a system event, never a user message** — present · Marked envelope, delivered-by-supervisor; wording covers not-from-user, answers nothing, re-load, carry on with cleared work, keep waiting; same every time.
+- **Shape: The button** — present · Condense conversation with inward arrows in the composer and relay-badge pop-overs; agreed words and confirm (the badge omits the typed-text line, having no box); action reads Condense.
+- **Shape: While it condenses** — present · Meter and pop-over read Condensing… until the compaction is in the record; no lock-out; composer stays usable.
+- **Shape: The restart machinery goes** — present · Restart path, request/marker files, recycling state, overlay, disabled composer, the reset-typing route and its web config, and the reset-command detection are gone; crash/fresh-launch handling stays; the archive exit step stands on its own.
+- **Shape: Agents are taught in compaction terms** — present · "Compacting yourself" section; users' word bridged; posture unchanged; old reset treated as a request to compact; no reset, context watch or 90% mentions left.
+- **Shape: Build and campaign skills** — drifted (endorsed) · Drafts compact where they reset and between shapes; the emergency rule was removed instead of reworded, which Ashley asked for. Installing them into the live copies is held to campaign close, with the deploy.
+- **Shape: The context watch is retired completely** — present · Script, distribution row and monitor child removed; distributor deletes installed copies and per-identity state on every box at deploy.
+- **Philosophy** — present · One operation, one entry point, no hidden restart; reset's guarantees kept; the nudge never reads as the user; posture no looser.
+- **Prior context (commitments)** — present · The turn shape 2 relies on is provided by the nudge; completion is read from the record's compaction marker.
+- **What would make it wrong: An agent is restarted into a fresh session to get more room, by any path** — present · No restart path remains.
+- **What would make it wrong: After a condense the user or agent asked for, the agent sits idle with no turn** — present (with endorsed edge) · Every compaction that lands is followed by the nudge; a compaction that never lands is given up quietly after 15 minutes, as Ashley chose.
+- **What would make it wrong: An agent treats the after-compaction nudge as the user's yes to something it asked** — present · Both the nudge and the id skill say it answers nothing and is never permission.
+- **What would make it wrong: The nudge shows up in the chat as if the user had typed it** — present · The envelope is stripped from user bubbles; further display is shape 4.
+- **What would make it wrong: Pressing Condense on a sleeping agent does nothing, or the request is silently lost** — present · Handled before the sleep check; the inbox drop wakes the agent; failed writes keep the request.
+- **What would make it wrong: The user is locked out of typing while the agent condenses, or a message sent meanwhile is lost** — present · Nothing is disabled while condensing.
+- **What would make it wrong: Agents start compacting themselves on their own initiative outside the build and campaign boundaries** — present · Only when the user asks or a skill boundary calls for it.
+- **What would make it wrong: Anything still says reset or start fresh, or still mentions the context watch** — present · Nothing user-facing says it; id skill and drafts clean; stale code comments and the phone-call skill's "don't reset or recycle" line were fixed after the review; live build/campaign copies change at campaign close.
+- **What would make it wrong: Leftover machinery remains on disk or on the boxes** — present · Removed from the repo; distributor cleanup removes installed copies at deploy.
+- **Scope edges** — present · All In items covered; nothing from shape 4; no what's-new note, per-request note, hidden restart or free self-compaction.
+
+### Additions (in the result, not in the shape)
+
+- If a requested compaction hasn't landed 15 minutes after it was sent, the supervisor gives up quietly (no nudge; Condensing… clears; logged) — endorsed-as-drift (Ashley: an edge case, leave it quiet)
+- The meter shows Condensing… straight away for up to two minutes after a press, before the status check confirms — endorsed-as-drift
+- The id skill asks an agent to write anything other agents need before compacting, and lets a waiting agent re-state its question in a line after the nudge — endorsed-as-drift
+
+### Follow-ups
+
+- Install the approved build and campaign skill drafts into the live copies at campaign close, with the deploy — deferred (in the campaign artifact)
+- Phone-call skill still said "don't reset or recycle your session" — reworded to "don't exit or restart" after the review (Ashley's yes) — done
+- Leftover "recycle" wording in code comments — tidied after the review — done
+
+### Notes
+
+Two drifts, both endorsed by Ashley on 2026-10-25: nudge after landing (with a quiet 15-minute give-up), and the emergency rule removed rather than reworded.
+
+### Post-close review fixes (2026-10-25)
+
+The unbiased code review's findings, and what happened to each:
+- **A selection dialog looked like a resting prompt**, so the Enter after the compaction could pick an option for the user. Fixed: the "at rest" check now refuses any numbered option list or "Enter to select" near the bottom of the screen. It also reads only the input box and footer, so "esc to interrupt" quoted in the agent's own output no longer makes it look busy forever.
+- **A request could wait forever**, leaving "Condensing…" and a disabled button. Fixed: a request the agent never comes to rest for is dropped after 30 minutes.
+- **The idle sweep could put an agent to sleep mid-condense**, losing it. Fixed: the agent isn't put to sleep while a compaction is asked for or under way, or while anything sits in its inbox.
+- **A live agent showed as asleep in the app while condensing.** Its status frame was the dormant placeholder. Fixed: the frame is built on the agent's live row, a live status change mid-condense keeps "Condensing…", and the live row is refreshed when condensing ends.
+- **Rollout: agents still on the old id skill drop the old restart request and wait.** Fixed: the supervisor takes that request as a compaction request, and the old restart marker is cleaned up on every box.
+- **The context watch's removal could race the monitor update**, so an old monitor would warn that its child failed to start. Fixed: the watcher is removed only once the installed monitor no longer starts it.
+- **Control characters in the typed guidance could break the paste.** Fixed: they are dropped, in both the route and the supervisor.
+- **Text typed while the request was in flight was cleared.** Fixed: the box is cleared only if it still holds what went along as guidance.
+- **Not changed:**
+  - The nudge still goes after the compaction lands. An event in the envelope is delivered at once even ahead of a queued compaction, and the summary's re-load directive makes the agent re-load first even when a queued message arrives before the nudge (seen end to end).
+  - The 15-minute quiet give-up stays, as Ashley chose.
+  - The app's own sends aren't coordinated with inbox pastes. That's an existing class, not new here.
+  - A fast double press could collide on the shared temp-file primitive. The button is disabled while a request is in flight.
+  - "Condensing…" can linger up to 2 minutes if a compaction finishes before the status poll sees it.

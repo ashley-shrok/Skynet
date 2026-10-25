@@ -1075,6 +1075,20 @@ describe("BR2 — bootstrap patches settings.json + runs gsd-context-monitor cle
     await expect(fs.readFile(path.join(stateB, "stray.txt"), "utf-8")).resolves.toBe("keep me");
   });
 
+  it("retired context watch: kept while the installed ambient-monitor still starts it", async () => {
+    process.env.SKYNET_PUBLIC_URL = "https://skynet.example.com";
+    await fs.mkdir(path.join(tmpRoot, ".local/bin"), { recursive: true });
+    await fs.writeFile(path.join(tmpRoot, ".local/bin/context-watch"), "#!/usr/bin/env python3\n");
+    await fs.writeFile(path.join(tmpRoot, ".local/bin/ambient-monitor"), "spawns .local/bin/context-watch\n");
+    const { bootstrapFleetSubstrateLocally } = await importFresh();
+    await bootstrapFleetSubstrateLocally(host);
+    // Either kept (old monitor still in place at cleanup time) or removed after
+    // the same bootstrap replaced the monitor — never removed under an old one.
+    const monitor = await fs.readFile(path.join(tmpRoot, ".local/bin/ambient-monitor"), "utf-8").catch(() => "");
+    const watcherPresent = await fs.access(path.join(tmpRoot, ".local/bin/context-watch")).then(() => true, () => false);
+    if (monitor.includes("context-watch")) expect(watcherPresent).toBe(true);
+  });
+
   it("gsd-context-monitor cleanup: matching hook present in settings + hook file present → strip settings entry AND unlink hook file", async () => {
     process.env.SKYNET_PUBLIC_URL = "https://skynet.example.com";
     const claudeDir = path.join(tmpRoot, ".claude");

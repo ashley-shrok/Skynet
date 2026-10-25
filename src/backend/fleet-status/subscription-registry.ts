@@ -906,8 +906,18 @@ export function createSubscriptionRegistry(
       // with session-working-store.ts. The stamp is UNCONDITIONAL — every
       // frame carries the current value, so subscribers see the freshest
       // contextPct on the very next fleet-status frame after a store write.
+      // The condensing axis is stamped only by source B (per-identity sweep);
+      // source A's live frames leave it out. A frame that leaves it out keeps
+      // the last stamped value, so a live status change mid-condense doesn't
+      // clear "Condensing…" early — source B's own false frame clears it.
+      const prior = state.get(key);
+      const carried =
+        sessionState.condensing === undefined && prior?.condensing !== undefined
+          ? { condensing: prior.condensing }
+          : {};
       const stampedState: SessionState = {
         ...sessionState,
+        ...carried,
         contextPct: getContextPct(hostId, sessionState.tmuxSession ?? "") ?? null,
       };
       state.set(key, stampedState);

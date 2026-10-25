@@ -519,10 +519,21 @@ describe("runBootstrapForHost", () => {
       await fsp.mkdir(stB, { recursive: true });
       await fsp.writeFile(nodePath.join(stA, "ctxwatch.pid"), "1");
       await fsp.writeFile(nodePath.join(stA, "pinged"), "1");
+      await fsp.writeFile(nodePath.join(home, "fleet/identities/alpha/.recycled-at"), "1");
       await fsp.writeFile(nodePath.join(stB, "stray.txt"), "keep me");
       expect(run(home).trimEnd().endsWith("__CLEANUP_OK__")).toBe(true);
       await expect(fsp.access(nodePath.join(home, ".local/bin/context-watch"))).rejects.toThrow();
+      // An ambient-monitor that still starts the watcher keeps it (old monitor
+      // not yet replaced by this sweep's push); the next sweep removes it.
+      await fsp.writeFile(nodePath.join(home, ".local/bin/context-watch"), "x");
+      await fsp.writeFile(nodePath.join(home, ".local/bin/ambient-monitor"), "spawn context-watch\n");
+      expect(run(home).trimEnd().endsWith("__CLEANUP_OK__")).toBe(true);
+      await expect(fsp.access(nodePath.join(home, ".local/bin/context-watch"))).resolves.toBeUndefined();
+      await fsp.writeFile(nodePath.join(home, ".local/bin/ambient-monitor"), "no watcher here\n");
+      expect(run(home).trimEnd().endsWith("__CLEANUP_OK__")).toBe(true);
+      await expect(fsp.access(nodePath.join(home, ".local/bin/context-watch"))).rejects.toThrow();
       await expect(fsp.access(nodePath.join(home, "fleet/identities/alpha/ctxwatch"))).rejects.toThrow();
+      await expect(fsp.access(nodePath.join(home, "fleet/identities/alpha/.recycled-at"))).rejects.toThrow();
       await expect(fsp.access(nodePath.join(home, "fleet/identities/alpha"))).resolves.toBeUndefined();
       await expect(fsp.readFile(nodePath.join(stB, "stray.txt"), "utf-8")).resolves.toBe("keep me");
       const bare = await fsp.mkdtemp(nodePath.join(nodeOs.tmpdir(), "retired-substrate-bare-"));

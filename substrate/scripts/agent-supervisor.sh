@@ -3309,6 +3309,9 @@ drive() {
 # mistake it for the user answering something. `.compact-requested` or `.compacting` present =
 # the app shows "Condensing…".
 COMPACT_TIMEOUT_SECONDS="${COMPACT_TIMEOUT_SECONDS:-900}"
+# A request an awake agent never comes to rest for (or one stuck behind a dialog) is dropped
+# after this long, so the app's "Condensing…" and its disabled button can't hang forever.
+COMPACT_REQUEST_TIMEOUT_SECONDS="${COMPACT_REQUEST_TIMEOUT_SECONDS:-1800}"
 COMPACT_GUIDANCE_MAX_BYTES="${COMPACT_GUIDANCE_MAX_BYTES:-2000}"
 
 # inbox_drop <name> <payload>: one message file into the identity's inbox, per the inbox-watcher
@@ -3320,13 +3323,19 @@ inbox_drop() {
   printf '%s' "$payload" > "$inbox/$fname.tmp" && mv "$inbox/$fname.tmp" "$inbox/$fname"
 }
 
-# agent_at_rest <session>: the harness is at its prompt and not mid-turn (Claude Code shows
-# "esc to interrupt" while a turn or a compaction is running).
+# agent_at_rest <session>: the harness is at its prompt and not mid-turn. Reads only the bottom
+# of the visible pane (the input box and footer), so "esc to interrupt" in the agent's own
+# output can't make it look busy forever. Claude Code shows "esc to interrupt" in the footer
+# while a turn or a compaction runs. A selection dialog (numbered options under ❯, "Enter to
+# select") is NOT at rest: the Enter after /compact would pick an option for the user.
 agent_at_rest() {
-  local pane
-  pane="$(timeout -k 5 10 tmux capture-pane -pt "$1" -S -15 2>/dev/null)" || return 1
-  printf '%s' "$pane" | grep -q '❯' || return 1
-  printf '%s' "$pane" | grep -qF 'esc to interrupt' && return 1
+  local pane bottom
+  pane="$(timeout -k 5 10 tmux capture-pane -pt "$1" 2>/dev/null)" || return 1
+  bottom="$(printf '%s\n' "$pane" | grep -v '^[[:space:]]*$' | tail -n 6)"
+  printf '%s' "$bottom" | grep -q '❯' || return 1
+  printf '%s' "$bottom" | grep -qF 'esc to interrupt' && return 1
+  printf '%s\n' "$pane" | grep -v '^[[:space:]]*$' | tail -n 15 \
+    | grep -qE '❯[[:space:]]*[0-9]+\.|Enter to select|Esc to cancel' && return 1
   return 0
 }
 
@@ -3348,8 +3357,10 @@ compaction_done_event() {
 # start_compaction <name>: step 1 — deliver the compaction and mark it in flight.
 start_compaction() {
   local name="$1" d="$IDENTITIES_DIR/$1" guidance cmd since
+  # Control characters are dropped (an ESC sequence could end the bracketed paste early).
   guidance="$(head -c "$COMPACT_GUIDANCE_MAX_BYTES" "$d/.compact-requested" 2>/dev/null \
-    | iconv -f UTF-8 -t UTF-8 -c 2>/dev/null | tr '\r\n\t' '   ' | sed -E 's/ +/ /g; s/^ //; s/ $//')"
+    | iconv -f UTF-8 -t UTF-8 -c 2>/dev/null | tr '\r\n\t' '   ' | tr -d '\000-\037\177' \
+    | sed -E 's/ +/ /g; s/^ //; s/ $//')"
   cmd="/compact"
   [ -n "$guidance" ] && cmd="/compact $guidance"
   since="$(date -u +%Y-%m-%dT%H:%M:%S.%3NZ)"
@@ -3392,6 +3403,16 @@ compaction_progress() {
 # handle_compaction <name> <session-or-empty>: called once per identity per tick.
 handle_compaction() {
   local name="$1" sess="$2" d="$IDENTITIES_DIR/$1"
+  # An agent still running the old id skill asks for a reset by dropping .recycle-requested.
+  # Restarting is gone; treat it as a compaction request so the agent isn't left idle.
+  if [ -f "$d/.recycle-requested" ]; then
+    if [ -f "$d/.compact-requested" ] || [ -f "$d/.compacting" ]; then
+      rm -f "$d/.recycle-requested"
+    else
+      mv "$d/.recycle-requested" "$d/.compact-requested" 2>/dev/null || rm -f "$d/.recycle-requested"
+    fi
+    log "'$name' compaction: old-style reset request taken as a compaction request"
+  fi
   if [ -f "$d/.compacting" ]; then
     [ "${DRY_RUN:-0}" = 1 ] || compaction_progress "$name"
     # A request arriving while one is in flight is the same request (e.g. a double press).
@@ -3403,6 +3424,14 @@ handle_compaction() {
   fi
   [ -f "$d/.compact-requested" ] || return 0
   if [ "${DRY_RUN:-0}" = 1 ]; then log "DRY_RUN would compact '$name'"; return 0; fi
+  local req_age
+  req_age=$(( $(date +%s) - $(stat -c %Y "$d/.compact-requested" 2>/dev/null || date +%s) ))
+  if [ "$req_age" -ge "$COMPACT_REQUEST_TIMEOUT_SECONDS" ]; then
+    rm -f "$d/.compact-requested"
+    log "WARNING: '$name' compaction: request waited ${req_age}s without the agent coming to rest — dropped"
+    metric event=compact-request-expired identity="$name" age_s="$req_age"
+    return 0
+  fi
   if [ ! -f "$d/.dormant" ]; then
     # Awake: wait for a live harness at rest. A dormant identity needs no check — the inbox
     # drop wakes it, and the inbox is drained at its fresh prompt.
@@ -3618,6 +3647,11 @@ pending_check() {
   # schedule_peek stays: don't kill an identity right before a scheduled wake fires — the
   # in-session wakeup-scheduler Monitor dies with the session and the fire would be missed.
   schedule_peek "$name" && return 1
+  # A compaction asked for or under way, or anything waiting in the inbox (the /compact itself,
+  # the "Compaction done" event, a message): putting the agent to sleep now would lose it.
+  [ -e "$IDENTITIES_DIR/$name/.compact-requested" ] && return 1
+  [ -e "$IDENTITIES_DIR/$name/.compacting" ] && return 1
+  inbox_has_files "$name" && return 1
   return 0
 }
 

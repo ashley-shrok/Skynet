@@ -554,6 +554,28 @@ describe("subscription-registry", () => {
   // Phase 90 Plan 00 Wave 0 — contextPct promotion (behaviors 9-10 per plan)
   // ---------------------------------------------------------------------------
 
+  describe("condensing axis carry-over", () => {
+    it("a frame that leaves condensing out keeps the last stamped value; an explicit false clears it", () => {
+      const registry = createSubscriptionRegistry();
+      const received: FrontendOutboundFrameType[] = [];
+      registry.subscribe((f) => received.push(f));
+      received.length = 0;
+      registry.publishSessionState("host-42", { ...makeState("host-42", "tina", "s1"), condensing: true });
+      // A live (source A) frame mid-condense, without the axis.
+      registry.publishSessionState("host-42", makeState("host-42", "tina", "s1"));
+      registry.publishSessionState("host-42", { ...makeState("host-42", "tina", "s1"), condensing: false });
+      registry.publishSessionState("host-42", makeState("host-42", "tina", "s1"));
+      const seen = received
+        .filter((f) => f.type === "update")
+        .map((f) => (f.type === "update" ? f.state.condensing : undefined));
+      expect(seen).toEqual([true, true, false, false]);
+      // Another session is unaffected.
+      registry.publishSessionState("host-42", makeState("host-42", "nelly", "s2"));
+      const last = received[received.length - 1];
+      expect(last.type === "update" ? last.state.condensing : "x").toBeUndefined();
+    });
+  });
+
   describe("contextPct stamping (Phase 90 Wave 0)", () => {
     beforeEach(() => {
       __clearAllContextPctForTests();

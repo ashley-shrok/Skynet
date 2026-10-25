@@ -100,6 +100,23 @@ describe("ComposeBox — Condense conversation", () => {
     expect(textarea().value).toBe("");
   });
 
+  it("text typed while the request is in flight is kept", async () => {
+    autoAnswerKitDialogs({ confirm: true });
+    let resolvePost: (v: unknown) => void = () => {};
+    postMock.mockReturnValue(new Promise((r) => (resolvePost = r)));
+    const onCondenseRequested = vi.fn();
+    render(<ComposeBox {...baseProps({ onCondenseRequested })} />);
+    fireEvent.change(textarea(), { target: { value: "keep this" } });
+    await pressCondense();
+    await waitFor(() => expect(postMock).toHaveBeenCalledTimes(1));
+    fireEvent.change(textarea(), { target: { value: "keep this — and a new thought" } });
+    await act(async () => {
+      resolvePost({ data: { ok: true } });
+    });
+    await waitFor(() => expect(onCondenseRequested).toHaveBeenCalledTimes(1));
+    expect(textarea().value).toBe("keep this — and a new thought");
+  });
+
   it("falls back to the tmux session when no identity key is given", async () => {
     autoAnswerKitDialogs({ confirm: true });
     render(<ComposeBox {...baseProps({ identityKey: undefined })} />);

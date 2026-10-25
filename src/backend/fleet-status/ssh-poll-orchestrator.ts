@@ -2693,6 +2693,29 @@ export function createSshPollOrchestrator(
    * evict transition-edge, fingerprint suppression, publish, cache write.
    * Zero SSH calls. Shared by the legacy and batch paths.
    */
+  // A live agent keeps its live row while it condenses: source B's frame for
+  // it is the registry's current (source A) state with the source-B axes laid
+  // over it, not the dormant placeholder — a placeholder would fully replace
+  // the live row (sessionId, pid, status, title, last message) for every
+  // client that connects or reconnects during the condense. Null when there is
+  // no live row to build on (falls back to the placeholder).
+  function liveRowFor(hostId: string, name: string): SessionState | null {
+    const row = deps.registry
+      .getSnapshot()
+      .find((s) => s.hostId === hostId && s.tmuxSession === name && s.sessionId !== "__dormant__");
+    if (row === undefined) return null;
+    const { contextPct: _contextPct, ...rest } = row as SessionState & { contextPct?: unknown };
+    return rest as SessionState;
+  }
+
+  // When a live agent stops condensing, source A must republish its full row
+  // (its own fingerprint never changed, so it would otherwise stay quiet).
+  function invalidateSourceAFingerprints(hostState: PerHostState, name: string): void {
+    for (const entry of hostState.livenessMap.values()) {
+      if (entry.tmuxSession === name) entry.lastPublishedFingerprint = "";
+    }
+  }
+
   function composeAndPublishPerIdentity(
     hostState: PerHostState,
     liveTmuxSet: Set<string>,
@@ -2719,23 +2742,33 @@ export function createSshPollOrchestrator(
         // Phase 111 Plan 03: two construction sites, no factory — deliberate,
         // see 111-03. Appearance carried on this pre-evict frame so no frame
         // blanks appearance that a neighbouring frame carries (D-09).
-        const state: SessionState = {
-          hostId: host.id,
-          tmuxSession: name,
-          sessionId: "__dormant__",
-          pid: null,
-          status: "idle",
-          waitingFor: undefined,
-          backgroundTasks: [],
-          updatedAt: deps.now(),
-          lastMessageAt: null,
-          aiTitle: null,
-          dormant: isDormant,
-          condensing: false,
-          identityAppearance: fetched.identityAppearance,
-          ...lastFinishField(host.id, name),
-        };
+        const live = liveRowFor(host.id, name);
+        const state: SessionState = live
+          ? {
+              ...live,
+              updatedAt: deps.now(),
+              dormant: isDormant,
+              condensing: false,
+              identityAppearance: fetched.identityAppearance,
+            }
+          : {
+              hostId: host.id,
+              tmuxSession: name,
+              sessionId: "__dormant__",
+              pid: null,
+              status: "idle",
+              waitingFor: undefined,
+              backgroundTasks: [],
+              updatedAt: deps.now(),
+              lastMessageAt: null,
+              aiTitle: null,
+              dormant: isDormant,
+              condensing: false,
+              identityAppearance: fetched.identityAppearance,
+              ...lastFinishField(host.id, name),
+            };
         deps.registry.publishSessionState(host.id, state);
+        invalidateSourceAFingerprints(hostState, name);
         systemLogger.info(
           "Fleet-status: source B frame published (condensing-false transition, pre-evict)",
           {
@@ -2789,22 +2822,31 @@ export function createSshPollOrchestrator(
     // Phase 111 Plan 03: two construction sites, no factory — deliberate, see
     // 111-03. Appearance carried on this normal source-B frame (D-09: every
     // frame-construction site carries appearance).
-    const state: SessionState = {
-      hostId: host.id,
-      tmuxSession: name,
-      sessionId: "__dormant__",
-      pid: null,
-      status: "idle",
-      waitingFor: undefined,
-      backgroundTasks: [],
-      updatedAt: deps.now(),
-      lastMessageAt: null,
-      aiTitle: null,
-      dormant: isDormant,
-      condensing: isCondensing,
-      identityAppearance: fetched.identityAppearance,
-      ...lastFinishField(host.id, name),
-    };
+    const live = liveTmuxSet.has(name) ? liveRowFor(host.id, name) : null;
+    const state: SessionState = live
+      ? {
+          ...live,
+          updatedAt: deps.now(),
+          dormant: isDormant,
+          condensing: isCondensing,
+          identityAppearance: fetched.identityAppearance,
+        }
+      : {
+          hostId: host.id,
+          tmuxSession: name,
+          sessionId: "__dormant__",
+          pid: null,
+          status: "idle",
+          waitingFor: undefined,
+          backgroundTasks: [],
+          updatedAt: deps.now(),
+          lastMessageAt: null,
+          aiTitle: null,
+          dormant: isDormant,
+          condensing: isCondensing,
+          identityAppearance: fetched.identityAppearance,
+          ...lastFinishField(host.id, name),
+        };
     deps.registry.publishSessionState(host.id, state);
 
     systemLogger.info("Fleet-status: source B frame published", {
@@ -3713,9 +3755,9 @@ export function createSshPollOrchestrator(
   // A pid_stale gone deletes the registry entry for (host, tmuxSession), but
   // source B's per-identity fingerprint cache still remembers what it last
   // published there — so a condensing:true state that was live before the
-  // reap would be suppressed as "unchanged" and never re-sent (the condense
-  // overlay / composer lock would clear early). Blank the fingerprint so the
-  // next source-B tick republishes.
+  // reap would be suppressed as "unchanged" and never re-sent (the memory
+  // pie's "Condensing…" would clear early). Blank the fingerprint so the next
+  // source-B tick republishes.
   function invalidateSourceBFingerprint(
     hostState: PerHostState,
     tmuxSession: string | null,

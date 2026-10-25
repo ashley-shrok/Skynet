@@ -411,21 +411,10 @@ export interface ComposeBoxProps {
   // clears the aside display and WS-sends {type:'aside_dismissed',
   // hostId, tmuxSession} per CONTEXT.md § Dismiss.
   onAsideDismiss?: () => void;
-  // Phase 24: plan-mode approval prompt is pending. When true, every WS-side-
-  // effecting compose control is disabled (Send button STAYS as Send but
-  // disabled=true; reset, ThumbsUp, Queue all disabled). Textarea
-  // REMAINS typeable so user can pre-draft her feedback message while the
-  // plan-approval prompt is open.
-  //
-  // Why SEPARATE from asideActive (per CONTEXT § "Do NOT collapse"):
-  // asideActive MORPHS Send into X/Resume; this keeps Send as Send but
-  // disabled. Because the Send-button behavior differs, props stay
-  // independent.
-  //
   // Pretty-view WS reconnect window (patch #148 auto-retry between an old
   // socket's onclose and a fresh session frame). During that ~2s window the
   // WS is not open so onSend would no-op silently; disable Send + Condense +
-  // ThumbsUp + Queue.
+  // ThumbsUp + Queue (Send stays Send, unlike asideActive's morph).
   // Textarea, mic, and attach stay usable (mic records locally; attach
   // stores locally until Send).
   //
@@ -1627,7 +1616,7 @@ export function ComposeBox({
   // goes along as guidance for what the summary keeps, and is cleared once
   // the request is accepted. While dictating, the recording is transcribed
   // and glued on first. A failed request keeps the text and says so.
-  function requestCondense(guidance: string) {
+  function requestCondense(guidance: string, boxText: string) {
     setErrorMessage(null);
     const key = identityKey ?? tmuxSession ?? "";
     authApi
@@ -1645,8 +1634,12 @@ export function ComposeBox({
           (response.data as { ok?: unknown }).ok === true;
         if (okShape) {
           onCondenseRequested?.();
-          setText("");
-          clearAfterSend();
+          // Clear only what went along as guidance — anything typed while
+          // the request was in flight stays.
+          if (latestBodyRef.current === boxText) {
+            setText("");
+            clearAfterSend();
+          }
         } else {
           setErrorMessage("Not connected — try again in a moment");
         }
@@ -1667,9 +1660,9 @@ export function ComposeBox({
     if (voiceStateRef.current === "recording") {
       const baseText = text;
       const result = await voice.endSend(baseText);
-      requestCondense(result ? result.glued : baseText);
+      requestCondense(result ? result.glued : baseText, baseText);
     } else {
-      requestCondense(text);
+      requestCondense(text, text);
     }
   }
 

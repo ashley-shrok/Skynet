@@ -318,6 +318,9 @@ describe("normalizeGuidance", () => {
     const long = "é".repeat(GUIDANCE_MAX_CHARS + 50);
     expect(Array.from(normalizeGuidance(long))).toHaveLength(GUIDANCE_MAX_CHARS);
   });
+  it("drops control characters (an ESC sequence can't end the paste early)", () => {
+    expect(normalizeGuidance("keep\u001b[201~ this\u0001")).toBe("keep[201~ this");
+  });
   it("empty / whitespace / non-string → empty", () => {
     expect(normalizeGuidance("  \n ")).toBe("");
     expect(normalizeGuidance(undefined)).toBe("");

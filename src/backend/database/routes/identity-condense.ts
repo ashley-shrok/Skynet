@@ -12,7 +12,8 @@
  *
  * `guidance` is whatever the user had typed in the composer — passed to the
  * compaction as what the summary should keep. Whitespace (newlines included)
- * is collapsed and it is capped at GUIDANCE_MAX_CHARS; empty means none.
+ * is collapsed, control characters dropped, and it is capped at
+ * GUIDANCE_MAX_CHARS; empty means none.
  *
  * Same shape as identity-archive.ts: authenticateJWT → IDENTITY_KEY_RE gate →
  * resolveHostById (cross-user / unknown → 404) → LOCAL/REMOTE branch →
@@ -50,7 +51,11 @@ export const GUIDANCE_MAX_CHARS = 1000;
 
 export function normalizeGuidance(raw: unknown): string {
   if (typeof raw !== "string") return "";
-  const flat = raw.replace(/\s+/g, " ").trim();
+  // Whitespace (newlines included) collapses to single spaces; other control
+  // characters are dropped — an ESC sequence could end the supervisor's
+  // bracketed paste early.
+  // eslint-disable-next-line no-control-regex
+  const flat = raw.replace(/\s+/g, " ").replace(/[\u0000-\u001f\u007f]/g, "").trim();
   return Array.from(flat).slice(0, GUIDANCE_MAX_CHARS).join("");
 }
 

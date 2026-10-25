@@ -117,6 +117,7 @@ import {
   RETIRED_USER_UNIT_MARKER,
   RETIRED_IDENTITY_STATE_FILES,
   RETIRED_IDENTITY_STATE_DIRS,
+  CONTEXT_WATCH_RETIRED,
   USAGE_REPORTER_RETIRED_DIR,
 } from "./run-bootstrap.js";
 import { migrateRolesKeyUnder } from "./roles-key-migration.js";
@@ -692,6 +693,18 @@ async function removeRetiredSubstrateFilesLocally(host: {
     }
   };
   for (const rel of RETIRED_SUBSTRATE_DIRS) await rmdirIfEmpty(path.join(homeRoot, rel));
+  // The context watch goes only once the installed ambient-monitor no longer
+  // starts it (see CONTEXT_WATCH_RETIRED in run-bootstrap.ts).
+  let monitorStillStartsIt = false;
+  try {
+    const monitor = await fs.readFile(path.join(homeRoot, ".local/bin/ambient-monitor"), "utf-8");
+    monitorStillStartsIt = monitor.includes("context-watch");
+  } catch {
+    /* no monitor installed — nothing can start the watcher */
+  }
+  if (!monitorStillStartsIt) {
+    await unlinkQuiet("unlink", path.join(homeRoot, CONTEXT_WATCH_RETIRED));
+  }
   const identitiesDir = path.join(homeRoot, "fleet", "identities");
   let identities: string[] = [];
   try {

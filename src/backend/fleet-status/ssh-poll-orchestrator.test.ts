@@ -4110,8 +4110,9 @@ describe("Condense — source B condensing axis", () => {
   function sourceBFrames(
     publishedStates: Array<{ hostId: string; state: SessionState }>,
   ): SessionState[] {
+    // Source B is the only stamper of the condensing axis (source A omits it).
     return publishedStates
-      .filter((p) => p.state.sessionId === "__dormant__")
+      .filter((p) => p.state.condensing !== undefined)
       .map((p) => p.state);
   }
 
@@ -4187,9 +4188,15 @@ describe("Condense — source B condensing axis", () => {
     expect(b).toHaveLength(1);
     expect(b[0].tmuxSession).toBe("tina");
     expect(b[0].condensing).toBe(true);
-    const a = deps.registry.publishedStates.filter((p) => p.state.pid === 12345);
+    // Built on the live row, not the dormant placeholder: the live agent
+    // keeps its session, pid and status for anyone connecting mid-condense.
+    expect(b[0].sessionId).not.toBe("__dormant__");
+    expect(b[0].pid).toBe(12345);
+    // Source A's own frames still leave the axis out.
+    const a = deps.registry.publishedStates.filter(
+      (p) => p.state.pid === 12345 && p.state.condensing === undefined,
+    );
     expect(a.length).toBeGreaterThanOrEqual(1);
-    for (const p of a) expect(p.state.condensing).toBeUndefined();
   });
 
   it("live PID + no sentinels → source B stays silent; no frame stamps condensing:true", async () => {
@@ -4250,6 +4257,7 @@ describe("Condense — source B condensing axis", () => {
     setSentinel(channel, ".compacting", "no");
     await tick();
     expect(sourceBFrames(deps.registry.publishedStates).map((s) => s.condensing)).toEqual([true, false]);
+    expect(sourceBFrames(deps.registry.publishedStates)[1].pid).toBe(12345);
 
     // Evicted: source A owns the identity again; source B stays silent.
     await tick();

@@ -467,13 +467,19 @@ export const GSD_MONITOR_STRIP_JQ =
  *   - interactive-messages widget system, retired 2026-10-25: the GC script
  *     and the create-widget port lock (the skill folder itself is a tree,
  *     below).
- *   - .local/bin/context-watch — the 90% "reset yourself" watcher, retired
- *     with reset (Condense). A watcher already running keeps going until its
- *     session ends; new ambient monitors no longer start one.
  *
  * RETIRED_IDENTITY_STATE_FILES / _DIRS are the same idea for per-identity
  * runtime state: paths relative to each ~/fleet/identities/<name>/ folder,
- * files rm -f'd and folders rmdir'd only when empty.
+ * files rm -f'd and folders rmdir'd only when empty. (`.recycled-at` is the
+ * retired reset marker; a leftover `.recycle-requested` is NOT listed — the
+ * supervisor takes it as a compaction request.)
+ *
+ * CONTEXT_WATCH_RETIRED — the 90% "reset yourself" watcher, retired with
+ * reset (Condense). Removed only once the installed ambient-monitor no
+ * longer starts it: this step runs before the sweep pushes the new monitor,
+ * and an old monitor launched in that gap would warn the agent that its
+ * child failed to start. Watchers already running keep going until their
+ * session ends (they never fire).
  *
  * NOT retired yet: .local/bin/role-file-watch (renamed to file-watch). A
  * watcher started before the rename re-execs itself from that path on every
@@ -487,10 +493,14 @@ export const RETIRED_SUBSTRATE_FILES = [
   ".claude/skills/app-development/templates/app-starter/app-SLUG.service.template",
   ".local/bin/interactive-messages-gc",
   "fleet/.create-widget-lock",
-  ".local/bin/context-watch",
 ] as const;
+export const CONTEXT_WATCH_RETIRED = ".local/bin/context-watch";
+/** Removes the context watch only once the installed ambient-monitor no longer mentions it. */
+export const CONTEXT_WATCH_RETIRE_CMD =
+  `grep -q context-watch "$HOME/.local/bin/ambient-monitor" 2>/dev/null || rm -f "$HOME/${CONTEXT_WATCH_RETIRED}"`;
 export const RETIRED_SUBSTRATE_DIRS = [".claude/skills/role"] as const;
 export const RETIRED_IDENTITY_STATE_FILES = [
+  ".recycled-at",
   "ctxwatch/.state/ctxwatch.pid",
   "ctxwatch/.state/nudged",
   "ctxwatch/.state/pinged",
@@ -1066,6 +1076,7 @@ export async function runBootstrapForHost(
       ...RETIRED_SUBSTRATE_FILES.map((rel) => `rm -f "$HOME/${rel}"`),
       ...RETIRED_SUBSTRATE_TREES.map((rel) => `rm -rf "$HOME/${rel}"`),
       ...RETIRED_SUBSTRATE_DIRS.map((rel) => `rmdir "$HOME/${rel}" 2>/dev/null || true`),
+      CONTEXT_WATCH_RETIRE_CMD,
       ...RETIRED_IDENTITY_STATE_FILES.map((rel) => `rm -f "$HOME"/fleet/identities/*/${rel}`),
       ...RETIRED_IDENTITY_STATE_DIRS.map(
         (rel) => `rmdir "$HOME"/fleet/identities/*/${rel} 2>/dev/null || true`,
