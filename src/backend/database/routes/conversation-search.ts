@@ -3,13 +3,12 @@
  *
  * Content-search across the caller's SSH+autoTmux hosts. Reads BOTH
  * `~/fleet/identities/` and `~/fleet/identities-archive/` on each host,
- * enumerates EVERY JSONL under `~/.claude/projects/` and matches each
- * against the identity keys (a JSONL "belongs to" an identity if its
- * first user turn is `/id <identity>`), then runs a shell-injection-safe
- * fixed-string grep across every matching transcript. Historical sessions
- * of the same identity each surface as their own result row (dedup is
- * per-JSONL, not per-identity). Returns a mtime-sorted paginated slice of
- * results with per-hit windowed snippets.
+ * finds each identity's history file from its own history folder (newest
+ * file whose first user turn is `/id <identity>` — the same file its
+ * conversation view shows; agent-history-file.ts), then runs a
+ * shell-injection-safe fixed-string grep across those files. One row per
+ * identity. Returns a mtime-sorted paginated slice of results with per-hit
+ * windowed snippets.
  *
  * REQUEST BODY:
  *   { query: string, offset?: number, limit?: number }
@@ -96,12 +95,8 @@ import {
   cancelledFromPassOutput,
   composeCancelPassCommand,
 } from "./conversation-search-cancels.js";
-import {
-  __matchesIdentityFirstTurnForTests,
-  buildDiscoveryScript,
-  discoverIdentitySessionFile,
-  parseDiscoveryStdout,
-} from "../../claude-session/discover-identity-session-file.js";
+import { discoverIdentitySessionFile } from "../../claude-session/discover-identity-session-file.js";
+import { findAgentHistoryFiles } from "../../claude-session/agent-history-file.js";
 import {
   extractCosmeticsFromFrontmatter,
   extractRoleFromMarkdown,
@@ -475,63 +470,31 @@ async function resolveIdentityPaths(
     listArchivedIdentityKeysOnHost(conn).catch(() => [] as string[]),
   ]);
 
-  // Bulk discovery — ONE SSH exec per host that returns records for ALL
-  // JSONLs on the host (mtime-desc sorted). We then match each record's
-  // first-user-line against every identity key in a single JS pass, so a
-  // host with 150 identities costs one SSH round-trip instead of 150.
-  //
-  // Pre-fix history: earlier revisions called discoverIdentitySessionFile
-  // once per identity via concurrent Promise.all (see review MED-1). Even
-  // at concurrency 6 that took ~25s per host on t1000 because each call
-  // opens its own SSH exec channel + re-runs the same enumeration script.
-  // The batched form drops that to ~1s per host (single channel, single
-  // enumeration pass, in-memory match).
-  //
-  // The identity name in buildDiscoveryScript is comment-only — it never
-  // enters a shell primitive and the byte-pattern match happens in JS
-  // via __matchesIdentityFirstTurnForTests. So passing an empty string
-  // as the "identity name" for the shell script is safe and yields the
-  // full corpus back for post-hoc matching.
-  const allKeys = [...liveKeys, ...archivedKeys];
+  // One SSH exec per host: each agent's history is the newest `/id <name>`
+  // file in its OWN history folder (agent-history-file.ts) — the same file
+  // its conversation view shows. Archived agents keep their folder (archiving
+  // moves the identity, not the transcripts). No machine-wide scan.
+  const allKeys = Array.from(new Set([...liveKeys, ...archivedKeys]));
   if (allKeys.length === 0) return [];
-  const archivedKeySet = new Set<string>(archivedKeys);
   const liveKeySet = new Set<string>(liveKeys);
 
-  let stdout: string;
+  let byKey: Map<string, string | null>;
   try {
-    const script = buildDiscoveryScript(shellSingleQuote(""));
-    stdout = await execCommand(
-      conn as Parameters<typeof execCommand>[0],
-      script,
+    byKey = await findAgentHistoryFiles(
+      conn as Parameters<typeof findAgentHistoryFiles>[0],
+      allKeys,
     );
   } catch {
     return [];
   }
-  const records = parseDiscoveryStdout(stdout);
-  records.sort((a, b) => b.mtime - a.mtime); // defensive; shell already sorts
 
-  // Emit ONE ResolvedIdentity per JSONL whose first-user-line matches any
-  // identity key. Historical sessions of the same identity each become
-  // their own entry — the caller greps across all of them and dedups by
-  // path, so multi-transcript identities surface as one row per transcript.
-  // A first-user-line names EXACTLY ONE identity (it's a `/id <name>`
-  // invocation), so the inner `break` still holds: one JSONL → one entry.
   const resolved: ResolvedIdentity[] = [];
-  for (const rec of records) {
-    if (rec.firstUserLine.length === 0) continue;
-    for (const key of allKeys) {
-      if (__matchesIdentityFirstTurnForTests(rec.firstUserLine, key)) {
-        resolved.push({
-          key,
-          path: rec.path,
-          // Live wins: a key with BOTH folders (stale/partial archive) is a
-          // live identity — matches runOneHost's pathIndex rule, and keeps
-          // the gate reading the live file (the archive copy may be empty).
-          isArchived: archivedKeySet.has(key) && !liveKeySet.has(key),
-        });
-        break;
-      }
-    }
+  for (const key of allKeys) {
+    const path = byKey.get(key);
+    if (!path) continue;
+    // Live wins: a key with BOTH folders (stale/partial archive) is a live
+    // identity — matches runOneHost's pathIndex rule.
+    resolved.push({ key, path, isArchived: !liveKeySet.has(key) });
   }
   return resolved;
 }

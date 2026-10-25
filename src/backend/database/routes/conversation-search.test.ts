@@ -246,12 +246,10 @@ vi.mock("../../claude-session/list-archived-identity-keys.js", () => ({
 vi.mock(
   "../../claude-session/discover-identity-session-file.js",
   async () => {
-    // Use the REAL pure helpers so the route's bulk-discovery path (which
-    // composes buildDiscoveryScript + parseDiscoveryStdout +
-    // __matchesIdentityFirstTurnForTests + RECORD_SEPARATOR) works against
-    // the test fixtures. Only discoverIdentitySessionFile itself is mocked
-    // (retained for any legacy call site; the current endpoint no longer
-    // uses it after the bulk-discovery refactor).
+    // Use the REAL pure helpers so the route's per-agent history lookup
+    // (agent-history-file.ts, which uses __matchesIdentityFirstTurnForTests)
+    // works against the test fixtures. Only discoverIdentitySessionFile
+    // itself is mocked (the endpoint doesn't call it).
     const actual = await vi.importActual<
       typeof import("../../claude-session/discover-identity-session-file.js")
     >("../../claude-session/discover-identity-session-file.js");
@@ -263,17 +261,19 @@ vi.mock(
   },
 );
 
-// Helper to build the discovery-script stdout format that
-// parseDiscoveryStdout expects. Each record is
-// `MTIME\tPATH\n<first-user-line>\n---GSDR-32---\n`. Records are
-// concatenated. Callers pass mtime-desc rows for realism, though the
-// route resorts defensively.
+// Helper to build the agent-history lookup's stdout (agent-history-file.ts).
+// Each record is `NAME\tMTIME\tPATH\n<first-user-line>\n---AGENT-HISTORY---\n`;
+// NAME is the agent whose folder the file sits in — taken from the record's
+// `/id` args here (a fixture line without one lands under "unowned").
 function makeDiscoveryStdout(
   records: Array<{ mtime: number; path: string; firstUserLine: string }>,
 ): string {
-  const SEP = "---GSDR-32---";
+  const SEP = "---AGENT-HISTORY---";
   return records
-    .map((r) => `${r.mtime}\t${r.path}\n${r.firstUserLine}\n${SEP}`)
+    .map((r) => {
+      const name = /<command-args>([a-zA-Z0-9_-]+)/.exec(r.firstUserLine)?.[1] ?? "unowned";
+      return `${name}\t${r.mtime}\t${r.path}\n${r.firstUserLine}\n${SEP}`;
+    })
     .join("\n") + (records.length > 0 ? "\n" : "");
 }
 
@@ -482,7 +482,7 @@ describe("POST /conversation-search — aggregation, sort, isArchived, row shape
     ]);
     let grepCallIdx = 0;
     execCommandMock.mockImplementation(async (_conn: unknown, cmd: string) => {
-      if (cmd.includes("find ~/.claude/projects")) {
+      if (cmd.includes("fleet/identities/$N/workspace")) {
         return discoveryStdout;
       }
       // Grep call — one per host, in order host-a then host-b
@@ -575,51 +575,43 @@ describe("POST /conversation-search — aggregation, sort, isArchived, row shape
 });
 
 // ===========================================================================
-// T-12: multi-transcript per identity — historical sessions of the same
-// identity each surface as their own row (fixes the "search only sees the
-// newest JSONL per identity" limitation identified during forearm-search
-// debugging).
+// T-12: an identity's history is its NEWEST `/id` file — the same file its
+// conversation view shows. Older files in its folder (agents from before
+// Condense) are not searched.
 // ===========================================================================
 
-describe("POST /conversation-search — historical transcripts per identity", () => {
-  it("T-12: identity with 3 matching JSONLs across time returns 3 rows all tagged with the same identityKey", async () => {
+describe("POST /conversation-search — one history file per identity", () => {
+  it("T-12: identity with 3 /id files in its folder → only the newest is searched, one row", async () => {
     simpleDbSelectMock.mockResolvedValue([
       { id: 1, name: "host-a", enableSsh: true, terminalConfig: null },
     ]);
     listIdentityKeysOnHostMock.mockResolvedValue(["george"]);
     listArchivedIdentityKeysOnHostMock.mockResolvedValue([]);
 
-    // Three historical JSONLs, all opened via `/id george`, all containing
-    // the query. Pre-fix behavior kept only the newest and returned 1 row;
-    // post-fix returns 3.
     const discoveryStdout = makeDiscoveryStdout([
       { mtime: 3000, path: "/x/newest.jsonl", firstUserLine: makeIdFirstUserLine("george") },
       { mtime: 2000, path: "/x/middle.jsonl", firstUserLine: makeIdFirstUserLine("george") },
       { mtime: 1000, path: "/x/oldest.jsonl", firstUserLine: makeIdFirstUserLine("george") },
     ]);
+    const grepTargets: string[] = [];
     execCommandMock.mockImplementation(async (_conn: unknown, cmd: string) => {
-      if (cmd.includes("find ~/.claude/projects")) return discoveryStdout;
-      // Grep hits one match per historical JSONL.
+      if (cmd.includes("fleet/identities/$N/workspace")) return discoveryStdout;
+      grepTargets.push(cmd);
       return fakeGrepOutput([
         { mtime: 3000, path: "/x/newest.jsonl", lineno: 1, rawLine: jsonlLine("forearm newest") },
-        { mtime: 2000, path: "/x/middle.jsonl", lineno: 1, rawLine: jsonlLine("forearm middle") },
-        { mtime: 1000, path: "/x/oldest.jsonl", lineno: 1, rawLine: jsonlLine("forearm oldest") },
       ]);
     });
 
     const res = await httpPostJson(server, "/conversation-search", { query: "forearm" });
     expect(res.status).toBe(200);
     const body = res.body as { results: Array<Record<string, unknown>>; hasMore: boolean };
-    expect(body.results).toHaveLength(3);
-    expect(body.results.every((r) => r.identityKey === "george")).toBe(true);
-    // Sorted mtime desc.
-    expect(body.results.map((r) => r.transcriptPath)).toEqual([
-      "/x/newest.jsonl",
-      "/x/middle.jsonl",
-      "/x/oldest.jsonl",
-    ]);
-    // tmuxSessionName still equals identityKey — click behavior unchanged.
-    expect(body.results.every((r) => r.tmuxSessionName === "george")).toBe(true);
+    expect(body.results.map((r) => r.transcriptPath)).toEqual(["/x/newest.jsonl"]);
+    expect(body.results[0].identityKey).toBe("george");
+    expect(body.results[0].tmuxSessionName).toBe("george");
+    const grepCmd = grepTargets.find((c) => c.includes("grep -F")) ?? grepTargets.join("\n");
+    expect(grepCmd).toContain("/x/newest.jsonl");
+    expect(grepCmd).not.toContain("/x/middle.jsonl");
+    expect(grepCmd).not.toContain("/x/oldest.jsonl");
   });
 });
 
@@ -646,7 +638,7 @@ describe("POST /conversation-search — offset/limit slicing", () => {
       { mtime: 1000, path: "/x/d.jsonl", firstUserLine: makeIdFirstUserLine("d") },
     ]);
     execCommandMock.mockImplementation(async (_conn: unknown, cmd: string) => {
-      if (cmd.includes("find ~/.claude/projects")) return discoveryStdout;
+      if (cmd.includes("fleet/identities/$N/workspace")) return discoveryStdout;
       // 4 hits, distinct paths, mtimes 4, 3, 2, 1 (sorted desc after route sort)
       return fakeGrepOutput([
         { mtime: 4, path: "/x/a.jsonl", lineno: 1, rawLine: jsonlLine("row A apple") },
@@ -679,7 +671,7 @@ describe("POST /conversation-search — offset/limit slicing", () => {
       { mtime: 1000, path: "/x/a.jsonl", firstUserLine: makeIdFirstUserLine("a") },
     ]);
     execCommandMock.mockImplementation(async (_conn: unknown, cmd: string) => {
-      if (cmd.includes("find ~/.claude/projects")) return discoveryStdoutB;
+      if (cmd.includes("fleet/identities/$N/workspace")) return discoveryStdoutB;
       return fakeGrepOutput([
         { mtime: 1, path: "/x/a.jsonl", lineno: 1, rawLine: jsonlLine("apple") },
       ]);
@@ -731,7 +723,7 @@ describe("POST /conversation-search — per-host error isolation", () => {
         throw new Error("host-a exploded");
       }
       // host-b (or any subsequent conn) returns proper responses
-      if (cmd.includes("find ~/.claude/projects")) return discoveryStdout;
+      if (cmd.includes("fleet/identities/$N/workspace")) return discoveryStdout;
       return fakeGrepOutput([
         { mtime: 5, path: "/x/a.jsonl", lineno: 1, rawLine: jsonlLine("apple survivor") },
       ]);
@@ -776,7 +768,7 @@ describe("POST /conversation-search — per-host timeout", () => {
         });
       }
       // host-fast: normal responses
-      if (cmd.includes("find ~/.claude/projects")) return discoveryStdout;
+      if (cmd.includes("fleet/identities/$N/workspace")) return discoveryStdout;
       return fakeGrepOutput([
         { mtime: 5, path: "/x/a.jsonl", lineno: 1, rawLine: jsonlLine("apple fast") },
       ]);
@@ -1018,7 +1010,7 @@ describe("Phase 129: search-surface visibility gate", () => {
     listArchivedIdentityKeysOnHostMock.mockResolvedValue(archivedKeys);
 
     execCommandMock.mockImplementation(async (_conn: unknown, cmd: string) => {
-      if (cmd.includes("find ~/.claude/projects")) return discoveryStdout;
+      if (cmd.includes("fleet/identities/$N/workspace")) return discoveryStdout;
       return grepOut;
     });
   }

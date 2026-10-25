@@ -44,11 +44,11 @@ import { resolvePidToTmuxSession } from "./pid-to-tmux.js";
 import { filterAmbientTasks } from "./ambient-filter.js";
 import { isTeammateMessage } from "../claude-session/session-file-parser.js";
 import {
-  buildIdentityMatchScript,
   shellSingleQuote,
   DISCOVERY_EXEC_TIMEOUT_MS,
   toHostPerspectivePath,
 } from "../claude-session/discover-identity-session-file.js";
+import { findAgentHistoryFilesVia } from "../claude-session/agent-history-file.js";
 import type { SubscriptionRegistry } from "./subscription-registry.js";
 import { FRAME_SCHEMA_VERSION, type AppState, type SessionState } from "./wire-protocol.js";
 import type { HostRecord } from "./host-id-resolver.js";
@@ -1042,60 +1042,27 @@ function scanTailForLatestAiTitle(tailContents: string): string | null {
 // ---------------------------------------------------------------------------
 
 /**
- * Adapter that runs the Phase 32 identity-first-turn discovery script against
- * the orchestrator's `SshChannel.exec` abstraction. The primary Phase 32
- * function `discoverIdentitySessionFile(conn, identityName)` in
- * `../claude-session/discover-identity-session-file.ts` consumes an ssh2
- * `Client` via `execCommand(conn, script)`; the orchestrator only holds an
- * injected `SshChannel` (returns null on SSH error rather than throwing), so
- * we build a thin sibling here that reuses the SAME shell script
- * (`buildDiscoveryScript` + `shellSingleQuote`), the SAME stdout parser
- * (`parseDiscoveryStdout`), and the SAME first-turn predicate
- * (`__matchesIdentityFirstTurnForTests`) — no logic duplication of the
- * byte-pattern classifier, only a call-shape wrapper.
+ * Adapter that runs the agent-history lookup (agent-history-file.ts — the
+ * agent's own history folder, newest `/id <name>` file) over the
+ * orchestrator's `SshChannel.exec` abstraction, which returns null on SSH
+ * error rather than throwing.
  *
- * Fail-safe contract (matches Phase 32 invariant 1 / D-05):
- *   - `channel.exec` returns null (SSH error) → return null.
- *   - `Promise.race` timeout exceeds DISCOVERY_EXEC_TIMEOUT_MS → return null.
- *   - `parseDiscoveryStdout` yields zero records → return null.
- *   - No record's first-user-line matches `<command-name>/id</command-name>
- *     <command-args><identityName><delim>` → return null.
- *
- * Zero log lines emitted from here (matches Phase 32 invariant 5 / T-32-02);
- * the CALLER (orchestrator processPid) owns structured logging on the
- * null-return path.
- *
- * See 44-CONTEXT.md § ssh-poll-orchestrator.ts swap for the caching + stale-
- * threshold contract that consumes this helper.
+ * Fail-safe: SSH error, timeout or no matching file → null. Zero log lines
+ * here; the caller (processPid) owns logging on the null path.
  */
 async function discoverIdentityJsonlPathViaChannel(
   channel: SshChannel,
   identityName: string,
 ): Promise<string | null> {
-  const script = buildIdentityMatchScript(shellSingleQuote(identityName));
-  let stdout: string | null;
   try {
-    stdout = await Promise.race([
-      channel.exec(script, undefined, { timeoutMs: DISCOVERY_EXEC_TIMEOUT_MS }),
-      new Promise<string | null>((_, reject) =>
-        setTimeout(
-          () =>
-            reject(
-              new Error(
-                `discoverIdentityJsonlPathViaChannel timeout after ${DISCOVERY_EXEC_TIMEOUT_MS}ms`,
-              ),
-            ),
-          DISCOVERY_EXEC_TIMEOUT_MS,
-        ),
-      ),
-    ]);
+    const byName = await findAgentHistoryFilesVia(
+      (script) => channel.exec(script, undefined, { timeoutMs: DISCOVERY_EXEC_TIMEOUT_MS }),
+      [identityName],
+    );
+    return byName.get(identityName) ?? null;
   } catch {
     return null;
   }
-  // Shell emits: the absolute path of the first matching file, or empty.
-  if (stdout === null) return null;
-  const trimmed = stdout.trim();
-  return trimmed.length > 0 ? trimmed : null;
 }
 
 // ---------------------------------------------------------------------------

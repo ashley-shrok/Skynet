@@ -172,67 +172,54 @@ def _matches_identity_first_turn(line, identity_name):
     return line[name_end] in DISCOVERY_DELIMITER_SET
 
 
-def discover_identity_jsonl_path(identity_name, home):
-    """Walk ~/.claude/projects/*/ mtime-desc, return first JSONL whose first
-    user-role line matches `/id <identity_name>` (with the strict delimiter guard).
-    Returns absolute path str or None.
+def agent_history_folder(identity_name, home):
+    """The agent's own history folder. Claude Code names each project folder
+    after its launch directory's real path (every non-alphanumeric char -> '-'), and every
+    identity is launched in ~/fleet/identities/<name>/workspace/ — so the
+    folder is known from the name alone, and survives archiving (which moves
+    the identity, not its transcripts). Mirrors agent-history-file.ts."""
+    # Claude names the folder after the launch dir's REAL path (a symlinked
+    # home, e.g. Bazzite's /home -> /var/home, resolves first).
+    real_home = os.path.realpath(home)
+    launch_dir = "%s/fleet/identities/%s/workspace" % (real_home.rstrip("/"), identity_name)
+    return os.path.join(home, ".claude", "projects", re.sub(r"[^a-zA-Z0-9]", "-", launch_dir))
 
-    Mirrors the shell buildDiscoveryScript in discover-identity-session-file.ts.
-    Fail-safe: any OSError under a candidate file is silently swallowed.
-    ENOENT on the projects dir returns None.
-    """
-    projects_root = os.path.join(home, ".claude", "projects")
+
+def discover_identity_jsonl_path(identity_name, home):
+    """The agent's history file: the NEWEST .jsonl in its own history folder
+    whose first "role":"user" line (within DISCOVERY_HEAD_BYTES) is its
+    `/id <identity_name>` load. Files started some other way (a bare claude
+    run in the workspace) are skipped. No machine-wide scan, no fallback.
+    Returns an absolute path or None. Fail-safe: OSError on a file skips it."""
+    folder = agent_history_folder(identity_name, home)
+    candidates = []
     try:
-        candidates = []
+        names = os.listdir(folder)
+    except OSError:
+        return None
+    for fname in names:
+        if not fname.endswith(".jsonl"):
+            continue
+        fpath = os.path.join(folder, fname)
         try:
-            slug_entries = os.listdir(projects_root)
-        except FileNotFoundError:
-            return None
+            if not os.path.isfile(fpath):
+                continue
+            candidates.append((os.stat(fpath).st_mtime, fpath))
         except OSError:
-            return None
-        for slug in slug_entries:
-            slug_dir = os.path.join(projects_root, slug)
-            try:
-                if not os.path.isdir(slug_dir):
-                    continue
-                for fname in os.listdir(slug_dir):
-                    if not fname.endswith(".jsonl"):
-                        continue
-                    fpath = os.path.join(slug_dir, fname)
-                    try:
-                        st = os.stat(fpath)
-                    except OSError:
-                        continue
-                    candidates.append((st.st_mtime, fpath))
-            except OSError:
-                continue
-        # Sort mtime descending. Ties broken by path (stable, deterministic).
-        candidates.sort(key=lambda t: (-t[0], t[1]))
-        for _mtime, fpath in candidates:
-            try:
-                with open(fpath, "rb") as fh:
-                    head = fh.read(DISCOVERY_HEAD_BYTES)
-            except OSError:
-                continue
-            try:
-                text = head.decode("utf-8", errors="replace")
-            except Exception:
-                continue
-            # Emulate `grep -m 1 '"role":"user"'` — first line with that substring.
-            first_user_role_line = None
-            for candidate_line in text.split("\n"):
-                if '"role":"user"' in candidate_line:
-                    first_user_role_line = candidate_line
-                    break
-            if first_user_role_line is None:
-                continue
-            if _matches_identity_first_turn(first_user_role_line, identity_name):
-                return fpath
-        return None
-    except Exception:
-        _log("discovery_unexpected_error", identity=identity_name,
-             err=traceback.format_exc(limit=1).strip())
-        return None
+            continue
+    candidates.sort(key=lambda t: (-t[0], t[1]))
+    for _mtime, fpath in candidates:
+        try:
+            with open(fpath, "rb") as fh:
+                text = fh.read(DISCOVERY_HEAD_BYTES).decode("utf-8", errors="replace")
+        except OSError:
+            continue
+        for candidate_line in text.split("\n"):
+            if '"role":"user"' in candidate_line:
+                if _matches_identity_first_turn(candidate_line, identity_name):
+                    return fpath
+                break
+    return None
 
 
 # ---------------------------------------------------------------------------

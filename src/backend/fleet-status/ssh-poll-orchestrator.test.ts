@@ -575,6 +575,15 @@ function buildDeps(
 // Test 1: createSshPollOrchestrator returns object with correct methods
 // ---------------------------------------------------------------------------
 
+
+// The agent-history lookup's stdout (agent-history-file.ts) for one file in
+// `name`'s folder whose first user turn is `/id <name>`.
+const HISTORY_SCRIPT_MARKER = "---AGENT-HISTORY---";
+function historyStdout(name: string, discoveredPath: string): string {
+  const idLine = `{"type":"user","message":{"role":"user","content":"<command-name>/id</command-name>\\n<command-args>${name}</command-args>"}}`;
+  return `${name}\t1000\t${discoveredPath}\n${idLine}\n${HISTORY_SCRIPT_MARKER}\n`;
+}
+
 describe("createSshPollOrchestrator", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -1355,7 +1364,7 @@ describe("Phase 41 Plan 03 — lastMessageAt derivation from JSONL tail", () => 
     discoveredPath: string,
     matchesIdentity = true,
   ): string {
-    return matchesIdentity ? `${discoveredPath}\n` : "";
+    return matchesIdentity ? historyStdout(_identityName, discoveredPath) : "";
   }
 
   // Helper: default channel wiring for the discovery-based JSONL path
@@ -1399,7 +1408,7 @@ describe("Phase 41 Plan 03 — lastMessageAt derivation from JSONL tail", () => 
         "tina",
         "~/.claude/projects/-home-ubuntu-skynet-tina/discovered.jsonl",
       );
-    channel.setResponse("IDENTITY=", discoveryStdout);
+    channel.setResponse(HISTORY_SCRIPT_MARKER, discoveryStdout);
     // Match on the JSONL filename fragment — the orchestrator will build a
     // path ending in `discovered.jsonl` (the mocked discovery result) and
     // run `tail -c 262144` against it. All tail command shapes route to the
@@ -1517,8 +1526,7 @@ describe("isRealUserTurn — user 2026-08-23 lock predicate matrix", () => {
   ): string {
     // Phase 32 refactor: shell script now does match+early-exit,
     // stdout is just the mtime-latest matching path (or empty).
-    return matchesIdentity ? `${discoveredPath}
-` : "";
+    return matchesIdentity ? historyStdout(identityName, discoveredPath) : "";
   }
 
   // Local wireBaseResponses — wires the standard per-poll responses plus the
@@ -1538,7 +1546,7 @@ describe("isRealUserTurn — user 2026-08-23 lock predicate matrix", () => {
       "tina",
       "~/.claude/projects/-home-ubuntu-skynet-tina/discovered.jsonl",
     );
-    channel.setResponse("IDENTITY=", discoveryStdout);
+    channel.setResponse(HISTORY_SCRIPT_MARKER, discoveryStdout);
     channel.setResponse("discovered.jsonl", jsonlContents);
   }
 
@@ -1873,8 +1881,7 @@ describe("Phase 44 Plan 02 — discovery-based JSONL path derivation + caching +
   ): string {
     // Phase 32 refactor: shell script now does match+early-exit,
     // stdout is just the mtime-latest matching path (or empty).
-    return matchesIdentity ? `${discoveredPath}
-` : "";
+    return matchesIdentity ? historyStdout(identityName, discoveredPath) : "";
   }
 
   // Local wireBaseResponses — same shape as the Phase 41 Plan 03 helper.
@@ -1901,7 +1908,7 @@ describe("Phase 44 Plan 02 — discovery-based JSONL path derivation + caching +
         "tina",
         "~/.claude/projects/-home-ubuntu-skynet-tina/discovered.jsonl",
       );
-    channel.setResponse("IDENTITY=", discoveryStdout);
+    channel.setResponse(HISTORY_SCRIPT_MARKER, discoveryStdout);
     channel.setResponse("discovered.jsonl", jsonlContents);
   }
 
@@ -1937,7 +1944,7 @@ describe("Phase 44 Plan 02 — discovery-based JSONL path derivation + caching +
 
     // Discovery script fires ONCE across both ticks — tick 1 populates
     // PidCacheEntry.jsonlPath; tick 2 reuses the cached path.
-    expect(channel.countCallsMatching("IDENTITY=")).toBe(1);
+    expect(channel.countCallsMatching(HISTORY_SCRIPT_MARKER)).toBe(1);
     // Tail fires on every tick. Phase 47 Plan 02: tail width bumped from
     // `tail -n 200` (line-count) to `tail -c 262144` (256KB byte-count) so
     // an ai-title line older than the last 200 message-bearing lines is
@@ -2019,7 +2026,7 @@ describe("Phase 44 Plan 02 — discovery-based JSONL path derivation + caching +
     // Phase 85 (D-07): source A never trips rediscovery on the
     // lastMessageAt axis anymore — exactly 1 discovery call in 7 ticks
     // (cold cache on tick 1, cached path reused every subsequent tick).
-    expect(channel.countCallsMatching("IDENTITY=")).toBe(1);
+    expect(channel.countCallsMatching(HISTORY_SCRIPT_MARKER)).toBe(1);
     // Tail still fires every tick — aiTitle scanner is the sole
     // consumer of the buffer in source A now.
     expect(channel.countCallsMatching("tail -c 262144")).toBe(7);
@@ -2070,7 +2077,7 @@ describe("Phase 44 Plan 02 — discovery-based JSONL path derivation + caching +
     // Phase 47 Plan 02 lock: no discovery → no scan → aiTitle stays null.
     expect(published.state.aiTitle).toBeNull();
     // Discovery fired once (cold cache), tail never fired for this PID.
-    expect(channel.countCallsMatching("IDENTITY=")).toBe(1);
+    expect(channel.countCallsMatching(HISTORY_SCRIPT_MARKER)).toBe(1);
     // Phase 47 Plan 02: bumped to `tail -c 262144` — still 0 calls here
     // (discovery-null path skips tail entirely).
     expect(channel.countCallsMatching("tail -c 262144")).toBe(0);
@@ -2113,7 +2120,7 @@ describe("Phase 44 Plan 02 — discovery-based JSONL path derivation + caching +
     expect(published.state.lastMessageAt).toBeNull();
     // Phase 47 Plan 02 lock: tmux null → no discovery → no scan → aiTitle null.
     expect(published.state.aiTitle).toBeNull();
-    expect(channel.countCallsMatching("IDENTITY=")).toBe(0);
+    expect(channel.countCallsMatching(HISTORY_SCRIPT_MARKER)).toBe(0);
     expect(channel.countCallsMatching("tail -c 262144")).toBe(0);
     expect(channel.countCallsMatching("tail -n 200")).toBe(0);
   });
@@ -2177,7 +2184,7 @@ describe("Phase 44 Plan 02 — discovery-based JSONL path derivation + caching +
     // ever, so derivedLastMessageAt stays null), the no-history branch
     // keeps staleTailTickCount at 0 → threshold never trips → jsonlPath
     // never invalidated → discovery never re-fires.
-    expect(channel.countCallsMatching("IDENTITY=")).toBe(1);
+    expect(channel.countCallsMatching(HISTORY_SCRIPT_MARKER)).toBe(1);
     // Tail fires every tick (that behavior is UNCHANGED by the tightened
     // condition — only the counter-increment logic changed).
     // Phase 47 Plan 02: tail width bumped `tail -n 200` → `tail -c 262144`.
@@ -2251,8 +2258,7 @@ describe("Phase 47 Plan 02 — aiTitle derivation and publish", () => {
   ): string {
     // Phase 32 refactor: shell script now does match+early-exit,
     // stdout is just the mtime-latest matching path (or empty).
-    return matchesIdentity ? `${discoveredPath}
-` : "";
+    return matchesIdentity ? historyStdout(identityName, discoveredPath) : "";
   }
 
   // Local wireBaseResponses — same shape as Phase 44 Plan 02 describe.
@@ -2279,7 +2285,7 @@ describe("Phase 47 Plan 02 — aiTitle derivation and publish", () => {
         "tina",
         "~/.claude/projects/-home-ubuntu-skynet-tina/discovered.jsonl",
       );
-    channel.setResponse("IDENTITY=", discoveryStdout);
+    channel.setResponse(HISTORY_SCRIPT_MARKER, discoveryStdout);
     channel.setResponse("discovered.jsonl", jsonlContents);
   }
 
@@ -2608,8 +2614,7 @@ describe("Phase 52 Plan 01 Task 2 — source A dormant stat + fingerprint", () =
   ): string {
     // Phase 32 refactor: shell script now does match+early-exit,
     // stdout is just the mtime-latest matching path (or empty).
-    return matchesIdentity ? `${discoveredPath}
-` : "";
+    return matchesIdentity ? historyStdout(identityName, discoveredPath) : "";
   }
 
   function wireBaseResponses(
@@ -2640,7 +2645,7 @@ describe("Phase 52 Plan 01 Task 2 — source A dormant stat + fingerprint", () =
         "tina",
         "~/.claude/projects/-home-ubuntu-skynet-tina/discovered.jsonl",
       );
-    channel.setResponse("IDENTITY=", discoveryStdout);
+    channel.setResponse(HISTORY_SCRIPT_MARKER, discoveryStdout);
     channel.setResponse("discovered.jsonl", jsonlContents);
   }
 
@@ -2863,8 +2868,7 @@ describe("Phase 52 Plan 01 Task 3 — source B dormant-only enumeration + publis
   ): string {
     // Phase 32 refactor: shell script now does match+early-exit,
     // stdout is just the mtime-latest matching path (or empty).
-    return matchesIdentity ? `${discoveredPath}
-` : "";
+    return matchesIdentity ? historyStdout(identityName, discoveredPath) : "";
   }
 
   // wireBaseResponses default: NO live PIDs (empty sessions listing). Source
@@ -2898,7 +2902,7 @@ describe("Phase 52 Plan 01 Task 3 — source B dormant-only enumeration + publis
       tmuxSession,
       "~/.claude/projects/-home-ubuntu-skynet-tina/discovered.jsonl",
     );
-    channel.setResponse("IDENTITY=", discoveryStdout);
+    channel.setResponse(HISTORY_SCRIPT_MARKER, discoveryStdout);
     channel.setResponse("discovered.jsonl", jsonlContents);
   }
 
@@ -3132,7 +3136,7 @@ describe("Phase 52 Plan 01 Task 3 — source B dormant-only enumeration + publis
       "tina",
       "~/.claude/projects/-home-ubuntu-skynet-tina/discovered.jsonl",
     );
-    channel.setResponse("IDENTITY=", discoveryStdout);
+    channel.setResponse(HISTORY_SCRIPT_MARKER, discoveryStdout);
     channel.setResponse("discovered.jsonl", jsonlMessageLine(1000, "assistant", "hi") + "\n");
 
     const pollFn = setIntervalFns.find((f) => f.ms === 2000);
@@ -4087,8 +4091,8 @@ describe("Condense — source B condensing axis", () => {
     channel.setResponse("fleet-status/last-stop-payload.json", makeValidPayload());
     channel.setResponse("~/fleet/identities/ -mindepth", "tina\n");
     channel.setResponse(
-      "IDENTITY=",
-      "~/.claude/projects/-home-ubuntu-skynet-tina/discovered.jsonl\n",
+      HISTORY_SCRIPT_MARKER,
+      historyStdout("tina", "~/.claude/projects/-home-ubuntu-skynet-tina/discovered.jsonl"),
     );
     channel.setResponse("discovered.jsonl", "");
     channel.setResponse("stat ~/fleet/identities/'tina'/.dormant", `${dormant}\n`);
@@ -4275,7 +4279,7 @@ describe("Condense — source B condensing axis", () => {
     expect(channel.countCallsMatching("stat ~/fleet/identities/'tina'/.compacting")).toBe(1);
     expect(channel.countCallsMatching(".recycle")).toBe(0);
     // No live PID → nothing should discover or tail tina's JSONL.
-    expect(channel.countCallsMatching("IDENTITY=")).toBe(0);
+    expect(channel.countCallsMatching(HISTORY_SCRIPT_MARKER)).toBe(0);
     expect(channel.countCallsMatching("tail -c")).toBe(0);
   });
 
@@ -4322,8 +4326,7 @@ describe("Phase 55: session-file cache writes", () => {
   ): string {
     // Phase 32 refactor: shell script now does match+early-exit,
     // stdout is just the mtime-latest matching path (or empty).
-    return matchesIdentity ? `${discoveredPath}
-` : "";
+    return matchesIdentity ? historyStdout(identityName, discoveredPath) : "";
   }
 
   // Wire channel responses for the happy-path fixture (source A only — no source B identities).
@@ -4361,8 +4364,8 @@ describe("Phase 55: session-file cache writes", () => {
       "fleet-status/last-stop-payload.json",
       makeValidPayload(),
     );
-    // Discovery script — matched by "IDENTITY=" prefix.
-    channel.setResponse("IDENTITY=", discoveryStdout);
+    // Discovery script — matched by HISTORY_SCRIPT_MARKER prefix.
+    channel.setResponse(HISTORY_SCRIPT_MARKER, discoveryStdout);
     // Tail of the JSONL — matched by filename fragment.
     channel.setResponse("id.jsonl", "");
     // Dormant sentinel for identity aqua.
@@ -4501,14 +4504,14 @@ describe("Phase 55: session-file cache writes", () => {
 
     // Tick 2: update discovery mock to return path B (simulates session rotation).
     // MockSshChannel is first-match-wins on insertion order; clear and re-wire.
-    // Simplest approach: register a new "IDENTITY=" response that supersedes the
+    // Simplest approach: register a new HISTORY_SCRIPT_MARKER response that supersedes the
     // first (MockSshChannel iterates entries in insertion order — add before re-query).
     // Actually, setResponse replaces the existing entry for the same pattern key.
     const discoveryB = buildDiscoveryFixture55(
       "aqua",
       "/home/x/.claude/projects/proj/id2.jsonl",
     );
-    channel.setResponse("IDENTITY=", discoveryB);
+    channel.setResponse(HISTORY_SCRIPT_MARKER, discoveryB);
     channel.setResponse("id2.jsonl", "");
 
     // Also null out jsonlPath cache by advancing stale-tail threshold. However, the
@@ -4565,7 +4568,7 @@ describe("Phase 55: session-file cache writes", () => {
       "aqua",
       "/home/x/.claude/projects/proj/id.jsonl",
     );
-    channel.setResponse("IDENTITY=", discoveryB);
+    channel.setResponse(HISTORY_SCRIPT_MARKER, discoveryB);
     channel.setResponse("id.jsonl", "");
     // Dormant sentinel for identity aqua.
     channel.setResponse("stat ~/fleet/identities/'aqua'/.dormant", "no\n");
@@ -4872,7 +4875,7 @@ describe("ssh-poll-orchestrator Phase 59 — lastStopAt + lastStatusChangeAt der
       const channel = new MockSshChannel();
       wirePhase59Base(channel);
       channel.setResponse(PER_SESSION_STOP_PATTERN, "1730000000\n"); // finished at 1730000000000
-      channel.setResponse("IDENTITY=", `${JSONL}\n`);
+      channel.setResponse(HISTORY_SCRIPT_MARKER, historyStdout("tina", JSONL));
       channel.setResponse("discovered.jsonl", tail);
       const readStateStore = {
         markSeenForAllUsers: vi.fn((): string[] => ["u1"]),
@@ -6100,8 +6103,7 @@ describe("Phase 85 lastMessageAt source swap — send-log store", () => {
   function buildIvyDiscoveryFixture(discoveredPath: string): string {
     // Phase 32 refactor: shell script now does match+early-exit,
     // stdout is just the mtime-latest matching path.
-    return `${discoveredPath}
-`;
+    return historyStdout("ivy", discoveredPath);
   }
 
   function wireIvyResponses(
@@ -6116,7 +6118,7 @@ describe("Phase 85 lastMessageAt source swap — send-log store", () => {
     channel.setResponse("fleet-status/last-stop-payload.json", makeValidPayload());
     // Discovery for identity "ivy".
     channel.setResponse(
-      "IDENTITY=",
+      HISTORY_SCRIPT_MARKER,
       buildIvyDiscoveryFixture(
         "~/.claude/projects/-home-ubuntu-skynet-ivy/discovered.jsonl",
       ),

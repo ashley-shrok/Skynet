@@ -33,17 +33,18 @@ archived, with Un-archive on it.
 4. Nothing finds conversation history through the terminal anymore; the
    separate sleeping-agent loader is gone; search and the memory pie use the
    same per-agent lookup instead of the machine-wide scan.
-5. Only someone who could see an archived conversation in search can open
-   it, and the live conversation connection gets the same "may you see this
-   agent" check (closing today's gap where reaching the machine is enough).
+5. An archived conversation opens only for someone with access to its
+   machine — the same boundary as every other conversation — and the server
+   finds the history file itself, never trusting a file location sent by the
+   browser. (Who an agent is listed for is organization, not access; it adds
+   no gate.)
 
 ## Shapes
 
 - **[declared] shape-history-from-agent-folder** — one lookup (agent's own
   history folder, newest file starting with its `/id`) used by the
   conversation view, search, and the memory pie; drop the terminal route and
-  the sleeping-agent loader; add the per-agent visibility check to the live
-  connection; no visible change for live/sleeping conversations — in_progress
+  the sleeping-agent loader; no visible change for live/sleeping conversations — in_progress
 - **[declared] shape-archived-conversation-tab** — archived search result
   opens as a normal read-only conversation tab (new tab kind that needs no
   terminal session, survives reload/split/drag), archived marking,
@@ -53,6 +54,13 @@ archived, with Un-archive on it.
 
 - Role file learned-preference: start work with `/build`, not `/open` —
   done (2026-10-25, Ashley approved)
+- Legacy agents outside their own history folder (5 live: workstation aqua,
+  becky, whitney, willa; zoeybattlestation commander-zoey; ~25 archived on
+  workstation/thenasty plus t1000 "tina") — handed to domino-box-maintainer-2
+  (spawned 2026-10-25 at Ashley's ask) to move into their own folders without
+  losing context. GATE: shape 1 resumes (/close, review, UAT) only once
+  Domino reports done — Ashley: "consider it finishing the gate to continue
+  with this" — open
 - Slash-command audit — which Claude Code commands (e.g. `/clear`) break
   Skynet's assumptions and should be blocked; separate research agent,
   awaiting Ashley's yes to spawn — open
@@ -68,6 +76,9 @@ archived, with Un-archive on it.
   the first real user turn; the supervisor's session-owner check is the
   precedent. Condense has since shipped — confirm the reset/recycle detection
   removal is on the branch before starting shape 1.
+- ashley-beelink and ashley-laptop were offline at the other-machines
+  check (2026-10-25); Domino checks them too. Zoey's machine has a symlinked
+  home (/home → /var/home) — the lookup now names folders from the real path.
 - Agents sometimes start a bare Claude in their own workspace while testing
   (4 of 441 folders on t1000, e.g. diamond-box-maintainer-2 has 8 tiny
   permission-test sessions) — the `/id` check inside the folder is what

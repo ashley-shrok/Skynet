@@ -23,6 +23,7 @@
  * `session-file-discovery.test.ts`).
  */
 
+import { execFile } from "node:child_process";
 import { promises as fsp } from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -39,6 +40,7 @@ import {
   __matchesIdentityFirstTurnForTests,
   toHostPerspectivePath,
 } from "./discover-identity-session-file.js";
+import { agentHistoryFolderName, findAgentHistoryFiles } from "./agent-history-file.js";
 
 // Stub ssh2 Client — execCommand is mocked at module level so conn is never accessed.
 const fakeConn = {} as import("ssh2").Client;
@@ -127,27 +129,6 @@ function toolResultUserTurnLine(): string {
       ],
     },
   });
-}
-
-// ── Mock helper: shell-script dispatch ─────────────────────────────────────
-//
-// The helper issues ONE execCommand call whose stdout is the absolute path of
-// the first matching JSONL, or empty if none matched. The match, mtime-desc
-// tiebreak, and partial-name refusal all execute IN THE SHELL now (grep -F
-// with the `<command-args>NAME<` closing delimiter), so JS-side is just a
-// trim.
-//
-// This is the OUTPUT CONTRACT the test suite couples to — not the shell
-// script's exact wording, so the executor can refine the script without
-// breaking these tests.
-
-function mockExecReturning(stdoutOrThrow: string | (() => Promise<string>)) {
-  vi.mocked(execCommand).mockImplementation(
-    (_conn: import("ssh2").Client, _cmd: string): Promise<string> => {
-      if (typeof stdoutOrThrow === "function") return stdoutOrThrow();
-      return Promise.resolve(stdoutOrThrow);
-    },
-  );
 }
 
 // ── Predicate cases: __matchesIdentityFirstTurnForTests ────────────────────
@@ -262,157 +243,134 @@ describe("__matchesIdentityFirstTurnForTests — CASE-P7 wrong identity in args"
 
 // ── Helper cases: discoverIdentitySessionFile ───────────────────────────────
 
-describe("discoverIdentitySessionFile", () => {
-  afterEach(() => {
+// ── REMOTE branch: the real lookup script, run by a real bash ──────────────
+//
+// execCommand is routed to `bash -c` with HOME pointed at a temp dir, so these
+// cases exercise the actual shell the host runs — folder naming, mtime order,
+// the head-of-file read — not a stub of its output.
+
+function runInBash(home: string) {
+  vi.mocked(execCommand).mockImplementation(
+    (_conn: import("ssh2").Client, cmd: string): Promise<string> =>
+      new Promise((resolve, reject) => {
+        execFile(
+          "bash",
+          ["-c", cmd],
+          { env: { HOME: home, PATH: process.env.PATH ?? "/usr/bin:/bin" } },
+          (err, stdout) => (err ? reject(err) : resolve(stdout)),
+        );
+      }),
+  );
+}
+
+describe("discoverIdentitySessionFile — agent's own history folder (REMOTE)", () => {
+  let home: string;
+
+  beforeEach(async () => {
+    home = await fsp.mkdtemp(path.join(os.tmpdir(), "agent-history-"));
+    runInBash(home);
+  });
+
+  afterEach(async () => {
     vi.mocked(execCommand).mockReset();
+    await fsp.rm(home, { recursive: true, force: true }).catch(() => {});
   });
 
-  it("CASE-H1: happy-path single match returns the absolute path", async () => {
-    // Shell short-circuits at the first matching file and prints its path.
-    mockExecReturning(
-      "/home/ubuntu/.claude/projects/-home-ubuntu-skynet-tanya/16da4efa-abc.jsonl\n",
-    );
-    const result = await discoverIdentitySessionFile(fakeConn, "tanya");
-    expect(result).toBe(
-      "/home/ubuntu/.claude/projects/-home-ubuntu-skynet-tanya/16da4efa-abc.jsonl",
-    );
+  /** The folder Claude Code would create for `<home>/fleet/identities/<name>/workspace`. */
+  function folderFor(name: string): string {
+    const launch = `${home}/fleet/identities/${name}/workspace`;
+    return path.join(home, ".claude", "projects", launch.replace(/[^a-zA-Z0-9]/g, "-"));
+  }
+
+  async function seedIn(dir: string, file: string, lines: string[], mtime: number): Promise<string> {
+    await fsp.mkdir(dir, { recursive: true });
+    const full = path.join(dir, file);
+    await fsp.writeFile(full, lines.join("\n") + "\n", "utf8");
+    await fsp.utimes(full, mtime, mtime);
+    return full;
+  }
+
+  const harnessPreamble = [
+    '{"type":"mode","mode":"normal","sessionId":"s"}',
+    '{"type":"queue-operation","operation":"enqueue","content":"/id tanya"}',
+    '{"type":"file-history-snapshot","messageId":"m","snapshot":{}}',
+  ];
+
+  it("finds the agent's file, skipping harness records that precede the /id turn", async () => {
+    const f = await seedIn(folderFor("tanya"), "a.jsonl", [...harnessPreamble, firstUserTurnLine("tanya")], 1000);
+    expect(await discoverIdentitySessionFile(fakeConn, "tanya")).toBe(f);
   });
 
-  it("CASE-H2: mtime-latest tiebreak is a shell-side guarantee (D-03) — JS trusts the emitted path", async () => {
-    // D-03 tiebreak moved into the shell: `sort -rn` orders newest-first and
-    // the outer `while | head -1` stops at the first match, so the emitted
-    // path is by construction the mtime-latest match. JS-side is a passthrough.
-    mockExecReturning(
-      "/home/ubuntu/.claude/projects/-home-ubuntu-skynet-tanya/newest.jsonl\n",
-    );
-    const result = await discoverIdentitySessionFile(fakeConn, "tanya");
-    expect(result).toBe(
-      "/home/ubuntu/.claude/projects/-home-ubuntu-skynet-tanya/newest.jsonl",
-    );
+  it("newest /id file wins when the folder holds several", async () => {
+    await seedIn(folderFor("tanya"), "old.jsonl", [firstUserTurnLine("tanya")], 1000);
+    const newest = await seedIn(folderFor("tanya"), "new.jsonl", [firstUserTurnLine("tanya")], 3000);
+    await seedIn(folderFor("tanya"), "mid.jsonl", [firstUserTurnLine("tanya")], 2000);
+    expect(await discoverIdentitySessionFile(fakeConn, "tanya")).toBe(newest);
   });
 
-  it("CASE-H3: no matches → returns null, no throw (D-05 fallback)", async () => {
-    // Shell walked every candidate, found no match — empty stdout.
-    mockExecReturning("");
-    const result = await discoverIdentitySessionFile(fakeConn, "tanya");
-    expect(result).toBe(null);
+  it("a newer bare session in the agent's folder (no /id first turn) is never picked", async () => {
+    const owned = await seedIn(folderFor("tanya"), "owned.jsonl", [firstUserTurnLine("tanya")], 1000);
+    await seedIn(folderFor("tanya"), "bare.jsonl", [plainUserTurnLine("reply with just: ok")], 5000);
+    expect(await discoverIdentitySessionFile(fakeConn, "tanya")).toBe(owned);
   });
 
-  it("CASE-H4a: shell reports a match → passthrough", async () => {
-    // The shell's `head -c 4096 | grep -Fm 1 "<command-args>NAME<"` naturally
-    // skips leading assistant/system lines and matches the first user-role
-    // line containing the identity signature.
-    mockExecReturning(
-      "/home/ubuntu/.claude/projects/-home-ubuntu-skynet-tanya/e.jsonl\n",
-    );
-    const result = await discoverIdentitySessionFile(fakeConn, "tanya");
-    expect(result).toBe(
-      "/home/ubuntu/.claude/projects/-home-ubuntu-skynet-tanya/e.jsonl",
-    );
+  it("files outside the agent's own folder are never considered, even if they start with its /id", async () => {
+    await seedIn(path.join(home, ".claude", "projects", "-home-ubuntu-skynet-tanya"), "x.jsonl", [firstUserTurnLine("tanya")], 9000);
+    expect(await discoverIdentitySessionFile(fakeConn, "tanya")).toBe(null);
   });
 
-  it("CASE-H4b: shell reports no match (plain user turn, no /id) → null", async () => {
-    mockExecReturning("");
-    const result = await discoverIdentitySessionFile(fakeConn, "tanya");
-    expect(result).toBe(null);
+  it("partial-name refusal: tiffany's lookup never reads tiff's folder, and a tiff /id in tiffany's folder doesn't match", async () => {
+    await seedIn(folderFor("tiff"), "t.jsonl", [firstUserTurnLine("tiff")], 1000);
+    await seedIn(folderFor("tiffany"), "u.jsonl", [firstUserTurnLine("tiff")], 1000);
+    expect(await discoverIdentitySessionFile(fakeConn, "tiffany")).toBe(null);
   });
 
-  it("CASE-H5: first-4-KB window is a shell-side guarantee (D-02) — later-file /id mentions never reach JS", async () => {
-    // The shell's `head -c 4096` bounds the read window; a `/id` turn buried
-    // past the first 4 KB is never seen by grep and never emitted. If the
-    // shell found no match in-window, stdout is empty.
-    mockExecReturning("");
-    const result = await discoverIdentitySessionFile(fakeConn, "tanya");
-    expect(result).toBe(null);
+  it("only the first user turn counts — a later /id mention doesn't claim the file", async () => {
+    await seedIn(folderFor("tanya"), "a.jsonl", [plainUserTurnLine("hi"), firstUserTurnLine("tanya")], 1000);
+    expect(await discoverIdentitySessionFile(fakeConn, "tanya")).toBe(null);
   });
 
-  it("CASE-H6: empty projects dir (or find produced no matches) → returns null (D-05 cold-start)", async () => {
-    mockExecReturning("");
-    const result = await discoverIdentitySessionFile(fakeConn, "tanya");
-    expect(result).toBe(null);
+  it("tool_result user lines carrying the /id byte-pattern are refused", async () => {
+    await seedIn(folderFor("tanya"), "a.jsonl", [toolResultUserTurnLine()], 1000);
+    expect(await discoverIdentitySessionFile(fakeConn, "tanya")).toBe(null);
   });
 
-  it("CASE-H7: SSH throw → returns null, no throw propagates (fail-safe)", async () => {
-    mockExecReturning(() =>
-      Promise.reject(new Error("SSH channel closed unexpectedly")),
-    );
-    const result = await discoverIdentitySessionFile(fakeConn, "tanya");
-    expect(result).toBe(null);
+  it("no folder yet (newborn) → null", async () => {
+    expect(await discoverIdentitySessionFile(fakeConn, "tanya")).toBe(null);
   });
 
-  it("CASE-H8: partial-name refusal is a shell-side guarantee (D-01) — the match pattern includes the trailing `<` delimiter", async () => {
-    // The load-bearing property of D-01: identity `tiffany` MUST NOT match a
-    // JSONL line whose only signature is `<command-args>tiff<`. Enforced now
-    // by grep -F on the full `<command-args>tiffany<` literal — `tiff<` is
-    // not a substring of `tiffany<`.
-    //
-    // Assert the shell script contains the delimiter-anchored pattern for
-    // the requested identity name (couples the test to the D-01 contract,
-    // not to the exact shell wording).
-    mockExecReturning("");
-    await discoverIdentitySessionFile(fakeConn, "tiffany");
-    const cmd = vi.mocked(execCommand).mock.calls[0][1];
-    expect(cmd).toContain("<command-args>");
-    // Pattern uses grep -F (fixed string) so partial-name substrings can't match.
-    expect(cmd).toMatch(/grep\s+[^|]*-F/);
+  it("SSH throw → null, no throw propagates", async () => {
+    vi.mocked(execCommand).mockRejectedValue(new Error("channel closed"));
+    expect(await discoverIdentitySessionFile(fakeConn, "tanya")).toBe(null);
   });
 
-  it("issues an execCommand whose command string references `~/.claude/projects/` and uses `find` with `.jsonl` — loosely couples test to the enumeration primitive", async () => {
-    mockExecReturning("");
-    await discoverIdentitySessionFile(fakeConn, "tanya");
-    expect(execCommand).toHaveBeenCalledTimes(1);
-    const cmd = vi.mocked(execCommand).mock.calls[0][1];
-    expect(cmd).toContain("~/.claude/projects/");
-    // Either `find` + `.jsonl` OR a functionally equivalent enumeration primitive.
-    expect(cmd).toMatch(/find|\.jsonl/);
+  it("unsafe names never reach the shell", async () => {
+    expect(await discoverIdentitySessionFile(fakeConn, "x'; rm -rf / #")).toBe(null);
+    expect(vi.mocked(execCommand)).not.toHaveBeenCalled();
   });
 
-  it("single-quote-wraps the identity name into the shell script (T-32-01 mitigation)", async () => {
-    mockExecReturning("");
-    await discoverIdentitySessionFile(fakeConn, "tanya");
-    const cmd = vi.mocked(execCommand).mock.calls[0][1];
-    // The identity name is single-quote-wrapped when interpolated into the
-    // shell script for defense-in-depth per T-32-01. Even though grep -F now
-    // treats the pattern as a fixed string (no regex interpretation), the
-    // quote-wrap layer stays as belt-and-suspenders against a name that
-    // slips past upstream validation.
-    if (cmd.includes("tanya")) {
-      expect(cmd).toMatch(/'tanya'/);
-    }
+  it("batched lookup answers every name in one exec, null for agents with no history", async () => {
+    const a = await seedIn(folderFor("tanya"), "a.jsonl", [firstUserTurnLine("tanya")], 1000);
+    const b = await seedIn(folderFor("nelly"), "b.jsonl", [firstUserTurnLine("nelly")], 1000);
+    const got = await findAgentHistoryFiles(fakeConn, ["tanya", "nelly", "ghost"]);
+    expect(Object.fromEntries(got)).toEqual({ tanya: a, nelly: b, ghost: null });
+    expect(vi.mocked(execCommand)).toHaveBeenCalledTimes(1);
   });
 
-  it("short-circuits at the first matching file — stdout is a single path, not a records blob", async () => {
-    // Contract: shell emits ONE path (mtime-latest match) and stops. If
-    // stdout contained multiple lines, the passthrough would leak the trailing
-    // ones. Verify the trim-then-return logic collapses to the single path.
-    mockExecReturning(
-      "/home/ubuntu/.claude/projects/-home-ubuntu-skynet-tanya/first.jsonl\n",
-    );
-    const result = await discoverIdentitySessionFile(fakeConn, "tanya");
-    expect(result).toBe(
-      "/home/ubuntu/.claude/projects/-home-ubuntu-skynet-tanya/first.jsonl",
-    );
-    // A stray trailing whitespace line must not corrupt the returned path.
-    mockExecReturning(
-      "/home/ubuntu/.claude/projects/-home-ubuntu-skynet-tanya/first.jsonl\n\n",
-    );
-    const result2 = await discoverIdentitySessionFile(fakeConn, "tanya");
-    expect(result2).toBe(
-      "/home/ubuntu/.claude/projects/-home-ubuntu-skynet-tanya/first.jsonl",
-    );
+  it("batched lookup throws on transport failure (callers tell 'not found' from 'couldn't look')", async () => {
+    vi.mocked(execCommand).mockRejectedValue(new Error("channel closed"));
+    await expect(findAgentHistoryFiles(fakeConn, ["tanya"])).rejects.toThrow();
   });
 });
 
-// ── LOCAL-branch cases (conn === null): 2026-09-13 ──────────────────────────
-//
-// discoverIdentitySessionFile now accepts (Client | null, identityName). When
-// conn is null, the sensor reads the local FS under HOME_HOST_DIR/.claude/
-// projects/ — exercised by identity-birth-orchestrator's supervisor-wait for
-// co-located births. The tests below mirror CASE-H1/H2/H3/H6/H7/H8 semantics
-// against a real tmpdir fixture (tmpRoot is the home root; the seed function
-// writes into `<tmpRoot>/.claude/projects/<slug>/`, mirroring production
-// shape where /host-home/.claude/projects/ is the live path). execCommand is
-// not touched on the null-conn path.
+describe("agentHistoryFolderName", () => {
+  it("follows Claude Code's rule — every non-alphanumeric becomes '-'", () => {
+    expect(agentHistoryFolderName("/home/ubuntu", "piano-box-maintainer-5")).toBe(
+      "-home-ubuntu-fleet-identities-piano-box-maintainer-5-workspace",
+    );
+    expect(agentHistoryFolderName("/home/a.b/", "x_y")).toBe("-home-a-b-fleet-identities-x-y-workspace");
+  });
+});
 
 describe("discoverIdentitySessionFile — LOCAL branch (conn === null)", () => {
   let tmpRoot: string;
@@ -424,9 +382,13 @@ describe("discoverIdentitySessionFile — LOCAL branch (conn === null)", () => {
     projectsRoot = path.join(tmpRoot, ".claude", "projects");
     await fsp.mkdir(projectsRoot, { recursive: true });
     process.env.HOME_HOST_DIR = tmpRoot;
+    // The folder name comes from the HOST home; pin it so the seeded
+    // `-home-ubuntu-…` folders match on any runner.
+    vi.spyOn(os, "homedir").mockReturnValue("/home/ubuntu");
   });
 
   afterEach(async () => {
+    vi.restoreAllMocks();
     if (prevEnv === undefined) delete process.env.HOME_HOST_DIR;
     else process.env.HOME_HOST_DIR = prevEnv;
     try {

@@ -1,75 +1,26 @@
 /**
- * Identity-first-turn session-file discovery — Phase 32, Plan 32-01.
+ * Shared primitives for finding an agent's history file, plus the
+ * `discoverIdentitySessionFile` entry point kept for its existing callers
+ * (conversation view, identity birth, spawn worker).
  *
- * WHY THIS EXISTS:
+ * The lookup itself lives in `agent-history-file.ts`: the agent's own
+ * history folder, newest file whose first real user turn is `/id <name>`.
+ * The machine-wide scans that used to live here (every `.jsonl` under
+ * `~/.claude/projects/`) are gone — see that file for why they aren't needed.
  *
- * The dormancy-bubble-in-flow quick task (patch #422, 2026-08-12) ships a
- * wake-bubble frame when a dormant identity pane comes back to life, but
- * the messages behind that bubble never appear — the dormant branch has no
- * tail open, so the JSONL history is never streamed to the UI. user's
- * verbatim direction: *"the bubble looks good, but unfortunately, the
- * rest of the messages that would be in that session are not showing up."*
+ * WHY BYTE-PATTERN NOT JSON-PARSE: raw `line.includes` checks are ~40×
+ * cheaper than JSON.parse per line and tolerant of minor byte-shape drift.
+ * `__matchesIdentityFirstTurnForTests` below is the single source of truth
+ * for "is this line `/id <name>`"; the Python sweeps mirror it.
  *
- * This helper closes that gap by locating the JSONL file the identity was
- * last active in, so the Wave 2 dormant-branch wiring can open a tail on
- * it and replay history through the existing session pipeline.
- *
- * Full context and the locked D-01..D-09 decisions live at:
- *   .planning/phases/32-identity-first-turn-session-discovery-wake-bubble-message-hi/32-CONTEXT.md
- *
- * WHY BYTE-PATTERN NOT JSON-PARSE (D-01):
- *
- * Raw-string `line.includes` checks — ~40× cheaper than JSON.parse per
- * line, and tolerant to the minor byte-shape drift Claude Code has
- * historically shipped. If
- * the assumption ever breaks, this file is the SINGLE source of truth for
- * identity-first-turn detection — fix here, not scattered across the
- * dormant-branch wiring.
- *
- * The predicate uses `line.includes` for the two literal-string checks
- * (`"type":"user"`, `<command-name>/id</command-name>`) plus a single
- * character-index check for the delimiter guard after `<command-args>`.
- * ZERO JSON.parse anywhere in this module — enforced by inspection
- * (see plan 32-01 verification step 4).
- *
- * WHY ONE-ROUND-TRIP SHELL SCRIPT (D-07):
- *
- * The cost bound in D-07 is ~4 project dirs × dozens of JSONLs × a
- * `head -c 4096`-bounded grep = well under 100ms per lookup. A single
- * exec channel with a shell script that enumerates + reads + emits is
- * cheaper (one round-trip instead of N) AND has fewer failure surfaces
- * (one timeout, one stdout to parse) than the N-round-trip alternative.
- * We keep the byte-pattern match in JS (not in shell) so the predicate
- * is unit-testable in isolation and so the identity name never leaks
- * into a shell-side grep pattern (T-32-01: identity name is only ever
- * used in a single-quote-wrapped shell literal for defense-in-depth).
- *
- * CALL-SITE SCOPE (D-09):
- *
- * This helper is called from EXACTLY ONE production site: the dormant
- * branch of `claude-session-server.ts` (immediately after the
- * `dormantPollTimer = setInterval(...)` block and before
- * `enteredDormantPoll = true;`). The active-flow discovery at
- * `startActiveSessionFlow` stays on `discoverClaudeSession` — migrating
- * that path is explicitly out of scope per Phase 32.
- *
- * LOG EMISSION IS THE CALLER'S RESPONSIBILITY:
- *
- * This module emits ZERO log lines directly (Phase 32 invariant 5).
- * On SSH throw or timeout, the helper returns null (fail-safe: the
- * dormant branch treats null as "no discovery" and falls back to today's
- * behavior). The CALLER is responsible for emitting a single structured
- * `sshLogger.warn` in the null-return path — this module's throw-catch
- * produces the null return only. Similarly the caller MUST log the
- * happy-path discovery via the Phase 31 `[session]`/`[ws]` prefix
- * taxonomy.
+ * LOG EMISSION IS THE CALLER'S RESPONSIBILITY: this module logs nothing; a
+ * failed lookup returns null and the caller logs.
  */
 
-import { promises as fsp } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import type { Client } from "ssh2";
-import { execCommand } from "../ssh/tmux-helper.js";
+import { findAgentHistoryFile } from "./agent-history-file.js";
 
 /**
  * Returns the local Claude Code projects root — the parent of the per-cwd
@@ -143,29 +94,11 @@ export function toHostPerspectivePath(p: string): string {
 }
 
 /**
- * Hard ceiling on the discovery exec call. Bumped 3000 → 30000 (user
- * 2026-08-20 UAT) after aiTitle + lastMessageAt shipped as null for every
- * local identity on skynet-ec2. Root cause: the discovery shell script
- * (`find ~/.claude/projects/ ... | head -c 4096 | grep`) costs ~1.5s
- * single-threaded on a ~220-JSONL box; when 5 local identities fire
- * `Promise.all` concurrently under the /sessions/list handler + the ssh-
- * poll orchestrator, wall-clock hits ~5s and the 3s Promise.race timeout
- * rejects → `discoverIdentitySessionFile` returns null → jsonlPath stays
- * null → the tail-scan branch never runs → both signals publish as null.
- * 30s is comfortable headroom for a 5-way concurrent host and still bounds
- * a truly-hung SSH exec. The remote SIGTERM comes from the caller's
- * Promise.race timing out; the shell process itself is not killed
- * (best-effort; a future refactor could shell-timeout the discovery too).
+ * Hard ceiling on one history-lookup exec. The lookup now reads one folder
+ * per agent, so it normally returns in milliseconds; the generous ceiling
+ * only bounds a hung SSH exec on a heavily loaded host.
  */
 export const DISCOVERY_EXEC_TIMEOUT_MS = 30_000;
-
-/**
- * Fixed sentinel that separates per-file records in the shell script's
- * stdout. Chosen to be extremely unlikely to appear in any legitimate
- * JSONL line's first-user-role content (starts with three dashes, contains
- * `GSDR-32` — plan 32-01 discovery marker).
- */
-export const RECORD_SEPARATOR = "---GSDR-32---";
 
 /**
  * The four delimiter characters that MAY appear immediately after the
@@ -230,91 +163,6 @@ export function __matchesIdentityFirstTurnForTests(
 }
 
 /**
- * The one-round-trip shell script. For each JSONL under
- * `~/.claude/projects/*​/`, emits:
- *   `MTIME\tPATH\n<first-user-role-line>\n---GSDR-32---\n`
- *
- * The `grep -m 1` bails out on the first `"role":"user"` line — well
- * before `head -c 4096`'s ceiling for any realistic JSONL. Files with no
- * user-role line in the first 4096 bytes emit an empty line where the
- * first-user-role line would be (the RECORD_SEPARATOR still terminates
- * the record cleanly).
- *
- * Sorted by mtime DESCENDING so the JS parser gets records already in
- * newest-first order (D-03 tiebreak — first match wins).
- *
- * The identity name is single-quote-wrapped when interpolated (T-32-01
- * defense-in-depth) even though it is NEVER used in a shell-side grep
- * pattern — the byte-pattern match happens in JS after parsing stdout.
- */
-export function buildDiscoveryScript(escapedIdentityName: string): string {
-  // ENUMERATION variant: emits every JSONL's first user-role line so the
-  // caller can post-hoc match multiple identities in one round-trip.
-  //
-  // Used by conversation-search's batched resolver (one shell exec resolves
-  // N identity keys). For the SINGLE-identity lookup case, use
-  // `buildIdentityMatchScript` instead — it short-circuits at the shell
-  // level and returns O(matched-file-position) instead of O(all-files).
-  //
-  // LOAD-BEARING: JS `+` joins these strings on ONE line — every shell
-  // statement MUST be terminated with `;`. Do not remove any `;` below.
-  return (
-    // Purely documentary — the identity name appears in the script for
-    // audit-log grep-ability but is not consumed by any shell primitive.
-    `IDENTITY=${escapedIdentityName}; ` +
-    `find ~/.claude/projects/ -maxdepth 2 -type f -name '*.jsonl' -printf '%T@ %p\\n' 2>/dev/null ` +
-    `| sort -rn ` +
-    `| while IFS=' ' read -r mtime path; do ` +
-    `  printf '%s\\t%s\\n' "$mtime" "$path"; ` +
-    `  head -c 4096 "$path" 2>/dev/null | grep -m 1 '"role":"user"' || printf '\\n'; ` +
-    `  printf '%s\\n' '${RECORD_SEPARATOR}'; ` +
-    `done`
-  );
-}
-
-/**
- * Early-exit shell script for the SINGLE-identity lookup case. Does the
- * byte-pattern match IN the shell (grep -F, fixed-string) so the walk stops
- * at the first matching file instead of reading every JSONL in the tree.
- *
- * Emits: the absolute path of the first matching file (mtime-desc order),
- * or empty stdout if no file matches. That's the whole output — no records,
- * no separators, no first-user-lines to re-parse. JS-side just trims.
- *
- * Match shape: `<command-args>${IDENTITY}<`. Real Claude Code JSONLs always
- * close with `</command-args>`, so the `<` delimiter covers 100 % of
- * observed data. The 4-delimiter matrix in __matchesIdentityFirstTurnForTests
- * (space, `\r`, EOL) is a hypothetical-variants belt kept for the LOCAL
- * branch's JS predicate.
- *
- * Safety: grep -F treats the pattern as fixed string (no regex). Combined
- * with the upstream WS-attach identity-name validation (alnum + `-`/`_`)
- * and the single-quote wrap at the call site, the identity name cannot
- * escape into shell or regex space.
- *
- * tool_result exclusion: a chained `grep -qvF '"tool_result"'` after the
- * match rejects any line whose surrounding JSONL is a tool_result payload
- * (parity with the JS predicate's `line.includes('"tool_result"')` guard).
- *
- * `| head -1` at the end guarantees the outer pipeline closes cleanly after
- * the first emitted path — works around the "break in a piped `while`
- * subshell doesn't kill the outer script" bash idiom.
- */
-export function buildIdentityMatchScript(escapedIdentityName: string): string {
-  return (
-    `IDENTITY=${escapedIdentityName}; ` +
-    `PATTERN="<command-args>\${IDENTITY}<"; ` +
-    `find ~/.claude/projects/ -maxdepth 2 -type f -name '*.jsonl' -printf '%T@ %p\\n' 2>/dev/null ` +
-    `| sort -rn ` +
-    `| while IFS=' ' read -r mtime path; do ` +
-    `  if head -c 4096 "$path" 2>/dev/null | grep -m 1 -F "$PATTERN" | grep -qvF '"tool_result"'; then ` +
-    `    printf '%s\\n' "$path"; break; ` +
-    `  fi; ` +
-    `done | head -1`
-  );
-}
-
-/**
  * Single-quote-wrap a string for use as a shell literal. Same pattern used
  * at `session-file-tail.ts:27` and `claude-session-server.ts:4660-4664`.
  * The identity name is already validated to a safe subset upstream at the
@@ -325,242 +173,14 @@ export function shellSingleQuote(s: string): string {
 }
 
 /**
- * Parse the shell script's stdout into per-file records. Each record has
- * mtime (float, seconds), path (absolute), and firstUserLine (string; may
- * be empty if the file had no user-role line in the first 4096 bytes).
- *
- * The parser is intentionally forgiving of trailing empty lines / partial
- * records — a malformed final record is dropped silently rather than
- * throwing (fail-safe: better to miss one candidate than to crash the
- * dormant branch).
- */
-export type DiscoveryRecord = {
-  mtime: number;
-  path: string;
-  firstUserLine: string;
-};
-
-export function parseDiscoveryStdout(stdout: string): DiscoveryRecord[] {
-  const records: DiscoveryRecord[] = [];
-  if (stdout.length === 0) return records;
-  // Split on the record separator; each chunk is:
-  //   `MTIME\tPATH\n<first-user-line>\n`
-  // The first chunk starts at the beginning; subsequent chunks start after
-  // `\n` following the separator. Handle both by splitting on `\n${SEP}\n`
-  // and processing any trailing `\n${SEP}` boundary as an EOF marker.
-  const chunks = stdout.split(`\n${RECORD_SEPARATOR}`);
-  for (const rawChunk of chunks) {
-    // Strip a leading `\n` if present (leftover from the previous separator's
-    // trailing newline) and any leading whitespace-only artifacts.
-    const chunk = rawChunk.startsWith("\n") ? rawChunk.slice(1) : rawChunk;
-    if (chunk.length === 0) continue;
-    // The first line is `MTIME\tPATH`. The remainder (may be empty) is the
-    // first user-role line.
-    const firstNL = chunk.indexOf("\n");
-    if (firstNL === -1) continue; // malformed — no first-user-line line at all
-    const header = chunk.slice(0, firstNL);
-    const remainder = chunk.slice(firstNL + 1);
-    // firstUserLine may include a trailing `\n` if the grep emitted one;
-    // strip a single trailing `\n` to normalize.
-    const firstUserLine = remainder.endsWith("\n")
-      ? remainder.slice(0, -1)
-      : remainder;
-    const tabIdx = header.indexOf("\t");
-    if (tabIdx === -1) continue; // malformed — no mtime/path split
-    const mtimeStr = header.slice(0, tabIdx);
-    const path = header.slice(tabIdx + 1);
-    const mtime = parseFloat(mtimeStr);
-    if (!Number.isFinite(mtime) || path.length === 0) continue;
-    records.push({ mtime, path, firstUserLine });
-  }
-  return records;
-}
-
-/**
- * Locate the JSONL file that carries the identity's first `/id <name>`
- * turn. Returns the mtime-latest absolute path across
- * `~/.claude/projects/*​/`, or `null` if no such file exists.
- *
- * Fail-safe contract (D-05, invariant 1 in 32-CONTEXT.md):
- *   - Empty projects dir → null (no throw).
- *   - No matching JSONL → null (no throw).
- *   - SSH exec throws → null (no throw propagates).
- *   - Exec exceeds DISCOVERY_EXEC_TIMEOUT_MS → treated as throw → null.
- *
- * The CALLER is responsible for emitting a `sshLogger.warn` in the
- * null-return path (this module emits ZERO log lines per Phase 32
- * invariant 5 + T-32-02).
- *
- * Routing (mirrors writeIdentityFile's LOCAL vs REMOTE split at
- * per-identity-file.ts:198):
- *   - conn === null → LOCAL: read `getLocalClaudeProjectsRoot()` via node
- *     fs (bind-mounted host path inside the Skynet container). Used by
- *     identity-birth-orchestrator's supervisor-wait for co-located births
- *     (isLocalHostId=true) — no SSH-to-self required.
- *   - conn !== null → REMOTE: SSH-exec the discovery shell script over the
- *     provided client — original Phase 32 behavior, byte-identical.
- *
- * @param conn — an open SSH client, or null for a LOCAL read.
- * @param identityName — the identity to discover (e.g. `tanya`, `tiffany`).
+ * Locate the identity's history file: newest `.jsonl` in its own history
+ * folder whose first real user turn is `/id <identityName>`, or null.
+ * `conn === null` reads the co-located host through the container mount.
+ * Fail-safe: never throws; any transport error / timeout → null.
  */
 export async function discoverIdentitySessionFile(
   conn: Client | null,
   identityName: string,
 ): Promise<string | null> {
-  if (conn === null) {
-    return discoverIdentitySessionFileLocal(identityName);
-  }
-  const escaped = shellSingleQuote(identityName);
-  const script = buildIdentityMatchScript(escaped);
-
-  let stdout: string;
-  try {
-    stdout = await Promise.race([
-      execCommand(conn, script),
-      new Promise<string>((_, reject) =>
-        setTimeout(
-          () =>
-            reject(
-              new Error(
-                `discoverIdentitySessionFile timeout after ${DISCOVERY_EXEC_TIMEOUT_MS}ms`,
-              ),
-            ),
-          DISCOVERY_EXEC_TIMEOUT_MS,
-        ),
-      ),
-    ]);
-  } catch {
-    // Fail-safe: any SSH throw / timeout → null. Caller logs.
-    return null;
-  }
-
-  // Shell emits: the absolute path of the first matching file, or empty.
-  const trimmed = stdout.trim();
-  return trimmed.length > 0 ? trimmed : null;
-}
-
-/**
- * LOCAL-branch discovery. Same semantics as the SSH branch's `find |
- * sort -rn | while ...` shell script, but implemented in node fs against
- * the container's bind-mounted host `.claude/projects/` (see
- * getLocalClaudeProjectsRoot above).
- *
- * Semantics preserved from the shell version:
- *   - Enumerate `<root>/<projectDir>/*.jsonl` (one level deep — matches
- *     `find -maxdepth 2` in buildDiscoveryScript).
- *   - Order candidates mtime-descending (matches shell `sort -rn`).
- *   - Inspect only the first 4096 bytes of each file (matches `head -c 4096`).
- *   - Look at the first line containing `"role":"user"` (matches
- *     `grep -m 1 '"role":"user"'`).
- *   - Return the first path whose first-user-role line satisfies the
- *     __matchesIdentityFirstTurnForTests predicate; else null.
- *
- * Fail-safe: any throw at any stage → null (matches the SSH branch's
- * catch-all). Bounded by LOCAL_DISCOVERY_TIMEOUT_MS as a defense against
- * a pathological readdir; caller logs the null-return per Phase 32
- * invariant 5.
- */
-async function discoverIdentitySessionFileLocal(
-  identityName: string,
-): Promise<string | null> {
-  try {
-    return await Promise.race([
-      readLocalDiscovery(identityName),
-      new Promise<string | null>((_, reject) =>
-        setTimeout(
-          () =>
-            reject(
-              new Error(
-                `discoverIdentitySessionFile (local) timeout after ${DISCOVERY_EXEC_TIMEOUT_MS}ms`,
-              ),
-            ),
-          DISCOVERY_EXEC_TIMEOUT_MS,
-        ),
-      ),
-    ]);
-  } catch {
-    return null;
-  }
-}
-
-async function readLocalDiscovery(
-  identityName: string,
-): Promise<string | null> {
-  const root = getLocalClaudeProjectsRoot();
-  let projectEntries;
-  try {
-    projectEntries = await fsp.readdir(root, { withFileTypes: true });
-  } catch {
-    return null;
-  }
-
-  const candidates: { path: string; mtime: number }[] = [];
-  for (const entry of projectEntries) {
-    if (!entry.isDirectory()) continue;
-    const projectDir = path.join(root, entry.name);
-    let jsonlEntries;
-    try {
-      jsonlEntries = await fsp.readdir(projectDir, { withFileTypes: true });
-    } catch {
-      continue;
-    }
-    for (const j of jsonlEntries) {
-      if (!j.isFile()) continue;
-      if (!j.name.endsWith(".jsonl")) continue;
-      const full = path.join(projectDir, j.name);
-      try {
-        const st = await fsp.stat(full);
-        candidates.push({ path: full, mtime: st.mtimeMs });
-      } catch {
-        continue;
-      }
-    }
-  }
-  candidates.sort((a, b) => b.mtime - a.mtime);
-
-  for (const cand of candidates) {
-    const firstUserLine = await readFirstUserRoleLine(cand.path);
-    if (firstUserLine === null) continue;
-    if (__matchesIdentityFirstTurnForTests(firstUserLine, identityName)) {
-      // Translate container-perspective → host-perspective before returning;
-      // the caller writes this into the shared session-file cache and every
-      // downstream consumer of that cache is an SSH-exec consumer that needs
-      // the host-perspective shape. See toHostPerspectivePath JSDoc for the
-      // full failure mode.
-      return toHostPerspectivePath(cand.path);
-    }
-  }
-  return null;
-}
-
-/**
- * Mirror of the shell's `head -c 4096 | grep -m 1 '"role":"user"'` step.
- * Reads up to the first 4096 bytes of the file and returns the first line
- * containing `"role":"user"`, or null if none in that window.
- */
-async function readFirstUserRoleLine(filePath: string): Promise<string | null> {
-  let handle;
-  try {
-    handle = await fsp.open(filePath, "r");
-  } catch {
-    return null;
-  }
-  try {
-    const buf = Buffer.alloc(4096);
-    const { bytesRead } = await handle.read(buf, 0, 4096, 0);
-    if (bytesRead === 0) return null;
-    const chunk = buf.slice(0, bytesRead).toString("utf8");
-    for (const line of chunk.split("\n")) {
-      if (line.includes('"role":"user"')) return line;
-    }
-    return null;
-  } catch {
-    return null;
-  } finally {
-    try {
-      await handle.close();
-    } catch {
-      // ignore
-    }
-  }
+  return findAgentHistoryFile(conn, identityName);
 }

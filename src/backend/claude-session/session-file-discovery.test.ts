@@ -1,13 +1,12 @@
 import { describe, it, expect, vi, afterEach, beforeEach } from "vitest";
 import { discoverClaudeSession, discoverClaudeSessionBatched } from "./session-file-discovery.js";
 
-// Mock the tmux-helper module. queryPaneCurrentCommand is included in the factory
-// to satisfy the module contract even though the new code no longer calls it —
-// if a future refactor re-adds a call, the mock will capture it.
+// Mock the tmux-helper module so we can control what execCommand and
+// queryPanePid return without a real SSH connection. Both are mocked so
+// discoverClaudeSession can be driven without real tmux or SSH infrastructure.
 vi.mock("../ssh/tmux-helper.js", () => ({
   execCommand: vi.fn(),
   queryPanePid: vi.fn(),
-  queryPaneCurrentCommand: vi.fn(),
 }));
 
 import { execCommand, queryPanePid } from "../ssh/tmux-helper.js";
@@ -15,565 +14,252 @@ import { execCommand, queryPanePid } from "../ssh/tmux-helper.js";
 // Stub ssh2 Client — execCommand is mocked at module level so conn is never accessed.
 const fakeConn = {} as import("ssh2").Client;
 
-// Helper: build a mock execCommand implementation that dispatches based on the
-// script content to different outputs. Three dispatch keys:
-//
-//   "ps -eo"            → walk script (produces the claude PID string or "")
-//   ".claude/sessions/" → PID-file read script (produces JSON + delimiter + HOME, or "")
-//   'if [ -f "'         → JSONL existence test (produces the path string if found, or "")
-//
-// These substrings are unique across all three scripts and cannot collide with each
-// other (the walk script never mentions ".claude/sessions/"; the PID-file script
-// never mentions "ps -eo"; the test-f script never mentions ".claude/sessions/").
-//
-// walkOutput:     PID string the walk would emit ("102", "103", "200", or "")
-// pidFileOutput:  raw string the PID-file script would emit — caller is responsible
-//                 for constructing the "---HOME---" delimited format, or passing ""
-//                 to simulate a missing PID file (delimiter absent → no_pid_session_file).
-// jsonlTestOutput: string the test-f script would emit — either the constructed path
-//                  (file exists) or "" (file not found → no_open_session_file).
-function mockExecCommand(
-  walkOutput: string | (() => Promise<string>),
-  pidFileOutput: string,
-  jsonlTestOutput = "",
-) {
+// Discovery answers two questions separately:
+//   RUNNING — the terminal: pane_pid → descendant walk (`ps -eo`) for `claude`
+//   HISTORY — the agent's own history folder (agent-history-file.ts)
+// The mock dispatches on script content: the walk mentions `ps -eo`, the
+// history lookup mentions `fleet/identities`, the batched script mentions
+// `tmux display-message`.
+
+const HISTORY = "/home/ubuntu/.claude/projects/-home-ubuntu-fleet-identities-aqua-workspace/s1.jsonl";
+
+function idLine(name: string): string {
+  return JSON.stringify({
+    type: "user",
+    message: {
+      role: "user",
+      content: `<command-message>id</command-message>\n<command-name>/id</command-name>\n<command-args>${name}</command-args>`,
+    },
+  });
+}
+
+/** Records the agent-history script emits for one file. */
+function historyRecord(name: string, mtime: number, path: string, firstUserLine: string): string {
+  return `${name}\t${mtime}\t${path}\n${firstUserLine}\n---AGENT-HISTORY---\n`;
+}
+
+function mockUnbatched(walkOutput: string | (() => Promise<string>), historyStdout = "") {
   vi.mocked(execCommand).mockImplementation(
     (_conn: import("ssh2").Client, script: string): Promise<string> => {
       if (script.includes("ps -eo")) {
-        // Walk script — return the resolved claude PID (or "" if none found)
-        if (typeof walkOutput === "function") {
-          return walkOutput();
-        }
-        return Promise.resolve(walkOutput);
+        return typeof walkOutput === "function" ? walkOutput() : Promise.resolve(walkOutput);
       }
-      if (script.includes(".claude/sessions/")) {
-        // PID-file read script — return JSON blob + ---HOME--- + HOME value, or ""
-        return Promise.resolve(pidFileOutput);
-      }
-      if (script.includes('if [ -f "')) {
-        // JSONL existence test — return the path if found, "" if not
-        return Promise.resolve(jsonlTestOutput);
-      }
+      if (script.includes("fleet/identities")) return Promise.resolve(historyStdout);
       return Promise.resolve("");
     },
   );
 }
 
-// Build the delimited PID-file output string for happy-path mocks.
-// Format: <JSON>\n---HOME---\n<home>
-function makePidFileOutput(
-  sessionId: string,
-  cwd: string,
-  home: string,
-  extra?: Record<string, unknown>,
-): string {
-  const json = JSON.stringify({ sessionId, cwd, ...extra });
-  return `${json}\n---HOME---\n${home}`;
-}
-
-describe("discoverClaudeSession — PID-file-based lookup", () => {
+describe("discoverClaudeSession — terminal for running, agent folder for history", () => {
   afterEach(() => {
     vi.mocked(execCommand).mockReset();
     vi.mocked(queryPanePid).mockReset();
     vi.useRealTimers();
   });
 
-  // ── Preserved walk-step tests (Steps 1-4) ──────────────────────────────────
-
-  // Test 1: Kiro-style wrapper (the primary bug fix)
-  // pane_pid=100 (kiro-cli-term), pid=101 ppid=100 (bash), pid=102 ppid=101 (claude)
-  // Walk emits "102" (the awk output); PID-file lookup runs with PID=102.
-  it("CASE 1: kiro-cli-term wrapper — walks descendants and finds claude grandchild (pid 102)", async () => {
+  it("kiro-cli-term wrapper — walks descendants to the claude grandchild; history from the agent folder", async () => {
     vi.mocked(queryPanePid).mockResolvedValue(100);
-    const pidFileStr = makePidFileOutput(
-      "abc123",
-      "/home/ubuntu/project",
-      "/home/ubuntu",
-    );
-    mockExecCommand(
-      "102",
-      pidFileStr,
-      "/home/ubuntu/.claude/projects/-home-ubuntu-project/abc123.jsonl",
-    );
-
-    const result = await discoverClaudeSession(fakeConn, "test-session");
-
-    expect(result).toEqual({
+    mockUnbatched("102", historyRecord("aqua", 10, HISTORY, idLine("aqua")));
+    expect(await discoverClaudeSession(fakeConn, "aqua")).toEqual({
       status: "active",
       pid: 102,
-      sessionFile: "/home/ubuntu/.claude/projects/-home-ubuntu-project/abc123.jsonl",
+      sessionFile: HISTORY,
     });
   });
 
-  // Test 2: Deeper wrapper — 4-level chain: pane_pid=100 → shell=101 → wrapper=102 → claude=103
-  // Walk emits "103" (the awk output for the deepest claude descendant).
-  it("CASE 2: deeper wrapper (4-level chain) — walk returns deepest descendant claude pid (103)", async () => {
-    vi.mocked(queryPanePid).mockResolvedValue(100);
-    const pidFileStr = makePidFileOutput(
-      "deep-session",
-      "/home/ubuntu/project",
-      "/home/ubuntu",
-    );
-    mockExecCommand(
-      "103",
-      pidFileStr,
-      "/home/ubuntu/.claude/projects/-home-ubuntu-project/deep-session.jsonl",
-    );
-
-    const result = await discoverClaudeSession(fakeConn, "test-session");
-
-    expect(result).toEqual({
-      status: "active",
-      pid: 103,
-      sessionFile: "/home/ubuntu/.claude/projects/-home-ubuntu-project/deep-session.jsonl",
-    });
-  });
-
-  // Test 3: pane_pid IS claude directly (backcompat)
-  // Walk must include pane_pid itself as a valid candidate — no `pid[i] != root` guard.
-  // Walk emits "200" (pane_pid itself, which has comm=claude).
-  it("CASE 3: pane_pid is claude directly (backcompat) — walk returns pane_pid itself (200)", async () => {
+  it("pane_pid is claude directly (backcompat)", async () => {
     vi.mocked(queryPanePid).mockResolvedValue(200);
-    const pidFileStr = makePidFileOutput(
-      "direct-session",
-      "/home/ubuntu/direct",
-      "/home/ubuntu",
-    );
-    mockExecCommand(
-      "200",
-      pidFileStr,
-      "/home/ubuntu/.claude/projects/-home-ubuntu-direct/direct-session.jsonl",
-    );
-
-    const result = await discoverClaudeSession(fakeConn, "test-session");
-
-    expect(result).toEqual({
-      status: "active",
-      pid: 200,
-      sessionFile: "/home/ubuntu/.claude/projects/-home-ubuntu-direct/direct-session.jsonl",
-    });
+    mockUnbatched("200", historyRecord("aqua", 10, HISTORY, idLine("aqua")));
+    const r = await discoverClaudeSession(fakeConn, "aqua");
+    expect(r).toMatchObject({ status: "active", pid: 200 });
   });
 
-  // Test 4: No claude anywhere in the descendant tree → not_claude
-  // Walk emits "" (empty output from awk — no pid with comm=claude found).
-  it("CASE 4: no claude in pane_pid descendant tree — returns inactive/not_claude", async () => {
+  it("never reads Claude's per-process session file", async () => {
+    vi.mocked(queryPanePid).mockResolvedValue(100);
+    mockUnbatched("102", historyRecord("aqua", 10, HISTORY, idLine("aqua")));
+    await discoverClaudeSession(fakeConn, "aqua");
+    for (const [, script] of vi.mocked(execCommand).mock.calls) {
+      expect(script).not.toContain(".claude/sessions/");
+    }
+  });
+
+  it("newest /id file wins; a newer bare session in the folder is skipped", async () => {
+    vi.mocked(queryPanePid).mockResolvedValue(100);
+    const older = HISTORY.replace("s1", "old");
+    const bare = HISTORY.replace("s1", "bare");
+    mockUnbatched(
+      "102",
+      historyRecord("aqua", 30, bare, JSON.stringify({ type: "user", message: { role: "user", content: "hi" } })) +
+        historyRecord("aqua", 20, HISTORY, idLine("aqua")) +
+        historyRecord("aqua", 10, older, idLine("aqua")),
+    );
+    expect(await discoverClaudeSession(fakeConn, "aqua")).toMatchObject({ sessionFile: HISTORY });
+  });
+
+  it("no claude in the pane — inactive/not_claude, history not looked up", async () => {
     vi.mocked(queryPanePid).mockResolvedValue(300);
-    mockExecCommand("", "", "");
-
-    const result = await discoverClaudeSession(fakeConn, "test-session");
-
-    expect(result).toEqual({ status: "inactive", reason: "not_claude" });
+    mockUnbatched("");
+    expect(await discoverClaudeSession(fakeConn, "aqua")).toEqual({ status: "inactive", reason: "not_claude" });
+    expect(vi.mocked(execCommand)).toHaveBeenCalledTimes(1);
   });
 
-  // Test 5: No tmux session — queryPanePid returns null → no_tmux_session, walk must NOT run
-  it("CASE 5: queryPanePid returns null — returns inactive/no_tmux_session without running walk", async () => {
-    vi.mocked(queryPanePid).mockResolvedValue(null);
-    // execCommand should never be called in this case
-    vi.mocked(execCommand).mockImplementation(() => {
-      throw new Error("execCommand must not be called when pane_pid is null");
+  it("claude running but no history yet (launch window) — inactive/no_open_session_file", async () => {
+    vi.mocked(queryPanePid).mockResolvedValue(100);
+    mockUnbatched("102", "");
+    expect(await discoverClaudeSession(fakeConn, "aqua")).toEqual({
+      status: "inactive",
+      reason: "no_open_session_file",
     });
-
-    const result = await discoverClaudeSession(fakeConn, "test-session");
-
-    expect(result).toEqual({ status: "inactive", reason: "no_tmux_session" });
-    expect(vi.mocked(execCommand)).not.toHaveBeenCalled();
   });
 
-  // Test 6: Walk exec timeout → exec_error
-  it("CASE 6: walk exec times out — returns inactive/exec_error", async () => {
+  it("knownHistoryFile — answers only 'is it running', no history lookup", async () => {
+    vi.mocked(queryPanePid).mockResolvedValue(100);
+    mockUnbatched("102");
+    expect(await discoverClaudeSession(fakeConn, "aqua", { knownHistoryFile: HISTORY })).toEqual({
+      status: "active",
+      pid: 102,
+      sessionFile: HISTORY,
+    });
+    for (const [, script] of vi.mocked(execCommand).mock.calls) {
+      expect(script).not.toContain("fleet/identities");
+    }
+  });
+
+  it("knownHistoryFile does not mask a stopped claude", async () => {
+    vi.mocked(queryPanePid).mockResolvedValue(100);
+    mockUnbatched("");
+    expect(await discoverClaudeSession(fakeConn, "aqua", { knownHistoryFile: HISTORY })).toEqual({
+      status: "inactive",
+      reason: "not_claude",
+    });
+  });
+
+  it("history lookup exec rejects — inactive/exec_error", async () => {
+    vi.mocked(queryPanePid).mockResolvedValue(100);
+    vi.mocked(execCommand).mockImplementation((_c, script: string) =>
+      script.includes("ps -eo") ? Promise.resolve("102") : Promise.reject(new Error("channel closed")),
+    );
+    expect(await discoverClaudeSession(fakeConn, "aqua")).toEqual({ status: "inactive", reason: "exec_error" });
+  });
+
+  it("walk exec times out — inactive/exec_error", async () => {
     vi.useFakeTimers();
     vi.mocked(queryPanePid).mockResolvedValue(400);
-    // Walk script never resolves
-    vi.mocked(execCommand).mockImplementation(
-      (_conn: import("ssh2").Client, script: string): Promise<string> => {
-        if (script.includes("ps -eo")) {
-          return new Promise(() => {}); // never resolves
-        }
-        return Promise.resolve("");
-      },
-    );
-
-    // Start the discovery (do not await yet — need to advance timers)
-    const resultPromise = discoverClaudeSession(fakeConn, "test-session");
-
-    // Advance past the 15000ms DISCOVERY_EXEC_TIMEOUT_MS (was 3000ms pre-2026-09-02
-    // bump — see the constant's comment for the semaphore-backpressure rationale).
+    mockUnbatched(() => new Promise(() => {}));
+    const p = discoverClaudeSession(fakeConn, "aqua");
     await vi.advanceTimersByTimeAsync(15100);
-
-    const result = await resultPromise;
-    expect(result).toEqual({ status: "inactive", reason: "exec_error" });
+    expect(await p).toEqual({ status: "inactive", reason: "exec_error" });
   });
 
-  // ── New Step 5 tests (PID-file-based flow) ─────────────────────────────────
-
-  // Test 7 (Test G): Happy path with explicit slug-transform assertion.
-  // cwd="/home/ubuntu/proj", HOME="/home/ubuntu", sessionId="abc-def"
-  // → slug = "-home-ubuntu-proj" (every / and . replaced by -)
-  // → JSONL path = /home/ubuntu/.claude/projects/-home-ubuntu-proj/abc-def.jsonl
-  it("CASE 7: happy path — PID-file valid, sessionId resolved, JSONL found (slug-transform asserted)", async () => {
-    vi.mocked(queryPanePid).mockResolvedValue(500);
-    const cwd = "/home/ubuntu/proj";
-    const home = "/home/ubuntu";
-    const sessionId = "abc-def";
-    // slug: replace every / and . with - → "-home-ubuntu-proj"
-    const expectedSessionFile = `${home}/.claude/projects/-home-ubuntu-proj/${sessionId}.jsonl`;
-    const pidFileStr = makePidFileOutput(sessionId, cwd, home);
-    mockExecCommand("500", pidFileStr, expectedSessionFile);
-
-    const result = await discoverClaudeSession(fakeConn, "test-session");
-
-    expect(result).toEqual({
-      status: "active",
-      pid: 500,
-      sessionFile: expectedSessionFile,
-    });
-  });
-
-  // Test 7b: slug escapes `~` in addition to `/` and `.` — Claude Code's own
-  // project-dir naming escapes tilde too, so any cwd containing a tilde
-  // (e.g. a malformed birth cwd like `/home/ubuntu/~home-design`) diverges
-  // if we don't. Regression test for Stacy's 2026-08-08 T800 finding.
-  it("CASE 7b: cwd containing ~ — slug escapes tilde to match Claude Code's project-dir naming", async () => {
-    vi.mocked(queryPanePid).mockResolvedValue(500);
-    const cwd = "/home/ubuntu/~home-design";
-    const home = "/home/ubuntu";
-    const sessionId = "abc-def";
-    // slug: replace every /, ., AND ~ with - → "-home-ubuntu--home-design"
-    const expectedSessionFile = `${home}/.claude/projects/-home-ubuntu--home-design/${sessionId}.jsonl`;
-    const pidFileStr = makePidFileOutput(sessionId, cwd, home);
-    mockExecCommand("500", pidFileStr, expectedSessionFile);
-
-    const result = await discoverClaudeSession(fakeConn, "test-session");
-
-    expect(result).toEqual({
-      status: "active",
-      pid: 500,
-      sessionFile: expectedSessionFile,
-    });
-  });
-
-  // Test 8 (Test H): PID-file missing — script exits early, no delimiter in output
-  // → no_pid_session_file
-  it("CASE 8: PID-file missing (no delimiter in output) — returns inactive/no_pid_session_file", async () => {
-    vi.mocked(queryPanePid).mockResolvedValue(501);
-    // PID-file script returns empty string (file not found, exit 10 path)
-    mockExecCommand("501", "", "");
-
-    const result = await discoverClaudeSession(fakeConn, "test-session");
-
-    expect(result).toEqual({ status: "inactive", reason: "no_pid_session_file" });
-  });
-
-  // Test 9 (Test I): PID-file returns malformed JSON (not parseable)
-  // → no_pid_session_file
-  it("CASE 9: PID-file contains malformed JSON — returns inactive/no_pid_session_file", async () => {
-    vi.mocked(queryPanePid).mockResolvedValue(502);
-    // Delimiter present but JSON part is not valid JSON
-    const malformedOutput = "this is not json\n---HOME---\n/home/ubuntu";
-    mockExecCommand("502", malformedOutput, "");
-
-    const result = await discoverClaudeSession(fakeConn, "test-session");
-
-    expect(result).toEqual({ status: "inactive", reason: "no_pid_session_file" });
-  });
-
-  // Test 10 (Test J): PID-file returns valid JSON but missing sessionId field
-  // → no_pid_session_file
-  it("CASE 10: PID-file missing sessionId field — returns inactive/no_pid_session_file", async () => {
-    vi.mocked(queryPanePid).mockResolvedValue(503);
-    // Valid JSON but no sessionId key
-    const noSessionIdOutput = `{"cwd":"/home/ubuntu/proj","someOtherField":"value"}\n---HOME---\n/home/ubuntu`;
-    mockExecCommand("503", noSessionIdOutput, "");
-
-    const result = await discoverClaudeSession(fakeConn, "test-session");
-
-    expect(result).toEqual({ status: "inactive", reason: "no_pid_session_file" });
-  });
-
-  // Test 11 (Test K): PID-file valid, sessionId resolved, but JSONL not on disk
-  // → no_open_session_file
-  it("CASE 11: sessionId resolved but JSONL not on disk — returns inactive/no_open_session_file", async () => {
-    vi.mocked(queryPanePid).mockResolvedValue(504);
-    const pidFileStr = makePidFileOutput(
-      "orphan-session",
-      "/home/ubuntu/proj",
-      "/home/ubuntu",
-    );
-    // test-f returns "" → JSONL not found
-    mockExecCommand("504", pidFileStr, "");
-
-    const result = await discoverClaudeSession(fakeConn, "test-session");
-
-    expect(result).toEqual({ status: "inactive", reason: "no_open_session_file" });
-  });
-
-  // Test 12 (Test L, rewrite of old Case 7): PID-file exec rejects (SSH channel error)
-  // → exec_error
-  it("CASE 12: PID-file exec rejects (SSH channel error) — returns inactive/exec_error", async () => {
-    vi.mocked(queryPanePid).mockResolvedValue(100);
-    vi.mocked(execCommand).mockImplementation(
-      (_conn: import("ssh2").Client, script: string): Promise<string> => {
-        if (script.includes("ps -eo")) {
-          // Walk emits "102" — walk succeeds
-          return Promise.resolve("102");
-        }
-        if (script.includes(".claude/sessions/")) {
-          // PID-file read rejects with SSH error
-          return Promise.reject(new Error("SSH exec channel error"));
-        }
-        return Promise.resolve("");
-      },
-    );
-
-    const result = await discoverClaudeSession(fakeConn, "test-session");
-
-    expect(result).toEqual({ status: "inactive", reason: "exec_error" });
-  });
-
-  // ── Fix A (2026-07-30): queryPanePid rethrow contract ────────────────────
-  //
-  // These two tests verify the two-case contract introduced by Fix A:
-  //   - THROWS on SSH-side failure → discoverClaudeSession returns exec_error
-  //     (not no_tmux_session — the previous incorrect behavior)
-  //   - Returns null on unparseable output → discoverClaudeSession returns
-  //     no_tmux_session (existing behavior, unchanged)
-  //
-  // The mock shape mirrors the file's existing queryPanePid mock approach
-  // (vi.mocked(queryPanePid).mockRejectedValue / mockResolvedValue).
-
-  // Test 13 (Fix A): queryPanePid throws (SSH-side failure) — execCommand
-  // would have thrown inside queryPanePid; the rethrow propagates to
-  // discoverClaudeSession which catches it and returns exec_error.
-  // Previously, queryPanePid swallowed this and returned null, causing
-  // discoverClaudeSession to return no_tmux_session — misclassifying a
-  // transient SSH failure as a real-inactive signal, which armed the overlay.
-  it("CASE 13 (Fix A): queryPanePid throws (SSH-side failure) — returns inactive/exec_error, NOT no_tmux_session", async () => {
-    // queryPanePid now rethrows on SSH failure; simulate that here.
-    vi.mocked(queryPanePid).mockRejectedValue(
-      new Error("SSH exec channel error — simulated transient failure"),
-    );
-    // execCommand must NOT be called — the throw happens inside queryPanePid
-    // before any walk script runs. If execCommand IS called, the test's
-    // mockImplementation will return "" and the result would be not_claude,
-    // which would fail the assertion below and indicate a regression.
+  it("queryPanePid throws (SSH failure) — exec_error, NOT no_tmux_session", async () => {
+    vi.mocked(queryPanePid).mockRejectedValue(new Error("SSH exec channel error"));
     vi.mocked(execCommand).mockImplementation(() => {
       throw new Error("execCommand must not be called when queryPanePid throws");
     });
-
-    const result = await discoverClaudeSession(fakeConn, "test-session");
-
-    expect(result).toEqual({ status: "inactive", reason: "exec_error" });
+    expect(await discoverClaudeSession(fakeConn, "aqua")).toEqual({ status: "inactive", reason: "exec_error" });
     expect(vi.mocked(execCommand)).not.toHaveBeenCalled();
   });
 
-  // Test 14 (Fix A): queryPanePid returns null (unparseable pane_pid output
-  // — execCommand succeeded but parseInt returned NaN/≤0). This preserves the
-  // existing behavior contract: null → no_tmux_session (NOT exec_error).
-  it("CASE 14 (Fix A): queryPanePid returns null (unparseable pane_pid) — returns inactive/no_tmux_session (existing contract preserved)", async () => {
-    // queryPanePid returns null when execCommand resolves but the output is
-    // non-integer (e.g. empty string or garbage). This is the "resolved but
-    // unparseable" case — distinct from the SSH-throw case above.
+  it("queryPanePid returns null — no_tmux_session", async () => {
     vi.mocked(queryPanePid).mockResolvedValue(null);
     vi.mocked(execCommand).mockImplementation(() => {
       throw new Error("execCommand must not be called when queryPanePid returns null");
     });
-
-    const result = await discoverClaudeSession(fakeConn, "test-session");
-
-    expect(result).toEqual({ status: "inactive", reason: "no_tmux_session" });
-    expect(vi.mocked(execCommand)).not.toHaveBeenCalled();
+    expect(await discoverClaudeSession(fakeConn, "aqua")).toEqual({ status: "inactive", reason: "no_tmux_session" });
   });
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Phase 55 Plan 03 — Task 1: discoverClaudeSessionBatched tests
+// discoverClaudeSessionBatched — terminal check + history lookup in ONE exec
 // ─────────────────────────────────────────────────────────────────────────────
 
-// Helper to build mock execCommand dispatcher for the batched helper.
-// The batched helper calls execCommand TWICE:
-//   1. Main batched script — identified by containing BOTH "tmux display-message"
-//      AND "ps --sid" AND "---SESSION-JSON---" (2026-09-25: `ps --sid` marker
-//      replaces the pre-inversion `awk -v root=` marker after the process-walk
-//      rewrite that dropped the full-box `ps -eo | awk BFS`)
-//   2. Test-f script — identified by containing `'if [ -f "' and not the batched markers
-//
-// On each call, the mock returns the value for the call index.
-function mockBatchedExecCommand(mainOutput: string | (() => Promise<string>), testFOutput: string) {
+const MARK = "---AGENT-HISTORY-LOOKUP---";
+
+function mockBatched(output: string | (() => Promise<string>)) {
   vi.mocked(execCommand).mockImplementation(
     (_conn: import("ssh2").Client, script: string): Promise<string> => {
-      const isMainScript =
-        script.includes("tmux display-message") &&
-        script.includes("ps --sid") &&
-        script.includes("---SESSION-JSON---");
-      const isTestFScript = script.includes('if [ -f "') && !isMainScript;
-
-      if (isMainScript) {
-        if (typeof mainOutput === "function") return mainOutput();
-        return Promise.resolve(mainOutput);
+      if (!script.includes("tmux display-message")) {
+        return Promise.reject(new Error(`unexpected second exec: ${script.slice(0, 60)}`));
       }
-      if (isTestFScript) {
-        return Promise.resolve(testFOutput);
-      }
-      return Promise.resolve("");
+      return typeof output === "function" ? output() : Promise.resolve(output);
     },
   );
 }
 
 describe("discoverClaudeSessionBatched — single-exec discovery", () => {
-  beforeEach(() => {
+  afterEach(() => {
     vi.mocked(execCommand).mockReset();
     vi.useRealTimers();
   });
 
-  // Test batched-1: happy path — full 4-step success in one exec
-  it("batched-1: happy path — full 4-step success in one exec", async () => {
-    mockBatchedExecCommand(
-      "OK\n12345\n/home/ubuntu\n---SESSION-JSON---\n{\"sessionId\":\"abc123\",\"cwd\":\"/home/ubuntu/project\"}",
-      "/home/ubuntu/.claude/projects/-home-ubuntu-project/abc123.jsonl",
-    );
-
-    const result = await discoverClaudeSessionBatched(fakeConn, "test-session");
-
-    expect(result).toEqual({
+  it("happy path — one exec answers running AND history", async () => {
+    mockBatched(`OK\n12345\n${MARK}\n` + historyRecord("aqua", 10, HISTORY, idLine("aqua")));
+    expect(await discoverClaudeSessionBatched(fakeConn, "aqua")).toEqual({
       status: "active",
       pid: 12345,
-      sessionFile: "/home/ubuntu/.claude/projects/-home-ubuntu-project/abc123.jsonl",
+      sessionFile: HISTORY,
     });
-    expect(vi.mocked(execCommand).mock.calls.length).toBe(2);
+    expect(vi.mocked(execCommand)).toHaveBeenCalledTimes(1);
+    const script = vi.mocked(execCommand).mock.calls[0][1] as string;
+    expect(script).toContain("ps --sid");
+    expect(script).toContain("fleet/identities");
+    expect(script).not.toContain(".claude/sessions/");
   });
 
-  // Test batched-2: no pane_pid → no_tmux_session
-  it("batched-2: no pane_pid → no_tmux_session (exec called once)", async () => {
-    mockBatchedExecCommand("NO_TMUX_SESSION", "");
-
-    const result = await discoverClaudeSessionBatched(fakeConn, "test-session");
-
-    expect(result).toEqual({ status: "inactive", reason: "no_tmux_session" });
-    expect(vi.mocked(execCommand).mock.calls.length).toBe(1);
+  it("no pane → no_tmux_session", async () => {
+    mockBatched("NO_TMUX_SESSION\n");
+    expect(await discoverClaudeSessionBatched(fakeConn, "aqua")).toEqual({ status: "inactive", reason: "no_tmux_session" });
   });
 
-  // Test batched-3: pane_pid found but no claude in tree → not_claude
-  it("batched-3: pane_pid found but no claude in tree → not_claude (exec called once)", async () => {
-    mockBatchedExecCommand("NOT_CLAUDE", "");
-
-    const result = await discoverClaudeSessionBatched(fakeConn, "test-session");
-
-    expect(result).toEqual({ status: "inactive", reason: "not_claude" });
-    expect(vi.mocked(execCommand).mock.calls.length).toBe(1);
+  it("no claude → not_claude", async () => {
+    mockBatched("NOT_CLAUDE\n");
+    expect(await discoverClaudeSessionBatched(fakeConn, "aqua")).toEqual({ status: "inactive", reason: "not_claude" });
   });
 
-  // Test batched-4: claude found but PID file missing → no_pid_session_file
-  it("batched-4: claude found but PID file missing → no_pid_session_file (exec called once)", async () => {
-    mockBatchedExecCommand("NO_PID_SESSION_FILE", "");
-
-    const result = await discoverClaudeSessionBatched(fakeConn, "test-session");
-
-    expect(result).toEqual({ status: "inactive", reason: "no_pid_session_file" });
-    expect(vi.mocked(execCommand).mock.calls.length).toBe(1);
+  it("claude running, no /id history yet → no_open_session_file", async () => {
+    mockBatched(`OK\n12345\n${MARK}\n`);
+    expect(await discoverClaudeSessionBatched(fakeConn, "aqua")).toEqual({
+      status: "inactive",
+      reason: "no_open_session_file",
+    });
   });
 
-  // Test batched-5: PID JSON malformed → no_pid_session_file
-  it("batched-5: PID JSON malformed → no_pid_session_file (exec called once)", async () => {
-    mockBatchedExecCommand(
-      "OK\n12345\n/home/ubuntu\n---SESSION-JSON---\n{not json",
-      "",
-    );
-
-    const result = await discoverClaudeSessionBatched(fakeConn, "test-session");
-
-    expect(result).toEqual({ status: "inactive", reason: "no_pid_session_file" });
-    expect(vi.mocked(execCommand).mock.calls.length).toBe(1);
+  it("another agent's /id in this folder doesn't count", async () => {
+    mockBatched(`OK\n12345\n${MARK}\n` + historyRecord("aqua", 10, HISTORY, idLine("wilma")));
+    expect(await discoverClaudeSessionBatched(fakeConn, "aqua")).toMatchObject({ reason: "no_open_session_file" });
   });
 
-  // Test batched-6: PID JSON missing sessionId → no_pid_session_file
-  it("batched-6: PID JSON missing sessionId → no_pid_session_file", async () => {
-    mockBatchedExecCommand(
-      "OK\n12345\n/home/ubuntu\n---SESSION-JSON---\n{\"cwd\":\"/x\"}",
-      "",
-    );
-
-    const result = await discoverClaudeSessionBatched(fakeConn, "test-session");
-
-    expect(result).toEqual({ status: "inactive", reason: "no_pid_session_file" });
+  it("knownHistoryFile — skips the lookup, returns it", async () => {
+    mockBatched(`OK\n12345\n${MARK}\n`);
+    expect(await discoverClaudeSessionBatched(fakeConn, "aqua", { knownHistoryFile: HISTORY })).toEqual({
+      status: "active",
+      pid: 12345,
+      sessionFile: HISTORY,
+    });
+    expect(vi.mocked(execCommand).mock.calls[0][1]).not.toContain("fleet/identities");
   });
 
-  // Test batched-7: JSONL not on disk → no_open_session_file (exec called twice)
-  it("batched-7: JSONL not on disk → no_open_session_file (exec called twice)", async () => {
-    mockBatchedExecCommand(
-      "OK\n12345\n/home/ubuntu\n---SESSION-JSON---\n{\"sessionId\":\"abc123\",\"cwd\":\"/home/ubuntu/project\"}",
-      "",
-    );
-
-    const result = await discoverClaudeSessionBatched(fakeConn, "test-session");
-
-    expect(result).toEqual({ status: "inactive", reason: "no_open_session_file" });
-    expect(vi.mocked(execCommand).mock.calls.length).toBe(2);
+  it("garbled output → exec_error", async () => {
+    mockBatched("OK\nnot-a-pid");
+    expect(await discoverClaudeSessionBatched(fakeConn, "aqua")).toEqual({ status: "inactive", reason: "exec_error" });
   });
 
-  // Test batched-8: main exec throws → exec_error
-  it("batched-8: main exec throws → exec_error", async () => {
+  it("exec throws → exec_error", async () => {
     vi.mocked(execCommand).mockRejectedValue(new Error("ssh gone"));
-
-    const result = await discoverClaudeSessionBatched(fakeConn, "test-session");
-
-    expect(result).toEqual({ status: "inactive", reason: "exec_error" });
+    expect(await discoverClaudeSessionBatched(fakeConn, "aqua")).toEqual({ status: "inactive", reason: "exec_error" });
   });
 
-  // Test batched-9: test-f exec throws → exec_error
-  it("batched-9: test-f exec throws → exec_error", async () => {
-    let callCount = 0;
-    vi.mocked(execCommand).mockImplementation(
-      (_conn: import("ssh2").Client, script: string): Promise<string> => {
-        callCount++;
-        const isMainScript =
-          script.includes("tmux display-message") &&
-          script.includes("ps --sid") &&
-          script.includes("---SESSION-JSON---");
-        if (isMainScript) {
-          return Promise.resolve(
-            "OK\n12345\n/home/ubuntu\n---SESSION-JSON---\n{\"sessionId\":\"abc123\",\"cwd\":\"/home/ubuntu/project\"}",
-          );
-        }
-        // test-f script rejects
-        return Promise.reject(new Error("ssh exec failed on test-f"));
-      },
-    );
-
-    const result = await discoverClaudeSessionBatched(fakeConn, "test-session");
-
-    expect(result).toEqual({ status: "inactive", reason: "exec_error" });
-  });
-
-  // Test batched-10: main exec times out on every retry attempt → exec_error.
-  // Post-2026-09-25 retry ladder: 3 × 5s attempts + 2 × 250ms backoff = 15.5s
-  // worst case (was single 15s attempt pre-retry). Same 15s budget, split so
-  // a first-attempt SSH-channel-contention loser gets 2 more chances.
-  it("batched-10: main exec times out on every attempt → exec_error", async () => {
+  it("times out on every attempt → exec_error", async () => {
     vi.useFakeTimers();
-    vi.mocked(execCommand).mockImplementation(
-      (_conn: import("ssh2").Client, script: string): Promise<string> => {
-        const isMainScript =
-          script.includes("tmux display-message") &&
-          script.includes("ps --sid") &&
-          script.includes("---SESSION-JSON---");
-        if (isMainScript) {
-          return new Promise(() => {}); // never resolves
-        }
-        return Promise.resolve("");
-      },
-    );
-
-    const resultPromise = discoverClaudeSessionBatched(fakeConn, "test-session");
-    // Advance past 3 × 5000ms attempts + 2 × 250ms backoff = 15500ms.
+    mockBatched(() => new Promise(() => {}));
+    const p = discoverClaudeSessionBatched(fakeConn, "aqua");
     await vi.advanceTimersByTimeAsync(16000);
-
-    const result = await resultPromise;
-    expect(result).toEqual({ status: "inactive", reason: "exec_error" });
+    expect(await p).toEqual({ status: "inactive", reason: "exec_error" });
   });
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Phase 55 Plan 03 — Task 2: connectToPane cache-hit vs batched-fresh integration
+// connectToPane cache-hit vs batched-fresh
 // ─────────────────────────────────────────────────────────────────────────────
 
 import {
@@ -589,82 +275,19 @@ describe("Phase 55: connectToPane cache-hit vs batched-fresh integration", () =>
     __clearAllSessionFileCacheForTests();
   });
 
-  // Test integration-1: cache-hit skips discovery entirely
-  // Proves the cache primitive contract the shim depends on:
-  // - cross-type coercion (string writer, number reader) resolves the same entry
-  // - a cache hit means discoverClaudeSessionBatched would NOT be invoked
-  it("integration-1: cache-hit — cross-type coercion, both string and number hostId resolve same entry", () => {
-    __clearAllSessionFileCacheForTests();
+  it("cache-hit — cross-type coercion, both string and number hostId resolve same entry", () => {
     writeSessionFileCache("7", "aqua", { sessionFile: "/x/a.jsonl", pid: 42 });
-
-    // String key used by writer
-    const hitStr = readSessionFileCache("7", "aqua");
-    expect(hitStr).not.toBeNull();
-    expect(hitStr?.pid).toBe(42);
-    expect(hitStr?.sessionFile).toBe("/x/a.jsonl");
-
-    // Numeric key used by connectToPane reader (coerced via String() internally)
-    const hitNum = readSessionFileCache(7, "aqua");
-    expect(hitNum).not.toBeNull();
-    expect(hitNum?.pid).toBe(42);
-    expect(hitNum?.sessionFile).toBe("/x/a.jsonl");
-
-    // Proves the shim's cache-hit branch: if cached !== null, discoverClaudeSessionBatched
-    // is NOT called. Verify execCommand was never called during these reads.
+    expect(readSessionFileCache("7", "aqua")).toMatchObject({ pid: 42, sessionFile: "/x/a.jsonl" });
+    expect(readSessionFileCache(7, "aqua")).toMatchObject({ pid: 42, sessionFile: "/x/a.jsonl" });
     expect(vi.mocked(execCommand)).not.toHaveBeenCalled();
   });
 
-  // Test integration-2: batched-fresh path is what the shim calls on miss
-  // Anchors the shim's cache-miss branch to a batched call that returns active.
-  it("integration-2: batched-fresh path — discoverClaudeSessionBatched resolves active on well-formed data", async () => {
-    mockBatchedExecCommand(
-      "OK\n42\n/home/x\n---SESSION-JSON---\n{\"sessionId\":\"s1\",\"cwd\":\"/home/x/proj\"}",
-      "/home/x/.claude/projects/-home-x-proj/s1.jsonl",
-    );
-
-    const result = await discoverClaudeSessionBatched(fakeConn, "aqua");
-
-    expect(result.status).toBe("active");
-    expect((result as { status: "active"; pid: number; sessionFile: string }).pid).toBe(42);
-  });
-
-  // Test integration-3: cache-miss falls straight through with no wait / no fleet-status coupling
-  // Direct behavioral test of CONTEXT.md § "What would make it wrong":
-  //   "Attach never blocks pending fleet-status work (or explicit test that empty cache
-  //    falls straight through without wait)."
-  it("integration-3: cache-miss — different key does not satisfy read; falls through to batched immediately", async () => {
-    __clearAllSessionFileCacheForTests();
-    // Write under a DIFFERENT key — should NOT satisfy readSessionFileCache(7, "aqua")
+  it("cache-miss — falls straight through to the batched discovery", async () => {
     writeSessionFileCache("999", "some-other-identity", { sessionFile: "/x/other.jsonl", pid: 999 });
-
-    // Verify the different-key write does NOT satisfy the read for (7, "aqua")
-    const miss = readSessionFileCache(7, "aqua");
-    expect(miss).toBeNull();
-
-    // On cache-miss, the shim immediately calls discoverClaudeSessionBatched —
-    // no await on fleet-status, no timer/interval, no polling.
-    // Wire execCommand to record its first argument and return the OK payload.
-    mockBatchedExecCommand(
-      "OK\n42\n/home/x\n---SESSION-JSON---\n{\"sessionId\":\"s1\",\"cwd\":\"/home/x/proj\"}",
-      "/home/x/.claude/projects/-home-x-proj/s1.jsonl",
-    );
-
-    // Call discoverClaudeSessionBatched synchronously (no pre-await on fleet-status)
+    expect(readSessionFileCache(7, "aqua")).toBeNull();
+    mockBatched(`OK\n42\n${MARK}\n` + historyRecord("aqua", 10, HISTORY, idLine("aqua")));
     const result = await discoverClaudeSessionBatched(fakeConn, "aqua");
-
-    // Assert execCommand was called (proves the batched-fresh path fires)
     expect(vi.mocked(execCommand)).toHaveBeenCalled();
-    // The first call arg should contain the batched script markers
-    const firstCallArg = vi.mocked(execCommand).mock.calls[0][1] as string;
-    expect(firstCallArg).toContain("tmux display-message");
-    expect(firstCallArg).toContain("ps --sid");
-    expect(firstCallArg).toContain("---SESSION-JSON---");
-
-    // Result is active — the cache-miss path succeeded via batched discovery
-    expect(result.status).toBe("active");
-
-    // The path: "batched-fresh" log is NOT tested here (it lives in claude-session-server.ts),
-    // but the discriminator is: readSessionFileCache returned null → discoverClaudeSessionBatched
-    // was called → result is the batched function's return value.
+    expect(result).toEqual({ status: "active", pid: 42, sessionFile: HISTORY });
   });
 });

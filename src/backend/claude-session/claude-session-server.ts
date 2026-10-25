@@ -5415,7 +5415,10 @@ wss.on("connection", async (ws: WebSocket, req) => {
       if (discoveryRepollInFlight) return;
       discoveryRepollInFlight = true;
       const connSnapshot = sshConn;
-      discoverClaudeSession(connSnapshot, activeTmuxSession)
+      // History doesn't move once found (one file for life): pass the file
+      // we're showing so the tick only checks whether Claude is running. A
+      // pane still waiting for its first history file (newborn) looks it up.
+      discoverClaudeSession(connSnapshot, activeTmuxSession, { knownHistoryFile: currentSessionFile })
         .then((result) => {
           if (stopped || ws.readyState !== WebSocket.OPEN) return;
           if (changeoverState === "dead") return; // idempotent guard
@@ -5616,6 +5619,9 @@ wss.on("connection", async (ws: WebSocket, req) => {
     // when omitted (fresh connectToPane + shared-hit cached path). The
     // dormant→wake handoff caller at L~7208 passes "dormant-handoff".
     startReason?: "initial" | "dormant-handoff" | "transition";
+    // Wake handoff onto the file the dormant tail is already streaming: keep
+    // that tail instead of replaying the history from line 1.
+    keepExistingTail?: boolean;
   }) => Promise<void> | void = () => { /* noop until assigned by connectToPane */ };
 
   ws.on("message", async (raw: RawData) => {
@@ -6604,11 +6610,12 @@ wss.on("connection", async (ws: WebSocket, req) => {
     // backgroundedShellsLastSerialized, changeoverState, currentSessionFile,
     // sessionIdFromFile, holdingTicks, discoveryRepollInFlight,
     // currentHostId, currentTmuxSession, stopped.
-    startActiveSessionFlow = async ({ pid, sessionFile, tmuxSession: activeTmuxSession, hostId: activeHostId, startReason }: {
+    startActiveSessionFlow = async ({ pid, sessionFile, tmuxSession: activeTmuxSession, hostId: activeHostId, startReason, keepExistingTail }: {
       pid: number;
       sessionFile: string;
       tmuxSession: string;
       hostId: number;
+      keepExistingTail?: boolean;
       // Phase 62 Wave 2 (D-62-04) — see forward-decl above.
       startReason?: "initial" | "dormant-handoff" | "transition";
     }) => {
@@ -6676,6 +6683,10 @@ wss.on("connection", async (ws: WebSocket, req) => {
     // any) has already been emitted in the paired action=stop log at either
     // the dormant-handoff site (~L7193) or the connection-teardown site
     // (~L3518-3525). Fresh 8-char lowercase hex (4 random bytes).
+    // A wake handoff that keeps the dormant tail starts no new tail, so it
+    // keeps the id and logs action=keep at the tail-open site instead.
+    const keepingTail = keepExistingTail === true && tailHandle !== null;
+    if (!keepingTail) {
     tailInstanceId = randomBytes(4).toString("hex");
     sshLogger.info("Starting Claude session tail", {
       operation: "claude_session_tail_start",
@@ -6700,6 +6711,7 @@ wss.on("connection", async (ws: WebSocket, req) => {
         tmuxSession: activeTmuxSession,
       },
     );
+    }
 
     // Phase 3: pin the connection-scoped context so the state-transition
     // helpers can log with the right hostId/tmuxSession without needing to
@@ -7280,6 +7292,22 @@ wss.on("connection", async (ws: WebSocket, req) => {
     }
     // Phase 101 D-03: acquire long-lived slot before opening the tail.
     // Released on stop() or onError — both paths are idempotent (D-06-adjacent).
+    if (keepingTail && tailHandle) {
+      sshLogger.info(
+        `[tail-lifecycle] tail=${tailInstanceId} action=keep sessionFile=${sessionFile} reason=${startReason ?? "initial"}`,
+        {
+          operation: "claude_session_tail_lifecycle",
+          tailInstanceId,
+          action: "keep",
+          sessionFile,
+          reason: startReason ?? "initial",
+          sessionId,
+          hostId: activeHostId,
+          tmuxSession: activeTmuxSession,
+        },
+      );
+      return;
+    }
     const tailSlot2 = acquireTailSlot(currentHostId!);
     cancelTracker = newCancelTracker(); // the new tail replays from line 1
     tailHandle = tailSessionFile(
@@ -7493,7 +7521,7 @@ wss.on("connection", async (ws: WebSocket, req) => {
                         // silently.
                         hostId: currentHostId ?? undefined,
                         execCommand,
-                        discoverSession: (c, s) => discoverClaudeSession(c as import("ssh2").Client, s),
+                        discoverSession: (c, s) => discoverClaudeSession(c as import("ssh2").Client, s, { knownHistoryFile: dormantSessionFile }),
                         wsSend: (data: string) => {
                           try { ws.send(data); } catch (err) { databaseLogger.warn(`[ws-server] send-failed err="${err instanceof Error ? err.message : String(err)}"`, { operation: "ws_send_failed" }); }
                         },
@@ -7527,7 +7555,12 @@ wss.on("connection", async (ws: WebSocket, req) => {
                           // channel close is async (channel teardown is idem
                           // potent-with-stopped-flag). See CASE-DT4 + DT5 in
                           // claude-session-server.dormant-tail.test.ts.
-                          if (tailHandle) {
+                          //
+                          // Since Condense, waking appends to the SAME history
+                          // file the dormant tail is already streaming — then
+                          // keep that tail instead of replaying from line 1.
+                          const keepExistingTail = tailHandle !== null && sessionFile === dormantSessionFile;
+                          if (tailHandle && !keepExistingTail) {
                             tailHandle.stop();
                             tailHandle = null;
                             sshLogger.info(
@@ -7564,7 +7597,7 @@ wss.on("connection", async (ws: WebSocket, req) => {
                           // Belt-and-suspenders: clear wakeTriggerTs so a subsequent
                           // dormancy+wake cycle on this same WS doesn't see a stale ts.
                           wakeTriggerTs = null;
-                          startActiveSessionFlow({ pid, sessionFile, tmuxSession: currentTmuxSession!, hostId: currentHostId!, startReason: "dormant-handoff" });
+                          startActiveSessionFlow({ pid, sessionFile, tmuxSession: currentTmuxSession!, hostId: currentHostId!, startReason: "dormant-handoff", keepExistingTail });
                           // Aside subsystem registration for the wake path.
                           // Dormant panes had no active aside connection — register now.
                           if (currentHostId != null && currentTmuxSession != null) {
