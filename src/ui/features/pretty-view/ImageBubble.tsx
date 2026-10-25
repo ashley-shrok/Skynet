@@ -3,7 +3,7 @@ import type { ImageBlock } from "@/api/claude-session-api";
 
 // Patch #86: pretty-view image bubble.
 //
-// Renders one image WebSocket event (`{type:"image", ...}`) as a Glass
+// Renders one image WebSocket event (`{type:"image", ...}`) as a chat
 // bubble carrying one or more `<img>` elements with inline base64 data-URI
 // srcs. Alignment + palette follow role, mirroring ChatMessage: user turns
 // (composebox / iOS photo picker) render RIGHT + blue-gray user gradient;

@@ -23,25 +23,11 @@ describe("PrettyLandingCard", () => {
     expect(cls).toMatch(/justify-center/);
   });
 
-  it("Test 3: inline style attribute on the inner card carries warm-neutral palette values (per --color-pv-* authority)", () => {
+  it("Test 3: the inner card uses the floating-control look", () => {
     const { container } = render(<PrettyLandingCard />);
-    const outer = container.querySelector(
-      '[data-pv-landing-card="true"]',
-    ) as HTMLElement;
-    expect(outer).toBeTruthy();
-    // The inner card is where the palette-authority values live (per plan action).
-    const inner = outer.querySelector('[role="status"]') as HTMLElement;
-    expect(inner).toBeTruthy();
-    // Query the raw inline-style attribute directly. JSDOM does not
-    // resolve computed CSS variables or Tailwind classes; only inline
-    // styles are queryable here (per plan Test 3 mandate).
-    const styleAttr = inner.getAttribute("style") ?? "";
-    // Test 3 assertion: inline style contains at least one warm-neutral
-    // palette marker (Phase 10 patch #133 precedent).
-    const hasWarmCream = /rgba\(240,\s*235,\s*224/.test(styleAttr);
-    const hasWarmGlow = /rgba\(255,\s*220,\s*170/.test(styleAttr);
-    const hasHsla = /hsla\(/.test(styleAttr);
-    expect(hasWarmCream || hasWarmGlow || hasHsla).toBe(true);
+    const inner = container.querySelector('[role="status"]') as HTMLElement;
+    expect(inner.classList.contains("pv-float")).toBe(true);
+    expect(inner.getAttribute("style") ?? "").not.toMatch(/blur/);
   });
 
   it("Test 4: renders idle static content — no animation, no spinner, no aria-busy", () => {

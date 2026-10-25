@@ -29,7 +29,7 @@ import { useProjects } from "@/state/conversation-store";
 import { projectLineage } from "@/state/project-lineage";
 import { roleDisplayName } from "@/lib/role-display-name";
 import { stripFrontmatter } from "@/lib/strip-frontmatter";
-import { hasNeutralLook, identityRoles, identityTint, isMultiRole } from "@/lib/identity-roles";
+import { hasNeutralLook, identityRoles, identityTint } from "@/lib/identity-roles";
 import { AvatarImage } from "@/components/avatar-image";
 import { toast } from "sonner";
 import { VoicePicker } from "./pickers/VoicePicker";
@@ -1092,7 +1092,6 @@ export function IdentityModal({
       onOpenChange={(o) => void handleOpenChange(o)}
       hue={hue}
       size={size}
-      className={cn(isMultiRole(identity) && "pv-multi-role", neutralLook && "pv-neutral")}
       dismissible={!desktopControl}
       data-testid="identity-modal"
     >

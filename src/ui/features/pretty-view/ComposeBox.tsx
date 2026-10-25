@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createLogDedup } from "@/lib/log-dedup";
 import { AudioLines, Ban, Check, LoaderCircle, Mic, MicOff, Paperclip, Pause, Plus, RefreshCw, Square, ThumbsUp, Volume2, X } from "lucide-react";
-import { Button } from "@/components/button";
 import { Textarea } from "@/components/textarea";
 import { cn } from "@/lib/utils";
 import {
@@ -129,7 +128,7 @@ const tapDedup = createLogDedup({ N: 5, W: 3000 });
 // unreachable; the fallback exists so a race between logout and the save
 // debounce cannot write an un-ownerable key.
 import { getCurrentUser } from "@/state/user-scoped-cache";
-import { kitConfirm } from "@/components/kit";
+import { KitButton, kitConfirm } from "@/components/kit";
 
 function composeDraftLsKey(
   hostId: number,
@@ -2487,18 +2486,15 @@ export function ComposeBox({
           parent hook's retryBatch. */}
       {hasErroredChip && onRetryBatch && (
         <div className="px-1 pt-1">
-          <Button
-            type="button"
-            size="xs"
-            variant="outline"
+          <KitButton
+            size="sm"
             onClick={onRetryBatch}
             aria-label="Retry upload"
             title="Retry failed upload"
-            className="gap-1 text-xs"
           >
-            <RefreshCw className="size-3" />
+            <RefreshCw />
             Retry upload
-          </Button>
+          </KitButton>
         </div>
       )}
       {/* Phase 05: hidden file input driven by the paperclip. */}

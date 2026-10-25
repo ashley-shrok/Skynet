@@ -3,6 +3,9 @@ import * as PopoverPrimitive from "@radix-ui/react-popover";
 
 import { cn } from "@/lib/utils";
 
+// Radix primitive with shadcn defaults — NOT a look. Give the content a kit
+// surface (see MemoryGauge's .pv-mem-pop) when using it.
+
 function Popover({
   ...props
 }: React.ComponentProps<typeof PopoverPrimitive.Root>) {

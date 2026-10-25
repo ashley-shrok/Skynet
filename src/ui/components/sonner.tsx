@@ -3,10 +3,9 @@
 import { useTheme } from "@/components/theme-provider";
 import { Toaster as Sonner } from "sonner";
 
-// Phase 14B Slice 3: Sonner toast rebased onto pv tokens. Warm-dark glass
-// gradient card, warm off-white text, cool-cream border, hue-accent success/
-// info states (uses the ambient --pv-hue), warm-coral error state (uses the
-// pv code-fg coral palette for consistency).
+// Toasts in the kit look: a solid raised surface, hairline border, kit text;
+// the action button is a kit primary, cancel a kit secondary. Errors get a
+// red border and kit danger text.
 
 type ToasterProps = React.ComponentProps<typeof Sonner>;
 
@@ -20,38 +19,35 @@ const Toaster = ({ ...props }: ToasterProps) => {
       toastOptions={{
         classNames: {
           toast:
-            "group toast group-[.toaster]:rounded-[var(--radius-pv-card)]! group-[.toaster]:shadow-[0_8px_24px_rgba(0,0,0,0.5),inset_0_1px_0_rgba(220,225,245,0.06)]",
-          description:
-            "group-[.toast]:text-[color:var(--color-pv-fg-muted)]",
+            "group toast group-[.toaster]:rounded-[14px]! group-[.toaster]:shadow-[0_8px_24px_rgba(0,0,0,0.5)]! group-[.toaster]:font-[family-name:var(--font-sans)]",
+          description: "group-[.toast]:text-[color:var(--k-t2)]!",
           // Sonner's own (unlayered) button styles beat Tailwind's layered
-          // utilities, and they colour the label with --normal-bg — a
-          // gradient here, so the label fell back to off-white on an
-          // off-white button. `!` makes ours win.
+          // utilities, and they colour the label with --normal-bg. `!` makes
+          // ours win.
           actionButton:
-            "bg-[hsla(var(--pv-hue,35),55%,45%,0.9)]! text-[#fbf5e8]! font-semibold!",
+            "bg-[var(--k-acc)]! text-white! font-semibold! rounded-[8px]!",
           cancelButton:
-            "bg-[color:var(--color-pv-surface-quiet)]! text-[color:var(--color-pv-fg-muted)]!",
+            "bg-[var(--k-s3)]! text-[color:var(--k-t1)]! rounded-[8px]!",
         },
       }}
       style={
         {
-          "--radius": "10px",
-          "--normal-bg":
-            "linear-gradient(180deg, rgba(28,30,40,0.92), rgba(18,20,28,0.95))",
-          "--normal-border": "var(--color-pv-border-quiet-strong)",
-          "--normal-text": "var(--color-pv-fg)",
-          "--success-bg":
-            "linear-gradient(180deg, rgba(28,30,40,0.92), rgba(18,20,28,0.95))",
-          "--success-border": "var(--color-pv-border-quiet-strong)",
-          "--success-text": "hsla(var(--pv-hue, 35), 65%, 60%, 0.95)",
-          "--info-bg":
-            "linear-gradient(180deg, rgba(28,30,40,0.92), rgba(18,20,28,0.95))",
-          "--info-border": "var(--color-pv-border-quiet-strong)",
-          "--info-text": "hsla(var(--pv-hue, 35), 65%, 60%, 0.95)",
-          "--error-bg":
-            "linear-gradient(180deg, rgba(28,30,40,0.92), rgba(18,20,28,0.95))",
-          "--error-border": "rgba(255,120,90,0.42)",
-          "--error-text": "var(--color-pv-code-fg)",
+          "--radius": "14px",
+          "--normal-bg": "var(--k-s2)",
+          "--normal-border": "var(--k-hair2)",
+          "--normal-text": "var(--k-t1)",
+          "--success-bg": "var(--k-s2)",
+          "--success-border": "var(--k-hair2)",
+          "--success-text": "var(--k-t1)",
+          "--info-bg": "var(--k-s2)",
+          "--info-border": "var(--k-hair2)",
+          "--info-text": "var(--k-t1)",
+          "--warning-bg": "var(--k-s2)",
+          "--warning-border": "var(--k-hair2)",
+          "--warning-text": "var(--k-t1)",
+          "--error-bg": "var(--k-s2)",
+          "--error-border": "rgba(229, 85, 76, 0.45)",
+          "--error-text": "var(--k-danger-text)",
         } as React.CSSProperties
       }
       {...props}

@@ -118,8 +118,8 @@ export function FileSpeakControlButton({
       data-testid="file-speak-button"
       className={cn(
         "size-7 shrink-0 rounded-md flex items-center justify-center cursor-pointer",
-        "bg-black/20 border border-white/10 hover:bg-black/30",
-        "text-[rgba(255,220,170,0.8)] active:scale-[0.92] transition-transform",
+        "bg-transparent border border-[color:var(--k-hair)] hover:bg-[var(--k-s2)]",
+        "text-[color:var(--k-t2)] hover:text-[color:var(--k-t1)] active:scale-[0.92] transition-transform",
         className,
       )}
     >

@@ -1,7 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { TabProvider } from "@/shell/TabContext.tsx";
 import { CommandHistoryProvider } from "@/features/terminal/command-history/CommandHistoryContext.tsx";
-import { SidebarProvider } from "@/components/sidebar.tsx";
 import { getSSHHosts, getUserInfo } from "@/main-axios.ts";
 import type { SSHHost } from "@/types";
 import { PrettyLandingCard } from "@/features/pretty-view/PrettyLandingCard.tsx";
@@ -29,8 +28,8 @@ export const FullScreenAppWrapper: React.FC<FullScreenAppWrapperProps> = ({
 }) => {
   const { t } = useTranslation();
   const heightClass = fill === "parent" ? "h-full" : "h-screen";
-  // SidebarProvider's own wrapper is `min-h-svh`; in a pane, override it so
-  // the whole chain sizes to the pane rather than the screen.
+  // The outer frame is `min-h-svh`; in a pane, override it so the whole
+  // chain sizes to the pane rather than the screen.
   const providerClass = fill === "parent" ? "h-full min-h-0" : undefined;
   const [hostConfig, setHostConfig] = useState<SSHHost | null>(null);
   const [loading, setLoading] = useState(true);
@@ -95,7 +94,7 @@ export const FullScreenAppWrapper: React.FC<FullScreenAppWrapperProps> = ({
     return (
       <div
         className={`w-full ${heightClass} overflow-hidden flex flex-col items-center justify-center gap-4`}
-        style={{ backgroundColor: "var(--bg-base)" }}
+        style={{ backgroundColor: "var(--k-bg)" }}
       >
         <RefreshCw
           className="size-8 animate-spin"
@@ -110,12 +109,12 @@ export const FullScreenAppWrapper: React.FC<FullScreenAppWrapperProps> = ({
 
   if (!isAuthenticated) {
     return (
-      <SidebarProvider className={providerClass}>
+      <div className={`flex w-full ${providerClass ?? "min-h-svh"}`}>
         <TabProvider>
           <CommandHistoryProvider>
             <div
               className={`w-full ${heightClass} overflow-hidden flex items-center justify-center`}
-              style={{ backgroundColor: "var(--bg-base)" }}
+              style={{ backgroundColor: "var(--k-bg)" }}
             >
               <PrettyLandingCard />
               <Toaster
@@ -128,22 +127,22 @@ export const FullScreenAppWrapper: React.FC<FullScreenAppWrapperProps> = ({
             </div>
           </CommandHistoryProvider>
         </TabProvider>
-      </SidebarProvider>
+      </div>
     );
   }
 
   return (
-    <SidebarProvider className={providerClass}>
+    <div className={`flex w-full ${providerClass ?? "min-h-svh"}`}>
       <TabProvider>
         <CommandHistoryProvider>
           <div
             className={`w-full ${heightClass} overflow-hidden`}
-            style={{ backgroundColor: "var(--bg-base)" }}
+            style={{ backgroundColor: "var(--k-bg)" }}
           >
             {children(hostConfig, loading)}
           </div>
         </CommandHistoryProvider>
       </TabProvider>
-    </SidebarProvider>
+    </div>
   );
 };

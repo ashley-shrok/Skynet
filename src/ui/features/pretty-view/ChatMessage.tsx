@@ -583,15 +583,15 @@ export const ChatMessage = React.memo(function ChatMessage({
               display: "flex",
               alignItems: "center",
               justifyContent: "center",
-              background: "rgba(0,0,0,0.28)",
+              background: "transparent",
               borderWidth: 1,
               borderStyle: "solid",
-              borderColor: "rgba(255,255,255,0.10)",
-              color: "rgba(255,220,170,0.72)",
+              borderColor: "var(--k-hair)",
+              color: "var(--k-t2)",
               cursor: "pointer",
               transition: "opacity 120ms, background 120ms, transform 80ms",
             }}
-            className={`pv-strip-btn hover:!opacity-100 hover:!bg-[rgba(0,0,0,0.42)] focus-visible:!opacity-100 active:scale-[0.92] [@media(hover:none)]:!opacity-[0.72]`}
+            className={`pv-strip-btn hover:!opacity-100 hover:!bg-[var(--k-s2)] focus-visible:!opacity-100 active:scale-[0.92] [@media(hover:none)]:!opacity-[0.72]`}
           >
             {speakState === "loading" ? (
               <Loader2 size={16} className="animate-spin" />
@@ -627,18 +627,18 @@ export const ChatMessage = React.memo(function ChatMessage({
               justifyContent: "center",
               background: thumbsUpPressed
                 ? "hsla(var(--pv-id-hue),65%,55%,0.36)"
-                : "rgba(0,0,0,0.28)",
+                : "transparent",
               borderWidth: 1,
               borderStyle: "solid",
               borderColor: thumbsUpPressed
                 ? "hsla(var(--pv-id-hue),70%,70%,0.45)"
-                : "rgba(255,255,255,0.10)",
-              color: "rgba(255,220,170,0.72)",
+                : "var(--k-hair)",
+              color: "var(--k-t2)",
               opacity: thumbsUpPressed ? 1 : undefined,
               cursor: "pointer",
               transition: "opacity 120ms, background 120ms, transform 80ms",
             }}
-            className={`pv-strip-btn hover:!opacity-100 hover:!bg-[rgba(0,0,0,0.42)] focus-visible:!opacity-100 active:scale-[0.92] [@media(hover:none)]:!opacity-[0.72]`}
+            className={`pv-strip-btn hover:!opacity-100 hover:!bg-[var(--k-s2)] focus-visible:!opacity-100 active:scale-[0.92] [@media(hover:none)]:!opacity-[0.72]`}
           >
             <ThumbsUp size={16} />
           </button>
@@ -666,18 +666,18 @@ export const ChatMessage = React.memo(function ChatMessage({
               justifyContent: "center",
               background: thumbsDownPressed
                 ? "hsla(var(--pv-id-hue),65%,55%,0.36)"
-                : "rgba(0,0,0,0.28)",
+                : "transparent",
               borderWidth: 1,
               borderStyle: "solid",
               borderColor: thumbsDownPressed
                 ? "hsla(var(--pv-id-hue),70%,70%,0.45)"
-                : "rgba(255,255,255,0.10)",
-              color: "rgba(255,220,170,0.72)",
+                : "var(--k-hair)",
+              color: "var(--k-t2)",
               opacity: thumbsDownPressed ? 1 : undefined,
               cursor: "pointer",
               transition: "opacity 120ms, background 120ms, transform 80ms",
             }}
-            className={`pv-strip-btn hover:!opacity-100 hover:!bg-[rgba(0,0,0,0.42)] focus-visible:!opacity-100 active:scale-[0.92] [@media(hover:none)]:!opacity-[0.72]`}
+            className={`pv-strip-btn hover:!opacity-100 hover:!bg-[var(--k-s2)] focus-visible:!opacity-100 active:scale-[0.92] [@media(hover:none)]:!opacity-[0.72]`}
           >
             <ThumbsDown size={16} />
           </button>

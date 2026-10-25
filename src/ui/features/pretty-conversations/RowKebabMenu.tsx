@@ -158,10 +158,10 @@ function KebabMenuContent({
   | "onEscapeKeyDown"
   | "onClickCapture"
 >): React.JSX.Element {
-  // Inside a modal the menu takes the kit look and the modal's hue (it
-  // portals out of the modal's DOM, so it can't inherit either by CSS).
+  // Always the kit look; inside a modal it also takes the modal's hue (it
+  // portals out of the modal's DOM, so it can't inherit that by CSS).
   const kit = useKitScope();
-  const contentClass = kit ? cn(CONTENT_CLASS, "k-menu k-hued") : CONTENT_CLASS;
+  const contentClass = cn(CONTENT_CLASS, "k-menu k-hued");
   const kitStyle = kit ? ({ "--pv-id-hue": String(kit.hue) } as React.CSSProperties) : undefined;
   return (
     <DropdownMenuContent

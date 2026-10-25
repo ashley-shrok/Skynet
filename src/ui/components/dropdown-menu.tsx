@@ -4,6 +4,9 @@ import { DropdownMenu as DropdownMenuPrimitive } from "radix-ui";
 import { cn } from "@/lib/utils";
 import { CheckIcon, ChevronRightIcon } from "lucide-react";
 
+// Radix primitive with shadcn defaults — NOT a look. Style menus with the
+// kit's .k-menu (see features/pretty-conversations/RowKebabMenu.tsx).
+
 function DropdownMenu({
   ...props
 }: React.ComponentProps<typeof DropdownMenuPrimitive.Root>) {

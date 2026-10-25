@@ -2,9 +2,8 @@ import * as React from "react";
 
 import { cn } from "@/lib/utils";
 
-// Phase 14B Slice 3: Textarea rebased onto pv tokens. Same treatment as
-// Input — transparent surface, cool-cream hairline, warm text, identity-hue
-// focus ring.
+// LEGACY — the pre-redesign textarea (old palette). Kept only for screens not
+// yet restyled. New UI: the kit's fields (@/components/kit).
 
 export type TextareaProps = React.TextareaHTMLAttributes<HTMLTextAreaElement>;
 

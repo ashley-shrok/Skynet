@@ -9,10 +9,7 @@
 // (parent ComposeBox provides the relative container). Each button uses the same
 // p-2 hit target and size-6 icon as MicButton.
 //
-// Palette (per src/ui/index.css:117-146 pv-palette tokens + prototype colors):
-//   cancel: hsla(0, 72%, 72%, 0.85) — red-tint (hue 0, matches prototype's --pv-danger)
-//   append: rgba(240, 235, 224, 0.6) — neutral warm off-white
-//   send:   var(--color-pv-code-fg) — coral #ffb896 (from src/ui/index.css:129)
+// Colours come from conversation.css (.pv-cbtn + data-tone).
 //
 // Icons (all lucide-react):
 //   mute   → Mic (unmuted) / MicOff (muted, cancel's red tint)
@@ -79,7 +76,7 @@ export function RecordingControls({
         <ArrowDownToLine aria-hidden="true" />
       </button>
 
-      {/* Send — coral-tinted per pv-coral accent (--color-pv-code-fg = #ffb896) */}
+      {/* Send */}
       <button
         type="button"
         onClick={onSend}

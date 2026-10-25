@@ -103,7 +103,7 @@ export function LoadMoreOlderButton({
   const disabled = status === "in-flight";
 
   // Tri-branch aria-label — screen-reader-visible state maps 1:1 to
-  // visual state. Structural copy of DormancyOverlay.tsx L99-105.
+  // visual state.
   // The `error ?? "unknown error"` fallback keeps the label meaningful
   // when status="error" arrives without a message (defense against a
   // future refactor dropping the error prop plumbing).

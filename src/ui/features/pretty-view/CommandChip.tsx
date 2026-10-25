@@ -2,11 +2,8 @@
 // (e.g. /id tina, /help, /exit) surfaced by commandTags.preprocessCommandTriplets
 // + splitMarkers. Pure presentational — no state, no hover behavior, no onClick.
 //
-// Design per patch #69 Glass reskin recipe (design_locked in 260719-1mn plan):
-// color affinity lives with the USER bubble family (user submits the command
-// so the pill visually belongs to the user side) but slightly more saturated so
-// it reads as an affordance / structured piece of content rather than prose.
-// The ▸ glyph is the "invoked" affordance marker.
+// It belongs with the user's side (the user ran the command); the ▸ glyph
+// marks it as invoked.
 
 interface CommandChipProps {
   cmd: string;

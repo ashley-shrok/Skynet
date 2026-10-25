@@ -66,7 +66,6 @@ import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useStat
 // on the Apps section header. Migrated into the Apps header RowKebabMenu
 // (single "Archived apps" item); icon import removed.
 import { ChevronDown, Clock, Crown, Drama, Loader2, Mail, MessageSquare, Plus, Search, Settings, SquarePen, X, Zap } from "lucide-react";
-import { Button } from "@/components/button";
 import SkillsEditorModal from "@/features/pretty-view/SkillsEditorModal";
 // Phase 137 D-08: PreferencesModal — opened from the sidebar footer gear button.
 import PreferencesModal from "@/features/pretty-view/PreferencesModal";
@@ -159,7 +158,6 @@ import {
 // Phase 117 Plan 117-09 Task 2 (D-14) — reusable right-click / long-press
 // context menu chrome. The section header binds onContextMenu, which opens
 // this menu at the pointer coords with Edit + Archive items.
-import { PrettyConversationContextMenu } from "./PrettyConversationContextMenu";
 // Phase 117 Plan 117-08: viewing user's Matrix mxid — required for the
 // relay-room drop branch (setRelayRoomProject's second argument). Sourced from
 // the same hook the shared chat surface uses (viewing-user-store, Phase 90 P5).
@@ -318,7 +316,7 @@ import { useBrandingConfig } from "@/branding/branding-store";
 import { useFeedbackEnabled } from "@/feedback/feedback-store";
 import { getBasePath } from "@/lib/base-path";
 import { roleDisplayName } from "@/lib/role-display-name";
-import { kitAlert, kitConfirm, kitPrompt } from "@/components/kit";
+import { KitButton, kitAlert, kitConfirm, kitPrompt } from "@/components/kit";
 import { toast } from "sonner";
 import { systemLogger } from "@/lib/frontend-logger";
 import { KitScopeContext, type KitScopeValue } from "@/components/kit/scope";
@@ -4078,15 +4076,14 @@ export function PrettyConversationsPanel({
           and gap:8px (same values the old direct-child layout used). */}
       <div className="pv-panel-footer" data-testid="pv-panel-footer">
         {feedbackEnabled && (
-          <Button
-            type="button"
-            className="w-full"
+          <KitButton
+            full
             data-testid="pv-footer-send-feedback-button"
             onClick={() => onOpenFeedback?.()}
           >
             <MessageSquare />
             Send feedback
-          </Button>
+          </KitButton>
         )}
         <div className="pv-footer-row">
         <div className="pv-footer-anchor">

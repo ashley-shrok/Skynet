@@ -5,9 +5,8 @@ import { Tooltip as TooltipPrimitive } from "radix-ui";
 
 import { cn } from "@/lib/utils";
 
-// Phase 14B Slice 3: Tooltip rebased onto pv tokens. Warm-dark glass surface
-// (echoes Dialog / Sheet) + warm off-white text so tooltips read as part of
-// the same visual family instead of the inverted white-on-dark shadcn default.
+// LEGACY — old glass tooltip (with blur), used only by the terminal keyboard
+// toolbar. Don't use in new UI; give buttons a title / kit label instead.
 
 function TooltipProvider({
   delayDuration = 0,

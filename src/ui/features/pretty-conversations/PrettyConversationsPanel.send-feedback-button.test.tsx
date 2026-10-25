@@ -1,10 +1,10 @@
 // ─── PrettyConversationsPanel — "Send feedback" CTA coverage
-// The Send feedback affordance lives as a full-width shadcn <Button>
+// The Send feedback affordance lives as a full-width kit button
 // docked just above the sidebar footer (migrated out of the header).
 //
 // Four cases:
 //   (a) Button renders when useFeedbackEnabled() is true, with the
-//       shadcn Button chrome + "Send feedback" text.
+//       kit button + "Send feedback" text.
 //   (b) Button is ABSENT from the DOM (not disabled, not hidden-via-CSS)
 //       when useFeedbackEnabled() returns false.
 //   (c) Clicking the button fires onOpenFeedback exactly once.
@@ -217,14 +217,13 @@ describe("PrettyConversationsPanel: Send feedback CTA (above-footer, feedbackEna
 
     const btn = screen.getByTestId("pv-footer-send-feedback-button");
     expect(btn).toBeTruthy();
-    // Shadcn <Button> emits data-slot="button"; that's the stable
-    // "this is a design-system Button" marker.
-    expect(btn.getAttribute("data-slot")).toBe("button");
+    // The kit's button.
+    expect(btn.getAttribute("data-slot")).toBe("kit-button");
     // Native <button type="button"> under the hood.
     expect(btn.tagName).toBe("BUTTON");
     expect(btn.getAttribute("type")).toBe("button");
     // Full-width in the .pv-feedback-slot wrapper.
-    expect(btn.className).toContain("w-full");
+    expect(btn.getAttribute("data-full")).toBe("true");
     // Visible label — literal "Send feedback" text renders inside the button.
     expect(btn.textContent).toContain("Send feedback");
   });

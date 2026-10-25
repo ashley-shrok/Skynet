@@ -3,7 +3,6 @@ import { ArrowDown } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { isIosPwa } from "@/lib/is-ios-pwa";
 import { registerPane, type PaneSnapshot } from "@/lib/diag-registry";
-import { Button } from "@/components/button";
 import {
   openClaudeSessionSocket,
   type ClaudeSessionServerEvent,
@@ -2658,7 +2657,7 @@ export function PrettyView({
   // wrapper below stays — it's still the geometric parent for
   // SessionHoldingOverlay's `absolute inset-0`. No ref needed.
 
-  // Phase 4: derive per-pane identity + hue for the Glass reskin.
+  // Phase 4: derive per-pane identity + hue.
   //
   // useSessionIdentity(tmuxSession) reads the identities registry
   // (patch #17) via the shared session-hue helper (patch #30 lifted the
@@ -4697,10 +4696,8 @@ export function PrettyView({
         }
       }}
       className={cn(
-        // Phase 4 Glass atmospheric base — warm-neutral dark with
-        // radial-gradient depth cues. `relative overflow-hidden` gives
-        // the IdentityBadge (absolute) a positioning anchor and clips
-        // any glass-blur bleed at the edges.
+        // `relative overflow-hidden` anchors the absolute header pill and
+        // overlays and clips at the pane's edges.
         "h-full w-full flex flex-col relative overflow-hidden",
         // Multi-role identities: gold sheen on hue surfaces (index.css).
         isMultiRole(pvIdentity) && "pv-multi-role",
@@ -4953,11 +4950,9 @@ export function PrettyView({
 
       {/* Phase 93 Slice 3 (D-20) + Slice 6 post-close reshape:
           ChatSurfaceErrorState — friendly OVERLAY for relay rooms that are no
-          longer available (kicked, room-not-found, WS inactive frame). Same
-          scrim + z-band + glass card treatment as PrettyViewErrorOverlay /
-          SessionHoldingOverlay error variant, so it feels like the existing
-          chat-surface's overlay family rather than a new-type error screen
-          (user close-out ask 2026-09-09). The message-list container below
+          longer available (kicked, room-not-found, WS inactive frame). One of
+          the StatusOverlay family (loading, recycling, connection failed).
+          The message-list container below
           stays mounted underneath the overlay. Structured log fires from a
           separate useEffect above — do NOT re-inline it here (spamming logs
           proportional to render count is the pre-Slice-6 bug this replaces). */}
@@ -4972,8 +4967,7 @@ export function PrettyView({
           relay adapter's messages can render even though harness `status`
           is not "streaming"). Phase 93 Slice 6 (post-close fix): removed the
           `!(source.kind === "relay" && chatSurfaceAdapter.error !== null)`
-          gate — the relay error state is now an OVERLAY (scrim + z-band card,
-          mirroring PrettyViewErrorOverlay per user's close-out ask), so the
+          gate — the relay error state is an overlay (StatusOverlay), so the
           message-list container stays mounted underneath the overlay rather
           than being replaced by it. */}
       {(status === "streaming" ||

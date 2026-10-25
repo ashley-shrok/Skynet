@@ -5,25 +5,10 @@ import { Slot } from "radix-ui";
 
 import { cn } from "@/lib/utils";
 
-// Phase 14B Slice 3: shadcn Button rebased onto pretty-view tokens.
-//
-// Design language reference: src/ui/features/pretty-view/ComposeBox.tsx
-// (send button, reset cell) + IdentityBadge lg (hue-glow surface).
-// Palette source: --color-pv-* tokens declared in src/ui/index.css:117-146.
-//
-// Variant mapping (from prior fork defaults to pv aesthetic):
-//   - default: hue-glow primary — warm-cream text on a subtle warm gradient
-//     with a warm-cream inset rim + hue outer glow. Matches the ComposeBox
-//     send button treatment. `--pv-hue` inherited from ancestor context
-//     (defaults to 35 amber if unset).
-//   - outline: transparent surface + 1px cool-cream hairline + warm text.
-//     Hover fills with a low-alpha warm hue tint.
-//   - ghost: fully transparent at rest; hover picks up a low-alpha warm
-//     wash + warm text. Used for icon buttons and inline actions.
-//   - secondary: quiet cool surface (dimmer than default) + warm text.
-//   - destructive: warm-coral hue-glow treatment (uses --color-pv-code-fg
-//     coral palette). Mirrors the pv error language.
-//   - link: warm text + underline on hover. Unchanged conceptually.
+// LEGACY — the pre-redesign button (old glass look). Kept only for screens
+// not yet restyled (login, SSH dialogs, terminal). New UI: KitButton /
+// KitIconButton from @/components/kit; in the composer, conversation.css .pv-cbtn.
+
 const buttonVariants = cva(
   "group/button inline-flex shrink-0 items-center justify-center rounded-[8px] border border-transparent bg-clip-padding text-xs font-medium whitespace-nowrap transition-all outline-none select-none focus-visible:border-[hsla(var(--pv-hue,35),70%,60%,0.55)] focus-visible:ring-1 focus-visible:ring-[hsla(var(--pv-hue,35),70%,55%,0.35)] active:not-aria-[haspopup]:translate-y-px disabled:pointer-events-none disabled:opacity-50 aria-invalid:border-[#ff5555]/60 aria-invalid:ring-1 aria-invalid:ring-[#ff5555]/25 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
   {

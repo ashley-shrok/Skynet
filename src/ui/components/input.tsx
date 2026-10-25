@@ -2,15 +2,9 @@ import * as React from "react";
 
 import { cn } from "@/lib/utils";
 
-// Phase 14B Slice 3: Input rebased onto pv tokens.
-//
-// Rest: transparent surface + 1px cool-cream hairline (~10% alpha) + warm
-// off-white text. Focus: identity-hue border + hue ring so the input picks
-// up the pane's identity color at focus time. Disabled: quiet cool surface
-// with dimmed text.
-//
-// Placeholder color: --color-pv-fg-dim (warm-dim off-white); the default
-// muted-foreground was too gray for the pv palette.
+// LEGACY — the pre-redesign input (old palette). Kept only for screens not
+// yet restyled. New UI: the kit's fields (@/components/kit).
+
 function Input({ className, type, ...props }: React.ComponentProps<"input">) {
   return (
     <input

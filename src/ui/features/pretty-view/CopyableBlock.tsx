@@ -87,10 +87,9 @@ export function CopyableBlock({
           "absolute top-1.5 right-1.5",
           // Size and shape.
           "rounded p-1",
-          // Glass-cohesive styling from the pv-* palette.
           "bg-white/[0.06] hover:bg-white/[0.12]",
-          "border border-white/[0.08]",
-          "text-[color:var(--color-pv-fg)]",
+          "border border-[color:var(--k-hair)]",
+          "text-[color:var(--k-t1)]",
           // Visibility gate:
           //   - Desktop (hover:hover): dim at rest, reveal on group hover.
           //   - Touch (pointer:coarse): always visible.

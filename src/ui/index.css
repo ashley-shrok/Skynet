@@ -83,19 +83,6 @@ input[type="radio"] {
   --font-heading: var(--font-sans);
   --font-mono: "JetBrains Mono Variable", monospace;
   --color-accent-brand: var(--accent-brand);
-  --color-sidebar-ring: var(--sidebar-ring);
-  --color-sidebar-border: var(--sidebar-border);
-  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
-  --color-sidebar-accent: var(--sidebar-accent);
-  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
-  --color-sidebar-primary: var(--sidebar-primary);
-  --color-sidebar-foreground: var(--sidebar-foreground);
-  --color-sidebar: var(--sidebar);
-  --color-chart-5: var(--chart-5);
-  --color-chart-4: var(--chart-4);
-  --color-chart-3: var(--chart-3);
-  --color-chart-2: var(--chart-2);
-  --color-chart-1: var(--chart-1);
   --color-ring: var(--ring);
   --color-input: var(--input);
   --color-border: var(--border);
@@ -110,12 +97,9 @@ input[type="radio"] {
   --color-primary: var(--primary);
   --color-popover-foreground: var(--popover-foreground);
   --color-popover: var(--popover);
-  --color-card-foreground: var(--card-foreground);
   --color-card: var(--card);
   --color-foreground: var(--foreground);
   --color-background: var(--background);
-  --color-surface: var(--surface);
-  --color-surface-dim: var(--surface-dim);
   --radius-sm: calc(var(--radius) * 0.6);
   --radius-md: calc(var(--radius) * 0.8);
   --radius-lg: var(--radius);
@@ -124,27 +108,12 @@ input[type="radio"] {
   --radius-3xl: calc(var(--radius) * 2.2);
   --radius-4xl: calc(var(--radius) * 2.6);
 
-  /* ── Phase 4: pretty-view Glass depth aesthetic ─────────────
-     Design tokens for src/ui/features/pretty-view/*. Additive
-     to the existing token set — consumed by pretty-view
-     components via `bg-[var(--color-pv-base)]` / `shadow-[var(
-     --shadow-pv-raised-md)]` / etc. Dynamic identity hue is
-     NOT a token — it's a per-pane CSS custom property
-     `--pv-id-hue` set at runtime on PrettyView's root by
-     useSessionIdentity + inline style; downstream classes
-     consume `hsla(var(--pv-id-hue), 75%, 52%, X)` directly.
-     Design spec:
-     /home/ubuntu/.claude/identities/tina/bounties/pretty-view-visual-overhaul/mock/index.html
-     (Glass tab final iterated state, 2026-07-18). */
-  /* Patch #82 shift: pretty-view dark surfaces shifted from warm-brown
-     (R>G>B) to cool blue-black (B>R>G) to match the original design
-     mock's palette (see bounties/archive/pretty-view-visual-overhaul/
-     mock/index.html — cool blacks like #0a0b12, #101218, #14151a).
-     Prior warm values (#14120e / #100e0b / #0a0907) drifted through
-     patches #62/#79/#81 into a yellow-leaning aesthetic user flagged
-     as off-mock 2026-07-19. Warm rims stay warm on identity-hue
-     chrome (chat bubbles, send button); dark surface rims shift to
-     cool-cream (220,225,245) for consistency with the cool base. */
+  /* ── LEGACY: the pre-redesign "glass" palette (--color-pv-*, --radius-pv-*,
+     --shadow-pv-*). Still read by surfaces not yet restyled (login, SSH
+     dialogs, terminal chrome, a few viewers). Do NOT use in new UI — the
+     palette is the kit's --k-* (components/kit/kit.css :root); the
+     conversation view's own parts are in features/pretty-view/conversation.css.
+     Dynamic identity hue is the per-pane --pv-id-hue set on PrettyView's root. */
   --color-pv-base: #141520;               /* cool off-black top of gradient */
   --color-pv-base-mid: #101118;
   --color-pv-base-end: #0a0b12;
@@ -164,20 +133,12 @@ input[type="radio"] {
   --color-pv-code-fg: #ffb896;
   --radius-pv-bubble: 14px;
   --radius-pv-card: 10px;
-  --shadow-pv-raised-md:
-    0 8px 24px rgba(0, 0, 0, 0.5),
-    0 1px 0 rgba(255, 255, 255, 0.12) inset,
-    0 0 0 0.5px rgba(255, 255, 255, 0.05);
   /* Patch #82: repurposed from "quiet floating card" (drop shadow +
      inset rim) to "quiet shelf" (inset rim only). The drop-shadow was
      the "slightly-bigger black rectangle" user called out; a wall-
      to-wall shelf has nothing to float over so no drop shadow. Just
      the cool-cream 1px top rim for glass definition. */
   --shadow-pv-quiet-card: inset 0 1px 0 rgba(220, 225, 245, 0.04);
-  --shadow-pv-root:
-    0 30px 80px rgba(0, 0, 0, 0.7),
-    0 0 0 1px rgba(255, 255, 255, 0.04),
-    inset 0 1px 0 rgba(255, 255, 255, 0.06);
 }
 
 /* Phase 14B Slice 8: `:root { light-mode }` block retired. Skynet never
@@ -207,15 +168,12 @@ input[type="radio"] {
   --background: #0a0b12;
   --foreground: oklch(0.985 0 0);
   --card: oklch(0.21 0.004 128.68);
-  --card-foreground: oklch(0.985 0 0);
   --popover: oklch(0.21 0.004 128.68);
   --popover-foreground: oklch(0.985 0 0);
   --primary: oklch(0.922 0 0);
   --primary-foreground: oklch(0.2115 0.0042 128.68);
   --secondary: oklch(0.269 0 0);
   --secondary-foreground: oklch(0.985 0 0);
-  --surface: oklch(0.185 0.004 128.73);
-  --surface-dim: oklch(0.165 0.003 128.73);
   --muted: oklch(0.255 0 0);
   --muted-foreground: oklch(0.72 0 0);
   --accent: oklch(0.255 0 0);
@@ -224,19 +182,6 @@ input[type="radio"] {
   --border: oklch(1 0 0 / 12%);
   --input: oklch(1 0 0 / 15%);
   --ring: oklch(0.556 0 0);
-  --chart-1: oklch(0.87 0 0);
-  --chart-2: oklch(0.556 0 0);
-  --chart-3: oklch(0.439 0 0);
-  --chart-4: oklch(0.371 0 0);
-  --chart-5: oklch(0.269 0 0);
-  --sidebar: oklch(0.195 0.004 128.68);
-  --sidebar-foreground: oklch(0.985 0 0);
-  --sidebar-primary: oklch(0.488 0.243 264.376);
-  --sidebar-primary-foreground: oklch(0.985 0 0);
-  --sidebar-accent: oklch(0.255 0 0);
-  --sidebar-accent-foreground: oklch(0.985 0 0);
-  --sidebar-border: oklch(1 0 0 / 12%);
-  --sidebar-ring: oklch(0.556 0 0);
 }
 
 /* ── Dracula ────────────────────────────────────────────────── */
@@ -244,15 +189,12 @@ input[type="radio"] {
   --background: #282a36;
   --foreground: #f8f8f2;
   --card: #21222c;
-  --card-foreground: #f8f8f2;
   --popover: #21222c;
   --popover-foreground: #f8f8f2;
   --primary: #f8f8f2;
   --primary-foreground: #282a36;
   --secondary: #44475a;
   --secondary-foreground: #f8f8f2;
-  --surface: #21222c;
-  --surface-dim: #191a21;
   --muted: #44475a;
   --muted-foreground: #6272a4;
   --accent: #44475a;
@@ -261,20 +203,7 @@ input[type="radio"] {
   --border: rgba(98, 114, 164, 0.25);
   --input: rgba(98, 114, 164, 0.2);
   --ring: #6272a4;
-  --chart-1: #ff79c6;
-  --chart-2: #8be9fd;
-  --chart-3: #50fa7b;
-  --chart-4: #ffb86c;
-  --chart-5: #bd93f9;
   --radius: 0.625rem;
-  --sidebar: #21222c;
-  --sidebar-foreground: #f8f8f2;
-  --sidebar-primary: #bd93f9;
-  --sidebar-primary-foreground: #282a36;
-  --sidebar-accent: #44475a;
-  --sidebar-accent-foreground: #f8f8f2;
-  --sidebar-border: rgba(98, 114, 164, 0.25);
-  --sidebar-ring: #6272a4;
 }
 
 /* Phase 14B Slice 8: 6 non-Dracula xterm color themes retired
@@ -457,18 +386,6 @@ html.fs-xl {
   }
 }
 
-@supports (padding-bottom: env(safe-area-inset-bottom)) {
-  .safe-bottom {
-    padding-bottom: env(safe-area-inset-bottom);
-  }
-}
-
-@supports (padding-top: env(safe-area-inset-top)) {
-  .safe-top {
-    padding-top: env(safe-area-inset-top);
-  }
-}
-
 @utility scrollbar-none {
   scrollbar-width: none;
   &::-webkit-scrollbar {
@@ -627,10 +544,7 @@ html.fs-xl {
 
 .pv-composebox button.pv-btn-pressed {
   scale: 0.92;
-  background: hsla(38, 55%, 70%, 0.28);
-  box-shadow:
-    0 0 12px hsla(38, 65%, 65%, 0.55),
-    inset 0 0 0 1px hsla(38, 60%, 75%, 0.5);
+  background: var(--k-s3);
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -644,8 +558,7 @@ html.fs-xl {
 
 /* Phase 32 hold-to-send visual affordance. Applied to the ComposeBox primary
  * + slot send buttons while the useHoldToRecord hook has holdActive=true.
- * Tints the paper-plane glyph coral (matches the RecordingControls Send
- * button color) and applies a subtle pulse.
+ * Tints the glyph red (the recording colour) and applies a subtle pulse.
  *
  * Rationale (CONTEXT.md § Visual during hold — LOCKED): do NOT swap the
  * button for RecordingControls under the pointer — morphing the button the
@@ -662,9 +575,9 @@ html.fs-xl {
  *
  * `color:` sets the currentColor pipeline — the paper-plane inline SVG uses
  * fill="currentColor" and the Loader2 lucide spinner inherits color from
- * its parent button, so the coral tint reaches the glyph correctly. */
+ * its parent button, so the tint reaches the glyph correctly. */
 button[data-hold-active="true"] {
-  color: var(--color-pv-code-fg);
+  color: var(--pv-red, #ff6b5e);
   animation: pv-hold-pulse 1.4s ease-in-out infinite;
 }
 
@@ -709,15 +622,6 @@ button[data-hold-active="true"] {
     box-shadow: 0 0 0 10px rgba(255, 92, 92, 0.13);
   }
 }
-.pv-hold-pill {
-  animation: pv-hold-pill-in 0.15s ease-out;
-}
-@keyframes pv-hold-pill-in {
-  from {
-    opacity: 0;
-    transform: translateY(6px);
-  }
-}
 .pv-hold-dot {
   animation: pv-hold-dot-blink 1s infinite;
 }
@@ -727,58 +631,10 @@ button[data-hold-active="true"] {
   }
 }
 
-/* Hue slider thumb (ColorPicker). The input sets `appearance: none` to get the
- * rainbow gradient track, which also strips the native thumb — without these
- * rules the grab target falls back to whatever the browser draws, which is too
- * small to hit reliably on a phone. Pseudo-elements can't be expressed as inline
- * styles, hence the class. The vendor prefixes can NOT be merged into one
- * selector list: one unrecognized pseudo-element invalidates the entire rule,
- * so each engine needs its own block. */
-.pv-hue-slider::-webkit-slider-thumb {
-  appearance: none;
-  -webkit-appearance: none;
-  width: 22px;
-  height: 22px;
-  border-radius: 50%;
-  background: #f4f1e8;
-  border: 2px solid rgba(0, 0, 0, 0.45);
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.5);
-  cursor: grab;
-}
-
-.pv-hue-slider::-moz-range-thumb {
-  width: 22px;
-  height: 22px;
-  border-radius: 50%;
-  background: #f4f1e8;
-  border: 2px solid rgba(0, 0, 0, 0.45);
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.5);
-  cursor: grab;
-}
-
-.pv-hue-slider:active::-webkit-slider-thumb {
-  cursor: grabbing;
-}
-
-.pv-hue-slider:active::-moz-range-thumb {
-  cursor: grabbing;
-}
-
-.pv-hue-slider:disabled::-webkit-slider-thumb {
-  cursor: not-allowed;
-  opacity: 0.5;
-}
-
-.pv-hue-slider:disabled::-moz-range-thumb {
-  cursor: not-allowed;
-  opacity: 0.5;
-}
-
 /* ── Multi-role gold sheen ───────────────────────────────────
    MTG-style "multicolor = gold". A multi-role identity with no colorHue of
    its own resolves to hue 44 (backend identity-appearance.ts); the
-   `pv-multi-role` class (on the PrettyView root, the identity modal, and the
-   search row) adds a metallic band so it reads as gold rather than yellow.
+   `pv-multi-role` class (on the PrettyView root and the search row) adds a metallic band so it reads as gold rather than yellow.
    The sheen is built off the element's own hue, so an explicit colorHue on a
    multi-role identity still gets the metallic finish in its own color. */
 .pv-multi-role {
@@ -795,20 +651,10 @@ button[data-hold-active="true"] {
   background-image: var(--pv-mr-sheen) !important;
   border-color: var(--pv-mr-rim) !important;
 }
-/* The modal is an opaque surface (its normal gradient is plain hsl), but the
-   sheen's stops are translucent — painted alone it lets the chat behind show
-   through. Layer the sheen over the modal's usual opaque base instead. */
-.pv-multi-role[data-slot="modal-content"] {
-  /* !important: the modal paints its gradient via inline style. */
-  background-image: var(--pv-mr-sheen),
-    linear-gradient(160deg, hsl(var(--pv-id-hue), 50%, 38%), hsl(var(--pv-id-hue), 45%, 22%)) !important;
-  border-color: var(--pv-mr-rim) !important;
-}
-
 /* Roleless look. An identity with no roles and no colorHue of its own has no
    role to borrow a look from, so it paints in one neutral grey everywhere
    rather than each surface's own default hue. `pv-neutral` sits where
-   `pv-multi-role` does (PrettyView root, identity modal) and on the search
+   `pv-multi-role` does (PrettyView root) and on the search
    row (the sidebar row's own neutral rules live in pretty-conversations.css); surfaces that build their colors in JS (badge, task pill,
    modal header) use identityTint() for the same greys. The hue these
    elements still carry (NEUTRAL_HUE) only reaches small accents. */
@@ -820,23 +666,6 @@ button[data-hold-active="true"] {
 }
 .pv-neutral .pv-hue-surface {
   background-image: var(--pv-neutral-fill) !important;
-  border-color: var(--pv-neutral-rim) !important;
-}
-.pv-search-row.pv-neutral .pv-search-row-avatar {
-  background-image: var(--pv-neutral-disc) !important;
-  border-color: var(--pv-neutral-rim) !important;
-  box-shadow:
-    0 4px 12px rgba(0, 0, 0, 0.6),
-    inset 0 2px 0 rgba(255, 235, 190, 0.35),
-    0 0 24px var(--pv-neutral-glow);
-}
-.pv-search-row.pv-neutral,
-.pv-search-row.pv-neutral:hover {
-  border-color: var(--pv-neutral-rim);
-}
-/* Opaque, like the hued modal it replaces (painted via inline style). */
-.pv-neutral[data-slot="modal-content"] {
-  background-image: linear-gradient(160deg, hsl(0, 0%, 30%), hsl(0, 0%, 17%)) !important;
   border-color: var(--pv-neutral-rim) !important;
 }
 

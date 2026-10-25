@@ -1,5 +1,5 @@
 import { File as FileIcon, X, Check, AlertCircle } from "lucide-react";
-import { Button } from "@/components/button";
+import { KitIconButton } from "@/components/kit";
 import { cn } from "@/lib/utils";
 import { formatHumanSize } from "@/api/pretty-view-upload-protocol";
 
@@ -177,17 +177,15 @@ function Chip({
           sent; removing a landed file from the sender bubble would misrepresent
           what the agent has seen). */}
       {!readOnly && (
-        <Button
-          type="button"
-          size="icon-xs"
-          variant="ghost"
-          onClick={() => onRemove(tempId)}
-          aria-label={`Remove attachment ${file.name}`}
+        <KitIconButton
+          size="sm"
+          label={`Remove attachment ${file.name}`}
           title={`Remove ${file.name}`}
-          className="ml-1 opacity-70 hover:opacity-100 max-md:opacity-100"
+          onClick={() => onRemove(tempId)}
+          className="ml-1"
         >
-          <X className="size-3" />
-        </Button>
+          <X />
+        </KitIconButton>
       )}
     </div>
   );

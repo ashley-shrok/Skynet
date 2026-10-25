@@ -3,8 +3,9 @@ import * as TabsPrimitive from "@radix-ui/react-tabs";
 
 import { cn } from "@/lib/utils";
 
-// Phase 14B Slice 3: Tabs rebased onto pv tokens. List rests as a quiet
-// glass strip; active trigger picks up a hue-anchored fill.
+// LEGACY look for TabsList / TabsTrigger (old glass strip; only the SSH auth
+// dialog uses them). Tabs / TabsContent are plain primitives. New UI: the
+// kit's segmented choices (@/components/kit).
 
 function Tabs({
   className,
