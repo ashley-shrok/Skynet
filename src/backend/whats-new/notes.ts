@@ -19,4 +19,9 @@ export interface WhatsNewNote {
   text: string;
 }
 
-export const WHATS_NEW_NOTES: readonly WhatsNewNote[] = [];
+export const WHATS_NEW_NOTES: readonly WhatsNewNote[] = [
+  {
+    id: "voice-send-phrase-over",
+    text: "If you've set voice mode to send when you say a phrase: the default phrase is now \"over\" instead of \"send it\". You can change it under Preferences → Voice.",
+  },
+];
