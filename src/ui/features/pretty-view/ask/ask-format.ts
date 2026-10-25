@@ -107,8 +107,27 @@ function num(v: unknown): number | undefined {
   return undefined;
 }
 
+const OPTION_KEYS = new Set([
+  "label", "name", "text", "value", "description", "detail", "recommended",
+  "color", "colour", "image", "file", "time",
+]);
+
+// Unquoted shorthand holding ": " ("Ship | Rule: findable") reads as YAML as a
+// one-key mapping. No real option looks like that, so put the text back.
+function rejoinColonShorthand(raw: unknown): unknown {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return raw;
+  const entries = Object.entries(raw);
+  if (entries.length !== 1) return raw;
+  const [key, val] = entries[0];
+  if (OPTION_KEYS.has(key.toLowerCase())) return raw;
+  if (val === null) return `${key}:`;
+  if (typeof val === "string" || typeof val === "number" || typeof val === "boolean") return `${key}: ${val}`;
+  return raw;
+}
+
 /** "Label | description" shorthand, or a mapping. */
-function parseOption(raw: unknown, where: string): AskOption {
+function parseOption(input: unknown, where: string): AskOption {
+  const raw = rejoinColonShorthand(input);
   if (typeof raw === "string" || typeof raw === "number" || typeof raw === "boolean") {
     const s = String(raw);
     const bar = s.indexOf(" | ");

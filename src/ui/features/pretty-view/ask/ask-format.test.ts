@@ -26,6 +26,29 @@ options:
     expect(q.options[2].value).toBe("Hold it");
   });
 
+  it("reads unquoted shorthand whose text holds a colon", () => {
+    const q = ok(`id: wakeups-in-search
+question: Wake-up instructions and sensor findings are hidden in the conversation. Drop them from search too?
+options:
+  - Drop them (recommended) | Strict rule: search only finds what the conversation shows
+  - Keep them, faded | Exception to the rule: findable but shown faded as "Wake-up"
+  - Ask later: 2
+`).questions[0];
+    expect(q.options.map((o) => o.label)).toEqual(["Drop them", "Keep them, faded", "Ask later: 2"]);
+    expect(q.options[0].recommended).toBe(true);
+    expect(q.options[0].description).toBe("Strict rule: search only finds what the conversation shows");
+    expect(q.options[1].description).toBe('Exception to the rule: findable but shown faded as "Wake-up"');
+  });
+
+  it("still reads a one-key mapping option by its field", () => {
+    const q = ok(`question: Pick
+options:
+  - label: First
+  - value: second
+`).questions[0];
+    expect(q.options.map((o) => o.label)).toEqual(["First", "second"]);
+  });
+
   it("reads mapping options with values and faces", () => {
     const q = ok(`question: Accent colour?
 layout: grid
