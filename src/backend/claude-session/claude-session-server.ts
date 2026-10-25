@@ -321,6 +321,20 @@ type StreamEvent =
       eventId: string;
       ts: number;
       line: number;
+    }
+  | {
+      type: "compaction";
+      summary: string;
+      eventId: string;
+      ts: number;
+      line: number;
+    }
+  | {
+      type: "compaction_guidance";
+      guidance: string;
+      eventId: string;
+      ts: number;
+      line: number;
     };
 
 export function reshapeParsedLineToWireFrame(
@@ -397,6 +411,22 @@ export function reshapeParsedLineToWireFrame(
         bytes: parsed.bytes,
         eventId: malformedEventId(rawLine),
         ts: Date.now(),
+        line,
+      };
+    case "compaction":
+      return {
+        type: "compaction",
+        summary: parsed.summary,
+        eventId: parsed.eventId,
+        ts: parsed.ts,
+        line,
+      };
+    case "compaction_guidance":
+      return {
+        type: "compaction_guidance",
+        guidance: parsed.guidance,
+        eventId: parsed.eventId,
+        ts: parsed.ts,
         line,
       };
     case "skip":
@@ -5106,7 +5136,10 @@ wss.on("connection", async (ws: WebSocket, req) => {
         .replace(/<task-notification>[\s\S]*?<\/task-notification>/g, "")
         .replace(/<system-reminder>[\s\S]*?<\/system-reminder>/g, "")
         .trim();
-      visibleText = stripped === "" || raw.includes("<command-name>") ? null : raw;
+      // A condense's own /compact prompt is never a bubble (the divider stands
+      // for it), so a cancel must not hand it back to the composer.
+      visibleText =
+        stripped === "" || raw.includes("<command-name>") || /^\/compact(\s|$)/.test(stripped) ? null : raw;
     }
     const changes = cancelTracker.observe(obj, visibleText);
     const send = (frame: Record<string, unknown>) => {

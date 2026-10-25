@@ -27,6 +27,7 @@ describe("userReplyAt — counts", () => {
     ["a long message wrapped in pasted_content", '<pasted_content id="4e5b">\nHey, I logged into Skynet on a new browser\n</pasted_content id="4e5b">'],
     ["a short message that starts with a tag", "<div> is the wrong element here, use a span"],
     ["a skill the user ran", "<command-message>light-review</command-message>\n<command-name>/light-review</command-name>"],
+    ["a message that starts with a word like compact", "/compactor settings look off"],
   ])("%s", (_label, content) => {
     expect(userReplyAt(userLine(content))).toBe(TS_MS);
   });
@@ -47,6 +48,9 @@ describe("userReplyAt — does not count", () => {
     ["the supervisor's /id", "<command-message>id</command-message>\n<command-name>/id</command-name>\n<command-args>aspen</command-args>"],
     ["the supervisor's /exit", "<command-name>/exit</command-name>\n<command-message>exit</command-message>"],
     ["/compact", "<command-name>/compact</command-name>\n<command-message>compact</command-message>"],
+    ["the /compact prompt as typed, before a condense", "/compact keep the codeword"],
+    ["a bare /compact prompt", "/compact"],
+    ["a /compact prompt pasted in a pasted_content wrapper", '<pasted_content id="aa11">\n/compact keep it\n</pasted_content id="aa11">'],
     ["local command output", "<local-command-stdout>Set model to Opus</local-command-stdout>"],
     ["an interrupt marker", "[Request interrupted by user]"],
     ["Ctrl-C noise", "\x03\x03"],

@@ -14,7 +14,8 @@
  *     whether bare or inside a <pasted_content> block
  *   - other XML-wrapped harness lines (local-command output and the like)
  *   - the supervisor's own slash commands: /id (birth, recycle), /exit,
- *     /compact
+ *     /compact — and the plain "/compact …" prompt line written before a
+ *     condense runs (what the supervisor types to start one)
  *   - skill-body injections (isMeta), compaction summaries (written as a
  *     plain-text user line, before the /compact line) and tool results
  *   - interrupt markers, Ctrl-C noise, the supervisor's resumed sentinel,
@@ -71,7 +72,9 @@ export function userReplyAt(rawLine: string): number | null {
 
   const pasted = PASTED_OPEN.exec(t);
   if (pasted) {
-    if (t.slice(pasted[0].length).trim().startsWith("<task-notification")) return null;
+    const inner = t.slice(pasted[0].length).trim();
+    if (inner.startsWith("<task-notification")) return null;
+    if (/^\/compact(\s|$)/.test(inner)) return null;
   } else if (t.startsWith("<command-")) {
     const name = COMMAND_NAME.exec(t)?.[1]?.trim() ?? "";
     if (SUPERVISOR_COMMANDS.has(name)) return null;
@@ -79,6 +82,7 @@ export function userReplyAt(rawLine: string): number | null {
     return null;
   }
 
+  if (/^\/compact(\s|$)/.test(t)) return null;
   if (t.startsWith("[Request interrupted")) return null;
   if (t.startsWith("Your session was just resumed by the agent-supervisor")) return null;
   if (isTeammateMessage(t)) return null;

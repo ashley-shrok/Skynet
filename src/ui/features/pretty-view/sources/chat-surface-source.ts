@@ -19,6 +19,8 @@ import type {
   RelayOutboundEvent,
   RelayInboundEvent,
   MalformedLineEvent,
+  CompactionEvent,
+  CompactionGuidanceEvent,
 } from "@/api/claude-session-api";
 
 export type ChatSurfaceSource =
@@ -35,7 +37,9 @@ export type ChatSurfaceMessage =
   | ImageEvent
   | RelayOutboundEvent
   | RelayInboundEvent
-  | MalformedLineEvent;
+  | MalformedLineEvent
+  | CompactionEvent
+  | CompactionGuidanceEvent;
 
 // Participants shape as consumed by MultiBadgeAnchor (Slice 2). Kept here for
 // symmetry between the two adapters — the harness shim returns null (harness

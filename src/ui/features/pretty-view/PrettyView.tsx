@@ -16,6 +16,8 @@ import {
   type RelaySendResultEvent,
   type RelayInboundEvent,
   type MalformedLineEvent,
+  type CompactionEvent,
+  type CompactionGuidanceEvent,
   // Phase 47 (load-more button) — send-side wire type for the click handler
   // (Plan 04 handleLoadOlder). Response type FetchOlderRangeBatchEvent is
   // consumed via ClaudeSessionServerEvent's discriminated union (Plan 01
@@ -45,6 +47,7 @@ import { ImageBubble, stripImagePasteMarkers } from "./ImageBubble";
 import { RelayOutboundBubble } from "./RelayOutboundBubble";
 import { RelayInboundBubble } from "./RelayInboundBubble";
 import { MalformedBubble } from "./MalformedBubble";
+import { CompactionDivider } from "./CompactionDivider";
 import { WipBubble } from "./WipBubble";
 import { attentionKey, subscribeDmArrival } from "@/state/attention-store";
 import "@/components/kit/kit.css";
@@ -407,7 +410,9 @@ type StreamEvent =
   | ImageEvent
   | RelayOutboundEvent
   | RelayInboundEvent
-  | MalformedLineEvent;
+  | MalformedLineEvent
+  | CompactionEvent
+  | CompactionGuidanceEvent;
 
 // inline-260823-pv-line-sorted-insert (user 2026-08-23): insertion-sort by
 // `line` so out-of-arrival-order frames land in chronological position.
@@ -671,6 +676,9 @@ function useFleetIdentityHosts(): Record<string, number> {
 
 /** How long the pie says Condensing… on a request alone, before the poll confirms it. */
 const OPTIMISTIC_CONDENSE_MS = 2 * 60 * 1000;
+// How far below its summary a condense's guidance line may sit (on disk it's
+// two lines: the local-command caveat, then the command).
+const CONDENSE_GUIDANCE_MAX_LINES = 6;
 
 export function PrettyView({
   source: sourceProp,
@@ -902,6 +910,27 @@ export function PrettyView({
     () => (source.kind === "relay" ? null : deriveOpenAsk(harnessVisibleMessages, false)),
     [source.kind, harnessVisibleMessages],
   );
+  // A condense's guidance arrives as its own frame two lines after the summary
+  // (nothing renderable sits between them); fold it into that divider and
+  // drop the frame from the rendered list. Guidance with no divider just
+  // above it in the file (a compact command that failed) shows nothing.
+  const { renderedMessages, condenseGuidance } = useMemo(() => {
+    const guidance = new Map<string, string>();
+    const rendered: Exclude<StreamEvent, CompactionGuidanceEvent>[] = [];
+    for (const m of effectiveMessages) {
+      if (m.type === "compaction_guidance") {
+        const prev = rendered[rendered.length - 1];
+        const near =
+          typeof m.line !== "number" || typeof prev?.line !== "number" || m.line - prev.line <= CONDENSE_GUIDANCE_MAX_LINES;
+        if (prev !== undefined && prev.type === "compaction" && near && !guidance.has(prev.eventId)) {
+          guidance.set(prev.eventId, m.guidance);
+        }
+        continue;
+      }
+      rendered.push(m);
+    }
+    return { renderedMessages: rendered, condenseGuidance: guidance };
+  }, [effectiveMessages]);
   // The latest message says the turn is over — the harness's interrupted line
   // (shape-interrupt-button) or the assistant message that ended its turn
   // (stop_reason end_turn) — so the work indicator goes off at once, whatever
@@ -2986,6 +3015,8 @@ export function PrettyView({
           parsed.type === "relay_inbound" ||
           parsed.type === "relay_outbound" ||
           parsed.type === "malformed_line" ||
+          parsed.type === "compaction" ||
+          parsed.type === "compaction_guidance" ||
           // context_pct WITH dormant:true is emitted from the dormant-branch
           // JSONL read (not a supervisor-recovery signal); skip auto-dismiss
           // in that case so the meter can update without wiping the overlay.
@@ -3303,7 +3334,23 @@ export function PrettyView({
           });
           break;
         }
+        case "compaction":
+        case "compaction_guidance":
         case "malformed_line": {
+          // A condense divider (and its guidance) joins the stream like any
+          // other turn but is never a user message: no ordinary pending send
+          // settles on it. A /compact typed in the composer has no bubble of
+          // its own to land as, so the condense landing is what settles it.
+          if (parsed.type !== "malformed_line") {
+            const compactPending = pendingSendsRef.current.find(
+              (p) => p.state === "sending" && /^\/compact(\s|$)/.test(p.content.trim()),
+            );
+            if (compactPending !== undefined) {
+              console.info(`[diag-dormant-send] cleanup mqid=${compactPending.mqid} matched_by=compaction frame=${parsed.type} elapsedMs=${Date.now() - compactPending.sentAt} incoming_eventId=${parsed.eventId}`);
+              if (compactPending.timer !== null) window.clearTimeout(compactPending.timer);
+              setPendingSends((prev) => prev.filter((p) => p.mqid !== compactPending.mqid));
+            }
+          }
           // pv-malformed-jsonl-placeholder-bubble (2026-08-10): interleave a
           // compact placeholder so a dropped turn is visible instead of silent.
           // Phase 43 Plan 43-07b — drop-oldest cap enforcement on live-append.
@@ -4818,7 +4865,7 @@ export function PrettyView({
               up in settledBubbleKeyRef) instead of unmount+mount — the
               remount repainted the backdrop-blur bubble for a frame, which
               read as a blink once the spinner no longer marked the swap. */}
-          {[...effectiveMessages.map((m) => (
+          {[...renderedMessages.map((m) => (
             // Phase 45 Bug #2 (user UAT verbatim): 9px inter-bubble padding restored — technically padding but functionally margin per user's clarification 2026-08-18.
             <div
               key={settledBubbleKeyRef.current.get(m.eventId) ?? m.eventId}
@@ -4885,6 +4932,12 @@ export function PrettyView({
                 />
               ) : m.type === "malformed_line" ? (
                 <MalformedBubble bytes={m.bytes} ts={m.ts} />
+              ) : m.type === "compaction" ? (
+                <CompactionDivider
+                  summary={m.summary}
+                  guidance={condenseGuidance.get(m.eventId) ?? null}
+                  ts={m.ts}
+                />
               ) : (
                 <ChatMessage
                   role={m.role}

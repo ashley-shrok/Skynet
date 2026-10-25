@@ -186,12 +186,43 @@ export type RelayInboundMessage = {
   ts: number;
 };
 
+// A condense (compaction) as the chat shows it: one divider holding the
+// summary. The summary is written as a user line, but nobody said it.
+export type CompactionMessage = {
+  kind: "compaction";
+  summary: string;
+  eventId: string;
+  ts: number;
+};
+
+// The guidance typed with a condense (the args of the /compact command line,
+// written just after the summary). The chat folds it into that divider.
+export type CompactionGuidanceMessage = {
+  kind: "compaction_guidance";
+  guidance: string;
+  eventId: string;
+  ts: number;
+};
+
+// The fixed opening the harness puts on every summary: its first paragraph,
+// then the line listing the tools used before the summary.
+const COMPACT_SUMMARY_PREAMBLE_RE =
+  /^This session is being continued from a previous conversation[^\n]*\n+/;
+const COMPACT_SUMMARY_TOOLS_LINE_RE =
+  /^\s*<tools-used-before-summary>[\s\S]*?<\/tools-used-before-summary>[^\S\n]*\n?/;
+
+export function stripCompactSummaryPreamble(summary: string): string {
+  return summary.replace(COMPACT_SUMMARY_PREAMBLE_RE, "").replace(COMPACT_SUMMARY_TOOLS_LINE_RE, "");
+}
+
 export type ParsedLine =
   | ConversationalMessage
   | ImageMessage
   | RelayOutboundMessage
   | RelaySendResultMessage
   | RelayInboundMessage
+  | CompactionMessage
+  | CompactionGuidanceMessage
   | { kind: "skip"; why: string }
   // `bytes` carries the trimmed byte length of the unparseable line so the
   // consumer can surface a placeholder bubble with diagnostic info (see
@@ -1311,6 +1342,7 @@ export function parseSessionLine(line: string, sessionId?: string): ParsedLine {
             .replace(/<task-notification>[\s\S]*?<\/task-notification>/g, "")
             .replace(/<system-reminder>[\s\S]*?<\/system-reminder>/g, "")
             .trim();
+          if (/^\/compact(\s|$)/.test(stripped)) return { kind: "skip", why: "compact_prompt" };
           if (stripped.length > 0) {
             const uuid = obj.uuid;
             const messageId = obj.messageId;
@@ -1403,7 +1435,9 @@ export function parseSessionLine(line: string, sessionId?: string): ParsedLine {
         && !qopContent.startsWith("<task-notification>")
         && !qopContent.startsWith("<system-reminder>")
         && !trimmedStart.startsWith("/id ")
-        && !trimmedStart.startsWith("/exit")) {
+        && !trimmedStart.startsWith("/exit")
+        // A condense's own prompt — the divider stands for it.
+        && !/^\/compact(\s|$)/.test(trimmedStart)) {
       const rawTs = obj.timestamp;
       let ts = Date.now();
       let tsStrForHash = "";
@@ -1471,6 +1505,43 @@ export function parseSessionLine(line: string, sessionId?: string): ParsedLine {
       ts: Number.isFinite(parsedI) ? parsedI : Date.now(),
       interrupted: true,
     };
+  }
+
+  // A condense writes the prompt as typed, then its marker, the summary (a
+  // user line flagged as one), then — when it ran from the compact command — that command with any
+  // guidance, then its "Compacted" output. The chat shows them as one divider;
+  // none of them is the user speaking, so none may settle a pending send.
+  if (isUser) {
+    const compactUuid = obj.uuid;
+    const compactEventId =
+      typeof compactUuid === "string" && compactUuid.length > 0 ? compactUuid : fallbackEventId();
+    const compactTsParsed = typeof obj.timestamp === "string" ? Date.parse(obj.timestamp) : NaN;
+    const compactTs = Number.isFinite(compactTsParsed) ? compactTsParsed : Date.now();
+    if (obj.isCompactSummary === true) {
+      const summary = stripCompactSummaryPreamble(extractText(msg.content)).trim();
+      sessionParserLogger.info(
+        `[session-parser] classify result=compaction summaryLen=${summary.length} eventId=${compactEventId}`,
+        { operation: "session_classify" },
+      );
+      return { kind: "compaction", summary, eventId: compactEventId, ts: compactTs };
+    }
+    const compactText = extractText(msg.content);
+    // The prompt as typed (or pasted by the supervisor), recorded before the
+    // condense runs. The command line after the summary carries the guidance.
+    if (/^\/compact(\s|$)/.test(compactText.trim())) {
+      return { kind: "skip", why: "compact_prompt" };
+    }
+    if (compactText.trimStart().startsWith("<command-name>/compact</command-name>")) {
+      const argsMatch = /<command-args>([\s\S]*?)<\/command-args>/.exec(compactText);
+      const guidance = (argsMatch?.[1] ?? "").trim();
+      if (guidance === "") return { kind: "skip", why: "compact_command" };
+      return { kind: "compaction_guidance", guidance, eventId: compactEventId, ts: compactTs };
+    }
+    // eslint-disable-next-line no-control-regex
+    const stdoutPlain = compactText.replace(/\x1b\[[0-9;]*m/g, "");
+    if (/^<local-command-stdout>\s*Compacted\b/.test(stdoutPlain)) {
+      return { kind: "skip", why: "compact_output" };
+    }
   }
 
   // Phase 17 — relay outbound detection (RELAYBUB-01).

@@ -1549,6 +1549,12 @@ crown, then gear.
   the sender's picture, "Finch → Bilbo" and a one-line preview; tap to
   read. In a **relay room** the user opened, each agent's messages are
   bubbles in its colour with its name on top.
+  Where the conversation was **condensed** (§ Compacting yourself), a slim
+  divider across the column reads "Conversation condensed · <time>", with
+  the guidance given (if any) in quotes under it, cut to one line. It starts
+  closed; clicking it opens the full guidance and then the summary, and
+  clicking again closes it. Every condense looks the same, however it was
+  started.
   *Agent-side:* a message you relay to the user normally shows in your own
   conversation as one of your bubbles. While the room's members are still
   loading, or when the recipient can't be worked out, it shows as a folded
@@ -1993,7 +1999,8 @@ Compaction shrinks your context: the harness summarises the conversation
 so far and you carry on as the same agent, in the same conversation, with
 the summary in place of the detail. Nothing restarts. The user sees it as
 **Condense conversation** (§ Conversation view → Agent memory) and may call
-it condensing; it's the same thing.
+it condensing; it's the same thing. In the chat it shows as one slim
+divider (§ Conversation view → Messages).
 
 It happens three ways:
 

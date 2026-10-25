@@ -604,6 +604,30 @@ export type MalformedLineEvent = {
   line?: number;
 };
 
+/**
+ * A condense (compaction): the chat shows one divider where it happened, the
+ * summary inside it (fixed preamble already removed). Never a user message.
+ */
+export type CompactionEvent = {
+  type: "compaction";
+  summary: string;
+  eventId: string;
+  ts: number;
+  line?: number;
+};
+
+/**
+ * The guidance typed with a condense — written a couple of lines after the
+ * summary; the chat folds it into the nearest divider above it.
+ */
+export type CompactionGuidanceEvent = {
+  type: "compaction_guidance";
+  guidance: string;
+  eventId: string;
+  ts: number;
+  line?: number;
+};
+
 export type ClaudeSessionServerEvent =
   | SessionMetaEvent
   | DormantSessionMetaEvent
@@ -651,6 +675,8 @@ export type ClaudeSessionServerEvent =
   | RelayInboundEvent
   // pv-malformed-jsonl-placeholder-bubble (2026-08-10)
   | MalformedLineEvent
+  | CompactionEvent
+  | CompactionGuidanceEvent
   // Phase 50 Plan 02 (D-15 + D-21) — signal-driven send-path watchdog frames
   | PasteSendFailedEvent
   | SendKeysErrorEvent
@@ -1009,6 +1035,8 @@ export type FetchOlderRangeBatchEvent = {
     | RelaySendResultEvent
     | RelayInboundEvent
     | MalformedLineEvent
+    | CompactionEvent
+    | CompactionGuidanceEvent
   )[];
   /**
    * The line-number of the oldest frame in this batch. Plan 04's client
