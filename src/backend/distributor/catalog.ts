@@ -508,7 +508,8 @@ export const FLEET_SUBSTRATE_CATALOG: readonly CatalogEntry[] = [
     restartHook: null,
   },
 
-  // id-load-context: UserPromptSubmit hook that, on an `/id <name>` load,
+  // id-load-context: UserPromptSubmit hook that, on an `/id <name>` load
+  // (and PostToolUse(Skill) hook for the agent invoking the id skill itself),
   // hands the agent its identity file, role files, role skills, the
   // scheduled tasks that run with its roles, its own wake-ups and its
   // project chain — so the load needs no lookup tool calls. Whole files go
@@ -520,6 +521,21 @@ export const FLEET_SUBSTRATE_CATALOG: readonly CatalogEntry[] = [
     sourceKind: "bundled",
     bundledPath: "/app/fleet-substrate/scripts/id-load-context.py",
     installPath: "~/.local/bin/id-load-context",
+    restartHook: null,
+  },
+
+  // precompact-reground: PreCompact hook (manual + auto) for an identity's
+  // main session. Tells the summarizer to leave out what the agent's
+  // directive files hold and to end the summary with the agent's own note to
+  // re-load itself (invoke the id skill for its name) before anything else.
+  // The re-load's identity/role/project context comes from id-load-context's
+  // PostToolUse(Skill) registration. Wired via the run-bootstrap.ts
+  // settings.json patch. No restart hook — new bytes picked up on next fire.
+  {
+    slug: "precompact-reground",
+    sourceKind: "bundled",
+    bundledPath: "/app/fleet-substrate/scripts/precompact-reground.py",
+    installPath: "~/.local/bin/precompact-reground",
     restartHook: null,
   },
 

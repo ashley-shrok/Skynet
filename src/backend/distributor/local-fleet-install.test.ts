@@ -695,6 +695,18 @@ describe("BR2 — bootstrap patches settings.json + runs gsd-context-monitor cle
     );
     expect(allowAllGroup).toBeDefined();
     expect(allowAllGroup?.matcher).toBeUndefined();
+    // Re-ground after compaction: id-load-context also answers the agent's
+    // own id-skill invocation, and precompact-reground runs on every
+    // compaction.
+    type Group = { matcher?: string; hooks?: Array<{ command?: string }> };
+    const idLoadOnSkill = (parsed.hooks.PostToolUse as Group[]).find((g) =>
+      (g.hooks ?? []).some((h) => h.command === "$HOME/.local/bin/id-load-context"),
+    );
+    expect(idLoadOnSkill?.matcher).toBe("Skill");
+    const reground = (parsed.hooks.PreCompact as Group[]).find((g) =>
+      (g.hooks ?? []).some((h) => h.command === "$HOME/.local/bin/precompact-reground"),
+    );
+    expect(reground?.matcher).toBe("manual|auto");
   });
 
   it("settings.json already has all seven keys → noop, no rewrite (mtime unchanged)", async () => {

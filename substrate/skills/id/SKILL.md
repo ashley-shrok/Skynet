@@ -208,6 +208,15 @@ With no roles:
 > "Hi, I'm an agent with no roles — a plain assistant. Ask me to take on a role any time.
 > What we are working on: [as above; omit if none]"
 
+### Re-loading after a compaction
+
+When your context is compacted, your summary ends with your own note to
+invoke this skill for your name before anything else. Do that first — it's
+how your directives come back in full. The load context arrives right after
+this skill, the same as above. It's the same conversation, not a new one:
+don't announce, and don't act on your identity file's next action as if
+starting fresh — your summary says where you are; carry on from there.
+
 ### Holding several roles
 
 When your `roles:` list has more than one entry, the roles combine like this:

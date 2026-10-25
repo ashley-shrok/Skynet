@@ -133,7 +133,9 @@ describe("FLEET_SUBSTRATE_CATALOG", () => {
     // stays — 147 → 76.
     // -1 for the interactive-messages SKILL.md, folded into the id skill
     // (shape-wealthy-text) — 76 → 75.
-    expect(FLEET_SUBSTRATE_CATALOG.length).toBe(75);
+    // +1 for precompact-reground (PreCompact hook — re-ground after
+    // compaction) — 75 → 76.
+    expect(FLEET_SUBSTRATE_CATALOG.length).toBe(76);
   });
 
   it("Test 2: every bundled row's bundledPath starts with /app/fleet-substrate/skills/, /app/fleet-substrate/scripts/, or /app/fleet-substrate/user-onboarding/", () => {
@@ -306,7 +308,8 @@ describe("FLEET_SUBSTRATE_CATALOG", () => {
     // + relay-mcp (host-wide relay MCP server)
     // + id-load-context (UserPromptSubmit hook — `/id` load context)
     // (interactive-messages-gc retired 2026-10-25 — 24 → 23)
-    expect(scriptRows.length).toBe(23);
+    // + precompact-reground (PreCompact hook — re-ground after compaction)
+    expect(scriptRows.length).toBe(24);
     // user-onboarding files: agent-supervisor.service
     // + scheduled-agents-scheduler.service (this ship: move
     // scheduled-agents scheduler from in-process agent-supervisor child
@@ -461,7 +464,8 @@ describe("FLEET_SUBSTRATE_CATALOG", () => {
     // +6 for convo-scoped apps (app-units.sh, promote-app.sh, 1 → 5 unit templates) — 140 → 146.
     // -71 for the retired interactive-messages widget system — 146 → 75.
     // -1 for the interactive-messages SKILL.md — 75 → 74.
-    expect(bundled.length).toBe(74);
+    // +1 for precompact-reground — 74 → 75.
+    expect(bundled.length).toBe(75);
     expect(runtime.length).toBe(1);
 
     // Every bundled row retains bundledPath under /app/fleet-substrate/

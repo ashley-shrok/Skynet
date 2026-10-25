@@ -1,8 +1,10 @@
 #!/usr/bin/env python3
-"""id-load-context — UserPromptSubmit hook.
+"""id-load-context — UserPromptSubmit and PostToolUse (Skill) hook.
 
 When the prompt is `/id <name>` (an identity load — the first message of every
-supervised session, and of any hand-typed load), hand the agent everything the
+supervised session, and of any hand-typed load), or when the agent invokes the
+id skill itself with a name (how it re-loads after a compaction, told to by its
+compaction summary — see precompact-reground), hand the agent everything the
 id skill's load steps would otherwise have it look up with tool calls:
 
   - its identity file
@@ -459,17 +461,31 @@ def main():
         payload = json.load(sys.stdin)
     except ValueError:
         return
-    m = re.match(r"^/id\s+(\S+)\s*$", str(payload.get("prompt") or "").strip())
-    if not m:
+    event = payload.get("hook_event_name") or "UserPromptSubmit"
+    if event == "PostToolUse":
+        # The agent invoked a skill itself; only the id skill with a name loads.
+        tool_input = payload.get("tool_input")
+        if payload.get("tool_name") != "Skill" or not isinstance(tool_input, dict) \
+                or tool_input.get("skill") != "id":
+            return
+        arg = str(tool_input.get("args") or "").strip()
+    elif event == "UserPromptSubmit":
+        m = re.match(r"^/id\s+(\S+)\s*$", str(payload.get("prompt") or "").strip())
+        if not m:
+            return
+        arg = m.group(1)
+    else:
         return
-    name = m.group(1).lower()
+    if not re.match(r"^\S+$", arg):
+        return
+    name = arg.lower()
     if name in RESERVED or not NAME_RE.match(name):
         return
     context = build(name)
     if context is None:
         return
     print(json.dumps({"hookSpecificOutput": {
-        "hookEventName": "UserPromptSubmit",
+        "hookEventName": event,
         "additionalContext": context,
     }}))
 

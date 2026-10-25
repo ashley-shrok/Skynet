@@ -392,6 +392,8 @@ export const SETTINGS_MERGE_JQ =
   `      | .UserPromptSubmit = ((.UserPromptSubmit // []) | if any(.[]?.hooks[]?.command // ""; test("pending-context-drain")) then . else . + [{"hooks":[{"type":"command","command":"$HOME/.local/bin/pending-context-drain"}]}] end)` +
   `      | .PostToolUse = ((.PostToolUse // []) | if any(.[]?.hooks[]?.command // ""; test("pending-context-drain")) then . else . + [{"hooks":[{"type":"command","command":"$HOME/.local/bin/pending-context-drain"}]}] end)` +
   `      | .SessionStart = ((.SessionStart // []) | if any(.[]?.hooks[]?.command // ""; test("pending-context-drain")) then . else . + [{"hooks":[{"type":"command","command":"$HOME/.local/bin/pending-context-drain"}]}] end)` +
+  `      | .PostToolUse = ((.PostToolUse // []) | if any(.[]?.hooks[]?.command // ""; test("id-load-context")) then . else . + [{"matcher":"Skill","hooks":[{"type":"command","command":"$HOME/.local/bin/id-load-context"}]}] end)` +
+  `      | .PreCompact = ((.PreCompact // []) | if any(.[]?.hooks[]?.command // ""; test("precompact-reground")) then . else . + [{"matcher":"manual|auto","hooks":[{"type":"command","command":"$HOME/.local/bin/precompact-reground"}]}] end)` +
   `    )`;
 
 /** CHECK jq expression. Returns true iff every required key is set. */
@@ -417,7 +419,9 @@ export const SETTINGS_CHECK_JQ =
   `  and ((.hooks.PostToolUseFailure // []) | any(.[]?.hooks[]?.command // ""; test("self-edit-baseline-sync")))` +
   `  and ((.hooks.UserPromptSubmit // []) | any(.[]?.hooks[]?.command // ""; test("pending-context-drain")))` +
   `  and ((.hooks.PostToolUse // []) | any(.[]?.hooks[]?.command // ""; test("pending-context-drain")))` +
-  `  and ((.hooks.SessionStart // []) | any(.[]?.hooks[]?.command // ""; test("pending-context-drain")))`;
+  `  and ((.hooks.SessionStart // []) | any(.[]?.hooks[]?.command // ""; test("pending-context-drain")))` +
+  `  and ((.hooks.PostToolUse // []) | any(.[]?.hooks[]?.command // ""; test("id-load-context")))` +
+  `  and ((.hooks.PreCompact // []) | any(.[]?.hooks[]?.command // ""; test("precompact-reground")))`;
 
 /**
  * Number of required keys enforced by SETTINGS_CHECK_JQ, derived from the

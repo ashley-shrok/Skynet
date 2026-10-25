@@ -315,6 +315,11 @@ describe("runBootstrapForHost", () => {
     expect(settingsCmd).toContain(`$HOME/.local/bin/resume-gap-notice`);
     // id-load-context UserPromptSubmit hook — same shape as task-field-check.
     expect(settingsCmd).toContain(`$HOME/.local/bin/id-load-context`);
+    // id-load-context also answers the agent's own id-skill invocation
+    // (PostToolUse, Skill matcher) — the re-ground after compaction.
+    expect(settingsCmd).toContain(`{"matcher":"Skill","hooks":[{"type":"command","command":"$HOME/.local/bin/id-load-context"}]}`);
+    // precompact-reground PreCompact hook, manual + auto.
+    expect(settingsCmd).toContain(`{"matcher":"manual|auto","hooks":[{"type":"command","command":"$HOME/.local/bin/precompact-reground"}]}`);
     // allow-all-tools PreToolUse hook — the merge must add an entry
     // whose command references allow-all-tools when absent. NO matcher
     // field on the entry (universal auto-allow); the shape lives inside
@@ -344,6 +349,8 @@ describe("runBootstrapForHost", () => {
     expect(settingsCmd).toContain(`test("task-field-check")`);
     expect(settingsCmd).toContain(`test("resume-gap-notice")`);
     expect(settingsCmd).toContain(`test("id-load-context")`);
+    expect(settingsCmd).toContain(`(.hooks.PostToolUse // []) | any(.[]?.hooks[]?.command // ""; test("id-load-context"))`);
+    expect(settingsCmd).toContain(`(.hooks.PreCompact // []) | any(.[]?.hooks[]?.command // ""; test("precompact-reground"))`);
     // allow-all-tools idempotency predicate — same rationale.
     expect(settingsCmd).toContain(`.hooks.PreToolUse // []`);
     expect(settingsCmd).toContain(`test("allow-all-tools")`);
