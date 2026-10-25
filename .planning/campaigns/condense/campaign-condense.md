@@ -40,6 +40,8 @@ Ordering: groundwork first (everything else assumes compaction behaves as config
 - Found in shape 3's review: the app's own sends to an agent and the supervisor's inbox pastes aren't coordinated, so a message sent in the same instant as a `/compact` paste could merge with it into one plain message (that compaction then never lands and is given up quietly after 15 minutes). An existing class that any inbox paste shares, rare in practice. — noted-only
 - Shape 3 changed how the supervisor reads "at rest" (input box and footer only, dialogs refused). Watch for requests that expire after 30 minutes in the supervisor log during Keep an Eye. — noted-only (do after campaign close)
 - **After the campaign ships:** run Keep an Eye for a week on how often agents actually re-load themselves after a compaction (Ashley's call, 2026-10-25). — noted-only (do after campaign close)
+- The unread-mark scan (a peer's recent "a user reply clears the unread mark") still counts the plain `/compact …` prompt line — what the supervisor's condense types — as a reply from the user, so a supervisor-sent condense clears the mark. Found in shape 4; Ashley: "Do it here". — done (the scan now skips that prompt line)
+- Search across conversations labels hits inside compaction summaries as things the user said; there's a case for adjusting what search finds (found in shape 4; Ashley: "maybe we don't do that here"). — deferred (outside this campaign)
 - Leftover September prototype compaction hooks removed from t1000's live settings; none on workstation, thenasty, zoeybattlestation; beelink and laptop offline, unchecked. — done
 
 ## Lingerers (explicitly approved)
