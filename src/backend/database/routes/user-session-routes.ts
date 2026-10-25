@@ -5,6 +5,10 @@ import { AuthManager } from "../../utils/auth-manager.js";
 import { authLogger } from "../../utils/logger.js";
 import { db } from "../db/index.js";
 import { sessions, users } from "../db/schema.js";
+import {
+  requireRecentAuth,
+  requireRecentAuthUnlessOwnSession,
+} from "../../utils/recent-auth.js";
 
 type UserSessionRoutesDeps = {
   authenticateJWT: RequestHandler;
@@ -121,7 +125,7 @@ export function registerUserSessionRoutes(
    *       500:
    *         description: Failed to revoke session.
    */
-  router.delete("/sessions/:sessionId", authenticateJWT, async (req, res) => {
+  router.delete("/sessions/:sessionId", authenticateJWT, requireRecentAuthUnlessOwnSession, async (req, res) => {
     const userId = (req as AuthenticatedRequest).userId;
     const sessionId = Array.isArray(req.params.sessionId)
       ? req.params.sessionId[0]
@@ -205,7 +209,7 @@ export function registerUserSessionRoutes(
    *       500:
    *         description: Failed to revoke sessions.
    */
-  router.post("/sessions/revoke-all", authenticateJWT, async (req, res) => {
+  router.post("/sessions/revoke-all", authenticateJWT, requireRecentAuth, async (req, res) => {
     const userId = (req as AuthenticatedRequest).userId;
     const { targetUserId, exceptCurrent } = req.body;
 

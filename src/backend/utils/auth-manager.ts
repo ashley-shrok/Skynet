@@ -11,6 +11,10 @@ import { sessions, trustedDevices, apiKeys } from "../database/db/schema.js";
 import { eq, and, sql } from "drizzle-orm";
 import { nanoid } from "nanoid";
 import type { DeviceType } from "./user-agent-parser.js";
+import {
+  getSessionTimeoutHours,
+  getSessionlessTokenHours,
+} from "./session-timeout.js";
 
 interface AuthenticationResult {
   success: boolean;
@@ -307,14 +311,18 @@ class AuthManager {
       rememberMe?: boolean;
       deviceType?: DeviceType;
       deviceInfo?: string;
+      /** The sign-in proved who it is (password, plus code when on). Only
+       *  then does it start confirmed; anything else (SSO) starts unconfirmed. */
+      identityConfirmed?: boolean;
     } = {},
   ): Promise<string> {
     const jwtSecret = await this.systemCrypto.getJWTSecret();
 
-    const timeoutRow = db.$client
-      .prepare("SELECT value FROM settings WHERE key = 'session_timeout_hours'")
-      .get() as { value: string } | undefined;
-    const defaultExpiry = `${timeoutRow ? parseInt(timeoutRow.value, 10) || 20 : 20}h`;
+    // A real sign-in (one that gets a session) lasts the configured length;
+    // the server's own sessionless tokens keep their old shorter default.
+    const isSignIn =
+      !options.pendingTOTP && !!options.deviceType && !!options.deviceInfo;
+    const defaultExpiry = `${isSignIn ? getSessionTimeoutHours() : getSessionlessTokenHours()}h`;
 
     let expiresIn = options.expiresIn;
     if (!expiresIn && !options.pendingTOTP) {
@@ -356,6 +364,8 @@ class AuthManager {
           createdAt,
           expiresAt,
           lastActiveAt: createdAt,
+          // A password sign-in proves who you are, so it starts confirmed.
+          confirmedAt: options.identityConfirmed === true ? createdAt : null,
         });
 
         try {
@@ -1045,6 +1055,44 @@ class AuthManager {
           .json({ error: "Failed to verify admin privileges" });
       }
     };
+  }
+
+  /** Cancel every access key a user holds — run whenever their password changes. */
+  async revokeUserApiKeys(userId: string, reason: string): Promise<number> {
+    try {
+      const keys = await db
+        .select()
+        .from(apiKeys)
+        .where(eq(apiKeys.userId, userId));
+      if (keys.length === 0) return 0;
+      await db.delete(apiKeys).where(eq(apiKeys.userId, userId));
+      try {
+        const { DatabaseSaveTrigger } = await import(
+          "./database-save-trigger.js"
+        );
+        await DatabaseSaveTrigger.forceSave(`revoke-api-keys:${reason}`);
+      } catch (saveError) {
+        databaseLogger.warn("Failed to persist API key revocation", {
+          operation: "api_keys_revoke_save_failed",
+          userId,
+          error: saveError instanceof Error ? saveError.message : "Unknown",
+        });
+      }
+      authLogger.info("Access keys cancelled", {
+        operation: "api_keys_revoked",
+        userId,
+        reason,
+        count: keys.length,
+      });
+      return keys.length;
+    } catch (error) {
+      databaseLogger.error("Failed to cancel access keys", error, {
+        operation: "api_keys_revoke_failed",
+        userId,
+        reason,
+      });
+      throw error;
+    }
   }
 
   async logoutUser(userId: string, sessionId?: string): Promise<void> {

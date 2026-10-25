@@ -1525,6 +1525,9 @@ const migrateSchema = async () => {
   addColumnIfNotExists("snippets", "folder", "TEXT");
   addColumnIfNotExists("snippets", "order", "INTEGER NOT NULL DEFAULT 0");
   addColumnIfNotExists("snippets", "host_filter", "TEXT");
+  // When the session last proved who it is (password + code) — read by
+  // the "confirm it's you" check on sensitive actions.
+  addColumnIfNotExists("sessions", "confirmed_at", "TEXT");
 
   try {
     sqlite

@@ -26,6 +26,7 @@ import {
 } from "../../notifications/telegram-bots.js";
 import { restartBotPoller, stopBotPoller } from "../../notifications/telegram-poller.js";
 import { sendTelegramToUser } from "../../notifications/telegram-sender.js";
+import { requireRecentAuth } from "../../utils/recent-auth.js";
 
 const router = express.Router();
 const authManager = AuthManager.getInstance();
@@ -214,12 +215,13 @@ router.put(
   "/telegram/bot",
   authenticateJWT,
   requireNotificationsAccess,
+  requireRecentAuth,
   express.json({ limit: "8kb" }),
   async (req: Request, res: Response) =>
     handlePutTelegramBot((req as AuthenticatedRequest).userId, req.body, res),
 );
 
-router.post("/telegram/link", authenticateJWT, requireNotificationsAccess, async (req: Request, res: Response) =>
+router.post("/telegram/link", authenticateJWT, requireNotificationsAccess, requireRecentAuth, async (req: Request, res: Response) =>
   handlePostTelegramLink((req as AuthenticatedRequest).userId, res),
 );
 

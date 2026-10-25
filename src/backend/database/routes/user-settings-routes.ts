@@ -9,6 +9,12 @@ import {
 } from "../../utils/logger.js";
 import { db } from "../db/index.js";
 import { users } from "../db/schema.js";
+import { requireRecentAuth } from "../../utils/recent-auth.js";
+import { DatabaseSaveTrigger } from "../../utils/database-save-trigger.js";
+import {
+  getSessionTimeoutHours,
+  MAX_SESSION_TIMEOUT_HOURS,
+} from "../../utils/session-timeout.js";
 
 function getDefaultGuacUrl(): string {
   return `${process.env.GUACD_HOST || "localhost"}:${process.env.GUACD_PORT || "4822"}`;
@@ -215,14 +221,7 @@ export function registerUserSettingsRoutes(
    */
   router.get("/session-timeout", authenticateJWT, async (_req, res) => {
     try {
-      const row = db.$client
-        .prepare(
-          "SELECT value FROM settings WHERE key = 'session_timeout_hours'",
-        )
-        .get() as { value: string } | undefined;
-      res.json({
-        timeoutHours: row ? parseInt(row.value, 10) : 24,
-      });
+      res.json({ timeoutHours: getSessionTimeoutHours() });
     } catch (err) {
       authLogger.error("Failed to get session timeout", err);
       res.status(500).json({ error: "Failed to get session timeout" });
@@ -245,7 +244,7 @@ export function registerUserSettingsRoutes(
    *       403:
    *         description: Not authorized.
    */
-  router.patch("/session-timeout", authenticateJWT, async (req, res) => {
+  router.patch("/session-timeout", authenticateJWT, requireRecentAuth, async (req, res) => {
     const userId = (req as AuthenticatedRequest).userId;
     try {
       const user = await db.select().from(users).where(eq(users.id, userId));
@@ -255,18 +254,32 @@ export function registerUserSettingsRoutes(
       const { timeoutHours } = req.body;
       if (
         typeof timeoutHours !== "number" ||
+        !Number.isInteger(timeoutHours) ||
         timeoutHours < 1 ||
-        timeoutHours > 720
+        timeoutHours > MAX_SESSION_TIMEOUT_HOURS
       ) {
-        return res
-          .status(400)
-          .json({ error: "timeoutHours must be between 1 and 720" });
+        return res.status(400).json({
+          error: `timeoutHours must be a whole number between 1 and ${MAX_SESSION_TIMEOUT_HOURS}`,
+        });
       }
       db.$client
         .prepare(
           "INSERT OR REPLACE INTO settings (key, value) VALUES ('session_timeout_hours', ?)",
         )
         .run(String(timeoutHours));
+      try {
+        await DatabaseSaveTrigger.forceSave("session-timeout");
+      } catch (saveError) {
+        authLogger.warn("Failed to persist session timeout", {
+          operation: "session_timeout_save_failed",
+          error: saveError instanceof Error ? saveError.message : String(saveError),
+        });
+      }
+      authLogger.info("Session timeout changed", {
+        operation: "session_timeout_set",
+        userId,
+        timeoutHours,
+      });
       res.json({ timeoutHours });
     } catch (err) {
       authLogger.error("Failed to set session timeout", err);

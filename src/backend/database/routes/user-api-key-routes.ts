@@ -4,6 +4,7 @@ import bcrypt from "bcryptjs";
 import { nanoid } from "nanoid";
 import { eq } from "drizzle-orm";
 import { authLogger } from "../../utils/logger.js";
+import { requireRecentAuth } from "../../utils/recent-auth.js";
 import { db } from "../db/index.js";
 import { apiKeys, users } from "../db/schema.js";
 
@@ -38,7 +39,10 @@ export function registerUserApiKeyRoutes(
    *               expiresAt:
    *                 type: string
    *                 format: date-time
-   *                 description: Optional expiration date. Null means the key never expires.
+   *                 description: When the key stops working. Required unless neverExpires is true.
+   *               neverExpires:
+   *                 type: boolean
+   *                 description: Set true (and omit expiresAt) to choose a key that never expires.
    *     responses:
    *       201:
    *         description: API key created. Contains the full token (shown only once).
@@ -51,9 +55,9 @@ export function registerUserApiKeyRoutes(
    *       500:
    *         description: Failed to create API key.
    */
-  router.post("/api-keys", requireAdmin, async (req, res) => {
+  router.post("/api-keys", requireAdmin, requireRecentAuth, async (req, res) => {
     try {
-      const { name, userId: targetUserId, expiresAt } = req.body;
+      const { name, userId: targetUserId, expiresAt, neverExpires } = req.body;
 
       if (typeof name !== "string" || !name.trim()) {
         return res.status(400).json({ error: "name is required" });
@@ -69,6 +73,20 @@ export function registerUserApiKeyRoutes(
         .limit(1);
       if (targetUser.length === 0) {
         return res.status(404).json({ error: "Target user not found" });
+      }
+
+      // The creator must choose how long the key lasts: a date, or
+      // "never" said on purpose. Leaving both out is refused.
+      if (neverExpires === true && expiresAt) {
+        return res
+          .status(400)
+          .json({ error: "Give either expiresAt or neverExpires, not both" });
+      }
+      if (neverExpires !== true && !expiresAt) {
+        return res.status(400).json({
+          error:
+            "Choose how long the key lasts: give expiresAt, or neverExpires: true",
+        });
       }
 
       let expiresAtValue: string | null = null;
@@ -105,6 +123,13 @@ export function registerUserApiKeyRoutes(
 
       const { saveMemoryDatabaseToFile } = await import("../db/index.js");
       await saveMemoryDatabaseToFile();
+
+      authLogger.info("Access key created", {
+        operation: "api_key_created",
+        keyId,
+        userId: targetUserId,
+        expiresAt: expiresAtValue ?? "never",
+      });
 
       return res.status(201).json({
         id: keyId,
@@ -188,7 +213,7 @@ export function registerUserApiKeyRoutes(
    *       500:
    *         description: Failed to delete API key.
    */
-  router.delete("/api-keys/:keyId", requireAdmin, async (req, res) => {
+  router.delete("/api-keys/:keyId", requireAdmin, requireRecentAuth, async (req, res) => {
     try {
       const keyId = String(req.params.keyId);
 

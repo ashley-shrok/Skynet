@@ -8,6 +8,7 @@ import ssh2Pkg from "ssh2";
 import { loadBrandingConfig } from "../../branding/branding-config-loader.js";
 import { db } from "../db/index.js";
 import { hosts, sshCredentials } from "../db/schema.js";
+import { requireRecentAuth } from "../../utils/recent-auth.js";
 
 const { Client } = ssh2Pkg;
 
@@ -405,6 +406,7 @@ export function registerCredentialDeployRoutes(
   router.post(
     "/:id/deploy-to-host",
     authenticateJWT,
+    requireRecentAuth,
     async (req: Request, res: Response) => {
       const id = Array.isArray(req.params.id)
         ? req.params.id[0]

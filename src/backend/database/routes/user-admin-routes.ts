@@ -4,6 +4,7 @@ import { eq, ne } from "drizzle-orm";
 import { authLogger } from "../../utils/logger.js";
 import { db } from "../db/index.js";
 import { users } from "../db/schema.js";
+import { requireRecentAuth } from "../../utils/recent-auth.js";
 
 function isNonEmptyString(val: unknown): val is string {
   return typeof val === "string" && val.trim().length > 0;
@@ -198,7 +199,7 @@ export function registerUserAdminRoutes(
    *       500:
    *         description: Failed to make user admin.
    */
-  router.post("/make-admin", authenticateJWT, async (req, res) => {
+  router.post("/make-admin", authenticateJWT, requireRecentAuth, async (req, res) => {
     const userId = (req as AuthenticatedRequest).userId;
     const { userId: targetUserId, username } = req.body;
     const resolvedUserId = isNonEmptyString(targetUserId)
@@ -464,7 +465,7 @@ export function registerUserAdminRoutes(
    *       500:
    *         description: Failed to set phone number.
    */
-  router.post("/:id/phone", authenticateJWT, async (req, res) => {
+  router.post("/:id/phone", authenticateJWT, requireRecentAuth, async (req, res) => {
     const userId = (req as AuthenticatedRequest).userId;
     const targetId = req.params.id as string;
     const { phoneE164 } = req.body ?? {};
@@ -673,7 +674,7 @@ export function registerUserAdminRoutes(
    *       500:
    *         description: Failed to remove admin status.
    */
-  router.post("/remove-admin", authenticateJWT, async (req, res) => {
+  router.post("/remove-admin", authenticateJWT, requireRecentAuth, async (req, res) => {
     const userId = (req as AuthenticatedRequest).userId;
     const { userId: targetUserId, username } = req.body;
     const resolvedUserId = isNonEmptyString(targetUserId)

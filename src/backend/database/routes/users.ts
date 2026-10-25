@@ -26,12 +26,15 @@ import {
 import { registerUserApiKeyRoutes } from "./user-api-key-routes.js";
 import { registerUserSettingsRoutes } from "./user-settings-routes.js";
 import { registerUserTotpRoutes } from "./user-totp-routes.js";
+import { registerUserConfirmIdentityRoutes } from "./user-confirm-identity-routes.js";
+import { requireRecentAuth } from "../../utils/recent-auth.js";
 import { registerUserSessionRoutes } from "./user-session-routes.js";
 import { registerUserOidcAccountRoutes } from "./user-oidc-account-routes.js";
 import { registerUserPasswordResetRoutes } from "./user-password-reset-routes.js";
 import { registerUserAdminRoutes } from "./user-admin-routes.js";
 import { registerAdminHostsRoutes } from "../../admin-hosts/routes.js";
 import { registerUserPhoneRoutes } from "./user-phone-routes.js";
+import { getSessionTimeoutHours } from "../../utils/session-timeout.js";
 import { registerServiceSecretRoutes } from "../../agent-services/user-secrets/routes.js";
 import { registerUserDataAccessRoutes } from "./user-data-access-routes.js";
 import {
@@ -808,7 +811,7 @@ router.use("/:id/avatar", userAvatarMulterErrorHandler);
  *       500:
  *         description: Failed to update OIDC config.
  */
-router.post("/oidc-config", authenticateJWT, async (req, res) => {
+router.post("/oidc-config", authenticateJWT, requireRecentAuth, async (req, res) => {
   const userId = (req as AuthenticatedRequest).userId;
   try {
     const user = await db.select().from(users).where(eq(users.id, userId));
@@ -962,7 +965,7 @@ router.post("/oidc-config", authenticateJWT, async (req, res) => {
  *       500:
  *         description: Failed to disable OIDC config.
  */
-router.delete("/oidc-config", authenticateJWT, async (req, res) => {
+router.delete("/oidc-config", authenticateJWT, requireRecentAuth, async (req, res) => {
   const userId = (req as AuthenticatedRequest).userId;
   try {
     const user = await db.select().from(users).where(eq(users.id, userId));
@@ -1720,7 +1723,7 @@ router.get("/oidc/callback", async (req, res) => {
       frontendOrigin.startsWith("http://127.0.0.1:") ||
       frontendOrigin.startsWith("skynet-mobile:");
 
-    const maxAge = 20 * 60 * 60 * 1000;
+    const maxAge = getSessionTimeoutHours() * 60 * 60 * 1000;
 
     res.clearCookie("jwt", authManager.getClearCookieOptions(req));
 
@@ -1932,6 +1935,7 @@ router.post("/login", async (req, res) => {
     const token = await authManager.generateJWTToken(userRecord.id, {
       deviceType: deviceInfo.type,
       deviceInfo: deviceInfo.deviceInfo,
+      identityConfirmed: true,
     });
 
     loginRateLimiter.resetAttempts(clientIp, username);
@@ -1950,11 +1954,7 @@ router.post("/login", async (req, res) => {
       username: userRecord.username,
     };
 
-    const timeoutRow = db.$client
-      .prepare("SELECT value FROM settings WHERE key = 'session_timeout_hours'")
-      .get() as { value: string } | undefined;
-    const timeoutHours = timeoutRow ? parseInt(timeoutRow.value, 10) || 20 : 20;
-    const maxAge = timeoutHours * 60 * 60 * 1000;
+    const maxAge = getSessionTimeoutHours() * 60 * 60 * 1000;
 
     return res
       .cookie("jwt", token, authManager.getSecureCookieOptions(req, maxAge))
@@ -2239,7 +2239,7 @@ router.get("/registration-allowed", async (req, res) => {
  *       500:
  *         description: Failed to set registration allowed status.
  */
-router.patch("/registration-allowed", authenticateJWT, async (req, res) => {
+router.patch("/registration-allowed", authenticateJWT, requireRecentAuth, async (req, res) => {
   const userId = (req as AuthenticatedRequest).userId;
   try {
     const user = await db.select().from(users).where(eq(users.id, userId));
@@ -2281,7 +2281,7 @@ router.get("/oidc-auto-provision", async (_req, res) => {
   }
 });
 
-router.patch("/oidc-auto-provision", authenticateJWT, async (req, res) => {
+router.patch("/oidc-auto-provision", authenticateJWT, requireRecentAuth, async (req, res) => {
   const userId = (req as AuthenticatedRequest).userId;
   try {
     const user = await db.select().from(users).where(eq(users.id, userId));
@@ -2370,7 +2370,7 @@ router.get("/password-login-allowed", async (req, res) => {
  *       500:
  *         description: Failed to set password login allowed status.
  */
-router.patch("/password-login-allowed", authenticateJWT, async (req, res) => {
+router.patch("/password-login-allowed", authenticateJWT, requireRecentAuth, async (req, res) => {
   const userId = (req as AuthenticatedRequest).userId;
   try {
     const user = await db.select().from(users).where(eq(users.id, userId));
@@ -2450,7 +2450,7 @@ router.get("/password-reset-allowed", async (req, res) => {
  *       500:
  *         description: Failed to set password reset allowed status.
  */
-router.patch("/password-reset-allowed", authenticateJWT, async (req, res) => {
+router.patch("/password-reset-allowed", authenticateJWT, requireRecentAuth, async (req, res) => {
   const userId = (req as AuthenticatedRequest).userId;
   try {
     const user = await db.select().from(users).where(eq(users.id, userId));
@@ -2645,7 +2645,7 @@ registerUserPasswordResetRoutes(router, { authManager });
  *       500:
  *         description: Failed to update password and re-encrypt data.
  */
-router.post("/change-password", authenticateJWT, async (req, res) => {
+router.post("/change-password", authenticateJWT, requireRecentAuth, async (req, res) => {
   const userId = (req as AuthenticatedRequest).userId;
   const { oldPassword, newPassword } = req.body;
   authLogger.info("Password change request", {
@@ -2697,6 +2697,14 @@ router.post("/change-password", authenticateJWT, async (req, res) => {
     .where(eq(users.id, userId));
 
   authManager.logoutUser(userId);
+  try {
+    await authManager.revokeUserApiKeys(userId, "password_change");
+  } catch {
+    return res.status(500).json({
+      error:
+        "Password changed, but cancelling your access keys failed. Delete them before relying on the new password.",
+    });
+  }
   authLogger.success("Password changed successfully", {
     operation: "password_change_complete",
     userId,
@@ -2754,6 +2762,10 @@ registerUserAdminRoutes(router, authenticateJWT);
 registerAdminHostsRoutes(router, requireAdmin);
 
 registerUserTotpRoutes(router, {
+  authenticateJWT,
+  authManager,
+});
+registerUserConfirmIdentityRoutes(router, {
   authenticateJWT,
   authManager,
 });

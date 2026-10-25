@@ -539,6 +539,38 @@ export function createApiInstance(
       }
       // ── End retry interceptor ─────────────────────────────────────────────
 
+      // "Confirm it's you": the server refused a sensitive action because this
+      // sign-in hasn't proved itself in the last few minutes. Ask for the
+      // password (and code), then send the original request once more.
+      if (
+        status === 403 &&
+        errorCode === "REAUTH_REQUIRED" &&
+        error.config &&
+        !error.config.__reauthAttempted
+      ) {
+        const config = error.config;
+        config.__reauthAttempted = true;
+        const needsCode = !!(error.response?.data as { totpRequired?: boolean })
+          ?.totpRequired;
+        logger.info("reauth_prompt_shown", { requestId, method, url: fullUrl, needsCode });
+        const { kitConfirmIdentity } = await import("@/components/kit/dialogs");
+        const confirmed = await kitConfirmIdentity({
+          needsCode,
+          submit: (password, code) => confirmIdentity(password, code),
+        });
+        logger.info(confirmed ? "reauth_confirmed" : "reauth_cancelled", {
+          requestId,
+          method,
+          url: fullUrl,
+        });
+        if (confirmed) {
+          return instance.request(
+            config as unknown as Parameters<typeof instance.request>[0],
+          );
+        }
+        return Promise.reject(error);
+      }
+
       // Phase 111 SKEW-06b: server-refused stale client (D-15). 409 with the
       // canonical stale_client body triggers the lock. Non-stale_client 409s
       // (business-logic conflicts) DO NOT fire the lock — body-shape check
@@ -643,6 +675,7 @@ interface AxiosRequestConfigExtended extends AxiosRequestConfig {
   __silentRetry?: boolean;
   __noRetry?: boolean;
   __retryAttempt?: number;
+  __reauthAttempted?: boolean;
 }
 
 interface AxiosErrorExtended extends AxiosError {
@@ -1578,6 +1611,27 @@ export async function completePasswordReset(
     return response.data;
   } catch (error) {
     handleApiError(error, "complete password reset");
+  }
+}
+
+/**
+ * "Confirm it's you" — re-prove this sign-in so sensitive actions work for
+ * the next few minutes. Resolves null when accepted, or the message to show.
+ */
+export async function confirmIdentity(
+  password: string,
+  totpCode: string,
+): Promise<string | null> {
+  // Quiet: a wrong password is an answer, not an outage, and isn't retried.
+  const quiet: Record<string, unknown> = { __silentRetry: true, __noRetry: true };
+  try {
+    await authApi.post("/users/confirm-identity", { password, totpCode }, quiet);
+    return null;
+  } catch (error) {
+    const data = (error as AxiosError).response?.data as
+      | { error?: string }
+      | undefined;
+    return data?.error || "Couldn't confirm. Try again.";
   }
 }
 

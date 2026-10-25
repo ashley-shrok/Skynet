@@ -97,6 +97,13 @@ vi.mock("../../utils/logger.js", () => ({
   logger: { error: vi.fn(), info: vi.fn(), warn: vi.fn(), debug: vi.fn() },
 }));
 
+// The confirm-it's-you check is covered in user-confirm-identity-routes.test.ts
+// (and that it guards this route, in recent-auth.coverage.test.ts); here it
+// lets every call through.
+vi.mock("../../utils/recent-auth.js", () => ({
+  requireRecentAuth: (_req: unknown, _res: unknown, next: () => void) => next(),
+}));
+
 import { registerUserPhoneRoutes } from "./user-phone-routes.js";
 
 function buildTestApp(): express.Express {

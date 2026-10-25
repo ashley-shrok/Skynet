@@ -382,6 +382,7 @@ export function registerUserPasswordResetRoutes(
             .set({ passwordHash: password_hash })
             .where(eq(users.id, userId));
           authManager.logoutUser(userId);
+          await authManager.revokeUserApiKeys(userId, "password_reset");
           authLogger.success(
             `Password reset (data preserved) for user: ${username}`,
             {
@@ -409,6 +410,7 @@ export function registerUserPasswordResetRoutes(
           .update(users)
           .set({ passwordHash: password_hash })
           .where(eq(users.username, username));
+        await authManager.revokeUserApiKeys(userId, "password_reset");
 
         try {
           await db

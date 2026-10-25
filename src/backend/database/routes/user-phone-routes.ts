@@ -20,6 +20,7 @@ import { authLogger } from "../../utils/logger.js";
 import { db } from "../db/index.js";
 import { users } from "../db/schema.js";
 import { PHONE_E164_RE } from "./user-admin-routes.js";
+import { requireRecentAuth } from "../../utils/recent-auth.js";
 
 async function persistToDisk(userId: string): Promise<void> {
   // Same non-fatal save as the admin phone endpoint — a failed save leaves
@@ -101,7 +102,7 @@ export function registerUserPhoneRoutes(
    *       404:
    *         description: User not found.
    */
-  router.put("/me/phone", authenticateJWT, async (req, res) => {
+  router.put("/me/phone", authenticateJWT, requireRecentAuth, async (req, res) => {
     const userId = (req as AuthenticatedRequest).userId;
     const { phoneE164 } = req.body ?? {};
 

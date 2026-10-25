@@ -193,6 +193,7 @@ import sessionsRoutes from "./routes/sessions.js";
 // docker/nginx-https.conf for BOTH the WS path AND this REST path per
 // CLAUDE.md nginx caveat (Pitfall 6).
 import relayRoomCreateRoutes from "./routes/relay-room-create.js";
+import { requireRecentAuth } from "../utils/recent-auth.js";
 import relayRoomParticipantsRoutes from "./routes/relay-room-participants.js";
 import userPreferencesRoutes from "./routes/user-preferences.js";
 import whatsNewRoutes from "./routes/whats-new.js";
@@ -883,7 +884,7 @@ app.post("/encryption/regenerate-jwt", requireAdmin, async (req, res) => {
  *       500:
  *         description: Failed to export user data.
  */
-app.post("/database/export", authenticateJWT, async (req, res) => {
+app.post("/database/export", authenticateJWT, requireRecentAuth, async (req, res) => {
   try {
     const userId = (req as AuthenticatedRequest).userId;
     const deviceInfo = parseUserAgent(req);

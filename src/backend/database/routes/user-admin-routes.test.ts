@@ -202,6 +202,13 @@ vi.mock("../../utils/logger.js", () => ({
 // Import the router AFTER all mocks are installed
 // ---------------------------------------------------------------------------
 
+// The confirm-it's-you check is covered in user-confirm-identity-routes.test.ts
+// (and that it guards this route, in recent-auth.coverage.test.ts); here it
+// lets every call through.
+vi.mock("../../utils/recent-auth.js", () => ({
+  requireRecentAuth: (_req: unknown, _res: unknown, next: () => void) => next(),
+}));
+
 import { registerUserAdminRoutes } from "./user-admin-routes.js";
 
 // ---------------------------------------------------------------------------

@@ -144,10 +144,11 @@ export async function createApiKey(
   expiresAt?: string,
 ): Promise<CreatedApiKey> {
   try {
+    // No end date means "never expires", chosen on purpose by the caller.
     const response = await authApi.post("/users/api-keys", {
       name,
       userId,
-      expiresAt: expiresAt ?? null,
+      ...(expiresAt ? { expiresAt } : { neverExpires: true }),
     });
     return response.data;
   } catch (error) {

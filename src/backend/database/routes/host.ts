@@ -47,6 +47,7 @@ import { registerHostAutostartRoutes } from "./host-autostart-routes.js";
 import { registerHostInternalRoutes } from "./host-internal-routes.js";
 import { registerHostNetworkRoutes } from "./host-network-routes.js";
 import { registerHostBulkRoutes } from "./host-bulk-routes.js";
+import { requireRecentAuth } from "../../utils/recent-auth.js";
 
 const router = express.Router();
 
@@ -1902,6 +1903,7 @@ router.get(
   "/db/host/:id/export",
   authenticateJWT,
   requireDataAccess,
+  requireRecentAuth,
   async (req: Request, res: Response) => {
     const hostId = Array.isArray(req.params.id)
       ? req.params.id[0]
@@ -2094,6 +2096,7 @@ router.get(
   "/db/hosts/export",
   authenticateJWT,
   requireDataAccess,
+  requireRecentAuth,
   async (req: Request, res: Response) => {
     const userId = (req as AuthenticatedRequest).userId;
 

@@ -47,10 +47,23 @@ export interface KitAlertOptions {
   okLabel?: string;
 }
 
+export interface KitConfirmIdentityOptions {
+  /** Defaults to "Confirm it's you". */
+  title?: React.ReactNode;
+  /** Defaults to a line saying what to enter. */
+  body?: React.ReactNode;
+  /** Also ask for a two-step code (the account has two-step codes on). */
+  needsCode: boolean;
+  /** Check what was typed. Resolve null when it's accepted, or a message to
+   *  show under the fields (wrong password, wrong code, too many tries). */
+  submit: (password: string, code: string) => Promise<string | null>;
+}
+
 type Request = { key: string | null; promise: Promise<unknown> } & (
   | { kind: "confirm"; id: number; opts: KitConfirmOptions; resolve: (v: boolean) => void }
   | { kind: "prompt"; id: number; opts: KitPromptOptions; resolve: (v: string | null) => void }
   | { kind: "alert"; id: number; opts: KitAlertOptions; resolve: () => void }
+  | { kind: "identity"; id: number; opts: KitConfirmIdentityOptions; resolve: (v: boolean) => void }
 );
 
 let queue: Request[] = [];
@@ -82,7 +95,12 @@ function ensureHost(): void {
 interface AutoAnswer {
   confirm?: boolean | ((o: KitConfirmOptions) => boolean);
   prompt?: string | null | ((o: KitPromptOptions) => string | null);
-  calls: Array<{ kind: Request["kind"]; opts: KitConfirmOptions | KitPromptOptions | KitAlertOptions }>;
+  /** Password and code typed into "Confirm it's you"; null = Cancel. */
+  identity?: { password: string; code: string } | null;
+  calls: Array<{
+    kind: Request["kind"];
+    opts: KitConfirmOptions | KitPromptOptions | KitAlertOptions | KitConfirmIdentityOptions;
+  }>;
 }
 let autoAnswer: AutoAnswer | null = null;
 
@@ -95,6 +113,10 @@ function push(req: Request): void {
     } else if (req.kind === "prompt") {
       const a = autoAnswer.prompt ?? null;
       req.resolve(typeof a === "function" ? a(req.opts) : a);
+    } else if (req.kind === "identity") {
+      const a = autoAnswer.identity ?? null;
+      if (!a) req.resolve(false);
+      else void req.opts.submit(a.password, a.code).then((msg) => req.resolve(msg === null));
     } else req.resolve();
     return;
   }
@@ -140,10 +162,19 @@ function dedupeKey(kind: Request["kind"], opts: { title: React.ReactNode; body?:
 
 function request<T>(
   kind: Request["kind"],
-  opts: KitConfirmOptions | KitPromptOptions | KitAlertOptions,
+  opts: KitConfirmOptions | KitPromptOptions | KitAlertOptions | KitConfirmIdentityOptions,
 ): Promise<T> {
-  const key = autoAnswer ? null : dedupeKey(kind, opts);
+  const key = autoAnswer
+    ? null
+    : kind === "identity"
+      ? "identity"
+      : dedupeKey(kind, opts as KitConfirmOptions);
   const existing = key ? queue.find((r) => r.key === key) : undefined;
+  if (existing && kind === "identity") {
+    // Several actions waiting on the same confirmation share one box and
+    // one answer.
+    return existing.promise as Promise<T>;
+  }
   if (existing) {
     // The first caller gets the real answer; the duplicate is told "no", so
     // an action guarded by the question can't run twice.
@@ -170,6 +201,13 @@ export function kitAlert(opts: KitAlertOptions): Promise<void> {
   return request<void>("alert", opts);
 }
 
+/** "Confirm it's you": ask for the password (and a two-step code) and keep
+ *  asking until `submit` accepts it. Resolves true once accepted, false on
+ *  Cancel. */
+export function kitConfirmIdentity(opts: KitConfirmIdentityOptions): Promise<boolean> {
+  return request<boolean>("identity", opts);
+}
+
 function useQueue(): Request[] {
   return React.useSyncExternalStore(
     (cb) => {
@@ -185,10 +223,125 @@ function KitDialogHost(): JSX.Element | null {
   const q = useQueue();
   const top = q[0];
   if (!top) return null;
+  if (top.kind === "identity") return <IdentityDialogView key={top.id} req={top} />;
   return <DialogView key={top.id} req={top} />;
 }
 
-function DialogView({ req }: { req: Request }): JSX.Element {
+function IdentityDialogView({
+  req,
+}: {
+  req: Extract<Request, { kind: "identity" }>;
+}): React.JSX.Element {
+  const [password, setPassword] = React.useState("");
+  const [code, setCode] = React.useState("");
+  const [error, setError] = React.useState<string | null>(null);
+  const [busy, setBusy] = React.useState(false);
+  const done = React.useRef(false);
+  const { needsCode, title, body } = req.opts;
+
+  const finish = (ok: boolean) => {
+    if (done.current) return;
+    done.current = true;
+    req.resolve(ok);
+    settle(req.id);
+  };
+
+  const submit = async () => {
+    if (busy) return;
+    if (!password) {
+      setError("Enter your password.");
+      return;
+    }
+    if (needsCode && !code.trim()) {
+      setError("Enter the code from your authenticator app.");
+      return;
+    }
+    setBusy(true);
+    setError(null);
+    let msg: string | null;
+    try {
+      msg = await req.opts.submit(password, code.trim());
+    } catch {
+      msg = "Couldn't confirm. Try again.";
+    }
+    if (done.current) return;
+    setBusy(false);
+    if (msg === null) finish(true);
+    else setError(msg);
+  };
+
+  return (
+    <Modal
+      open
+      onOpenChange={(o) => {
+        if (!o) finish(false);
+      }}
+      size="sm"
+      data-testid="kit-identity-dialog"
+    >
+      <form
+        className="k-dialog-body"
+        onSubmit={(e) => {
+          e.preventDefault();
+          void submit();
+        }}
+      >
+        <DialogPrimitive.Title className="k-dialog-title">{title ?? "Confirm it's you"}</DialogPrimitive.Title>
+        <DialogPrimitive.Description className="k-dialog-text">
+          {body ??
+            (needsCode
+              ? "This changes who can get into your account. Enter your password and the code from your authenticator app."
+              : "This changes who can get into your account. Enter your password.")}
+        </DialogPrimitive.Description>
+        <KitField className="k-dialog-field" label="Password" error={needsCode ? undefined : error}>
+          <KitInput
+            type="password"
+            autoComplete="current-password"
+            autoFocus
+            value={password}
+            disabled={busy}
+            onChange={(e) => {
+              setPassword(e.target.value);
+              if (error) setError(null);
+            }}
+            data-testid="kit-identity-password"
+          />
+        </KitField>
+        {needsCode ? (
+          <KitField className="k-dialog-field" label="Two-step code" error={error}>
+            <KitInput
+              inputMode="numeric"
+              autoComplete="one-time-code"
+              mono
+              value={code}
+              disabled={busy}
+              onChange={(e) => {
+                setCode(e.target.value);
+                if (error) setError(null);
+              }}
+              data-testid="kit-identity-code"
+            />
+          </KitField>
+        ) : null}
+        <div className="k-dialog-acts">
+          <KitButton onClick={() => finish(false)} data-testid="kit-dialog-cancel">
+            Cancel
+          </KitButton>
+          <KitButton
+            type="submit"
+            variant="primary"
+            disabled={busy}
+            data-testid="kit-dialog-confirm"
+          >
+            {busy ? "Checking…" : "Confirm"}
+          </KitButton>
+        </div>
+      </form>
+    </Modal>
+  );
+}
+
+function DialogView({ req }: { req: Exclude<Request, { kind: "identity" }> }): React.JSX.Element {
   const [value, setValue] = React.useState(
     req.kind === "prompt" ? req.opts.defaultValue ?? "" : "",
   );
@@ -317,7 +470,7 @@ export function autoAnswerKitDialogs(answers: Omit<AutoAnswer, "calls"> = {}): A
 export function __resetKitDialogsForTests(): void {
   autoAnswer = null;
   for (const r of queue) {
-    if (r.kind === "confirm") r.resolve(false);
+    if (r.kind === "confirm" || r.kind === "identity") r.resolve(false);
     else if (r.kind === "prompt") r.resolve(null);
     else r.resolve();
   }

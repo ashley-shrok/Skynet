@@ -1339,6 +1339,15 @@ crown, then gear.
   focused, so Enter alone never deletes). A "type a name" dialog shows
   what's wrong under the field instead of re-asking. Esc or Cancel backs
   out.
+- **Confirm it's you.** Connecting a Telegram bot (Notifications) or saving a
+  new phone number (Phone) first asks for the user's password, plus the code
+  from their authenticator app when two-step codes are on, unless they signed
+  in or confirmed in the last 10 minutes. A wrong entry says so under the
+  field; Cancel leaves things as they were; once confirmed, the change goes
+  through by itself. Sign-in lasts 30 days.
+  *Agent-side:* sensitive actions refuse a session that hasn't confirmed in
+  the last 10 minutes and always refuse access keys. A fresh sign-in counts;
+  `POST /users/confirm-identity` with `password` + `totpCode` confirms again.
 
 - **What's new (pops up after an update).** When Skynet has been updated
   and the user hasn't yet seen the notes for what changed, a **What's new**

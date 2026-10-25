@@ -10,8 +10,10 @@ import { LazyFieldEncryption } from "../../utils/lazy-field-encryption.js";
 import { authLogger } from "../../utils/logger.js";
 import { loginRateLimiter } from "../../utils/login-rate-limiter.js";
 import { parseUserAgent } from "../../utils/user-agent-parser.js";
+import { getSessionTimeoutHours } from "../../utils/session-timeout.js";
 import { db } from "../db/index.js";
 import { sessions, trustedDevices, users } from "../db/schema.js";
+import { requireRecentAuth } from "../../utils/recent-auth.js";
 
 interface UserTotpRoutesDeps {
   authenticateJWT: RequestHandler;
@@ -40,7 +42,7 @@ export function registerUserTotpRoutes(
    *       500:
    *         description: Failed to setup TOTP.
    */
-  router.post("/totp/setup", authenticateJWT, async (req, res) => {
+  router.post("/totp/setup", authenticateJWT, requireRecentAuth, async (req, res) => {
     const userId = (req as AuthenticatedRequest).userId;
 
     try {
@@ -107,7 +109,7 @@ export function registerUserTotpRoutes(
    *       500:
    *         description: Failed to enable TOTP.
    */
-  router.post("/totp/enable", authenticateJWT, async (req, res) => {
+  router.post("/totp/enable", authenticateJWT, requireRecentAuth, async (req, res) => {
     const userId = (req as AuthenticatedRequest).userId;
     const { totp_code } = req.body;
 
@@ -212,7 +214,7 @@ export function registerUserTotpRoutes(
    *       500:
    *         description: Failed to disable TOTP.
    */
-  router.post("/totp/disable", authenticateJWT, async (req, res) => {
+  router.post("/totp/disable", authenticateJWT, requireRecentAuth, async (req, res) => {
     const userId = (req as AuthenticatedRequest).userId;
     const { password, totp_code } = req.body;
 
@@ -303,7 +305,7 @@ export function registerUserTotpRoutes(
    *       500:
    *         description: Failed to generate backup codes.
    */
-  router.post("/totp/backup-codes", authenticateJWT, async (req, res) => {
+  router.post("/totp/backup-codes", authenticateJWT, requireRecentAuth, async (req, res) => {
     const userId = (req as AuthenticatedRequest).userId;
     const { password, totp_code } = req.body;
 
@@ -521,6 +523,7 @@ export function registerUserTotpRoutes(
       const token = await authManager.generateJWTToken(userRecord.id, {
         deviceType: deviceInfo.type,
         deviceInfo: deviceInfo.deviceInfo,
+        identityConfirmed: true,
       });
 
       authLogger.success("TOTP verification successful", {
@@ -539,15 +542,7 @@ export function registerUserTotpRoutes(
         totp_enabled: !!userRecord.totpEnabled,
       };
 
-      const timeoutRow = db.$client
-        .prepare(
-          "SELECT value FROM settings WHERE key = 'session_timeout_hours'",
-        )
-        .get() as { value: string } | undefined;
-      const timeoutHours = timeoutRow
-        ? parseInt(timeoutRow.value, 10) || 20
-        : 20;
-      const maxAge = timeoutHours * 60 * 60 * 1000;
+      const maxAge = getSessionTimeoutHours() * 60 * 60 * 1000;
 
       return res
         .cookie("jwt", token, authManager.getSecureCookieOptions(req, maxAge))

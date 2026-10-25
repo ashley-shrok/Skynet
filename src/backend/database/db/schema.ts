@@ -96,6 +96,7 @@ export const sessions = sqliteTable("sessions", {
   lastActiveAt: text("last_active_at")
     .notNull()
     .default(sql`CURRENT_TIMESTAMP`),
+  confirmedAt: text("confirmed_at"),
 });
 
 export const trustedDevices = sqliteTable("trusted_devices", {

@@ -24,6 +24,8 @@ import {
   kitConfirm,
   kitPrompt,
   kitAlert,
+  kitConfirmIdentity,
+  autoAnswerKitDialogs,
   __resetKitDialogsForTests,
 } from "./index";
 
@@ -134,6 +136,75 @@ describe("kit dialogs (replace window.confirm / prompt / alert)", () => {
     fireEvent.click(await screen.findByTestId("kit-dialog-cancel"));
     await p;
     await waitFor(() => expect(document.activeElement).toBe(opener));
+  });
+});
+
+describe("kit Confirm it's you", () => {
+  it("asks for password and code, shows a refusal, and resolves true once accepted", async () => {
+    const submit = vi
+      .fn<(pw: string, code: string) => Promise<string | null>>()
+      .mockResolvedValueOnce("Incorrect password")
+      .mockResolvedValueOnce(null);
+    let p!: Promise<boolean>;
+    act(() => {
+      p = kitConfirmIdentity({ needsCode: true, submit });
+    });
+    expect(await screen.findByText("Confirm it's you")).toBeInTheDocument();
+    const pw = screen.getByTestId("kit-identity-password") as HTMLInputElement;
+    const code = screen.getByTestId("kit-identity-code") as HTMLInputElement;
+    expect(pw.type).toBe("password");
+
+    // Nothing typed: blocked before asking the server.
+    fireEvent.click(screen.getByTestId("kit-dialog-confirm"));
+    expect(await screen.findByText("Enter your password.")).toBeInTheDocument();
+    expect(submit).not.toHaveBeenCalled();
+
+    fireEvent.change(pw, { target: { value: "wrong" } });
+    fireEvent.change(code, { target: { value: " 123456 " } });
+    fireEvent.click(screen.getByTestId("kit-dialog-confirm"));
+    expect(await screen.findByText("Incorrect password")).toBeInTheDocument();
+    expect(submit).toHaveBeenLastCalledWith("wrong", "123456");
+
+    fireEvent.change(pw, { target: { value: "right" } });
+    fireEvent.click(screen.getByTestId("kit-dialog-confirm"));
+    await expect(p).resolves.toBe(true);
+    await waitFor(() => expect(screen.queryByTestId("kit-identity-dialog")).toBeNull());
+  });
+
+  it("has no code field without two-step codes, and resolves false on Cancel", async () => {
+    const submit = vi.fn();
+    let p!: Promise<boolean>;
+    act(() => {
+      p = kitConfirmIdentity({ needsCode: false, submit });
+    });
+    await screen.findByTestId("kit-identity-password");
+    expect(screen.queryByTestId("kit-identity-code")).toBeNull();
+    fireEvent.click(screen.getByTestId("kit-dialog-cancel"));
+    await expect(p).resolves.toBe(false);
+    expect(submit).not.toHaveBeenCalled();
+  });
+
+  it("shares one box between actions waiting at the same time", async () => {
+    const submit = vi.fn().mockResolvedValue(null);
+    let a!: Promise<boolean>;
+    let b!: Promise<boolean>;
+    act(() => {
+      a = kitConfirmIdentity({ needsCode: false, submit });
+      b = kitConfirmIdentity({ needsCode: false, submit });
+    });
+    fireEvent.change(await screen.findByTestId("kit-identity-password"), { target: { value: "pw" } });
+    fireEvent.click(screen.getByTestId("kit-dialog-confirm"));
+    await expect(a).resolves.toBe(true);
+    await expect(b).resolves.toBe(true);
+    expect(submit).toHaveBeenCalledTimes(1);
+  });
+
+  it("auto-answers in tests through submit", async () => {
+    const dialogs = autoAnswerKitDialogs({ identity: { password: "pw", code: "1" } });
+    const submit = vi.fn().mockResolvedValue(null);
+    await expect(kitConfirmIdentity({ needsCode: true, submit })).resolves.toBe(true);
+    expect(submit).toHaveBeenCalledWith("pw", "1");
+    expect(dialogs.calls[0].kind).toBe("identity");
   });
 });
 
