@@ -72,6 +72,7 @@ import { registerVoiceModeActive } from "./voice-mode-registry";
 import { createVoiceModeCues, type VoiceModeCue, type VoiceModeCues } from "./voice-mode-cues";
 import { getVoiceModeSettings } from "./voice-mode-settings";
 import { describeMicTrack } from "./mic-level-monitor";
+import { richSpeakable } from "./rich/rich-speech";
 
 // ---------------------------------------------------------------------------
 // Tuning
@@ -222,13 +223,16 @@ export function stripSendPhrase(transcript: string, phrase: string): string | nu
  */
 export function toSpeakableText(markdown: string): string {
   const trayBody = lastAskBody(markdown)?.trimEnd() ?? null;
-  return markdown
+  const withAsk = markdown
     // An ask block is read as its question and choices (shape-interactive-responses).
     .replace(/^ {0,3}```[ \t]*ask[ \t]*\r?\n([\s\S]*?)^ {0,3}```[ \t]*$/gm, (block, body: string) => {
       if (body.trimEnd() !== trayBody) return block;
       const res = parseAskBlock(body);
       return res.ok ? ` Asked you: ${askSpeech(res.ask)} ` : block;
-    })
+    });
+  // Wealthy text reads as its spoken lines (shape-wealthy-text); runs before
+  // the generic code-block drop so charts and diagrams aren't "omitted".
+  return richSpeakable(withAsk)
     .replace(/```[\s\S]*?(```|$)/g, " (code block omitted) ")
     .replace(/!\[([^\]]*)\]\([^)]*\)/g, "$1")
     .replace(/\[([^\]]+)\]\([^)]*\)/g, "$1")

@@ -1,0 +1,86 @@
+/* Wealthy text in agent bubbles (shape-wealthy-text). Charts and diagrams sit
+   on the same neutral dark well as code blocks, so they read the same whatever
+   the agent's bubble colour. */
+
+.pv-rich-panel {
+  position: relative;
+  margin: 0.6em 0;
+  padding: 10px;
+  background: rgba(8, 9, 12, 0.72);
+  border: 1px solid rgba(255, 255, 255, 0.07);
+  border-radius: 10px;
+}
+
+/* Small quiet in-block controls (diagram source toggle, table tools). */
+.pv-rich-tool {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 24px;
+  padding: 0 7px;
+  border: 0;
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--k-t2, #c3c2b7);
+  font-size: 12px;
+  line-height: 1;
+  cursor: pointer;
+}
+.pv-rich-tool:hover { background: rgba(255, 255, 255, 0.12); color: var(--k-t1, #f1ede4); }
+.pv-rich-tool svg { width: 13px; height: 13px; }
+
+/* ── Charts ── */
+.pv-rich-chart-wrap { width: 560px; max-width: 100%; }
+.pv-rich-chart { width: 100%; height: 300px; }
+[data-pv-narrow="true"] .pv-rich-chart { height: 260px; }
+
+/* ── Diagrams ── */
+.pv-rich-diagram { width: max-content; max-width: 100%; min-width: 160px; }
+.pv-rich-diagram-toggle { position: absolute; top: 6px; right: 6px; z-index: 1; opacity: 0; transition: opacity 0.12s; }
+.pv-rich-diagram:hover .pv-rich-diagram-toggle, .pv-rich-diagram-toggle:focus-visible, .pv-rich-diagram-toggle[aria-pressed="true"] { opacity: 1; }
+@media (hover: none) { .pv-rich-diagram-toggle { opacity: 0.85; } }
+.pv-rich-diagram-scroll { overflow-x: auto; }
+.pv-rich-diagram-img { display: block; max-width: none; height: auto; max-height: 560px; object-fit: contain; margin: 0; }
+.pv-rich-diagram pre { margin: 22px 0 0; }
+.pv-rich-loading { padding: 18px 8px; font-size: 12px; color: var(--k-t3, #8d8a82); }
+
+/* ── Fallback ── */
+.pv-rich-fallback-note { margin-top: 0.5em; font-size: 12px; font-style: italic; color: var(--k-t3, #8d8a82); }
+.pv-rich-fallback pre { margin-top: 0.25em; }
+
+/* ── Tables ── */
+.pv-rich-table { position: relative; margin: 0.5em 0; }
+.pv-rich-table table { margin: 0; }
+.pv-rich-th { cursor: pointer; user-select: none; }
+.pv-rich-sort { display: inline-flex; vertical-align: -1px; margin-left: 4px; opacity: 0; transition: opacity 0.12s; }
+.pv-rich-sort svg { width: 12px; height: 12px; }
+.pv-rich-th:hover .pv-rich-sort, .pv-rich-th:focus-visible .pv-rich-sort { opacity: 0.55; }
+.pv-rich-th[data-sorted] .pv-rich-sort { opacity: 0.9; }
+.pv-rich-table-bar { display: flex; align-items: center; gap: 6px; }
+.pv-rich-table-bar:empty { display: none; }
+.pv-rich-table-tools { display: inline-flex; gap: 4px; margin-left: auto; }
+/* Desktop: the tools float at the table's corner, only while hovering it. */
+@media (hover: hover) {
+  .pv-rich-table-tools { position: absolute; top: -10px; right: -6px; opacity: 0; transition: opacity 0.12s; padding: 2px; border-radius: 8px; background: rgba(20, 21, 26, 0.92); }
+  .pv-rich-table:hover .pv-rich-table-tools, .pv-rich-table-tools:focus-within { opacity: 1; }
+}
+/* Touch: always there, in a row under the table. */
+@media (hover: none) {
+  .pv-rich-table-bar { margin-top: 4px; }
+}
+
+/* ── Collapsible sections ── */
+:is(.pv-bubble-agent) details {
+  margin: 0.5em 0;
+  padding: 6px 10px;
+  border: 1px solid rgba(255, 255, 255, 0.09);
+  border-radius: 8px;
+  background: rgba(0, 0, 0, 0.16);
+}
+:is(.pv-bubble-agent) details > summary { cursor: pointer; font-weight: 550; list-style-position: inside; }
+:is(.pv-bubble-agent) details[open] > summary { margin-bottom: 4px; }
+:is(.pv-bubble-agent) details > :last-child { margin-bottom: 0; }
+
+/* ── Math ── */
+.pv-rich-math-display { display: block; margin: 0.5em 0; overflow-x: auto; overflow-y: hidden; }
+.pv-rich-math-src { white-space: pre-wrap; }

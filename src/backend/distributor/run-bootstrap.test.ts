@@ -499,7 +499,7 @@ describe("runBootstrapForHost", () => {
     }
   });
 
-  it("(k3) step 3 retires the interactive-messages widget system (units, GC, skill companions, widget folders) but keeps SKILL.md — real sh against a temp $HOME", async () => {
+  it("(k3) step 3 retires the interactive-messages widget system (units, GC, the whole skill folder, widget folders) — real sh against a temp $HOME", async () => {
     const { channel, exec } = makeChannel({
       "is-enabled": "enabled\nEXIT:0",
       "daemon-reload": "__RELOAD_OK__",
@@ -571,7 +571,7 @@ describe("runBootstrapForHost", () => {
         "im-foo.service",
         "timers.target.wants",
       ]);
-      expect(await fsp.readdir(skillDir)).toEqual(["SKILL.md"]);
+      await expect(fsp.access(skillDir)).rejects.toThrow();
       await expect(fsp.access(nodePath.join(home, ".local/bin/interactive-messages-gc"))).rejects.toThrow();
       await expect(fsp.access(nodePath.join(home, "fleet/interactive-messages"))).rejects.toThrow();
 

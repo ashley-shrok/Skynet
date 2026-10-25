@@ -221,11 +221,10 @@ export interface RuntimeCatalogEntry {
 export type CatalogEntry = BundledCatalogEntry | RuntimeCatalogEntry;
 
 /**
- * The 76-row hand-maintained catalog. Ordered skills-side first (id,
+ * The 75-row hand-maintained catalog. Ordered skills-side first (id,
  * agent-relay, single-file skills, then app-development), then scripts-side,
  * then user-onboarding/ files, then Phase 92 additions (fleet-status-sweep),
- * then Phase 95 additions (pv-context-pct-sweep), then the interactive-messages
- * SKILL.md (its widget companions + GC trio retired 2026-10-25), then the
+ * then Phase 95 additions (pv-context-pct-sweep), then the
  * mega-monitor ambient-monitor launcher, then the
  * Phase 114 twinkie (instance-policy-claude-md — the first runtime-sourced
  * row and the first system-root-installed row).
@@ -955,21 +954,6 @@ export const FLEET_SUBSTRATE_CATALOG: readonly CatalogEntry[] = [
     sourceKind: "bundled",
     bundledPath: "/app/fleet-substrate/skills/app-development/templates/app-starter/src/routes/about/+page.svelte",
     installPath: "~/.claude/skills/app-development/templates/app-starter/src/routes/about/+page.svelte",
-    restartHook: null,
-  },
-
-  // --- interactive-messages skill (1 row: SKILL.md). The widget
-  // companions (create/teardown/iterate-widget.sh + templates/ + tests/)
-  // and the GC trio (script + service + timer) were retired 2026-10-25
-  // with the iframe-widget system; host copies are removed via
-  // RETIRED_SUBSTRATE_FILES / RETIRED_SUBSTRATE_DIRS in run-bootstrap.ts.
-  // No restart hook — skills are read at /id load time; new bytes land on
-  // the identity's next recycle.
-  {
-    slug: "interactive-messages-skill",
-    sourceKind: "bundled",
-    bundledPath: "/app/fleet-substrate/skills/interactive-messages/SKILL.md",
-    installPath: "~/.claude/skills/interactive-messages/SKILL.md",
     restartHook: null,
   },
 

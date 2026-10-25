@@ -25,6 +25,7 @@ import { AskMarker, AnswerBubbleBody } from "./ask/AskBubbleParts";
 import { lastAskBody } from "./ask/ask-format";
 import { parseAnswerMessage, stripTrayNotices } from "./ask/answer-format";
 import { buildSkynetFileUrl, encodeFileLinkSpaces, isSkynetFileUrl } from "./file-url";
+import { RICH_COMPONENTS, RICH_REMARK_PLUGINS, richPre } from "./rich/rich-markdown";
 
 // Presentational chat bubble for one conversational message.
 //
@@ -333,6 +334,9 @@ export const ChatMessage = React.memo(function ChatMessage({
         const inTray = trayAskBody !== null && askBody.trimEnd() === trayAskBody.trimEnd();
         return <AskMarker body={askBody} trayShown={inTray} />;
       }
+      // Wealthy text: charts, diagrams and display formulas in agent replies.
+      const rich = isUser ? null : richPre(node);
+      if (rich) return rich;
       const diff = chatDiffFromPre(node);
       if (diff) return <ChatDiffBlock text={diff.text} patch={diff.patch} />;
       return <CopyableBlock as="pre" {...props}>{children}</CopyableBlock>;
@@ -340,7 +344,9 @@ export const ChatMessage = React.memo(function ChatMessage({
     blockquote: ({ node, children, ...props }) => (
       <CopyableBlock as="blockquote" {...props}>{children}</CopyableBlock>
     ),
-  }), [eventId, onOpenEditor, fileDragOrigin, trayAskBody]);
+    // Wealthy text: workable tables and inline formulas, agent replies only.
+    ...(isUser ? {} : RICH_COMPONENTS),
+  }), [eventId, onOpenEditor, fileDragOrigin, trayAskBody, isUser]);
   const titleText = useMemo(
     () => (ts !== undefined ? new Date(ts).toLocaleString() : undefined),
     [ts],
@@ -543,7 +549,7 @@ export const ChatMessage = React.memo(function ChatMessage({
           </>
         ) : (
           <ReactMarkdown
-            remarkPlugins={REMARK_PLUGINS}
+            remarkPlugins={isUser ? REMARK_PLUGINS : RICH_REMARK_PLUGINS}
             components={markdownComponents}
           >
             {processedContent}

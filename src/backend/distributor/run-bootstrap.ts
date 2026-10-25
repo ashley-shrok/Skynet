@@ -430,9 +430,9 @@ export const GSD_MONITOR_STRIP_JQ =
  *
  *   - .claude/skills/role/SKILL.md — /role skill, retired 2026-10-09 with
  *     the role-history retirement.
- *   - interactive-messages widget system, retired 2026-10-25: the skill's
- *     widget helpers, the GC script + its timer/service units, and the
- *     create-widget port lock. The skill's SKILL.md stays (still shipped).
+ *   - interactive-messages widget system, retired 2026-10-25: the GC script
+ *     and the create-widget port lock (the skill folder itself is a tree,
+ *     below).
  *
  * NOT retired yet: .local/bin/role-file-watch (renamed to file-watch). A
  * watcher started before the rename re-execs itself from that path on every
@@ -444,9 +444,6 @@ export const RETIRED_SUBSTRATE_FILES = [
   // convo-scoped apps: the app unit template moved to templates/units/. Left
   // in place it would be copied into every new app folder with the starter.
   ".claude/skills/app-development/templates/app-starter/app-SLUG.service.template",
-  ".claude/skills/interactive-messages/create-widget.sh",
-  ".claude/skills/interactive-messages/teardown-widget.sh",
-  ".claude/skills/interactive-messages/iterate-widget.sh",
   ".local/bin/interactive-messages-gc",
   "fleet/.create-widget-lock",
 ] as const;
@@ -457,13 +454,13 @@ export const RETIRED_SUBSTRATE_DIRS = [".claude/skills/role"] as const;
  * Only for trees the retired feature owned outright: nothing an agent
  * hand-wrote lives there.
  *
- *   - interactive-messages widget templates/ + tests/ (catalog-installed)
- *     and ~/fleet/interactive-messages/ (one folder per scaffolded widget),
- *     retired 2026-10-25.
+ *   - the interactive-messages skill folder (widget helpers, templates/,
+ *     tests/, and finally its SKILL.md once the question how-to moved into
+ *     the id skill) and ~/fleet/interactive-messages/ (one folder per
+ *     scaffolded widget), retired 2026-10-25.
  */
 export const RETIRED_SUBSTRATE_TREES = [
-  ".claude/skills/interactive-messages/templates",
-  ".claude/skills/interactive-messages/tests",
+  ".claude/skills/interactive-messages",
   "fleet/interactive-messages",
 ] as const;
 

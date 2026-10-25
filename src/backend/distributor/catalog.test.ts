@@ -36,7 +36,7 @@ function bundledPathToRepoPath(bundledPath: string): string {
 }
 
 describe("FLEET_SUBSTRATE_CATALOG", () => {
-  it("Test 1: contains exactly 76 entries (17 conceptual items + agent-supervisor.service unit + file-watch fourth ambient monitor + fleet-status-sweep Phase 92 + pv-context-pct-sweep Phase 95 + ambient-monitor mega-monitor phase + instance-policy-claude-md Phase 114 twinkie + image-gen-skill + image-gen-helper Phase 116 + 24 app-development shape-1 rows (26 originally; favicon.svg row retired 2026-09-28 when the scaffold switched to a static/icon.webp symlink; restore-app.sh row retired 2026-09-30 by the un-archiving campaign, host-side shape) + task-field-check hook + interactive-messages SKILL.md (widget companions + GC trio retired 2026-10-25) + inbox-watcher (fifth ambient-monitor child, shape-agent-supervisor-inbox 2026-10-02) + 4 agent-desktop rows (desktop skill + agent-desktop + desktop-mcp + agent-desktop@.service) + fleet-service agent-services client + pending-context-drain hook)", () => {
+  it("Test 1: contains exactly 75 entries (17 conceptual items + agent-supervisor.service unit + file-watch fourth ambient monitor + fleet-status-sweep Phase 92 + pv-context-pct-sweep Phase 95 + ambient-monitor mega-monitor phase + instance-policy-claude-md Phase 114 twinkie + image-gen-skill + image-gen-helper Phase 116 + 24 app-development shape-1 rows (26 originally; favicon.svg row retired 2026-09-28 when the scaffold switched to a static/icon.webp symlink; restore-app.sh row retired 2026-09-30 by the un-archiving campaign, host-side shape) + task-field-check hook + inbox-watcher (fifth ambient-monitor child, shape-agent-supervisor-inbox 2026-10-02) + 4 agent-desktop rows (desktop skill + agent-desktop + desktop-mcp + agent-desktop@.service) + fleet-service agent-services client + pending-context-drain hook)", () => {
     // 17 = 6 single-file skills + agent-relay (SKILL.md + recv.sh counted as
     // one item) + id (SKILL.md + 3 companions counted as one item) + 8 helper
     // scripts + 1 mega-monitor launcher (ambient-monitor) + 1 Phase 114 twinkie
@@ -131,7 +131,9 @@ describe("FLEET_SUBSTRATE_CATALOG", () => {
     // the GC trio (script + .service + .timer) and 68 skill companions
     // (create/teardown/iterate-widget.sh + 65 template files); SKILL.md
     // stays — 147 → 76.
-    expect(FLEET_SUBSTRATE_CATALOG.length).toBe(76);
+    // -1 for the interactive-messages SKILL.md, folded into the id skill
+    // (shape-wealthy-text) — 76 → 75.
+    expect(FLEET_SUBSTRATE_CATALOG.length).toBe(75);
   });
 
   it("Test 2: every bundled row's bundledPath starts with /app/fleet-substrate/skills/, /app/fleet-substrate/scripts/, or /app/fleet-substrate/user-onboarding/", () => {
@@ -274,7 +276,8 @@ describe("FLEET_SUBSTRATE_CATALOG", () => {
     // +6 for convo-scoped apps (app-units.sh, promote-app.sh, 1 → 5 unit templates) — 108 → 114.
     // -68 for the interactive-messages widget companions, retired
     // 2026-10-25 (SKILL.md stays) — 114 → 46.
-    expect(skillRows.length).toBe(46);
+    // -1 for its SKILL.md, folded into the id skill — 46 → 45.
+    expect(skillRows.length).toBe(45);
     // 18 helper scripts: agent-supervisor + wakeup-scheduler + context-watch +
     // file-watch (4th ambient monitor) + fleet-status-sweep (Phase 92
     // batch sweep) + (usage-reporter / usage-report / claude-usage-collector
@@ -398,17 +401,14 @@ describe("FLEET_SUBSTRATE_CATALOG", () => {
     },
   );
 
-  it("Test 9: interactive-messages widget system (retired 2026-10-25) ships only SKILL.md", () => {
+  it("Test 9: interactive-messages skill (retired 2026-10-25, how-to folded into the id skill) ships nothing", () => {
     const imRows = FLEET_SUBSTRATE_CATALOG.filter(
       (e) =>
         e.slug.startsWith("interactive-messages") ||
         e.slug.startsWith("im-tpl-") ||
         e.installPath.includes("interactive-messages"),
     );
-    expect(imRows.map((e) => e.slug)).toEqual(["interactive-messages-skill"]);
-    expect(imRows[0]?.installPath).toBe(
-      "~/.claude/skills/interactive-messages/SKILL.md",
-    );
+    expect(imRows).toEqual([]);
   });
 
   it("Test T-07: sourceKind discriminant — bundled + runtime row split (Phase 114 D-22 + Phase 116 additions + task-field-check + allow-all-tools + agent-phone + pane-safe starter + 24 app-development rows + self-edit-baseline-sync)", () => {
@@ -460,7 +460,8 @@ describe("FLEET_SUBSTRATE_CATALOG", () => {
     // +1 for app-development make-icon.sh — 139 → 140.
     // +6 for convo-scoped apps (app-units.sh, promote-app.sh, 1 → 5 unit templates) — 140 → 146.
     // -71 for the retired interactive-messages widget system — 146 → 75.
-    expect(bundled.length).toBe(75);
+    // -1 for the interactive-messages SKILL.md — 75 → 74.
+    expect(bundled.length).toBe(74);
     expect(runtime.length).toBe(1);
 
     // Every bundled row retains bundledPath under /app/fleet-substrate/

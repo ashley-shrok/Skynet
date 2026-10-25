@@ -1691,7 +1691,68 @@ crown, then gear.
   user-gated as usual) — it appears in this menu.
   *Agent-side: none* — it arrives as an ordinary slash command.
 
-### Interactive responses (the question tray)
+### What replies can show and ask
+
+#### Wealthy text (what a reply can show)
+
+Inside an ordinary agent reply, between paragraphs, the app draws more than
+text. None of it ever sends anything. The user can only look, hover, sort,
+open and copy.
+
+- **Charts.** Pie, bar, line, scatter and the rest, on a dark panel in the
+  app's look. Hovering a slice, bar or point shows its label, value and
+  percentage (on a phone, tap it; tap elsewhere to clear). Clicking a legend
+  entry hides or shows that series.
+- **Tables.** Clicking a column heading sorts: low to high, then high to
+  low, then back to the agent's order. The sort arrow shows while hovering
+  a heading, and stays on the sorted one. Tables longer than ten rows fold
+  behind **Show all N rows**. Wide tables scroll sideways. A **copy** button
+  (pastes into a spreadsheet as cells) and a **download** button (a
+  spreadsheet file) sit at the table's corner while hovering it, or always
+  in a row under it on a phone. Both follow the sort on screen and include
+  every row. Nothing is remembered: a reload shows the agent's order.
+- **Diagrams.** Flowcharts, sequences, timelines, schedules and graphs are
+  drawn as pictures. A **Source** button at the corner (shown while
+  hovering) switches to the source and back.
+- **Sections you can open.** A one-line summary with a disclosure arrow;
+  clicking it opens or closes the detail beneath.
+- **Math.** Formulas are typeset as math.
+
+A chart, diagram or formula that can't be drawn shows its source as an
+ordinary code block under a quiet "Couldn't draw this chart." line, so
+nothing is lost. Read-aloud and voice mode speak each one as a short line:
+a chart's kind and title, a table's size and headings, a diagram's kind and
+title, a short formula in words, and only the summary of a closed section.
+This is agent replies in their own conversation only: the user's own messages, the terminal view and relay messages show as they always have.
+
+*Agent-side:* these are all things you write in markdown:
+
+- **Chart:** a code block marked `chart` holding a chart option in the
+  standard ECharts format, as JSON (YAML also reads):
+
+  ````
+  ```chart
+  {"title": {"text": "Disk use by folder"},
+   "series": [{"type": "pie", "data": [{"name": "logs", "value": 4.2}, {"name": "cache", "value": 9.1}]}]}
+  ```
+  ````
+
+  Hover values and a legend are added when you don't set them. Colours you
+  set are used. The option is data only: functions, HTML in formatters, and
+  pictures by URL are dropped.
+- **Diagram:** a code block marked `mermaid` (its `timeline` and `gantt`
+  types too), or `dot` for Graphviz.
+- **Section you can open:** `<details>`, then `<summary>One line</summary>`,
+  then a blank line, markdown content, a blank line and `</details>`. Add
+  `open` to the first tag to start it open. This is the only HTML a reply
+  can use; any other tag shows as text.
+- **Math:** `$…$` inline and `$$…$$` for display. A single-dollar formula
+  needs no space just inside either dollar and no digit right after the
+  closing one, so "$5 to $10" stays a price.
+
+A block inside another code block stays an example, not drawn.
+
+#### Interactive responses (what a reply can ask)
 
 When an agent asks a real question with a likely set of answers, it can
 put the question in a **tray attached to the top of the composer** instead
@@ -1736,8 +1797,92 @@ it.
 mode reads the question aloud with the reply; what the user says goes out as
 a reply in words. Agent conversations only — relay rooms have no tray.
 
-*Agent-side: the `interactive-messages` skill is the source of truth on
-the ask format, the kinds of question, and the answer you get back.*
+*Agent-side — asking.* Use the tray for a real decision with a likely set
+of answers ("ship now or tonight?", "which of these go in?", "keep / drop /
+later for each"). Use plain words for chatter, "anything else?", "should I
+continue?" and open-ended questions. Put the context in your prose above
+the block and keep the question short. Write a fenced `ask` block of YAML
+in your reply:
+
+````
+```ask
+id: ship-relay
+question: How should I ship the relay fix?
+options:
+  - Ship now (recommended) | Takes about 4 minutes; open tabs get the reload prompt
+  - Tonight after 10pm | Nobody's usually on then
+  - Hold it | Leave it committed, not pushed
+```
+````
+
+- `id`: a short slug of your own, returned with the answer (made from the
+  question when left out). `question` is required.
+- `options`: two to four is best for text (up to 24 for colours, pictures or
+  time slots). Each is `Label | description` shorthand, where
+  ` (recommended)` on the label marks your pick (put it first), or a mapping
+  with `label` and optionally `value` (returned if it should differ from the
+  label), `description`, `recommended: true`, and one face: `color: "#hex"`,
+  `image: /abs/path` (or a file URL), `file: /abs/path`.
+- Yes/no shorthand: `yes: Delete them` and `no: Not now` instead of options.
+  You get back the label with `value: yes` or `no`.
+- `kind` defaults to `pick-one` with options, `text` without:
+
+  | kind | the user | extra keys |
+  |---|---|---|
+  | `pick-one` | taps one | `layout: list \| grid \| week` |
+  | `pick-several` | ticks any, then Send | `layout` |
+  | `order` | orders the `items` | `items` (not options) |
+  | `decide` | labels each item | `items`, `choices` (2–4) |
+  | `text` / `long-text` | types a line / a paragraph or draft | `placeholder`, `default` |
+  | `number` / `money` | enters an amount | `min`, `max`, `unit` / `currency` (default USD), `default` |
+  | `slider` | slides between two ends | `min`, `max`, `step`, `unit`, `default` |
+  | `date` | picks a day | `default` (YYYY-MM-DD) |
+  | `dropdown` | chooses from a long list | `options` |
+  | `split` | splits `total` across `items`; Send waits until it adds up | `items`, `total`, `unit` |
+
+- `grid` lays options out as tiles (good for colours and pictures). `week`
+  lays out time slots: give each option `time: YYYY-MM-DDTHH:MM` (local); when
+  every option has one, week is used automatically.
+- **Several questions:** `questions:` holding up to four entries, each with
+  its own `question`, a one-or-two-word `header` (its tab), and its own kind
+  and options. One Send covers them all.
+- **One ask per reply.** Only the last top-level `ask` block reaches the
+  tray; an earlier one, or one inside a quote, list or another code block,
+  shows as plain text (that's how you show the format without asking).
+- **Your own conversation only.** Relay messages and rooms have no tray.
+- **Check before sending.** A block that can't be read gets no tray and you
+  aren't told: options need at least two; `decide` needs 2–4 `choices`;
+  `split` needs a `total`; every `week` option needs a `time`. Quote text
+  containing `: ` or starting with a special character.
+
+*Agent-side — the answer.* A user message whose body is an `answer` block,
+sometimes followed by the user's note:
+
+````
+```answer
+ask: ship-relay
+question: How should I ship the relay fix?
+answer: Ship now
+```
+
+after lunch is fine
+````
+
+- `answer` is what the user saw: a label, a list (pick-several; or order top
+  to bottom, marked `ranked: true`), or a mapping (decide: item → choice;
+  split: item → amount). `value` appears only when it differs: your option
+  values, the plain number behind `$1,200.00`, the `YYYY-MM-DD` behind a
+  date. `other: true` marks a **Something else…** answer.
+- Several questions come back as `answers:`, a list of `question` / `answer`
+  entries in order. The question is always restated.
+- Lines starting `[tray]` at the top of a user message come from the app:
+  "I replied in words instead of using the tray for your question …" means
+  their words are the answer, not a refusal. "Your earlier question … was
+  replaced by a newer one before I answered it" means don't wait for that
+  one; ask again if you still need it (at most the three most recent are
+  named; re-asking the same `id` isn't replacing).
+- You can't withdraw a question. If it stops mattering, handle the answer
+  when it comes.
 
 ---
 

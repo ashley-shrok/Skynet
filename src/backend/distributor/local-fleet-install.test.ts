@@ -954,7 +954,7 @@ describe("BR2 — bootstrap patches settings.json + runs gsd-context-monitor cle
     await expect(fs.readFile(path.join(roleDir, "notes.md"), "utf-8")).resolves.toBe("keep me");
   });
 
-  it("retired substrate cleanup: interactive-messages widget system removed (units + .wants links, GC, companions, widget folders), SKILL.md kept", async () => {
+  it("retired substrate cleanup: interactive-messages widget system removed (units + .wants links, GC, the whole skill folder, widget folders)", async () => {
     process.env.SKYNET_PUBLIC_URL = "https://skynet.example.com";
     const unitDir = path.join(tmpRoot, ".config/systemd/user");
     const timersWants = path.join(unitDir, "timers.target.wants");
@@ -997,7 +997,7 @@ describe("BR2 — bootstrap patches settings.json + runs gsd-context-monitor cle
     ]);
     expect(await fs.readdir(timersWants)).toEqual([]);
     expect((await fs.readdir(defaultWants)).sort()).toEqual(["agent-supervisor.service", "im-foo.service"]);
-    expect(await fs.readdir(skillDir)).toEqual(["SKILL.md"]);
+    await expect(fs.access(skillDir)).rejects.toThrow();
     await expect(fs.access(path.join(tmpRoot, ".local/bin/interactive-messages-gc"))).rejects.toThrow();
     await expect(fs.access(path.join(tmpRoot, "fleet/interactive-messages"))).rejects.toThrow();
 
