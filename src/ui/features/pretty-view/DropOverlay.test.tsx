@@ -29,7 +29,8 @@ describe("DropOverlay", () => {
     const outer = container.firstChild as HTMLElement;
     expect(outer).toBeTruthy();
     const cls = outer.className ?? "";
-    expect(cls.includes("pointer-events-none")).toBe(true);
+    expect(cls).toContain("pv-status");
+    expect(outer.getAttribute("data-passive")).toBe("true");
   });
 
   it("folder-rejected overlay ALSO uses pointer-events-none (parity with drag-over variant)", () => {
@@ -38,6 +39,7 @@ describe("DropOverlay", () => {
     );
     const outer = container.firstChild as HTMLElement;
     const cls = outer.className ?? "";
-    expect(cls.includes("pointer-events-none")).toBe(true);
+    expect(cls).toContain("pv-status");
+    expect(outer.getAttribute("data-passive")).toBe("true");
   });
 });

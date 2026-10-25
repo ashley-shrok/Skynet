@@ -522,3 +522,55 @@ button.pv-float:focus-visible { outline: 2px solid var(--k-acc); outline-offset:
   box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35);
   font-family: var(--font-sans);
 }
+
+/* ── Status overlays: loading, session recycling, connection failed, room gone,
+   drop files. A solid darkening over the messages (no blur) and one card in the
+   floating-control look. The composer stays uncovered. ── */
+.pv-status {
+  position: absolute;
+  inset: 0;
+  z-index: 99;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: rgba(11, 12, 15, 0.72);
+  pointer-events: auto;
+  animation: pv-status-in 0.15s ease-out;
+}
+.pv-status[data-passive="true"] { z-index: 95; pointer-events: none; }
+.pv-status-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  max-width: 360px;
+  padding: 14px 18px;
+  border-radius: 16px;
+  text-align: center;
+  font-family: var(--font-sans);
+}
+.pv-status-row { display: flex; align-items: center; gap: 10px; }
+.pv-status-title { font-size: 14px; font-weight: 600; line-height: 1.35; color: var(--k-t1); }
+.pv-status-sub { margin-top: -6px; font-size: 13px; line-height: 1.4; color: var(--k-t2); }
+.pv-status-icon { width: 18px; height: 18px; flex-shrink: 0; color: var(--k-t2); }
+.pv-status[data-tone="danger"] .pv-status-icon { color: var(--k-danger-text); }
+.pv-status[data-tone="warn"] .pv-status-icon { color: var(--k-warn); }
+.pv-status .pv-wip-orb { width: 22px; height: 22px; }
+.pv-status .pv-wip-orb::before {
+  -webkit-mask: radial-gradient(circle, transparent 7.5px, #000 8px);
+  mask: radial-gradient(circle, transparent 7.5px, #000 8px);
+}
+.pv-status .pv-wip-orb > i { width: 9px; height: 9px; }
+/* Drop files: a dashed outline around the whole conversation. */
+.pv-status-drop {
+  position: absolute;
+  inset: 14px;
+  border: 2px dashed var(--k-hair2);
+  border-radius: 18px;
+  pointer-events: none;
+}
+@keyframes pv-status-in { from { opacity: 0; } }
+@media (prefers-reduced-motion: reduce) {
+  .pv-status { animation: none; }
+}

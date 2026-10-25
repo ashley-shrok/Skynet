@@ -77,51 +77,13 @@ describe("PrettyViewErrorOverlay — Retry button click", () => {
 
 // ─── Test 4 ───────────────────────────────────────────────────────────────────
 
-describe("PrettyViewErrorOverlay — motion-channel guardrail (static RefreshCcw)", () => {
-  it("RefreshCcw svg does NOT carry the spin-animation class (state, not work — D-07)", () => {
-    // Regression guard: mirrors the negative assertion in
-    // SessionHoldingOverlay.test.tsx A3 + DormancyOverlay.test.tsx Test 7.
-    // This overlay represents STATE (connection permanently down), not
-    // WORK. Motion channel across pretty-view is owned by WipBubble (task
-    // work) and PrettyViewLoadingOverlay's Loader2 (surface work). Patch
-    // #72 lineage: a spinner here would steal focus from real
-    // work-in-progress indicators. If a future refactor silently adds the
-    // spin class to "make it feel more alive", this test catches it and
-    // forces a re-read of the file-header rationale.
-    const { container } = render(
-      <PrettyViewErrorOverlay onRetry={vi.fn()} />,
-    );
-    const svg = container.querySelector("svg");
-    expect(svg).not.toBeNull();
-    // Reference to the class name is deliberately split so a source-file
-    // grep for the exact token returns zero (source-file invariant per
-    // the plan's <verification> block). The regex still matches the
-    // rendered class-list.
-    expect(svg?.getAttribute("class") ?? "").not.toMatch(
-      /(^| )animate-spin( |$)/,
-    );
-  });
-});
-
-// ─── Test 5 ───────────────────────────────────────────────────────────────────
-
-describe("PrettyViewErrorOverlay — iOS Safari backdrop-filter hardening (patch #333)", () => {
-  it("scrim carries isolate and [transform:translateZ(0)] and [-webkit-backdrop-filter:blur(12px)]", () => {
-    // Non-negotiable class-list per the fork's iOS PWA compat rule.
-    // Without these three tokens, iOS Safari silently degrades
-    // backdrop-filter rendering on layers currently painting when a
-    // MediaStream (mic recording) or similar compositor state change
-    // fires. user uses this fork primarily on her iPhone PWA — the
-    // hardening is load-bearing, not cosmetic. Mirrors the class-token
-    // assertion pattern from PrettyViewLoadingOverlay.test.tsx:59-79.
-    const { container } = render(
-      <PrettyViewErrorOverlay onRetry={vi.fn()} />,
-    );
-    const scrim = container.querySelector('[role="alert"]');
-    expect(scrim).not.toBeNull();
-    const cls = scrim?.getAttribute("class") ?? "";
-    expect(cls).toMatch(/(^| )isolate( |$)/);
-    expect(cls).toMatch(/\[transform:translateZ\(0\)\]/);
-    expect(cls).toMatch(/\[-webkit-backdrop-filter:blur\(12px\)\]/);
+describe("PrettyViewErrorOverlay — look", () => {
+  it("renders in the shared status overlay, danger tone, still glyph, kit Retry", () => {
+    const { container } = render(<PrettyViewErrorOverlay onRetry={vi.fn()} />);
+    const root = container.querySelector('[role="alert"]');
+    expect(root!.classList.contains("pv-status")).toBe(true);
+    expect(root!.getAttribute("data-tone")).toBe("danger");
+    expect(container.querySelector(".animate-spin")).toBeNull();
+    expect(container.querySelector("button")!.classList.contains("k-btn")).toBe(true);
   });
 });

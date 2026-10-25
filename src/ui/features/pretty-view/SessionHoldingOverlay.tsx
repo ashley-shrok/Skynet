@@ -1,87 +1,12 @@
-// Patch #74: full-surface session-recycle overlay for the pretty view.
-//
-// Replaces the previous `SessionHoldingBanner.tsx` sticky top-of-scroll
-// pill. user's live 2026-07-19 design read: the old top-bar treatment
-// was "too subtle for how significant the state actually is" — a session
-// recycle means the pretty-view surface is genuinely unusable for the
-// next few seconds, and the UI should communicate that with a scrim +
-// centered card, not a thin pill at the top edge that can be missed.
-//
-// Shape:
-//   * Scrim (`absolute inset-0`) with backdrop-blur-md + bg-black/40
-//     dims and blurs everything under it. Quick 260729-j8l narrowed
-//     the geometry: the overlay is now mounted INSIDE PrettyView's
-//     chat-region wrapper (the same wrapper IdentityModal portals
-//     INTO), NOT at data-pv-root. So `absolute inset-0` resolves
-//     against the chat-region — covering messages, WIP / plan
-//     bubbles, ambient panels, and the jump-to-latest pill — while
-//     the ComposeBox (peer sibling below the wrapper) stays
-//     UNCOVERED so user can pre-draft the next message during the
-//     2-15s recycle window. ComposeBox's own `recycleActive` prop
-//     handles disabling every WS-side-effecting control during the
-//     window; textarea autosave (patches #57 / #119) preserves the
-//     draft across the recycle by the existing mechanism.
-//   * `pointer-events-auto` on the scrim catches mouse/keyboard input
-//     that would otherwise flow through to widgets underneath — this
-//     is a UX affordance ("wait, this is unavailable"), not a security
-//     boundary (see threat model T-260719-5ym-02).
-//   * A centered glass card sits inside the scrim, mirroring
-//     `WipBubble` treatment but with slightly
-//     more prominent padding (px-4 py-3 vs. px-3 py-2, gap-3 vs. gap-2)
-//     since it is the sole focal element on the surface.
-//   * `animate-in fade-in duration-150` (tw-animate-css, already
-//     imported in `src/ui/index.css`) gives a soft entrance. There is
-//     no exit animation — the parent unmounts and the DOM disappears
-//     the moment `isHolding` flips false, which reads as clean and
-//     appropriate for "the state resolved."
-//
-// GUARDRAIL — motion channel:
-//   The glyph is a STATIC `RefreshCcw`. Do NOT add `animate-spin` here.
-//   Patch #72 established the rule that the motion channel across pretty
-//   view is owned by `WipBubble` — a spinner in this overlay would steal
-//   focus from real work-in-progress indicators and blur the semantic
-//   between "Claude is doing something" (WipBubble) and "the surface is
-//   temporarily unavailable" (this overlay). Static glyph = STATE, not
-//   WORK. The original `SessionHoldingBanner` honored the same guardrail
-//   and this patch inherits it.
-//
-// GATING:
-//   The parent (`PrettyView.tsx`) decides whether to mount this
-//   component. When mounted, the overlay renders. The parent gates on a
-//   `showOverlay` state that is delay-armed (~350ms) after `isHolding`
-//   goes true, so genuinely-instant recycles never flash the overlay.
-//   This component itself has no visibility props.
-//
-//   Quick 260729-j8l: the mount point moved from `data-pv-root` into
-//   the chat-region wrapper (`ref={setChatRegionEl}` in PrettyView).
-//   This is a GEOMETRY change — the scrim's `absolute inset-0` now
-//   inherits the chat-region's box, not the whole pretty-view root.
-//   Everything else (z-index, blur, glass card, error variant, motion
-//   channel guardrail) is unchanged. See PrettyView.tsx's mount-site
-//   comment for the "ComposeBox stays uncovered so a next message can
-//   be pre-drafted mid-recycle" rationale.
-//
-// Patch #122 — error variant:
-//   Accepts an optional `error` prop. When true, the card renders the
-//   same geometry with a warm-red glyph and copy: "Session recycle
-//   failed — refresh to check." Trigger is a 120s timeout without
-//   `session_changed` OR a backend `inactive { reason: 'holding_timeout' }`
-//   frame. The motion-channel guardrail above (STATIC RefreshCcw — NO
-//   animate-spin) still applies — error state ≠ work state. Warm-red
-//   hue matches the fork's existing meter-well red-band palette
-//   (ComposeBox.tsx line 981 `hsla(0,72%,55%,1)`) to keep one warm-red
-//   across the app.
+// Session recycling: the agent's session is restarting, so the message area is
+// unusable for a few seconds. PrettyView mounts this (after a short delay, so
+// instant recycles never flash it) and flips `error` after a 120s timeout or a
+// backend holding_timeout. The glyph stays still — this is a state, not work.
 
 import { RefreshCcw } from "lucide-react";
-import { cn } from "@/lib/utils";
+import { StatusOverlay } from "./StatusOverlay";
 
 interface SessionHoldingOverlayProps {
-  // Patch #122: when true, render the warm-red "recycle failed — refresh
-  // to check" variant instead of the neutral "Session recycling…"
-  // variant. PrettyView flips this after 120s without session_changed
-  // OR on `inactive { reason: 'holding_timeout' }` from the backend.
-  // Motion channel guardrail (see file header) is unchanged: static
-  // glyph in both variants — NO spinner even on error.
   error?: boolean;
 }
 
@@ -89,99 +14,17 @@ export function SessionHoldingOverlay({
   error = false,
 }: SessionHoldingOverlayProps) {
   return (
-    <div
-      role="status"
-      aria-label={
+    <StatusOverlay
+      tone={error ? "danger" : "neutral"}
+      ariaLabel={
         error
           ? "Session recycle failed — refresh the browser to check"
           : "Session recycling — pretty view temporarily unavailable"
       }
-      className={cn(
-        // Scrim: `absolute inset-0` inherits the box of whichever
-        // parent PrettyView mounts this into. Quick 260729-j8l moved
-        // the mount from `data-pv-root` into the chat-region wrapper
-        // (the same wrapper IdentityModal portals INTO), so the scrim
-        // now covers messages / tasks / shells only — ComposeBox
-        // stays UNCOVERED. z-[99] sits BELOW IdentityBadge (z-[101])
-        // so the badge stays visible AND clickable during a session
-        // recycle — user wants to see who's speaking and open the
-        // identity modal even mid-recycle (supersedes patch #111
-        // rationale; live feedback reversed the prior elevation so the
-        // badge is no longer covered). Still below app-modal dialogs
-        // (z-[500]) — this is a component-local overlay, not an
-        // app-modal event. pointer-events-auto blocks clicks and
-        // typing on everything the scrim covers; IdentityBadge is NOT
-        // covered — it is a sibling in the same stacking context,
-        // sitting above the scrim by z-index, so pointer-events-auto
-        // on the scrim does not affect it.
-        "absolute inset-0 z-[99]",
-        "flex items-center justify-center",
-        "backdrop-blur-md bg-black/40",
-        "[-webkit-backdrop-filter:blur(12px)]",
-        // iOS Safari backdrop-filter compositor-churn hardening. Without
-        // these, opening a MediaStream (mic recording) or a similar
-        // compositor state change silently degrades backdrop-filter
-        // rendering on layers currently painting — the darken layer
-        // (bg-black/40) still works but the blur stops, leaving the
-        // scrim looking like a plain translucent shade with fully
-        // legible content beneath. `isolation: isolate` gives the
-        // scrim its own stacking context; `transform: translateZ(0)`
-        // forces its own GPU compositing layer. Together they pin a
-        // stable reference frame for backdrop-filter that survives
-        // sibling compositor churn. Standard iOS Safari fix for the
-        // class of "backdrop-filter randomly stops rendering" bugs.
-        "isolate [transform:translateZ(0)]",
-        "pointer-events-auto",
-        "animate-in fade-in duration-150",
-      )}
-    >
-      <div
-        className={cn(
-          // Centered glass card — mirrors WipBubble aesthetic
-          // with slightly more presence (px-4 py-3 vs. px-3 py-2,
-          // gap-3 vs. gap-2) since it is the surface's sole focal
-          // element while the overlay is up.
-          "rounded-[var(--radius-pv-bubble)] px-4 py-3",
-          "backdrop-blur-xl saturate-150",
-          "[-webkit-backdrop-filter:blur(20px)_saturate(1.6)]",
-          // Patch #127: error variant flips card body to warm-red-tinted
-          // gradient + text color so the failure state reads red at a
-          // glance rather than only the glyph + subtle inset shadow
-          // reading red against a neutral navy card. Warm-red stops sit
-          // in the same hue family as ComposeBox.tsx line ~981
-          // `hsla(0,72%,55%,1)` — one warm-red across the app.
-          error
-            ? "bg-[linear-gradient(160deg,rgba(85,30,35,0.55),rgba(55,20,25,0.6))]"
-            : "bg-[linear-gradient(160deg,rgba(45,55,80,0.5),rgba(28,35,55,0.55))]",
-          error ? "text-[#f5d0d4]" : "text-[#dfe3ee]",
-          "border border-white/[0.08]",
-          // Patch #122: warm-red inset glow on error matches the fork's
-          // existing meter-well red-band palette (ComposeBox.tsx line
-          // 981 `hsla(0,72%,55%,1)`). Subtle red warmth on the card
-          // edge, not a warning-banner blare.
-          error
-            ? "shadow-[0_8px_24px_rgba(0,0,0,0.5),_0_1px_0_rgba(255,200,200,0.14)_inset,_0_0_18px_hsla(0,72%,55%,0.18)]"
-            : "shadow-[0_8px_24px_rgba(0,0,0,0.5),_0_1px_0_rgba(255,255,255,0.12)_inset,_0_0_0_0.5px_rgba(255,255,255,0.05)]",
-          "flex items-center gap-3 text-sm",
-        )}
-      >
-        <RefreshCcw
-          className={cn(
-            "h-4 w-4 shrink-0",
-            // Patch #122: warm-red on error, matches the fork's existing
-            // meter-well red-band hue (ComposeBox.tsx line 981) so the
-            // whole app reads with one warm-red palette rather than a
-            // clash of destructive-reds.
-            error && "text-[hsl(0,72%,60%)]",
-          )}
-          aria-hidden="true"
-        />
-        <span>
-          {error
-            ? "Session recycle failed — refresh to check"
-            : "Session recycling…"}
-        </span>
-      </div>
-    </div>
+      icon={<RefreshCcw className="pv-status-icon" aria-hidden="true" />}
+      title={
+        error ? "Session recycle failed — refresh to check" : "Session recycling…"
+      }
+    />
   );
 }
