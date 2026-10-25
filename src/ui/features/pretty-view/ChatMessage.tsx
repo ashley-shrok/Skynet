@@ -23,7 +23,7 @@ import { FileChip } from "./FileChip";
 import { AppChip } from "./AppChip";
 import { parseSkynetAppUrl } from "../apps/app-link";
 import { WidgetBubble } from "./WidgetBubble";
-import { buildSkynetFileUrl, isSkynetFileUrl } from "./file-url";
+import { buildSkynetFileUrl, encodeFileLinkSpaces, isSkynetFileUrl } from "./file-url";
 
 // Presentational chat bubble for one conversational message.
 //
@@ -208,7 +208,12 @@ export const ChatMessage = React.memo(function ChatMessage({
   // sentinel markers, then the `p` component override below splits those
   // markers out into <CommandChip> pills. Backend session-file-parser stays
   // faithful to the wire format — this transform is client-render-only.
-  const processedContent = useMemo(() => preprocessCommandTriplets(content), [content]);
+  // File links with spaces in the path are repaired first (see
+  // encodeFileLinkSpaces) so they parse as links instead of half-autolinking.
+  const processedContent = useMemo(
+    () => preprocessCommandTriplets(encodeFileLinkSpaces(content)),
+    [content],
+  );
   // BUG C1 fix: memoize the ReactMarkdown `components` object. Passing a fresh
   // inline object literal every render forces ReactMarkdown to remount its
   // child overrides on every parent re-render. Deps are exactly the values

@@ -462,7 +462,8 @@ Construct one like so — read the app's parent domain from
       exit 1
     fi
     FILE=/home/ubuntu/note.md            # MUST be an absolute path (leading /)
-    printf '[%s](%s/file/%s%s)\n' "$(basename "$FILE")" "$APP_PARENT" "$HOST" "$FILE"
+    ENC=$(python3 -c 'import sys, urllib.parse; print(urllib.parse.quote(sys.argv[1]))' "$FILE")
+    printf '[%s](%s/file/%s%s)\n' "$(basename "$FILE")" "$APP_PARENT" "$HOST" "$ENC"
 
 **What the user sees.** The frontend renders your file URL as a **chip**
 showing the filename. Clicking the chip opens the file in the **file
@@ -499,9 +500,10 @@ never touched by the app.
 - **Path must be absolute** (leading `/`). Relative paths land you an
   `invalid path` error at the modal.
 
-- **Do NOT URL-encode the whole path** — browsers handle spaces/unicode
-  at the individual character; the path segments themselves stay literal,
-  matching how file URLs read elsewhere (GitHub blob URLs, etc.).
+- **Percent-encode the path, keeping the `/` separators** — a space
+  becomes `%20` (the recipe's `ENC` line does this). A markdown link
+  can't hold a bare space: `[x](…/my file.xlsx)` breaks into a chip for
+  a file called `my`. The chip decodes the name back for display.
 
 - **Backend reads as this box's SSH user** (usually `ubuntu`). Files
   under root-only paths — `/root/*`, `/etc/shadow`, `/proc/*`, `/sys/*`,

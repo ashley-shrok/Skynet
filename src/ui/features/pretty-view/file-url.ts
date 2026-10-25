@@ -142,3 +142,64 @@ export interface OpenFileInConversationDetail {
   url: string;
   filename: string;
 }
+
+/** Start of a markdown link destination that is a Skynet file URL. */
+const FILE_LINK_START_RE = /\]\(https?:\/\/[^/\s()]+\/file\//g;
+/** Trailing markdown link title: ` "title"`. */
+const LINK_TITLE_RE = /\s+"[^"\n]*"$/;
+
+/**
+ * Repair markdown links to Skynet file URLs whose path holds literal spaces:
+ * `[x](https://…/file/host/a b.xlsx)`. CommonMark forbids spaces in a link
+ * destination, so the link fails to parse and GFM's autolinker grabs the bare
+ * URL up to the first space — a chip for a file that doesn't exist. Spaces in
+ * the destination become `%20` (the chip decodes them back). Parens nested
+ * in the filename are balanced the way CommonMark balances them; fenced code
+ * is left alone.
+ */
+export function encodeFileLinkSpaces(text: string): string {
+  if (!text.includes("/file/")) return text;
+  let inFence = false;
+  return text
+    .split("\n")
+    .map((line) => {
+      if (/^\s*(```|~~~)/.test(line)) {
+        inFence = !inFence;
+        return line;
+      }
+      if (inFence || !line.includes("/file/")) return line;
+      let out = "";
+      let pos = 0;
+      FILE_LINK_START_RE.lastIndex = 0;
+      let m: RegExpExecArray | null;
+      while ((m = FILE_LINK_START_RE.exec(line)) !== null) {
+        const destStart = m.index + 2;
+        let depth = 0;
+        let end = -1;
+        for (let i = destStart; i < line.length; i++) {
+          const c = line[i];
+          if (c === "(") depth++;
+          else if (c === ")") {
+            if (depth === 0) {
+              end = i;
+              break;
+            }
+            depth--;
+          }
+        }
+        if (end === -1) break;
+        let dest = line.slice(destStart, end);
+        let title = "";
+        const t = LINK_TITLE_RE.exec(dest);
+        if (t) {
+          title = t[0];
+          dest = dest.slice(0, t.index);
+        }
+        out += line.slice(pos, destStart) + dest.replace(/ /g, "%20") + title;
+        pos = end;
+        FILE_LINK_START_RE.lastIndex = end;
+      }
+      return out + line.slice(pos);
+    })
+    .join("\n");
+}

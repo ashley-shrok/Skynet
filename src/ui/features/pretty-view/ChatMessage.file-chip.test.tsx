@@ -47,6 +47,20 @@ describe("ChatMessage — file-chip a-override", () => {
   // use that origin explicitly to exercise the same-origin guard.
   const ORIGIN = window.location.origin;
 
+  it("renders one chip, named in full, for a file link with spaces in the path", () => {
+    const url = `${ORIGIN}/file/workstation/home/u/recon/PBM APP recon - proposed changes.xlsx`;
+    const { container } = render(
+      <ChatMessage
+        role="assistant"
+        eventId="e1"
+        content={`Here's the copy: [PBM APP recon - proposed changes.xlsx](${url})`}
+        onOpenEditor={vi.fn()}
+      />,
+    );
+    expect(screen.getAllByText("PBM APP recon - proposed changes.xlsx")).toHaveLength(1);
+    expect(container.textContent).not.toContain("](");
+  });
+
   it("renders a FileChip for a Skynet file URL on the same origin", () => {
     const url = `${ORIGIN}/file/t1000/home/ubuntu/notes.md`;
     render(

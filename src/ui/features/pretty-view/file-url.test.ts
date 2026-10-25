@@ -5,6 +5,7 @@
 import { describe, it, expect } from "vitest";
 import {
   buildSkynetFileUrl,
+  encodeFileLinkSpaces,
   fileNameOfPath,
   isValidFileAddress,
   parseFileChipPayload,
@@ -82,5 +83,41 @@ describe("parseFileChipPayload", () => {
     expect(parseFileChipPayload("{nope")).toBeNull();
     expect(parseFileChipPayload(JSON.stringify({ host: "Skynet", path: "rel.md" }))).toBeNull();
     expect(parseFileChipPayload(JSON.stringify(["Skynet", "/a"]))).toBeNull();
+  });
+});
+
+describe("encodeFileLinkSpaces", () => {
+  const base = "https://term.example/file/workstation/home/u";
+
+  it("encodes spaces in a file link destination", () => {
+    expect(encodeFileLinkSpaces(`See [a b.xlsx](${base}/a b.xlsx) now`)).toBe(
+      `See [a b.xlsx](${base}/a%20b.xlsx) now`,
+    );
+  });
+
+  it("balances parens inside the filename", () => {
+    expect(encodeFileLinkSpaces(`[x](${base}/copy (1).md)`)).toBe(`[x](${base}/copy%20(1).md)`);
+  });
+
+  it("repairs every link on a line and keeps a link title", () => {
+    expect(encodeFileLinkSpaces(`[a](${base}/a b.md "t t") and [c](${base}/c d.md)`)).toBe(
+      `[a](${base}/a%20b.md "t t") and [c](${base}/c%20d.md)`,
+    );
+  });
+
+  it("leaves non-file links, bare URLs and fenced code alone", () => {
+    const text = [
+      "[w](https://example.com/a b)",
+      `${base}/a b.md`,
+      "```",
+      `[x](${base}/a b.md)`,
+      "```",
+    ].join("\n");
+    expect(encodeFileLinkSpaces(text)).toBe(text);
+  });
+
+  it("leaves an unterminated link alone", () => {
+    const text = `[x](${base}/a b.md`;
+    expect(encodeFileLinkSpaces(text)).toBe(text);
   });
 });
