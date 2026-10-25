@@ -20,7 +20,12 @@
 
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import "@testing-library/jest-dom/vitest";
-import { render, screen, waitFor, fireEvent, within } from "@testing-library/react";
+import { configure, render, screen, waitFor, fireEvent, within } from "@testing-library/react";
+
+// The editor mounts lazily and the formatted editor falls back to plain text
+// after 200 ms; on a loaded box (the full suite) that outlasts RTL's 1 s
+// default — same allowance as the file-window suites.
+configure({ asyncUtilTimeout: 10_000 });
 import userEvent from "@testing-library/user-event";
 import type { HostFolder } from "@/types/ui-types";
 
@@ -71,12 +76,19 @@ vi.mock("@mdxeditor/editor", () => ({
     onChange?: (v: string) => void;
     readOnly?: boolean;
   }) => (
-    <textarea
-      value={props.markdown}
-      onChange={(e) => props.onChange?.(e.target.value)}
-      disabled={props.readOnly}
-      data-testid="mdxeditor"
-    />
+    // Wrapped like the real editor's editable area, carrying the text, so the
+    // "formatted editor rendered nothing" check (200 ms after mount) doesn't
+    // swap it for plain text — on a loaded box that swap landed after the
+    // test had typed and dropped the edit.
+    <div contentEditable={false} suppressContentEditableWarning>
+      <span hidden>{props.markdown || " "}</span>
+      <textarea
+        value={props.markdown}
+        onChange={(e) => props.onChange?.(e.target.value)}
+        disabled={props.readOnly}
+        data-testid="mdxeditor"
+      />
+    </div>
   ),
   headingsPlugin: () => ({}),
   listsPlugin: () => ({}),
