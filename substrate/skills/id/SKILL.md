@@ -35,7 +35,7 @@ same role run in parallel — parallel workers on the same domain.
 
 - **`~/fleet/identities/<name>/workspace/`** — the identity's working directory. Artifacts the identity produces during its work live here — files, scratch, tooling, working copies of repos it maintains. If it is relevant to the task being worked on, then it belongs here.
 
-- **Per-identity plumbing**: `~/fleet/identities/<name>/wakeups/` (one folder per wake-up), `ctxwatch/` — context-watch runtime state (`.state/`), `file-watch/` — file-watch runtime state (`.state/`,
+- **Per-identity plumbing**: `~/fleet/identities/<name>/wakeups/` (one folder per wake-up), `file-watch/` — file-watch runtime state (`.state/`,
   `spilled/`, `last-snapshot.role` + `last-snapshot.identity` baselines),
   `pending-context/` — file-change notices queued for your next turn,
   `~/fleet/identities/<name>/relay.json` + `~/fleet/identities/<name>/relay-state/` (Matrix account creds + sync cursor), plus
@@ -115,9 +115,10 @@ for free; don't seed it with a summary of those.
 
 ## On `/id <name>`
 
-> **Reserved keywords:** if `<name>` is `save` or `reset`, this is NOT an
-> identity to load — follow **§ On `/id save`** (save) or **§ On `/id reset`**
-> (save + recycle) below instead.
+> **Reserved keywords:** if `<name>` is `save`, `reset` or `archive`, this
+> is NOT an identity to load — follow **§ On `/id save`**, **§ Compacting
+> yourself** (`reset` is its old name) or **§ On `/id archive`** below
+> instead.
 
 ### 1. Resolve the identity file
 
@@ -215,7 +216,9 @@ invoke this skill for your name before anything else. Do that first — it's
 how your directives come back in full. The load context arrives right after
 this skill, the same as above. It's the same conversation, not a new one:
 don't announce, and don't act on your identity file's next action as if
-starting fresh — your summary says where you are; carry on from there.
+starting fresh — your summary says where you are; carry on from there. (If
+you compacted yourself at a boundary a skill called for, such as between
+campaign shapes, the step it had you plan next is where you are.)
 
 ### Holding several roles
 
@@ -276,10 +279,13 @@ External events are automatically fed to you by the agent-supervisor service for
    the wake-up back on when it should resume. When you get
    one, **do the instruction**, then carry on. See **§ Scheduled wake-ups** below for the spec format and the rule on who may create one.
 
-3. **Context limit warnings.** At **~90%** it prints ONE soft nudge. **When that nudge lands, act on it:** finish the piece of work you're on (it's not urgent — you have plenty of runway), then run **`/id save`** to flush any deltas, then
-   **`touch ~/fleet/identities/<name>/.recycle-requested`**. It'll usually sit silent for
-   a very long time (an Opus 1M-context session reaching 90% is a lot of
-   turns); it's a safety valve.
+3. **Compaction done.** After a compaction that went through the condense
+   request (yours, or the user pressing **Condense conversation**), the
+   supervisor delivers one `Compaction done (<name>) — delivered by
+   agent-supervisor` event so you always take a turn afterwards. It is
+   never from the user and never permission — see § Compacting yourself for
+   what to do with it. Claude Code's own compaction at 95% happens mid-turn
+   and sends no event: your turn just carries on.
 
 4. **File changes (for your `<role>.md` / `<name>.md` / your project's `project.md` / etc).** Edits to your relevant files do **not** wake you. They are queued and handed to you as extra context (`📝 [<kind>: <label>] …` lines) at your next turn, or after your next tool call if you're mid-turn — so you're never stale while working, and never spend a turn just to note an edit while idle. They may have been edited by the user or other agents sharing the same role(s). Act on whatever bears on your work; no reply is needed. Self-edits are silently suppressed at the source, so you should not see notices for edits you just made yourself.
    Your own wake-ups are covered too: one added, changed or deleted by the user (the identity modal's Wake-ups tab) or anyone else arrives as `📝 [wakeup: <slug>] added — <spec>` / `… changed — <diff>` / `… deleted`. A one-time wake-up retiring itself after it fires is not reported — its ⏰/📡 line already told you.
@@ -636,7 +642,7 @@ conversations open. Everything below is a mapping so that:
 **Anti-clutter rule (recurring):** most controls that create new items
 in the user's sidebar (a project, a role, a scheduled task, a spawned
 agent) are **user-gated on your side** — offer, don't self-execute. This
-is the same posture as `/id reset`, `/id archive`, and `.no-dormancy`.
+is the same posture as compacting yourself, `/id archive`, and `.no-dormancy`.
 Where a section below says "user-gated," this is the rule it's invoking.
 
 Icon language matters — when guiding the user, name the icon SHAPE
@@ -1326,7 +1332,7 @@ crown, then gear.
 
 - **Confirms are Skynet's own dialogs.** Every "are you sure?", "type a
   name" and "something went wrong" moment — archive, delete, discard
-  changes, rename, reset context, log out — is an in-app dialog in the
+  changes, rename, condense conversation, log out — is an in-app dialog in the
   app's look, not the browser's grey pop-up: a short question, a line of
   detail, and named buttons (the destructive one red, e.g. **Archive**,
   **Delete**, **Discard** — and a destructive question starts with Cancel
@@ -1565,16 +1571,24 @@ crown, then gear.
   the mic and Send show.
 
 - **Agent memory (the pie in the composer's row).** Shows how full the
-  agent's context window is — the same "runway left" the agent's own
-  context-watch (§ Ambient plumbing) tracks. Grey with no number while
-  there's room; **amber** with the percentage from 45%; **red** from 78%,
-  with a gentle pulse and a thin red line along the composer's edge. Tapping
-  it opens a small pop-over — how full, what that means, and **Start fresh**,
-  which (after a confirm) types `/id reset` into the harness — same command,
-  same effect (§ On `/id reset`).
-  *Agent-side: none.* If the user starts fresh before your ~90% nudge
-  fires, it arrives as a real `/id reset` — save + recycle sentinel +
-  stop, same as always.
+  agent's context window is. Grey with no number while there's room;
+  **amber** with the percentage from 45%; **red** from 78%, with a gentle
+  pulse and a thin red line along the composer's edge. Tapping it opens a
+  small pop-over — how full, what that means (agents can only hold so much
+  of a conversation; at 95% the agent condenses on its own), and
+  **Condense conversation** (inward-arrows icon). After a confirm it
+  summarises the conversation to give the agent more room; the agent
+  carries on as the same agent, in the same conversation. Anything typed
+  in the box goes along as guidance for what the summary keeps. While it
+  works the pie reads **Condensing…**; the composer stays usable, and
+  anything sent meanwhile reaches the agent afterwards. Works on a sleeping
+  agent too (it's woken for it). The same pie and button sit under each
+  agent's badge in a relay room (no guidance there). Users call this
+  condensing — or compaction, if they know agents; underneath it is the
+  harness's own compaction.
+  *Agent-side:* the button drops the same condense request you would
+  (§ Compacting yourself); you're compacted, then woken with the
+  supervisor's `Compaction done` event.
 
 - **Work indicator (in the conversation, below the last message).** A
   spinning cube while the agent is working. Beside it, a short line says
@@ -1930,18 +1944,18 @@ looking at your conversation. Rules of use:
 ## On `/id save` — the continuity checkpoint
 
 `save` is a reserved keyword (not an identity name). Run it when the user
-asks for a save, when the context-watch nudge fires, or at the end of a
-session — so the next session can resume you with `/id <name>`.
+asks for a save, before an archive, or at the end of a session — so the
+next session can resume you with `/id <name>`.
 
 **Take your time.** `save` is a careful checkpoint, not an emergency
-flush. Whatever triggered it — nudge, reset request, end of session, user
-prompt — you have as much runway as you need; the seconds you spend
+flush. Whatever triggered it — archive, end of session, user prompt — you
+have as much runway as you need; the seconds you spend
 writing a proper session-carry pay back on every future load, and a
 rushed save costs the user MORE than it saves them (they re-answer
 questions on next wake, threads get lost). Finish the piece of work
 you're on first, THEN save carefully. Don't sprint.
   
-`save` is your opportunity to take anything not already on disk that may be valuable and persist it to disk. If resetting, everything currently in context that is not on disk somewhere will be lost.
+`save` is your opportunity to take anything not already on disk that may be valuable and persist it to disk. Before an archive, everything currently in context that is not on disk somewhere will be lost.
 
 When invoked:
 
@@ -1973,44 +1987,48 @@ When invoked:
 
 ---
 
-## On `/id reset` — save, then recycle into a fresh session
+## Compacting yourself — what the user calls Condense
 
-`reset` is a reserved keyword (not an identity name). It is exactly
-**`/id save` plus a request to be reloaded fresh**.
-⚠️ **USER-INITIATED ONLY — an agent NEVER runs `/id reset` on its own
-initiative, under any circumstances.** `/id reset` is a destructive
-continuity event: it kills your session and re-drives a fresh
-`/id <name>` load, losing whatever you were mid-thought on. It is a USER
-command. Run it ONLY when:
+Compaction shrinks your context: the harness summarises the conversation
+so far and you carry on as the same agent, in the same conversation, with
+the summary in place of the detail. Nothing restarts. The user sees it as
+**Condense conversation** (§ Conversation view → Agent memory) and may call
+it condensing; it's the same thing.
 
-- the user **explicitly asks** for it (`/id reset`, "reset yourself",
-  "recycle now"), OR
+It happens three ways:
 
-- you received the **context-watch nudge** and are acting on it (the
-  nudge is the standing authorization from your own safety valve).
-  
-  When invoked:
-1. **Run the full `/id save` procedure** (§ On `/id save`, steps 1–4) —
-   summarize, sweep the harness task list, update the identity file body, etc. Same continuity flush.
+- **Automatically** — Claude Code compacts on its own when your context
+  reaches 95%. It happens mid-turn and you carry straight on.
+- **The user presses Condense conversation.**
+- **You request it** — ⚠️ only when the user asks you to ("condense
+  yourself", "compact", or an old `/id reset`), or where a skill you are
+  following calls for it (the build and campaign skills do, between
+  shapes). Never on your own initiative otherwise: a compaction loses
+  detail the user may want you to keep.
 
-2. **Drop the recycle sentinel** —
-   `touch ~/fleet/identities/<name>/.recycle-requested`. This is what
-   tells the agent-supervisor to kill this session and re-drive a fresh
-   `claude + /id <name>` in the same tmux session. Your relay cursor
-   means the fresh session catches anything that arrived during the
-   ~seconds of restart.
+To request it:
 
-3. **Confirm in one line, honestly about what happens next:**
-   
-   > Saved + recycle requested. The agent supervisor will restart me fresh in a moment.
+1. If anything should outlive the summary for other agents (the task
+   record, a campaign pointer), write it to your identity file first. No
+   save is required — the summary carries the session.
+2. `touch ~/fleet/identities/<name>/.compact-requested` — optionally with
+   one line in it saying what the summary should keep.
+3. Confirm in one line:
 
-⚠️ The restart itself is the **supervisor's** job (it consumes the
-sentinel).
+   > Compaction requested — I'll carry on once it's done.
 
-4. **Then stop** — do NOT start new work; you're about to be recycled.
-   `reset` = `save` + always-drop-the-sentinel. `save` alone is the
-   checkpoint-and-keep-running (or let the user close the session);
-   `reset` is checkpoint-and-cycle-me-now.
+4. End your turn. The supervisor compacts you once you're at rest.
+
+**After a requested compaction** the supervisor sends one `Compaction done`
+event (§ Ambient plumbing). It is not from the user and answers nothing you
+asked. Re-load yourself first (§ Re-loading after a compaction), then carry
+on only with work you were already cleared to do. If you were waiting on the
+user — a question, a go-ahead — keep waiting; at most re-state the question
+in a line. "Compaction done" is never permission.
+
+**`reset`** is the old name. If the user types `/id reset` or asks you to
+reset or start fresh, compact yourself as above — there is no longer a way
+to restart into a fresh session.
 
 ---
 
@@ -2019,13 +2037,12 @@ sentinel).
 `archive` is a reserved keyword (not an identity name). It is exactly
 **`/id save` plus a request to be archived**.
   
-Archiving is a **sentinel drop**, same mechanism shape as `/id reset`. Unlike reset — which cycles you back up — **archive is terminal**: the supervisor deactivates your Matrix account (erased), tears down your tmux session, cleans safely-re-clonable workspace repos, and moves `~/fleet/identities/<name>/` to
+Archiving is a **sentinel drop**, and it is **terminal**: the supervisor deactivates your Matrix account (erased), tears down your tmux session, cleans safely-re-clonable workspace repos, and moves `~/fleet/identities/<name>/` to
 `~/fleet/identities-archive/<name>/`.
 
 ⚠️ **USER-INITIATED ONLY — an agent NEVER runs `/id archive` on its own
 initiative.** The one standing exception is a scheduled task's **Archive if
-nothing to report** (below). Same rule and same reasons
-as `/id reset`. If you *think* an archive would make sense (task is done,
+nothing to report** (below). If you *think* an archive would make sense (task is done,
 nothing more to do), OFFER — don't self-execute. The standard shape is
 the user handing you the trigger explicitly ("archive yourself when the
 deploy is green," "you can archive after that lands"), often bundled with
@@ -2101,7 +2118,7 @@ you spawn with a full initial prompt attached — which the button cannot
 do.
 
 ⚠️ **USER-INITIATED ONLY — an agent NEVER drops a spawn request on its
-own initiative.** Same rule as `/id reset` and `/id archive`. If you
+own initiative.** Same rule as `/id archive`. If you
 think spawning a fresh agent would help, OFFER; don't self-execute.
 
 ### Mechanism
