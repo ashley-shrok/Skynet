@@ -38,14 +38,14 @@ A condense is something that happened to the conversation, not something anyone 
 
 - **In:** the divider and its open/closed summary; guidance on the divider; keeping condense lines from settling pending messages; old transcripts getting the same treatment; confirming load-back across a divider.
 - **Out:** what the agent sees; the supervisor; the memory pie and "Condensing…" (previous shape); terminal view.
-- **Deferred (filed in the campaign's Other work):** search across conversations labels hits inside summaries as things the user said, and there's a case for adjusting what search finds — Ashley: "maybe we don't do that here."
+- **Deferred (filed in the campaign's Other work):** search across conversations labels hits inside summaries as things the user said, and there's a case for adjusting what search finds — the user: "maybe we don't do that here."
 - **Tempting but no:** token counts or sizes on the divider; an "automatic" badge; summarising the summary.
 
 ## Handoff notes
 
 - Identity: blaze-box-maintainer-3, campaign `condense`, shape 4 of 4. Ends at commit — no push, no deploy until campaign close.
 - Real sample transcript with four condenses (manual, with and without guidance): the e2e tester's session under /tmp/e2e/home (may be gone after a reboot). No automatic-condense sample on hand — build tests from its known shape (marker + summary only).
-- The user-visible change needs an id-skill edit (Conversation view → Messages) and a what's-new note shown to Ashley first.
+- The user-visible change needs an id-skill edit (Conversation view → Messages) and a what's-new note shown to the user first.
 
 ---
 
@@ -58,26 +58,26 @@ A condense is something that happened to the conversation, not something anyone 
 
 - **One divider per condense** — present · The summary becomes the one divider; the marker, the compact command line, its "Compacted" output and the /compact prompt as typed or queued are all dropped; guidance folds into the divider just above it and never renders on its own.
 - **Divider reads "Conversation condensed · <time>" with guidance underneath** — present · One line; guidance in quotes, muted, cut to one line while closed; taken from the compact command, so the same whether the button or the agent's request started it.
-- **Summary on demand, closed by default, formatted like an agent message** — present · Starts closed; click toggles in place; open shows full guidance then the summary as formatted text. Only the fixed opening (and, per Ashley at close, the tools-used line just after it) is removed; the rest is word for word.
+- **Summary on demand, closed by default, formatted like an agent message** — present · Starts closed; click toggles in place; open shows full guidance then the summary as formatted text. Only the fixed opening (and, per the user at close, the tools-used line just after it) is removed; the rest is word for word.
 - **Same for every trigger, no "automatic" note** — present · One rendering path, no trigger field, no badge.
 - **Pending messages settle only on the user's own message** — present · Divider and guidance frames never settle a pending send; the compact prompt, command and output never reach the chat as user lines; a view test covers a message sent mid-condense.
 - **Past conversations too** — present · The change is in how existing lines are read, so old transcripts get dividers.
 - **History stays continuous (confirmed, not built)** — present · Load-older shares the same shaping and carries the condense frames; guidance folding runs over the merged list. Confirmed by code path, no recorded load-back test across a divider.
 - **id-skill edit (Conversation view → Messages)** — present · Describes the divider, guidance line, closed by default, click to open and close, same for every condense; the Compacting-yourself section links to it.
 - **Deferred search item filed in campaign Other work** — present
-- **What's-new note shown to Ashley first** — drifted · Ashley was shown a draft and said "Skip it" — no note.
+- **What's-new note shown to the user first** — drifted · the user was shown a draft and said "Skip it" — no note.
 - **Out-of-scope and tempting-but-no respected** — present · Supervisor, what the agent sees, memory pie and terminal view untouched; no token counts, sizes, automatic badge or re-summarising.
 
 ### Additions (in the result, not in the shape)
 
-- On a day other than today the divider shows the date with the time — endorsed-as-drift (Ashley: "Yes")
-- Hovering the divider shows its full date and time — endorsed-as-drift (Ashley: "Yes")
-- The tools-used line at the top of a summary is left off along with the preamble — endorsed-as-drift (Ashley: "Yeah, drop it")
-- A small condense icon and open/close chevron on the divider label — within "slim divider" (reviewer's read; not put to Ashley)
+- On a day other than today the divider shows the date with the time — endorsed-as-drift (the user: "Yes")
+- Hovering the divider shows its full date and time — endorsed-as-drift (the user: "Yes")
+- The tools-used line at the top of a summary is left off along with the preamble — endorsed-as-drift (the user: "Yeah, drop it")
+- A small condense icon and open/close chevron on the divider label — within "slim divider" (reviewer's read; not put to the user)
 
 ### Follow-ups
 
-- The unread-mark scan counted the plain /compact prompt the supervisor types as a user reply — accepted into this campaign (Ashley: "Do it here"); fixed, filed done in the campaign's Other work.
+- The unread-mark scan counted the plain /compact prompt the supervisor types as a user reply — accepted into this campaign (the user: "Do it here"); fixed, filed done in the campaign's Other work.
 - Search labels hits inside summaries as things the user said — deferred (campaign Other work).
 
 ### Notes
