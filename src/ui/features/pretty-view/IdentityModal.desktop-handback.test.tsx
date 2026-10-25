@@ -178,8 +178,10 @@ describe("IdentityModal — Desktop tab in context", () => {
     rerender(renderModal(false));
     rerender(renderModal(true));
     await waitFor(() =>
+      // The normal size is the editor's: a fixed 85vh tall (the Desktop
+      // tab's viewer size has no fixed height).
       expect(screen.getByTestId("identity-modal").className).toContain(
-        "sm:max-w-[640px]",
+        "sm:h-[85vh]",
       ),
     );
     expect(

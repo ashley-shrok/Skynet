@@ -743,18 +743,18 @@ describe("nested projects: project menu", () => {
 });
 
 describe("nested projects: the project window", () => {
-  it("Open project shows what the sidebar shows directly inside it, and a sub-project's parents", async () => {
+  it("Edit project shows what the sidebar shows directly inside it, and a sub-project's parents", async () => {
     seedTree();
     getProjectFileSpy.mockResolvedValue({ markdown: "---\ndisplayName: X\n---\n" });
     const { container } = renderPanel();
 
-    await openProjectKebabAndClickItem(container, "skynet", "Open project");
+    await openProjectKebabAndClickItem(container, "skynet", "Edit project");
     expect((await screen.findByTestId("project-modal-count")).textContent).toBe("1 conversation · 2 sub-projects");
     expect(screen.queryByTestId("project-modal-lineage")).toBeNull();
     fireEvent.click(screen.getByTestId("project-modal-close"));
     await waitFor(() => expect(screen.queryByTestId("project-modal")).toBeNull());
 
-    await openProjectKebabAndClickItem(container, "ui", "Open project");
+    await openProjectKebabAndClickItem(container, "ui", "Edit project");
     expect((await screen.findByTestId("project-modal-lineage")).textContent).toBe("In SKYNET › Design");
     expect(screen.getByTestId("project-modal-count").textContent).toBe("0 conversations");
   });

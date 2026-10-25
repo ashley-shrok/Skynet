@@ -278,7 +278,7 @@ describe("PrettyProjectSectionHeader — callbacks", () => {
     expect(onRenameProject).toHaveBeenCalledWith("theta", "Theta Pulse");
   });
 
-  it("Test 4c: kebab 'Open project' is the first item and fires onOpenProject(slug)", async () => {
+  it("Test 4c: kebab 'Edit project' is the first item and fires onOpenProject(slug)", async () => {
     const user = userEvent.setup();
     const onOpenProject = vi.fn();
     render(
@@ -297,13 +297,13 @@ describe("PrettyProjectSectionHeader — callbacks", () => {
     );
     await user.click(screen.getByTestId("pv-project-section-kebab-trigger-iota"));
     expect(screen.getAllByRole("menuitem").map((el) => el.textContent)).toEqual([
-      "Open project",
+      "Edit project",
       "New conversation in this project",
       "Rename project",
       "Archive project",
     ]);
     expect(screen.queryByRole("menuitem", { name: "Edit project file" })).toBeNull();
-    await user.click(screen.getByRole("menuitem", { name: "Open project" }));
+    await user.click(screen.getByRole("menuitem", { name: "Edit project" }));
     expect(onOpenProject).toHaveBeenCalledTimes(1);
     expect(onOpenProject).toHaveBeenCalledWith("iota");
   });
@@ -347,7 +347,7 @@ describe("PrettyProjectSectionHeader — callbacks", () => {
     // three are gated on their callback being provided.
     expect(screen.queryByRole("menuitem", { name: "New conversation in this project" })).not.toBeNull();
     expect(screen.queryByRole("menuitem", { name: "Rename project" })).toBeNull();
-    expect(screen.queryByRole("menuitem", { name: "Open project" })).toBeNull();
+    expect(screen.queryByRole("menuitem", { name: "Edit project" })).toBeNull();
     expect(screen.queryByRole("menuitem", { name: "Archive project" })).toBeNull();
   });
 

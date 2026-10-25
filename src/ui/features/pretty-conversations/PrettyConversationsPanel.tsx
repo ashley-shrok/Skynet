@@ -175,7 +175,7 @@ import { PrettyProjectSectionHeader, type PrettyProjectDropPayload } from "./Pre
 // slug (D-25 backend-authoritative slugify per Pitfall 1).
 import { CreateProjectModal } from "./CreateProjectModal";
 // ProjectModal (Project file + Files tabs), opened from the section-header
-// kebab's "Open project" item. Wired below in handleOpenProject / mounted
+// kebab's "Edit project" item. Wired below in handleOpenProject / mounted
 // alongside the other project modals.
 import { ProjectModal } from "./ProjectModal";
 // Phase 122 Plan 03 Task 3 — ConversationSearchModal: opened via the
@@ -2119,7 +2119,7 @@ export function PrettyConversationsPanel({
   // in the section header's RowKebabMenu, which calls the per-action handlers
   // directly without an intermediate coord-based menu-open state.
 
-  // ProjectModal open state. Populated when the user clicks "Open project"
+  // ProjectModal open state. Populated when the user clicks "Edit project"
   // in the section kebab (handleOpenProject below); reset when the modal
   // dismisses. hostId is resolved from projectsList at click time so the
   // modal endpoints hit the correct host.
@@ -3221,7 +3221,7 @@ export function PrettyConversationsPanel({
   // calls handleOpenProject / handleRenameProject / handleArchiveProject
   // directly; the coord-based projectContextMenu middleman is gone.
 
-  // "Open project" menu item: resolve the project's host from projectsList
+  // "Edit project" menu item: resolve the project's host from projectsList
   // (same lookup pattern as handleArchiveProject above — projects live under a
   // specific host's ~/fleet/projects/ tree per D-01) and open the
   // ProjectModal. If the slug isn't in projectsList (should never happen —
@@ -4500,7 +4500,7 @@ export function PrettyConversationsPanel({
           hidden
         />
       )}
-      {/* ProjectModal wired to the section-header kebab's "Open project"
+      {/* ProjectModal wired to the section-header kebab's "Edit project"
           item. State carries {slug, displayName, hostId} at open time
           (resolved from projectsList in handleOpenProject). onOpenChange(false)
           clears the state so a re-open starts fresh. */}

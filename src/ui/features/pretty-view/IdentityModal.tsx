@@ -1080,10 +1080,10 @@ export function IdentityModal({
     }
   }
 
-  // Deeper views and Git need room; the Desktop tab gets the wide viewer
-  // size (height follows the desktop's shape). Window sizes are otherwise
-  // left for the modal-sizing pass.
-  const size = deep === null && onDesktop ? "viewer" : deep !== null && deep.view.startsWith("git") ? "editor" : "xl";
+  // The editor size throughout — the agent file is often long markdown, and
+  // the Files tab matches the role and project windows' — except the Desktop
+  // tab's wide viewer (height follows the desktop's shape).
+  const size = deep === null && onDesktop ? "viewer" : "editor";
 
   return (
     <Modal

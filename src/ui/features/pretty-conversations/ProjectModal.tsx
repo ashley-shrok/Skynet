@@ -1,5 +1,5 @@
 // ProjectModal — the project window, opened from the project section header's
-// "Open project" kebab item (wired in PrettyConversationsPanel
+// "Edit project" kebab item (wired in PrettyConversationsPanel
 // handleOpenProject).
 //
 // A sibling of the agent window: what the project IS sits on top (folder
@@ -346,7 +346,8 @@ export function ProjectModal({
       onOpenChange={(next) => {
         void handleOpenChange(next);
       }}
-      size="xl"
+      // Same size as the agent and role windows (their Files tabs match).
+      size="editor"
       data-testid="project-modal"
     >
       <ModalHead

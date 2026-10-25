@@ -332,7 +332,7 @@ export function RolesWindow({
       : nav.view === "new"
         ? (hueOverride ?? undefined)
         : undefined;
-  const size = nav.view === "role" || nav.view === "skill" ? "editor" : "list";
+  const size = nav.view === "role" || nav.view === "skill" ? "editor" : "tall-list";
 
   let body: JSX.Element | null = null;
   if (nav.view === "library") {

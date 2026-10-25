@@ -4,7 +4,7 @@
 // the inline SquarePen new-conversation button + the right-click/long-press
 // context menu are both retired and all four section-scoped actions move into
 // a single kebab menu:
-//   - Open project (opens the project modal)
+//   - Edit project (opens the project modal)
 //   - New conversation in this project
 //   - Rename project
 //   - Archive project (danger)
@@ -325,7 +325,7 @@ export function PrettyProjectSectionHeader({
   const kebabItems = [
     ...(onOpenProject
       ? [{
-          label: "Open project",
+          label: "Edit project",
           onClick: () => onOpenProject(slug),
           testId: `pv-project-section-kebab-open-${slug}`,
         }]

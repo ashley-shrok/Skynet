@@ -688,7 +688,7 @@ export function ScheduledAgentsModal({
     <Modal
       open={open}
       onOpenChange={(next) => void handleOpenChange(next)}
-      size="list"
+      size="tall-list"
       data-testid="scheduled-agents-modal"
     >
       {deepView ?? listView}

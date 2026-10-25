@@ -104,7 +104,7 @@ export function RolePickList({
           data-testid="role-pick-search"
         />
       )}
-      <div className="max-h-[min(46vh,360px)] overflow-y-auto overscroll-contain -mx-1 px-1">
+      <div className="max-h-[min(46vh,360px)] sm:max-h-[min(58vh,640px)] overflow-y-auto overscroll-contain -mx-1 px-1">
         {shown.length === 0 ? (
           loading ? null : searching ? (
             <KitEmpty

@@ -52,6 +52,7 @@ type ModalSize =
   | "lg"
   | "xl"
   | "list"
+  | "tall-list"
   | "wide-list"
   | "settings"
   | "editor"
@@ -71,6 +72,9 @@ const SIZE_CLASSES: Record<ModalSize, string> = {
   xl: "sm:max-w-[640px]",
   // Picker / list — fixed-ish width, grows taller on bigger screens.
   list: "sm:max-w-[600px] sm:h-[min(85vh,780px)]",
+  // Tall list — a long list worth seeing a lot of at once (scheduled tasks,
+  // roles): a little wider, and as tall as the screen allows.
+  "tall-list": "sm:max-w-[min(760px,70vw)] sm:h-[85vh]",
   // Wide list — rows that carry readable text (conversation search passages).
   "wide-list": "sm:max-w-[min(1150px,70vw)] sm:h-[85vh]",
   // Settings — modest horizontal + vertical scaling for 4K.

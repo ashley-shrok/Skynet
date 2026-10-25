@@ -176,7 +176,8 @@ describe("IdentityModal — opening on a requested tab", () => {
       ).toBe("true"),
     );
     expect(screen.queryByTestId("desktop-tab-stub")).toBeNull();
-    expect(screen.getByTestId("identity-modal").className).not.toContain("sm:max-w-[min(1200px,80vw)]");
+    // The editor size (fixed 85vh), not the Desktop tab's viewer size.
+    expect(screen.getByTestId("identity-modal").className).toContain("sm:h-[85vh]");
   });
 
   it("Git hint covers only the wait: once the probe says no repo, the Git tab goes and the agent file shows", async () => {

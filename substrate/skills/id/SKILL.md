@@ -890,7 +890,7 @@ not something agents drive.
   sub-projects.
   Each project header carries a **kebab menu** (on desktop it appears on
   hover; also opened by right-clicking the header) with:
-  - **Open project** — opens the **project modal** (§ Conversation view).
+  - **Edit project** — opens the **project modal** (§ Conversation view).
   - **New conversation in this project** — auto-assigns the spawned
     agent to this project.
   - **New sub-project** — the new-project dialog with an "Inside <parent
@@ -1432,10 +1432,10 @@ crown, then gear.
     lines added/removed), and a file there opens its diff; **View all**
     shows every change at once. Nothing in it changes a repo.
   - **Desktop** (only while the agent's virtual desktop is running) — a
-    live view of the agent's own desktop. Picking this tab grows the
-    modal to its large size so the desktop is big enough to work in and
-    shrinks the top to a small picture and the name; other tabs shrink it
-    back. The picture scales to fit and never
+    live view of the agent's own desktop. Picking this tab shapes the
+    modal to the desktop (its height follows the picture) and shrinks the
+    top to a small picture and the name; other tabs put it back. The
+    picture scales to fit and never
     resizes the agent's screen. It starts **View only**; **Take control**
     hands the user's mouse and keyboard to the desktop and pauses the
     agent's own desktop input (Esc then goes to the desktop, not the
@@ -1451,7 +1451,7 @@ crown, then gear.
   scoped to that agent's machine; **‹ Roles** goes to that machine's list,
   and closing the window returns to the agent's identity modal.
 
-- **Project modal (project header kebab → Open project).** The project's
+- **Project modal (project header kebab → Edit project).** The project's
   own window, laid out like the identity modal; close X only. On top: a
   folder tile, a quiet "In <parent> › …" line for a sub-project, the
   project's name, and a count of what sits directly in it as the sidebar

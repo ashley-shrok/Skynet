@@ -114,16 +114,18 @@ afterAll(() => {
   vi.restoreAllMocks();
 });
 
-// The wide "viewer" modal size vs the identity modal's normal "xl" size.
-const EDITOR_WIDTH = "sm:max-w-[min(1200px,80vw)]";
-const XL_WIDTH = "sm:max-w-[640px]";
+// The Desktop tab's "viewer" size vs the agent window's normal "editor" size:
+// the same width; the editor is a fixed 85vh tall, the viewer's height
+// follows the desktop's shape.
+const WIDE = "sm:max-w-[min(1200px,80vw)]";
+const EDITOR_HEIGHT = "sm:h-[85vh]";
 
 function modalClass(): string {
   return screen.getByTestId("identity-modal").className;
 }
 
 describe("IdentityModal — grows for the Desktop tab", () => {
-  it("uses the wide viewer size while Desktop is active and the normal size on every other tab", async () => {
+  it("uses the viewer size while Desktop is active and the editor size on every other tab", async () => {
     render(
       <IdentityModal
         open={true}
@@ -137,19 +139,19 @@ describe("IdentityModal — grows for the Desktop tab", () => {
     await waitFor(() => {
       expect(screen.getByTestId("identity-modal")).toBeTruthy();
     });
-    expect(modalClass()).toContain(XL_WIDTH);
-    expect(modalClass()).not.toContain(EDITOR_WIDTH);
+    expect(modalClass()).toContain(WIDE);
+    expect(modalClass()).toContain(EDITOR_HEIGHT);
 
     fireEvent.click(screen.getByTestId("identity-modal-nav-desktop"));
     await screen.findByTestId("desktop-tab-stub");
-    expect(modalClass()).toContain(EDITOR_WIDTH);
+    expect(modalClass()).toContain(WIDE);
     // Height follows the desktop's shape — no fixed editor height.
-    expect(modalClass()).not.toContain("sm:h-[85vh]");
+    expect(modalClass()).not.toContain(EDITOR_HEIGHT);
 
     for (const tab of ["identity", "identity-wakeups", "workspace"]) {
       fireEvent.click(screen.getByTestId(`identity-modal-nav-${tab}`));
-      await waitFor(() => expect(modalClass()).toContain(XL_WIDTH));
-      expect(modalClass()).not.toContain(EDITOR_WIDTH);
+      await waitFor(() => expect(modalClass()).toContain(EDITOR_HEIGHT));
+      expect(modalClass()).toContain(WIDE);
     }
   });
 

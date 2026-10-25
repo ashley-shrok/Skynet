@@ -1914,7 +1914,7 @@ describe("PrettyConversationsPanel: archive-project cascade (117-09 Task 2)", ()
     consoleWarnSpy.mockRestore();
   });
 
-  it("A9 Test 6 (kebab menu items): project header kebab shows Open project + New-conversation + Rename + Archive project", async () => {
+  it("A9 Test 6 (kebab menu items): project header kebab shows Edit project + New-conversation + Rename + Archive project", async () => {
     setSnapshot({
       projectSections: [{ slug: "alpha", displayName: "Alpha", rows: [] }],
     });
@@ -1938,12 +1938,12 @@ describe("PrettyConversationsPanel: archive-project cascade (117-09 Task 2)", ()
 
     expect(screen.queryByRole("menuitem", { name: "New conversation in this project" })).not.toBeNull();
     expect(screen.queryByRole("menuitem", { name: "Rename project" })).not.toBeNull();
-    expect(screen.queryByRole("menuitem", { name: "Open project" })).not.toBeNull();
+    expect(screen.queryByRole("menuitem", { name: "Edit project" })).not.toBeNull();
     expect(screen.queryByRole("menuitem", { name: "Edit project file" })).toBeNull();
     expect(screen.queryByRole("menuitem", { name: "Archive project" })).not.toBeNull();
   });
 
-  it("A9 Test 6b (Open project): opens the project modal against the project's own host", async () => {
+  it("A9 Test 6b (Edit project): opens the project modal against the project's own host", async () => {
     setSnapshot({
       projectSections: [{ slug: "alpha", displayName: "Alpha", hostId: "3", rows: [] }],
     });
@@ -1964,7 +1964,7 @@ describe("PrettyConversationsPanel: archive-project cascade (117-09 Task 2)", ()
     await user.click(
       container.querySelector('[data-testid="pv-project-section-kebab-trigger-alpha"]') as HTMLElement,
     );
-    await user.click(screen.getByRole("menuitem", { name: "Open project" }));
+    await user.click(screen.getByRole("menuitem", { name: "Edit project" }));
 
     expect(await screen.findByTestId("project-modal")).toBeTruthy();
     await waitFor(() => expect(getProjectFileSpy).toHaveBeenCalledWith(3, "alpha"));

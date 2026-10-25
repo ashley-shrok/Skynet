@@ -81,7 +81,6 @@ export default function AdminModal({ open, onOpenChange, currentUserId }: AdminM
   const [oidcConfigured, setOidcConfigured] = useState(false);
   const [selectedUserId, setSelectedUserId] = useState<string | null>(null);
   const [selectedHostKey, setSelectedHostKey] = useState<string | null>(null);
-  const [editingFile, setEditingFile] = useState(false);
   // Kept here so going into a user and back keeps what was typed.
   const [userQuery, setUserQuery] = useState("");
   const rawDrill = useModalDrillIn<AdminTab>(tab, false, open);
@@ -197,7 +196,7 @@ export default function AdminModal({ open, onOpenChange, currentUserId }: AdminM
 
   const body =
     tab === "instance-file" ? (
-      <AdminInstanceFilePane hero={hero} registerLeaveGuard={registerLeaveGuard} onEditingChange={setEditingFile} />
+      <AdminInstanceFilePane hero={hero} registerLeaveGuard={registerLeaveGuard} />
     ) : (
       <ModalBody key={tab} ref={paneRef} data-testid="admin-modal-pane" className="pt-1 pb-7">
         <div className="max-w-[600px] mx-auto">
@@ -242,7 +241,8 @@ export default function AdminModal({ open, onOpenChange, currentUserId }: AdminM
     <Modal
       open={open}
       onOpenChange={(next) => void handleOpenChange(next)}
-      size={tab === "instance-file" && editingFile ? "editor" : "settings"}
+      // The instance file and the hosts list carry a lot; they get the big size.
+      size={tab === "instance-file" || tab === "hosts" ? "editor" : "settings"}
       data-testid="admin-modal"
     >
       {fullscreen && (
