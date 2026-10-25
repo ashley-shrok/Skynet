@@ -26,7 +26,7 @@
  * (fresh better-sqlite3 per test via beforeEach, vi.mock db.$client passthrough,
  * forceSave spy, quiet logger, mocked matrix-admin-client + admin-rooms-ignore-list).
  */
-import { describe, it, expect, beforeEach, vi } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import Database from "better-sqlite3";
 
 // ---------------------------------------------------------------------------
@@ -98,6 +98,7 @@ import {
   SETTINGS_KEY_HUMANS_REGISTRY,
   buildLockdownPowerLevelsContent,
   assertRegistryRoomLockdown,
+  LOCKDOWN_RETRY_DELAYS_MS,
 } from "./registry-rooms.js";
 import { DatabaseSaveTrigger } from "../utils/database-save-trigger.js";
 import { databaseLogger } from "../utils/logger.js";
@@ -175,6 +176,12 @@ beforeEach(() => {
 
   // Default: happy creds present. Override per-test.
   getCredsSpy.mockResolvedValue(HAPPY_CREDS);
+});
+
+// A lockdown test that fails at Synapse leaves a retry timer behind; fake
+// timers in those tests drop it here instead of letting it fire later.
+afterEach(() => {
+  vi.useRealTimers();
 });
 
 // ---------------------------------------------------------------------------
@@ -713,6 +720,7 @@ describe("registry-rooms lockdown (quick 260911-n8a)", () => {
   });
 
   it("L5 (failure log-and-continue on GET): agents getRoomPowerLevels 502; humans happy-drift → ensureRegistryRoomsExist STILL returns ok:true; warn log operation='registry_rooms_lockdown_get_failed' role='agents'; humans PATCH still fires", async () => {
+    vi.useFakeTimers();
     sqliteInstance
       .prepare("INSERT INTO settings (key, value) VALUES (?, ?)")
       .run(SETTINGS_KEY_AGENTS_REGISTRY, "!agents:server");
@@ -908,5 +916,66 @@ describe("registry-rooms lockdown (quick 260911-n8a)", () => {
     expect(events["m.room.message"]).toBe(100);
     expect(events["m.malformed"]).toBeUndefined();
     expect(events["m.also.bad"]).toBeUndefined();
+  });
+});
+
+describe("registry-rooms lockdown retry (Synapse not up yet)", () => {
+  const ROOM = "!agents:server";
+  const LOCKED = { ...LOCKED_CONTENT_MIN, users: { [HAPPY_CREDS.userId]: 100 } };
+  const ops = (spy: ReturnType<typeof vi.fn>) =>
+    spy.mock.calls.map((c) => (c[1] as { operation?: string } | undefined)?.operation);
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("retries in the background after a 5xx GET and settles once Synapse answers", async () => {
+    getRoomPowerLevelsSpy
+      .mockResolvedValueOnce({ ok: false, status: 502, error: "admin_api_proxy_error" })
+      .mockResolvedValueOnce({ ok: true, content: LOCKED });
+
+    await assertRegistryRoomLockdown("agents", ROOM, HAPPY_CREDS.userId);
+    expect(getRoomPowerLevelsSpy).toHaveBeenCalledTimes(1);
+    expect(ops(loggerInfoSpy)).toContain("registry_rooms_lockdown_retry_scheduled");
+
+    await vi.advanceTimersByTimeAsync(LOCKDOWN_RETRY_DELAYS_MS[0]);
+    expect(getRoomPowerLevelsSpy).toHaveBeenCalledTimes(2);
+    expect(ops(loggerInfoSpy)).toContain("registry_rooms_lockdown_noop");
+
+    await vi.advanceTimersByTimeAsync(10 * 60_000);
+    expect(getRoomPowerLevelsSpy).toHaveBeenCalledTimes(2);
+  });
+
+  it("retries a 5xx PUT and a thrown call too", async () => {
+    getRoomPowerLevelsSpy
+      .mockRejectedValueOnce(new Error("fetch failed"))
+      .mockResolvedValue({ ok: true, content: { events_default: 0, users: {} } });
+    putRoomPowerLevelsSpy
+      .mockResolvedValueOnce({ ok: false, status: 503, error: "unavailable" })
+      .mockResolvedValueOnce({ ok: true });
+
+    await assertRegistryRoomLockdown("agents", ROOM, HAPPY_CREDS.userId);
+    await vi.advanceTimersByTimeAsync(LOCKDOWN_RETRY_DELAYS_MS[0]);
+    expect(putRoomPowerLevelsSpy).toHaveBeenCalledTimes(1);
+    await vi.advanceTimersByTimeAsync(LOCKDOWN_RETRY_DELAYS_MS[1]);
+    expect(putRoomPowerLevelsSpy).toHaveBeenCalledTimes(2);
+    expect(ops(loggerInfoSpy)).toContain("registry_rooms_lockdown_patched");
+  });
+
+  it("does not retry a 4xx, and gives up after the last delay", async () => {
+    getRoomPowerLevelsSpy.mockResolvedValue({ ok: false, status: 403, error: "forbidden" });
+    await assertRegistryRoomLockdown("agents", ROOM, HAPPY_CREDS.userId);
+    await vi.advanceTimersByTimeAsync(10 * 60_000);
+    expect(getRoomPowerLevelsSpy).toHaveBeenCalledTimes(1);
+
+    getRoomPowerLevelsSpy.mockClear();
+    getRoomPowerLevelsSpy.mockResolvedValue({ ok: false, status: 502, error: "down" });
+    await assertRegistryRoomLockdown("agents", ROOM, HAPPY_CREDS.userId);
+    await vi.advanceTimersByTimeAsync(10 * 60_000);
+    expect(getRoomPowerLevelsSpy).toHaveBeenCalledTimes(LOCKDOWN_RETRY_DELAYS_MS.length + 1);
+    expect(ops(loggerWarnSpy)).toContain("registry_rooms_lockdown_gave_up");
   });
 });

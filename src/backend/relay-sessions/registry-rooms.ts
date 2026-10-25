@@ -641,7 +641,8 @@ export function buildLockdownPowerLevelsContent(
  *      - AdminErr status:404 → treat as content=null (state event unset =
  *        "assume Matrix defaults").
  *      - AdminErr other → warn (operation="registry_rooms_lockdown_get_failed")
- *        and return; boot continues.
+ *        and return; boot continues. A 5xx (Synapse unreachable) also
+ *        schedules a background retry (LOCKDOWN_RETRY_DELAYS_MS).
  *   2. buildLockdownPowerLevelsContent(fleetAdminMxid, contentOrNull).
  *      - `needsPatch === false` → info
  *        (operation="registry_rooms_lockdown_noop") and return. Zero-diff
@@ -656,10 +657,48 @@ export function buildLockdownPowerLevelsContent(
  * for each registry room every boot. `fleetAdminMxid` is threaded from
  * the caller's already-loaded creds.userId.
  */
+/**
+ * Waits before each re-try of a lockdown assertion that failed because
+ * Synapse couldn't be reached (5xx / thrown) — a whole-stack restart starts
+ * Skynet alongside Synapse, so the boot pass can run before Synapse listens.
+ * Retries run in the background; boot never waits on them.
+ */
+export const LOCKDOWN_RETRY_DELAYS_MS = [5_000, 15_000, 30_000, 60_000, 120_000];
+
+function scheduleLockdownRetry(
+  role: "agents" | "humans",
+  roomId: string,
+  fleetAdminMxid: string,
+  attempt: number,
+): void {
+  const delayMs = LOCKDOWN_RETRY_DELAYS_MS[attempt];
+  if (delayMs === undefined) {
+    databaseLogger.warn("registry rooms lockdown gave up retrying", {
+      operation: "registry_rooms_lockdown_gave_up",
+      role,
+      roomId,
+      attempts: attempt,
+    });
+    return;
+  }
+  databaseLogger.info("registry rooms lockdown retry scheduled", {
+    operation: "registry_rooms_lockdown_retry_scheduled",
+    role,
+    roomId,
+    attempt: attempt + 1,
+    delayMs,
+  });
+  const timer = setTimeout(() => {
+    void assertRegistryRoomLockdown(role, roomId, fleetAdminMxid, attempt + 1);
+  }, delayMs);
+  timer.unref?.();
+}
+
 export async function assertRegistryRoomLockdown(
   role: "agents" | "humans",
   roomId: string,
   fleetAdminMxid: string,
+  attempt = 0,
 ): Promise<void> {
   try {
     const got = await getRoomPowerLevels(roomId);
@@ -681,6 +720,7 @@ export async function assertRegistryRoomLockdown(
           status: got.status,
           error: got.error,
         });
+        if (got.status >= 500) scheduleLockdownRetry(role, roomId, fleetAdminMxid, attempt);
         return;
       }
     }
@@ -715,6 +755,7 @@ export async function assertRegistryRoomLockdown(
         status: put.status,
         error: put.error,
       });
+      if (put.status >= 500) scheduleLockdownRetry(role, roomId, fleetAdminMxid, attempt);
       return;
     }
 
@@ -730,5 +771,6 @@ export async function assertRegistryRoomLockdown(
       roomId,
       reason: err instanceof Error ? err.message : "unknown",
     });
+    scheduleLockdownRetry(role, roomId, fleetAdminMxid, attempt);
   }
 }
