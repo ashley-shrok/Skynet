@@ -24,6 +24,13 @@ export default defineConfig({
     // Deviation 1 (Test 6 in PrettyView.windowed-pagination.test.tsx). See
     // 45-05-SHIP-READINESS.md § Deviations for the full analysis.
     testTimeout: 30_000,
+    // Console output goes straight to the terminal instead of through the
+    // worker's RPC to the reporter. A log fired late (a timer or retry
+    // outliving its test) otherwise races the worker's teardown under
+    // full-suite load and fails the run with an EnvironmentTeardownError
+    // ("Closing rpc while onUserConsoleLog was pending") though every test
+    // passed. vi.spyOn(console, …) is unaffected.
+    disableConsoleIntercept: true,
     coverage: {
       provider: "v8",
       reporter: ["text", "html"],
