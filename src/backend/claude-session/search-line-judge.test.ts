@@ -121,8 +121,8 @@ const CASES: Array<[string, string, Omit<JudgedLine, "relayFrom" | "relayTo"> & 
   ],
   [
     "relay message out",
-    agent([{ type: "tool_use", id: "t3", name: "mcp__relay__send", input: { to: "@ashley:t1000.example", body: "Cheese shipped." } }]),
-    { speaker: "relay", text: "Cheese shipped.", relayFrom: null, relayTo: "@ashley:t1000.example" },
+    agent([{ type: "tool_use", id: "t3", name: "mcp__relay__send", input: { to: "@owner:t1000.example", body: "Cheese shipped." } }]),
+    { speaker: "relay", text: "Cheese shipped.", relayFrom: null, relayTo: "@owner:t1000.example" },
   ],
   [
     "message sent while busy (enqueue)",
@@ -143,7 +143,7 @@ const CASES: Array<[string, string, Omit<JudgedLine, "relayFrom" | "relayTo"> & 
  * the backend pipeline: the browser drops a relay message seen a second time
  * (same relay event) and shows a long relay message's quoted preview, and
  * search leaves out the "Interrupted" status bubble — a status marker, not
- * something anyone said (agreed with Ashley 2026-10-25). The queued-send
+ * something anyone said (agreed with the owner 2026-10-25). The queued-send
  * repeat runs on one fixed clock, as opening a conversation replays the file.
  */
 function conversationView(lines: string[]): Array<{ speaker: string; text: string } | null> {
