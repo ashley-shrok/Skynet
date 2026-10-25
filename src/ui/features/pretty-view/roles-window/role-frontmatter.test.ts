@@ -11,7 +11,7 @@ import {
 const FILE = [
   "---",
   "displayName: Box Maintainer",
-  "owner: ashley",
+  "owner: robin",
   "colorHue: '190'",
   "tags: [ops, infra]",
   "---",
@@ -29,7 +29,7 @@ describe("mergeRoleFrontmatter", () => {
       [
         "---",
         "displayName: Box Maintainer",
-        "owner: ashley",
+        "owner: robin",
         "colorHue: '42'",
         "tags: [ops, infra]",
         "---",
@@ -47,7 +47,7 @@ describe("mergeRoleFrontmatter", () => {
     const fm = out.split("---")[1].trim().split("\n");
     expect(fm).toEqual([
       "displayName: Box Maintainer",
-      "owner: ashley",
+      "owner: robin",
       "colorHue: '190'",
       "tags: [ops, infra]",
       "voice: Danielle",
@@ -130,7 +130,7 @@ describe("multi-line values and YAML edge cases", () => {
     "  Keeps the box",
     "  healthy and fed.",
     "users:",
-    "  - ashley",
+    "  - robin",
     "  - zoey",
     "colorHue: '20'",
     "---",
@@ -161,7 +161,7 @@ describe("multi-line values and YAML edge cases", () => {
         "displayName: Box",
         'description: "One line now"',
         "users:",
-        "  - ashley",
+        "  - robin",
         "  - zoey",
         "colorHue: '20'",
         "---",
@@ -179,8 +179,8 @@ describe("multi-line values and YAML edge cases", () => {
   });
 
   it("keeps an unindented list under its key", () => {
-    const md = "---\nusers:\n- ashley\ncolorHue: '1'\n---\n";
-    expect(mergeRoleFrontmatter(md, { colorHue: 2 })).toBe("---\nusers:\n- ashley\ncolorHue: '2'\n---\n");
+    const md = "---\nusers:\n- robin\ncolorHue: '1'\n---\n";
+    expect(mergeRoleFrontmatter(md, { colorHue: 2 })).toBe("---\nusers:\n- robin\ncolorHue: '2'\n---\n");
   });
 
   it("quotes words YAML would read as booleans, nulls or numbers", () => {

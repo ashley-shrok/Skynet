@@ -53,7 +53,7 @@ The scheduled tasks window (clock icon in the sidebar footer) becomes a calm lis
 ## Prior context
 
 - Today: list with search + role + host dropdowns, rows with role chips, last / next, switch and a three-dots menu (Run now, Edit, Delete); the form replaces the list with Name, Instructions, Archive checkbox, Roles chips, Host chips, Schedule, and never shows time zone or "only on" days (it keeps them on save).
-- Tasting with Ashley 2026-10-19 (`workspace/tastings/sched/` in the identity workspace, the 26 real tasks across thenasty, Skynet and workstation): "this looks pretty good … the Run Now thing should be like an actual button. But otherwise, this is good." Run now moved to a button.
+- Tasting with the owner 2026-10-19 (`workspace/tastings/sched/` in the identity workspace, the 26 real tasks across thenasty, Skynet and workstation): "this looks pretty good … the Run Now thing should be like an actual button. But otherwise, this is good." Run now moved to a button.
 - Window sizes are not settled here — shape-modal-sizing walks every modal at the end.
 - id skill: the scheduled-tasks description (clock icon modal) changes with this — non-admin visible.
 
@@ -113,4 +113,4 @@ The scheduled tasks window (clock icon in the sidebar footer) becomes a calm lis
 
 ### Notes
 
-Reviewer read the whole commit and found every shape item; the only divergences were the two additions above (Ashley: thumbs up). Unbiased code review found nine real issues — the worst a zone-less task's run time moving on save — all fixed with tests (e8a83fa6). Ashley endorsed the time-zone drift and both additions 2026-10-21.
+Reviewer read the whole commit and found every shape item; the only divergences were the two additions above (the owner: thumbs up). Unbiased code review found nine real issues — the worst a zone-less task's run time moving on save — all fixed with tests (e8a83fa6). The owner endorsed the time-zone drift and both additions 2026-10-21.

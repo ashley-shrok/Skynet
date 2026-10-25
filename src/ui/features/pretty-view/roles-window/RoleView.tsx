@@ -587,7 +587,7 @@ export function RoleView({
     agents.length === 0
       ? "No agents hold this role"
       : `${plural(agents.length, "agent")} ${agents.length === 1 ? "holds" : "hold"} this role`,
-    // The machine isn't named (Ashley, 2026-10-22); a shared role still says
+    // The machine isn't named (owner\'s call, 2026-10-22); a shared role still says
     // it's kept on every host.
     shared ? "on every host" : null,
   ]

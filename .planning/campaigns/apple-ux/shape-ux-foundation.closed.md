@@ -32,14 +32,14 @@ Skynet's modals get one shared set of building blocks in a new look ("look A"), 
 - Apple's interfaces are the reference for how things behave and are arranged; the look is Skynet's own. No Apple principles are written down; judgment is formed fresh.
 - Calm over busy: readability was what chose look A.
 - One part, one place: when a button changes, every button changes.
-- Large passes, cohesive first. Get the broad strokes consistent across everything; Ashley nitpicks afterwards. Don't stall to scrutinise every placement.
+- Large passes, cohesive first. Get the broad strokes consistent across everything; the owner nitpicks afterwards. Don't stall to scrutinise every placement.
 - Nothing a modal can do today is lost, including read-only states.
 
 ## Prior context
 
 - The shared modal frame already exists from an earlier look-unification pass, but most modal insides are hand-made; the inventory of what's where is at `.planning/campaigns/apple-ux/modal-element-inventory.md`.
 - Two earlier tastings (cards — "too busy"; the first Apple-referenced attempt) are past attempts, not a spec.
-- This session's tasting: three looks on the live app (A ink, B slate cards, C hue glass); Ashley chose A for readability and liked the larger dropdowns. The kit panel and the phone sheets were then tasted live and approved. The snippet that renders the kit and look A on the live app is kept at `.planning/campaigns/apple-ux/tasting-ux-foundation.js` and is the visual reference for the build.
+- This session's tasting: three looks on the live app (A ink, B slate cards, C hue glass); the owner chose A for readability and liked the larger dropdowns. The kit panel and the phone sheets were then tasted live and approved. The snippet that renders the kit and look A on the live app is kept at `.planning/campaigns/apple-ux/tasting-ux-foundation.js` and is the visual reference for the build.
 - Fleet-distributed skills are shown read-only to admins in the skills modal; shared skills and roles are view-only for non-admins all the way into the editor.
 
 ## What would make it wrong
@@ -62,8 +62,8 @@ Skynet's modals get one shared set of building blocks in a new look ("look A"), 
 ## Handoff notes
 
 - Worked by copper-box-maintainer-2 in this session, campaign `apple-ux`.
-- Build locally, committing as it goes; one deploy at the end. Push and deploy each still need Ashley's explicit go-ahead.
-- Keep the tasting snippet in step with the build so Ashley can check progress on the live app.
+- Build locally, committing as it goes; one deploy at the end. Push and deploy each still need the owner's explicit go-ahead.
+- Keep the tasting snippet in step with the build so the owner can check progress on the live app.
 - Existing guard tests that read the source (modal tab rows must use the shared tabs; no non-blocking modals; file viewers) and tests that look modals up by their test ids and title hook must keep passing — keep those hooks when restructuring.
 - Any change a non-admin can see needs a matching id-skill update in the same piece of work (e.g. browser pop-ups becoming in-app dialogs, sheets and swipe on phone). Admin-only changes stay out of it.
 
@@ -72,7 +72,7 @@ Skynet's modals get one shared set of building blocks in a new look ("look A"), 
 ## Close-Out
 
 **Closed:** 2026-10-17
-**Overall verdict:** closed-hit (reviewer returned closed-partial; both gaps fixed after Ashley's ruling, the third item ruled out of scope)
+**Overall verdict:** closed-hit (reviewer returned closed-partial; both gaps fixed after the owner's ruling, the third item ruled out of scope)
 
 ### Shape features (conformance)
 
@@ -89,7 +89,7 @@ Skynet's modals get one shared set of building blocks in a new look ("look A"), 
 - **The kit — empty, loading, problem states** — present · one of each.
 - **The kit — confirm, name-it, notice dialogs** — present · in-app; name-it shows its error under the field.
 - **On a phone** — present · was partial (only the dialogs stacked their buttons); fixed so every phone sheet stacks its buttons full-width with the main action on top.
-- **Every modal moved onto the kit** — present · the session finder was not moved; Ashley ruled it dead (no longer reachable) and out of scope, and its removal was handed to a separate agent.
+- **Every modal moved onto the kit** — present · the session finder was not moved; the owner ruled it dead (no longer reachable) and out of scope, and its removal was handed to a separate agent.
 - **Philosophy — nothing a modal can do today is lost** — present · view-only and admin handling unchanged in spot checks; hooks preserved.
 - **Scope edges** — present · conversation view, sidebar panel and file viewers untouched as scoped; every browser pop-up replaced; agent guide updated.
 - **Handoff notes** — drifted · the tasting snippet was retired rather than kept in step; real builds are previewed in a browser against live data instead.
@@ -97,7 +97,7 @@ Skynet's modals get one shared set of building blocks in a new look ("look A"), 
 - **What would make it wrong: browser pop-ups remain** — present · 115 calls before, none after.
 - **What would make it wrong: a modal loses something / view-only flips** — present · none found by reading.
 - **What would make it wrong: hue floods the background** — present · fixed near-black background.
-- **What would make it wrong: reads as an Apple look-alike** — cannot-verify · a visual judgement for Ashley once it's live.
+- **What would make it wrong: reads as an Apple look-alike** — cannot-verify · a visual judgement for the owner once it's live.
 - **What would make it wrong: phone small modal full-screen / swipe loses typing** — present · content-height sheets; swipe skipped once typed.
 - **What would make it wrong: half new, half old** — present · all on one branch, nothing deployed, ships at once.
 
@@ -107,7 +107,7 @@ Skynet's modals get one shared set of building blocks in a new look ("look A"), 
 
 ### Follow-ups
 
-- Remove the dead session finder — issue; handed to a separate agent (sparrow-box-maintainer-2) at Ashley's request.
+- Remove the dead session finder — issue; handed to a separate agent (sparrow-box-maintainer-2) at the owner's request.
 - Kit candidates raised during migration (a pop-over panel for the colour and voice pickers, a link-styled button, a usage meter, a sortable column header) — deferred; pick up where the per-modal shapes need them.
 - Unused sidebar-era row styles left in place for the conversation list's own styles — deferred to the sidebar shape.
 

@@ -4,7 +4,7 @@
 
 ## What this is
 
-The chat itself — the screen Ashley spends the most time in — rebuilt in the redesign's look rather than adapted from today's. It covers everything in an open agent conversation: the header pill and the round buttons beside it, the message bubbles, messages to Ashley that travel over the relay, conversations between agents, the composer and its controls, the agent-memory indicator, the skills menu, voice recording, the working indicator, and the floating controls (back to the list on a phone, jump to latest, load older). It was settled through six rounds of live tasting over the real app; the tasting snippet is the reference for how it looks.
+The chat itself — the screen the owner spends the most time in — rebuilt in the redesign's look rather than adapted from today's. It covers everything in an open agent conversation: the header pill and the round buttons beside it, the message bubbles, messages to the owner that travel over the relay, conversations between agents, the composer and its controls, the agent-memory indicator, the skills menu, voice recording, the working indicator, and the floating controls (back to the list on a phone, jump to latest, load older). It was settled through six rounds of live tasting over the real app; the tasting snippet is the reference for how it looks.
 
 ## Shape
 
@@ -13,17 +13,17 @@ The chat itself — the screen Ashley spends the most time in — rebuilt in the
 **Edges.** Messages scroll underneath the header and the composer. Behind the pill and back button, the top of the list fades to dark; at the bottom, the flat strip around the composer is gone — the list runs under it, darkening toward the bottom edge. Darkening only, never blur.
 
 **Messages.**
-- The agent speaks in solid bubbles in its own colour (the colour is how Ashley orients — who, and what kind of agent). Ashley's own messages are a neutral grey bubble on the right.
-- No tails; instead the corner nearest the speaker is less rounded (top-left for the agent, top-right for Ashley).
+- The agent speaks in solid bubbles in its own colour (the colour is how the owner orients — who, and what kind of agent). The owner's own messages are a neutral grey bubble on the right.
+- No tails; instead the corner nearest the speaker is less rounded (top-left for the agent, top-right for the owner).
 - Snug spacing: close to today's tight padding, text half a size up, equal space above the first line and below the last (lists included). Comfortable reading on a phone without losing how much fits on screen.
 - The speak button sits just outside the agent bubble's bottom-right corner, faint until hovered; on narrow panes it tucks inside the corner.
 - Code sits in a dark well inside either bubble.
 
-**Messages the agent sent to Ashley over the relay** (what the app currently calls "DMs to you"). They are ordinary agent bubbles in the agent's colour, always open — never folded behind a header, because they are messages to her and agents often don't repeat them. The only mark is the sidebar's red envelope on the bubble's top-left corner ("Also sent to your phone" on hover). Opening a conversation that holds such a message she hasn't seen jumps to the oldest unseen one and briefly rings it, instead of landing at the bottom.
+**Messages the agent sent to the owner over the relay** (what the app currently calls "DMs to you"). They are ordinary agent bubbles in the agent's colour, always open — never folded behind a header, because they are messages to her and agents often don't repeat them. The only mark is the sidebar's red envelope on the bubble's top-left corner ("Also sent to your phone" on hover). Opening a conversation that holds such a message she hasn't seen jumps to the oldest unseen one and briefly rings it, instead of landing at the bottom.
 
 **Messages between agents.** Quiet neutral cards, folded: sender's picture, "Finch → Bilbo", a one-line preview, an arrow; open to read under a hairline. No DM pill, no ⓘ explainer, no "notified" label. Where the app can't tell who a message went to, the line still reads as plain words.
 
-**Relay rooms** (a room Ashley opens herself): each agent's messages are bubbles in that agent's colour with its name on top; Ashley's own are the grey bubble. The room's participant header takes the pill's look.
+**Relay rooms** (a room the owner opens herself): each agent's messages are bubbles in that agent's colour with its name on top; the owner's own are the grey bubble. The room's participant header takes the pill's look.
 
 **Composer.** One rounded card: the text on top, every control on one row underneath.
 - Left: attach (the paperclip, until that button ever does more than attach), skills.
@@ -46,22 +46,22 @@ The chat itself — the screen Ashley spends the most time in — rebuilt in the
 
 - The conversation is the content; chrome recedes, but never at the cost of knowing who is talking — the agent's colour on its bubbles is load-bearing.
 - One thing per place: every floating control is one family; the composer is one card; the main button always means "the next thing".
-- Don't make Ashley hunt: messages to her are read in place, unfolded, marked the same way the sidebar marks them, and the envelope takes her straight to them.
+- Don't make the owner hunt: messages to her are read in place, unfolded, marked the same way the sidebar marks them, and the envelope takes her straight to them.
 - Attention costs are earned: memory stays silent while there's room and gets loud only when it matters; the relay mechanism isn't something she should need to know about.
 - Performance is part of the look: no persistent blur anywhere in the chat; animations are movement and fading only.
 
 ## Prior context
 
-- Built on the campaign kit (foundation, sidebar, pane bar shapes). The tasting snippet at `workspace/tastings/convo/` (stylesheet + script) is the visual reference — six rounds with Ashley over the live app.
+- Built on the campaign kit (foundation, sidebar, pane bar shapes). The tasting snippet at `workspace/tastings/convo/` (stylesheet + script) is the visual reference — six rounds with the owner over the live app.
 - Today: hue-glow gradient bubbles for both sides, a floating pill with glass history, a segmented memory meter with a reset button, a row of four buttons above the composer, a queue "+" notch, a dark flat strip around the composer, a dot-grid working image, folded DM cards with a DM pill / ⓘ / "notified".
 - Research this session (2026-10-23): compaction is far less lossy than a year ago (bigger memory, models aware of their budget, the instruction file reloaded after compaction), but chat-only instructions, mid-task state and rules still get lost, and very long sessions still cost quality — so a quiet memory indicator plus deliberate fresh starts stays worth having.
 - The 2026-10-17 performance pass removed persistent blurs from the chat (bubbles, rows, badge, jump button); no persistent blur has come back since.
-- The app already records, per agent, when it last messaged Ashley over the relay and when she last saw that — the sidebar envelope runs on it; the jump-to-unseen uses the same record.
+- The app already records, per agent, when it last messaged the owner over the relay and when she last saw that — the sidebar envelope runs on it; the jump-to-unseen uses the same record.
 
 ## What would make it wrong
 
 - Agent bubbles losing the agent's colour, or a control borrowing the agent's colour as if colour meant an action.
-- A message to Ashley folded away, or one she has to scroll to find after following the envelope.
+- A message to the owner folded away, or one she has to scroll to find after following the envelope.
 - The memory indicator nagging while there's room, or staying quiet when it's nearly full.
 - Any blur over the scrolling chat, or an animation that repaints while scrolling.
 - Recording hiding attach or skills.
@@ -72,7 +72,7 @@ The chat itself — the screen Ashley spends the most time in — rebuilt in the
 ## Scope edges
 
 - **In:** everything listed under Shape, phone and desktop, the conversation pane and relay-room pane.
-- **Out:** widgets (Ashley is removing them); activity words in the working indicator ("Reading files…") — needs the server to report the agent's current step; its own piece later; retiring the word "DM" elsewhere in the app.
+- **Out:** widgets (The owner is removing them); activity words in the working indicator ("Reading files…") — needs the server to report the agent's current step; its own piece later; retiring the word "DM" elsewhere in the app.
 - **Designed in the build without another tasting, judged at close:** the permission bubble, the relay room's participant header, the task list line.
 - **Deferred to after the campaign deploy (already logged):** modal sizing, look adjustments.
 
@@ -80,7 +80,7 @@ The chat itself — the screen Ashley spends the most time in — rebuilt in the
 
 - Implementer: copper-box-maintainer-2, local only on `feat/tab-title-from-tmux` (campaign shipping rule — no push, no deploy until the campaign ends).
 - Removing a visible control means an id-skill edit in the same change (task pill, stop / skills / thumbs-up / voice-mode buttons, context meter + reset, queue, recording, DM display); none of this is admin-only.
-- What's-new: this campaign writes one note at campaign close (Ashley approves the text).
+- What's-new: this campaign writes one note at campaign close (The owner approves the text).
 - The upstream desktop-pane bar (landed 2026-10-23) still needs the pane-bar look at the next rebase.
 
 ---
@@ -94,12 +94,12 @@ The chat itself — the screen Ashley spends the most time in — rebuilt in the
 
 - **What this is** — present · Pill, side buttons, bubbles, relay messages, agent cards, composer, memory, skills, recording, orb, back / jump / load older all restyled.
 - **Header: solid neutral pill, colour ring on the picture, kit ⋯** — present
-- **Header: floating family (side buttons, back, jump, load older)** — drifted · side buttons keep their green / amber fill and arrival glow; Ashley: keep (the colour is the message).
+- **Header: floating family (side buttons, back, jump, load older)** — drifted · side buttons keep their green / amber fill and arrival glow; the owner: keep (the colour is the message).
 - **Header: jump to latest centred above the composer** — present
 - **Header: quiet desktop sidebar toggle** — present
 - **Edges: scroll under, darkening fades, no blur** — present
 - **Messages: agent colour bubbles, neutral user bubbles, speaker-side corner, snug spacing, speak beside, code wells** — present
-- **Messages to Ashley over the relay: open bubble + envelope, jump to oldest unseen + ring** — present
+- **Messages to the owner over the relay: open bubble + envelope, jump to oldest unseen + ring** — present
 - **Messages between agents: folded neutral card, no DM pill / ⓘ / notified** — present
 - **Relay rooms: name over agent-colour bubbles, pill participants** — present
 - **Composer: one card, row order, neutral main button Send / Stop / 👍, 👍 or Stop beside Send while typing, queue gone** — present
@@ -110,7 +110,7 @@ The chat itself — the screen Ashley spends the most time in — rebuilt in the
 - **Background work: sub-agent / shell lines hidden, tracking kept; task list card** — present
 - **Philosophy** — present · (side-button colour endorsed as above)
 - **What would make it wrong: agent bubbles lose colour / a control borrows it** — present
-- **What would make it wrong: a message to Ashley folded or hard to find** — present · a failed send was folded; fixed at close (open bubble, "not sent", no envelope).
+- **What would make it wrong: a message to the owner folded or hard to find** — present · a failed send was folded; fixed at close (open bubble, "not sent", no envelope).
 - **What would make it wrong: memory nags or stays quiet when full** — present
 - **What would make it wrong: blur or scroll-time repaints** — present
 - **What would make it wrong: recording hides attach or skills** — present
@@ -125,7 +125,7 @@ The chat itself — the screen Ashley spends the most time in — rebuilt in the
 - Previously saved queued messages still show and send (nothing adds new ones) — endorsed-as-drift
 - Relay-room participant pills show picture + name; roles / project in the tooltip — endorsed-as-drift
 - Memory pie with Start fresh under each agent participant in relay rooms (replaces the old meter there) — endorsed-as-drift
-- A failed message to Ashley was a folded "not sent" card — changed at close to an open bubble with a "not sent" mark
+- A failed message to the owner was a folded "not sent" card — changed at close to an open bubble with a "not sent" mark
 
 ### Follow-ups
 

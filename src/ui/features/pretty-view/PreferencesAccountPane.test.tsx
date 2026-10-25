@@ -62,7 +62,7 @@ describe("PreferencesAccountPane", () => {
     render(
       <PreferencesAccountPane
         userId="user-123"
-        username="ashley"
+        username="robin"
         isAdmin={false}
         avatarPath={null}
         onAvatarChanged={vi.fn()}
@@ -70,7 +70,7 @@ describe("PreferencesAccountPane", () => {
     );
     const avatar = screen.getByTestId("preferences-account-avatar");
     expect(avatar.querySelector("img")).toBeNull();
-    expect(avatar.textContent).toContain("A");
+    expect(avatar.textContent).toContain("R");
     // No picture → no Remove.
     expect(screen.queryByTestId("preferences-account-remove-btn")).toBeNull();
   });
@@ -79,7 +79,7 @@ describe("PreferencesAccountPane", () => {
     render(
       <PreferencesAccountPane
         userId="user-123"
-        username="ashley"
+        username="robin"
         isAdmin={false}
         avatarPath="abc.png"
         onAvatarChanged={vi.fn()}
@@ -113,7 +113,7 @@ describe("PreferencesAccountPane", () => {
     render(
       <PreferencesAccountPane
         userId="user-123"
-        username="ashley"
+        username="robin"
         isAdmin={false}
         avatarPath={null}
         onAvatarChanged={vi.fn()}
@@ -149,7 +149,7 @@ describe("PreferencesAccountPane", () => {
     render(
       <PreferencesAccountPane
         userId="user-123"
-        username="ashley"
+        username="robin"
         isAdmin={false}
         avatarPath={null}
         onAvatarChanged={onAvatarChanged}
@@ -181,7 +181,7 @@ describe("PreferencesAccountPane", () => {
     render(
       <PreferencesAccountPane
         userId="user-123"
-        username="ashley"
+        username="robin"
         isAdmin={false}
         avatarPath={null}
         onAvatarChanged={onAvatarChanged}
@@ -214,7 +214,7 @@ describe("PreferencesAccountPane", () => {
     render(
       <PreferencesAccountPane
         userId="user-123"
-        username="ashley"
+        username="robin"
         isAdmin={false}
         avatarPath="existing.png"
         onAvatarChanged={onAvatarChanged}
@@ -238,7 +238,7 @@ describe("PreferencesAccountPane", () => {
     render(
       <PreferencesAccountPane
         userId="user-123"
-        username="ashley"
+        username="robin"
         isAdmin={false}
         avatarPath="existing.png"
         onAvatarChanged={onAvatarChanged}
@@ -261,18 +261,18 @@ describe("PreferencesAccountPane", () => {
     const { rerender } = render(
       <PreferencesAccountPane
         userId="user-123"
-        username="ashley"
+        username="robin"
         isAdmin={true}
         avatarPath={null}
         onAvatarChanged={vi.fn()}
       />,
     );
-    expect(screen.getByRole("heading", { name: "ashley" })).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "robin" })).toBeTruthy();
     expect(screen.getByTestId("preferences-account-meta").textContent).toContain("Administrator");
     rerender(
       <PreferencesAccountPane
         userId="user-123"
-        username="ashley"
+        username="robin"
         isAdmin={false}
         avatarPath={null}
         onAvatarChanged={vi.fn()}
@@ -291,7 +291,7 @@ describe("PreferencesAccountPane", () => {
       render(
         <PreferencesAccountPane
           userId="user-123"
-          username="ashley"
+          username="robin"
           isAdmin={false}
           avatarPath={null}
           onAvatarChanged={vi.fn()}
@@ -317,7 +317,7 @@ describe("PreferencesAccountCard", () => {
     render(
       <PreferencesAccountCard
         userId="user-123"
-        username="ashley"
+        username="robin"
         avatarPath="abc.png"
         selected={true}
         drill={false}
@@ -325,7 +325,7 @@ describe("PreferencesAccountCard", () => {
       />,
     );
     const card = screen.getByTestId("preferences-nav-account");
-    expect(card.textContent).toContain("ashley");
+    expect(card.textContent).toContain("robin");
     expect(card.textContent).toContain("Picture, log out");
     expect(card.getAttribute("aria-current")).toBe("true");
     expect(card.querySelector("img")?.getAttribute("src")).toContain("abc.png");

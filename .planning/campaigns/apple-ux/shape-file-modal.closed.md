@@ -32,7 +32,7 @@ Every place a file opens to be read or edited becomes one file window that looks
 - Before: two separately built windows. Both opened straight into editing with Save always showing; only the Files-tab one had Download; only the chat one had a Close / Save footer; neither said where the file lives. A markdown file stacked three rows before its text (the switch alone on the right, the formatting toolbar, the document).
 - The file pane already had the icon + name + "machine · folder" header this shape brings to the windows.
 - The agent, role and project windows already read their own files first with an Edit button; this matches them.
-- Tasted on a real preview build over the live app with real files (markdown, code, CSV, a picture, the agent file); Ashley: "Love it". Tasting files: the identity workspace's tastings folder for this shape.
+- Tasted on a real preview build over the live app with real files (markdown, code, CSV, a picture, the agent file); the owner: "Love it". Tasting files: the identity workspace's tastings folder for this shape.
 
 ## What would make it wrong
 
@@ -65,7 +65,7 @@ Every place a file opens to be read or edited becomes one file window that looks
 ### Shape features (conformance)
 
 - **What this is** — present · Both windows share one header, one action set and one rule for how each type opens; the old chat-only footer is gone; the markdown switch no longer sits on its own row.
-- **One window for both places; only what saving means differs** — drifted · Ashley, at close: "maybe just go with save on the button, keep it simple. users will see the attachment after that and understand" — the chat window's button now says Save (it still attaches the copy to the next message and closes); Files-tab Save writes in place.
+- **One window for both places; only what saving means differs** — drifted · the owner, at close: "maybe just go with save on the button, keep it simple. users will see the attachment after that and understand" — the chat window's button now says Save (it still attaches the copy to the next message and closes); Files-tab Save writes in place.
 - **Header** — present · Icon tile, name, faint location line ("machine · folder" for chat files, "Files › folder" for Files-tab files); read aloud, view switch, main button, ⋯, close; no footer.
 - **Look at / watch / listen** — present · No Edit; their text views (diff Raw, calendar/contacts Source) still offer Save.
 - **Read first** — present · Opens locked; Edit brings tools + Cancel and Save; Save dimmed until a change; Cancel asks if unsaved; Files-tab save returns to reading; chat save closes as before.
@@ -73,7 +73,7 @@ Every place a file opens to be read or edited becomes one file window that looks
 - **One place for view switches** — present · Header of window and pane; end of the formatting toolbar elsewhere; slim bar when there's no toolbar.
 - **Formatted greyed out with the reason** — present · Reason beside the switch in a bar; in a header the reason was unreachable on hover (greyed-out segments take no pointer) — found at close and fixed by putting the reason on the whole switch.
 - **⋯ menu** — present · Download in both; Copy path for chat files only.
-- **Phone** — drifted · Window fills the screen and read aloud moves into ⋯, but the main buttons moved from the top row to the row under the name beside the view switch (wrapping under it on the narrowest screens), so Cancel + Save don't squeeze out the name; kept as built (Ashley answered the question by simplifying the save label).
+- **Phone** — drifted · Window fills the screen and read aloud moves into ⋯, but the main buttons moved from the top row to the row under the name beside the view switch (wrapping under it on the narrowest screens), so Cancel + Save don't squeeze out the name; kept as built (The owner answered the question by simplifying the save label).
 - **File pane** — present · Markdown switch in its bar; otherwise unchanged.
 - **Leaving with unsaved changes** — present
 - **Philosophy** — present · Viewers only rebuilt when switching reading ↔ editing; nothing inside a viewer changed.
@@ -82,7 +82,7 @@ Every place a file opens to be read or edited becomes one file window that looks
 - **What would make it wrong: a document opens into editing, or code opens locked** — present
 - **What would make it wrong: the two windows drift apart** — present · Remaining differences: send-and-close vs write-in-place, Copy path.
 - **What would make it wrong: the switch on a row of its own where it needn't be** — present
-- **What would make it wrong: saving in a chat mistaken for changing the agent's file** — drifted · Plain Save by Ashley's choice; the attachment chip that appears in the compose box is what tells the user where it went.
+- **What would make it wrong: saving in a chat mistaken for changing the agent's file** — drifted · Plain Save by the owner's choice; the attachment chip that appears in the compose box is what tells the user where it went.
 - **What would make it wrong: anything lost** — present · Editable text views, Download, read aloud, unsaved-change protection, PDF markup saving all remain.
 - **Scope edges** — present · Viewer insides, image editing and sizes untouched; Files-tab Copy path logged in Other work.
 - **Handoff: id skill updated** — present

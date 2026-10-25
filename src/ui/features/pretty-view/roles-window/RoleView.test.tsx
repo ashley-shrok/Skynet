@@ -98,7 +98,7 @@ describe("role view — description", () => {
 
   it("clearing the description removes the key from the frontmatter", async () => {
     m.getRoleFileByName.mockResolvedValue({
-      markdown: "---\ndisplayName: Box Maintainer\ndescription: Old words\nowner: ashley\n---\n\nBody.\n",
+      markdown: "---\ndisplayName: Box Maintainer\ndescription: Old words\nowner: robin\n---\n\nBody.\n",
     });
     await openRole();
     const desc = await screen.findByTestId("role-view-description");
@@ -109,7 +109,7 @@ describe("role view — description", () => {
     fireEvent.change(input, { target: { value: "   " } });
     fireEvent.keyDown(input, { key: "Enter" });
     await waitFor(() => expect(m.updateRoleFileByName).toHaveBeenCalledTimes(1));
-    expect(lastSavedFile()).toBe("---\ndisplayName: Box Maintainer\nowner: ashley\n---\n\nBody.\n");
+    expect(lastSavedFile()).toBe("---\ndisplayName: Box Maintainer\nowner: robin\n---\n\nBody.\n");
     await waitFor(() => expect(screen.getByTestId("role-view-description").textContent).toBe("No description"));
   });
 

@@ -196,7 +196,7 @@ describe("kit rows and choices", () => {
           { id: "1", name: "Skynet", status: "ok" },
           { id: "2", name: "thenasty", status: "ok" },
           { id: "3", name: "workstation", status: "warn" },
-          { id: "4", name: "ashley-laptop", status: "off" },
+          { id: "4", name: "robin-laptop", status: "off" },
           { id: "5", name: "beelink", status: "off", disabled: true },
         ]}
         selectedId="1"

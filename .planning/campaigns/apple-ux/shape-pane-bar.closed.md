@@ -22,7 +22,7 @@ The pane bar is chrome, not content: it should recede, read cleanly, and feel li
 
 ## Prior context
 
-Ashley tasted the new bar as a console snippet over the live app (2026-10-23) on an app, a remote desktop and a markdown file: "clean", "looks fantastic", "visually, this is fantastic". Her one change: the file bar keeps only the file name — drop the path, and don't replace it with the machine or the agent it came from ("let's just do the file name for now"). She then extended the same to the file window. On a phone a file can't be opened into a pane (no dragging), so the file bar is a computer-only case; apps on a phone showed the touch version of the bar. The tasting lives at `workspace/tastings/panebar/`.
+The owner tasted the new bar as a console snippet over the live app (2026-10-23) on an app, a remote desktop and a markdown file: "clean", "looks fantastic", "visually, this is fantastic". Her one change: the file bar keeps only the file name — drop the path, and don't replace it with the machine or the agent it came from ("let's just do the file name for now"). She then extended the same to the file window. On a phone a file can't be opened into a pane (no dragging), so the file bar is a computer-only case; apps on a phone showed the touch version of the bar. The tasting lives at `workspace/tastings/panebar/`.
 
 ## What would make it wrong
 
@@ -36,7 +36,7 @@ Ashley tasted the new bar as a console snippet over the live app (2026-10-23) on
 
 - **In:** the shared pane bar's look on all three pane kinds, computer and touch; the menu's look when opened from the bar; dropping the file bar's second line; dropping the file window's second line.
 - **Out:** the floating sidebar arrow over the bar's left end (it belongs to the app's frame); the apps' own content; split-view focus indication.
-- **Not doing:** any indicator of where a file came from (machine or agent) — Ashley said no to both for now.
+- **Not doing:** any indicator of where a file came from (machine or agent) — the owner said no to both for now.
 - **Deferred:** overall depth and character — the look-adjustments shape after the campaign deploy.
 
 ## Handoff notes
@@ -76,4 +76,4 @@ None.
 
 ### Notes
 
-Clean pass, no questions for Ashley. Touch back button 40 → 36, the icon tile's hairline ring and the ~28% disabled fade all come from the approved tasting. A few code comments still said "vertical dots" — tidied after close. The view switch is the shared one the file window uses, unchanged (the tasting didn't restyle it either).
+Clean pass, no questions for the owner. Touch back button 40 → 36, the icon tile's hairline ring and the ~28% disabled fade all come from the approved tasting. A few code comments still said "vertical dots" — tidied after close. The view switch is the shared one the file window uses, unchanged (the tasting didn't restyle it either).

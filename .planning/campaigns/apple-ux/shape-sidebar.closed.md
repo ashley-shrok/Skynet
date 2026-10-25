@@ -39,9 +39,9 @@ The conversation list gets the same pass the windows got. It joins the windows' 
 
 ## Prior context
 
-- Before: on desktop, bare one-line rows at 12.5px with tan uppercase section labels and fading hairlines. On the phone, big tinted glassy cards in each agent's colour, with a pin badge and a ⋮ on every row (Ashley: "very blocky", left over from before the redesign). Unread was a coloured outline around the row.
+- Before: on desktop, bare one-line rows at 12.5px with tan uppercase section labels and fading hairlines. On the phone, big tinted glassy cards in each agent's colour, with a pin badge and a ⋮ on every row (the owner: "very blocky", left over from before the redesign). Unread was a coloured outline around the row.
 - The kebab-everywhere, no-press-and-hold rule came from an earlier sidebar shape, to stop bad situations: phone text selection, a hold turning into a drag, a scroll opening a menu. Right-click was added back on desktop later.
-- Tasted as a console snippet over live on desktop and in the phone emulator; Ashley: "pretty much kicks ass". Her changes during tasting: conversations 14px and section titles 13px (what sites with bigger UX budgets use), a touch more spacing. A spacing switch (tight 32 / current 34 / roomy 40) settled on current.
+- Tasted as a console snippet over live on desktop and in the phone emulator; the owner: "pretty much kicks ass". Her changes during tasting: conversations 14px and section titles 13px (what sites with bigger UX budgets use), a touch more spacing. A spacing switch (tight 32 / current 34 / roomy 40) settled on current.
 - Checks run: contrast (the faintest grey failed at 3.6 and was brightened to about 5), click and tap sizes (the desktop Projects "+" was 20×20 and became 24×24), and reference measurements.
 - Width: today's 266 is about ChatGPT's 260 and a little under Gemini's; the picture and its gap cost about 34, hence 300.
 - Tasting files: the identity workspace's tastings folder for this shape (snippet, build script, audit script, reference measurements).
@@ -75,7 +75,7 @@ The conversation list gets the same pass the windows got. It joins the windows' 
 ## Close-Out
 
 **Closed:** 2026-10-23
-**Overall verdict:** closed-hit (every agreed feature present; one wording drift and four additions endorsed by Ashley)
+**Overall verdict:** closed-hit (every agreed feature present; one wording drift and four additions endorsed by the owner)
 
 ### Shape features (conformance)
 
@@ -86,7 +86,7 @@ The conversation list gets the same pass the windows got. It joins the windows' 
 - **Section titles** — present · sentence case, no fading lines; desktop 13px semibold faint, phone bold white; arrows right when closed, down when open.
 - **Projects are folders** — present · arrow, folder glyph, name; desktop 14px with hover and ⋮ on hover; phone heading with ⋮ shown; sub-projects step in by 10.
 - **Desktop conversation rows** — present · one line, 24px plain picture, 14px title, read softer / unread bright, 34 tall with 2 between, neutral hover, open row in its agent's colour, fainter role, no pin glyph, ⋮ on hover plus right-click.
-- **Phone conversation rows** — drifted · all present; a pressed row turns slightly lighter (as tasted) rather than darker — Ashley endorsed. The empty "…" line is hidden on every phone row without a second line, as tasted.
+- **Phone conversation rows** — drifted · all present; a pressed row turns slightly lighter (as tasted) rather than darker — the owner endorsed. The empty "…" line is hidden on every phone row without a second line, as tasted.
 - **Unread** — present · dot in the agent's colour plus brighter title; outline gone; envelope kept; dot steps aside on desktop hover.
 - **Phone gestures: press-and-hold** — present · 500ms hold opens the same menu; movement cancels; no drag, no text selection; the following tap ignored.
 - **Phone gestures: swipe to archive with Undo** — present · no confirm; 5-second "Archived … · Undo" bar; archive only after the bar goes; Undo restores; non-archivable rows don't swipe.
@@ -126,4 +126,4 @@ The conversation list gets the same pass the windows got. It joins the windows' 
 
 ### Notes
 
-Conformance read only. Ashley endorsed all five divergences at once (2026-10-23).
+Conformance read only. The owner endorsed all five divergences at once (2026-10-23).

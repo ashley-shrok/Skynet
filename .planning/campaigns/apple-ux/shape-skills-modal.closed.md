@@ -37,7 +37,7 @@ The skills modal, rearranged on the foundation's kit into two views inside one m
 ## Philosophy
 
 - Seeing all skills and working on one skill are different jobs; each gets its own view rather than sharing a cramped screen.
-- The thing Ashley manages most — who can use which skill — is right on the surface, in bulk, never behind a menu.
+- The thing the owner manages most — who can use which skill — is right on the surface, in bulk, never behind a menu.
 - Most people only ever touch SKILL.md. The other files are available but out of the way.
 - Apple's interfaces are the reference for how it behaves; the look stays Skynet's (look A from the foundation, kit parts only).
 - Nothing the modal can do today is lost; it's rearranged.
@@ -46,7 +46,7 @@ The skills modal, rearranged on the foundation's kit into two views inside one m
 
 - Today: two dropdowns (host, then skill), the skill's files down the left, the editor on the right; the two invocation settings, sharing and delete are in a ⋯ menu; small chips hint at the skill's state; a long explanation sits under the title.
 - The foundation (closed) already moved this modal onto the kit; this shape is its layout.
-- Tasting agreed with Ashley 2026-10-18 (`workspace/tastings/skills/skills-tasting.js` in the identity workspace), including her three changes: filter says "You", the fleet-distributed note under its section title, files collapsed by default.
+- Tasting agreed with the owner 2026-10-18 (`workspace/tastings/skills/skills-tasting.js` in the identity workspace), including her three changes: filter says "You", the fleet-distributed note under its section title, files collapsed by default.
 - Fleet-distributed skills shown read-only to admins (Platinum's work) must stay intact.
 
 ## What would make it wrong
@@ -70,7 +70,7 @@ The skills modal, rearranged on the foundation's kit into two views inside one m
 
 ## Handoff notes
 
-- Identity: copper-box-maintainer-2, inside campaign apple-ux. Work stays LOCAL on `feat/tab-title-from-tmux` — no push, no deploy until Ashley says (campaign shipping rule).
+- Identity: copper-box-maintainer-2, inside campaign apple-ux. Work stays LOCAL on `feat/tab-title-from-tmux` — no push, no deploy until the owner says (campaign shipping rule).
 - Build only from kit parts; if a part is missing (e.g. a column-labelled list row), add it to the kit rather than one-off markup.
 - The invocation settings today write SKILL.md's frontmatter; the at-least-one rule is enforced in the modal (the on-disk "nobody" state can still exist and must display).
 - Admin-only parts (shared and fleet-distributed sections, sync status) stay out of the id skill; the library, switches, collapsed files and the non-admin Skills-button change go in.
@@ -80,7 +80,7 @@ The skills modal, rearranged on the foundation's kit into two views inside one m
 ## Close-Out
 
 **Closed:** 2026-10-18
-**Overall verdict:** closed-hit (reviewer returned closed-partial pending five questions; Ashley endorsed all five recommendations 2026-10-18 and the two fixes were applied)
+**Overall verdict:** closed-hit (reviewer returned closed-partial pending five questions; the owner endorsed all five recommendations 2026-10-18 and the two fixes were applied)
 
 ### Shape features (conformance)
 
@@ -114,7 +114,7 @@ The skills modal, rearranged on the foundation's kit into two views inside one m
 ### Additions (in the result, not in the shape)
 
 - "Shared to every host" section has its own note under its title — endorsed-as-drift
-- Read-only skills showed a "view-only" tag beside the file name as well as the banner — removed at Ashley's call
+- Read-only skills showed a "view-only" tag beside the file name as well as the banner — removed at the owner's call
 - On a phone the one-line explanation of skills is hidden from the library header — endorsed-as-drift
 
 ### Follow-ups
@@ -123,4 +123,4 @@ None.
 
 ### Notes
 
-Reviewer found everything else present both ways. Live UAT of switches against real skills was not done (the live server predates this work, and flips would write Ashley's real skills); behaviour is covered by in-process tests.
+Reviewer found everything else present both ways. Live UAT of switches against real skills was not done (the live server predates this work, and flips would write the owner's real skills); behaviour is covered by in-process tests.

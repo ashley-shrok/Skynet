@@ -163,7 +163,7 @@ const defaultProps = {
   open: true,
   onOpenChange: vi.fn(),
   userId: "user-123",
-  username: "ashley",
+  username: "robin",
   avatarPath: null,
   onAvatarChanged: vi.fn(),
   userPrefs: {} as UserPreferences,
@@ -470,7 +470,7 @@ describe("PreferencesModal", () => {
     const buttons = Array.from(nav.querySelectorAll("button"));
     const card = screen.getByTestId("preferences-nav-account");
     expect(buttons[0]).toBe(card);
-    expect(card.textContent).toContain("ashley");
+    expect(card.textContent).toContain("robin");
     expect(card.textContent).toContain("Picture, log out");
     expect(screen.queryByTestId("preferences-nav-general")).toBeNull();
     expect(screen.queryByTestId("preferences-nav-logout")).toBeNull();

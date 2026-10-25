@@ -48,7 +48,7 @@ The project window (opened from a project's menu → Open project) is laid out l
 ## Prior context
 
 - Today: the window opens straight into an always-on editor with Save and Close at the foot and read-aloud in the header; tabs Project file / Files. The new-project dialog has a name, a searchable host picker and Create only.
-- Tasting agreed with Ashley 2026-10-18 (`workspace/tastings/project/project-tasting.js` in the identity workspace, real SKYNET projects): "Nothing. This kicks ass."
+- Tasting agreed with the owner 2026-10-18 (`workspace/tastings/project/project-tasting.js` in the identity workspace, real SKYNET projects): "Nothing. This kicks ass."
 - Window sizes are not settled here — shape-modal-sizing walks every modal at the end.
 
 ## What would make it wrong

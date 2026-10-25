@@ -1,7 +1,7 @@
 /* The conversation view — header pill, bubbles, the floating composer and its
    controls, working orb, floating controls. The kit's palette (kit.css :root);
    each pane sets --pv-id-hue (the agent's colour) on its root.
-   Visual reference: workspace/tastings/convo/ (Ashley, six rounds).
+   Visual reference: workspace/tastings/convo/ (six rounds).
    Shape: .planning/campaigns/apple-ux/shape-conversation-view.md */
 
 /* Unlayered on purpose: the bubbles keep the typography plugin's prose

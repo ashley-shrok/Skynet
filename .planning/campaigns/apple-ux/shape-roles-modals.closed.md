@@ -61,7 +61,7 @@ The roles list, the role modal, the new-role dialog and the runbook editor becom
 ## Prior context
 
 - Today: a roles list window (host dropdown on its own row, row ⋯ menus, archived strip at the bottom), a role modal (picture, name, colour/voice buttons, tabs), a new-role form (no Cancel; always hands off to new conversation), a runbook editor (lone trash button; empty runbook's "Add file" isn't on screen). Each closes the last and the way back is uneven.
-- Tasting agreed with Ashley 2026-10-18 (`workspace/tastings/roles/roles-tasting.js` in the identity workspace) with her changes: a real description under the name (faded italic "No description" + pencil when empty), the agent count moved off the cosmetic buttons, no runbook count on the tab. Files tab look kept as tasted.
+- Tasting agreed with the owner 2026-10-18 (`workspace/tastings/roles/roles-tasting.js` in the identity workspace) with her changes: a real description under the name (faded italic "No description" + pencil when empty), the agent count moved off the cosmetic buttons, no runbook count on the tab. Files tab look kept as tasted.
 - The description field itself (stored in the role file, served by the API, writable) is being plumbed by anthem-box-maintainer-6; this shape builds the UI on it. Drafting descriptions for existing roles is separate, after deploy.
 - Window sizes are deliberately not settled here — shape-modal-sizing walks every modal at the end.
 - Runbook rename is not offered (nothing behind it today).
@@ -82,16 +82,16 @@ The roles list, the role modal, the new-role dialog and the runbook editor becom
 ## Close-Out
 
 **Closed:** 2026-10-18
-**Overall verdict:** closed-hit (reviewer's closed-partial; Ashley endorsed both omissions and both additions as drift — "All agreed")
+**Overall verdict:** closed-hit (reviewer's closed-partial; the owner endorsed both omissions and both additions as drift — "All agreed")
 
 ### Shape features (conformance)
 
 - **One window, five views (back one level, Esc, X; phone full screen)** — present · Library, role, runbook, new role and archived are views of one window; back goes up exactly one level (new role opened from new conversation goes back there); Esc mirrors back and closes from the library.
 - **Library** — present · Header, search over name and description, "On every host" above "On <host>", rows with picture/name/description/agent count/chevron, no row menus, archived row with count hidden while searching or when none.
-- **Role view** — drifted · Everything present except the runbook rows' file count — Ashley: drop it (the name is what you scan for).
+- **Role view** — drifted · Everything present except the runbook rows' file count — the owner: drop it (the name is what you scan for).
 - **Runbook view** — present · Header, ⋯ (Add file…, Delete runbook…), skills-modal editor with "N files" toggle, Add file at the list's foot, per-file delete, Close/Save; empty runbook has its own Add file.
 - **New role view** — present · Picture first (generate three / upload), name, description, colour, host; Cancel + Create role; library → lands on the new role, new-conversation hop → back there.
-- **Archived roles view** — drifted · Rows show a dimmed initial, not the role's own picture (the archived list carries name and description only) — Ashley: accepted.
+- **Archived roles view** — drifted · Rows show a dimmed initial, not the role's own picture (the archived list carries name and description only) — the owner: accepted.
 - **Opened from an agent's window** — present · Opens straight onto the role; ‹ Roles goes to the library; closing returns to the agent's window.
 - **Non-admins and shared roles** — present · View-only all the way down, with a plain line saying only an admin can change it.
 - **Unsaved edits** — present · Leaving the role file or a runbook with unsaved edits by any route asks first.

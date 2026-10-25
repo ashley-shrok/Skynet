@@ -62,7 +62,7 @@ The agent's own window (opened from the task pill) is laid out as a sibling of t
 ## Prior context
 
 - Today: avatar, name, role links, task line with pencil, a voice chip in the corner; tabs Agent file / Wake-ups / Files (+ Git, Desktop); a Close button at the foot. Wake-ups expand inline to edit; "Add wakeup" stacks a second window.
-- Tasting agreed with Ashley 2026-10-18 (`workspace/tastings/agent/agent-tasting.js` in the identity workspace, Copper's real data, stand-in wake-ups). Her one change: the "On Skynet · in SKYNET" line becomes the project lineage only, no host. Wake-ups one level deeper and the smaller top on Desktop were taken as tasted.
+- Tasting agreed with the owner 2026-10-18 (`workspace/tastings/agent/agent-tasting.js` in the identity workspace, Copper's real data, stand-in wake-ups). Her one change: the "On Skynet · in SKYNET" line becomes the project lineage only, no host. Wake-ups one level deeper and the smaller top on Desktop were taken as tasted.
 - Window sizes are not settled here (except Desktop growing, as today) — shape-modal-sizing walks every modal at the end.
 
 ## What would make it wrong
@@ -130,4 +130,4 @@ The agent's own window (opened from the task pill) is laid out as a sibling of t
 
 ### Notes
 
-All six divergences ruled on by Ashley together (2026-10-18, thumbs-up on the recommendations). Name editability and the On switch on new wake-ups were shape-text errors carried over from the tasting; keeping them honours "nothing lost".
+All six divergences ruled on by the owner together (2026-10-18, thumbs-up on the recommendations). Name editability and the On switch on new wake-ups were shape-text errors carried over from the tasting; keeping them honours "nothing lost".

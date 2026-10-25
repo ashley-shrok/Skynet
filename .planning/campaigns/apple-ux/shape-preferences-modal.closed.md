@@ -68,10 +68,10 @@ The Preferences window (gear icon in the sidebar footer) keeps its side list but
 ## Prior context
 
 - Today: side list General (picture only), About you, Voice, Notifications, Phone, Services, About, Log out; About you opens on "Pick a host to load its configured files"; Voice mixes group titles and loose text; a Close button at the bottom of every section. The feedback dialogs are a plain text box in a large dialog; thumbs-down has only Send and silently sends the vote on close.
-- Tasting with Ashley 2026-10-21 (`workspace/tastings/prefs/` in the identity workspace, her real picture, voice, speed, Telegram, phone and About-you file): "the preferences modal overall looks great … I don't think I have any notes", except the side-list item reads "About", not "About Skynet" — instances brand differently.
-- Branding: the About header uses the instance's branded name and logo; the licence page keeps Skynet's name once because the licence covers that software, and gains the copyright and no-warranty lines the licence asks the interface to show (Ashley thumbs-up 2026-10-21).
+- Tasting with the owner 2026-10-21 (`workspace/tastings/prefs/` in the identity workspace, her real picture, voice, speed, Telegram, phone and About-you file): "the preferences modal overall looks great … I don't think I have any notes", except the side-list item reads "About", not "About Skynet" — instances brand differently.
+- Branding: the About header uses the instance's branded name and logo; the licence page keeps Skynet's name once because the licence covers that software, and gains the copyright and no-warranty lines the licence asks the interface to show (The owner thumbs-up 2026-10-21).
 - Window sizes are not settled here — shape-modal-sizing walks every modal at the end.
-- id skill: the Preferences description (gear icon) changes with this — non-admin visible. A what's-new note goes to Ashley for approval before it's committed.
+- id skill: the Preferences description (gear icon) changes with this — non-admin visible. A what's-new note goes to the owner for approval before it's committed.
 
 ## What would make it wrong
 
@@ -94,7 +94,7 @@ The Preferences window (gear icon in the sidebar footer) keeps its side list but
 ## Close-Out
 
 **Closed:** 2026-10-21
-**Overall verdict:** closed-hit (closed-partial at review; Ashley endorsed all six divergences 2026-10-21: "I'm cool with those recommendations")
+**Overall verdict:** closed-hit (closed-partial at review; the owner endorsed all six divergences 2026-10-21: "I'm cool with those recommendations")
 
 ### Shape features (conformance)
 
@@ -133,4 +133,4 @@ The Preferences window (gear icon in the sidebar footer) keeps its side list but
 
 ### Notes
 
-The Voice and feedback divergences are wording / platform realities, not gaps. Ashley preferred all divergences at once with a recommendation each.
+The Voice and feedback divergences are wording / platform realities, not gaps. The owner preferred all divergences at once with a recommendation each.

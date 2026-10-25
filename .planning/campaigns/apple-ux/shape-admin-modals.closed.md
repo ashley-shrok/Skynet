@@ -71,7 +71,7 @@ The Admin window (crown icon in the sidebar footer, admins only) becomes a sibli
 ## Prior context
 
 - Today (after shape-ux-foundation): Admin is a side-list window — Users, Sign-in, System, Hosts, Instance file — with a Close button at the bottom. A user opens a second window over it with its own side list (Account / Sessions / Hosts). Hosts are full cards with meters, red-ringed when they need attention. Session length has its own Save button and a "Saved" banner. The instance file is always an open editor with a Save button.
-- Tasting with Ashley 2026-10-21 (real build over the live app with her real data; screenshots in `workspace/tastings/admin/new/` in the identity workspace): "this is fantastic all around. No notes whatsoever", except the section stays **Hosts**, not "Machines" — it's the official term in the app.
+- Tasting with the owner 2026-10-21 (real build over the live app with her real data; screenshots in `workspace/tastings/admin/new/` in the identity workspace): "this is fantastic all around. No notes whatsoever", except the section stays **Hosts**, not "Machines" — it's the official term in the app.
 - Admin-only: no id-skill edit and no what's-new note.
 - Window sizes are not settled here — shape-modal-sizing walks every modal at the end.
 
@@ -103,7 +103,7 @@ The Admin window (crown icon in the sidebar footer, admins only) becomes a sibli
 ## Close-Out
 
 **Closed:** 2026-10-21
-**Overall verdict:** closed-hit (three small additions endorsed by Ashley as a change of mind)
+**Overall verdict:** closed-hit (three small additions endorsed by the owner as a change of mind)
 
 ### Shape features (conformance)
 

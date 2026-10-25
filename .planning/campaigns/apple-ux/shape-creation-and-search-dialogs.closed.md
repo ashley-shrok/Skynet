@@ -47,7 +47,7 @@ Four small windows get the same pass as the rest of the app. The new-conversatio
 ## Prior context
 
 - Today: the pencil opens "Create a new agent conversation" with a long description, a "Just a shell" tick-box (admins), a roles drop-down grouped by machine, a "Choose a custom agent name" tick-box that reveals the name field, and only Create. What's new is a bullet list with "Got it". Search is "Search conversations" with "Type a query and press Enter". Archived apps hides Un-archive behind a ⋮ on each row.
-- Tasting with Ashley 2026-10-22 (real build over the live app, real roles and apps; `workspace/tastings/dialogs/` in the identity workspace): new conversation "looks good … awesome", What's new, search and archived apps "really good stuff". Her two notes: the Agent / Shell switch never shows for a non-admin; machine headings only when there is more than one machine.
+- Tasting with the owner 2026-10-22 (real build over the live app, real roles and apps; `workspace/tastings/dialogs/` in the identity workspace): new conversation "looks good … awesome", What's new, search and archived apps "really good stuff". Her two notes: the Agent / Shell switch never shows for a non-admin; machine headings only when there is more than one machine.
 - Most roles have no description yet (drafting them is separate pending work), so many rows show just a name for now.
 - id skill: the pencil's dialog, What's new, search and archived apps are all non-admin visible → id-skill edits. One what's-new note for the whole campaign at its close.
 - Window sizes are not settled here — shape-modal-sizing walks every modal at the end.
@@ -72,9 +72,9 @@ Four small windows get the same pass as the rest of the app. The new-conversatio
 ## Handoff notes
 
 - copper-box-maintainer-2, in-session after the tasting; the tasting code is the starting point (role list component, dialog changes, What's new, search, archived apps).
-- Before building: rebase onto upstream's "runbooks become role skills" (f0452a0c) and carry role skills into the redesigned roles window — separate commit, shown to Ashley.
+- Before building: rebase onto upstream's "runbooks become role skills" (f0452a0c) and carry role skills into the redesigned roles window — separate commit, shown to the owner.
 - Tests for all four windows rewritten around the new flows; id skill describes each change.
-- The unused "new group conversation" (relay room) dialog is not opened anywhere — Ashley to say whether to delete it here.
+- The unused "new group conversation" (relay room) dialog is not opened anywhere — the owner to say whether to delete it here.
 - Local only — campaign shipping rule.
 
 ---
@@ -82,7 +82,7 @@ Four small windows get the same pass as the rest of the app. The new-conversatio
 ## Close-Out
 
 **Closed:** 2026-10-22
-**Overall verdict:** closed-hit (two small additions endorsed by Ashley)
+**Overall verdict:** closed-hit (two small additions endorsed by the owner)
 
 ### Shape features (conformance)
 
@@ -106,11 +106,11 @@ Four small windows get the same pass as the rest of the app. The new-conversatio
 
 - The new-conversation window got bigger (room for the role list) and What's new smaller (a short sheet) ahead of the sizing pass — endorsed-as-drift
 - Searching the role list hides the No roles rows, matches machine names too, and says "No matching roles" when nothing matches — endorsed-as-drift
-- Roles-window changes alongside (role skills shown like skills, no machine on the facts line, the scheduled-tasks link) — asked for by Ashley during this session; logged in the campaign artifact
+- Roles-window changes alongside (role skills shown like skills, no machine on the facts line, the scheduled-tasks link) — asked for by the owner during this session; logged in the campaign artifact
 
 ### Follow-ups
 
-- The unused "new group conversation" dialog stays as is, not restyled and not removed — Ashley plans to come back to it later — deferred
+- The unused "new group conversation" dialog stays as is, not restyled and not removed — the owner plans to come back to it later — deferred
 
 ### Notes
 

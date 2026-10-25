@@ -341,7 +341,7 @@ ${M} [data-slot="modal-foot"] [data-variant="destructive"]{background:#c4413a!im
     ["chips", "Chips", `
       <p class="kx-note">Status labels (not clickable) and pick-chips (click to toggle — hosts, weekdays).</p>
       <div class="kx-row"><span class="kx-chip ok"><span class="dot"></span>Healthy</span><span class="kx-chip acc">instance-wide</span><span class="kx-chip">user only</span><span class="kx-chip">distributed</span><span class="kx-chip warn">Running long</span><span class="kx-chip bad">Broken</span><span class="kx-chip">archived</span></div>
-      <div class="kx-row kx-pick-live"><button class="kx-pick" aria-pressed="true">Skynet</button><button class="kx-pick">thenasty</button><button class="kx-pick" aria-pressed="true">workstation</button><button class="kx-pick">ashley-laptop</button><button class="kx-pick">aither-cloud2-prod</button></div>
+      <div class="kx-row kx-pick-live"><button class="kx-pick" aria-pressed="true">Skynet</button><button class="kx-pick">thenasty</button><button class="kx-pick" aria-pressed="true">workstation</button><button class="kx-pick">robin-laptop</button><button class="kx-pick">aither-cloud2-prod</button></div>
       <div class="kx-row kx-pick-live"><button class="kx-pick round" aria-pressed="true">M</button><button class="kx-pick round" aria-pressed="true">T</button><button class="kx-pick round" aria-pressed="true">W</button><button class="kx-pick round" aria-pressed="true">T</button><button class="kx-pick round" aria-pressed="true">F</button><button class="kx-pick round">S</button><button class="kx-pick round">S</button></div>`],
     ["rows", "List rows", `
       <p class="kx-note">One row for roles, scheduled tasks, search results, archived things, users. Three-dot menu appears on hover (always on touch).</p>
@@ -359,7 +359,7 @@ ${M} [data-slot="modal-foot"] [data-variant="destructive"]{background:#c4413a!im
           <div class="kx-grow-row click"><span class="kx-status" style="background:var(--ok)"></span><span class="lbl">Skynet</span><span class="val">t1000</span><span class="hk" style="color:var(--acc-text);font-weight:700">✓</span></div>
           <div class="kx-grow-row click"><span class="kx-status" style="background:var(--ok)"></span><span class="lbl">thenasty</span><span class="val"></span><span class="hk"></span></div>
           <div class="kx-grow-row click"><span class="kx-status" style="background:var(--warn)"></span><span class="lbl">workstation</span><span class="val">slow</span><span class="hk"></span></div>
-          <div class="kx-grow-row" style="opacity:.45"><span class="kx-status" style="background:#666"></span><span class="lbl">ashley-beelink</span><span class="val">offline</span><span class="hk"></span></div>
+          <div class="kx-grow-row" style="opacity:.45"><span class="kx-status" style="background:#666"></span><span class="lbl">robin-beelink</span><span class="val">offline</span><span class="hk"></span></div>
         </div>
       </div>`],
     ["side", "Side list", `
