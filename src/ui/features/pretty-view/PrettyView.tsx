@@ -4986,8 +4986,9 @@ export function PrettyView({
             className="mx-auto max-w-[780px]"
             style={{
               visibility: revealed ? "visible" : "hidden",
-              // Clear the floating composer dock.
-              paddingBottom: "calc(var(--pv-dock-h, 0px) + 8px)",
+              // Clear the floating composer dock, resting the last message
+              // in the light top half of its 40px fade.
+              paddingBottom: "calc(var(--pv-dock-h, 0px) - 16px)",
             }}
           >
           {/* Header clearance: the badge / task pill / mobile back button float
