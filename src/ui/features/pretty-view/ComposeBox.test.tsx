@@ -18,16 +18,7 @@ vi.mock("@/api/compose-drafts-api", () => ({
 }));
 
 import { ComposeBox, type ComposeBoxProps } from "./ComposeBox";
-import { getComposeDraft } from "@/api/compose-drafts-api";
-
-// "Queue a message" was retired (shape-conversation-view): nothing adds new
-// queued slots any more, but slots saved in a restored draft still render
-// and send. Tests seed them through the draft-load mock before rendering.
-function seedQueuedSlots(
-  slots: Array<{ id: string; text: string }> = [{ id: "q1", text: "" }],
-): void {
-  vi.mocked(getComposeDraft).mockResolvedValueOnce({ body: "", queueSlots: slots });
-}
+import { getComposeDraft, putComposeDraft } from "@/api/compose-drafts-api";
 
 function baseProps(overrides: Partial<ComposeBoxProps> = {}): ComposeBoxProps {
   return {
@@ -51,10 +42,9 @@ const mkAtt = (
   error: null,
 });
 
-// Quick 260814-1hz: the primary + slot Send buttons no longer host the
-// useHoldToRecord hook — that gesture has moved to MicButton. Send buttons
-// are back to plain onClick={handleSend} / onClick={handleQueueSlotSend}
-// (primary preserves the aside-morph onAsideDismiss branch). Consequently,
+// Quick 260814-1hz: the Send button no longer hosts the useHoldToRecord
+// hook — that gesture has moved to MicButton. Send is back to a plain
+// onClick={handleSend} (preserving the aside-morph onAsideDismiss branch). Consequently,
 // exercising the enabled send path in tests is once again a fireEvent.click
 // on the button. The Phase 32 short-tap pointer-sequence (pointerdown +
 // pointerup < HOLD_THRESHOLD_MS) is now specific to the MicButton and is
@@ -705,379 +695,22 @@ describe("ComposeBox — Phase 05 upload wiring", () => {
 });
 
 // ============================================================
-// Queue slots (bounty: message-queue-in-pretty-view)
+// Drafts saved before "Queue a message" was retired may still carry queued
+// messages; their text is folded into the main box and saved back without them.
 // ============================================================
 
-describe("queue slots (bounty: message-queue-in-pretty-view)", () => {
-  // Access the mocked compose-drafts-api module
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  let getComposeDraftMock: ReturnType<typeof vi.fn>;
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  let putComposeDraftMock: ReturnType<typeof vi.fn>;
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  let flushComposeDraftKeepaliveMock: ReturnType<typeof vi.fn>;
+describe("ComposeBox — legacy queued messages fold into the draft body", () => {
+  const lsKey = "skynet:compose-draft:test-user:1:s1";
 
-  beforeEach(async () => {
-    vi.clearAllMocks();
-    localStorage.clear();
-    // Cross-user leak fix: compose-draft keys include the username; seed
-    // skynet_auth so the key factory emits the canonical production shape.
-    localStorage.setItem(
-      "skynet_auth",
-      JSON.stringify({ loggedIn: true, username: "test-user" }),
-    );
-    vi.useFakeTimers();
-
-    // Re-import to get fresh mock references after clearAllMocks.
-    const apiMod = await import("@/api/compose-drafts-api");
-    getComposeDraftMock = apiMod.getComposeDraft as ReturnType<typeof vi.fn>;
-    putComposeDraftMock = apiMod.putComposeDraft as ReturnType<typeof vi.fn>;
-    flushComposeDraftKeepaliveMock = apiMod.flushComposeDraftKeepalive as ReturnType<typeof vi.fn>;
-
-    // Default: hydrate with empty body + empty queueSlots
-    getComposeDraftMock.mockResolvedValue({ body: "", queueSlots: [] });
-    putComposeDraftMock.mockResolvedValue(undefined);
-    flushComposeDraftKeepaliveMock.mockImplementation(() => {});
-  });
-
-  afterEach(() => {
-    vi.useRealTimers();
-  });
-
-  // Helper: flush all pending microtasks (Promise resolution) so async mount
-  // effects (getComposeDraft.then(...)) complete before we do user interactions.
-  async function flushMountEffect() {
-    await act(async () => {
-      // Two rounds to cover nested microtasks (useEffect → fetch → .then → setState)
-      await Promise.resolve();
-      await Promise.resolve();
-    });
-  }
-
-  // QS 2: Typing into a queue slot updates that slot's text
-  it("QS 2 — typing into a queue slot textarea updates its text", async () => {
-    seedQueuedSlots();
-    render(<ComposeBox {...baseProps()} />);
-    await flushMountEffect();
-
-    const allTextareas = screen.getAllByRole("textbox") as HTMLTextAreaElement[];
-    // The FIRST textarea is the restored queue slot (queue slot stack renders above
-    // Row 2 primary textarea in DOM order — slot = index 0, primary = last)
-    const slotTextarea = allTextareas[0];
-
-    fireEvent.change(slotTextarea, { target: { value: "queued message" } });
-    expect(slotTextarea.value).toBe("queued message");
-  });
-
-  // QS 3: X button on a queue slot removes only that slot
-  it("QS 3 — clicking the X (delete) button on a slot removes only that slot", async () => {
-    seedQueuedSlots([
-      { id: "q1", text: "" },
-      { id: "q2", text: "" },
-    ]);
-    render(<ComposeBox {...baseProps()} />);
-    await flushMountEffect();
-
-    // 2 restored queue slots plus primary = 3 total textareas
-    expect(screen.getAllByRole("textbox").length).toBe(3);
-
-    // Delete the first queue slot
-    const deleteButtons = screen.getAllByRole("button", { name: /delete queued message/i });
-    expect(deleteButtons.length).toBe(2);
-    fireEvent.click(deleteButtons[0]);
-
-    // Now should have 2 textareas (primary + 1 remaining slot)
-    expect(screen.getAllByRole("textbox").length).toBe(2);
-  });
-
-  // QS 4: Send slot success — onSend called with text, slot disappears
-  it("QS 4 — short-tap slot Send with text calls onSend and removes the slot on success (true)", async () => {
-    // Phase 32 Plan 32-02: slot send button is now pointer-gesture-owned
-    // (onClick removed; hook onShortTap → handleQueueSlotSend). Drive short-
-    // tap sequence, mock mediaDevices for voice.start() in the hook.
-    const restore = withMediaDevicesStub();
-    try {
-      const onSend = vi.fn(() => true);
-      seedQueuedSlots();
-      render(<ComposeBox {...baseProps({ onSend })} />);
-      await flushMountEffect();
-
-      const allTextareas = screen.getAllByRole("textbox") as HTMLTextAreaElement[];
-      // Slot renders ABOVE primary in DOM: slot = index 0, primary = last.
-      const slotTextarea = allTextareas[0];
-
-      await act(async () => {
-        fireEvent.change(slotTextarea, { target: { value: "send this" } });
-      });
-
-      // Find the slot's Send button (not the primary Send)
-      const slotSendBtn = screen.getByRole("button", { name: /send queued message/i }) as HTMLButtonElement;
-      await act(async () => {
-        await shortTapSendButton(slotSendBtn);
-      });
-
-      // Phase 68 Plan 02: funnel now passes mqid as second arg (D-03 invariant).
-      expect(onSend).toHaveBeenCalledWith("send this", expect.stringMatching(/^pv-optim-\d+-[0-9a-z]{8}$/));
-      // Slot should be removed after successful send
-      expect(screen.getAllByRole("textbox").length).toBe(1); // only primary
-    } finally {
-      restore();
-    }
-  });
-
-  // QS 5: Send slot failure — slot persists, errorMessage surfaces
-  it("QS 5 — short-tap slot Send when onSend returns false keeps the slot and shows error", async () => {
-    const restore = withMediaDevicesStub();
-    try {
-      const onSend = vi.fn(() => false);
-      seedQueuedSlots();
-      render(<ComposeBox {...baseProps({ onSend })} />);
-      await flushMountEffect();
-
-      const allTextareas = screen.getAllByRole("textbox") as HTMLTextAreaElement[];
-      // Slot renders ABOVE primary in DOM: slot = index 0, primary = last.
-      const slotTextarea = allTextareas[0];
-
-      await act(async () => {
-        fireEvent.change(slotTextarea, { target: { value: "failing send" } });
-      });
-
-      const slotSendBtn = screen.getByRole("button", { name: /send queued message/i }) as HTMLButtonElement;
-      await act(async () => {
-        await shortTapSendButton(slotSendBtn);
-      });
-
-      // Phase 68 Plan 02: funnel now passes mqid as second arg (D-03 invariant).
-      expect(onSend).toHaveBeenCalledWith("failing send", expect.stringMatching(/^pv-optim-\d+-[0-9a-z]{8}$/));
-      // Slot persists
-      expect(screen.getAllByRole("textbox").length).toBe(2);
-      // Error message surfaces
-      expect(screen.getByText(/not connected/i)).toBeTruthy();
-    } finally {
-      restore();
-    }
-  });
-
-  // QS 6: Send slot disabled when empty
-  it("QS 6 — slot Send button is disabled when slot.text.trim() is empty", async () => {
-    seedQueuedSlots();
-    render(<ComposeBox {...baseProps()} />);
-    await flushMountEffect();
-
-    const slotSendBtn = screen.getByRole("button", { name: /send queued message/i }) as HTMLButtonElement;
-    expect(slotSendBtn.disabled).toBe(true);
-
-    // Type some text — button should become enabled.
-    // Slot renders ABOVE primary in DOM: slot = index 0, primary = last.
-    const allTextareas = screen.getAllByRole("textbox") as HTMLTextAreaElement[];
-    const slotTextarea = allTextareas[0];
-
-    await act(async () => {
-      fireEvent.change(slotTextarea, { target: { value: "  hello  " } });
-    });
-
-    // Re-query to get updated state
-    const updatedSlotSendBtn = screen.getByRole("button", { name: /send queued message/i }) as HTMLButtonElement;
-    expect(updatedSlotSendBtn.disabled).toBe(false);
-
-    // Clear text → disabled again
-    await act(async () => {
-      fireEvent.change(slotTextarea, { target: { value: "   " } });
-    });
-    const disabledAgain = screen.getByRole("button", { name: /send queued message/i }) as HTMLButtonElement;
-    expect(disabledAgain.disabled).toBe(true);
-  });
-
-  // QS 6b: Enter-to-send parity on queue-slot textareas — plain Enter fires
-  // handleQueueSlotSend (matches primary handleKeyDown at ~L1714); Shift+Enter
-  // falls through to browser-default newline insertion.
-  it("QS 6b — plain Enter in a queue-slot textarea sends and removes the slot; Shift+Enter does NOT send", async () => {
-    const onSend = vi.fn(() => true);
-    seedQueuedSlots();
-    render(<ComposeBox {...baseProps({ onSend })} />);
-    await flushMountEffect();
-
-    const allTextareas = screen.getAllByRole("textbox") as HTMLTextAreaElement[];
-    // Slot renders ABOVE primary in DOM: slot = index 0, primary = last.
-    const slotTextarea = allTextareas[0];
-
-    await act(async () => {
-      fireEvent.change(slotTextarea, { target: { value: "queued via enter" } });
-    });
-
-    // Shift+Enter must NOT fire onSend (falls through to browser newline).
-    await act(async () => {
-      fireEvent.keyDown(slotTextarea, { key: "Enter", shiftKey: true });
-    });
-    expect(onSend).not.toHaveBeenCalled();
-
-    // Plain Enter fires the send.
-    await act(async () => {
-      fireEvent.keyDown(slotTextarea, { key: "Enter", shiftKey: false });
-    });
-    // Phase 68 Plan 02: funnel now passes mqid as second arg (D-03 invariant).
-    expect(onSend).toHaveBeenCalledWith("queued via enter", expect.stringMatching(/^pv-optim-\d+-[0-9a-z]{8}$/));
-
-    // Slot is removed on successful send (mirrors QS 4).
-    expect(screen.getAllByRole("textbox").length).toBe(1); // only primary
-  });
-
-  // QS 6c: Enter-to-send is gated by slotSendDisabled — empty text (whitespace-
-  // only) must NOT dispatch onSend, matching the slot Send button predicate.
-  it("QS 6c — plain Enter in an empty queue-slot textarea does NOT dispatch onSend", async () => {
-    const onSend = vi.fn(() => true);
-    seedQueuedSlots();
-    render(<ComposeBox {...baseProps({ onSend })} />);
-    await flushMountEffect();
-
-    const allTextareas = screen.getAllByRole("textbox") as HTMLTextAreaElement[];
-    const slotTextarea = allTextareas[0];
-
-    // Whitespace-only text — slotSendDisabled predicate rejects.
-    await act(async () => {
-      fireEvent.change(slotTextarea, { target: { value: "   " } });
-    });
-    await act(async () => {
-      fireEvent.keyDown(slotTextarea, { key: "Enter", shiftKey: false });
-    });
-    expect(onSend).not.toHaveBeenCalled();
-    // Slot still present (was not sent).
-    expect(screen.getAllByRole("textbox").length).toBe(2);
-  });
-
-  // QS 7: Persistence — hydrate queueSlots on mount from getComposeDraft
-  it("QS 7 — mount hydrates queueSlots from getComposeDraft response", async () => {
-    getComposeDraftMock.mockResolvedValue({
-      body: "",
-      queueSlots: [{ id: "seed-a", text: "seeded slot" }],
-    });
-
-    render(<ComposeBox {...baseProps()} />);
-
-    // Wait for hydration async effect to complete
-    await flushMountEffect();
-
-    // After hydration, the seeded slot should appear
-    const allTextareas = screen.getAllByRole("textbox") as HTMLTextAreaElement[];
-    expect(allTextareas.length).toBeGreaterThanOrEqual(2);
-    const slotTextarea = allTextareas.find((t) => t.value === "seeded slot");
-    expect(slotTextarea).toBeTruthy();
-  });
-
-  // QS 8: Autosave — putComposeDraft called with queueSlots after 400ms debounce
-  it("QS 8 — editing a restored slot schedules putComposeDraft with queueSlots after 400ms debounce", async () => {
-    seedQueuedSlots();
-    render(<ComposeBox {...baseProps()} />);
-    await flushMountEffect();
-    putComposeDraftMock.mockClear();
-
-    // Type in the new slot. Slot renders ABOVE primary in DOM: slot = index 0.
-    const allTextareas = screen.getAllByRole("textbox") as HTMLTextAreaElement[];
-    const slotTextarea = allTextareas[0];
-
-    await act(async () => {
-      fireEvent.change(slotTextarea, { target: { value: "autosave me" } });
-    });
-
-    // Advance past debounce and flush the flushDirty() async call
-    await act(async () => {
-      vi.advanceTimersByTime(400);
-      await Promise.resolve();
-      await Promise.resolve();
-    });
-
-    expect(putComposeDraftMock).toHaveBeenCalled();
-    // The call should include queueSlots as the 4th argument
-    const lastCall = putComposeDraftMock.mock.calls[putComposeDraftMock.mock.calls.length - 1];
-    expect(lastCall).toBeDefined();
-    expect(Array.isArray(lastCall[3])).toBe(true); // 4th arg = queueSlots
-    const savedSlots = lastCall[3] as Array<{ id: string; text: string }>;
-    expect(savedSlots.some((s) => s.text === "autosave me")).toBe(true);
-  });
-
-  // QS 9: localStorage mirror — extended payload {body, queueSlots}
-  it("QS 9 — after autosave, localStorage contains extended {body, queueSlots} payload", async () => {
-    seedQueuedSlots();
-    render(<ComposeBox {...baseProps({ hostId: 99, tmuxSession: "ls-test" })} />);
-
-    await act(async () => {
-      await Promise.resolve();
-    });
-
-    // Slot renders ABOVE primary in DOM: slot = index 0, primary = last.
-    const allTextareas = screen.getAllByRole("textbox") as HTMLTextAreaElement[];
-    const slotTextarea = allTextareas[0];
-    fireEvent.change(slotTextarea, { target: { value: "ls-slot" } });
-
-    // Advance past debounce
-    await act(async () => {
-      vi.advanceTimersByTime(400);
-      await Promise.resolve();
-    });
-
-    // Cross-user leak fix: key is namespaced by the current username (seeded
-    // in beforeEach as "test-user").
-    const lsKey = `skynet:compose-draft:test-user:99:ls-test`;
-    const lsValue = localStorage.getItem(lsKey);
-    expect(lsValue).not.toBeNull();
-
-    // Should be JSON with body and queueSlots
-    const parsed = JSON.parse(lsValue!);
-    expect(parsed).toHaveProperty("body");
-    expect(parsed).toHaveProperty("queueSlots");
-    expect(Array.isArray(parsed.queueSlots)).toBe(true);
-  });
-
-  // QS 10: Mic per-slot — mic button on slot starts recording for that slot
-  it("QS 10 — mic button on queue slot: voice.start called when slot mic tapped", async () => {
-    // Set up MediaDevices mock so showMicButton is visible
-    const originalMediaDevices = navigator.mediaDevices;
-    const startMock = vi.fn();
-    // We can't easily test voice per-slot wiring without the full voice mock
-    // from ComposeBox.voice.test.tsx. This test verifies the mic button IS rendered
-    // on queue slots when mediaDevices is available.
-    Object.defineProperty(navigator, "mediaDevices", {
-      value: { getUserMedia: vi.fn() },
-      configurable: true,
-    });
-
-    seedQueuedSlots();
-    render(<ComposeBox {...baseProps()} />);
-    await flushMountEffect();
-
-    // Should have a mic button on the slot (aria-label "Record voice for queued slot" or similar)
-    // The key assertion: a Record voice button appears associated with the slot
-    const micButtons = screen.queryAllByRole("button", { name: /record voice/i });
-    // In idle state with mediaDevices, mic button(s) should appear
-    expect(micButtons.length).toBeGreaterThanOrEqual(1);
-
-    // Restore
-    if (originalMediaDevices) {
-      Object.defineProperty(navigator, "mediaDevices", {
-        value: originalMediaDevices,
-        configurable: true,
-      });
-    }
-  });
-});
-
-// ============================================================
-// Quick 260803-05i: queued-row per-slot paperclip, top-left delete corner
-// tab, padding parity, per-slot chip overlay (Task 2), one-line armed
-// header (Task 3). This describe block accumulates across all three tasks
-// so the mount/setup boilerplate is defined once.
-// ============================================================
-
-describe("ComposeBox — Quick B: queued-row per-slot paperclip + top-left delete tab + padding parity + overlay chip + one-line armed header", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     localStorage.clear();
-    // Cross-user leak fix: compose-draft keys include the username; seed
-    // skynet_auth so the key factory emits the canonical production shape.
     localStorage.setItem(
       "skynet_auth",
       JSON.stringify({ loggedIn: true, username: "test-user" }),
     );
+    vi.mocked(getComposeDraft).mockResolvedValue({ body: "", queueSlots: [] });
+    vi.mocked(putComposeDraft).mockResolvedValue(undefined);
     vi.useFakeTimers();
   });
 
@@ -1092,189 +725,60 @@ describe("ComposeBox — Quick B: queued-row per-slot paperclip + top-left delet
     });
   }
 
-  // ── Task 1: paperclip + top-left delete tab + padding parity ────────────
-
-  it("QB-1: queued row renders a paperclip attach button at absolute left-1 bottom-0.5 with 30% opacity default", async () => {
-    seedQueuedSlots();
-    render(<ComposeBox {...baseProps()} />);
-    await flushMountEffect();
-    const paperclip = screen.getByRole("button", {
-      name: /attach file to queued message/i,
-    });
-    expect(paperclip).toBeTruthy();
-    expect(paperclip.className).toMatch(/\bleft-1\b/);
-    expect(paperclip.className).toMatch(/\bbottom-0\.5\b/);
-    // 30% opacity treatment — matches the main-composebox paperclip.
-    // Post-1503c40c the icon uses the Tailwind `opacity-30` utility instead
-    // of the semi-transparent rgba stroke (rgba composited additively on
-    // overlapping SVG paths, producing visible seams — see commit message).
-    expect(paperclip.className).toMatch(/\bopacity-30\b/);
-  });
-
-  it("QB-2: paperclip click on queued slot routes file-picker output to onAttachFilesForTarget(`queued:${slotId}`, files) — NOT primary", async () => {
-    const onAttachFilesForTarget = vi.fn();
-    seedQueuedSlots();
-    render(
-      <ComposeBox
-        {...baseProps({ onAttachFilesForTarget })}
-      />,
-    );
-    await flushMountEffect();
-    // Click the queued paperclip — arms activeStagingTargetRef with the
-    // slot's target BEFORE opening the hidden file input.
+  async function flushAutosave() {
     await act(async () => {
-      fireEvent.click(
-        screen.getByRole("button", { name: /attach file to queued message/i }),
-      );
+      vi.advanceTimersByTime(400);
+      await Promise.resolve();
+      await Promise.resolve();
     });
-    const fileInput = document.querySelector(
-      'input[type="file"]',
-    ) as HTMLInputElement;
-    expect(fileInput).not.toBeNull();
-    const f = new File(["hello"], "hello.txt", { type: "text/plain" });
-    Object.defineProperty(fileInput, "files", {
-      value: [f],
-      configurable: true,
-    });
-    await act(async () => {
-      fireEvent.change(fileInput);
-    });
-    expect(onAttachFilesForTarget).toHaveBeenCalledTimes(1);
-    const [target, files] = onAttachFilesForTarget.mock.calls[0];
-    expect(target).toMatch(/^queued:/);
-    expect(files).toEqual([f]);
-  });
+  }
 
-  it("QB-3: queued row renders a delete × in the top-left corner OUTSIDE the textarea wrapper (tab protrudes via -top-* + -left-*)", async () => {
-    seedQueuedSlots();
+  it("server draft: body then each non-blank queued message, a blank line between; the next save sends no queued messages", async () => {
+    const info = vi.spyOn(console, "info");
+    vi.mocked(getComposeDraft).mockResolvedValueOnce({
+      body: "a",
+      queueSlots: [
+        { id: "q1", text: "b" },
+        { id: "q2", text: "  " },
+        { id: "q3", text: "c" },
+      ],
+    });
     render(<ComposeBox {...baseProps()} />);
     await flushMountEffect();
-    const deleteBtn = screen.getByRole("button", {
-      name: /delete queued message/i,
-    });
-    // Corner-tab positioning: -top-* + -left-* protrudes OUTSIDE the
-    // textarea's border (user moved from -right-2 to -left-2 on 2026-08-12).
-    expect(deleteBtn.className).toMatch(/-top-/);
-    expect(deleteBtn.className).toMatch(/-left-/);
-    // Delete tab must be a descendant of the slot outer container.
-    const outer = deleteBtn.closest("[data-slot-id]");
-    expect(outer).not.toBeNull();
+
+    const textareas = screen.getAllByRole("textbox") as HTMLTextAreaElement[];
+    expect(textareas).toHaveLength(1);
+    expect(textareas[0].value).toBe("a\n\nb\n\nc");
+    expect(
+      info.mock.calls.filter((c) => String(c[0]).includes("operation=compose_draft_queue_slots_folded")),
+    ).toHaveLength(1);
+
+    await flushAutosave();
+    expect(putComposeDraft).toHaveBeenCalledTimes(1);
+    expect(putComposeDraft).toHaveBeenLastCalledWith(1, "s1", "a\n\nb\n\nc", []);
+    expect(JSON.parse(localStorage.getItem(lsKey)!)).toEqual({ body: "a\n\nb\n\nc" });
+    info.mockRestore();
   });
 
-  it("QB-4: clicking the delete × removes the slot AND calls clearStagedForTarget for that slot's target", async () => {
-    const clearStagedForTarget = vi.fn();
-    seedQueuedSlots();
-    render(
-      <ComposeBox {...baseProps({ clearStagedForTarget })} />,
-    );
-    await flushMountEffect();
-    expect(screen.getAllByRole("textbox").length).toBe(2); // slot + primary
-    await act(async () => {
-      fireEvent.click(
-        screen.getByRole("button", { name: /delete queued message/i }),
-      );
-    });
-    expect(screen.getAllByRole("textbox").length).toBe(1); // primary only
-    expect(clearStagedForTarget).toHaveBeenCalledTimes(1);
-    expect(clearStagedForTarget.mock.calls[0][0]).toMatch(/^queued:/);
-  });
-
-  it("QB-5: queued textarea className carries pl-11 (padding parity for the left-side paperclip clearance)", async () => {
-    seedQueuedSlots();
+  it("localStorage-only legacy draft {body: \"\", queueSlots: [{text: \"x\"}]} restores as \"x\"", async () => {
+    localStorage.setItem(lsKey, JSON.stringify({ body: "", queueSlots: [{ text: "x" }] }));
     render(<ComposeBox {...baseProps()} />);
     await flushMountEffect();
-    // Slot renders BEFORE primary in DOM order.
-    const allTextareas = screen.getAllByRole("textbox") as HTMLTextAreaElement[];
-    const slotTextarea = allTextareas[0];
-    expect(slotTextarea.className).toMatch(/\bpl-11\b/);
+
+    expect((screen.getByRole("textbox") as HTMLTextAreaElement).value).toBe("x");
+    await flushAutosave();
+    expect(putComposeDraft).toHaveBeenLastCalledWith(1, "s1", "x", []);
   });
 
-  it("QB-6: the old left-1 bottom-0.5 delete × is GONE — the delete button now lives at the top-left corner (className MUST NOT contain 'left-1'; `-left-2` is fine, that's the corner-tab protrusion, distinct from the `left-1 bottom-0.5` bottom-left in-textarea position)", async () => {
-    seedQueuedSlots();
+  it("a draft without queued messages loads as-is and is not re-saved", async () => {
+    vi.mocked(getComposeDraft).mockResolvedValueOnce({ body: "plain", queueSlots: [] });
     render(<ComposeBox {...baseProps()} />);
     await flushMountEffect();
-    const deleteBtn = screen.getByRole("button", {
-      name: /delete queued message/i,
-    });
-    expect(deleteBtn.className).not.toMatch(/\bleft-1\b/);
+
+    expect((screen.getByRole("textbox") as HTMLTextAreaElement).value).toBe("plain");
+    await flushAutosave();
+    expect(putComposeDraft).not.toHaveBeenCalled();
   });
-
-  // ── Task 2: per-slot overlay chip strip via QueuedRow extraction ─────────
-
-  it("QB-7: queued slot with staged attachments renders overlay chip strip INSIDE the slot's inner textarea wrapper (mirrors Quick A's Test 2b for the primary)", async () => {
-    const getStagedAttachmentsForTarget = vi.fn((target: string) =>
-      target.startsWith("queued:")
-        ? [mkAtt("q1", "queued-file-1.txt"), mkAtt("q2", "queued-file-2.txt")]
-        : [],
-    );
-    seedQueuedSlots();
-    render(
-      <ComposeBox
-        {...baseProps({
-          getStagedAttachmentsForTarget,
-          onRemoveAttachment: vi.fn(),
-        })}
-      />,
-    );
-    await flushMountEffect();
-    // At least one chip strip should render — inside the slot.
-    const strips = screen.getAllByTestId("attachment-chip-strip");
-    expect(strips.length).toBeGreaterThanOrEqual(1);
-    // The slot's chip strip lives inside the slot's `.relative.flex-1
-    // .self-stretch` inner wrapper (Task 2's QueuedRow extraction added it).
-    const slotTextarea = (screen.getAllByRole(
-      "textbox",
-    ) as HTMLTextAreaElement[])[0];
-    const slotInnerWrapper = slotTextarea.closest(
-      "div.relative.flex-1.self-stretch",
-    );
-    expect(slotInnerWrapper).not.toBeNull();
-    // At least ONE strip is a descendant of that inner wrapper.
-    const inSlotStrip = strips.find((s) => slotInnerWrapper!.contains(s));
-    expect(inSlotStrip).toBeTruthy();
-    // Overlay positioning check — parent wrapper carries `absolute`.
-    expect(inSlotStrip!.parentElement!.className).toMatch(/absolute/);
-  });
-
-  it("QB-8: queued slot with NO staged attachments renders no chip strip in that slot (empty state adds no DOM element)", async () => {
-    const getStagedAttachmentsForTarget = vi.fn(() => []);
-    seedQueuedSlots();
-    render(
-      <ComposeBox
-        {...baseProps({ getStagedAttachmentsForTarget })}
-      />,
-    );
-    await flushMountEffect();
-    const strips = screen.queryAllByTestId("attachment-chip-strip");
-    // Primary is also empty (baseProps doesn't set stagedAttachments), so
-    // AttachmentChipStrip's return-null-when-empty contract yields 0 total.
-    expect(strips.length).toBe(0);
-  });
-
-  it("QB-9: primary chip strip regression guard — extracting QueuedRow does NOT break the primary's Quick A overlay", async () => {
-    render(
-      <ComposeBox
-        {...baseProps({
-          stagedAttachments: [
-            mkAtt("a", "primary-1.txt"),
-            mkAtt("b", "primary-2.txt"),
-          ],
-          onRemoveAttachment: vi.fn(),
-        })}
-      />,
-    );
-    await flushMountEffect();
-    const strip = screen.getByTestId("attachment-chip-strip");
-    const textarea = screen.getByPlaceholderText(/message/i);
-    const stripWrapper = strip.closest('[data-testid="compose-primary-wrapper"]');
-    const textareaWrapper = textarea.closest(
-      '[data-testid="compose-primary-wrapper"]',
-    );
-    expect(stripWrapper).not.toBeNull();
-    expect(textareaWrapper).not.toBeNull();
-    expect(stripWrapper).toBe(textareaWrapper);
-  });
-
 });
 
 describe("ComposeBox — Phase 9 layout", () => {

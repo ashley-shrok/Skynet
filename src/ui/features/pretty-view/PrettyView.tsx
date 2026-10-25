@@ -4689,7 +4689,7 @@ export function PrettyView({
         const files = Array.from(dt.files);
         if (items && items.length > 0) {
           // Quick 260802-wxy: primary target — drag/drop lands in the main
-          // composebox's chip strip. Quick B will introduce per-slot targets.
+          // composebox's chip strip.
           uploads.stageAttachments("primary", items);
         } else if (files.length > 0) {
           uploads.stageAttachments("primary", files);
@@ -5449,18 +5449,8 @@ export function PrettyView({
             isTouchDevice={isTouchDevice}
             // Quick 260802-wxy: wrap the target-aware hook API in a
             // ComposeBox-compatible (files-only) callback that always targets
-            // "primary" — the paperclip picker and paste path in the main
-            // composebox always stage to primary in Quick A. Quick B added
-            // per-slot paperclips (below via onAttachFilesForTarget) but the
-            // legacy callback stays for the paste path + backward-compat.
+            // "primary" — the paperclip picker and paste path both stage there.
             onAttachFiles={(files) => uploads.stageAttachments("primary", files)}
-            // Quick 260803-05i: target-aware wiring for the queued-row per-slot
-            // paperclip + per-slot chip strip overlay (Task 2) + per-slot
-            // clear-on-delete (Task 1). Legacy primary-only wiring above stays
-            // in place — the target-aware props are additive.
-            onAttachFilesForTarget={(target, files) => uploads.stageAttachments(target, files)}
-            getStagedAttachmentsForTarget={uploads.getStagedAttachments}
-            clearStagedForTarget={uploads.clearStagedForTarget}
             // Phase 14 quick-task 260726-vbd: widened asideActive predicate
             // covers both the GENERATION phase (asidePending=true, from /btw
             // submit through aside_ready arrival) and the DISPLAY phase
@@ -5470,7 +5460,7 @@ export function PrettyView({
             // cancels an in-flight /btw or clears a displayed aside.
             asideActive={asideText !== null || asidePending}
             onAsideDismiss={handleAsideDismiss}
-            onSendWithAttachments={async (caption, target) => {
+            onSendWithAttachments={async (caption) => {
               // quick-260823-8ji: Promise-returning — ComposeBox awaits this
               // outcome to gate the textarea + attachment-chip clear on a
               // genuine success signal from the batch lifecycle
@@ -5480,10 +5470,7 @@ export function PrettyView({
               // Phase 50 D-20 / D-56 posture. See ComposeBox.tsx handleSend
               // attachment branch + use-pretty-view-uploads.ts BatchOutcome
               // for the full contract.
-              // quick-260829-nt9: target forwarded to startBatch — defaults to
-              // "primary" inside startBatch when undefined; queued-slot
-              // producers pass "queued:<slotId>" per quick-260829-nt9.
-              const ret = await uploads.startBatch(caption, target);
+              const ret = await uploads.startBatch(caption);
               if (!ret) {
                 // startBatch returns null when no attachments are staged —
                 // the compose surface guards this branch on hasAttachments

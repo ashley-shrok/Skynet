@@ -272,7 +272,6 @@ describe("PrettyView — interrupt button (shape-interrupt-button)", () => {
     await waitFor(() =>
       expect((container.querySelector(PRIMARY) as HTMLTextAreaElement).value).toBe("older words\n\nnew draft"),
     );
-    expect(container.querySelectorAll('textarea[placeholder="Queued message…"]')).toHaveLength(0);
   });
 
   it("a restore is used once: switching conversations never carries the words over", async () => {
@@ -315,7 +314,6 @@ describe("PrettyView — interrupt button (shape-interrupt-button)", () => {
     sendWsFrame(ws, { type: "interrupt_result", verdict: "stopped" });
     sendWsFrame(ws, { type: "interrupt_result", verdict: "none", reason: "agent_output" });
     expect((container.querySelector(PRIMARY) as HTMLTextAreaElement).value).toBe("");
-    expect(container.querySelectorAll('textarea[placeholder="Queued message…"]')).toHaveLength(0);
   });
 
   it("the interrupted line renders as an agent-side 'Interrupted' bubble and turns the work indicator off", async () => {

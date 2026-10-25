@@ -35,7 +35,6 @@ const LEGACY_IMPORT_ALLOWED = new Set([
   "src/ui/components/password-input.tsx",
   "src/ui/features/guacamole/GuacamoleApp.tsx",
   "src/ui/features/keyboard/Toolbar.tsx",
-  "src/ui/features/pretty-view/ComposeBox.tsx",
   "src/ui/features/terminal/Terminal.tsx",
   "src/ui/ssh/connection-log/ConnectionLog.tsx",
   "src/ui/ssh/dialogs/HostKeyVerificationDialog.tsx",

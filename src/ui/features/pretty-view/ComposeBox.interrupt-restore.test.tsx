@@ -1,6 +1,6 @@
 // shape-interrupt-button — ComposeBox side: the interrupt button greys out
 // while a send is still being delivered, and a cancelled send's words come
-// back into the primary box — above anything typed since, never a queued box.
+// back into the primary box — above anything typed since.
 
 import { describe, it, expect, vi, afterEach } from "vitest";
 import { render, screen, fireEvent } from "@testing-library/react";
@@ -23,7 +23,6 @@ function baseProps(overrides: Partial<ComposeBoxProps> = {}): ComposeBoxProps {
 }
 
 const primary = () => screen.getByPlaceholderText("Write a message…") as HTMLTextAreaElement;
-const queued = () => screen.queryAllByPlaceholderText("Queued message…") as HTMLTextAreaElement[];
 
 describe("ComposeBox — interrupt button availability", () => {
   afterEach(() => vi.restoreAllMocks());
@@ -107,11 +106,10 @@ describe("ComposeBox — giving back a cancelled send", () => {
       />,
     );
     expect(primary().value).toBe("write me a poem");
-    expect(queued()).toHaveLength(0);
     expect(onRestoreApplied).toHaveBeenCalledWith("e1", "primary");
   });
 
-  it("user already typing → the words go above the draft, a blank line between; no queued box", () => {
+  it("user already typing → the words go above the draft, a blank line between", () => {
     const onRestoreApplied = vi.fn();
     const { rerender } = render(<ComposeBox {...baseProps({ onRestoreApplied })} />);
     fireEvent.change(primary(), { target: { value: "something new" } });
@@ -121,7 +119,6 @@ describe("ComposeBox — giving back a cancelled send", () => {
       />,
     );
     expect(primary().value).toBe("the cancelled words\n\nsomething new");
-    expect(queued()).toHaveLength(0);
     expect(onRestoreApplied).toHaveBeenCalledTimes(1);
     expect(onRestoreApplied).toHaveBeenCalledWith("e2", "primary");
   });
@@ -144,7 +141,6 @@ describe("ComposeBox — giving back a cancelled send", () => {
       />,
     );
     expect(primary().value).toBe("words");
-    expect(queued()).toHaveLength(0);
     expect(onRestoreApplied).toHaveBeenCalledWith("e3", "primary");
   });
 
@@ -170,6 +166,5 @@ describe("ComposeBox — giving back a cancelled send", () => {
     const { rerender } = render(<ComposeBox {...baseProps({ onRestoreApplied, restoreRequest: req })} />);
     rerender(<ComposeBox {...baseProps({ onRestoreApplied, restoreRequest: { ...req } })} />);
     expect(onRestoreApplied).toHaveBeenCalledTimes(1);
-    expect(queued()).toHaveLength(0);
   });
 });

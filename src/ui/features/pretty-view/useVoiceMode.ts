@@ -31,7 +31,7 @@
  * Standing design rules (user 2026-10-06: "the voice mode doesn't take over
  * anything it doesn't have to"):
  *   - Owns its OWN MediaStream + MediaRecorders. It never touches the compose
- *     textarea, attachments, queue slots or the tap-to-record `useVoiceRecording`
+ *     textarea, attachments or the tap-to-record `useVoiceRecording`
  *     instance, so typing / pasting / Send keep working while voice mode is on.
  *     Replies to typed sends are spoken too.
  *   - One mic listener at a time: while voice mode is on, ComposeBox disables

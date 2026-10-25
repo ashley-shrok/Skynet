@@ -10,14 +10,13 @@
  * same mount() factory rendering <PrettyView> (end-to-end, not <ComposeBox>
  * directly), same mqid capture pattern.
  *
- * Scope: main-textarea only. The other four affordances (queued-message slots,
- * quick-reply buttons, and reset) are Plan 68-03's responsibility.
+ * Scope: main-textarea only. The other affordances (quick-reply buttons and
+ * reset) are Plan 68-03's responsibility.
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, act, waitFor, fireEvent, screen } from "@testing-library/react";
 import { autoAnswerKitDialogs, __resetKitDialogsForTests } from "@/components/kit";
-import { getComposeDraft } from "@/api/compose-drafts-api";
 
 type WsStub = {
   readyState: number;
@@ -239,54 +238,6 @@ describe("ComposeBox — send funnel (Phase 68 Plan 01)", () => {
 
     // The pending bubble's data-event-id is keyed on the same mqid.
     expect(eventId).toBe(`pending-${onSendMqidCapture}`);
-  });
-
-  it("Test 2: queue-slot send routes through funnel — 1 bubble, slot removed, mqid present", async () => {
-    // Seed a queue slot via the compose-drafts mock BEFORE mounting so the
-    // hydration effect picks it up on first render.
-    vi.mocked(getComposeDraft).mockResolvedValueOnce({
-      body: "",
-      queueSlots: [{ id: "s1", text: "slot payload" }],
-    });
-
-    const { container } = mount();
-    const ws = getCurrentWs();
-    flipToStreaming(ws);
-
-    // Wait for the slot textarea to appear in the DOM (async hydration).
-    await waitFor(() =>
-      expect(container.querySelector('[data-testid="queue-slot-textarea-s1"]')).not.toBeNull(),
-    );
-
-    // Find the slot's "Send queued message" button. It lives in the same slot
-    // container as the textarea (data-slot-id="s1").
-    const slotContainer = container.querySelector('[data-slot-id="s1"]') as HTMLElement;
-    expect(slotContainer).not.toBeNull();
-    const sendBtn = slotContainer.querySelector('button[aria-label="Send queued message"]') as HTMLButtonElement | null;
-    expect(sendBtn).not.toBeNull();
-    expect(sendBtn!.disabled).toBe(false);
-
-    // Click the send button.
-    act(() => {
-      fireEvent.click(sendBtn!);
-    });
-
-    // Exactly one pending bubble seeded with the slot's payload.
-    await waitFor(() => expect(countPendingBubbles(container)).toBe(1));
-    const pendingEl = container.querySelector('[data-event-id^="pending-"]')!;
-    expect(pendingEl.textContent).toContain("slot payload");
-
-    // onSend received (payload, mqid) — literal payload, not override.
-    expect(onSendMock).toHaveBeenCalledOnce();
-    const [callPayload, callMqid] = onSendMock.mock.calls[0] as [string, string];
-    expect(callPayload).toBe("slot payload");
-    expect(callMqid).toMatch(/^pv-optim-\d+-[0-9a-z]{8}$/);
-    expect(onSendMqidCapture).toMatch(/^pv-optim-\d+-[0-9a-z]{8}$/);
-
-    // Slot row removed from the DOM after successful dispatch.
-    await waitFor(() =>
-      expect(container.querySelector('[data-slot-id="s1"]')).toBeNull(),
-    );
   });
 
   it("Test 3: thumbs-up routes through funnel — 1 bubble showing the ThumbsUp icon, onSend receives 'thumbs up', button clickable when dormant", async () => {

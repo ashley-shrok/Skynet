@@ -327,19 +327,5 @@ describe("ComposeBox — quick 260729-j8l recycleActive gating", () => {
       expect(sendBtn.disabled).toBe(true);
       expect(onSend).not.toHaveBeenCalled();
     });
-
-    // TODO(quick 260731-ulo): C5 slot-branch parity test — deferred; primary-mic parity in C3 is required coverage.
-    // Rationale: seeding a queue slot via the Plus-button flow and then
-    // driving the slot mic through the voice pipeline requires a fixture
-    // shape that does not cleanly extend the current file's baseProps
-    // pattern (per-slot mic sharing aria-label with primary mic + relying
-    // on `voice.state === "recording"` + `micTarget === slot.id` to render
-    // RecordingControls inside the correct slot container). The plan
-    // explicitly permits skipping C5 rather than expanding fixture wiring
-    // for one test. Slot-branch source-side guard in handleVoiceSend is
-    // symmetric with the primary branch (both wrap dispatch in
-    // `if (!recycleActive)` with the same "text lands, no dispatch, slot
-    // not removed" invariant) and exercised via handleVoiceAppend's
-    // existing coverage in ComposeBox.voice.test.tsx.
   });
 });

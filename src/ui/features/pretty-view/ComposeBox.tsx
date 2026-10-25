@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createLogDedup } from "@/lib/log-dedup";
 import { AudioLines, Ban, Check, LoaderCircle, Mic, MicOff, Paperclip, Pause, Plus, RefreshCw, Square, ThumbsUp, Volume2, X } from "lucide-react";
-import { Textarea } from "@/components/textarea";
 import { cn } from "@/lib/utils";
 import {
   flushComposeDraftKeepalive,
@@ -23,7 +22,7 @@ import { AttachmentChipStrip, type StagedAttachmentLike } from "./AttachmentChip
 // compose textarea + attachment-chip clear on a genuine success signal.
 import type { BatchOutcome } from "./use-pretty-view-uploads";
 import { useVoiceRecording } from "./useVoiceRecording";
-import { HOLD_OUTCOME_MS, useHoldToRecord } from "./useHoldToRecord";
+import { useHoldToRecord } from "./useHoldToRecord";
 import { useVoiceMode, type VoiceModeMessage, type VoiceModePhase } from "./useVoiceMode";
 import {
   registerManualRecording,
@@ -136,6 +135,17 @@ function composeDraftLsKey(
 ): string {
   const user = getCurrentUser() ?? "__anon";
   return `skynet:compose-draft:${user}:${hostId}:${tmuxSessionKey ?? ""}`;
+}
+
+// Queued messages saved before "Queue a message" was retired join the body:
+// body first, then each queued message, blank ones dropped, a blank line
+// between each.
+function foldQueueSlotsIntoBody(body: string, slots: readonly unknown[]): string {
+  const slotTexts = slots.map((slot) => {
+    const text = slot !== null && typeof slot === "object" ? (slot as { text?: unknown }).text : undefined;
+    return typeof text === "string" ? text : "";
+  });
+  return [body, ...slotTexts].filter((part) => part.trim() !== "").join("\n\n");
 }
 
 // ============================================================================
@@ -352,17 +362,6 @@ export interface ComposeBoxProps {
   // One callback for BOTH entry points (paperclip picker + textarea
   // paste). The parent hook's stageAttachments handler consumes this.
   onAttachFiles?: (files: File[]) => void;
-  // Quick 260803-05i: target-aware staging entry point. Queued slots pass their
-  // own target string `queued:${slot.id}` so per-slot attachments stay isolated.
-  // Legacy `onAttachFiles` remains for backward-compat + primary paste path.
-  onAttachFilesForTarget?: (target: string, files: File[]) => void;
-  // Quick 260803-05i: per-slot read of staged attachments. Task 2 uses this to
-  // render the overlay chip strip inside each queued textarea's wrapper.
-  getStagedAttachmentsForTarget?: (target: string) => StagedAttachmentLike[];
-  // Quick 260803-05i: per-slot clear. QueuedRow's top-left delete × calls
-  // this when a slot is removed so its staged attachments don't linger in
-  // the hook.
-  clearStagedForTarget?: (target: string) => void;
   // Called instead of onSend when Send is clicked and at least one
   // attachment is staged. The caller (PrettyView) invokes
   // usePrettyViewUploads.startBatch(caption). Send remains ENABLED
@@ -378,12 +377,7 @@ export interface ComposeBoxProps {
   // setErrorMessage(). Mirrors the non-attachment path's Phase 50 D-20 /
   // D-56 failure-preservation posture so user never loses a compose
   // draft to a silent-clear on WS drop / upload_failed / timeout again.
-  // quick-260829-nt9: target param widened to optional string. Primary
-  // handleSend passes no target (defaults to "primary" inside
-  // usePrettyViewUploads.startBatch). Queued-slot entry points pass
-  // "queued:<slotId>" so per-slot attachments route to the correct staging
-  // area and don't collide with the primary target.
-  onSendWithAttachments?: (caption: string, target?: string) => Promise<BatchOutcome>;
+  onSendWithAttachments?: (caption: string) => Promise<BatchOutcome>;
   // Called when the user clicks the Retry button that appears when at
   // least one chip has status='error'. Parent hook re-issues the
   // batch. Empty batches or all-complete batches do not surface this
@@ -802,9 +796,6 @@ export function ComposeBox({
   mode = "harness",
   isTouchDevice,
   onAttachFiles,
-  onAttachFilesForTarget,
-  getStagedAttachmentsForTarget,
-  clearStagedForTarget,
   onSendWithAttachments,
   onRetryBatch,
   asideActive,
@@ -860,33 +851,17 @@ export function ComposeBox({
       isMountedRef.current = false;
     };
   }, []);
-  // Quick 260803-05i: records which target owns the currently-open file picker.
-  // The main-composebox paperclip sets this to "primary" on click; each queued
-  // slot's paperclip sets this to `queued:${slot.id}`. handleFileInputChange
-  // reads the ref, defaults to "primary" if null (safety), and routes to the
-  // target-aware onAttachFilesForTarget prop (falling back to onAttachFiles if
-  // the target-aware prop isn't threaded — backward-compat).
-  const activeStagingTargetRef = useRef<string | null>(null);
-  const handleOpenFilePicker = useCallback((target: string = "primary") => {
-    activeStagingTargetRef.current = target;
+  const handleOpenFilePicker = useCallback(() => {
     fileInputRef.current?.click();
   }, []);
   const handleFileInputChange = useCallback(
     (e: React.ChangeEvent<HTMLInputElement>) => {
       const files = Array.from(e.target.files ?? []);
-      const target = activeStagingTargetRef.current ?? "primary";
-      activeStagingTargetRef.current = null;
-      if (files.length > 0) {
-        if (onAttachFilesForTarget) {
-          onAttachFilesForTarget(target, files);
-        } else {
-          onAttachFiles?.(files);
-        }
-      }
+      if (files.length > 0) onAttachFiles?.(files);
       // Reset so the same file can be picked again in the same session.
       e.target.value = "";
     },
-    [onAttachFiles, onAttachFilesForTarget],
+    [onAttachFiles],
   );
   // Phase 05 — clipboard paste of file-shaped payloads (screenshots,
   // dragged-from-Files.app, etc.). Text pastes fall through to the
@@ -939,38 +914,6 @@ export function ComposeBox({
   // pass consults the DOM. 144px fallback (24 × 6) covers the JSDOM `normal`
   // keyword branch where parseFloat resolves to NaN.
   const maxHeightPxRef = useRef<number | null>(null);
-
-  // Bounty message-queue-in-pretty-view: per-slot message queue state.
-  // queueSlots: array of {id, text} objects rendered as stacked textareas
-  // above Row 2. micTarget tracks which slot (or "primary") owns the mic.
-  const [queueSlots, setQueueSlots] = useState<Array<{ id: string; text: string }>>([]);
-  const [micTarget, setMicTarget] = useState<"primary" | string>("primary");
-  // Mirror queueSlots into a ref so pagehide/visibilitychange handlers and
-  // the 10s retry interval read the latest value without stale-closure issues.
-  const latestQueueSlotsRef = useRef<Array<{ id: string; text: string }>>([]);
-  latestQueueSlotsRef.current = queueSlots;
-
-  // makeSlotId: unique short id for each new queue slot.
-  // Uses crypto.randomUUID() when available (modern browsers, secure context);
-  // falls back to Date.now() + random suffix for older environments.
-  const makeSlotId = (): string => {
-    if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
-      return crypto.randomUUID();
-    }
-    return Date.now().toString(36) + Math.random().toString(36).slice(2);
-  };
-
-  // Marks the id of a slot that was JUST created via the QueuePlusTab click
-  // so QueuedRow can focus its textarea on mount. Not used for hydrated /
-  // draft-restored slots — those keep whatever focus the user had on load.
-  // QueuedRow clears the ref the moment it consumes it.
-  const justAddedSlotIdRef = useRef<string | null>(null);
-
-  const handleAddSlotAtTop = (): void => {
-    const id = makeSlotId();
-    justAddedSlotIdRef.current = id;
-    setQueueSlots((prev) => [{ id, text: "" }, ...prev]);
-  };
 
   // Patch #83: drain-sweep animation state for the reset cell click.
   // isDraining triggers "all segments render as dim" so the well
@@ -1060,10 +1003,7 @@ export function ComposeBox({
   // most-recent unsaved value that needs to reach the server. Mirrors
   // MessageQueueDrawer's dirtyBodiesRef per-item semantics but scoped
   // to the single draft this component owns.
-  // Bounty message-queue-in-pretty-view: dirty tracking extended — either
-  // body OR queueSlots mutations count as "dirty" for the retry loop.
   const dirtyBodyRef = useRef<string | null>(null);
-  const dirtyQueueSlotsRef = useRef<Array<{ id: string; text: string }> | null>(null);
   const debounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   // Mirror of `text` so async callbacks (interval tick, pagehide handler)
   // can read the latest value without stale-closure surprises.
@@ -1080,44 +1020,37 @@ export function ComposeBox({
     }
   }, []);
 
-  // Flush the pending dirty body/queueSlots (if any). Best-effort — on error,
-  // re-queue the LATEST values (prefer latestBodyRef / latestQueueSlotsRef over
-  // the captured dirty snapshot; user may have typed more while the request was
-  // in flight) so the next flush chance retries with the freshest content.
+  // Flush the pending dirty body (if any). Best-effort — on error, re-queue
+  // the LATEST body (prefer latestBodyRef over the captured dirty snapshot;
+  // user may have typed more while the request was in flight) so the next
+  // flush chance retries with the freshest content.
   //
-  // Bounty message-queue-in-pretty-view: flushDirty now includes queueSlots
-  // alongside body in every PUT. If either is dirty, both are included so the
-  // server receives a consistent snapshot.
+  // Every save sends `queueSlots: []` so a row still carrying queued
+  // messages from before "Queue a message" was retired is cleared (the
+  // route keeps the stored value when the field is omitted).
   const flushDirty = useCallback(async () => {
-    if (dirtyBodyRef.current === null && dirtyQueueSlotsRef.current === null) return;
+    if (dirtyBodyRef.current === null) return;
     // Phase 97 UAT follow-up (2026-09-10): relay-source panes have no
     // hostId + no tmuxSession, so a PUT to /compose-drafts would 400 with
     // "hostId is required". Skip the persist attempt in relay mode; clear
-    // the dirty flags so we don't accumulate. (Relay-source drafts, if
+    // the dirty flag so we don't accumulate. (Relay-source drafts, if
     // needed, would use a separate storage key — separate design.)
     if (mode === "relay") {
       dirtyBodyRef.current = null;
-      dirtyQueueSlotsRef.current = null;
       return;
     }
-    const body = dirtyBodyRef.current ?? latestBodyRef.current;
-    const slots = dirtyQueueSlotsRef.current ?? latestQueueSlotsRef.current;
+    const body = dirtyBodyRef.current;
     dirtyBodyRef.current = null;
-    dirtyQueueSlotsRef.current = null;
     // Patch #119 — draft-loss belt-and-suspenders diagnostic. One
     // console.warn per attempted server save so the next post-restart
     // repro reveals whether the server-side save fired at all.
-    console.warn(`[compose] draft-save hostId=${hostId} tmuxSession=${tmuxSessionKey ?? "null"} bodyLen=${body.length} slotsLen=${slots.length}`);
+    console.warn(`[compose] draft-save hostId=${hostId} tmuxSession=${tmuxSessionKey ?? "null"} bodyLen=${body.length}`);
     try {
-      await putComposeDraft(hostId, tmuxSessionKey, body, slots);
-      // Patch #119 — mirror the confirmed-saved body+queueSlots to localStorage
-      // so ls stays in sync with the server after every successful autosave.
-      // Extended payload: {body, queueSlots} (was bare body string pre-bounty).
+      await putComposeDraft(hostId, tmuxSessionKey, body, []);
+      // Patch #119 — mirror the confirmed-saved body to localStorage so ls
+      // stays in sync with the server after every successful autosave.
       try {
-        localStorage.setItem(
-          composeDraftLsKey(hostId, tmuxSessionKey),
-          JSON.stringify({ body, queueSlots: slots }),
-        );
+        localStorage.setItem(composeDraftLsKey(hostId, tmuxSessionKey), JSON.stringify({ body }));
       } catch {
         // localStorage can throw on quota / private browsing — non-fatal.
       }
@@ -1125,29 +1058,18 @@ export function ComposeBox({
       // Re-queue latest — prefer newer edits over the snapshot we just
       // tried to send. No error UI on the AUTOSAVE path — send path
       // optimistic bubbles live on PrettyView per Phase 50 D-01.
-      const latestBody = latestBodyRef.current;
-      const latestSlots = latestQueueSlotsRef.current;
-      dirtyBodyRef.current = latestBody;
-      dirtyQueueSlotsRef.current = latestSlots;
+      dirtyBodyRef.current = latestBodyRef.current;
     }
   }, [hostId, tmuxSessionKey, mode]);
 
   const scheduleAutosave = useCallback(
-    (nextBody: string, nextSlots?: Array<{ id: string; text: string }>) => {
+    (nextBody: string) => {
       dirtyBodyRef.current = nextBody;
-      // Bounty message-queue-in-pretty-view: also mark queueSlots dirty
-      // when provided; use latest ref snapshot when not provided.
-      dirtyQueueSlotsRef.current = nextSlots ?? latestQueueSlotsRef.current;
       // Patch #119 — draft-loss belt-and-suspenders: mirror every
-      // keystroke to localStorage as extended {body, queueSlots} payload
-      // so the draft survives any server-side failure mode.
-      // Legacy-string fallback comment: pre-bounty LS entries stored body
-      // as a bare string; hydrate logic below handles that format.
+      // keystroke to localStorage as a {body} payload so the draft
+      // survives any server-side failure mode.
       try {
-        localStorage.setItem(
-          composeDraftLsKey(hostId, tmuxSessionKey),
-          JSON.stringify({ body: nextBody, queueSlots: dirtyQueueSlotsRef.current }),
-        );
+        localStorage.setItem(composeDraftLsKey(hostId, tmuxSessionKey), JSON.stringify({ body: nextBody }));
       } catch {}
       clearDebounce();
       debounceTimerRef.current = setTimeout(() => {
@@ -1179,26 +1101,24 @@ export function ComposeBox({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [restoreRequest]);
 
-  // Load-on-mount: seed text + queueSlots state from the persisted draft for
-  // this (hostId, tmuxSession). On a key change (host or session switches),
+  // Load-on-mount: seed text from the persisted draft for this
+  // (hostId, tmuxSession). On a key change (host or session switches),
   // flush the previous key's dirty body via keepalive BEFORE loading the new
   // key — otherwise a mid-typing switch would silently drop the draft.
   // Any load error silently keeps the empty seed.
   //
-  // Bounty message-queue-in-pretty-view: hydrate queueSlots from server seed.
-  // localStorage payload extended to {body, queueSlots}; legacy entries that
-  // stored bare body strings are handled via a JSON.parse try/catch fallback.
+  // A draft saved before "Queue a message" was retired may still carry
+  // queued messages (server `queueSlots`, or `queueSlots` in the
+  // localStorage {body, queueSlots} payload). Their text is folded into the
+  // body and the draft is saved back without them, so nothing is lost.
   useEffect(() => {
     let cancelled = false;
 
     // Reset per-key local state.
     setText("");
-    setQueueSlots([]);
     clearDebounce();
     dirtyBodyRef.current = null;
-    dirtyQueueSlotsRef.current = null;
     latestBodyRef.current = "";
-    latestQueueSlotsRef.current = [];
 
     // Phase 97 UAT follow-up (2026-09-10): relay-source panes have no
     // hostId + no tmuxSession, so a compose-drafts fetch always 400s with
@@ -1214,12 +1134,12 @@ export function ComposeBox({
       .then((data) => {
         if (cancelled) return;
         const seed = data.body ?? "";
-        const seedSlots: Array<{ id: string; text: string }> = data.queueSlots ?? [];
+        const seedSlots: readonly unknown[] = data.queueSlots ?? [];
 
         // Patch #119 — draft-loss belt-and-suspenders hydrate. Cross-
-        // check localStorage against the server seed for BOTH body AND
-        // queueSlots. LS payload is now {body, queueSlots}; legacy bare-
-        // string entries (pre-bounty) are handled by the fallback below.
+        // check localStorage against the server seed. The LS payload is
+        // {body} ({body, queueSlots} in older entries); a bare string is
+        // also read as the body.
         let lsRaw: string | null = null;
         try {
           lsRaw = localStorage.getItem(composeDraftLsKey(hostId, tmuxSessionKey));
@@ -1228,60 +1148,49 @@ export function ComposeBox({
         }
 
         let lsBody: string = "";
-        let lsSlots: Array<{ id: string; text: string }> = [];
+        let lsSlots: readonly unknown[] = [];
         if (lsRaw && lsRaw.length > 0) {
           try {
             const parsed = JSON.parse(lsRaw);
             if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
-              // Extended {body, queueSlots} payload
               lsBody = typeof parsed.body === "string" ? parsed.body : "";
               lsSlots = Array.isArray(parsed.queueSlots) ? parsed.queueSlots : [];
-            } else {
-              // Not an object — treat as invalid
-              lsBody = "";
-              lsSlots = [];
             }
           } catch {
-            // Legacy-string fallback: pre-bounty LS entries stored body as
-            // a bare JSON string or plain string. Treat as body, queueSlots=[].
+            // Legacy-string fallback: older LS entries stored the body as a
+            // bare string.
             lsBody = lsRaw;
-            lsSlots = [];
           }
         }
 
-        // Determine hydrated values: server non-empty wins; otherwise use LS.
-        const serverHasBody = seed !== "";
-        const serverHasSlots = seedSlots.length > 0;
-        const lsHasBody = lsBody.length > 0;
-        const lsHasSlots = lsSlots.length > 0;
+        // Server non-empty wins; otherwise use LS.
+        const serverHasContent = seed !== "" || seedSlots.length > 0;
+        const restoreFromLs = !serverHasContent && (lsBody.length > 0 || lsSlots.length > 0);
+        const rawBody = restoreFromLs ? lsBody : seed;
+        const rawSlots = restoreFromLs ? lsSlots : seedSlots;
+        const hydratedBody = rawSlots.length > 0 ? foldQueueSlotsIntoBody(rawBody, rawSlots) : rawBody;
 
-        let hydratedBody = seed;
-        let hydratedSlots = seedSlots;
-
-        if (!serverHasBody && !serverHasSlots && (lsHasBody || lsHasSlots)) {
-          // Server empty + LS has content → restore from LS and schedule autosave.
-          hydratedBody = lsBody;
-          hydratedSlots = lsSlots;
-        } else if (serverHasBody || serverHasSlots) {
+        if (serverHasContent) {
           // Server has content → mirror to LS so it stays fresh.
           try {
-            localStorage.setItem(
-              composeDraftLsKey(hostId, tmuxSessionKey),
-              JSON.stringify({ body: seed, queueSlots: seedSlots }),
-            );
+            localStorage.setItem(composeDraftLsKey(hostId, tmuxSessionKey), JSON.stringify({ body: hydratedBody }));
           } catch {}
         }
 
         console.warn(`[compose] draft-load hostId=${hostId} tmuxSession=${tmuxSessionKey ?? "null"} serverBodyLen=${seed.length} serverSlotsLen=${seedSlots.length} lsBodyLen=${lsBody.length} lsSlotsLen=${lsSlots.length}`);
+        if (rawSlots.length > 0) {
+          console.info(
+            `[compose] queue-slots-folded operation=compose_draft_queue_slots_folded hostId=${hostId} tmuxSession=${tmuxSessionKey ?? "null"} source=${restoreFromLs ? "localStorage" : "server"} slotCount=${rawSlots.length} bodyLen=${rawBody.length} foldedLen=${hydratedBody.length}`,
+          );
+        }
 
         setText(hydratedBody);
-        setQueueSlots(hydratedSlots);
         latestBodyRef.current = hydratedBody;
-        latestQueueSlotsRef.current = hydratedSlots;
 
-        // If we restored from LS, kick off an autosave so the server catches up.
-        if (!serverHasBody && !serverHasSlots && (lsHasBody || lsHasSlots)) {
-          scheduleAutosave(hydratedBody, hydratedSlots);
+        // Restored from LS, or folded queued messages in: save so the server
+        // catches up (and drops the queued messages).
+        if (restoreFromLs || rawSlots.length > 0) {
+          scheduleAutosave(hydratedBody);
         }
       })
       .catch(() => {
@@ -1299,18 +1208,9 @@ export function ComposeBox({
       cancelled = true;
       // Phase 97 UAT follow-up: skip keepalive in relay mode — the
       // endpoint requires hostId which is 0 for relay panes.
-      if (
-        mode !== "relay" &&
-        (dirtyBodyRef.current !== null || dirtyQueueSlotsRef.current !== null)
-      ) {
-        flushComposeDraftKeepalive(
-          hostId,
-          tmuxSessionKey,
-          dirtyBodyRef.current ?? latestBodyRef.current,
-          dirtyQueueSlotsRef.current ?? latestQueueSlotsRef.current,
-        );
+      if (mode !== "relay" && dirtyBodyRef.current !== null) {
+        flushComposeDraftKeepalive(hostId, tmuxSessionKey, dirtyBodyRef.current, []);
         dirtyBodyRef.current = null;
-        dirtyQueueSlotsRef.current = null;
       }
       clearDebounce();
     };
@@ -1320,24 +1220,16 @@ export function ComposeBox({
   }, [hostId, tmuxSessionKey, clearDebounce, scheduleAutosave, mode]);
 
   // pagehide + visibilitychange keepalive flush. Fires only when there's
-  // a dirty body or queueSlots pending — idle panes cost zero unload-time bandwidth.
-  // Bounty message-queue-in-pretty-view: queueSlots included in the keepalive
-  // payload alongside body.
+  // a dirty body pending — idle panes cost zero unload-time bandwidth.
   useEffect(() => {
     const onPageHide = () => {
       // Phase 97 UAT follow-up: skip keepalive in relay mode — the
       // endpoint requires hostId which is 0 for relay panes. Same
       // rationale as the load-on-mount + flushDirty early-returns.
       if (mode === "relay") return;
-      if (dirtyBodyRef.current !== null || dirtyQueueSlotsRef.current !== null) {
-        flushComposeDraftKeepalive(
-          hostId,
-          tmuxSessionKey,
-          dirtyBodyRef.current ?? latestBodyRef.current,
-          dirtyQueueSlotsRef.current ?? latestQueueSlotsRef.current,
-        );
+      if (dirtyBodyRef.current !== null) {
+        flushComposeDraftKeepalive(hostId, tmuxSessionKey, dirtyBodyRef.current, []);
         dirtyBodyRef.current = null;
-        dirtyQueueSlotsRef.current = null;
       }
     };
     const onVisChange = () => {
@@ -1351,14 +1243,12 @@ export function ComposeBox({
     };
   }, [hostId, tmuxSessionKey, mode]);
 
-  // 10s retry loop. Debounced saves that fail re-queue into
-  // dirtyBodyRef / dirtyQueueSlotsRef with no pending timer; without this
-  // interval, the only recovery paths are another keystroke or unload.
-  // Bounty message-queue-in-pretty-view: check both dirty flags so
-  // queueSlots mutations trigger the retry path too.
+  // 10s retry loop. Debounced saves that fail re-queue into dirtyBodyRef
+  // with no pending timer; without this interval, the only recovery paths
+  // are another keystroke or unload.
   useEffect(() => {
     const interval = setInterval(() => {
-      if (dirtyBodyRef.current !== null || dirtyQueueSlotsRef.current !== null) {
+      if (dirtyBodyRef.current !== null) {
         void flushDirty();
       }
     }, 10000);
@@ -1485,25 +1375,14 @@ export function ComposeBox({
   // Best-effort: the PUT is fire-and-forget; the 10s retry loop will recover if
   // it fails. latestBodyRef is updated so any interval tick between now and the
   // next render sees the empty body.
-  //
-  // Bounty message-queue-in-pretty-view: DO NOT clear queueSlots here — queue-slot
-  // sends clear THAT slot individually (see handleQueueSlotSend). The autosave
-  // then persists the updated queueSlots. The LS entry is also preserved (not
-  // removed) so queueSlots survive primary-send + page reload.
   const clearAfterSend = useCallback(() => {
     clearDebounce();
     dirtyBodyRef.current = null;
     latestBodyRef.current = "";
-    // Patch #119 — persist cleared body alongside existing queueSlots.
-    // Update LS to reflect the cleared body while preserving queueSlots.
-    const currentSlots = latestQueueSlotsRef.current;
     try {
-      localStorage.setItem(
-        composeDraftLsKey(hostId, tmuxSessionKey),
-        JSON.stringify({ body: "", queueSlots: currentSlots }),
-      );
+      localStorage.setItem(composeDraftLsKey(hostId, tmuxSessionKey), JSON.stringify({ body: "" }));
     } catch {}
-    putComposeDraft(hostId, tmuxSessionKey, "", currentSlots).catch(() => {
+    putComposeDraft(hostId, tmuxSessionKey, "", []).catch(() => {
       // Best-effort; on failure the next flushDirty tick will re-try
       // once the user types again OR the next 10s tick fires.
     });
@@ -1573,7 +1452,7 @@ export function ComposeBox({
 
   function handleTextChange(next: string) {
     setText(next);
-    scheduleAutosave(next, latestQueueSlotsRef.current);
+    scheduleAutosave(next);
   }
 
   function handleBlur() {
@@ -1582,7 +1461,6 @@ export function ComposeBox({
   }
 
   // Newline policy helper: preserve LF, eliminate CR. Ink safety.
-  // Extracted from handleSend so queue-slot sends reuse the same logic.
   //
   // Supersedes the original D-50 rule (collapse ALL newlines to spaces,
   // 2026-07-17). D-50's stated hazard was Ink's REPL treating an embedded
@@ -1608,77 +1486,6 @@ export function ComposeBox({
   // newlines.
   function normalizeNewlinesForSend(s: string): string {
     return s.replace(/\r\n?/g, "\n");
-  }
-
-  // Bounty message-queue-in-pretty-view: per-slot send handler.
-  // Routes through the same onSend(text) prop the primary uses:
-  // - newline normalization applied (CR out, LF preserved)
-  // - Phase 50 D-18: primary handleSend seeds an optimistic bubble via
-  //   onOptimisticSend; queue-slot sends currently do NOT (out of scope
-  //   for phase 50 — queue slots have their own visual affordance in the
-  //   drawer, so the perceived-responsiveness gap this phase closes is
-  //   scoped to the primary handleSend path). Revisit if queue-slot sends
-  //   grow their own dead moment.
-  // - On success: remove slot from state + trigger autosave
-  // - On failure: keep slot + surface errorMessage (mirrors primary handleSend)
-  function handleQueueSlotSend(slotId: string) {
-    const slot = queueSlots.find((s) => s.id === slotId);
-    if (!slot) return;
-    const trimmed = slot.text.trim();
-    const slotTarget = `queued:${slotId}`;
-    const slotAttachments = getStagedAttachmentsForTarget?.(slotTarget) ?? [];
-    // Attachment-only slots are sendable (parity with primary handleSend).
-    if (!trimmed && slotAttachments.length === 0) return;
-
-    // quick-260829-nt9: attachment branch — mirrors primary handleSend at
-    // L1384-1415. If this slot has staged attachments and onSendWithAttachments
-    // is wired, route through the attachment path (awaits upload_ready_to_inject
-    // before removing the slot). Text-only path below is unchanged.
-    if (slotAttachments.length > 0 && onSendWithAttachments) {
-      setErrorMessage(null);
-      const captionPayload = normalizeNewlinesForSend(trimmed);
-      console.info(`[compose] submit-entry hostId=${hostId} tmuxSession=${tmuxSession ?? "null"} bodyLen=${trimmed.length} attachmentCount=${slotAttachments.length} trigger=send-button path=attachment mqid=pending target=${slotTarget}`);
-      const runSlotAttachmentSend = async (): Promise<void> => {
-        const outcome = await onSendWithAttachments!(captionPayload, slotTarget);
-        if (outcome.ok) {
-          console.info(`[compose] submit-success hostId=${hostId} tmuxSession=${tmuxSession ?? "null"} bodyLen=${trimmed.length} path=attachment target=${slotTarget}`);
-          const nextSlots = latestQueueSlotsRef.current.filter((s) => s.id !== slotId);
-          setQueueSlots(nextSlots);
-          scheduleAutosave(latestBodyRef.current, nextSlots);
-          clearStagedForTarget?.(slotTarget);
-          return;
-        }
-        if (outcome.reason === "superseded") return;
-        const userMessage = getBatchFailureUserMessage(outcome.reason);
-        console.warn(`[compose] submit-failed hostId=${hostId} tmuxSession=${tmuxSession ?? "null"} bodyLen=${trimmed.length} path=attachment target=${slotTarget} reason=${outcome.reason} message=${outcome.message ?? ""}`);
-        setErrorMessage(userMessage);
-        // Deliberately DO NOT filter slot or clear chips — mirrors primary handleSend's
-        // failure-preservation posture (quick-260823-8ji). user can retry.
-      };
-      void runSlotAttachmentSend();
-      return;
-    }
-
-    // No attachment transport wired and no text — nothing to send.
-    if (!trimmed) return;
-
-    setErrorMessage(null);
-
-    const payload = normalizeNewlinesForSend(trimmed);
-    // Phase 68 Plan 02: route through the funnel so queue-slot sends carry
-    // an mqid (D-03 invariant — backend Phase 56 wake gate fires on all
-    // pretty-view sends) and seed an optimistic bubble (D-01).
-    const dispatched = funnel.send(payload, { trigger: "queue-item" });
-    if (dispatched) {
-      const nextSlots = queueSlots.filter((s) => s.id !== slotId);
-      setQueueSlots(nextSlots);
-      // Persist the updated slots immediately via scheduleAutosave.
-      scheduleAutosave(latestBodyRef.current, nextSlots);
-    } else {
-      setErrorMessage("Not connected — try again in a moment");
-      // Keep the slot — same failure-preservation posture as primary
-      // handleSend's D-20 path (Phase 50).
-    }
   }
 
   // overridePayload: Phase 16 D-16-05 — voice.endSend passes the glued
@@ -1785,13 +1592,8 @@ export function ComposeBox({
 
   function handleVoiceCancel() {
     // Drop the audio clip and return to idle — no textarea change, no fetch.
-    // Reset micTarget to "primary" so the next tap is clean.
-    setMicTarget("primary");
     void voice.cancel();
   }
-
-  // Voice handlers are target-aware (bounty message-queue-in-pretty-view).
-  // target === "primary" → existing behavior; target === slotId → route to slot.
 
   // The primary box can change while a transcription is in flight (a
   // cancelled send's words coming back). Re-apply whatever endAppend/endSend
@@ -1803,11 +1605,9 @@ export function ComposeBox({
     return current + glued.slice(baseText.length);
   }
 
-  async function handleVoiceAppend(target: "primary" | string = "primary") {
-    // Stop recording, transcribe, append the result to the correct target.
-    const baseText = target === "primary"
-      ? text
-      : (queueSlots.find((s) => s.id === target)?.text ?? "");
+  async function handleVoiceAppend() {
+    // Stop recording, transcribe, append the result to the textarea.
+    const baseText = text;
     const result = await voice.endAppend(baseText);
     if (result) {
       // Empty transcript + empty baseText → do not dirty the textarea with a
@@ -1816,133 +1616,49 @@ export function ComposeBox({
         return;
       }
       // Trailing space so the next dictation chunk joins without needing a manual space.
-      const appended = (target === "primary" ? rebaseGluedOnPrimary(result.glued, baseText) : result.glued) + " ";
-      if (target === "primary") {
-        setText(appended);
-        scheduleAutosave(appended, latestQueueSlotsRef.current);
-      } else {
-        setQueueSlots((prev) =>
-          prev.map((s) => s.id === target ? { ...s, text: appended } : s),
-        );
-        // Mark slots dirty so autosave picks up the change.
-        const nextSlots = latestQueueSlotsRef.current.map((s) =>
-          s.id === target ? { ...s, text: appended } : s,
-        );
-        scheduleAutosave(latestBodyRef.current, nextSlots);
-      }
+      const appended = rebaseGluedOnPrimary(result.glued, baseText) + " ";
+      setText(appended);
+      scheduleAutosave(appended);
     }
     // On null result: voice.errorMessage is set by the hook; no change.
   }
 
-  async function handleVoiceSend(target: "primary" | string = "primary") {
-    // Stop recording, transcribe, then send through the appropriate send path.
-    const baseText = target === "primary"
-      ? text
-      : (queueSlots.find((s) => s.id === target)?.text ?? "");
+  async function handleVoiceSend() {
+    // Stop recording, transcribe, then send through handleSend.
+    const baseText = text;
     const result = await voice.endSend(baseText);
     if (result) {
-      // Empty transcript + empty baseText → do not send an empty payload or
-      // dirty a slot. Error sound already played inside voice.endSend.
+      // Empty transcript + empty baseText → do not send an empty payload.
+      // Error sound already played inside voice.endSend.
       if (result.transcript === "" && baseText === "") {
-        setMicTarget("primary");
         return;
       }
-      if (target === "primary") {
-        const glued = rebaseGluedOnPrimary(result.glued, baseText);
-        setText(glued);
-        scheduleAutosave(glued, latestQueueSlotsRef.current);
-        // Bounty mic-available-when-composebox-disabled (quick 260731-ulo): during recycle, land transcript in textarea but skip auto-send — user sends manually once the overlay clears.
-        // Phase 24: same treatment during plan-mode pending — text lands, no auto-send.
-        // Reconnect window: same treatment — text lands, no auto-send while WS is between sockets.
-        // quick 260808-cd6: same treatment during dormant/waking — text lands, no auto-send.
-        if (!recycleActive && !reconnectingActive) {
-          // D-16-05: route through the SAME handleSend — attachment branching,
-          // newline normalization, Phase 50 D-18 optimistic-bubble seeding
-          // all still apply.
-          handleSend(glued, "queue-item");
-        }
-      } else {
-        // For a queue slot: update slot text then send it.
-        setQueueSlots((prev) =>
-          prev.map((s) => s.id === target ? { ...s, text: result.glued } : s),
-        );
-        // Bounty mic-available-when-composebox-disabled (quick 260731-ulo): during recycle,
-        // text lands in slot, no dispatch, slot not removed — user sends manually once overlay clears.
-        // Phase 24: same treatment during plan-mode pending — text lands in slot, no dispatch.
-        // Reconnect window: same treatment — text lands in slot, no dispatch while WS is between sockets.
-        // quick 260808-cd6: same treatment during dormant/waking — text lands in slot, no dispatch.
-        if (!recycleActive && !reconnectingActive) {
-          // handleQueueSlotSend reads from queueSlots state, but due to async
-          // batching we pass the glued text directly via onSend to avoid stale reads.
-          const payload = normalizeNewlinesForSend(result.glued.trim());
-          if (payload) {
-            // quick-260829-nt9: attachment branch for voice-slot sends — mirrors
-            // handleQueueSlotSend's attachment branch. If this slot has staged
-            // attachments and onSendWithAttachments is wired, route through the
-            // attachment path. Text-only onSend path below is unchanged.
-            const slotTarget = `queued:${target}`;
-            const slotAttachments = getStagedAttachmentsForTarget?.(slotTarget) ?? [];
-            if (slotAttachments.length > 0 && onSendWithAttachments) {
-              setErrorMessage(null);
-              console.info(`[compose] submit-entry hostId=${hostId} tmuxSession=${tmuxSession ?? "null"} bodyLen=${payload.length} attachmentCount=${slotAttachments.length} trigger=queue-item path=attachment mqid=pending target=${slotTarget}`);
-              const runVoiceSlotAttachmentSend = async (): Promise<void> => {
-                const outcome = await onSendWithAttachments!(payload, slotTarget);
-                if (outcome.ok) {
-                  console.info(`[compose] submit-success hostId=${hostId} tmuxSession=${tmuxSession ?? "null"} bodyLen=${payload.length} path=attachment target=${slotTarget}`);
-                  const nextSlots = latestQueueSlotsRef.current.filter((s) => s.id !== target);
-                  setQueueSlots(nextSlots);
-                  scheduleAutosave(latestBodyRef.current, nextSlots);
-                  clearStagedForTarget?.(slotTarget);
-                  return;
-                }
-                if (outcome.reason === "superseded") return;
-                const userMessage = getBatchFailureUserMessage(outcome.reason);
-                console.warn(`[compose] submit-failed hostId=${hostId} tmuxSession=${tmuxSession ?? "null"} bodyLen=${payload.length} path=attachment target=${slotTarget} reason=${outcome.reason} message=${outcome.message ?? ""}`);
-                setErrorMessage(userMessage);
-                // Deliberately do NOT filter slot or clear chips.
-              };
-              void runVoiceSlotAttachmentSend();
-              setMicTarget("primary");
-              return;
-            }
-            // Phase 68 follow-up: route voice-slot text-only sends through the
-            // funnel so voice-transcribed messages get optimistic bubbles +
-            // dormancy wake, matching every other user-initiated send affordance.
-            const dispatched = funnel.send(payload, { trigger: "voice-slot" });
-            if (dispatched) {
-              const nextSlots = latestQueueSlotsRef.current.filter((s) => s.id !== target);
-              setQueueSlots(nextSlots);
-              scheduleAutosave(latestBodyRef.current, nextSlots);
-            } else {
-              setErrorMessage("Not connected — try again in a moment");
-            }
-          }
-        } else {
-          // Mirror handleVoiceAppend's slot-only write pattern: text into the slot,
-          // scheduleAutosave with the updated slots, slot preserved.
-          const nextSlots = latestQueueSlotsRef.current.map((s) =>
-            s.id === target ? { ...s, text: result.glued } : s,
-          );
-          scheduleAutosave(latestBodyRef.current, nextSlots);
-        }
+      const glued = rebaseGluedOnPrimary(result.glued, baseText);
+      setText(glued);
+      scheduleAutosave(glued);
+      // Bounty mic-available-when-composebox-disabled (quick 260731-ulo): during recycle, land transcript in textarea but skip auto-send — user sends manually once the overlay clears.
+      // Phase 24: same treatment during plan-mode pending — text lands, no auto-send.
+      // Reconnect window: same treatment — text lands, no auto-send while WS is between sockets.
+      // quick 260808-cd6: same treatment during dormant/waking — text lands, no auto-send.
+      if (!recycleActive && !reconnectingActive) {
+        // D-16-05: route through the SAME handleSend — attachment branching,
+        // newline normalization, Phase 50 D-18 optimistic-bubble seeding
+        // all still apply.
+        handleSend(glued, "queue-item");
       }
     }
-    setMicTarget("primary");
     // On null result: voice.errorMessage is set by the hook; no send.
   }
 
-  // beginRecord(target): sets micTarget then calls voice.start({ autoCommit: true }) synchronously.
+  // beginRecord: calls voice.start({ autoCommit: true }) synchronously.
   // NO await before voice.start() — D-16-02 iOS Safari constraint.
-  // setMicTarget is a synchronous React setState (no microtask boundary), safe
-  // to precede voice.start().
   //
   // autoCommit:true preserves mic-tap UX parity: the .then() callback transitions
   // directly to state="recording" and plays start.mp3 without requiring an external
   // commitStartVisibility() call. The hold-to-record path (useHoldToRecord) uses
   // voice.start() WITHOUT autoCommit (default false), deferring the state transition
   // and audio cue until the 250ms threshold-timer fires and calls commitStartVisibility().
-  function beginRecord(target: "primary" | string) {
-    setMicTarget(target);
+  function beginRecord() {
     voice.start({ autoCommit: true });
   }
 
@@ -2180,24 +1896,16 @@ export function ComposeBox({
   // showMicButton: mic CO-RENDERS beside the send button when:
   //   - navigator.mediaDevices is available (browser supports getUserMedia;
   //     JSDOM guard so tests that don't mock mediaDevices still see Send)
-  //   - primary is NOT the active mic target (other textareas may be
-  //     recording/transcribing; mic stays visible on the primary but is
-  //     disabled via the disabled prop so a second concurrent recording
-  //     cannot start — Quick 260802-uow bounty 1)
   //   - aside-morph is NOT active (X-for-Resume owns the slot when true)
   //
   // showRecordingControls: while recording, the three-button controls own the slot.
-  //   MicButton and send button are both hidden. Gated on isPrimaryRecording
-  //   (voice.state === "recording" && micTarget === "primary") so a slot
-  //   recording does not steal the primary's controls.
+  //   MicButton and send button are both hidden.
   //
-  // showTranscribingSend: during the STT round-trip on THIS textarea, the
-  //   existing send button renders disabled so rapid-tap cannot double-fire
-  //   (T-16-16 mitigation). Quick 260802-uow bounty 2: also gated on
-  //   micTarget === "primary" so a slot's transcribing spinner doesn't
-  //   render on the primary send button.
-  const isPrimaryRecording = voice.state === "recording" && micTarget === "primary";
-  const isPrimaryTranscribing = voice.state === "transcribing" && micTarget === "primary";
+  // showTranscribingSend: during the STT round-trip, the existing send
+  //   button renders disabled so rapid-tap cannot double-fire (T-16-16
+  //   mitigation).
+  const isPrimaryRecording = voice.state === "recording";
+  const isPrimaryTranscribing = voice.state === "transcribing";
   const showTranscribingSend = isPrimaryTranscribing;
 
   // Patch #129: inside-textarea Send button disabled predicate. Locked with
@@ -2232,7 +1940,7 @@ export function ComposeBox({
   // cancel.mp3). Fixes the iPhone "first mic tap plays cancel.mp3 + requires
   // double-tap" regression. voice.state !== "idle" guard inside the hook
   // still makes short-tap idempotent against MicButton's own onClick={() =>
-  // beginRecord("primary")} (kept as the mic-tap fallback path from
+  // beginRecord} (kept as the mic-tap fallback path from
   // quick-260814-1hz's decisions.md). holdInitiatedRef is consumed at
   // showRecordingControls (B-3, keeps RecordingControls hidden during a
   // hold) AND at showMicButton (keeps MicButton mounted during a hold so
@@ -2243,8 +1951,8 @@ export function ComposeBox({
   // below can read primaryHold.holdInitiatedRef.current.
   // Hands-free voice mode (2026-10-06). Runs alongside — never instead of —
   // the normal compose: it has its own mic stream and sends each transcript
-  // straight through the funnel, leaving the textarea, attachments, queue
-  // slots and Send untouched. While it is on every mic is disabled (see
+  // straight through the funnel, leaving the textarea, attachments and Send
+  // untouched. While it is on every mic is disabled (see
   // voiceModeAnywhere below); `suspended` remains as a fallback.
   const voiceMode = useVoiceMode({
     hostId,
@@ -2268,7 +1976,7 @@ export function ComposeBox({
       const next = cur && !/\s$/.test(cur) ? `${cur} ${transcript}` : `${cur}${transcript}`;
       latestBodyRef.current = next;
       setText(next);
-      scheduleAutosave(next, latestQueueSlotsRef.current);
+      scheduleAutosave(next);
       setErrorMessage("Voice mode couldn't send — your words are in the compose box");
     },
   });
@@ -2278,7 +1986,7 @@ export function ComposeBox({
   // every pane but the one that owns it.
   const voiceModeAnywhere = useVoiceModeActiveAnywhere();
   // ...and the reverse: a manual recording in any pane blocks starting voice
-  // mode anywhere (one `voice` instance per ComposeBox covers its queue slots).
+  // mode anywhere.
   const manualRecordingAnywhere = useManualRecordingAnywhere();
   const manualRecordingHere = voice.state !== "idle";
   useEffect(() => {
@@ -2293,12 +2001,12 @@ export function ComposeBox({
     // true, below) fired commitStartVisibility() to advance the state →
     // "recording" + play start.mp3. resetGestureState clears holdInitiatedRef,
     // which makes showRecordingControls (L1735) evaluate true and swap
-    // RecordingControls in. beginRecord("primary") is UNNECESSARY here (would
+    // RecordingControls in. beginRecord() is UNNECESSARY here (would
     // be a no-op anyway — hook's guard chain short-circuits when voice.state
     // !== "idle") and explicitly avoided to make the intent legible.
     onShortTap: () => {},
     onLongPressSend: () => {
-      void handleVoiceSend("primary");
+      void handleVoiceSend();
     },
     // quick-260814-iwy: opt in to the short-tap-keep branch. Preserves the
     // pointerdown-started recording so a sub-threshold tap on the mic advances
@@ -2317,37 +2025,14 @@ export function ComposeBox({
     disabled: showTranscribingSend || voiceModeAnywhere,
   });
 
-  // Slot mics report their hold feedback here so one pill serves the whole
-  // compose box. A slot that is sent unmounts with its row, so the release
-  // outcome is expired here rather than by the slot's hook.
-  const [slotHoldFeedback, setSlotHoldFeedback] = useState<{ slotId: string; feedback: HoldFeedback } | null>(null);
-  const slotOutcomeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const handleSlotHoldFeedback = useCallback((slotId: string, feedback: HoldFeedback) => {
-    if (feedback.committed) {
-      setSlotHoldFeedback({ slotId, feedback });
-    } else if (feedback.outcome) {
-      setSlotHoldFeedback({ slotId, feedback });
-      if (slotOutcomeTimerRef.current !== null) clearTimeout(slotOutcomeTimerRef.current);
-      slotOutcomeTimerRef.current = setTimeout(() => {
-        slotOutcomeTimerRef.current = null;
-        setSlotHoldFeedback((prev) => (prev?.slotId === slotId && !prev.feedback.committed ? null : prev));
-      }, HOLD_OUTCOME_MS);
-    } else {
-      // Idle report: clear only a live hold from this slot; a showing outcome
-      // runs out on its own timer.
-      setSlotHoldFeedback((prev) => (prev?.slotId === slotId && prev.feedback.committed ? null : prev));
-    }
-  }, []);
-  useEffect(() => () => {
-    if (slotOutcomeTimerRef.current !== null) clearTimeout(slotOutcomeTimerRef.current);
-  }, []);
   // A tapped recording gets the same pill (no hold hints) so its live
   // waveform shows too.
   const holdFeedback: HoldFeedback | null =
     primaryHold.holdCommitted || primaryHold.holdOutcome
       ? { committed: primaryHold.holdCommitted, outside: primaryHold.holdOutside, outcome: primaryHold.holdOutcome }
-      : (slotHoldFeedback?.feedback ??
-        (voice.state === "recording" ? { committed: true, outside: false, outcome: null, tap: true } : null));
+      : voice.state === "recording"
+        ? { committed: true, outside: false, outcome: null, tap: true }
+        : null;
 
   // showMicButton — see comment above (L1587). Quick 260814-1hz adds the
   // holdInitiatedRef disjuncts: during a hold-initiated recording,
@@ -2416,7 +2101,7 @@ export function ComposeBox({
         : null;
   // Mic open on this composer (a transcript round-trip is not "recording":
   // Send shows its spinner then).
-  const recordingHere = micTarget === "primary" && (voice.state === "starting" || voice.state === "recording");
+  const recordingHere = voice.state === "starting" || voice.state === "recording";
   // The card's red edge follows the memory pie, which holds its last reading
   // through brief dropouts — hold it here the same way.
   if (isDraining || isHolding === true) heldPctRef.current = null;
@@ -2508,49 +2193,6 @@ export function ComposeBox({
         aria-hidden="true"
         tabIndex={-1}
       />
-      {/* Queued messages saved before "Queue a message" was retired still
-          show (and send) here; nothing adds new ones. */}
-      {queueSlots.length > 0 && (
-        <div className="pv-compose-queued">
-          {queueSlots.map((slot, index) => (
-            <QueuedRow
-              key={slot.id}
-              slot={slot}
-              isTopmostInStack={index === 0}
-              onAddSlotAtTop={handleAddSlotAtTop}
-              justAddedSlotIdRef={justAddedSlotIdRef}
-              voice={voice}
-              micTarget={micTarget}
-              setMicTarget={setMicTarget}
-              asideActive={asideActive}
-              recycleActive={recycleActive}
-              reconnectingActive={reconnectingActive}
-              canSend={canSend}
-              isTouchDevice={isTouchDevice}
-              queueSlots={queueSlots}
-              onSlotsChange={(next) => {
-                setQueueSlots(next);
-                scheduleAutosave(latestBodyRef.current, next);
-              }}
-              scheduleAutosave={scheduleAutosave}
-              latestBody={latestBodyRef.current}
-              handleQueueSlotSend={handleQueueSlotSend}
-              handleVoiceCancel={handleVoiceCancel}
-              handleVoiceAppend={handleVoiceAppend}
-              handleVoiceSend={handleVoiceSend}
-              beginRecord={beginRecord}
-              handleOpenFilePicker={handleOpenFilePicker}
-              getStagedAttachmentsForTarget={getStagedAttachmentsForTarget}
-              clearStagedForTarget={clearStagedForTarget}
-              onAttachFilesForTarget={onAttachFilesForTarget}
-              onRemoveAttachment={onRemoveAttachment}
-              flushDirty={flushDirty}
-              clearDebounce={clearDebounce}
-              onHoldFeedbackChange={handleSlotHoldFeedback}
-            />
-          ))}
-        </div>
-      )}
       <div className="pv-compose-field" data-testid="compose-primary-wrapper">
         {/* Quick 260802-wxy: chip strip overlaid at the top of the field so
             chips attach to the message being composed; the textarea's top
@@ -2589,7 +2231,7 @@ export function ComposeBox({
           <button
             type="button"
             className="pv-cbtn"
-            onClick={() => handleOpenFilePicker("primary")}
+            onClick={handleOpenFilePicker}
             disabled={canSend === false || asideActive === true}
             aria-label="Attach file"
             title="Attach file"
@@ -2644,12 +2286,12 @@ export function ComposeBox({
             onToggleMute={voiceMode.toggleMute}
           />
         )}
-        {showRecordingControls && micTarget === "primary" ? (
+        {showRecordingControls ? (
           // A tapped recording: Cancel · add to text · Send own the right side.
           <RecordingControls
             onCancel={handleVoiceCancel}
-            onAppend={() => { void handleVoiceAppend("primary"); }}
-            onSend={() => { void handleVoiceSend("primary"); }}
+            onAppend={() => { void handleVoiceAppend(); }}
+            onSend={() => { void handleVoiceSend(); }}
             muted={voice.muted}
             onToggleMute={voice.toggleMute}
           />
@@ -2657,18 +2299,10 @@ export function ComposeBox({
           <>
             {showMicButton && (
               <MicButton
-                variant="row"
                 // Tap records (the hold hook's short tap keeps the recording
                 // too; its voice.state guard makes the second start a no-op).
-                onClick={() => beginRecord("primary")}
-                // quick-260814-o22: setMicTarget fires synchronously BEFORE the
-                // hook's pointerdown — MicButton's preventDefault (iOS callout
-                // suppression) also suppresses the synthesized click, so the
-                // target must be set here for the hold path.
-                onPointerDown={(e) => {
-                  setMicTarget("primary");
-                  primaryHold.onPointerDown(e);
-                }}
+                onClick={beginRecord}
+                onPointerDown={primaryHold.onPointerDown}
                 onPointerMove={primaryHold.onPointerMove}
                 onPointerUp={primaryHold.onPointerUp}
                 onPointerCancel={primaryHold.onPointerCancel}
@@ -2739,530 +2373,6 @@ export function ComposeBox({
       </div>
       {/* Phase 16: displayError merges compose errors and voice errors. */}
       {displayError && <div className="pv-compose-error">{displayError}</div>}
-    </div>
-  );
-}
-
-// ============================================================================
-// Quick 260803-05i (Task 2): QueuedRow — extracted from ComposeBox's inline
-// queueSlots.map body. Extraction is load-bearing because per-slot
-// chipStripRef + chipStripHeight state + ResizeObserver are naturally scoped
-// to each row instance (no Map-of-refs plumbing in the parent). Keeps
-// existing per-slot behavior byte-for-byte; adds an inner `.relative.flex-1
-// .self-stretch` wrapper hosting the overlaid chip strip (mirrors Quick A's
-// primary composebox pattern at ~L2127 of the parent). The top-left delete
-// × corner tab from Task 1 stays a SIBLING of the inner wrapper so it still
-// protrudes OUTSIDE the textarea border.
-// ============================================================================
-
-interface QueuedRowProps {
-  slot: { id: string; text: string };
-  // Quick 260909-cdi: true only for the slot at index 0 of queueSlots. Gates
-  // whether the QueuePlusTab pebble-notch renders inside this row's outer
-  // wrapper. Exactly one row in the stack should have this true at any time;
-  // when queueSlots is empty, the primary wrapper hosts the tab instead.
-  isTopmostInStack: boolean;
-  // Quick 260909-cdi: bound in the parent to a closure that prepends a new
-  // empty slot at index 0 of queueSlots (locality: clicking a plus on top of
-  // the stack adds a slot on top of the stack). Same closure body as the
-  // primary wrapper's onAdd; threaded through so QueuedRow can wire its
-  // (conditional) QueuePlusTab child without knowing about setQueueSlots.
-  onAddSlotAtTop: () => void;
-  // Parent-owned ref carrying the id of the slot that was JUST created via
-  // handleAddSlotAtTop. QueuedRow focuses its textarea on mount when its
-  // slot.id matches, then nulls the ref so the focus fires exactly once per
-  // add (never on hydrated / draft-restored slots).
-  justAddedSlotIdRef: React.MutableRefObject<string | null>;
-  voice: ReturnType<typeof useVoiceRecording>;
-  micTarget: "primary" | string;
-  // quick-260814-o22: threaded from parent so the slot MicButton's onPointerDown
-  // wrapper can setMicTarget(slot.id) synchronously before delegating to
-  // slotHold.onPointerDown(e). See slot MicButton comment below (~L3060) for
-  // the full rationale (MicButton's preventDefault-on-pointerdown suppresses
-  // the synthesized click on iOS Safari, so beginRecord(slot.id)'s onClick
-  // never runs — the pointerdown wrapper is the only reliable seam).
-  setMicTarget: React.Dispatch<React.SetStateAction<"primary" | string>>;
-  asideActive?: boolean;
-  recycleActive?: boolean;
-  // Reconnect window: same OR-in treatment — queued-row Send is disabled
-  // while the pretty-view WS is between sockets.
-  reconnectingActive?: boolean;
-  // Phase 56 (2026-08-23): the former dormancy-gate boolean prop was
-  // DELETED — compose (and queued rows) stay enabled on dormant panes;
-  // invisible wake fires at the backend.
-  canSend?: boolean;
-  isTouchDevice?: boolean;
-  queueSlots: Array<{ id: string; text: string }>;
-  onSlotsChange: (next: Array<{ id: string; text: string }>) => void;
-  scheduleAutosave: (nextBody: string, nextSlots?: Array<{ id: string; text: string }>) => void;
-  latestBody: string;
-  handleQueueSlotSend: (slotId: string) => void;
-  handleVoiceCancel: () => void;
-  handleVoiceAppend: (target: "primary" | string) => void | Promise<void>;
-  handleVoiceSend: (target: "primary" | string) => void | Promise<void>;
-  beginRecord: (target: "primary" | string) => void;
-  handleOpenFilePicker: (target?: string) => void;
-  getStagedAttachmentsForTarget?: (target: string) => StagedAttachmentLike[];
-  clearStagedForTarget?: (target: string) => void;
-  onAttachFilesForTarget?: (target: string, files: File[]) => void;
-  onRemoveAttachment?: (tempId: string) => void;
-  flushDirty: () => Promise<void> | void;
-  clearDebounce: () => void;
-  /** Reports this slot mic's hold feedback so ComposeBox renders the one pill. */
-  onHoldFeedbackChange: (slotId: string, feedback: HoldFeedback) => void;
-}
-
-function QueuedRow(props: QueuedRowProps) {
-  const voiceModeAnywhere = useVoiceModeActiveAnywhere();
-  const {
-    slot,
-    isTopmostInStack,
-    onAddSlotAtTop,
-    justAddedSlotIdRef,
-    voice,
-    micTarget,
-    setMicTarget,
-    asideActive,
-    recycleActive,
-    reconnectingActive,
-    canSend,
-    isTouchDevice,
-    queueSlots,
-    onSlotsChange,
-    handleQueueSlotSend,
-    handleVoiceCancel,
-    handleVoiceAppend,
-    handleVoiceSend,
-    beginRecord,
-    handleOpenFilePicker,
-    getStagedAttachmentsForTarget,
-    clearStagedForTarget,
-    onAttachFilesForTarget,
-    onRemoveAttachment,
-    flushDirty,
-    clearDebounce,
-    onHoldFeedbackChange,
-  } = props;
-
-  // Quick 260803-05i: per-slot chip strip refs + measurement — same pattern
-  // Quick A applied to the primary Textarea (see ComposeBox ~L954-979). Each
-  // QueuedRow instance owns its own chipStripRef / chipStripHeight so there's
-  // no Map-of-refs plumbing in the parent.
-  const chipStripRef = useRef<HTMLDivElement | null>(null);
-  const [chipStripHeight, setChipStripHeight] = useState(0);
-  const target = `queued:${slot.id}`;
-
-  // 2026-09-28: per-slot auto-grow, byte-parallel to the primary Textarea's
-  // patch #135 useLayoutEffect (~L1275). Before this, QueuedRow textareas
-  // stayed at min-h-8 (32px) and scrolled internally, which felt cramped for
-  // any queued message longer than ~one line. Cap = 15 line-heights (matches
-  // primary's post-2026-09-28 cap), fallback 360px when getComputedStyle
-  // returns a non-numeric lineHeight (JSDOM). Setting height='auto' first is
-  // required so scrollHeight can shrink as text is deleted.
-  const slotTextareaRef = useRef<HTMLTextAreaElement | null>(null);
-  const slotMaxHeightPxRef = useRef<number | null>(null);
-
-  // Focus-on-create: when this slot was JUST added via the QueuePlusTab
-  // click, move focus into its textarea so the user can start typing without
-  // a second click. Gated on the parent-owned justAddedSlotIdRef so hydrated
-  // / draft-restored slots don't steal focus on mount. Clearing the ref
-  // after we consume it makes the focus fire exactly once per add.
-  useEffect(() => {
-    if (justAddedSlotIdRef.current !== slot.id) return;
-    justAddedSlotIdRef.current = null;
-    slotTextareaRef.current?.focus();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  // quick-260829-oxo: slot-scoped paste handler, byte-parallel to primary
-  // handlePaste at ComposeBox.tsx:497-506. File pastes are routed to
-  // onAttachFilesForTarget with this slot's target; text-only pastes fall
-  // through to the browser default so the "[pasted N lines]" collapse-
-  // avoidance path (COMPOSE-05 D-58/D-60) is preserved verbatim.
-  const handlePasteForSlot = useCallback(
-    (e: React.ClipboardEvent<HTMLTextAreaElement>) => {
-      const files = Array.from(e.clipboardData?.files ?? []);
-      if (files.length > 0) {
-        e.preventDefault();
-        console.info(`[compose-paste] target=${target} files=${files.length}`);
-        onAttachFilesForTarget?.(target, files);
-      }
-      // Text-only pastes fall through to the browser default so the
-      // "[pasted N lines]" collapse-avoidance path (COMPOSE-05
-      // D-58/D-60) is preserved verbatim — same rule as primary
-      // handlePaste at ComposeBox.tsx:497-506.
-    },
-    [target, onAttachFilesForTarget],
-  );
-
-  const stagedForThisSlot = getStagedAttachmentsForTarget?.(target) ?? [];
-  const stagedCount = stagedForThisSlot.length;
-
-  useLayoutEffect(() => {
-    const el = chipStripRef.current;
-    if (!el) {
-      setChipStripHeight(0);
-      return;
-    }
-    setChipStripHeight(Math.ceil(el.getBoundingClientRect().height));
-    if (typeof ResizeObserver === "undefined") return;
-    const observer = new ResizeObserver((entries) => {
-      const entry = entries[0];
-      if (!entry) return;
-      const h = entry.contentRect?.height ?? 0;
-      setChipStripHeight(Math.ceil(h));
-    });
-    observer.observe(el);
-    return () => {
-      observer.disconnect();
-    };
-  }, [stagedCount]);
-
-  useLayoutEffect(() => {
-    const el = slotTextareaRef.current;
-    if (!el) return;
-    if (slotMaxHeightPxRef.current === null) {
-      const lh = parseFloat(getComputedStyle(el).lineHeight);
-      slotMaxHeightPxRef.current = Number.isFinite(lh) && lh > 0 ? lh * 15 : 360;
-    }
-    el.style.height = "auto";
-    const clamped = Math.min(el.scrollHeight, slotMaxHeightPxRef.current);
-    el.style.height = clamped + "px";
-    el.style.overflowY = clamped >= slotMaxHeightPxRef.current ? "auto" : "hidden";
-  }, [slot.text, chipStripHeight]);
-
-  const isSlotRecording = voice.state === "recording" && micTarget === slot.id;
-  const isSlotTranscribing = voice.state === "transcribing" && micTarget === slot.id;
-  const isSlotActiveMic = isSlotRecording || isSlotTranscribing;
-  const showSlotTranscribingSend = isSlotTranscribing;
-  // M-2 (Phase 32): extract disabled predicate as a shared local so the JSX
-  // disabled prop and the useHoldToRecord disabled arg cannot silently drift.
-  //
-  // NOTE (Quick 260814-1hz): moved above `showSlotMic` so it is in scope for
-  // the slotHold construction (which itself moved up so its holdInitiatedRef
-  // can be read inside showSlotMic).
-  const slotSendDisabled =
-    showSlotTranscribingSend ||
-    (slot.text.trim() === "" && stagedCount === 0) ||
-    recycleActive === true ||
-    reconnectingActive === true;
-  // Quick 260814-1hz: hold-to-record gesture MOVED from the slot send button
-  // to the slot MicButton. The Send button gets its direct
-  // onClick={handleQueueSlotSend} back below. Pointer handlers spread onto
-  // MicButton at ~L2949.
-  //
-  // quick-260814-iwy update (parity with primary): slot onShortTap is now a
-  // NO-OP (was beginRecord(slot.id)). Hook's short-tap-keep branch
-  // (keepRecordingOnShortTap: true) preserves the pointerdown-started slot
-  // recording via voice.commitStartVisibility(). Fixes the iPhone
-  // "first-tap-plays-cancel.mp3 + double-tap-required" regression on the
-  // slot mic. voice.state !== "idle" guard inside the hook makes short-tap
-  // idempotent against MicButton's own onClick.
-  //
-  // NOTE (Quick 260814-1hz): moved above `showSlotMic` so the predicate
-  // below can read slotHold.holdInitiatedRef.current — keeps the slot mic
-  // mounted during a hold-initiated slot recording (parity with primary).
-  const slotHold = useHoldToRecord({
-    voice,
-    // quick-260814-iwy (parity with primary): no-op — voice is already
-    // recording from pointerdown's voice.start(). Hook's short-tap-keep
-    // branch (keepRecordingOnShortTap: true, below) fired
-    // commitStartVisibility() to advance the state → "recording" + play
-    // start.mp3. resetGestureState clears holdInitiatedRef, which makes
-    // showSlotRecording (L2796) evaluate true and swap RecordingControls in.
-    // beginRecord(slot.id) is UNNECESSARY (hook guard short-circuits when
-    // voice.state !== "idle") and explicitly avoided to make intent legible.
-    onShortTap: () => {},
-    onLongPressSend: () => {
-      void handleVoiceSend(slot.id);
-    },
-    // quick-260814-iwy: opt in to the short-tap-keep branch (parity with
-    // primary). Preserves the pointerdown-started slot recording.
-    keepRecordingOnShortTap: true,
-    asideActive: asideActive ?? false,
-    // Quick 260814-1hz [Rule 1 auto-fix, parity with primary]: hook now
-    // lives on the slot MicButton, so slotSendDisabled (which gates on
-    // slot text emptiness / recycle / etc.) no longer
-    // applies to the hold-record gesture. Retain showSlotTranscribingSend
-    // so a fresh press cannot arm while STT is in-flight from a prior
-    // send. voice.state !== "idle" guard inside the hook handles double-arm.
-    disabled: showSlotTranscribingSend || voiceModeAnywhere,
-  });
-  // The hold-feedback pill renders once, above the whole compose box — report
-  // this slot's hold state up to ComposeBox.
-  const slotHoldCommitted = slotHold.holdCommitted;
-  const slotHoldOutside = slotHold.holdOutside;
-  const slotHoldOutcome = slotHold.holdOutcome;
-  useEffect(() => {
-    onHoldFeedbackChange(slot.id, { committed: slotHoldCommitted, outside: slotHoldOutside, outcome: slotHoldOutcome });
-  }, [onHoldFeedbackChange, slot.id, slotHoldCommitted, slotHoldOutside, slotHoldOutcome]);
-  // Quick 260814-1hz: `|| slotHold.holdInitiatedRef.current` disjunct on the
-  // isSlotActiveMic gate keeps the slot MicButton mounted through the voice
-  // .state transitions of a hold-initiated slot recording (idle → starting
-  // → recording → transcribing). Symmetric to showSlotRecording's B-3 gate
-  // below. Preserves the CONTEXT.md § "Visual during hold" LOCKED rule "the
-  // button the user is pressing does not morph" under the mic-hosted-gesture
-  // design. The isSlotActiveMic local already collapses recording +
-  // transcribing, so a single disjunct covers both states.
-  const showSlotMic =
-    typeof navigator !== "undefined" &&
-    navigator.mediaDevices != null &&
-    (!isSlotActiveMic || slotHold.holdInitiatedRef.current) &&
-    !asideActive;
-  // B-3 (Phase 32, slot variant): gate on !holdInitiatedRef so a hold-initiated
-  // slot recording does NOT swap in RecordingControls under the pointer
-  // (CONTEXT.md § Visual during hold — LOCKED). Mic-tap slot path leaves
-  // holdInitiatedRef false, so it retains its existing swap behavior.
-  const showSlotRecording = isSlotRecording && !slotHold.holdInitiatedRef.current;
-  const showSlotSend = !showSlotRecording;
-
-  return (
-    <div className="relative flex-1" data-slot-id={slot.id}>
-      {/* Quick 260803-05i: Delete × top-left corner tab. SIBLING of the
-          inner content wrapper below so it protrudes OUTSIDE the textarea
-          border (via -top-2 -left-2). Task 1 introduced this at top-right;
-          user moved it to top-left 2026-08-12. Task 2's extraction
-          preserves the sibling-of-inner-wrapper invariant. */}
-      <button
-        type="button"
-        onClick={() => {
-          const nextSlots = queueSlots.filter((s) => s.id !== slot.id);
-          onSlotsChange(nextSlots);
-          clearStagedForTarget?.(target);
-        }}
-        aria-label="Delete queued message"
-        title="Delete queued message"
-        className={cn(
-          "absolute -top-2 -left-2 z-20",
-          "p-1 rounded-full",
-          "bg-[rgba(10,12,20,0.85)] border border-[rgba(220,225,245,0.12)]",
-          "text-[#f0ebe0] opacity-90",
-          "transition-[color,opacity,transform] duration-120",
-          "active:scale-95",
-          "cursor-pointer",
-        )}
-      >
-        <X className="size-4" aria-hidden="true" />
-      </button>
-      {/* Quick 260803-05i (Task 2): inner wrapper mirrors the primary
-          composebox's `.relative.flex-1.self-stretch` pattern so the
-          absolute-positioned chip strip lives INSIDE the textarea's
-          bounding box (via top-0 left-0 right-0). Hosts: chip strip
-          overlay + Textarea + armed overlay + paperclip + Send/mic/
-          arm-idle group. */}
-      <div className="relative flex-1 self-stretch">
-        {/* Overlay chip strip — mirrors Quick A's primary overlay at
-            ComposeBox ~L2139-2150. AttachmentChipStrip returns null when
-            the list is empty, so chipStripRef.current transitions
-            null↔element as files stage/unstage; the useLayoutEffect above
-            resets chipStripHeight to 0 in the null branch. */}
-        <div
-          ref={chipStripRef}
-          className={cn(
-            "absolute top-0 left-0 right-0 z-10 px-2 pt-2",
-            // Same fix as the primary wrapper: when the strip is empty, mark
-            // it pointer-events-none so its invisible pt-2 hit-box doesn't
-            // swallow hover on the QueuePlusTab pebble that rides above it
-            // on the topmost QueuedRow.
-            stagedCount === 0 ? "pointer-events-none" : "pointer-events-auto",
-          )}
-        >
-          <AttachmentChipStrip
-            attachments={stagedForThisSlot}
-            onRemove={onRemoveAttachment ?? (() => {})}
-          />
-        </div>
-        <Textarea
-          ref={slotTextareaRef}
-          value={slot.text}
-          onChange={(e) => {
-            const nextText = e.target.value;
-            const nextSlots = queueSlots.map((s) =>
-              s.id === slot.id ? { ...s, text: nextText } : s,
-            );
-            onSlotsChange(nextSlots);
-          }}
-          onBlur={() => {
-            clearDebounce();
-            void flushDirty();
-          }}
-          onKeyDown={(e) => {
-            // Enter-to-send parity with the primary textarea (handleKeyDown
-            // ~L1714). Plain Enter fires handleQueueSlotSend for this slot;
-            // Shift+Enter falls through to the browser default (newline
-            // insertion). Gated on `slotSendDisabled` — the same predicate
-            // that disables the slot Send button — so transcribing / empty
-            // text / recycle / reconnecting all no-op via one source of truth.
-            // Touch devices: Enter inserts a newline; the slot Send button sends.
-            if (isTouchDevice === true) return;
-            if (e.key !== "Enter" || e.shiftKey) return;
-            e.preventDefault();
-            if (slotSendDisabled) return;
-            handleQueueSlotSend(slot.id);
-          }}
-          onPaste={handlePasteForSlot}
-          enterKeyHint={isTouchDevice === true ? "enter" : "send"}
-          placeholder="Queued message…"
-          rows={1}
-          data-testid={`queue-slot-textarea-${slot.id}`}
-          // Quick 260803-05i (Task 2): dynamic paddingTop grows with the
-          // overlaid chip strip's measured height so composed text never
-          // underlaps the chips (same pattern Quick A applied to primary).
-          // Base `py-3` (12px top) is preserved via className; this inline
-          // style only applies when at least one attachment is staged
-          // (chipStripHeight > 0). `+ 12` preserves the base 12px comfort
-          // gap between chips and text.
-          style={
-            chipStripHeight > 0
-              ? { paddingTop: `${chipStripHeight + 12}px` }
-              : undefined
-          }
-          className={cn(
-            "resize-none w-full",
-            "min-h-8!",
-            "bg-[rgba(10,12,20,0.5)]! text-[#f0ebe0]",
-            "border border-[rgba(220,225,245,0.07)]",
-            "rounded-[10px] px-4 py-3",
-            // Quick 260803-05i (Task 1): paperclip clearance parity.
-            // 2026-09-28: bumped pr-10→pr-12 for a hair more clearance past
-            // Send's left edge, and pr-[92px] when the slot mic is present
-            // so text also clears the mic (Send occupies right 4-44px, Mic
-            // occupies right 44-84px). Same idiom as primary Textarea's
-            // pr-12 + showMicButton && pr-[92px] at ~L2662.
-            "pr-12 pl-11",
-            showSlotMic && "pr-[92px]",
-            "placeholder:text-[var(--color-pv-fg-dim)]",
-            "shadow-[inset_0_2px_6px_rgba(0,0,0,0.4),_0_1px_0_rgba(220,225,245,0.04)]",
-            "transition-[box-shadow,border-color] duration-200",
-            "focus:border-[rgba(220,225,245,0.28)]",
-            "focus:shadow-[inset_0_3px_10px_rgba(0,0,0,0.55),_inset_0_1px_2px_rgba(0,0,0,0.35),_0_1px_0_rgba(220,225,245,0.07),_0_0_0_1px_rgba(220,225,245,0.2),_0_0_22px_rgba(220,225,245,0.12)]",
-            "focus-visible:ring-0 focus-visible:outline-none",
-          )}
-        />
-        {/* Quick 260803-05i (Task 1): Paperclip attach button — absolute
-            left-1 bottom-0.5. Routes to onAttachFilesForTarget via
-            handleOpenFilePicker(`queued:${slot.id}`).
-            2026-08-06 (composebox-queued-recycle-disable-inverted): mirrors
-            the primary attach's disable expression (canSend + asideActive
-            only). Recycle does NOT disable attach — same rule
-            as primary: attach stages locally, no WS side-effect, safe to
-            prep during the recycle/approval window so the fire that lands
-            after the window can carry attachments. */}
-        <button
-          type="button"
-          onClick={() => handleOpenFilePicker(target)}
-          disabled={canSend === false || asideActive === true}
-          aria-label="Attach file to queued message"
-          title="Attach file"
-          className={cn(
-            "absolute left-1 bottom-0.5",
-            "p-2",
-            "text-[#f0ebe0] opacity-30 hover:opacity-90",
-            "disabled:opacity-[0.15]",
-            "disabled:cursor-not-allowed",
-            "transition-[color,opacity,transform] duration-120",
-            "active:scale-95",
-            "cursor-pointer",
-          )}
-        >
-          <Paperclip className="size-6" />
-        </button>
-        {/* Send / RecordingControls slot — absolute right-1 bottom-0.5 (mutex) */}
-        {showSlotRecording ? (
-          <div className="absolute right-1 bottom-0.5">
-            <RecordingControls
-              onCancel={handleVoiceCancel}
-              onAppend={() => { void handleVoiceAppend(slot.id); }}
-              onSend={() => { void handleVoiceSend(slot.id); }}
-              muted={voice.muted}
-              onToggleMute={voice.toggleMute}
-            />
-          </div>
-        ) : (
-          <>
-            {showSlotSend && (
-              <button
-                type="button"
-                // Quick 260814-1hz: onClick restored as sole driver — the
-                // hold-to-record hook now lives on the slot MicButton below.
-                onClick={() => handleQueueSlotSend(slot.id)}
-                disabled={slotSendDisabled}
-                aria-label="Send queued message"
-                title="Send queued message"
-                className={cn(
-                  "absolute right-1 bottom-0.5",
-                  "p-2",
-                  "text-[#f0ebe0] opacity-30 hover:opacity-90",
-                  "disabled:opacity-[0.15]",
-                  "disabled:cursor-not-allowed",
-                  "transition-[color,opacity,transform] duration-120",
-                  "active:scale-95",
-                  "cursor-pointer",
-                )}
-              >
-                {showSlotTranscribingSend ? (
-                  <svg
-                    className="size-6 animate-spin"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth={2}
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    aria-hidden="true"
-                  >
-                    <path d="M21 12 A9 9 0 0 0 12 3" />
-                    <path d="M3 12 A9 9 0 0 0 12 21" />
-                  </svg>
-                ) : (
-                  <svg
-                    width="24"
-                    height="24"
-                    viewBox="0 0 24 24"
-                    fill="currentColor"
-                    aria-hidden="true"
-                  >
-                    <path d="M14.536 21.686a.5.5 0 0 0 .937-.024l6.5-19a.496.496 0 0 0-.635-.635l-19 6.5a.5.5 0 0 0-.024.937l7.93 3.18a2 2 0 0 1 1.112 1.11z" />
-                  </svg>
-                )}
-              </button>
-            )}
-            {showSlotMic && (
-              <MicButton
-                // Quick 260814-1hz: slotHold pointer handlers govern press-
-                // and-hold → voice recording on the slot mic. onClick is the
-                // tap-to-record path; hook's onShortTap also calls
-                // beginRecord(slot.id) — idempotent via voice.state guard.
-                onClick={() => beginRecord(slot.id)}
-                // quick-260814-o22: setMicTarget MUST fire synchronously BEFORE
-                // the hook's pointerdown for the slot path. Same MicButton
-                // preventDefault interaction as the primary path above — the
-                // synthesized click from onClick={() => beginRecord(slot.id)}
-                // does NOT fire on iOS Safari (MicButton's wrappedPointerDown
-                // preventDefault under quick-260814-iwy suppresses it), so
-                // without this wrapper micTarget stays "primary" and
-                // RecordingControls swap in on the PRIMARY compose area
-                // instead of this slot. This is THE fix for quick-260814-o22
-                // (the primary path only worked accidentally because "primary"
-                // is the default). setMicTarget is a synchronous React
-                // setState — does NOT break D-16-02's iOS Safari sync-gesture
-                // invariant that voice.start() must be reachable synchronously
-                // from the user gesture.
-                onPointerDown={(e) => { setMicTarget(slot.id); slotHold.onPointerDown(e); }}
-                onPointerMove={slotHold.onPointerMove}
-                onPointerUp={slotHold.onPointerUp}
-                onPointerCancel={slotHold.onPointerCancel}
-                onPointerLeave={slotHold.onPointerLeave}
-                dataHoldActive={slotHold.holdActive}
-                holdRing={slotHold.holdCommitted ? (slotHold.holdOutside ? "outside" : "recording") : undefined}
-                disabled={voice.state !== "idle" || voiceModeAnywhere}
-                title={voiceModeAnywhere ? VOICE_MODE_ON_TITLE : "Record voice"}
-                positionClass="right-11 bottom-0.5"
-              />
-            )}
-          </>
-        )}
-      </div>
     </div>
   );
 }
