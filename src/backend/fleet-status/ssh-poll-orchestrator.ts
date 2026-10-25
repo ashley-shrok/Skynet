@@ -50,7 +50,7 @@ import {
   toHostPerspectivePath,
 } from "../claude-session/discover-identity-session-file.js";
 import type { SubscriptionRegistry } from "./subscription-registry.js";
-import type { AppState, SessionState, WidgetState } from "./wire-protocol.js";
+import { FRAME_SCHEMA_VERSION, type AppState, type SessionState, type WidgetState } from "./wire-protocol.js";
 import type { HostRecord } from "./host-id-resolver.js";
 import { writeSessionFileCache } from "./session-file-cache.js";
 // Phase 92 — v1 JSONL sweep wire contract (Plan 01). parseSweepJsonl is the
@@ -72,6 +72,8 @@ import {
 // (D-08); only the in-file `derivedLastMessageAt` derivation retires from it.
 import { getIdentityLastSend } from "./identity-send-log-store.js";
 import { getTurnFinishStore, type TurnFinishStore } from "../attention/turn-finish-store.js";
+import { getReadStateStore, type ReadStateStore } from "../attention/read-state-store.js";
+import { scanTailForLatestUserReply } from "../attention/user-reply-scan.js";
 import {
   checkExecBreaker,
   recordExecFailure,
@@ -264,6 +266,11 @@ export interface OrchestratorDeps {
    * marks). Defaults to the process-wide store; tests inject their own.
    */
   turnFinishStore?: TurnFinishStore;
+  /**
+   * Per-user read state — a user reply newer than the last finished turn
+   * marks that turn seen. Defaults to the process-wide store.
+   */
+  readStateStore?: ReadStateStore;
 }
 
 export interface SshPollOrchestrator {
@@ -1734,6 +1741,58 @@ export function createSshPollOrchestrator(
     deps.hookPayloadPath ?? "~/.claude/fleet-status/last-stop-payload.json";
   const hookPayloadWarnCooldownMs = deps.hookPayloadWarnCooldownMs ?? 60000;
   const turnFinishStore = deps.turnFinishStore ?? getTurnFinishStore();
+  const readStateStore = (): ReadStateStore => deps.readStateStore ?? getReadStateStore();
+  // `${hostId}::${identity}` → the finished turn a reply already marked seen,
+  // so a reply sitting in the tail costs one store write, not one per tick.
+  const replyMarkedFinish = new Map<string, number>();
+
+  // A user reply (typed in Skynet or relayed by an orchestrator) newer than
+  // the agent's last finished turn means the user has answered it: mark that
+  // turn seen for every user and tell their open tabs. The agent's next
+  // finished turn is newer than the reply, so it lights up again as usual.
+  const markSeenOnUserReply = (
+    hostId: string,
+    identityName: string,
+    lastFinishAt: number,
+    jsonlTail: string,
+  ): void => {
+    const key = `${hostId}::${identityName}`;
+    if (replyMarkedFinish.get(key) === lastFinishAt) return;
+    const replyAt = scanTailForLatestUserReply(jsonlTail);
+    if (replyAt === null || replyAt <= lastFinishAt) return;
+    let users: string[];
+    try {
+      users = readStateStore().markSeenForAllUsers(hostId, identityName, lastFinishAt);
+    } catch (err) {
+      systemLogger.warn("attention mark-seen-on-reply failed", {
+        operation: "attention_mark_seen_on_reply_failed",
+        fleetHostId: hostId,
+        identityName,
+        lastFinishAt,
+        replyAt,
+        error: err instanceof Error ? err.message : "unknown",
+      });
+      return;
+    }
+    replyMarkedFinish.set(key, lastFinishAt);
+    systemLogger.info("attention mark-seen-on-reply", {
+      operation: "attention_mark_seen_on_reply",
+      fleetHostId: hostId,
+      identityName,
+      lastFinishAt,
+      replyAt,
+      advancedUsers: users.length,
+    });
+    for (const userId of users) {
+      deps.registry.publishToUser(userId, {
+        schemaVersion: FRAME_SCHEMA_VERSION,
+        type: "read-state-changed",
+        hostId,
+        identityName,
+        seenFinishAt: lastFinishAt,
+      });
+    }
+  };
 
   // Source-B (dormant / recycling) frames carry the stored finished-turn time
   // too, so a dormant agent's unread mark survives a page reload.
@@ -3644,6 +3703,9 @@ export function createSshPollOrchestrator(
         turnFinishStore.record(host.id, tmuxSession, derivedLastStopAt);
       }
       lastFinishAt = turnFinishStore.get(host.id, tmuxSession);
+      if (lastFinishAt !== null && fetched.jsonlTail !== null) {
+        markSeenOnUserReply(host.id, tmuxSession, lastFinishAt, fetched.jsonlTail);
+      }
     }
 
     // Compose SessionState — same shape as pre-refactor processPid.

@@ -1,0 +1,87 @@
+/**
+ * user-reply-scan.test.ts — which transcript lines count as the user replying.
+ * Line shapes are taken from real fleet transcripts.
+ */
+import { describe, it, expect, vi } from "vitest";
+
+vi.mock("../utils/logger.js", () => ({
+  databaseLogger: { info: vi.fn(), warn: vi.fn(), debug: vi.fn(), error: vi.fn() },
+}));
+
+import { userReplyAt, scanTailForLatestUserReply } from "./user-reply-scan.js";
+
+const TS = "2026-10-25T15:00:00.000Z";
+const TS_MS = Date.parse(TS);
+
+function userLine(content: unknown, extra: Record<string, unknown> = {}, ts = TS): string {
+  return JSON.stringify({ type: "user", message: { role: "user", content }, timestamp: ts, ...extra });
+}
+
+const ambient =
+  '<pasted_content id="cb5d">\n<task-notification>\n<summary>Ambient watcher event (aspen) — delivered by agent-supervisor</summary>\n<event>⏰ [scheduled: standup] check</event>\n</task-notification>\n</pasted_content id="cb5d">';
+
+describe("userReplyAt — counts", () => {
+  it.each([
+    ["typed text", "thumbs up"],
+    ["an orchestrator relay (bare inbox paste)", "Yeah, go ahead and ship it"],
+    ["a long message wrapped in pasted_content", '<pasted_content id="4e5b">\nHey, I logged into Skynet on a new browser\n</pasted_content id="4e5b">'],
+    ["a skill the user ran", "<command-message>light-review</command-message>\n<command-name>/light-review</command-name>"],
+  ])("%s", (_label, content) => {
+    expect(userReplyAt(userLine(content))).toBe(TS_MS);
+  });
+
+  it("a message with an image attached (list content)", () => {
+    const content = [
+      { type: "image", source: { type: "base64", media_type: "image/png", data: "x" } },
+      { type: "text", text: '[Image #1]\n\n<pasted_content id="d5f2">\nOkay, looking through it\n</pasted_content id="d5f2">' },
+    ];
+    expect(userReplyAt(userLine(content))).toBe(TS_MS);
+  });
+});
+
+describe("userReplyAt — does not count", () => {
+  it.each([
+    ["an ambient watcher event", ambient],
+    ["a bare task notification", "<task-notification>\n<summary>Move to sidebar — delivered by the app</summary>\n</task-notification>"],
+    ["the supervisor's /id", "<command-message>id</command-message>\n<command-name>/id</command-name>\n<command-args>aspen</command-args>"],
+    ["the supervisor's /exit", "<command-name>/exit</command-name>\n<command-message>exit</command-message>"],
+    ["/compact", "<command-name>/compact</command-name>\n<command-message>compact</command-message>"],
+    ["local command output", "<local-command-stdout>Set model to Opus</local-command-stdout>"],
+    ["an interrupt marker", "[Request interrupted by user]"],
+    ["Ctrl-C noise", "\x03\x03"],
+    ["the resumed sentinel", "Your session was just resumed by the agent-supervisor after a restart."],
+  ])("%s", (_label, content) => {
+    expect(userReplyAt(userLine(content))).toBeNull();
+  });
+
+  it("a skill-body injection (isMeta)", () => {
+    expect(userReplyAt(userLine([{ type: "text", text: "Base directory for this skill" }], { isMeta: true }))).toBeNull();
+  });
+
+  it("a tool result", () => {
+    expect(userReplyAt(userLine([{ type: "tool_result", tool_use_id: "t", content: "ok" }]))).toBeNull();
+  });
+
+  it("an assistant line, malformed JSON, or a missing timestamp", () => {
+    expect(userReplyAt(JSON.stringify({ type: "assistant", message: { content: "hi" }, timestamp: TS }))).toBeNull();
+    expect(userReplyAt("{not json")).toBeNull();
+    expect(userReplyAt(JSON.stringify({ type: "user", message: { content: "hi" } }))).toBeNull();
+  });
+});
+
+describe("scanTailForLatestUserReply", () => {
+  it("returns the newest reply, skipping later non-reply lines", () => {
+    const tail = [
+      userLine("first", {}, "2026-10-25T14:00:00.000Z"),
+      userLine("second", {}, "2026-10-25T14:30:00.000Z"),
+      JSON.stringify({ type: "assistant", message: { content: [{ type: "text", text: "ok" }] }, timestamp: "2026-10-25T14:31:00.000Z" }),
+      userLine(ambient, {}, "2026-10-25T14:40:00.000Z"),
+      "",
+    ].join("\n");
+    expect(scanTailForLatestUserReply(tail)).toBe(Date.parse("2026-10-25T14:30:00.000Z"));
+  });
+
+  it("is null when the tail has no reply (and survives a cut first line)", () => {
+    expect(scanTailForLatestUserReply('ent":"half a line"}\n' + userLine(ambient))).toBeNull();
+  });
+});

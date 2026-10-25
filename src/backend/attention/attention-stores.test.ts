@@ -213,3 +213,28 @@ describe("read-state store — DM marks", () => {
     expect(store.markDmSeen("u1", "h1", "aspen", 0)).toBeNull();
   });
 });
+
+describe("read-state store — markSeenForAllUsers (the user replied)", () => {
+  it("advances every tracked user's mark, returns only those that moved, and skips untracked users", () => {
+    const save = vi.fn();
+    const store = createReadStateStore({ sqlite: () => sqlite, now: () => 100, save, forceSave: vi.fn() });
+    store.getForUser("u1");
+    store.getForUser("u2");
+    store.markSeen("u2", "h1", "aspen", 5000);
+
+    expect(store.markSeenForAllUsers("h1", "aspen", 3000)).toEqual(["u1"]);
+    expect(store.getForUser("u1").seen).toContainEqual({ hostId: "h1", identityName: "aspen", seenFinishAt: 3000 });
+    expect(store.getForUser("u2").seen).toContainEqual({ hostId: "h1", identityName: "aspen", seenFinishAt: 5000 });
+
+    expect(store.markSeenForAllUsers("h1", "aspen", 3000)).toEqual([]);
+    expect(store.markSeenForAllUsers("h1", "aspen", 6000).sort()).toEqual(["u1", "u2"]);
+    expect(save).toHaveBeenCalled();
+  });
+
+  it("does nothing with no tracked users or bad input", () => {
+    const store = createReadStateStore({ sqlite: () => sqlite, now: () => 100, save: vi.fn(), forceSave: vi.fn() });
+    expect(store.markSeenForAllUsers("h1", "aspen", 3000)).toEqual([]);
+    expect(store.markSeenForAllUsers("", "aspen", 3000)).toEqual([]);
+    expect(store.markSeenForAllUsers("h1", "aspen", 0)).toEqual([]);
+  });
+});

@@ -9,6 +9,7 @@
  * 'fail-open on missing hook payload file' describe block (Task 3) covers
  * all five failure modes user 2026-08-13 LOCKED as must-pass.
  */
+import type { ReadStateStore } from "../attention/read-state-store.js";
 import {
   describe,
   it,
@@ -334,6 +335,12 @@ class MockRegistry implements SubscriptionRegistry {
 
   onLastUnsubscriber(_cb: () => void): () => void {
     return () => {};
+  }
+
+  publishedToUser: Array<{ userId: string; frame: unknown }> = [];
+
+  publishToUser(userId: string, frame: unknown): void {
+    this.publishedToUser.push({ userId, frame });
   }
 }
 
@@ -6158,6 +6165,64 @@ describe("ssh-poll-orchestrator Phase 59 — lastStopAt + lastStatusChangeAt der
     expect(state && "lastFinishAt" in state).toBe(false);
     expect(turnFinishStore.record).not.toHaveBeenCalled();
     orchestrator.stop();
+  });
+
+  describe("a user reply marks the finished turn seen", () => {
+    const JSONL = "~/.claude/projects/-home-ubuntu-skynet-tina/discovered.jsonl";
+    const userLine = (content: string, ts: number) =>
+      JSON.stringify({ type: "user", message: { role: "user", content }, timestamp: new Date(ts).toISOString() });
+
+    function setup(tail: string) {
+      const channel = new MockSshChannel();
+      wirePhase59Base(channel);
+      channel.setResponse(PER_SESSION_STOP_PATTERN, "1730000000\n"); // finished at 1730000000000
+      channel.setResponse("IDENTITY=", `${JSONL}\n`);
+      channel.setResponse("discovered.jsonl", tail);
+      const readStateStore = {
+        markSeenForAllUsers: vi.fn((): string[] => ["u1"]),
+      } as unknown as ReadStateStore & { markSeenForAllUsers: ReturnType<typeof vi.fn> };
+      const clock = { now: 1730500000000 };
+      const finishes = new Map<string, number>();
+      const turnFinishStore = {
+        record: vi.fn((h: string, n: string, ts: number) => {
+          finishes.set(`${h}::${n}`, ts);
+          return true;
+        }),
+        get: vi.fn((h: string, n: string) => finishes.get(`${h}::${n}`) ?? null),
+      };
+      const deps = { ...buildPhase59Deps(channel, clock), readStateStore, turnFinishStore };
+      return { channel, deps, readStateStore };
+    }
+
+    it("a reply after the last finished turn marks it seen once and tells the user's tabs", async () => {
+      const { deps, readStateStore } = setup(userLine("go ahead", 1730000005000) + "\n");
+      const orchestrator = createSshPollOrchestrator(deps);
+      await orchestrator.start();
+      expect(readStateStore.markSeenForAllUsers).toHaveBeenCalledWith("host-1", "tina", 1730000000000);
+      expect(deps.registry.publishedToUser).toEqual([
+        {
+          userId: "u1",
+          frame: expect.objectContaining({ type: "read-state-changed", hostId: "host-1", identityName: "tina", seenFinishAt: 1730000000000 }),
+        },
+      ]);
+      // The same reply on later ticks is not re-applied.
+      await deps.setIntervalFns.find((f) => f.ms === 2000)?.fn();
+      expect(readStateStore.markSeenForAllUsers).toHaveBeenCalledTimes(1);
+      orchestrator.stop();
+    });
+
+    it("a reply before the last finished turn, or only automated events after it, change nothing", async () => {
+      const ambient =
+        "<task-notification>\n<summary>Ambient watcher event (tina) — delivered by agent-supervisor</summary>\n</task-notification>";
+      const { deps, readStateStore } = setup(
+        [userLine("earlier answer", 1729999990000), userLine(ambient, 1730000005000)].join("\n") + "\n",
+      );
+      const orchestrator = createSshPollOrchestrator(deps);
+      await orchestrator.start();
+      expect(readStateStore.markSeenForAllUsers).not.toHaveBeenCalled();
+      expect(deps.registry.publishedToUser).toEqual([]);
+      orchestrator.stop();
+    });
   });
 
   // ---------------------------------------------------------------------------

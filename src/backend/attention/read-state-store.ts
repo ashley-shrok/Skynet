@@ -53,6 +53,11 @@ export interface ReadStateStore {
   getForUser(userId: string): UserReadState;
   /** Advance a seen mark. Returns true iff the stored value advanced. */
   markSeen(userId: string, hostId: string, identityName: string, seenFinishAt: number): boolean;
+  /**
+   * Advance the seen mark of every user with read tracking (the user replied
+   * to the agent). Returns the users whose mark advanced.
+   */
+  markSeenForAllUsers(hostId: string, identityName: string, seenFinishAt: number): string[];
   /** Record an agent's DM to a user (max-wins). Returns the row iff it advanced. */
   recordDm(userId: string, hostId: string, identityName: string, dmAt: number): DmEntry | null;
   /** Advance the user's seen DM. Returns the row iff it advanced. */
@@ -163,6 +168,25 @@ export function createReadStateStore(deps: {
       const advanced = result.changes > 0;
       if (advanced) fireSave(deps.save, "attention-mark-seen");
       return advanced;
+    },
+
+    markSeenForAllUsers(hostId, identityName, seenFinishAt) {
+      if (typeof hostId !== "string" || hostId.length === 0) return [];
+      if (!isValidIdentityName(identityName) || !isValidTime(seenFinishAt)) return [];
+      // WHERE true: SQLite needs it to tell the upsert's ON from a join's.
+      const rows = deps
+        .sqlite()
+        .prepare(
+          `INSERT INTO conversation_read_state (user_id, host_id, identity_name, seen_finish_at)
+           SELECT user_id, ?, ?, ? FROM user_read_baseline WHERE true
+           ON CONFLICT (user_id, host_id, identity_name)
+           DO UPDATE SET seen_finish_at = excluded.seen_finish_at
+           WHERE excluded.seen_finish_at > conversation_read_state.seen_finish_at
+           RETURNING user_id`,
+        )
+        .all(hostId, identityName, seenFinishAt) as Array<{ user_id: string }>;
+      if (rows.length > 0) fireSave(deps.save, "attention-mark-seen-on-reply");
+      return rows.map((r) => r.user_id);
     },
 
     recordDm(userId, hostId, identityName, dmAt) {
