@@ -51,7 +51,14 @@ const CASES: Array<[string, string, Omit<JudgedLine, "relayFrom" | "relayTo"> & 
     user("see this\n\n--- attached files ---\n1. plz.txt (890 B, text/plain) → `/home/ubuntu/pretty-view-uploads/2026-10-25/055102-plz.txt`\n   uploaded 2026-10-25T05:51:02Z\n"),
     { speaker: "user", text: "see this\nplz.txt" },
   ],
-  ["slash command", user("<command-name>/compact</command-name>\n<command-message>compact</command-message>\n<command-args></command-args>"), { speaker: "user", text: "/compact" }],
+  ["slash command", user("<command-name>/review</command-name>\n<command-message>review</command-message>\n<command-args>42</command-args>"), { speaker: "user", text: "/review 42" }],
+  [
+    "compaction summary",
+    user("This session is being continued from a previous conversation that ran out of context. The summary below covers the earlier portion of the conversation.\n\nSummary:\n1. The user asked about cheese.", { isCompactSummary: true, isVisibleInTranscriptOnly: true }),
+    null,
+  ],
+  ["condense command with guidance", user("<command-name>/compact</command-name>\n<command-message>compact</command-message>\n<command-args>keep the cheese notes</command-args>"), null],
+  ["condense output", user("<local-command-stdout>\u001b[2mCompacted (ctrl+o to see full summary)\u001b[22m</local-command-stdout>"), null],
   ["exit command", user("<command-name>/exit</command-name>\n<command-message>exit</command-message>\n<command-args></command-args>"), null],
   ["goodbye echo", user("<local-command-stdout>See ya!</local-command-stdout>"), null],
   ["interrupt marker", user([{ type: "text", text: "[Request interrupted by user]" }]), null],
@@ -105,7 +112,13 @@ const CASES: Array<[string, string, Omit<JudgedLine, "relayFrom" | "relayTo"> & 
   ],
 ];
 
-/** The conversation's own verdict for each line, in order. */
+/**
+ * The conversation's own verdict for each line, in order. Two steps here are
+ * written out rather than called, because the conversation does them outside
+ * the backend pipeline: the browser drops a relay message seen a second time
+ * (same relay event), and search leaves out the "Interrupted" status bubble —
+ * a status marker, not something anyone said (agreed with Ashley 2026-10-25).
+ */
 function conversationView(lines: string[]): Array<{ speaker: string; text: string } | null> {
   const dedup = new Map<string, number>();
   const seenRelay = new Set<string>();
