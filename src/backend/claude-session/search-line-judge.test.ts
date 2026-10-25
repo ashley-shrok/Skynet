@@ -10,7 +10,11 @@
  * about what counts — or a conversation change search doesn't follow — fails
  * here.
  */
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
+import { execFileSync } from "node:child_process";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { createSearchLineJudge, type JudgedLine } from "./search-line-judge.js";
 import { parseSessionLine } from "./session-file-parser.js";
 import {
@@ -18,6 +22,12 @@ import {
   __reshapeParsedLineToWireFrameForTests as reshape,
 } from "./claude-session-server.js";
 import { agentBubbleText, userBubbleText } from "../../ui/features/pretty-view/bubble-text.js";
+import { detectFilePointer, pointerPreview } from "../../ui/features/pretty-view/relay-pointer-detect.js";
+
+vi.mock("../database/db/index.js", () => ({ db: {} }));
+const { __composeGrepCommandForTests: composeGrepCommand, SCAN_FILTER_AWK } = await import(
+  "../database/routes/conversation-search.js"
+);
 
 const T0 = Date.parse("2026-10-25T12:00:00Z");
 let n = 0;
@@ -77,6 +87,11 @@ const CASES: Array<[string, string, Omit<JudgedLine, "relayFrom" | "relayTo"> & 
   ["tool output", user([{ type: "tool_result", tool_use_id: "t1", content: "cheese.txt" }]), null],
   ["agent text", agent([{ type: "text", text: "Searching for cheese now." }]), { speaker: "agent", text: "Searching for cheese now." }],
   ["agent thinking", agent([{ type: "thinking", thinking: "cheese?" }]), null],
+  [
+    "agent thinking beside text",
+    agent([{ type: "thinking", thinking: "hm" }, { type: "text", text: "Here is the cheese." }]),
+    { speaker: "agent", text: "Here is the cheese." },
+  ],
   ["agent tool call", agent([{ type: "tool_use", id: "t2", name: "Read", input: { file_path: "/cheese" } }]), null],
   [
     "agent ask",
@@ -93,6 +108,16 @@ const CASES: Array<[string, string, Omit<JudgedLine, "relayFrom" | "relayTo"> & 
     "same relay message, second envelope",
     JSON.stringify({ type: "queue-operation", operation: "enqueue", timestamp: ts(), content: pasted(ambient(relayEvent("@stacy:t1000.example", "ev1", "cheese is ready"))) }),
     null,
+  ],
+  [
+    "long relay message (file pointer)",
+    user(pasted(ambient(relayEvent("@stacy:t1000.example", "ev3", "[long message, 1640 chars — full text at /home/ubuntu/fleet/identities/finch/relay-state/messages/_ev3.txt — Read it] «Hi Finch — the cheese is…»")))),
+    { speaker: "relay", text: "Hi Finch — the cheese is", relayFrom: "@stacy:t1000.example", relayRoom: "!abcDEF:t1000.example" },
+  ],
+  [
+    "relay reply into a room",
+    agent([{ type: "tool_use", id: "t4", name: "mcp__relay__send", input: { room: "!abcDEF:t1000.example", body: "In the room." } }]),
+    { speaker: "relay", text: "In the room.", relayFrom: null, relayTo: null, relayRoom: "!abcDEF:t1000.example" },
   ],
   [
     "relay message out",
@@ -116,8 +141,10 @@ const CASES: Array<[string, string, Omit<JudgedLine, "relayFrom" | "relayTo"> & 
  * The conversation's own verdict for each line, in order. Two steps here are
  * written out rather than called, because the conversation does them outside
  * the backend pipeline: the browser drops a relay message seen a second time
- * (same relay event), and search leaves out the "Interrupted" status bubble —
- * a status marker, not something anyone said (agreed with Ashley 2026-10-25).
+ * (same relay event) and shows a long relay message's quoted preview, and
+ * search leaves out the "Interrupted" status bubble — a status marker, not
+ * something anyone said (agreed with Ashley 2026-10-25). The queued-send
+ * repeat runs on one fixed clock, as opening a conversation replays the file.
  */
 function conversationView(lines: string[]): Array<{ speaker: string; text: string } | null> {
   const dedup = new Map<string, number>();
@@ -130,8 +157,7 @@ function conversationView(lines: string[]): Array<{ speaker: string; text: strin
     if (frame.type === "message" || frame.type === "image") {
       if (frame.type === "message" && frame.interrupted) return null; // status, not words
       if (frame.role !== "user" && frame.role !== "assistant") return null;
-      const now = Date.parse(String(raw.timestamp));
-      if (__applyQueueDedupForTests({ parsedFrame: parsed, rawObj: raw, dedupMap: dedup, now }).suppress) return null;
+      if (__applyQueueDedupForTests({ parsedFrame: parsed, rawObj: raw, dedupMap: dedup, now: 0 }).suppress) return null;
       const content = frame.type === "message" ? frame.content : frame.text;
       return {
         speaker: frame.role === "user" ? "user" : "agent",
@@ -141,7 +167,8 @@ function conversationView(lines: string[]): Array<{ speaker: string; text: strin
     if (frame.type === "relay_inbound") {
       if (seenRelay.has(frame.matrixEventId)) return null;
       seenRelay.add(frame.matrixEventId);
-      return { speaker: "relay", text: frame.body };
+      const pointer = detectFilePointer(frame.body);
+      return { speaker: "relay", text: pointer ? pointerPreview(pointer.pointerLine) : frame.body };
     }
     if (frame.type === "relay_outbound") return frame.body ? { speaker: "relay", text: frame.body } : null;
     return null;
@@ -166,5 +193,26 @@ describe("search line judge — parity with the conversation", () => {
       const got = judge.judge(lines[i]);
       expect({ label, search: got && { speaker: got.speaker, text: got.text } }).toEqual({ label, search: view[i] });
     });
+  });
+
+  it("every line search shows survives the fast scan's structural filter", () => {
+    const dir = mkdtempSync(join(tmpdir(), "judge-scan-"));
+    try {
+      const file = join(dir, "t.jsonl");
+      writeFileSync(file, lines.join("\n") + "\n");
+      // "type" is in every line, so the scan's filter alone decides what's kept.
+      const out = execFileSync("sh", ["-c", composeGrepCommand("type", [file], 1000)], { encoding: "utf8" });
+      const kept = new Set(out.split("\n").filter(Boolean).map((l) => Number(l.split("\t")[2])));
+      const judge = createSearchLineJudge();
+      CASES.forEach(([label], i) => {
+        if (judge.judge(lines[i]) !== null) expect({ label, kept: kept.has(i + 1) }).toEqual({ label, kept: true });
+      });
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("the scan filter holds no single quote (it is pasted inside one)", () => {
+    expect(SCAN_FILTER_AWK).not.toContain("'");
   });
 });

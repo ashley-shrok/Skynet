@@ -51,9 +51,16 @@ import type { Identity } from "@/api/identities-api";
 import { useIdentities } from "@/state/identities-store";
 import { useViewingUserMxid } from "@/state/viewing-user-store";
 import {
+  addressingFor,
+  mxidLocalpart,
   partyForAddressee,
   partyForMxid,
+  type RelayAddressing,
 } from "@/features/pretty-view/relay-addressing";
+import {
+  useRelayRoomMembers,
+  type RelayRoomMember,
+} from "@/features/pretty-view/relay-room-members";
 import { Loader2 } from "lucide-react";
 import { KitChip, KitListRow } from "@/components/kit";
 import {
@@ -133,29 +140,73 @@ function highlightAll(text: string, query: string): Array<string | JSX.Element> 
   return out;
 }
 
-/** The passage's label, worded the way the conversation labels the bubble:
- *  relay messages name their parties as the relay cards do. */
+/** "Sender → To" / "Sender → group with A, B" / "Sender sent a DM" — the
+ *  relay card's who-line as text. */
+function whoLine(sender: string, addressing: RelayAddressing): string {
+  if (addressing.kind === "dm") return `${sender} → ${addressing.to.name}`;
+  if (addressing.kind === "group") {
+    return `${sender} → group with ${addressing.to.map((p) => p.name).join(", ")}`;
+  }
+  return `${sender} sent a DM`;
+}
+
+/** The passage's label, worded the way the conversation labels the bubble.
+ *  Relay messages name their parties the way the relay cards do, from the
+ *  room's members when they're known (`members`), else the same fallbacks. */
 export function speakerLabel(
   passage: ConversationSearchPassage,
-  agentName: string,
+  agent: { name: string; key: string },
   byKey: Map<string, Identity>,
   viewerMxid: string | null,
+  members: RelayRoomMember[] | null,
 ): string {
   switch (passage.speaker) {
     case "user":
       return "You";
     case "agent":
-      return agentName;
+      return agent.name;
     case "relay": {
       if (passage.relayFrom) {
-        return `${partyForMxid(passage.relayFrom, byKey).name} → ${agentName}`;
+        const addressing = addressingFor(mxidLocalpart(passage.relayFrom), members, byKey, {
+          name: agent.name,
+          hue: null,
+          you: false,
+        });
+        return whoLine(partyForMxid(passage.relayFrom, byKey).name, addressing);
       }
-      if (!passage.relayTo) return `${agentName} sent a DM`;
-      const to = partyForAddressee(passage.relayTo, byKey, viewerMxid);
+      const addressing = addressingFor(
+        agent.key.toLowerCase(),
+        members,
+        byKey,
+        passage.relayTo ? partyForAddressee(passage.relayTo, byKey, viewerMxid) : null,
+      );
       // A message to you shows as the agent's own bubble.
-      return to.you ? agentName : `${agentName} → ${to.name}`;
+      if (addressing.kind === "dm" && addressing.to.you) return agent.name;
+      return whoLine(agent.name, addressing);
     }
   }
+}
+
+function PassageSpeaker({
+  passage,
+  agent,
+  hostId,
+}: {
+  passage: ConversationSearchPassage;
+  agent: { name: string; key: string };
+  hostId: number;
+}): JSX.Element {
+  const { byKey } = useIdentities();
+  const viewerMxid = useViewingUserMxid();
+  const members = useRelayRoomMembers(
+    passage.speaker === "relay" ? passage.relayRoom ?? null : null,
+    hostId,
+  );
+  return (
+    <span data-part="speaker" className="text-[11.5px] font-semibold text-[var(--k-t3)]">
+      {speakerLabel(passage, agent, byKey, viewerMxid, members)}
+    </span>
+  );
 }
 
 export function ConversationSearchRow({
@@ -166,8 +217,6 @@ export function ConversationSearchRow({
   unarchiving = false,
   now,
 }: ConversationSearchRowProps): JSX.Element {
-  const { byKey } = useIdentities();
-  const viewerMxid = useViewingUserMxid();
   const name = result.displayName ?? result.identityKey;
   const title = result.aiTitle ?? result.task ?? name;
   const roles = result.roles ?? [];
@@ -196,12 +245,11 @@ export function ConversationSearchRow({
             data-speaker={p.speaker}
             className="flex flex-col gap-0.5 pl-2 border-l-2 border-[var(--k-hair2)]"
           >
-            <span
-              data-part="speaker"
-              className="text-[11.5px] font-semibold text-[var(--k-t3)]"
-            >
-              {speakerLabel(p, name, byKey, viewerMxid)}
-            </span>
+            <PassageSpeaker
+              passage={p}
+              agent={{ name, key: result.identityKey }}
+              hostId={result.hostId}
+            />
             <span className={SNIPPET_CLASS}>{highlightAll(p.text, query)}</span>
           </span>
         ))}

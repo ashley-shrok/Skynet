@@ -3,7 +3,7 @@ import type { RelayInboundEvent } from "@/api/claude-session-api";
 import type { Identity } from "@/api/identities-api";
 import { useIdentities } from "@/state/identities-store";
 import { resolveMxidToIdentity } from "./relay-mxid-resolve";
-import { detectFilePointer } from "./relay-pointer-detect";
+import { detectFilePointer, pointerPreview } from "./relay-pointer-detect";
 import { speakVoiceCandidates } from "./voice-candidates";
 import { stampedFetch } from "@/lib/stamped-fetch";
 import { useSpeakPlayback } from "./useSpeakPlayback";
@@ -30,12 +30,6 @@ type FetchState =
   | { kind: "loading" }
   | { kind: "done"; text: string }
   | { kind: "error"; indicator: string };
-
-/** The «…» preview recv.sh quotes inside a file-pointer line. */
-function pointerPreview(pointerLine: string): string {
-  const m = pointerLine.match(/«([\s\S]*?)(?:»|$)/);
-  return m ? m[1].replace(/…$/, "").trim() : "";
-}
 
 export type RelayInboundBubbleProps = Pick<
   RelayInboundEvent,

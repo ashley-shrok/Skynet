@@ -106,7 +106,7 @@ import {
 } from "../../claude-session/identity-artifact-reader.js";
 import { listArchivedIdentityKeysOnHost } from "../../claude-session/list-archived-identity-keys.js";
 import {
-  findQuery,
+  judgedMatches,
   passageForJudged,
   snippetForJudged,
   type SearchPassage,
@@ -316,19 +316,25 @@ function shellSingleQuote(s: string): string {
 /**
  * The scan's structural filter, run on every line grep matched and before the
  * per-file cap counts it. Drops lines that can never become a conversation
- * bubble, so hidden text (skill bodies, tool calls and output, thinking,
- * hook context, bookkeeping records) can't use up the cap ahead of a real
- * match further down the file. Keeps user / assistant / queue-operation lines,
- * queued-command attachments, and tool calls that are relay sends. Markers are
- * the transcript's own JSON keys: quotes inside message text are stored
- * escaped, so `"type":"tool_result"` only ever matches structure. This is a
- * coarse cut only — the line judge decides what is actually a match.
+ * bubble, so hidden text can't use up the cap ahead of a real match further
+ * down the file:
+ *   - skill bodies and other machinery turns (isMeta),
+ *   - tool output (no line of real transcripts mixes it with message text),
+ *   - thinking and tool calls with no text block beside them — except tool
+ *     calls that are relay sends,
+ *   - attachments other than queued commands, queue records other than
+ *     enqueues, and every other record type (system, bookkeeping, hooks).
+ * Markers are the transcript's own compact JSON keys: quotes inside message
+ * text are stored escaped, so `"type":"tool_result"` only ever matches
+ * structure. A coarse cut only — the line judge decides what is a match, and
+ * the parity test checks every shown line shape survives this filter.
  */
-const SCAN_FILTER_AWK =
-  'index($0, "\\"isMeta\\":true") || index($0, "\\"type\\":\\"tool_result\\"") || ' +
-  'index($0, "\\"type\\":\\"thinking\\"") { next } ' +
-  'index($0, "\\"type\\":\\"tool_use\\"") && !(index($0, "mcp__relay__send") || index($0, "m.room.message")) { next } ' +
+export const SCAN_FILTER_AWK =
+  'index($0, "\\"isMeta\\":true") || index($0, "\\"type\\":\\"tool_result\\"") { next } ' +
+  '(index($0, "\\"type\\":\\"thinking\\"") || index($0, "\\"type\\":\\"tool_use\\"")) && ' +
+  '!index($0, "\\"type\\":\\"text\\"") && !index($0, "mcp__relay__send") && !index($0, "m.room.message") { next } ' +
   'index($0, "\\"type\\":\\"attachment\\"") && !index($0, "\\"type\\":\\"queued_command\\"") { next } ' +
+  'index($0, "\\"type\\":\\"queue-operation\\"") && !index($0, "\\"operation\\":\\"enqueue\\"") { next } ' +
   '!(index($0, "\\"type\\":\\"user\\"") || index($0, "\\"type\\":\\"assistant\\"") || ' +
   'index($0, "\\"type\\":\\"queue-operation\\"") || index($0, "\\"type\\":\\"queued_command\\"")) { next } ' +
   "{ print; if (++n >= max) exit }";
@@ -777,7 +783,7 @@ async function runOneHost(
       judges.set(hit.path, judge);
     }
     const judged = judge.judge(hit.rawLine);
-    if (judged === null || findQuery(judged.text, query) === null) continue;
+    if (judged === null || !judgedMatches(judged, query)) continue;
 
     seenPaths.add(hit.path);
     const { snippet, hitStart, hitLength } = snippetForJudged(judged, query);

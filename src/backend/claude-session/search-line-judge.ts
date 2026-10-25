@@ -20,6 +20,10 @@ import {
   agentBubbleText,
   userBubbleText,
 } from "../../ui/features/pretty-view/bubble-text.js";
+import {
+  detectFilePointer,
+  pointerPreview,
+} from "../../ui/features/pretty-view/relay-pointer-detect.js";
 
 /** Whose bubble a match is in. `relay` = a relay message in or out; the
  *  frontend names the parties the way the conversation's relay cards do. */
@@ -35,6 +39,9 @@ export interface JudgedLine {
   /** relay only: who the agent addressed a message it sent (mxid or name as
    *  the agent wrote it), null when unknown or for a received message. */
   relayTo?: string | null;
+  /** relay only: the room it went through, so the row can name the parties
+   *  from the room's members the way the relay cards do. */
+  relayRoom?: string | null;
 }
 
 export interface SearchLineJudge {
@@ -53,21 +60,20 @@ export function createSearchLineJudge(): SearchLineJudge {
         if (parsed.kind === "message" && parsed.interrupted) return null;
         if (parsed.role !== "user" && parsed.role !== "assistant") return null;
         // Queued sends: the conversation shows the enqueue and drops the
-        // dequeue repeat. Each line's own timestamp stands in for the live
-        // tail's wall clock, so the 10-minute window spans the same gap.
+        // dequeue repeat. Opening a conversation replays the whole file at one
+        // moment, so the repeat window never runs out there; a fixed clock
+        // does the same here.
         let rawObj: Record<string, unknown>;
         try {
           rawObj = JSON.parse(rawLine) as Record<string, unknown>;
         } catch {
           return null;
         }
-        const ts =
-          typeof rawObj.timestamp === "string" ? Date.parse(rawObj.timestamp) : NaN;
         const { suppress } = __applyQueueDedupForTests({
           parsedFrame: parsed,
           rawObj,
           dedupMap: queueDedup,
-          now: Number.isFinite(ts) ? ts : 0,
+          now: 0,
         });
         if (suppress) return null;
         const raw = parsed.kind === "message" ? parsed.content : parsed.text;
@@ -82,14 +88,24 @@ export function createSearchLineJudge(): SearchLineJudge {
           if (seenRelayEvents.has(parsed.matrixEventId)) return null;
           seenRelayEvents.add(parsed.matrixEventId);
         }
-        if (parsed.body.trim().length === 0) return null;
-        return { speaker: "relay", text: parsed.body, relayFrom: parsed.sender, relayTo: null };
+        // A long message arrives as a pointer to a file; the bubble shows the
+        // preview the pointer line quotes.
+        const pointer = detectFilePointer(parsed.body);
+        const text = pointer ? pointerPreview(pointer.pointerLine) : parsed.body;
+        if (text.trim().length === 0) return null;
+        return { speaker: "relay", text, relayFrom: parsed.sender, relayTo: null, relayRoom: parsed.room };
       }
 
       if (parsed.kind === "relay_outbound") {
         // A send whose body couldn't be read shows no words to match.
         if (parsed.body === null || parsed.body.trim().length === 0) return null;
-        return { speaker: "relay", text: parsed.body, relayFrom: null, relayTo: parsed.to ?? null };
+        return {
+          speaker: "relay",
+          text: parsed.body,
+          relayFrom: null,
+          relayTo: parsed.to ?? null,
+          relayRoom: parsed.room,
+        };
       }
 
       return null;

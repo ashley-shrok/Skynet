@@ -10,7 +10,12 @@ import {
   stripTrayNotices,
   type ParsedAnswerMessage,
 } from "./ask/answer-format.js";
-import { lastAskBody, parseAskBlock } from "./ask/ask-format.js";
+import {
+  askMarkerLabel,
+  askMarkerQuestions,
+  parseAskBlock,
+  replaceLastAsk,
+} from "./ask/ask-format.js";
 import { preprocessCommandTriplets } from "./commandTriplets.js";
 import { parseInjectedUserTurn } from "../../api/pretty-view-upload-protocol.js";
 
@@ -47,18 +52,12 @@ export function userBubbleText(raw: string): string {
   return preprocessCommandTriplets(content).replace(CMD_MARKER_TEXT_RE, "$1");
 }
 
-const ASK_FENCE_RE = /^ {0,3}```[ \t]*ask[ \t]*\r?\n([\s\S]*?)^ {0,3}```[ \t]*$/gm;
-
-/** What an agent bubble shows, as text: the tray's ask block reads as the
- *  "Asked you: …" line the bubble draws in its place. */
+/** What an agent bubble shows, as text: the tray's ask block (its last one)
+ *  reads as the "Asked you: …" line the bubble draws in its place; an
+ *  unreadable block stays as the text the bubble shows. */
 export function agentBubbleText(raw: string): string {
-  const trayBody = lastAskBody(raw)?.trimEnd() ?? null;
-  if (trayBody === null) return raw;
-  return raw.replace(ASK_FENCE_RE, (block, body: string) => {
-    if (body.trimEnd() !== trayBody) return block;
+  return replaceLastAsk(raw, (body) => {
     const res = parseAskBlock(body);
-    return res.ok
-      ? `Asked you: ${res.ask.questions.map((q) => q.question).join(" ")}`
-      : block;
+    return res.ok ? `${askMarkerLabel(res.ask)}: ${askMarkerQuestions(res.ask)}` : null;
   });
 }

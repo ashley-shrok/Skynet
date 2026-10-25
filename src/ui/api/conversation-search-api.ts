@@ -55,6 +55,9 @@ export interface ConversationSearchPassage {
   relayFrom?: string | null;
   /** relay only: who the agent addressed (mxid or name), null when unknown. */
   relayTo?: string | null;
+  /** relay only: the room it went through — the row names the parties from
+   *  its members, as the relay cards do. */
+  relayRoom?: string | null;
 }
 
 export interface ConversationSearchResponse {

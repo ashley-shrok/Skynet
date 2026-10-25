@@ -34,6 +34,7 @@ export interface SearchPassage {
   /** relay only — see JudgedLine. */
   relayFrom?: string | null;
   relayTo?: string | null;
+  relayRoom?: string | null;
 }
 
 function escapeRegExp(s: string): string {
@@ -73,11 +74,19 @@ export function snippetForJudged(judged: JudgedLine, query: string): SnippetResu
   return { snippet: w.text, hitStart: w.hitStart, hitLength: hit.length };
 }
 
+const collapse = (s: string) => s.replace(/\s+/g, " ").trim();
+
+/** True when the query is in the words a judged bubble displays — compared
+ *  with runs of whitespace collapsed on both sides, as the passage shows them. */
+export function judgedMatches(judged: JudgedLine, query: string): boolean {
+  return findQuery(collapse(judged.text), collapse(query)) !== null;
+}
+
 /** Preview passage for a judged bubble, or null when the query isn't in the
  *  words it displays. */
 export function passageForJudged(judged: JudgedLine, query: string): SearchPassage | null {
-  const text = judged.text.replace(/\s+/g, " ").trim();
-  const hit = findQuery(text, query);
+  const text = collapse(judged.text);
+  const hit = findQuery(text, collapse(query));
   if (hit === null) return null;
   const passage: SearchPassage = {
     speaker: judged.speaker,
@@ -86,6 +95,7 @@ export function passageForJudged(judged: JudgedLine, query: string): SearchPassa
   if (judged.speaker === "relay") {
     passage.relayFrom = judged.relayFrom ?? null;
     passage.relayTo = judged.relayTo ?? null;
+    passage.relayRoom = judged.relayRoom ?? null;
   }
   return passage;
 }

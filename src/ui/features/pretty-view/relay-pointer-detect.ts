@@ -62,3 +62,10 @@ export function detectFilePointer(body: string): FilePointer | null {
     pointerLine: body.trim(),
   };
 }
+
+/** The «…» preview recv.sh quotes inside a file-pointer line — what a relay
+ *  bubble shows for a long message before its full text is fetched. */
+export function pointerPreview(pointerLine: string): string {
+  const m = pointerLine.match(/«([\s\S]*?)(?:»|$)/);
+  return m ? m[1].replace(/…$/, "").trim() : "";
+}

@@ -334,6 +334,49 @@ export function findAskBlocks(markdown: string): string[] {
   return out;
 }
 
+/**
+ * `markdown` with its last top-level ask block (found the same way as
+ * findAskBlocks) replaced by `replace(body)`; unchanged when it has none or
+ * `replace` returns null.
+ */
+export function replaceLastAsk(markdown: string, replace: (body: string) => string | null): string {
+  const lines = markdown.split(/\r?\n/);
+  let last: { start: number; end: number } | null = null;
+  let open: { char: string; len: number; ask: boolean; start: number } | null = null;
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    if (open) {
+      const close = /^ {0,3}(`{3,}|~{3,})[ \t]*$/.exec(line);
+      if (close && close[1][0] === open.char && close[1].length >= open.len) {
+        if (open.ask) last = { start: open.start, end: i };
+        open = null;
+      }
+      continue;
+    }
+    const start = /^ {0,3}(`{3,}|~{3,})/.exec(line);
+    if (start) {
+      const info = line.replace(/^ {0,3}(`{3,}|~{3,})/, "").trim();
+      open = { char: start[1][0], len: start[1].length, ask: info === "ask", start: i };
+    }
+  }
+  // An unclosed fence runs to the end of the message, as markdown draws it.
+  if (open?.ask) last = { start: open.start, end: lines.length };
+  if (last === null) return markdown;
+  const replacement = replace(lines.slice(last.start + 1, last.end).join("\n") + "\n");
+  if (replacement === null) return markdown;
+  return [...lines.slice(0, last.start), replacement, ...lines.slice(last.end + 1)].join("\n");
+}
+
+/** The ask marker's label: "Asked you" / "Asked you 3 questions". */
+export function askMarkerLabel(ask: Ask): string {
+  return `Asked you${ask.questions.length > 1 ? ` ${ask.questions.length} questions` : ""}`;
+}
+
+/** The ask marker's questions, as the bubble shows them. */
+export function askMarkerQuestions(ask: Ask): string {
+  return ask.questions.map((q) => q.question).join(" · ");
+}
+
 /** The body of the message's last ask block (readable or not), or null. */
 export function lastAskBody(markdown: string): string | null {
   if (!markdown.includes("ask")) return null;
