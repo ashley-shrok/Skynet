@@ -92,6 +92,9 @@ export interface PaneBarProps {
   /** The glyph is a picture filling the tile (an app's icon): no grey tile. */
   titleIconIsPicture?: boolean;
   title: string;
+  /** A faint second line under the name, for a pane whose state matters at a
+   *  glance (an agent's desktop: view only / under your control). */
+  subtitle?: string;
   /** Controls left of the ⋯ (e.g. a view switcher). */
   rightControls?: ReactNode;
   menuItems: RowKebabMenuItem[];
@@ -108,6 +111,7 @@ export function PaneBar({
   titleIcon,
   titleIconIsPicture = false,
   title,
+  subtitle,
   rightControls,
   menuItems,
   onSelectPane,
@@ -227,7 +231,16 @@ export function PaneBar({
           <span className="pane-bar-icon" data-picture={titleIconIsPicture ? "true" : undefined} aria-hidden="true">
             {titleIcon}
           </span>
-          <span className="pane-bar-title truncate">{title}</span>
+          {subtitle ? (
+            <span className="flex flex-col min-w-0 leading-tight">
+              <span className="pane-bar-title truncate">{title}</span>
+              <span className="pane-bar-subtitle truncate" data-testid={`${testIdPrefix}-subtitle`}>
+                {subtitle}
+              </span>
+            </span>
+          ) : (
+            <span className="pane-bar-title truncate">{title}</span>
+          )}
         </div>
         <div
           className="justify-self-end flex items-center gap-1"

@@ -16,128 +16,15 @@
  * (use-desktop-running.ts) sees the desktop running.
  */
 
-import {
-  useCallback,
-  useEffect,
-  useRef,
-  useState,
-  type ReactNode,
-} from "react";
-import {
-  Eye,
-  Hand,
-  Monitor,
-  MousePointer2,
-  Play,
-  RefreshCw,
-  Undo2,
-} from "lucide-react";
-import { toast } from "sonner";
-import {
-  connectDesktop,
-  getDesktopStatus,
-  releaseDesktopControl,
-  renewDesktopControl,
-  startDesktop,
-  takeDesktopControl,
-} from "@/api/workspace-desktop-api";
+import { Eye, Hand, MousePointer2, PanelRightOpen, RefreshCw, Undo2 } from "lucide-react";
 import { useModalFullscreen } from "@/components/modal";
-import {
-  KitButton,
-  KitChip,
-  KitEmpty,
-  KitToolbar,
-  KitToolbarSpacer,
-} from "@/components/kit";
-import { GuacamoleDisplay } from "@/features/guacamole/GuacamoleDisplay";
-import {
-  DesktopStage,
-  desktopGeometry,
-  desktopToolbarBtnStyle as toolbarBtnStyle,
-  useDesktopSession,
-} from "./desktop-session";
+import { KitButton, KitChip, KitToolbar, KitToolbarSpacer } from "@/components/kit";
+import { useIsMobile } from "@/hooks/use-mobile";
+import { DesktopStage, desktopGeometry, useDesktopSession } from "./desktop-session";
 
 /** Body aspect before the live geometry is known (agent-desktop's default). */
 const DEFAULT_W = 1280;
 const DEFAULT_H = 800;
-/** Control lease renew interval — well inside the 90s lease. */
-const RENEW_MS = 30_000;
-
-const DESKTOP_ERROR_COPY: Record<string, WorkspaceErrorCopy> = {
-  not_installed: {
-    heading: "Desktops aren't set up on this computer yet",
-    body: "The desktop tools haven't been installed here. They arrive with the next fleet update.",
-  },
-  guacd_unreachable: {
-    heading: "The viewer service isn't reachable",
-    body: "Skynet's remote-desktop service isn't responding right now. Try again in a moment.",
-  },
-  too_many_tunnels: {
-    heading: "Too many desktops open",
-    body: "Close a desktop view in another window, then try again.",
-  },
-  no_password: {
-    heading: "The desktop isn't ready yet",
-    body: "It's still starting up. Try again in a few seconds.",
-  },
-  start_timeout: {
-    heading: "The desktop didn't start",
-    body: "It took too long to come up. Try again, or ask the agent to start it.",
-  },
-  stream_error: {
-    heading: "Lost the connection to the desktop",
-    body: "The live view stopped. Reconnect to pick it back up.",
-  },
-};
-
-function errorCopy(errorClass: string): WorkspaceErrorCopy {
-  return (
-    DESKTOP_ERROR_COPY[errorClass] ?? resolveWorkspaceErrorCopy(errorClass)
-  );
-}
-
-function errorClassOf(err: unknown): string {
-  return err instanceof Error ? err.message : "host_unreachable";
-}
-
-type View =
-  | { status: "connecting" }
-  | {
-      status: "live";
-      token: string;
-      geometry: string | null;
-      attempt: number;
-      /** This tab holds the control lease and an interactive token. */
-      control: boolean;
-      /** Someone (e.g. this user in another window) has control. */
-      agentPaused: boolean;
-    }
-  | { status: "stopped" }
-  | { status: "starting" }
-  | { status: "disconnected" }
-  | { status: "error"; errorClass: string };
-
-/** A desktop state in the body (connecting, stopped, problem). */
-function Notice({
-  heading,
-  body,
-  children,
-}: {
-  heading: string;
-  body: string;
-  children?: ReactNode;
-}): JSX.Element {
-  return (
-    <div className="flex h-full items-center justify-center">
-      <KitEmpty
-        icon={<Monitor aria-hidden="true" />}
-        title={heading}
-        body={body || undefined}
-        action={children}
-      />
-    </div>
-  );
-}
 
 export default function DesktopTab({
   identityKey,
@@ -217,33 +104,22 @@ export default function DesktopTab({
           </KitButton>
         )}
         {inControl && (
-          <KitButton
-            size="sm"
-            onClick={() => void connect()}
-            data-testid="desktop-hand-back"
-          >
+          <KitButton size="sm" onClick={() => void connect()} data-testid="desktop-hand-back">
             <Undo2 size={13} aria-hidden="true" /> Hand back to agent
           </KitButton>
         )}
         {onPopOut && !isMobile && (
-          <button
-            type="button"
-            style={toolbarBtnStyle}
+          <KitButton
+            size="sm"
             onClick={onPopOut}
             title="Show this desktop in its own pane beside the conversation"
             data-testid="desktop-pop-out"
           >
-            <PanelRightOpen size={12} /> Open beside conversation
-          </button>
+            <PanelRightOpen size={13} aria-hidden="true" /> Open beside conversation
+          </KitButton>
         )}
-        {(live ||
-          view.status === "disconnected" ||
-          view.status === "error") && (
-          <KitButton
-            size="sm"
-            onClick={() => void connect()}
-            data-testid="desktop-reconnect"
-          >
+        {(live || view.status === "disconnected" || view.status === "error") && (
+          <KitButton size="sm" onClick={() => void connect()} data-testid="desktop-reconnect">
             <RefreshCw size={13} aria-hidden="true" /> Reconnect
           </KitButton>
         )}
@@ -270,52 +146,7 @@ export default function DesktopTab({
           minHeight: 240,
         }}
       >
-        {view.status === "connecting" && (
-          <Notice heading="Connecting to the desktop…" body="" />
-        )}
-        {view.status === "starting" && (
-          <Notice
-            heading="Starting the desktop…"
-            body="The first start on a computer can take a minute."
-          />
-        )}
-        {view.status === "stopped" && (
-          <Notice
-            heading="The desktop isn't running"
-            body="It starts on its own when the agent needs it. You can also start it now."
-          >
-            <KitButton
-              variant="primary"
-              onClick={() => void start()}
-              data-testid="desktop-start"
-            >
-              <Play size={14} aria-hidden="true" /> Start desktop
-            </KitButton>
-          </Notice>
-        )}
-        {view.status === "disconnected" && (
-          <Notice {...errorCopy("stream_error")}>
-            <KitButton onClick={() => void connect()}>
-              <RefreshCw size={14} aria-hidden="true" /> Reconnect
-            </KitButton>
-          </Notice>
-        )}
-        {view.status === "error" && <Notice {...errorCopy(view.errorClass)} />}
-        {live && (
-          <GuacamoleDisplay
-            key={view.attempt}
-            viewOnly={!view.control}
-            fixedRemoteSize
-            isVisible={isVisible}
-            connectionConfig={{
-              token: view.token,
-              protocol: "vnc",
-              ...(geoW && geoH ? { width: geoW, height: geoH } : {}),
-            }}
-            onDisconnect={onStreamLost}
-            onError={onStreamLost}
-          />
-        )}
+        <DesktopStage session={session} isVisible={isVisible} />
       </div>
     </div>
   );

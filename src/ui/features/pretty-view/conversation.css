@@ -206,6 +206,7 @@ button.pv-float:focus-visible { outline: 2px solid var(--k-acc); outline-offset:
 .pv-voice-chip > button:enabled { cursor: pointer; }
 .pv-voice-chip > button:enabled:hover { background: rgba(255, 255, 255, 0.08); }
 .pv-voice-chip > button:last-child { padding: 0; width: 30px; justify-content: center; color: var(--k-t2); }
+.pv-voice-chip > .pv-voice-mute { padding: 0; width: 30px; justify-content: center; color: var(--k-t2); }
 .pv-voice-chip svg { width: 16px; height: 16px; }
 
 /* ── Recording: the chip in the row, controls on the right ── */

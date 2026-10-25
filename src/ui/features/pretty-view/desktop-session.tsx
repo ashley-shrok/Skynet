@@ -33,7 +33,6 @@ import {
   useEffect,
   useRef,
   useState,
-  type CSSProperties,
   type ReactElement,
   type ReactNode,
 } from "react";
@@ -47,6 +46,7 @@ import {
   startDesktop,
   takeDesktopControl,
 } from "@/api/workspace-desktop-api";
+import { KitButton, KitEmpty } from "@/components/kit";
 import { GuacamoleDisplay } from "@/features/guacamole/GuacamoleDisplay";
 import { systemLogger } from "@/lib/frontend-logger";
 import {
@@ -308,21 +308,8 @@ export function desktopGeometry(view: DesktopView): [number, number] {
   return [w || 0, h || 0];
 }
 
-export const desktopToolbarBtnStyle: CSSProperties = {
-  display: "inline-flex",
-  alignItems: "center",
-  gap: 5,
-  padding: "5px 10px",
-  fontSize: 12,
-  fontWeight: 500,
-  color: "var(--color-pv-fg-muted)",
-  background: "var(--color-pv-surface-quiet-alt)",
-  border: "1px solid var(--color-pv-border-quiet)",
-  borderRadius: 6,
-  cursor: "pointer",
-  whiteSpace: "nowrap",
-};
 
+/** A desktop state in the box (connecting, stopped, problem). */
 function Notice({
   heading,
   body,
@@ -333,27 +320,8 @@ function Notice({
   children?: ReactNode;
 }): ReactElement {
   return (
-    <div
-      style={{
-        display: "flex",
-        flexDirection: "column",
-        alignItems: "center",
-        justifyContent: "center",
-        gap: 10,
-        height: "100%",
-        padding: 24,
-        textAlign: "center",
-        color: "var(--color-pv-fg-muted)",
-      }}
-    >
-      <Monitor size={28} style={{ opacity: 0.5 }} />
-      <div
-        style={{ fontWeight: 600, fontSize: 14, color: "var(--color-pv-fg)" }}
-      >
-        {heading}
-      </div>
-      <div style={{ fontSize: 12.5, maxWidth: 380 }}>{body}</div>
-      {children}
+    <div className="flex h-full items-center justify-center">
+      <KitEmpty icon={<Monitor aria-hidden="true" />} title={heading} body={body || undefined} action={children} />
     </div>
   );
 }
@@ -387,25 +355,16 @@ export function DesktopStage({
           heading="The desktop isn't running"
           body="It starts on its own when the agent needs it. You can also start it now."
         >
-          <button
-            type="button"
-            style={desktopToolbarBtnStyle}
-            onClick={() => void start()}
-            data-testid="desktop-start"
-          >
-            <Play size={12} /> Start desktop
-          </button>
+          <KitButton variant="primary" onClick={() => void start()} data-testid="desktop-start">
+            <Play size={14} aria-hidden="true" /> Start desktop
+          </KitButton>
         </Notice>
       )}
       {view.status === "disconnected" && (
         <Notice {...desktopErrorCopy("stream_error")}>
-          <button
-            type="button"
-            style={desktopToolbarBtnStyle}
-            onClick={() => void connect()}
-          >
-            <RefreshCw size={12} /> Reconnect
-          </button>
+          <KitButton onClick={() => void connect()}>
+            <RefreshCw size={14} aria-hidden="true" /> Reconnect
+          </KitButton>
         </Notice>
       )}
       {view.status === "error" && (

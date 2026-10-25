@@ -4594,13 +4594,13 @@ export function PrettyView({
   // The agent is working: drives the working orb and the composer's Stop.
   // A background sub-agent keeps working after the main turn's Stop hook
   // darkens isWorking, so a running background agent counts too. Shells are
-  // excluded — servers run for hours. The interrupt gate applies to the main
-  // turn only; background agents keep running through an interrupt. Not
-  // while dormant (no live process) or while waiting on the user (the
-  // permission bubble owns that state).
+  // excluded — servers run for hours. The turn-over gate applies to the
+  // main turn only; background agents keep running after the turn ends or is
+  // interrupted. Not while dormant (no live process) or while waiting on the
+  // user (the permission bubble owns that state).
   const mainTurnWorking =
     (isWorking || optimisticWip) &&
-    (!interruptedTail || interruptWipReleased || pendingSends.some((p) => p.state === "sending"));
+    (turnOverTail === null || turnOverWipReleased || pendingSends.some((p) => p.state === "sending"));
   const agentWorking =
     mainTurnWorking ||
     (status === "streaming" && !dormant && waitingFor === null && backgroundedAgents.length > 0);

@@ -42,6 +42,20 @@ export function RecordingControls({
 }: RecordingControlsProps) {
   return (
     <div className="flex items-center gap-0.5">
+      {/* Mute — off: neutral like append; on: cancel's red tint */}
+      <button
+        type="button"
+        onClick={onToggleMute}
+        aria-label={muted ? "Unmute mic" : "Mute mic"}
+        aria-pressed={muted}
+        title={muted ? "Unmute mic" : "Mute mic"}
+        data-testid="recording-mute"
+        className="pv-cbtn"
+        data-tone={muted ? "danger" : undefined}
+      >
+        {muted ? <MicOff aria-hidden="true" /> : <Mic aria-hidden="true" />}
+      </button>
+
       {/* Cancel — red-tinted per pv-danger accent (hsla hue-0 = red) */}
       <button
         type="button"

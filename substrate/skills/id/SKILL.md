@@ -1074,12 +1074,12 @@ not something agents drive.
   desktop in its own pane — the same live view as the identity modal's
   **Desktop** tab, opened by dragging the green monitor button beside the
   task pill, or with **Open beside conversation** on that tab. The same
-  glassy bar as an app's. Left: **reconnect** (circular-arrow), then
+  bar as an app's. Left: **reconnect** (circular-arrow), then
   **Take control** (hand) — or, while the user has control, **Hand back to
   agent** (undo arrow, amber). Center: a monitor icon, the agent's name,
   and beneath it in faint text whether it's view only, under the user's
   control (agent paused), or paused because someone else has control.
-  Right: the **⋮** menu — **Move to new tab** and **Close** (both desktop
+  Right: the **⋯** menu — **Move to new tab** and **Close** (both desktop
   only) — also on right-click. The **whole bar is the drag handle**, same
   as the app bar. The picture scales to fit and never resizes the agent's
   screen. Control is handed back when the pane closes or its connection
@@ -1231,9 +1231,7 @@ crown, then gear.
     speak, **when voice mode sends**: *After a pause* (default — three
     seconds of silence) or *When I say a phrase* (silence never sends;
     ending with the phrase does — "send it" by default, editable, shown
-    only when that's chosen), and **when voice mode listens**: *All the
-    time* (default) or *When I press my headphones* (press to talk — see
-    the sound-wave button). Follows the user's account across devices.
+    only when that's chosen). Follows the user's account across devices.
   - **Notifications** — phone notifications through the user's OWN
     Telegram bot; each user sets theirs up here, nothing server-side. The
     section walks them through three numbered steps: open @BotFather in
@@ -1356,7 +1354,8 @@ crown, then gear.
   desktop is running (opens the Desktop tab), and an amber button while the
   agent has local work not pushed to any remote (opens the Git tab). Both
   are the pill's height. They pulse briefly when they appear, then hold a
-  steady color.
+  steady color. On desktop the green button can also be dragged into the
+  content area to open the desktop as its own pane (§ Desktop bar).
   *Agent-side:* starting your desktop (`desktop` skill) makes the green
   button appear for the user within a few seconds; stopping it removes it.
 
@@ -1554,8 +1553,10 @@ crown, then gear.
   hold it to record and release to send. While recording, a red-tinted
   chip in the row shows "Recording", a timer and a live waveform (held:
   "release to send · slide off to cancel"); the paperclip and Skills stay
-  usable, and a tapped recording puts **Cancel** (red ✕), **add to text**
-  and **Send** on the right.
+  usable, and a tapped recording puts **mute** (mic icon; crossed out and
+  red while muted — the recording carries on but hears silence until
+  unmuted), **Cancel** (red ✕), **add to text** and **Send** on the right.
+  Each recording starts unmuted.
   *Agent-side: none.*
 
 - **Stop (square) button — interrupt** (agent conversations). The
@@ -1625,22 +1626,6 @@ crown, then gear.
   its own, else its role's, else the user's Preferences → **Voice** pick, else
   the box's default. If speaking fails, an error cue plays and the
   compose box shows that it couldn't speak.
-  **Press to talk** (Preferences → Voice → *When I press my headphones*): voice
-  mode sits **Muted** with the mic fully off, still reading agents' new
-  messages aloud. A press of play/pause on the user's headphones (an AirPod
-  stem) — or a tap on the Muted chip — opens the mic for one turn: Starting
-  while it opens (2–3 seconds), the "your turn" sound once it's ready, then
-  the turn ends the usual way and the mic turns off again by itself (while
-  the mic is open, a tap on the chip ends the turn at once — presses don't
-  reach Skynet then, so that tap is the way out without the send phrase). Saying
-  nothing for 15 seconds closes it with a soft falling tone. A double press
-  skips what's being read; a single press while a reply is being read cuts
-  it off and opens the mic. Headphone buttons work in a desktop browser
-  and on iPhone; an iPhone can get into a state where presses stop
-  arriving, and restarting the phone fixes it (the Preferences option says
-  so). Until then the Muted chip's tap still works. Presses only reach Skynet while it's the
-  device's "now playing" source — music or a video started elsewhere takes
-  the buttons until it stops.
   *Agent-side: none.*
 
 - **⚡ Lightning bolt — Skills menu** (agent conversations only). Sits

@@ -36,7 +36,6 @@ import {
   VOICE_MODE_SEND_PHRASE_DEFAULT,
   VOICE_MODE_SEND_PHRASE_MAX_LEN,
   type VoiceModeEndOfTurn,
-  type VoiceModeListen,
 } from "./voice-mode-settings";
 
 // Speed slider: 0.05 steps across the full allowed range. Saves are debounced
@@ -162,33 +161,6 @@ export function PreferencesVoicePane({
       }
     },
     [endOfTurn, onUserPrefsChanged],
-  );
-
-  // ---- Voice mode: when to listen ----------------------------------------
-  const [listen, setListen] = useState<VoiceModeListen>(
-    userPrefs.voiceModeListen === "press" ? "press" : "always",
-  );
-  const [listenError, setListenError] = useState<string | null>(null);
-  useEffect(() => {
-    setListen(userPrefs.voiceModeListen === "press" ? "press" : "always");
-  }, [userPrefs.voiceModeListen]);
-
-  // "always" is the default, so it is stored as null.
-  const handleListenChange = useCallback(
-    async (next: VoiceModeListen) => {
-      const prev = listen;
-      setListen(next);
-      setListenError(null);
-      const wire = next === "always" ? null : next;
-      try {
-        await saveUserPreferences({ voiceModeListen: wire });
-        onUserPrefsChanged?.({ voiceModeListen: wire });
-      } catch {
-        setListen(prev);
-        setListenError("Couldn't save when voice mode listens — please try again.");
-      }
-    },
-    [listen, onUserPrefsChanged],
   );
 
   // Saved on blur / Enter. Blank or default text goes back to the default.
@@ -443,61 +415,6 @@ export function PreferencesVoicePane({
         ) : null}
       </section>
 
-      <section
-        className="k-group-wrap"
-        role="radiogroup"
-        aria-labelledby="preferences-voice-mode-listen-title"
-        data-testid="preferences-voice-mode-listen"
-      >
-        <h3 id="preferences-voice-mode-listen-title" className="k-group-title">
-          Voice mode listens
-        </h3>
-        <div className="k-group">
-          <KitSettingsRow
-            label={
-              <KitOption
-                control={
-                  <KitRadio
-                    name="preferences-voice-mode-listen"
-                    value="always"
-                    checked={listen === "always"}
-                    onChange={() => void handleListenChange("always")}
-                    data-testid="preferences-voice-mode-listen-always"
-                  />
-                }
-                label="All the time"
-                description="The mic stays on while voice mode is on."
-              />
-            }
-          />
-          <KitSettingsRow
-            label={
-              <KitOption
-                control={
-                  <KitRadio
-                    name="preferences-voice-mode-listen"
-                    value="press"
-                    checked={listen === "press"}
-                    onChange={() => void handleListenChange("press")}
-                    data-testid="preferences-voice-mode-listen-press"
-                  />
-                }
-                label="When I press my headphones"
-                description="The mic stays off and agents can still talk. Press play/pause on your headphones (or tap Muted) to answer; the mic turns off again once your message is sent. Double-press skips what's being read."
-              />
-            }
-          />
-        </div>
-        {listenError !== null ? (
-          <p className="k-group-foot">
-            <span className="k-err" role="alert" data-testid="preferences-voice-mode-listen-error">
-              {listenError}
-            </span>
-          </p>
-        ) : listen === "press" ? (
-          <p className="k-group-foot">If headphone presses stop working on iPhone, restarting the phone fixes it.</p>
-        ) : null}
-      </section>
     </div>
   );
 }

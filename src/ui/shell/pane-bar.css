@@ -76,6 +76,11 @@
     font-weight: 600;
     letter-spacing: -0.005em;
   }
+  .pane-bar-subtitle {
+    color: var(--k-t3);
+    font-size: 11.5px;
+    font-weight: 500;
+  }
 
   /* The ⋯ menu button. */
   .pane-bar .pane-bar-menu { width: 30px; height: 30px; }

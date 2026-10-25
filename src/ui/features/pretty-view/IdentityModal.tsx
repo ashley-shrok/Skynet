@@ -72,6 +72,7 @@ import {
 import DesktopTab from "./DesktopTab";
 import { AppsTab, conversationAppsFor } from "./AppsTab";
 import { useAppTiles } from "@/state/app-tiles-store";
+import { requestDesktopPane } from "@/shell/desktop-drag";
 import { useDesktopRunning } from "./use-desktop-running";
 import type { EscapeHandler, LeaveGuard } from "./roles-window/RolesWindow";
 import { bumpModalOpen } from "@/lib/freeze-diag";

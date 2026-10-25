@@ -716,17 +716,16 @@ function VoiceModeButton({
     <div
       data-testid="voice-mode-button"
       data-phase={phase}
+      data-muted={muted ? "true" : undefined}
       className="pv-voice-chip"
-      style={{ color: VOICE_MODE_COLOR[phase] }}
+      style={{ color: showMuted ? MUTED_COLOR : VOICE_MODE_COLOR[phase] }}
     >
       <button
         type="button"
-        onClick={speaking ? onSkip : muted || done ? onTalk : undefined}
-        disabled={!speaking && !muted && !done}
-        aria-label={speaking ? "Skip speech" : muted ? "Talk" : done ? "Done talking" : undefined}
-        title={
-          speaking ? "Skip" : muted ? "Talk (or press play on your headphones)" : done ? "Done — send and turn the mic off" : undefined
-        }
+        onClick={speaking ? onSkip : undefined}
+        disabled={!speaking}
+        aria-label={speaking ? "Skip speech" : undefined}
+        title={speaking ? "Skip" : undefined}
       >
         <Glyph
           aria-hidden="true"
@@ -744,13 +743,10 @@ function VoiceModeButton({
         aria-pressed={muted}
         title={muted ? "Unmute mic" : "Mute mic"}
         data-testid="voice-mode-mute"
-        className={cn(
-          "flex items-center rounded p-1 cursor-pointer hover:bg-[rgba(220,225,245,0.12)]",
-          !muted && "opacity-70 hover:opacity-100",
-        )}
+        className="pv-voice-mute"
         style={muted ? { color: MUTE_ON_COLOR } : undefined}
       >
-        {muted ? <MicOff aria-hidden="true" className="size-3.5" /> : <Mic aria-hidden="true" className="size-3.5" />}
+        {muted ? <MicOff aria-hidden="true" /> : <Mic aria-hidden="true" />}
       </button>
       <button
         type="button"
@@ -2642,8 +2638,8 @@ export function ComposeBox({
             onStart={voiceMode.start}
             onStop={voiceMode.stop}
             onSkip={voiceMode.skipSpeech}
-            onTalk={voiceMode.talk}
-            pressToTalk={voiceMode.pressToTalk}
+            muted={voiceMode.muted}
+            onToggleMute={voiceMode.toggleMute}
           />
         )}
         {showRecordingControls && micTarget === "primary" ? (
@@ -3176,6 +3172,8 @@ function QueuedRow(props: QueuedRowProps) {
               onCancel={handleVoiceCancel}
               onAppend={() => { void handleVoiceAppend(slot.id); }}
               onSend={() => { void handleVoiceSend(slot.id); }}
+              muted={voice.muted}
+              onToggleMute={voice.toggleMute}
             />
           </div>
         ) : (
