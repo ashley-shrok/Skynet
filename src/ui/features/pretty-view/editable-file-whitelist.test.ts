@@ -8,9 +8,6 @@
  *     literal /file/, hostname [a-zA-Z0-9._-]+, literal slash,
  *     absolute-path terminator [^\s)?#]+.
  *   - TAILNET_URL_RE_CLIENT: unchanged behavior byte-for-byte.
- *   - stripTrailingPunct: composes with SKYNET_FILE_URL_RE_CLIENT the same
- *     way it composes with TAILNET_URL_RE_CLIENT (markdown-link `)` and
- *     prose punctuation trimming).
  *
  * Regex-state hygiene: SKYNET_FILE_URL_RE_CLIENT has the /g flag, which
  * makes .test()/.exec() mutate .lastIndex across calls. Every test that
@@ -24,7 +21,6 @@ import {
   SKYNET_FILE_URL_RE_CLIENT,
   SKYNET_SERVE_URL_RE_CLIENT,
   TAILNET_URL_RE_CLIENT,
-  stripTrailingPunct,
 } from "./editable-file-whitelist";
 
 describe("SKYNET_FILE_URL_RE_CLIENT — file-URL client regex (Phase 75 D-01)", () => {
@@ -55,7 +51,7 @@ describe("SKYNET_FILE_URL_RE_CLIENT — file-URL client regex (Phase 75 D-01)", 
     expect(matches).toContain(url);
   });
 
-  it("Test 4: markdown-link surrounding paren is stripped by stripTrailingPunct (composes cleanly)", () => {
+  it("Test 4: markdown-link surrounding paren is not folded into the match", () => {
     SKYNET_FILE_URL_RE_CLIENT.lastIndex = 0;
     const raw = "(https://term.example.com/file/thenasty/foo.md)";
     const matches = raw.match(SKYNET_FILE_URL_RE_CLIENT);
@@ -65,15 +61,6 @@ describe("SKYNET_FILE_URL_RE_CLIENT — file-URL client regex (Phase 75 D-01)", 
     expect(matches![0]).toBe(
       "https://term.example.com/file/thenasty/foo.md",
     );
-    // stripTrailingPunct then handles prose-end punctuation the same way it
-    // does for TAILNET_URL_RE_CLIENT — passing a clean URL through leaves it
-    // unchanged, and passing a URL with a trailing period trims it.
-    expect(stripTrailingPunct(matches![0])).toBe(matches![0]);
-    expect(
-      stripTrailingPunct(
-        "https://term.example.com/file/thenasty/foo.md.",
-      ),
-    ).toBe("https://term.example.com/file/thenasty/foo.md");
   });
 
   it("Test 5: does NOT match http:// scheme (Skynet is HTTPS-only)", () => {
@@ -182,9 +169,8 @@ describe("SKYNET_SERVE_URL_RE_CLIENT — serve-URL client regex (Phase 103 D-29)
 });
 
 describe("non-overlap invariants — three sibling URL regexes are disjoint", () => {
-  // Fresh non-global regexes for dispatch-style .test() checks — mirrors the
-  // dispatch pattern in use-editable-file-eligibility.ts (FILE_URL_DISPATCH_RE)
-  // so that /g state cannot contaminate the invariant assertion.
+  // Fresh non-global regexes for dispatch-style .test() checks so that /g
+  // state cannot contaminate the invariant assertion.
   const SERVE_RE_NO_G =
     /^https:\/\/[a-zA-Z0-9._-]+-\d{1,5}\.serve\.term\.[a-zA-Z0-9.-]+(?::\d{1,5})?(?:\/[^\s)?#]*)?$/;
   const FILE_RE_NO_G =

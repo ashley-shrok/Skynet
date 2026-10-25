@@ -91,6 +91,7 @@ import { useAutoScroll } from "./use-auto-scroll";
 import { ComposeBox, INTERRUPT_THROTTLE_MS, type InterruptFeedback } from "./ComposeBox";
 import { DropOverlay } from "./DropOverlay";
 import { HarnessTasksPanel } from "./HarnessTasksPanel";
+import { deriveOpenAsk } from "./ask/open-ask";
 import { usePrettyViewUploads } from "./use-pretty-view-uploads";
 import { buildCancelledSendRestore, fetchRestoreFiles } from "./cancelled-send-restore";
 import {
@@ -241,7 +242,7 @@ export const PENDING_SEND_TIMEOUT_MS_NORMAL = 90_000;
 export const PENDING_SEND_TIMEOUT_MS_DORMANT = 220_000;
 /**
  * Optimistic-WIP release window once a send is evidently delivered (user
- * echo, widget envelope, or assistant message). Several fleet-status polls
+ * echo or assistant message). Several fleet-status polls
  * (2s cadence) — long enough for backend isWorking to take over a real turn,
  * short enough that a turn the poll never observed doesn't hold the
  * indicator for the full send ceiling.
@@ -587,41 +588,6 @@ const isIdCommand = (content: string): boolean =>
   content.trimStart().startsWith("/id ") ||
   content.includes("<command-name>/id</command-name>");
 
-// Phase 137 D-137 (revised 2026-09-28): interactive-message widget submit
-// signals. When a WidgetBubble's iframe fires a widget-submit postMessage,
-// PrettyView's handleWidgetSubmit dispatcher synthesizes a WS input frame
-// carrying a <task-notification> envelope. Reaches the backend Phase 56
-// wake gate, wakes the agent, but is render-blacklisted here so no visible
-// bubble is created (the agent reads the actual state from
-// ~/fleet/interactive-messages/<slug>/state.json directly).
-//
-// The original shape ("/widget-submit <id> <val>") was slash-prefixed and got
-// intercepted by Claude Code's slash-command handler — silently dropped
-// before landing as a user turn in the JSONL, so the agent never woke.
-// Envelope shape mirrors substrate/scripts/ambient-monitor.py's _envelope()
-// pattern, which Claude Code already treats natively as an ambient wake.
-//
-// Match the fixed opening (envelope tag + widget-specific summary line).
-// The summary used to name the base app ("delivered by Skynet"); agents see
-// it and instances can be branded, so it now says "the app". Both forms are
-// matched so envelopes in older sessions stay hidden.
-// Ambient-monitor's summary is "Ambient watcher event (…) — delivered by
-// agent-supervisor", so anchoring on our exact summary text keeps this
-// predicate specific to widget submits — it won't blacklist ambient events.
-// Module-local by design (no export, no shared-utils hoist) per Phase 14
-// no-new-shared-utils posture, mirroring isIdCommand's placement discipline.
-const isWidgetSubmit = (content: string): boolean => {
-  const trimmed = content.trimStart();
-  return (
-    trimmed.startsWith(
-      "<task-notification>\n<summary>Widget submit — delivered by the app</summary>",
-    ) ||
-    trimmed.startsWith(
-      "<task-notification>\n<summary>Widget submit — delivered by Skynet</summary>",
-    )
-  );
-};
-
 // Phase 40 (Research A8): nice-to-have MIME hint for chip UX. Not
 // load-bearing — the composebox chip strip renders name + size, NOT MIME.
 // The MIME is set on the File object so downstream mediation (e.g., copy-
@@ -934,6 +900,13 @@ export function PrettyView({
   );
   const effectiveMessages: StreamEvent[] =
     source.kind === "relay" ? chatSurfaceAdapter.messages : harnessVisibleMessages;
+  // shape-interactive-responses: the question the tray holds, worked out
+  // from the transcript so every device agrees. Agent conversations only.
+  // (A user send still in flight closes it — see pendingSends below.)
+  const openAskFromHistory = useMemo(
+    () => (source.kind === "relay" ? null : deriveOpenAsk(harnessVisibleMessages, false)),
+    [source.kind, harnessVisibleMessages],
+  );
   // The latest message says the turn is over — the harness's interrupted line
   // (shape-interrupt-button) or the assistant message that ended its turn
   // (stop_reason end_turn) — so the work indicator goes off at once, whatever
@@ -1622,8 +1595,8 @@ export function PrettyView({
     // opening `<` of a tag-shaped substring breaks the harness's tag regex while
     // remaining visually identical in bubbles and copy-outs.
     //
-    // options.skipTagNeutralize: opt-out for SYSTEM-generated envelopes (e.g.
-    // widget-submit's <task-notification>) where the harness IS the intended
+    // options.skipTagNeutralize: opt-out for SYSTEM-generated envelopes
+    // where the harness IS the intended
     // recipient of the control frame. Neutralization is a defense against
     // USER-typed control frames; callers that own the envelope content set this
     // flag to deliver an intact tag.
@@ -1899,6 +1872,8 @@ export function PrettyView({
     }>;
   };
   const [pendingSends, setPendingSends] = useState<PendingSend[]>([]);
+  // Anything the user is sending closes the tray at once, before its echo.
+  const openAsk = pendingSends.some((p) => p.state === "sending") ? null : openAskFromHistory;
   const pendingSendsRef = useRef<PendingSend[]>([]);
   // eventId → the React key of the optimistic bubble it settled (FIFO head
   // match), so the confirmed bubble keeps that key and React reuses the DOM
@@ -1909,15 +1884,14 @@ export function PrettyView({
     pendingSendsRef.current = pendingSends;
   }, [pendingSends]);
 
-  // Optimistic WIP: every harness send (compose, attachment batch, widget
-  // submit) shows the WipBubble immediately instead of waiting for the
+  // Optimistic WIP: every harness send (compose, attachment batch) shows the WipBubble immediately instead of waiting for the
   // backend working signal, which lags by a poll normally and by the whole
   // wake on a dormant pane. Released on the first of: a false→true edge of
   // backend isWorking after arm (handoff to the real indicator — a level
   // check would let a still-latched "working" from the previous turn cancel
   // it instantly), failure of the send that armed it, the same client
   // timeout the pending bubble uses, or session teardown. Once the turn is
-  // evidently delivered (user echo / widget envelope / assistant message),
+  // evidently delivered (user echo / assistant message),
   // the timeout shortens to OPTIMISTIC_WIP_DELIVERED_GRACE_MS: enough polls
   // for the working signal to take over, without holding the indicator for
   // the full send ceiling on turns too short for the poll to observe.
@@ -2073,13 +2047,7 @@ export function PrettyView({
       // arriving with no matching pending record, and the FIFO head-match
       // would silently clear an unrelated in-flight pending (code-review M2,
       // 2026-09-07 — /id-with-attachment corner case).
-      //
-      // Phase 137 D-137: extend the render-blacklist gate to cover widget-
-      // submit signals (parallel to /id — the WS frame still fires, the wake
-      // still happens, but no bubble appears). Widget-submit is NEVER paired
-      // with attachments (synthetic backend signal, not a user compose action),
-      // so the attachments carve-out does not apply to it — unconditionally
-      // short-circuit when isWidgetSubmit matches.
+
       // Phase 62 Wave 1 — read dormantRef.current at arm time (D-62-03,
       // symmetric to backend's dormantLastEmitted read at __applyInputMessageForTests
       // entry). If dormant, use the widened 220000ms timeout so a healthy
@@ -2091,15 +2059,13 @@ export function PrettyView({
         ? PENDING_SEND_TIMEOUT_MS_DORMANT
         : PENDING_SEND_TIMEOUT_MS_NORMAL;
       const isAttachmentSend = !!(attachments && attachments.length > 0);
-      // Optimistic WIP covers widget submits too (no bubble, but the agent
-      // is about to work), and skips /id commands (recycle overlay owns
+      // Optimistic WIP skips /id commands (recycle overlay owns
       // that feedback). WS-not-open sends release it instead of arming.
       if (immediateFailure) {
         clearOptimisticWipForMqid(mqid, "immediate-failure");
       } else if (!isIdCommand(payload) || isAttachmentSend) {
         armOptimisticWip(mqid, timeoutMs);
       }
-      if (isWidgetSubmit(payload)) { return; }
       if (isIdCommand(payload) && !isAttachmentSend) { return; }
       const normalized = normalizeNewlinesForBubble(payload);
       if (immediateFailure) {
@@ -2712,6 +2678,15 @@ export function PrettyView({
     [pvIdentity?.displayName],
   );
 
+  // A file option in the tray opens in the same file window as a chip.
+  const handleOpenAskFile = useCallback(
+    (url: string, filename: string) => {
+      if (!openAsk) return;
+      handleOpenEditor({ messageEventId: openAsk.eventId, url, filename });
+    },
+    [openAsk, handleOpenEditor],
+  );
+
   // Encoded tab spec of this conversation. Rides file-chip drags so a file
   // pane remembers where its file came from, and is how a file pane's
   // "Open in modal" finds this conversation: the modal opens here, so Save
@@ -2744,73 +2719,19 @@ export function PrettyView({
     return () => window.removeEventListener(OPEN_FILE_IN_CONVERSATION_EVENT, onOpenFromPane);
   }, [fileDragOrigin, pvIdentity?.displayName, tabId]);
 
-  // Phase 137 D-137 (revised 2026-09-28): WidgetBubble → PrettyView bridge.
-  // Synthesizes an invisible WS input frame carrying a <task-notification>
-  // envelope. Goes through the SAME send-input funnel the ComposeBox uses so
-  // the backend Phase 56 wake gate fires — but the isWidgetSubmit blacklist
-  // gate above short-circuits BEFORE any pending-bubble record is created,
-  // so the message is invisible.
-  //
-  // Envelope shape mirrors substrate/scripts/ambient-monitor.py's _envelope()
-  // pattern — Claude Code natively recognizes <task-notification> as an
-  // ambient wake, injects it as a user turn, and the agent reads the actual
-  // submit data from ~/fleet/interactive-messages/<slug>/state.json on its
-  // own filesystem. The envelope carries only the widget id + hint to read
-  // state.json — not the value itself (the state.json is the source of truth).
-  //
-  // The prior shape ("/widget-submit <id> <val>") was slash-prefixed and got
-  // intercepted by Claude Code's slash-command handler — silently dropped
-  // before landing as a user turn in the JSONL, so no wake fired.
-  //
-  // Trust boundary validation lives in WidgetBubble.tsx (Plan 04 T2);
-  // handleWidgetSubmit assumes the (widgetId, value) tuple is already
-  // validated. `value` is currently unused in the envelope (state.json holds
-  // the truth) but kept in the signature so callers don't have to change.
-  const handleWidgetSubmit = useCallback(
-    (widgetId: string, _value: string): void => {
-      // Trailing "\r" is required by the backend split-send gate at
-      // claude-session-server.ts (isSplitSend = mqid.length > 0 && data.endsWith("\r")).
-      // Without it, backend falls into the non-split branch which fires ONLY
-      // `tmux send-keys -l <body>` and NEVER a `tmux send-keys Enter`, so the
-      // envelope text is never submitted to the agent's prompt.
-      const envelope =
-        "<task-notification>\n" +
-        "<summary>Widget submit — delivered by the app</summary>\n" +
-        "<event>[widget " + widgetId + "] submitted — read state at " +
-        "~/fleet/interactive-messages/" + widgetId + "/state.json</event>\n" +
-        "</task-notification>\r";
-      // Reuse the same mqid generation pattern as ComposeBox (Phase 50 D-01/D-18):
-      // `pv-optim-<ms>-<8hex>` — deterministic-enough for FIFO ordering + unique
-      // enough that concurrent sends don't collide. The mqid presence arms the
-      // backend Phase 56 wake gate.
-      const mqid = `pv-optim-${Date.now()}-${Math.random().toString(36).slice(2, 10).padEnd(8, "0")}`;
-      // skipTagNeutralize: bypass sendInput's U+200B insertion so Claude Code
-      // sees an intact <task-notification> tag rather than <​task-notification>.
-      // This is a SYSTEM-generated envelope we own — the neutralization defense
-      // against USER-typed control frames does not apply here.
-      const ok = sendInput(envelope, mqid, { skipTagNeutralize: true });
-      handleOptimisticSend({ payload: envelope, mqid, immediateFailure: !ok });
-    },
-    [sendInput, handleOptimisticSend],
-  );
-
   // Stable identities for the per-bubble handlers handed to the memoized
   // ChatMessage. handleThumbsUp/Down depend on effectiveMessages (new on every
-  // message) and handleWidgetSubmit on the send funnel, so passing them
+  // message), so passing them
   // directly would re-render every bubble on every append. The wrappers read
   // the latest handler via ref at call time — same behavior, stable props.
-  const bubbleHandlersRef = useRef({ handleThumbsUp, handleThumbsDown, handleWidgetSubmit });
-  bubbleHandlersRef.current = { handleThumbsUp, handleThumbsDown, handleWidgetSubmit };
+  const bubbleHandlersRef = useRef({ handleThumbsUp, handleThumbsDown });
+  bubbleHandlersRef.current = { handleThumbsUp, handleThumbsDown };
   const stableThumbsUp = useCallback(
     (eventId: string) => bubbleHandlersRef.current.handleThumbsUp(eventId),
     [],
   );
   const stableThumbsDown = useCallback(
     (eventId: string) => bubbleHandlersRef.current.handleThumbsDown(eventId),
-    [],
-  );
-  const stableWidgetSubmit = useCallback(
-    (widgetId: string, value: string) => bubbleHandlersRef.current.handleWidgetSubmit(widgetId, value),
     [],
   );
 
@@ -3318,25 +3239,6 @@ export function PrettyView({
           if (typeof parsed.ts === "number" && parsed.ts > lastFrameTsRef.current) {
             lastFrameTsRef.current = parsed.ts;
           }
-          // Widget-submit envelope arrival (2026-09-28): the backend parser
-          // now emits widget-envelope wrapper-only user turns as message
-          // frames so the pv-send-watchdog can resolve envelope-arm delivery
-          // (previously the parser skipped them, which broke envelope
-          // delivery confirmation and caused a double-wake). But envelopes
-          // are NOT real user speech — they're synthetic wake pings — and
-          // must NOT participate in the compose FIFO cleanup or the bubble
-          // rendering:
-          //   (a) FIFO cleanup: skip so an arriving envelope doesn't clear
-          //       a pending compose (same category-split rationale that
-          //       pv-send-watchdog implements on the backend).
-          //   (b) Bubble rendering: skip so envelope wrapper content doesn't
-          //       render as a user bubble. isWidgetSubmit already blacklists
-          //       envelope OUTGOING payloads from creating pending bubbles;
-          //       this is the corresponding receive-side gate.
-          const isEnvelope =
-            parsed.role === "user" &&
-            typeof parsed.content === "string" &&
-            isWidgetSubmit(parsed.content);
           // quick-260823-fzy: FIFO-only head-match. Byte equality on collapsed
           // content was fighting every Claude Code input transformation:
           // slash-command XML wrap (typed `/fake args` → jsonl frame
@@ -3351,9 +3253,9 @@ export function PrettyView({
           // state gate), period. Independent of appendDedupWithCap below
           // (per-eventId dedup, different purpose).
           if (parsed.role === "user" || parsed.role === "assistant") {
-            noteOptimisticWipDelivered(isEnvelope ? "widget-envelope" : `${parsed.role}-message`);
+            noteOptimisticWipDelivered(`${parsed.role}-message`);
           }
-          if (parsed.role === "user" && !isEnvelope) {
+          if (parsed.role === "user") {
             settleOldestPendingSend(
               parsed.eventId,
               parsed.line,
@@ -3363,16 +3265,11 @@ export function PrettyView({
             );
           }
           // Phase 43 Plan 43-07b — drop-oldest cap enforcement on live-append.
-          // Skip widget-envelope wrapper frames — they're wake pings, not
-          // user speech; rendering them would surface synthetic XML noise
-          // as user bubbles.
-          if (!isEnvelope) {
-            setMessages((prev) =>
-              capOffRef.current
-                ? appendDedup(prev, parsed)
-                : appendDedupWithCap(prev, parsed, WORKING_SET_CAP, markCapDrop),
-            );
-          }
+          setMessages((prev) =>
+            capOffRef.current
+              ? appendDedup(prev, parsed)
+              : appendDedupWithCap(prev, parsed, WORKING_SET_CAP, markCapDrop),
+          );
           // Phase 47 (load-more button) — seed oldestLoadedLine from the min
           // `line?: number` across all incoming per-turn frames (Plan 01
           // additive optional widening). The cursor is the smallest line
@@ -5098,12 +4995,6 @@ export function PrettyView({
                   hostName={hostName}
                   onOpenEditor={handleOpenEditor}
                   fileDragOrigin={fileDragOrigin}
-                  // Phase 137 D-137: wire widget-submit handler so WidgetBubble
-                  // iframes in confirmed messages can fire invisible wake pings.
-                  // Parallel to onOpenEditor — same threading pattern. The pending-
-                  // sends ChatMessage mount below does NOT receive this prop:
-                  // pending bubbles never contain widget URLs (Plan 04 discipline).
-                  onWidgetSubmit={stableWidgetSubmit}
                   // Phase 124 Plan 02 (shape 3 — message thumbs, D-38):
                   // wire the thumbs callback plumbing ONLY to the
                   // ChatMessage-branch of the message-type conditional.
@@ -5325,6 +5216,12 @@ export function PrettyView({
             claude for this pane"; on send, the invisible-wake path handles it. */}
         {(onSend || source.kind === "relay") && (status === "streaming" || status === "error" || renderedState === "error" || renderedState === "dormant" || renderedState === "active" || renderedState === "inactive" || source.kind === "relay") && (
           <ComposeBox
+            // shape-interactive-responses: the agent's open question, shown in
+            // the tray above the composer; answers and typed replies both go
+            // through the composer's own send path.
+            openAsk={openAsk}
+            hostName={hostName}
+            onOpenAskFile={handleOpenAskFile}
             // Phase 93 D-11: pass mode based on source.kind — "relay" hides
             // Row 1 + Paperclip monolithically; "harness" (default) preserves
             // the full instrument bar. ChatSurfaceSource.kind is exactly

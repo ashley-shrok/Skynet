@@ -18,11 +18,11 @@ import { ChatDiffBlock, chatDiffFromPre } from "./ChatDiffBlock";
 import { useSpeakPlayback } from "./useSpeakPlayback";
 import { readSpeakableText } from "./speakable-text";
 import { handleCleanCopy } from "./clean-copy";
-import { useEditableFileEligibility } from "./use-editable-file-eligibility";
 import { FileChip } from "./FileChip";
 import { AppChip } from "./AppChip";
 import { parseSkynetAppUrl } from "../apps/app-link";
-import { WidgetBubble } from "./WidgetBubble";
+import { AskMarker, AnswerBubbleBody } from "./ask/AskBubbleParts";
+import { parseAnswerMessage, stripTrayNotices } from "./ask/answer-format";
 import { buildSkynetFileUrl, encodeFileLinkSpaces, isSkynetFileUrl } from "./file-url";
 
 // Presentational chat bubble for one conversational message.
@@ -56,6 +56,20 @@ const NO_VOICES: readonly string[] = [];
 // ReactMarkdown treat every render as a new pipeline (perf, iPhone scroll jank).
 const REMARK_PLUGINS = [remarkGfm, remarkBreaks];
 
+type HastLike = { type?: string; tagName?: string; value?: string; properties?: { className?: unknown }; children?: HastLike[] };
+function hastText(n: HastLike | undefined): string {
+  if (!n) return "";
+  if (n.type === "text") return n.value ?? "";
+  return (n.children ?? []).map(hastText).join("");
+}
+/** The body of a ```ask fenced block, or null for any other <pre>. */
+function askBodyFromPre(pre: unknown): string | null {
+  const code = (pre as HastLike | undefined)?.children?.find((c) => c.type === "element" && c.tagName === "code");
+  const cls = code?.properties?.className;
+  if (!code || !Array.isArray(cls) || !cls.some((c) => String(c) === "language-ask")) return null;
+  return hastText(code);
+}
+
 // Memoized: the bubble list re-renders on every new message / PrettyView state
 // change; an unchanged bubble must skip markdown re-parse entirely. Props from
 // PrettyView are stable (memoized values + ref-backed handlers).
@@ -69,7 +83,6 @@ export const ChatMessage = React.memo(function ChatMessage({
   onThumbsDown,
   onOpenEditor,
   fileDragOrigin,
-  onWidgetSubmit,
   pendingState = null,
   attachments,
   hostName,
@@ -102,10 +115,6 @@ export const ChatMessage = React.memo(function ChatMessage({
   // Encoded tab spec of the conversation this bubble sits in; file chips
   // carry it on their drag so a file pane knows where its file came from.
   fileDragOrigin?: string | null;
-  // Phase 137 D-137: parent's widget-submit dispatcher — WidgetBubble invokes
-  // this when the iframe postMessages a widget-submit signal. Optional so
-  // tests + historical mount sites without widget-submit plumbing still work.
-  onWidgetSubmit?: (widgetId: string, value: string) => void;
   // Phase 50 D-01/D-03/D-06/D-19: optimistic-send bubble state. Only
   // meaningful for user bubbles (assistant bubbles ignore it — pending
   // state is a send-path concept). 'sending' renders identically to a
@@ -137,11 +146,11 @@ export const ChatMessage = React.memo(function ChatMessage({
   }>;
 }) {
   const isUser = role === "user";
-  // Voice-mode sends carry a trailing label for the agent; never show it.
-  const content = isUser ? stripVoiceLabel(rawContent) : rawContent;
-  // D-01: hook fires for both roles; user messages never carry tailnet URLs
-  // so the Set stays empty. Simpler than a conditional hook (Rules of Hooks).
-  const eligibleUrls = useEditableFileEligibility(eventId ?? null, content);
+  // Voice-mode sends carry a trailing label for the agent, and messages sent
+  // while a question was open carry [tray] notices for it; never show either.
+  const content = isUser ? stripTrayNotices(stripVoiceLabel(rawContent)) : rawContent;
+  // A tray answer renders as an answer bubble (shape-interactive-responses).
+  const answer = useMemo(() => (isUser ? parseAnswerMessage(content) : null), [isUser, content]);
   const containerRef = useRef<HTMLDivElement>(null);
 
   // Phase 124 Plan 01 (D-39): leaf-level feedback-enabled subscription. When
@@ -217,14 +226,13 @@ export const ChatMessage = React.memo(function ChatMessage({
   // BUG C1 fix: memoize the ReactMarkdown `components` object. Passing a fresh
   // inline object literal every render forces ReactMarkdown to remount its
   // child overrides on every parent re-render. Deps are exactly the values
-  // the `a` override closes over: eventId, onOpenEditor, eligibleUrls.
+  // the `a` override closes over: eventId, onOpenEditor, fileDragOrigin.
   // The p/pre/blockquote overrides only close over module-scope imports
   // (splitMarkers, CopyableBlock, ChatDiffBlock) — stable, not deps.
   const markdownComponents = useMemo<Components>(() => ({
     // URL dispatch inside the assistant's rendered markdown:
     //   file URL       → FileChip on its own line (shape 2026-09-28).
     //   app pane URL   → AppChip on its own line (convo-scoped apps).
-    //   interactive-message URL → swap for WidgetBubble (Phase 137 D-137).
     //   anything else  → plain anchor with target=_blank.
     a: ({ node: _node, ...rest }) => {
       const props = rest as React.AnchorHTMLAttributes<HTMLAnchorElement>;
@@ -289,15 +297,7 @@ export const ChatMessage = React.memo(function ChatMessage({
         );
       }
 
-      // URL-type dispatch: eligibleUrls is now Map<string, "file" | "interactive-message">
-      const urlType = (href && eligibleUrls.get(href)) ?? null;
-
-      // interactive-message: swap anchor ENTIRELY for WidgetBubble
-      if (urlType === "interactive-message" && href) {
-        return <WidgetBubble src={href} onSubmit={onWidgetSubmit} />;
-      }
-
-      // Not a file URL and not an interactive-message URL — plain anchor.
+      // Not a file URL or app link — plain anchor.
       // Tailnet URLs (legacy) fall here too; per shape they render as
       // plain text-shaped links, not chips.
       return (
@@ -312,6 +312,10 @@ export const ChatMessage = React.memo(function ChatMessage({
       <p {...props}>{splitMarkers(children)}</p>
     ),
     pre: ({ node, children, ...props }) => {
+      // An agent's ask block: a quiet marker here; the question itself is in
+      // the tray above the compose box.
+      const askBody = askBodyFromPre(node);
+      if (askBody !== null) return <AskMarker body={askBody} />;
       const diff = chatDiffFromPre(node);
       if (diff) return <ChatDiffBlock text={diff.text} patch={diff.patch} />;
       return <CopyableBlock as="pre" {...props}>{children}</CopyableBlock>;
@@ -319,7 +323,7 @@ export const ChatMessage = React.memo(function ChatMessage({
     blockquote: ({ node, children, ...props }) => (
       <CopyableBlock as="blockquote" {...props}>{children}</CopyableBlock>
     ),
-  }), [eventId, onOpenEditor, eligibleUrls, onWidgetSubmit, fileDragOrigin]);
+  }), [eventId, onOpenEditor, fileDragOrigin]);
   const titleText = useMemo(
     () => (ts !== undefined ? new Date(ts).toLocaleString() : undefined),
     [ts],
@@ -399,6 +403,8 @@ export const ChatMessage = React.memo(function ChatMessage({
       >
         {isQuickReply ? (
           <ThumbsUp className="size-6" aria-label="quick reply" />
+        ) : answer ? (
+          <AnswerBubbleBody answer={answer} />
         ) : injected ? (
           // Sender-side render of an injected user turn. Caption text sits
           // above the file chips inside the SAME bubble.

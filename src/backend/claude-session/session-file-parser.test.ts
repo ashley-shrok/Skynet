@@ -1592,38 +1592,6 @@ describe("parseSessionLine — session-lifecycle noise skips (quick-260829-r9i)"
   });
 });
 
-describe("isWidgetSubmitEnvelope", () => {
-  const event =
-    "\n<event>[widget s] submitted — read state at ~/fleet/interactive-messages/s/state.json</event>\n</task-notification>";
-
-  it("matches the current brand-neutral summary", async () => {
-    const { isWidgetSubmitEnvelope } = await import("./session-file-parser.js");
-    expect(
-      isWidgetSubmitEnvelope(
-        "<task-notification>\n<summary>Widget submit — delivered by the app</summary>" + event,
-      ),
-    ).toBe(true);
-  });
-
-  it("still matches the legacy summary from older sessions", async () => {
-    const { isWidgetSubmitEnvelope } = await import("./session-file-parser.js");
-    expect(
-      isWidgetSubmitEnvelope(
-        "<task-notification>\n<summary>Widget submit — delivered by Skynet</summary>" + event,
-      ),
-    ).toBe(true);
-  });
-
-  it("does not match ambient-monitor envelopes", async () => {
-    const { isWidgetSubmitEnvelope } = await import("./session-file-parser.js");
-    expect(
-      isWidgetSubmitEnvelope(
-        "<task-notification>\n<summary>Ambient watcher event (x) — delivered by agent-supervisor</summary>" + event,
-      ),
-    ).toBe(false);
-  });
-});
-
 describe("parseSessionLine — new-harness <pasted_content> envelopes", () => {
   // Shape captured from Claude Code v2.1.286 (2026-10-08): paste-injected
   // wakes are wrapped in <pasted_content id="…"> and recorded as human prompts.
@@ -1706,15 +1674,13 @@ describe("parseSessionLine — new-harness <pasted_content> envelopes", () => {
     expect(parsed.body).toBe(body);
   });
 
-  it("pasted-wrapped widget-submit envelope surfaces unwrapped (watchdog + UI gate see legacy shape)", () => {
+  it("pasted-wrapped legacy widget-submit envelope (widget system retired) skips as a harness wrapper", () => {
     const envelope =
       "<task-notification>\n<summary>Widget submit — delivered by the app</summary>\n<event>x</event>\n</task-notification>";
     const parsed = parseSessionLine(
       line({ type: "user", uuid: "pc-5", origin: { kind: "human" }, message: { content: pasted(envelope) } }),
     );
-    expect(parsed.kind).toBe("message");
-    if (parsed.kind !== "message") throw new Error("unreachable");
-    expect(parsed.content).toBe(envelope);
+    expect(parsed.kind).toBe("skip");
   });
 
   it("compose text merged with a pasted ambient event shows only the user's words", () => {

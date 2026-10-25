@@ -21,9 +21,6 @@ vi.mock("@/api/voice-api", () => ({
 vi.mock("./webAudioStreamPlayer", () => ({
   createWebAudioStreamPlayer: vi.fn(() => ({ play: vi.fn(), stop: vi.fn(), pause: vi.fn(), resume: vi.fn() })),
 }));
-vi.mock("./use-editable-file-eligibility", () => ({
-  useEditableFileEligibility: vi.fn(() => new Map()),
-}));
 const mobile = { value: false };
 vi.mock("@/hooks/use-mobile", () => ({ useIsMobile: () => mobile.value }));
 

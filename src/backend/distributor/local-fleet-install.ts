@@ -111,6 +111,10 @@ import {
   USAGE_REPORTER_RETIRED_FILES,
   RETIRED_SUBSTRATE_FILES,
   RETIRED_SUBSTRATE_DIRS,
+  RETIRED_SUBSTRATE_TREES,
+  RETIRED_USER_UNITS,
+  RETIRED_USER_UNIT_PREFIX,
+  RETIRED_USER_UNIT_MARKER,
   USAGE_REPORTER_RETIRED_DIR,
 } from "./run-bootstrap.js";
 import { migrateRolesKeyUnder } from "./roles-key-migration.js";
@@ -556,10 +560,48 @@ async function patchSettingsJsonLocally(host: {
 }
 
 /**
+ * Stop + disable a retired host user unit via busctl (same session-bus route
+ * as fireRestartHookLocally — systemctl can't reach the host manager from
+ * here). Best effort: skipped when the host-systemd override is absent, and
+ * a failure (unit not loaded, etc.) is ignored — the caller removes the unit
+ * file and its .wants/ links either way.
+ */
+async function busctlUserManagerCall(
+  method: string,
+  signature: string,
+  args: string[],
+): Promise<void> {
+  if (!process.env.XDG_RUNTIME_DIR) return;
+  try {
+    await execFile(
+      "busctl",
+      [
+        "--user",
+        "call",
+        "org.freedesktop.systemd1",
+        "/org/freedesktop/systemd1",
+        "org.freedesktop.systemd1.Manager",
+        method,
+        ...(signature ? [signature] : []),
+        ...args,
+      ],
+      { env: process.env },
+    );
+  } catch {
+    // Best effort — see docstring.
+  }
+}
+
+/**
  * Local port of the SSH-bootstrap step 3 tail (retired substrate files).
- * Unlinks every RETIRED_SUBSTRATE_FILES path under the local home root and
- * rmdir's every RETIRED_SUBSTRATE_DIRS folder only when it is empty
- * (ENOENT / ENOTEMPTY are not errors). Idempotent. Never-throws.
+ * Retires every present RETIRED_USER_UNITS unit and every im-*.service
+ * whose file contains RETIRED_USER_UNIT_MARKER (StopUnit +
+ * DisableUnitFiles over busctl, then unlinks the unit file and any
+ * *.wants/ link to it, then one Reload), unlinks every
+ * RETIRED_SUBSTRATE_FILES path under the local home root, rm -rf's every
+ * RETIRED_SUBSTRATE_TREES folder, and rmdir's every RETIRED_SUBSTRATE_DIRS
+ * folder only when it is empty (ENOENT / ENOTEMPTY are not errors).
+ * Idempotent. Never-throws.
  */
 async function removeRetiredSubstrateFilesLocally(host: {
   id: string;
@@ -581,13 +623,58 @@ async function removeRetiredSubstrateFilesLocally(host: {
       },
     );
   };
-  for (const rel of RETIRED_SUBSTRATE_FILES) {
-    const target = path.join(homeRoot, rel);
+  const unlinkQuiet = async (site: string, target: string): Promise<void> => {
     try {
       await fs.unlink(target);
     } catch (err) {
       const errno = (err as { code?: string } | undefined)?.code;
-      if (errno !== "ENOENT") warn("unlink", target, err);
+      if (errno !== "ENOENT") warn(site, target, err);
+    }
+  };
+  const unitDir = path.join(homeRoot, ".config", "systemd", "user");
+  let unitDirEntries: string[] = [];
+  try {
+    unitDirEntries = await fs.readdir(unitDir);
+  } catch (err) {
+    const errno = (err as { code?: string } | undefined)?.code;
+    if (errno !== "ENOENT") warn("readdir", unitDir, err);
+  }
+  const retiredUnits: string[] = [];
+  for (const name of unitDirEntries) {
+    if ((RETIRED_USER_UNITS as readonly string[]).includes(name)) {
+      retiredUnits.push(name);
+    } else if (
+      name.startsWith(RETIRED_USER_UNIT_PREFIX) &&
+      name.endsWith(".service")
+    ) {
+      // Unreadable (dangling link, etc.) → not provably a widget unit; skip.
+      const body = await fs
+        .readFile(path.join(unitDir, name), "utf-8")
+        .catch(() => "");
+      if (body.includes(RETIRED_USER_UNIT_MARKER)) retiredUnits.push(name);
+    }
+  }
+  if (retiredUnits.length > 0) {
+    const wantsDirs = unitDirEntries.filter((name) => name.endsWith(".wants"));
+    for (const unit of retiredUnits) {
+      await busctlUserManagerCall("StopUnit", "ss", [unit, "replace"]);
+      await busctlUserManagerCall("DisableUnitFiles", "asb", ["1", unit, "false"]);
+      for (const wants of wantsDirs) {
+        await unlinkQuiet("unlink_wants", path.join(unitDir, wants, unit));
+      }
+      await unlinkQuiet("unlink_unit", path.join(unitDir, unit));
+    }
+    await busctlUserManagerCall("Reload", "", []);
+  }
+  for (const rel of RETIRED_SUBSTRATE_FILES) {
+    await unlinkQuiet("unlink", path.join(homeRoot, rel));
+  }
+  for (const rel of RETIRED_SUBSTRATE_TREES) {
+    const target = path.join(homeRoot, rel);
+    try {
+      await fs.rm(target, { recursive: true, force: true });
+    } catch (err) {
+      warn("rm_tree", target, err);
     }
   }
   for (const rel of RETIRED_SUBSTRATE_DIRS) {
@@ -1600,19 +1687,15 @@ export async function bootstrapFleetSubstrateLocally(
     // packages, and agent-desktop's own first-use install covers this box.
     desktopDeps: null,
     hadError,
-    // Local branch doesn't run the interactive-messages-gc.timer OR
-    // scheduled-agents-scheduler.service enable step yet (pre-existing gap
-    // for gc-timer; scheduled-agents-scheduler inherits the same limitation).
-    // The SSH branch (run-bootstrap.ts) enables both via `systemctl --user
-    // enable --now`. The local branch would need equivalent busctl-based
-    // Manager.EnableUnitFiles + StartUnit calls (systemctl itself fails at
-    // the private-socket handshake here — see fireRestartHookLocally comment
-    // for the version-skew rationale). Until that's added, t1000 requires
-    // a manual `systemctl --user enable --now scheduled-agents-scheduler.service`
-    // (and the analogous gc-timer command) at ship time. Both fields shape-
+    // Local branch doesn't run the scheduled-agents-scheduler.service
+    // enable step yet. The SSH branch (run-bootstrap.ts) enables it via
+    // `systemctl --user enable --now`. The local branch would need
+    // equivalent busctl-based Manager.EnableUnitFiles + StartUnit calls
+    // (systemctl itself fails at the private-socket handshake here — see
+    // fireRestartHookLocally comment for the version-skew rationale). Until
+    // that's added, t1000 requires a manual `systemctl --user enable --now
+    // scheduled-agents-scheduler.service` at ship time. Both fields shape-
     // satisfy the BootstrapResult interface without lying about state.
-    gcTimerAlreadyEnabled: false,
-    gcTimerBootstrapped: false,
     scheduledAgentsSchedulerAlreadyEnabled: false,
     scheduledAgentsSchedulerBootstrapped: false,
     // sensor-runner.service shares the same gap: manual `systemctl --user

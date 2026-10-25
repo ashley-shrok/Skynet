@@ -10,6 +10,7 @@
 import { parseInjectedUserTurn } from "@/api/pretty-view-upload-protocol";
 import { stampedFetch } from "@/lib/stamped-fetch";
 import { stripVoiceLabel } from "./voice-label";
+import { parseAnswerMessage, stripTrayNotices } from "./ask/answer-format";
 
 export interface RestoreFile {
   filename: string;
@@ -25,10 +26,17 @@ export interface CancelledSendRestore {
 export function buildCancelledSendRestore(content: string): CancelledSendRestore {
   // A voice-mode send carries a trailing "[sent by voice …]" label; the words
   // come back without it (a resend adds it again only if it is spoken).
+  // Tray notices go (a resend adds them again if the question is still open);
+  // a cancelled tray answer gives back only its note — the question returns
+  // to the tray for answering again.
+  const words = (t: string): string => {
+    const plain = stripTrayNotices(stripVoiceLabel(t));
+    return parseAnswerMessage(plain)?.note ?? plain;
+  };
   const injected = parseInjectedUserTurn(content);
-  if (!injected) return { text: stripVoiceLabel(content), files: [] };
+  if (!injected) return { text: words(content), files: [] };
   return {
-    text: stripVoiceLabel(injected.caption),
+    text: words(injected.caption),
     files: injected.files.map((f) => ({
       filename: f.filename,
       mimetype: f.mimetype,

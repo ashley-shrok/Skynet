@@ -68,28 +68,6 @@ const GOODBYE_ECHO_VARIANTS = new Set([
   "<local-command-stdout>Bye!</local-command-stdout>",
 ]);
 
-// Widget-submit envelope shape (single source of truth for the backend).
-// Matches the exact opening of the envelope handleWidgetSubmit builds in
-// src/ui/features/pretty-view/PrettyView.tsx. The parser uses this to
-// distinguish widget wakes from other wrapper-only user turns (so the
-// pv-send-watchdog can resolve its delivery arm); pv-send-watchdog uses it
-// to route delivery signals to the envelope-arm queue instead of the
-// compose-arm queue.
-//
-// Anchored to the widget-specific summary line so it never matches ambient-
-// monitor envelopes (whose summary starts with "Ambient watcher event —")
-// or any other future <task-notification> use. The summary used to name the
-// base app; agents see this text, and instances can be branded, so it now
-// says "the app". The legacy form is still matched for older sessions.
-const WIDGET_ENVELOPE_OPENINGS = [
-  "<task-notification>\n<summary>Widget submit — delivered by the app</summary>",
-  "<task-notification>\n<summary>Widget submit — delivered by Skynet</summary>",
-];
-export function isWidgetSubmitEnvelope(content: string): boolean {
-  const trimmed = content.trimStart();
-  return WIDGET_ENVELOPE_OPENINGS.some((o) => trimmed.startsWith(o));
-}
-
 // Agent-team teammate messages (Claude Code SendMessage between sessions) land
 // as plain type:"user" string turns — no origin, no isMeta — that always open
 // with this fixed harness preamble, so the prefix is the only signal. Checked
@@ -1211,7 +1189,7 @@ export function extractImageRefs(obj: Record<string, unknown>): ImageBlock[] {
 // pasted input chunk in `<pasted_content id="…">…</pasted_content id="…">`
 // and record it as an ordinary human prompt (commandMode:"prompt",
 // origin.kind:"human"). That covers both harness-injected wakes
-// (agent-supervisor / recv.sh / widget-submit <task-notification> envelopes,
+// (agent-supervisor / recv.sh <task-notification> envelopes,
 // delivered via terminal paste) AND long pretty-view compose sends, which the
 // harness also sees as a paste. Several chunks can land in one turn — e.g. the
 // user's compose text and an ambient event merged together. A literal
@@ -1225,7 +1203,7 @@ export function extractImageRefs(obj: Record<string, unknown>): ImageBlock[] {
 //     wrappers is "harness"; anything else is "human";
 //   • if the turn has any human text, harness chunks are dropped so the bubble
 //     shows only the user's words; if it's harness-only, the bare wrappers are
-//     kept so the wrapper skip / relay-inbound / widget-submit paths apply.
+//     kept so the wrapper skip / relay-inbound paths apply.
 // Wrapper tags the user typed themselves (inside a human chunk) are untouched.
 const PASTED_CHUNK_RE =
   /<pasted_content id="([^"]*)">\n?([\s\S]*?)\n?<\/pasted_content id="\1">/g;
@@ -1697,23 +1675,7 @@ export function parseSessionLine(line: string, sessionId?: string): ParsedLine {
       .replace(/<system-reminder>[\s\S]*?<\/system-reminder>/g, "")
       .trim();
     if (stripped === "") {
-      // Skynet widget-submit envelopes are a specific kind of
-      // <task-notification> that carries a wake ping from a WidgetBubble
-      // click. Unlike ambient-monitor / stop-hook wrappers, these are
-      // MEANINGFUL to the pv-send-watchdog — the watchdog arms a delivery
-      // arm when handleWidgetSubmit sends one, and it needs to see the
-      // envelope arrive as a real message frame to resolve that arm.
-      // Skipping it here would cause the watchdog to hit its full-resend
-      // stage 5.5s later and inject a duplicate envelope. Let the widget-
-      // submit envelope fall through as a normal user-role message frame;
-      // the PrettyView receive-side gate already blacklists it from
-      // rendering as a bubble (isWidgetSubmit predicate at
-      // src/ui/features/pretty-view/PrettyView.tsx:579). Every other
-      // wrapper-only user turn (ambient events, system-reminders) still
-      // skips as noise — this is a narrow, shape-anchored carve-out.
-      if (!isWidgetSubmitEnvelope(content)) {
-        return { kind: "skip", why: "harness_wrapper" };
-      }
+      return { kind: "skip", why: "harness_wrapper" };
     }
   }
 

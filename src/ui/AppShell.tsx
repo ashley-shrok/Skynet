@@ -3567,7 +3567,7 @@ export function AppShell({
 
   // Pointer capture pins every move/up event to the handle until release, so
   // the drag keeps tracking when the cursor outruns the sidebar edge — even
-  // over iframes (app panes, widget bubbles, file viewers) or handlers that
+  // over iframes (app panes, file viewers) or handlers that
   // stop propagation, which a plain window mousemove listener never sees.
   const onSidebarPointerDown = useCallback(
     (e: React.PointerEvent<HTMLDivElement>) => {

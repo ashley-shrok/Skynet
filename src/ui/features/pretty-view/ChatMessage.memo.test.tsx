@@ -34,7 +34,6 @@ type Msg = { id: string; role: "user" | "assistant"; content: string };
 const onThumbsUp = () => {};
 const onThumbsDown = () => {};
 const onOpenEditor = () => {};
-const onWidgetSubmit = () => {};
 
 let setMessages: (fn: (prev: Msg[]) => Msg[]) => void = () => {};
 let bumpUnrelated: () => void = () => {};
@@ -58,7 +57,6 @@ function List({ initial }: { initial: Msg[] }) {
           onThumbsUp={onThumbsUp}
           onThumbsDown={onThumbsDown}
           onOpenEditor={onOpenEditor}
-          onWidgetSubmit={onWidgetSubmit}
         />
       ))}
     </div>
@@ -79,7 +77,7 @@ describe("ChatMessage memoization", () => {
         ]}
       />,
     );
-    // Settle any mount-time effects (eligibility hook) before counting.
+    // Settle any mount-time effects before counting.
     await screen.findByText("second");
     const firstCount = markdownRenders.filter((c) => c === "first").length;
     const secondCount = markdownRenders.filter((c) => c === "second").length;

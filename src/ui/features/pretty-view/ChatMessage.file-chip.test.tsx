@@ -31,13 +31,6 @@ vi.mock("./webAudioStreamPlayer", () => ({
   })),
 }));
 
-// The eligibility hook is orthogonal to file-chip rendering under the new
-// shape — file URLs render synchronously via the URL-shape guard. We stub
-// it to an empty map so nothing widget-shaped fires in these tests.
-vi.mock("./use-editable-file-eligibility", () => ({
-  useEditableFileEligibility: vi.fn(() => new Map()),
-}));
-
 beforeEach(() => {
   vi.clearAllMocks();
 });

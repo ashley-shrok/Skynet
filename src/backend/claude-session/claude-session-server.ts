@@ -546,7 +546,7 @@ export function reconstructRawSlashCommand(content: string): string | null {
 export function __applyOnLineNotifyForTests(deps: {
   frame: { type?: string; role?: string; content?: unknown; text?: unknown };
   sessionIdFromFile: string | null;
-  notifyMatched: (sessionId: string, content: string) => void;
+  notifyMatched: (sessionId: string) => void;
 }): void {
   const { frame, sessionIdFromFile, notifyMatched } = deps;
 
@@ -568,9 +568,7 @@ export function __applyOnLineNotifyForTests(deps: {
     return;
   }
 
-  // Passing content lets the watchdog classify the arrival (compose vs
-  // widget-envelope) and pop from the matching category FIFO.
-  notifyMatched(sessionIdFromFile, content);
+  notifyMatched(sessionIdFromFile);
 }
 
 // ─── Phase 51 Plan 01: backgrounded-agents correlator (extracted test seam) ──

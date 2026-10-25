@@ -14,12 +14,9 @@ import { authApi, handleApiError } from "@/main-axios";
  * SSRF-hardened proxy.
  *
  * D-04 (visible failure over silent maybe-stale): this helper is the ONLY
- * frontend fetch of tailnet content. Two callers exist:
- *   1. useEditableFileEligibility — uses bytes for `isTextByBytes` classification
- *      and DISCARDS them. Bytes fetched for eligibility MUST NEVER be served to
- *      the editor path.
- *   2. EditableFileModal (Plan 40-03) — fires a fresh call at open-time and
- *      surfaces any error explicitly (does NOT fall back to cached bytes).
+ * frontend fetch of tailnet content. Its caller is EditableFileModal
+ * (Plan 40-03), which fires a fresh call at open-time and surfaces any error
+ * explicitly (does NOT fall back to cached bytes).
  *
  * Endpoint contract from Plan 40-01 Task 2 step 9:
  *   POST /pretty-view/fetch-tailnet-url
@@ -75,7 +72,7 @@ export async function fetchTailnetUrl(
 
 /**
  * Phase 75 D-01 URL parser used by fetchHostFileUrl below. Kept
- * module-private (not exported) — the modal + eligibility hook do their
+ * module-private (not exported) — the modal does its
  * own dispatch-guard test on the URL shape via a fresh non-global regex,
  * not via re-parsing.
  *
@@ -115,21 +112,17 @@ function decodeFileUrlPath(raw: string): string {
  *
  * Phase 75 D-01, D-04: fetches a Skynet file URL via the backend's
  * SFTP-hardened proxy (shipped in Plan 75-01). Same response envelope shape
- * as `fetchTailnetUrl` (TailnetFetchResult) — the modal and eligibility
- * hook consume both helpers without discrimination.
+ * as `fetchTailnetUrl` (TailnetFetchResult) — the modal consumes both
+ * helpers without discrimination.
  *
  * URL parsing happens client-side (`FILE_URL_PARSE_RE`) to extract
  * `{hostname, absolutePath}`. The leading slash is re-added to the
  * absolute path per D-01's re-add-leading-slash rule (backend strips
  * `/file/<hostname>/`, we re-add the `/` when POSTing).
  *
- * Consumers:
- *   1. useEditableFileEligibility — byte-sniff, DISCARDS bytes (per D-04's
- *      "bytes fetched for eligibility MUST NEVER be served to the editor
- *      path" invariant).
- *   2. EditableFileModal — fresh fetch on open, surfaces error as
- *      human-readable in-body copy per D-02 (Host unreachable, File not
- *      found, Permission denied on <host>, etc.).
+ * Consumer: EditableFileModal — fresh fetch on open, surfaces error as
+ * human-readable in-body copy per D-02 (Host unreachable, File not found,
+ * Permission denied on <host>, etc.).
  *
  * Error-class preservation (Rule 2 deviation from the plan's "mirror
  * fetchTailnetUrl exactly" instruction — documented in 75-02-SUMMARY):

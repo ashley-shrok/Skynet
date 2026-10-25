@@ -35,6 +35,10 @@ import { RecordingControls } from "./RecordingControls";
 import { HoldFeedbackPill, type HoldFeedback } from "./HoldFeedbackPill";
 import { MemoryGauge, memoryBand } from "./MemoryGauge";
 import { appendVoiceLabel } from "./voice-label";
+import { AskTray } from "./ask/AskTray";
+import { buildAnswerMessage, withWordsNotice, type QuestionAnswer } from "./ask/answer-format";
+import type { Ask } from "./ask/ask-format";
+import type { OpenAsk } from "./ask/open-ask";
 
 // Compose-and-send box for the pretty view.
 //
@@ -484,6 +488,13 @@ export interface ComposeBoxProps {
   // 56-02). Dormancy is now invisible to the user; ComposeBox has no
   // dormancy-awareness.
   className?: string;
+  // shape-interactive-responses: the agent's open question. Shown in the tray
+  // above the composer; a tray answer sends with the typed text as its note,
+  // and a typed send while it is open tells the agent it was answered in words.
+  openAsk?: OpenAsk | null;
+  // Target host name — the tray resolves picture / file options given as paths.
+  hostName?: string;
+  onOpenAskFile?: (url: string, filename: string) => void;
 }
 
 // ============================================================================
@@ -804,6 +815,9 @@ export function ComposeBox({
   reconnectingActive,
   voiceModeFeed,
   className,
+  openAsk = null,
+  hostName,
+  onOpenAskFile,
 }: ComposeBoxProps) {
   // Phase 05 — hidden file input driven by the paperclip button. When the
   // input's change event fires, we normalize the FileList to a plain array
@@ -1494,10 +1508,29 @@ export function ComposeBox({
   // of the current `text` state. All other handleSend logic (attachment
   // branching, newline normalization, Phase 50 D-18 optimistic-bubble
   // seeding) still applies.
+  // Set for exactly one handleSend call: the tray's answer, which must not be
+  // wrapped as a reply in words.
+  const answeringRef = useRef(false);
+  // The tray's answers: the typed text rides along as the note, then the
+  // message goes through the normal send path (attachments, queue, failure).
+  function handleAskAnswer(ask: Ask, answers: QuestionAnswer[]) {
+    const message = buildAnswerMessage(ask, answers, text, openAsk?.replaced ?? []);
+    console.info(`[ask] answer hostId=${hostId} tmuxSession=${tmuxSession ?? "null"} ask=${ask.id} questions=${ask.questions.length} noteLen=${text.trim().length}`);
+    answeringRef.current = true;
+    handleSend(message, "send-button");
+  }
+
   function handleSend(overridePayload?: string, trigger: "enter-key" | "send-button" | "queue-item" | "unknown" = "unknown") {
     // D-16-05: use override payload if provided (voice send path), otherwise
     // derive from current text state (normal typed-send path).
-    const trimmed = overridePayload !== undefined ? overridePayload.trim() : text.trim();
+    const typed = overridePayload !== undefined ? overridePayload.trim() : text.trim();
+    // A tray answer is already the reply; anything else sent while a question
+    // is open is a reply in words — say so to the agent (shape-interactive-responses).
+    const answering = answeringRef.current;
+    answeringRef.current = false;
+    const trimmed = openAsk && !answering && (typed || hasAttachments)
+      ? withWordsNotice(typed, openAsk.ask, openAsk.replaced).trim()
+      : typed;
 
     // Phase 05 — attachment path: Send routes to onSendWithAttachments
     // whenever at least one attachment is staged. Empty caption is
@@ -1841,8 +1874,9 @@ export function ComposeBox({
   // user's in-progress composition stays visible) but the persisted
   // draft resets to '' so a reload doesn't resurrect it. Failed
   // dispatch leaves both intact.
-  function handleQuickSend(quickText: string, options?: { bubbleTextOverride?: string }) {
+  function handleQuickSend(rawQuickText: string, options?: { bubbleTextOverride?: string }) {
     setErrorMessage(null);
+    const quickText = openAsk ? withWordsNotice(rawQuickText, openAsk.ask, openAsk.replaced) : rawQuickText;
     // Phase 68 Plan 02: route through the funnel so quick-replies carry an
     // mqid (D-03 invariant) and seed an optimistic bubble (D-01). The
     // bubbleTextOverride flows through so the thumbs-up wire site can pass
@@ -2156,6 +2190,16 @@ export function ComposeBox({
     );
 
   return (
+    <>
+    {openAsk && (
+      <AskTray
+        open={openAsk}
+        hostName={hostName}
+        onAnswer={handleAskAnswer}
+        onOpenFile={onOpenAskFile}
+        disabled={isHolding === true || recycleActive === true}
+      />
+    )}
     <div
       ref={composeRootRef}
       // Patch #181: `.pv-composebox` also identifies the compose root for the
@@ -2374,5 +2418,6 @@ export function ComposeBox({
       {/* Phase 16: displayError merges compose errors and voice errors. */}
       {displayError && <div className="pv-compose-error">{displayError}</div>}
     </div>
+    </>
   );
 }

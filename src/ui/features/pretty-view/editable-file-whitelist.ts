@@ -8,11 +8,6 @@
  *   (`src/backend/*` and `src/ui/*` are separate build roots); duplication
  *   is the established pattern (see `src/types/` and `src/ui/api/`).
  *
- *   INTENTIONAL FRONTEND-ONLY: `stripTrailingPunct` — the extract-side URL
- *   normalizer added in rev-3 2026-08-14 (code-review H2). Backend has no
- *   use for it (it validates URLs the client has already extracted); adding
- *   it there would be dead code. The regex + whitelist proper stay mirrored.
- *
  * Contract (D-02):
  *   Wholesale-accept files whose extension is in EDITABLE_EXTENSIONS, OR whose
  *   filename is in EDITABLE_BASENAMES. This is the FIRST-PASS check; extensionless
@@ -78,8 +73,8 @@ export function classifyByExtension(
  * Regex terminator `[^\s)]+` handles bare URLs AND markdown-link internals
  * like `[text](url)` — matching stops at the first whitespace or closing
  * paren, so a markdown link's closing `)` does not get folded into the URL.
- * Trailing prose punctuation (`.,;:!?`) is trimmed by `stripTrailingPunct`
- * (see below) rather than in the regex itself — see H2 fix note.
+ * Trailing prose punctuation (`.,;:!?`) is NOT trimmed by the regex
+ * itself; callers trim it post-extract.
  *
  * The /g flag is INTENTIONAL: consumers scan message bodies for MULTIPLE
  * matches per message (an agent may serve several files in one reply). When
@@ -114,9 +109,8 @@ export const TAILNET_URL_RE_CLIENT =
  *                  start, or fragment start (same terminator style as
  *                  TAILNET_URL_RE_CLIENT above)
  *
- * Trailing prose punctuation (`.,;:!?`) is trimmed downstream by
- * stripTrailingPunct (H2 fix) — the regex itself is intentionally greedy
- * on `.` so `notes.md` survives; the punctuation trim happens post-extract.
+ * The regex is intentionally greedy on `.` so `notes.md` survives;
+ * trailing prose punctuation is trimmed post-extract by callers.
  *
  * The /g flag is INTENTIONAL: consumers scan message bodies for MULTIPLE
  * matches per message. When using `.match()`, no state reset is needed
@@ -126,8 +120,7 @@ export const TAILNET_URL_RE_CLIENT =
  * `.test()` on this regex — it mutates `.lastIndex` and returns alternating
  * true/false. For dispatch decisions (which fetch helper to call), use a
  * fresh non-global regex or `url.startsWith(...)`-shape guards. See
- * `use-editable-file-eligibility.ts` and `EditableFileModal.tsx` for the
- * dispatch pattern.
+ * `EditableFileModal.tsx` for the dispatch pattern.
  *
  * MIRROR-RULE bookkeeping (Phase 40 D-02): the backend twin at
  * src/backend/utils/editable-file-whitelist.ts holds the whitelist DATA
@@ -173,8 +166,7 @@ export const SKYNET_FILE_URL_RE_CLIENT =
  * decisions, use a fresh non-global regex. See PATTERNS.md
  * §editable-file-whitelist.ts (L444) for the mirror-rule reference.
  *
- * D-29 RENDERING NOTE: serve URLs are NOT threaded through the edit-file
- * eligibility byte-sniff loop in `use-editable-file-eligibility.ts`. Per
+ * D-29 RENDERING NOTE: serve URLs get no edit-file affordance. Per
  * D-29 they render as PLAIN clickable links via ReactMarkdown's default
  * <a> handling (no pencil affordance, no preview card — those are the
  * deferred visual-affordance bounty per D-30).
@@ -190,61 +182,3 @@ export const SKYNET_FILE_URL_RE_CLIENT =
  */
 export const SKYNET_SERVE_URL_RE_CLIENT =
   /https:\/\/\d{1,10}-\d{1,5}\.serve\.[a-zA-Z0-9.-]+(?::\d{1,5})?(?:\/[^\s)?#]*)?/g;
-
-/**
- * Phase 137 D-137: interactive-message widget URL shape.
- * `https://<skynet-domain>[:port]/interactive/<hostId>/<slug>/pane[/<rest>]`
- * Example: https://term.example.com/interactive/3/poll-abc/pane/
- *
- * Grammar (locked in Phase 137 D-137):
- *   - scheme:      https:// only (agents on Skynet always run on the HTTPS
- *                  deployment; same restriction as SKYNET_FILE_URL_RE_CLIENT)
- *   - domain:      any DNS-legal hostname + optional :port
- *                  ([a-zA-Z0-9.-]+(?::\d{1,5})?)
- *   - literal:     /interactive/
- *   - hostId:      \d+ — positive integer, matches the host's numeric ID
- *   - literal:     /
- *   - slug:        [a-z0-9-]{1,64} — mirrors APP_SLUG_RE character class +
- *                  max length; lowercase alphanumeric + hyphens, 1-64 chars
- *   - literal:     /pane
- *   - optional rest: (?:\/[^\s)?#]*)? — stops at whitespace, closing paren,
- *                  query start, or fragment start (same terminator style as
- *                  SKYNET_FILE_URL_RE_CLIENT)
- *
- * The /g flag is INTENTIONAL: consumers scan message bodies for MULTIPLE
- * matches per message. When using `.match()`, no state reset is needed
- * (each call is stateless).
- *
- * ⚠️ Same /g gotcha as TAILNET_URL_RE_CLIENT (L89-91) and
- * SKYNET_FILE_URL_RE_CLIENT (L125-131): NEVER call `.test()` on this regex —
- * it mutates `.lastIndex` and returns alternating true/false. For dispatch
- * decisions, use a fresh non-global regex (`INTERACTIVE_MSG_DISPATCH_RE` in
- * `use-editable-file-eligibility.ts`). See comments there for the rationale.
- *
- * MIRROR-RULE bookkeeping (Phase 137 D-137): this regex is CLIENT-ONLY.
- * The backend uses the anchored path regex `IM_PANE_UPGRADE_PATH_RE` in
- * `src/backend/apps/im-pane-router.ts` for validation at the proxy boundary.
- * Backend twin `src/backend/utils/editable-file-whitelist.ts` does NOT
- * re-export this regex — same posture as TAILNET_URL_RE_CLIENT and
- * SKYNET_FILE_URL_RE_CLIENT being client-only. The backend twin's docblock
- * carries a Phase 137 mirror-rule note to preserve the paper trail.
- */
-export const INTERACTIVE_MSG_URL_RE_CLIENT =
-  /https:\/\/[a-zA-Z0-9.-]+(?::\d{1,5})?\/interactive\/\d+\/[a-z0-9-]{1,64}\/pane(?:\/[^\s)?#]*)?/g;
-
-/**
- * Strip trailing prose punctuation from an extracted URL (rev-3 2026-08-14
- * code-review H2). GFM autolink literals trim `.,;:!?` from the end of a URL
- * when rendering an `<a>` (so `see http://100.64.0.1:8000/notes.md.` renders
- * as an anchor with `href="http://100.64.0.1:8000/notes.md"` and a literal
- * `.` outside the anchor). Our extraction regex greedily consumed the
- * trailing punctuation, so the eligibility Set held `notes.md.` while
- * ChatMessage's `<a>` override was checking for `notes.md` — every prose-end
- * URL silently lost its edit affordance. This normalizer aligns both sides.
- *
- * Applied at extraction time BEFORE inserting the URL into the eligibility
- * Set, so all downstream comparisons see the trimmed form.
- */
-export function stripTrailingPunct(url: string): string {
-  return url.replace(/[.,;:!?]+$/, "");
-}

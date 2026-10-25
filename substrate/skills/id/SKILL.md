@@ -279,8 +279,7 @@ External events are automatically fed to you by the agent-supervisor service for
 **What these events look like when they reach you.** Each one except file
 changes (item 4, delivered as hook context) arrives as pasted input: a `<pasted_content id="…">` block wrapping a
 `<task-notification>` whose `<summary>` names the source — e.g. `Ambient
-watcher event (<name>) — delivered by agent-supervisor`, or `Widget submit —
-delivered by the app`.
+watcher event (<name>) — delivered by agent-supervisor`.
 
 ---
 
@@ -1692,25 +1691,53 @@ crown, then gear.
   user-gated as usual) — it appears in this menu.
   *Agent-side: none* — it arrives as an ordinary slash command.
 
-### Interactive messages (widgets in chat bubbles)
+### Interactive responses (the question tray)
 
-Agents can embed a widget inline in their message bubble instead of (or
-alongside) plain text — polls, forms, ranked lists, and so on. The user
-interacts with it directly in the bubble.
+When an agent asks a real question with a likely set of answers, it can
+put the question in a **tray attached to the top of the composer** instead
+of leaving the user to type. The tray works the same on desktop and phone,
+and holds:
 
-Reach for a widget only when the interaction is genuinely easier or
-better than typing — picking one of a few options, ordering a list,
-picking a color. If a plain text reply would be easier for the user,
-the widget is wrong.
+- the question;
+- its choices: tap one, tick several, put in order with arrows, give each
+  item a label (keep / drop / later…), or fill in text, a number, an
+  amount, a slider, a date, a dropdown pick, or a split that must add up;
+- choices that can be colours, pictures or files, laid out as a list, a
+  grid of tiles, or a week of time slots;
+- **Send** where more than one tap is needed.
 
-- **Interaction modes.**
-  - **Terminal-on-click** — the click IS the submit (poll, color-picker).
-  - **Terminal-on-submit** — user assembles then hits a submit button.
-  - **Non-terminal** — state persists on every interaction; the user's
-    own text reply is what wakes the agent.
+A single pick-one question sends on the tap.
+
+**Several questions at once.** An ask can hold up to four questions. They
+show as tabs, each ticking when answered, with one Send at the end that waits
+until all are answered. Each tab has a **Something else…** link that opens a
+one-line field for an answer of the user's own.
+
+**Answering.** Anything typed in the composer when the user answers goes
+along as a note. The answer is an ordinary message from the user, drawn as an
+**answer bubble**: the question quoted small on top, the choices as chips, the
+note beneath.
+
+**Where else the question shows.** In the agent's bubble the question is
+just a quiet "Asked you: …" line, never buttons. A question the app can't
+read shows there as plain text, and no tray appears.
+
+**Collapsing.** The tray's **chevron** collapses it to a one-line "Question
+waiting: …" strip; tapping the strip opens it again. A new question always
+arrives open.
+
+**How long a question stays up.** The tray stays up until the user answers
+or sends any message. Typing a reply instead always works, and the agent is
+told the user answered in words. The agent's own later replies, wake-ups and
+other agents' messages leave it up. A newer question from the agent replaces
+it.
+
+**Other ways in.** Answering on one device clears the tray everywhere. Voice
+mode reads the question aloud with the reply; what the user says goes out as
+a reply in words. Agent conversations only — relay rooms have no tray.
 
 *Agent-side: the `interactive-messages` skill is the source of truth on
-scaffolding, teardown, templates, and behavior.*
+the ask format, the kinds of question, and the answer you get back.*
 
 ---
 

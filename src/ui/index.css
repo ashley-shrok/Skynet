@@ -408,17 +408,6 @@ html.fs-xl {
   }
 }
 
-/* Phase 143: hide native scrollbar on the WidgetBubble outer wrapper so we
- * can paint a DOM-based fake thumb that stays visible regardless of the
- * browser's overlay-scrollbar auto-hide behavior. The wrapper still scrolls
- * (wheel, touch, keyboard) — only the native indicator is hidden. */
-@utility widget-scroll-wrapper {
-  scrollbar-width: none;
-  &::-webkit-scrollbar {
-    display: none;
-  }
-}
-
 @keyframes blink {
   0%,
   100% {

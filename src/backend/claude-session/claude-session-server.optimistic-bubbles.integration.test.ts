@@ -192,14 +192,13 @@ function simulateOnLine(
     eventId: parsed.eventId,
     ts: parsed.ts,
   });
-  // Notify watchdog — production computes contentHash from frame.content
-  // (which equals parsed.content); we use the same helper here.
+  // Notify watchdog — FIFO head-pop by sessionId, same as production.
   if (
     parsed.role === "user" &&
     typeof parsed.content === "string" &&
     parsed.content.length > 0
   ) {
-    notifyMatched(sessionId, computeContentHash(parsed.content));
+    notifyMatched(sessionId);
   }
   return { emitted: true, suppressed: false };
 }

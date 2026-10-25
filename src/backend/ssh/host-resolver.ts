@@ -376,8 +376,8 @@ export async function resolveHostById(
 }
 
 /**
- * Resolve a host id taken from a shareable URL (app pane, widget pane, serve
- * subdomain) to the *viewer's* row for the same physical machine.
+ * Resolve a host id taken from a shareable URL (app pane, serve subdomain)
+ * to the *viewer's* row for the same physical machine.
  *
  * `ref` may be any row id or a machine_id (see machine-id-migration.ts). It is
  * mapped to its machine group, and the caller's own row in that group wins

@@ -13,13 +13,6 @@
  *      systemd has re-read the updated unit before the catalog loop fires the
  *      restart hook.
  *
- *   1b. interactive-messages-gc.timer enable (Phase 140):
- *       Idempotently enable + start the seven-day widget backstop timer on
- *       every managed host. Same is-enabled-first pattern as agent-supervisor
- *       above: one cheap probe per sweep; only fresh hosts pay the one-time
- *       enable-and-start cost. daemon-reload has already fired above, so
- *       systemd has the fresh unit bytes before we probe.
- *
  *   2. settings.json patch:
  *      Ensure ~/.claude/settings.json has every fleet-required key set:
  *        - permissions.deny includes "AskUserQuestion" (pretty-view hangs
@@ -75,7 +68,9 @@
  *      hook file at ~/.claude/hooks/gsd-context-monitor.js if present. The
  *      hook is redundant with the ambient context-watch.py Monitor and gave
  *      false pressure warnings (the harness context meter overstates actual
- *      usage). Idempotent — no-op after first sweep on each host.
+ *      usage). Idempotent — no-op after first sweep on each host. The same
+ *      step also sweeps retired substrate (RETIRED_SUBSTRATE_FILES / _DIRS /
+ *      _TREES and RETIRED_USER_UNITS — see the constants below).
  *
  *   4. host-parent write (Phase 75 D-03):
  *      Write ~/fleet/host/parent with the parent-fleet HTTPS URL
@@ -226,14 +221,6 @@ export interface BootstrapResult {
    *  after a failed earlier attempt imply hadError; the local path always
    *  reports null (step not applicable there) without an error. */
   desktopDeps: DesktopDepsStatus | null;
-  /** Whether interactive-messages-gc.timer was already enabled before Step 1b.
-   *  True = cheap probe only; false = enable-and-start ran (or was skipped due
-   *  to an earlier Step 1 channel failure that prevented daemon-reload). */
-  gcTimerAlreadyEnabled: boolean;
-  /** Whether Step 1b ran the enable-now command successfully. Mutually
-   *  exclusive with gcTimerAlreadyEnabled. False on both already-enabled AND
-   *  error paths. */
-  gcTimerBootstrapped: boolean;
   /** Whether scheduled-agents-scheduler.service was already enabled before
    *  Step 1c. True = cheap probe only; false = enable-and-start ran (or was
    *  skipped due to an earlier channel failure). */
@@ -443,6 +430,9 @@ export const GSD_MONITOR_STRIP_JQ =
  *
  *   - .claude/skills/role/SKILL.md — /role skill, retired 2026-10-09 with
  *     the role-history retirement.
+ *   - interactive-messages widget system, retired 2026-10-25: the skill's
+ *     widget helpers, the GC script + its timer/service units, and the
+ *     create-widget port lock. The skill's SKILL.md stays (still shipped).
  *
  * NOT retired yet: .local/bin/role-file-watch (renamed to file-watch). A
  * watcher started before the rename re-execs itself from that path on every
@@ -454,8 +444,45 @@ export const RETIRED_SUBSTRATE_FILES = [
   // convo-scoped apps: the app unit template moved to templates/units/. Left
   // in place it would be copied into every new app folder with the starter.
   ".claude/skills/app-development/templates/app-starter/app-SLUG.service.template",
+  ".claude/skills/interactive-messages/create-widget.sh",
+  ".claude/skills/interactive-messages/teardown-widget.sh",
+  ".claude/skills/interactive-messages/iterate-widget.sh",
+  ".local/bin/interactive-messages-gc",
+  "fleet/.create-widget-lock",
 ] as const;
 export const RETIRED_SUBSTRATE_DIRS = [".claude/skills/role"] as const;
+
+/**
+ * Retired folders removed WHOLE (rm -rf), unlike RETIRED_SUBSTRATE_DIRS.
+ * Only for trees the retired feature owned outright: nothing an agent
+ * hand-wrote lives there.
+ *
+ *   - interactive-messages widget templates/ + tests/ (catalog-installed)
+ *     and ~/fleet/interactive-messages/ (one folder per scaffolded widget),
+ *     retired 2026-10-25.
+ */
+export const RETIRED_SUBSTRATE_TREES = [
+  ".claude/skills/interactive-messages/templates",
+  ".claude/skills/interactive-messages/tests",
+  "fleet/interactive-messages",
+] as const;
+
+/**
+ * Retired systemd --user units under ~/.config/systemd/user/. Each one
+ * present is disabled + stopped and its unit file removed; the next sweep's
+ * Step 1 daemon-reload drops them from systemd. Absent units cost nothing.
+ * RETIRED_USER_UNIT_PREFIX matches the per-widget `im-<slug>.service` units
+ * create-widget.sh wrote (shell glob `im-*.service`) — but only a unit whose
+ * file contains RETIRED_USER_UNIT_MARKER (create-widget.sh rendered the
+ * widget folder under ~/fleet/interactive-messages/ into WorkingDirectory
+ * and ExecStart), so an unrelated im-*.service is left alone.
+ */
+export const RETIRED_USER_UNITS = [
+  "interactive-messages-gc.timer",
+  "interactive-messages-gc.service",
+] as const;
+export const RETIRED_USER_UNIT_PREFIX = "im-";
+export const RETIRED_USER_UNIT_MARKER = "fleet/interactive-messages";
 
 /**
  * Step 6 — usage-reporter retirement. Paths (relative to $HOME) removed once
@@ -500,8 +527,6 @@ export async function runBootstrapForHost(
   let hostParentOk = false;
   let hostNameOk = false;
   let hostIdOk = false;
-  let gcTimerAlreadyEnabled = false;
-  let gcTimerBootstrapped = false;
   let scheduledAgentsSchedulerAlreadyEnabled = false;
   let scheduledAgentsSchedulerBootstrapped = false;
   let sensorRunnerAlreadyEnabled = false;
@@ -625,91 +650,10 @@ export async function runBootstrapForHost(
   }
 
   // -------------------------------------------------------------------------
-  // Step 1b (Phase 140): Idempotently enable + start the
-  // interactive-messages-gc.timer on every managed host. This is the
-  // seven-day backstop timer that tears down widgets older than 7 days.
-  // Same is-enabled-first pattern as agent-supervisor above: one cheap probe
-  // per sweep; only fresh hosts pay the one-time enable-and-start cost.
-  // daemon-reload has already fired above, so systemd has the fresh unit bytes
-  // before we probe.
-  //
-  // Runs inside its own try/catch (NEVER-THROW contract). Skipped silently
-  // if the Step 1 block encountered a channel error (daemonReloadRan===false
-  // implies the channel may be in a bad state), but that skip doesn't set
-  // hadError — a channel-level failure was already recorded in Step 1.
-  // -------------------------------------------------------------------------
-  try {
-    const isEnabledCmdGc =
-      `XDG_RUNTIME_DIR=/run/user/$(id -u) systemctl --user is-enabled interactive-messages-gc.timer 2>/dev/null; echo "EXIT:$?"`;
-    const gcCheckRaw = await channel.exec(isEnabledCmdGc);
-
-    if (gcCheckRaw === null) {
-      logBootstrapFailed(host, "gc-timer-is-enabled-check", "channel returned null");
-      hadError = true;
-    } else {
-      const gcTrimmed = gcCheckRaw.trimEnd();
-      const gcMatch = /EXIT:(\d+)$/.exec(gcTrimmed);
-      const gcExitCode = gcMatch ? parseInt(gcMatch[1], 10) : -1;
-
-      if (gcExitCode === 0) {
-        // Already enabled — nothing to do.
-        gcTimerAlreadyEnabled = true;
-        systemLogger.info(
-          `Fleet-substrate bootstrap: interactive-messages-gc.timer already enabled on ${host.name}`,
-          {
-            operation: "fleet_substrate_bootstrap_result",
-            fleetHostId: host.id,
-            hostName: host.name,
-            step: "gc-timer-is-enabled-check",
-            gcTimerAlreadyEnabled: true,
-          },
-        );
-      } else {
-        // Not enabled — enable + start now. daemon-reload has already fired
-        // above (agent-supervisor block), so systemd has the fresh unit bytes.
-        const enableGcCmd =
-          `XDG_RUNTIME_DIR=/run/user/$(id -u) systemctl --user enable --now interactive-messages-gc.timer && echo "__GC_TIMER_OK__"`;
-        const enableGcRaw = await channel.exec(enableGcCmd);
-
-        if (enableGcRaw === null) {
-          logBootstrapFailed(host, "gc-timer-enable", "channel returned null");
-          hadError = true;
-        } else if (!enableGcRaw.trimEnd().endsWith("__GC_TIMER_OK__")) {
-          logBootstrapFailed(
-            host,
-            "gc-timer-enable",
-            enableGcRaw.trimEnd().slice(0, 500) || "gc-timer enable failed",
-          );
-          hadError = true;
-        } else {
-          gcTimerBootstrapped = true;
-          systemLogger.info(
-            `Fleet-substrate bootstrap: interactive-messages-gc.timer enabled+started on ${host.name}`,
-            {
-              operation: "fleet_substrate_bootstrap_result",
-              fleetHostId: host.id,
-              hostName: host.name,
-              step: "gc-timer-enable",
-              gcTimerBootstrapped: true,
-            },
-          );
-        }
-      }
-    }
-  } catch (err) {
-    hadError = true;
-    logBootstrapFailed(
-      host,
-      "gc-timer-is-enabled-check",
-      err instanceof Error ? err.message : "unknown throw",
-    );
-  }
-
-  // -------------------------------------------------------------------------
   // Step 1c: Idempotently enable + start the scheduled-agents-scheduler.service
   // on every managed host. This is the systemd user unit that owns the
   // box-level scheduled-agents scheduler (wakeup-scheduler --mode
-  // scheduled-agents). Same is-enabled-first pattern as Step 1 / 1b:
+  // scheduled-agents). Same is-enabled-first pattern as Step 1:
   // one cheap probe per sweep; only fresh hosts pay the one-time enable-and-
   // start cost. daemon-reload has already fired above (Step 1), so systemd
   // has the fresh unit bytes before we probe.
@@ -720,7 +664,7 @@ export async function runBootstrapForHost(
   // "Unit ... does not exist", hadError=true will be set, and the sweep's
   // fire-and-forget contract means the whole run continues. On the NEXT
   // sweep tick, the file is on disk, daemon-reload picks it up, this step
-  // runs cleanly. Identical convergence shape as Step 1b (gc-timer).
+  // runs cleanly.
   //
   // Runs inside its own try/catch (NEVER-THROW contract).
   // -------------------------------------------------------------------------
@@ -1032,8 +976,13 @@ export async function runBootstrapForHost(
   //         (a) Strip any settings.json .hooks.PostToolUse[] entry whose
   //             command references gsd-context-monitor.js.
   //         (b) rm -f the hook file at ~/.claude/hooks/gsd-context-monitor.js.
-  //         (c) rm -f every RETIRED_SUBSTRATE_FILES path and rmdir (only if
-  //             empty) every RETIRED_SUBSTRATE_DIRS folder.
+  //         (c) disable --now + remove every present RETIRED_USER_UNITS /
+  //             im-*.service unit file. No daemon-reload here: disable
+  //             already reloads, and Step 1's unconditional reload on the
+  //             next sweep drops the now-fileless units from systemd.
+  //         (d) rm -f every RETIRED_SUBSTRATE_FILES path, rm -rf every
+  //             RETIRED_SUBSTRATE_TREES folder, and rmdir (only if empty)
+  //             every RETIRED_SUBSTRATE_DIRS folder.
   //         Idempotent: no-op after first sweep on each host.
   // -------------------------------------------------------------------------
   try {
@@ -1057,7 +1006,15 @@ export async function runBootstrapForHost(
       `  jq '${GSD_MONITOR_STRIP_JQ}' "$S_FILE" > "$S_FILE.new" && mv "$S_FILE.new" "$S_FILE"`,
       `fi`,
       `rm -f "$HOME/.claude/hooks/gsd-context-monitor.js"`,
+      `U_DIR="$HOME/.config/systemd/user"`,
+      `for f in ${RETIRED_USER_UNITS.map((u) => `"$U_DIR/${u}"`).join(" ")} "$U_DIR"/${RETIRED_USER_UNIT_PREFIX}*.service; do`,
+      `  [ -e "$f" ] || [ -L "$f" ] || continue`,
+      `  case "\${f##*/}" in ${RETIRED_USER_UNIT_PREFIX}*) grep -qs '${RETIRED_USER_UNIT_MARKER}' "$f" || continue ;; esac`,
+      `  XDG_RUNTIME_DIR=/run/user/$(id -u) systemctl --user disable --now "\${f##*/}" >/dev/null 2>&1`,
+      `  rm -f "$f"`,
+      `done`,
       ...RETIRED_SUBSTRATE_FILES.map((rel) => `rm -f "$HOME/${rel}"`),
+      ...RETIRED_SUBSTRATE_TREES.map((rel) => `rm -rf "$HOME/${rel}"`),
       ...RETIRED_SUBSTRATE_DIRS.map((rel) => `rmdir "$HOME/${rel}" 2>/dev/null || true`),
       `echo "__CLEANUP_OK__"`,
     ].join("\n");
@@ -1506,8 +1463,6 @@ export async function runBootstrapForHost(
     rolesKeyMigrationOk,
     roleSkillsMigrationOk,
     desktopDeps,
-    gcTimerAlreadyEnabled,
-    gcTimerBootstrapped,
     scheduledAgentsSchedulerAlreadyEnabled,
     scheduledAgentsSchedulerBootstrapped,
     sensorRunnerAlreadyEnabled,

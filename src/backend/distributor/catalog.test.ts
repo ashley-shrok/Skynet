@@ -36,7 +36,7 @@ function bundledPathToRepoPath(bundledPath: string): string {
 }
 
 describe("FLEET_SUBSTRATE_CATALOG", () => {
-  it("Test 1: contains exactly 132 entries (17 conceptual items + agent-supervisor.service unit + file-watch fourth ambient monitor + fleet-status-sweep Phase 92 + pv-context-pct-sweep Phase 95 + ambient-monitor mega-monitor phase + instance-policy-claude-md Phase 114 twinkie + image-gen-skill + image-gen-helper Phase 116 + 24 app-development shape-1 rows (26 originally; favicon.svg row retired 2026-09-28 when the scaffold switched to a static/icon.webp symlink; restore-app.sh row retired 2026-09-30 by the un-archiving campaign, host-side shape) + task-field-check hook + 3 rows for interactive-messages-gc (Phase 140: .py script + .service unit + .timer unit) + 69 rows for interactive-messages skill payload (SKILL.md + create-widget.sh + teardown-widget.sh + iterate-widget.sh + 65 template files across 13 folders, backfilled 2026-09-28 + draft template + iterate-widget added 2026-09-30) + inbox-watcher (fifth ambient-monitor child, shape-agent-supervisor-inbox 2026-10-02) + 4 agent-desktop rows (desktop skill + agent-desktop + desktop-mcp + agent-desktop@.service) + fleet-service agent-services client + pending-context-drain hook)", () => {
+  it("Test 1: contains exactly 76 entries (17 conceptual items + agent-supervisor.service unit + file-watch fourth ambient monitor + fleet-status-sweep Phase 92 + pv-context-pct-sweep Phase 95 + ambient-monitor mega-monitor phase + instance-policy-claude-md Phase 114 twinkie + image-gen-skill + image-gen-helper Phase 116 + 24 app-development shape-1 rows (26 originally; favicon.svg row retired 2026-09-28 when the scaffold switched to a static/icon.webp symlink; restore-app.sh row retired 2026-09-30 by the un-archiving campaign, host-side shape) + task-field-check hook + interactive-messages SKILL.md (widget companions + GC trio retired 2026-10-25) + inbox-watcher (fifth ambient-monitor child, shape-agent-supervisor-inbox 2026-10-02) + 4 agent-desktop rows (desktop skill + agent-desktop + desktop-mcp + agent-desktop@.service) + fleet-service agent-services client + pending-context-drain hook)", () => {
     // 17 = 6 single-file skills + agent-relay (SKILL.md + recv.sh counted as
     // one item) + id (SKILL.md + 3 companions counted as one item) + 8 helper
     // scripts + 1 mega-monitor launcher (ambient-monitor) + 1 Phase 114 twinkie
@@ -127,7 +127,11 @@ describe("FLEET_SUBSTRATE_CATALOG", () => {
     // +1 for app-development make-icon.sh (house-style app icons) — 140 → 141.
     // +6 for convo-scoped apps: app-units.sh + promote-app.sh, and the one app
     // unit template replaced by five under templates/units/ — 141 → 147.
-    expect(FLEET_SUBSTRATE_CATALOG.length).toBe(147);
+    // -71 for the interactive-messages widget system, retired 2026-10-25:
+    // the GC trio (script + .service + .timer) and 68 skill companions
+    // (create/teardown/iterate-widget.sh + 65 template files); SKILL.md
+    // stays — 147 → 76.
+    expect(FLEET_SUBSTRATE_CATALOG.length).toBe(76);
   });
 
   it("Test 2: every bundled row's bundledPath starts with /app/fleet-substrate/skills/, /app/fleet-substrate/scripts/, or /app/fleet-substrate/user-onboarding/", () => {
@@ -191,8 +195,6 @@ describe("FLEET_SUBSTRATE_CATALOG", () => {
     //     bounce scheduled-agents-scheduler.service (box-level scheduler;
     //     per-identity wakeup-scheduler instances stay harness-bound and
     //     accept staleness).
-    //   interactive-messages-gc-timer-unit → self-bounce so an already-
-    //     started timer picks up new OnCalendar / Persistent semantics.
     //   sensor-runner + sensor-runner-service-unit → both bounce
     //     sensor-runner.service (box-level sensor runner).
     //   relay-mcp + relay-mcp-service-unit → both bounce relay-mcp.service
@@ -205,7 +207,6 @@ describe("FLEET_SUBSTRATE_CATALOG", () => {
       "wakeup-scheduler": "scheduled-agents-scheduler.service",
       "scheduled-agents-scheduler-service-unit":
         "scheduled-agents-scheduler.service",
-      "interactive-messages-gc-timer-unit": "interactive-messages-gc.timer",
       "sensor-runner": "sensor-runner.service",
       "sensor-runner-service-unit": "sensor-runner.service",
       "relay-mcp": "relay-mcp.service",
@@ -271,7 +272,9 @@ describe("FLEET_SUBSTRATE_CATALOG", () => {
     // +1 for the sensor-development skill (SKILL.md) — 106 → 107.
     // +1 for app-development make-icon.sh — 107 → 108.
     // +6 for convo-scoped apps (app-units.sh, promote-app.sh, 1 → 5 unit templates) — 108 → 114.
-    expect(skillRows.length).toBe(114);
+    // -68 for the interactive-messages widget companions, retired
+    // 2026-10-25 (SKILL.md stays) — 114 → 46.
+    expect(skillRows.length).toBe(46);
     // 18 helper scripts: agent-supervisor + wakeup-scheduler + context-watch +
     // file-watch (4th ambient monitor) + fleet-status-sweep (Phase 92
     // batch sweep) + (usage-reporter / usage-report / claude-usage-collector
@@ -285,7 +288,6 @@ describe("FLEET_SUBSTRATE_CATALOG", () => {
     // residual permission prompts that --dangerously-skip-permissions doesn't) +
     // self-edit-baseline-sync (PostToolUse hook for file-watch self-edit
     // suppression, 2026-09-27) +
-    // interactive-messages-gc (Phase 140: seven-day widget backstop sweep script) +
     // inbox-watcher (shape-agent-supervisor-inbox 2026-10-02, fifth
     // ambient-monitor child; watches each identity's inbox folder for
     // dropped message files, surfaces paths up to ambient-monitor via the
@@ -300,9 +302,9 @@ describe("FLEET_SUBSTRATE_CATALOG", () => {
     // sensor-fire + sensor-runner (sensors: fire command + box-level runner)
     // + relay-mcp (host-wide relay MCP server)
     // + id-load-context (UserPromptSubmit hook — `/id` load context)
-    expect(scriptRows.length).toBe(24);
-    // 4 user-onboarding files: agent-supervisor.service +
-    // interactive-messages-gc.service + interactive-messages-gc.timer (Phase 140)
+    // (interactive-messages-gc retired 2026-10-25 — 24 → 23)
+    expect(scriptRows.length).toBe(23);
+    // user-onboarding files: agent-supervisor.service
     // + scheduled-agents-scheduler.service (this ship: move
     // scheduled-agents scheduler from in-process agent-supervisor child
     // to a systemd user unit so byte-changes actually take effect)
@@ -310,7 +312,8 @@ describe("FLEET_SUBSTRATE_CATALOG", () => {
     // + sensor-runner.service (box-level sensor runner)
     // + relay-mcp.service (box-level relay MCP server)
     // + desktop-mcp.service (box-level desktop MCP server).
-    expect(userOnboardingRows.length).toBe(8);
+    // (interactive-messages-gc .service + .timer retired 2026-10-25 — 8 → 6)
+    expect(userOnboardingRows.length).toBe(6);
 
     // id has 4 entries (SKILL.md + 3 companions)
     const idRows = skillRows.filter((e) =>
@@ -395,83 +398,20 @@ describe("FLEET_SUBSTRATE_CATALOG", () => {
     },
   );
 
-  it("Test 9: interactive-messages-gc trio (Phase 140) is present in catalog", () => {
-    const slugs = FLEET_SUBSTRATE_CATALOG.map((e) => e.slug);
-    expect(slugs).toContain("interactive-messages-gc");
-    expect(slugs).toContain("interactive-messages-gc-service-unit");
-    expect(slugs).toContain("interactive-messages-gc-timer-unit");
-
-    const script = FLEET_SUBSTRATE_CATALOG.find((e) => e.slug === "interactive-messages-gc");
-    expect(script?.bundledPath).toBe("/app/fleet-substrate/scripts/interactive-messages-gc.py");
-    expect(script?.installPath).toBe("~/.local/bin/interactive-messages-gc");
-    expect(script?.restartHook).toBeNull();
-
-    const svc = FLEET_SUBSTRATE_CATALOG.find((e) => e.slug === "interactive-messages-gc-service-unit");
-    expect(svc?.bundledPath).toBe("/app/fleet-substrate/user-onboarding/interactive-messages-gc.service");
-    expect(svc?.installPath).toBe("~/.config/systemd/user/interactive-messages-gc.service");
-    expect(svc?.restartHook).toBeNull();
-
-    const timer = FLEET_SUBSTRATE_CATALOG.find((e) => e.slug === "interactive-messages-gc-timer-unit");
-    expect(timer?.bundledPath).toBe("/app/fleet-substrate/user-onboarding/interactive-messages-gc.timer");
-    expect(timer?.installPath).toBe("~/.config/systemd/user/interactive-messages-gc.timer");
-    // Restart hook targets self so schedule changes on an already-started
-    // timer actually take effect — daemon-reload alone doesn't apply new
-    // OnCalendar / Persistent to a running instance.
-    expect(timer?.restartHook).toBe("interactive-messages-gc.timer");
+  it("Test 9: interactive-messages widget system (retired 2026-10-25) ships only SKILL.md", () => {
+    const imRows = FLEET_SUBSTRATE_CATALOG.filter(
+      (e) =>
+        e.slug.startsWith("interactive-messages") ||
+        e.slug.startsWith("im-tpl-") ||
+        e.installPath.includes("interactive-messages"),
+    );
+    expect(imRows.map((e) => e.slug)).toEqual(["interactive-messages-skill"]);
+    expect(imRows[0]?.installPath).toBe(
+      "~/.claude/skills/interactive-messages/SKILL.md",
+    );
   });
 
-  it("Test 10: draft-terminal-on-submit template (2026-09-30) + iterate-widget.sh are present in catalog", () => {
-    // Regression guard for the 2026-09-30 draft-template ship. The commit
-    // that added `substrate/skills/interactive-messages/templates/draft-
-    // terminal-on-submit/` (5 files) + `iterate-widget.sh` initially forgot
-    // to register these in the distributor catalog, so the sweep pushed the
-    // updated SKILL.md (which documents draft as the 7th template) but
-    // never pushed the template folder or the helper — every fleet box
-    // had a broken create-widget.sh --template draft.
-    const slugs = FLEET_SUBSTRATE_CATALOG.map((e) => e.slug);
-
-    // iterate-widget.sh alongside create-widget / teardown-widget.
-    expect(slugs).toContain("interactive-messages-iterate-widget");
-    const iterate = FLEET_SUBSTRATE_CATALOG.find(
-      (e) => e.slug === "interactive-messages-iterate-widget",
-    );
-    expect(iterate?.bundledPath).toBe(
-      "/app/fleet-substrate/skills/interactive-messages/iterate-widget.sh",
-    );
-    expect(iterate?.installPath).toBe(
-      "~/.claude/skills/interactive-messages/iterate-widget.sh",
-    );
-    expect(iterate?.restartHook).toBeNull();
-
-    // All 5 files of the draft-terminal-on-submit template.
-    const draftFiles = [
-      "args",
-      "service",
-      "metadata",
-      "server",
-      "widget",
-    ];
-    for (const f of draftFiles) {
-      const slug = `im-tpl-draft-terminal-on-submit-${f}`;
-      expect(slugs, `missing catalog entry: ${slug}`).toContain(slug);
-      const entry = FLEET_SUBSTRATE_CATALOG.find((e) => e.slug === slug);
-      expect(
-        entry?.bundledPath.startsWith(
-          "/app/fleet-substrate/skills/interactive-messages/templates/draft-terminal-on-submit/",
-        ),
-        `bad bundledPath for ${slug}`,
-      ).toBe(true);
-      expect(
-        entry?.installPath.startsWith(
-          "~/.claude/skills/interactive-messages/templates/draft-terminal-on-submit/",
-        ),
-        `bad installPath for ${slug}`,
-      ).toBe(true);
-      expect(entry?.restartHook).toBeNull();
-    }
-  });
-
-  it("Test T-07: sourceKind discriminant — bundled + runtime row split (Phase 114 D-22 + Phase 116 additions + task-field-check + allow-all-tools + agent-phone + pane-safe starter + 24 app-development rows + self-edit-baseline-sync + Phase 140 interactive-messages-gc trio)", () => {
+  it("Test T-07: sourceKind discriminant — bundled + runtime row split (Phase 114 D-22 + Phase 116 additions + task-field-check + allow-all-tools + agent-phone + pane-safe starter + 24 app-development rows + self-edit-baseline-sync)", () => {
     // Regression guard for Phase 114 D-12 + D-14: the catalog is a
     // discriminated union on sourceKind. Phase 116 added 2 bundled rows
     // (image-gen-skill + image-gen-helper); task-field-check adds one more
@@ -483,8 +423,6 @@ describe("FLEET_SUBSTRATE_CATALOG", () => {
     // 2026-09-30 by the un-archiving campaign, host-side shape);
     // self-edit-baseline-sync adds one bundled row (PostToolUse hook —
     // file-watch self-edit suppression).
-    // Phase 140 adds 3 bundled rows: interactive-messages-gc script +
-    // interactive-messages-gc.service + interactive-messages-gc.timer.
     // Runtime row (twinkie) unchanged at 1.
     const bundled = FLEET_SUBSTRATE_CATALOG.filter(
       (e) => e.sourceKind === "bundled",
@@ -521,7 +459,8 @@ describe("FLEET_SUBSTRATE_CATALOG", () => {
     // +1 for id-load-context — 138 → 139.
     // +1 for app-development make-icon.sh — 139 → 140.
     // +6 for convo-scoped apps (app-units.sh, promote-app.sh, 1 → 5 unit templates) — 140 → 146.
-    expect(bundled.length).toBe(146);
+    // -71 for the retired interactive-messages widget system — 146 → 75.
+    expect(bundled.length).toBe(75);
     expect(runtime.length).toBe(1);
 
     // Every bundled row retains bundledPath under /app/fleet-substrate/

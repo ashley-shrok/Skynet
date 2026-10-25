@@ -3,9 +3,8 @@
  *
  * Skynet keeps one ssh_data row per (user, box): two users who both have a
  * box each own a separate row with its own id. `machine_id` ties those rows
- * together so a URL carrying a host id (app pane, widget pane, serve
- * subdomain) can be resolved to whichever row the *viewer* owns for the same
- * physical machine.
+ * together so a URL carrying a host id (app pane, serve subdomain) can be
+ * resolved to whichever row the *viewer* owns for the same physical machine.
  *
  * Rules:
  *  - Same machine = same LOWER(TRIM(ip)) + same port. The SSH login user is

@@ -9,8 +9,7 @@
  *   duplication is the established pattern (see `src/types/` and `src/ui/api/`).
  *
  *   The frontend twin also exports `TAILNET_URL_RE_CLIENT` (message-scan
- *   duty) and `stripTrailingPunct` (URL normalizer for the eligibility hook).
- *   Backend has no use for either — it validates URLs the client has already
+ *   duty). Backend has no use for it — it validates URLs the client has already
  *   extracted, using its own anchored `TAILNET_URL_RE` inside the fetch route.
  *
  *   PHASE 75 D-01 MIRROR-RULE UPDATE (2026-09-06): the frontend twin has

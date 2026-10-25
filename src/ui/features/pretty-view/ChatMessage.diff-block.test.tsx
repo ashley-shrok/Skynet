@@ -19,10 +19,6 @@ vi.mock("./webAudioStreamPlayer", () => ({
     resume: vi.fn(),
   })),
 }));
-vi.mock("./use-editable-file-eligibility", () => ({
-  useEditableFileEligibility: vi.fn(() => new Map()),
-}));
-
 afterEach(cleanup);
 
 const fence = (lang: string, body: string) => "Here:\n\n```" + lang + "\n" + body + "\n```\n";

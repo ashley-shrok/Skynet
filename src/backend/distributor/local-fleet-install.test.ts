@@ -954,6 +954,59 @@ describe("BR2 — bootstrap patches settings.json + runs gsd-context-monitor cle
     await expect(fs.readFile(path.join(roleDir, "notes.md"), "utf-8")).resolves.toBe("keep me");
   });
 
+  it("retired substrate cleanup: interactive-messages widget system removed (units + .wants links, GC, companions, widget folders), SKILL.md kept", async () => {
+    process.env.SKYNET_PUBLIC_URL = "https://skynet.example.com";
+    const unitDir = path.join(tmpRoot, ".config/systemd/user");
+    const timersWants = path.join(unitDir, "timers.target.wants");
+    const defaultWants = path.join(unitDir, "default.target.wants");
+    const skillDir = path.join(tmpRoot, ".claude/skills/interactive-messages");
+    await fs.mkdir(timersWants, { recursive: true });
+    await fs.mkdir(defaultWants, { recursive: true });
+    for (const u of ["interactive-messages-gc.timer", "interactive-messages-gc.service"]) {
+      await fs.writeFile(path.join(unitDir, u), "[Unit]\n");
+    }
+    await fs.writeFile(
+      path.join(unitDir, "im-poll-region.service"),
+      `[Service]\nExecStart=/usr/bin/python3 ${tmpRoot}/fleet/interactive-messages/poll-region/server.py\n`,
+    );
+    // Unrelated unit that merely shares the im- prefix — must be left alone.
+    await fs.writeFile(path.join(unitDir, "im-foo.service"), "[Service]\nExecStart=/usr/bin/foo\n");
+    await fs.symlink(path.join(unitDir, "im-foo.service"), path.join(defaultWants, "im-foo.service"));
+    await fs.symlink(path.join(unitDir, "interactive-messages-gc.timer"), path.join(timersWants, "interactive-messages-gc.timer"));
+    await fs.symlink(path.join(unitDir, "im-poll-region.service"), path.join(defaultWants, "im-poll-region.service"));
+    await fs.writeFile(path.join(unitDir, "agent-supervisor.service"), "[Unit]\n");
+    await fs.symlink(path.join(unitDir, "agent-supervisor.service"), path.join(defaultWants, "agent-supervisor.service"));
+    await fs.mkdir(path.join(skillDir, "templates/poll-non-terminal"), { recursive: true });
+    await fs.writeFile(path.join(skillDir, "templates/poll-non-terminal/server.py"), "x");
+    for (const f of ["SKILL.md", "create-widget.sh", "teardown-widget.sh", "iterate-widget.sh"]) {
+      await fs.writeFile(path.join(skillDir, f), "x");
+    }
+    await fs.mkdir(path.join(tmpRoot, ".local/bin"), { recursive: true });
+    await fs.writeFile(path.join(tmpRoot, ".local/bin/interactive-messages-gc"), "x");
+    await fs.mkdir(path.join(tmpRoot, "fleet/interactive-messages/poll-region"), { recursive: true });
+
+    const { bootstrapFleetSubstrateLocally } = await importFresh();
+    const result = await bootstrapFleetSubstrateLocally(host);
+    expect(result.gsdContextMonitorCleanupOk).toBe(true);
+    expect(result.hadError).toBe(false);
+    expect((await fs.readdir(unitDir)).sort()).toEqual([
+      "agent-supervisor.service",
+      "default.target.wants",
+      "im-foo.service",
+      "timers.target.wants",
+    ]);
+    expect(await fs.readdir(timersWants)).toEqual([]);
+    expect((await fs.readdir(defaultWants)).sort()).toEqual(["agent-supervisor.service", "im-foo.service"]);
+    expect(await fs.readdir(skillDir)).toEqual(["SKILL.md"]);
+    await expect(fs.access(path.join(tmpRoot, ".local/bin/interactive-messages-gc"))).rejects.toThrow();
+    await expect(fs.access(path.join(tmpRoot, "fleet/interactive-messages"))).rejects.toThrow();
+
+    // Idempotent: a second run on the now-clean home is a clean no-op.
+    const again = await bootstrapFleetSubstrateLocally(host);
+    expect(again.gsdContextMonitorCleanupOk).toBe(true);
+    expect(again.hadError).toBe(false);
+  });
+
   it("gsd-context-monitor cleanup: matching hook present in settings + hook file present → strip settings entry AND unlink hook file", async () => {
     process.env.SKYNET_PUBLIC_URL = "https://skynet.example.com";
     const claudeDir = path.join(tmpRoot, ".claude");

@@ -18,7 +18,7 @@ Skynet is open source. Fork it, deploy it, use it however you want.
 - The Claude Code session transcript is tailed from the host and rendered as web chat, and it keeps following the session across restarts and resumes
 - A compose box with optimistic sends, queued messages, hold-to-send, and file and image upload to the host
 - Live working, idle, and waiting status driven by Claude Code hooks
-- Plan-mode approval, a background-agent panel, and interactive widgets that agents can post into the chat
+- Plan-mode approval and a background-agent panel
 - Split views: open conversations, terminals, and apps side by side in any layout
 
 **Sidebar and workspace**

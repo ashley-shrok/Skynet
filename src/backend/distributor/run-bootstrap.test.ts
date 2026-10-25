@@ -70,6 +70,8 @@ import {
   runBootstrapForHost,
   RETIRED_SUBSTRATE_FILES,
   RETIRED_SUBSTRATE_DIRS,
+  RETIRED_SUBSTRATE_TREES,
+  RETIRED_USER_UNITS,
 } from "./run-bootstrap.js";
 import { systemLogger } from "../utils/logger.js";
 import { ROLES_KEY_MIGRATION_SENTINEL } from "./roles-key-migration.js";
@@ -121,13 +123,9 @@ function makeChannel(
     // exercising the hostid step override this key with their own value.
     // Same shape as tests explicitly seeding "host/name" for Step 5.
     "host/id": "__HOST_ID_OK__",
-    // Default happy-path for Step 1b (gc-timer is-enabled check). Returns
-    // EXIT:0 so existing tests see gcTimerAlreadyEnabled=true and no hadError.
-    // Tests specifically exercising Step 1b override this key.
-    "interactive-messages-gc.timer": "enabled\nEXIT:0",
     // Default happy-path for Step 1c (scheduled-agents-scheduler is-enabled
-    // check). Same shape as gc-timer above — EXIT:0 keeps unrelated tests
-    // green; tests specifically exercising Step 1c override this key.
+    // check). EXIT:0 keeps unrelated tests green; tests specifically
+    // exercising Step 1c override this key.
     "scheduled-agents-scheduler.service": "enabled\nEXIT:0",
     // Default happy-path for Step 1d (sensor-runner is-enabled check).
     "sensor-runner.service": "enabled\nEXIT:0",
@@ -462,8 +460,12 @@ describe("runBootstrapForHost", () => {
     for (const rel of RETIRED_SUBSTRATE_DIRS) {
       expect(cleanupCmd).toContain(`rmdir "$HOME/${rel}" 2>/dev/null || true`);
     }
-    // Never a recursive delete of a retired folder.
-    expect(cleanupCmd).not.toContain("rm -rf");
+    // Recursive delete only for the explicitly whole-tree retirements —
+    // never for a RETIRED_SUBSTRATE_DIRS folder.
+    const rmRfLines = cleanupCmd.split("\n").filter((l) => l.includes("rm -rf"));
+    expect(rmRfLines).toEqual(
+      RETIRED_SUBSTRATE_TREES.map((rel) => `rm -rf "$HOME/${rel}"`),
+    );
 
     const fsp = await import("node:fs/promises");
     const nodePath = await import("node:path");
@@ -492,6 +494,92 @@ describe("runBootstrapForHost", () => {
       expect(run(home).trimEnd().endsWith("__CLEANUP_OK__")).toBe(true);
       await expect(fsp.access(nodePath.join(roleDir, "SKILL.md"))).rejects.toThrow();
       await expect(fsp.readFile(nodePath.join(roleDir, "notes.md"), "utf-8")).resolves.toBe("keep me");
+    } finally {
+      await fsp.rm(home, { recursive: true, force: true });
+    }
+  });
+
+  it("(k3) step 3 retires the interactive-messages widget system (units, GC, skill companions, widget folders) but keeps SKILL.md — real sh against a temp $HOME", async () => {
+    const { channel, exec } = makeChannel({
+      "is-enabled": "enabled\nEXIT:0",
+      "daemon-reload": "__RELOAD_OK__",
+      "SETTINGS": "__SETTINGS_OK__",
+      "gsd-context-monitor": "__CLEANUP_OK__",
+      "host/name": "__HOST_NAME_OK__",
+    });
+    await runBootstrapForHost(channel, HOST);
+    const cleanupCmd = captureCommands(exec).find((c) => c.includes("gsd-context-monitor"));
+    expect(cleanupCmd).toBeDefined();
+    if (!cleanupCmd) return;
+
+    const fsp = await import("node:fs/promises");
+    const nodePath = await import("node:path");
+    const nodeOs = await import("node:os");
+    const { execFileSync } = await import("node:child_process");
+
+    const home = await fsp.mkdtemp(nodePath.join(nodeOs.tmpdir(), "retired-im-"));
+    try {
+      // Fake systemctl on PATH that only records its argv.
+      const fakeBin = nodePath.join(home, "fakebin");
+      const callLog = nodePath.join(home, "systemctl.log");
+      await fsp.mkdir(fakeBin);
+      await fsp.writeFile(
+        nodePath.join(fakeBin, "systemctl"),
+        `#!/bin/sh\necho "$*" >> "${callLog}"\nexit 1\n`,
+        { mode: 0o755 },
+      );
+      const run = (): string =>
+        execFileSync("sh", ["-c", cleanupCmd], {
+          env: { PATH: `${fakeBin}:${process.env.PATH}`, HOME: home },
+          encoding: "utf-8",
+        });
+      const calls = async (): Promise<string[]> =>
+        (await fsp.readFile(callLog, "utf-8").catch(() => "")).split("\n").filter(Boolean);
+
+      const unitDir = nodePath.join(home, ".config/systemd/user");
+      const skillDir = nodePath.join(home, ".claude/skills/interactive-messages");
+      await fsp.mkdir(nodePath.join(unitDir, "timers.target.wants"), { recursive: true });
+      for (const u of RETIRED_USER_UNITS) await fsp.writeFile(nodePath.join(unitDir, u), "[Unit]\n");
+      await fsp.writeFile(
+        nodePath.join(unitDir, "im-poll-region.service"),
+        `[Service]\nExecStart=/usr/bin/python3 ${home}/fleet/interactive-messages/poll-region/server.py\n`,
+      );
+      // Unrelated unit that merely shares the im- prefix — must be left alone.
+      await fsp.writeFile(nodePath.join(unitDir, "im-foo.service"), "[Service]\nExecStart=/usr/bin/foo\n");
+      await fsp.writeFile(nodePath.join(unitDir, "agent-supervisor.service"), "[Unit]\n");
+      await fsp.mkdir(nodePath.join(skillDir, "templates/poll-non-terminal"), { recursive: true });
+      await fsp.writeFile(nodePath.join(skillDir, "templates/poll-non-terminal/server.py"), "x");
+      for (const f of ["SKILL.md", "create-widget.sh", "teardown-widget.sh", "iterate-widget.sh"]) {
+        await fsp.writeFile(nodePath.join(skillDir, f), "x");
+      }
+      await fsp.mkdir(nodePath.join(home, ".local/bin"), { recursive: true });
+      await fsp.writeFile(nodePath.join(home, ".local/bin/interactive-messages-gc"), "x");
+      await fsp.mkdir(nodePath.join(home, "fleet/interactive-messages/poll-region"), { recursive: true });
+      await fsp.writeFile(nodePath.join(home, "fleet/interactive-messages/poll-region/state.json"), "{}");
+
+      // systemctl failing (exit 1) must not stop the sweep.
+      expect(run().trimEnd().endsWith("__CLEANUP_OK__")).toBe(true);
+      expect((await calls()).sort()).toEqual(
+        [
+          "--user disable --now im-poll-region.service",
+          "--user disable --now interactive-messages-gc.service",
+          "--user disable --now interactive-messages-gc.timer",
+        ],
+      );
+      expect((await fsp.readdir(unitDir)).sort()).toEqual([
+        "agent-supervisor.service",
+        "im-foo.service",
+        "timers.target.wants",
+      ]);
+      expect(await fsp.readdir(skillDir)).toEqual(["SKILL.md"]);
+      await expect(fsp.access(nodePath.join(home, ".local/bin/interactive-messages-gc"))).rejects.toThrow();
+      await expect(fsp.access(nodePath.join(home, "fleet/interactive-messages"))).rejects.toThrow();
+
+      // Idempotent + cheap: a clean home (only the unrelated im-foo left)
+      // prints the sentinel and calls no systemctl.
+      await fsp.rm(callLog);
+      expect(run().trimEnd().endsWith("__CLEANUP_OK__")).toBe(true);
+      expect(await calls()).toEqual([]);
     } finally {
       await fsp.rm(home, { recursive: true, force: true });
     }
@@ -1518,174 +1606,6 @@ describe("runBootstrapForHost", () => {
     });
   });
 
-  // -------------------------------------------------------------------------
-  // Step 1b: interactive-messages-gc.timer enable (Phase 140).
-  //   (gc-1) BootstrapResult has gcTimerAlreadyEnabled and gcTimerBootstrapped fields.
-  //   (gc-2) Already-enabled host → gcTimerAlreadyEnabled=true, gcTimerBootstrapped=false,
-  //          no enable --now command fired.
-  //   (gc-3) Not-enabled host → gcTimerBootstrapped=true, gcTimerAlreadyEnabled=false,
-  //          enable --now command fired with interactive-messages-gc.timer.
-  //   (gc-4) Channel returns null on is-enabled check → hadError=true,
-  //          gcTimerAlreadyEnabled=false, gcTimerBootstrapped=false.
-  //   (gc-5) Channel returns null on enable-now command → hadError=true,
-  //          gcTimerBootstrapped=false.
-  //   (gc-6) enable-now returns without sentinel → hadError=true, gcTimerBootstrapped=false.
-  //
-  // The seeded default in makeChannel supplies "enabled\nEXIT:0" for the
-  // "interactive-messages-gc.timer" key so all pre-existing tests keep passing.
-  // -------------------------------------------------------------------------
-  describe("step 1b: interactive-messages-gc.timer enable (Phase 140)", () => {
-    it("(gc-1) BootstrapResult has gcTimerAlreadyEnabled and gcTimerBootstrapped fields", async () => {
-      const { channel } = makeChannel({
-        "is-enabled": "enabled\nEXIT:0",
-        "daemon-reload": "__RELOAD_OK__",
-        "SETTINGS": "__SETTINGS_OK__",
-        "gsd-context-monitor": "__CLEANUP_OK__",
-        "host/name": "__HOST_NAME_OK__",
-        "interactive-messages-gc.timer": "enabled\nEXIT:0",
-      });
-
-      const result = await runBootstrapForHost(channel, HOST);
-
-      expect(result).toHaveProperty("gcTimerAlreadyEnabled");
-      expect(result).toHaveProperty("gcTimerBootstrapped");
-      expect(typeof result.gcTimerAlreadyEnabled).toBe("boolean");
-      expect(typeof result.gcTimerBootstrapped).toBe("boolean");
-    });
-
-    it("(gc-2) timer already enabled → gcTimerAlreadyEnabled=true, gcTimerBootstrapped=false, no enable --now fired", async () => {
-      const { channel, exec } = makeChannel({
-        "is-enabled": "enabled\nEXIT:0",
-        "daemon-reload": "__RELOAD_OK__",
-        "SETTINGS": "__SETTINGS_OK__",
-        "gsd-context-monitor": "__CLEANUP_OK__",
-        "host/name": "__HOST_NAME_OK__",
-        "interactive-messages-gc.timer": "enabled\nEXIT:0",
-      });
-
-      const result = await runBootstrapForHost(channel, HOST);
-
-      expect(result.gcTimerAlreadyEnabled).toBe(true);
-      expect(result.gcTimerBootstrapped).toBe(false);
-      expect(result.hadError).toBe(false);
-
-      const cmds = captureCommands(exec);
-      // The is-enabled probe must be sent.
-      expect(cmds.some((c) => c.includes("is-enabled interactive-messages-gc.timer"))).toBe(true);
-      // enable --now must NOT be sent (timer is already enabled).
-      expect(cmds.some((c) => c.includes("enable --now interactive-messages-gc.timer"))).toBe(false);
-    });
-
-    it("(gc-3) timer not enabled → gcTimerBootstrapped=true, enable --now interactive-messages-gc.timer fired", async () => {
-      // Use a custom exec that distinguishes the is-enabled probe from the
-      // enable-now command by looking for "enable --now" specifically.
-      // Order matters: more specific patterns before general ones.
-      const exec = vi.fn(async (cmd: string) => {
-        if (cmd.includes("is-enabled agent-supervisor")) return "enabled\nEXIT:0";
-        if (cmd.includes("daemon-reload")) return "__RELOAD_OK__";
-        // Step 1b: enable-now BEFORE is-enabled so the --now variant matches first.
-        if (cmd.includes("enable --now interactive-messages-gc.timer")) return "__GC_TIMER_OK__";
-        // Step 1b: is-enabled probe for gc.timer.
-        if (cmd.includes("is-enabled interactive-messages-gc.timer")) return "disabled\nEXIT:1";
-        // Step 1c: happy-path skip for scheduled-agents-scheduler (this
-        // test is scoped to Step 1b behavior; Step 1c shouldn't affect it).
-        if (cmd.includes("is-enabled scheduled-agents-scheduler.service")) return "enabled\nEXIT:0";
-        // Step 6 usage-reporter retire: check sentinel first since cmd also has SETTINGS=.
-        if (cmd.includes("__USAGE_REPORTER_RETIRED__")) return "__USAGE_REPORTER_RETIRED__";
-        if (cmd.includes(ROLES_KEY_MIGRATION_SENTINEL)) return ROLES_NOOP_OUTPUT;
-        if (cmd.includes(ROLE_SKILLS_MIGRATION_SENTINEL)) return ROLE_SKILLS_NOOP_OUTPUT;
-        if (cmd.includes(DESKTOP_DEPS_SENTINEL)) return `${DESKTOP_DEPS_SENTINEL} present`;
-        if (cmd.includes("SETTINGS=")) return "__SETTINGS_OK__";
-        if (cmd.includes("gsd-context-monitor")) return "__CLEANUP_OK__";
-        if (cmd.includes("host/parent")) return "__HOST_PARENT_OK__";
-        if (cmd.includes("host/name")) return "__HOST_NAME_OK__";
-        if (cmd.includes("host/id")) return "__HOST_ID_OK__";
-        if (cmd.includes("is-enabled sensor-runner.service")) return "enabled\nEXIT:0";
-        if (cmd.includes("is-enabled relay-mcp.service")) return "enabled\nEXIT:0";
-        return null;
-      });
-      const ch: SshChannel = { exec };
-
-      const result = await runBootstrapForHost(ch, HOST);
-
-      expect(result.gcTimerAlreadyEnabled).toBe(false);
-      expect(result.gcTimerBootstrapped).toBe(true);
-      expect(result.hadError).toBe(false);
-
-      const cmds = captureCommands(exec);
-      // enable --now must be sent.
-      expect(cmds.some((c) => c.includes("enable --now interactive-messages-gc.timer"))).toBe(true);
-    });
-
-    it("(gc-4) channel returns null on gc-timer is-enabled check → hadError=true, gcTimerAlreadyEnabled=false, gcTimerBootstrapped=false", async () => {
-      const { channel } = makeChannel({
-        "is-enabled": "enabled\nEXIT:0",
-        "daemon-reload": "__RELOAD_OK__",
-        "SETTINGS": "__SETTINGS_OK__",
-        "gsd-context-monitor": "__CLEANUP_OK__",
-        // Override: null for gc-timer probe.
-        "interactive-messages-gc.timer": null,
-      });
-
-      const result = await runBootstrapForHost(channel, HOST);
-
-      expect(result.gcTimerAlreadyEnabled).toBe(false);
-      expect(result.gcTimerBootstrapped).toBe(false);
-      expect(result.hadError).toBe(true);
-    });
-
-    it("(gc-5) channel returns null on gc-timer enable-now → hadError=true, gcTimerBootstrapped=false", async () => {
-      const exec = vi.fn(async (cmd: string) => {
-        if (cmd.includes("is-enabled agent-supervisor")) return "enabled\nEXIT:0";
-        if (cmd.includes("daemon-reload")) return "__RELOAD_OK__";
-        if (cmd.includes("enable --now interactive-messages-gc.timer")) return null;
-        if (cmd.includes("is-enabled interactive-messages-gc.timer")) return "disabled\nEXIT:1";
-        if (cmd.includes("__USAGE_REPORTER_RETIRED__")) return "__USAGE_REPORTER_RETIRED__";
-        if (cmd.includes(ROLES_KEY_MIGRATION_SENTINEL)) return ROLES_NOOP_OUTPUT;
-        if (cmd.includes(ROLE_SKILLS_MIGRATION_SENTINEL)) return ROLE_SKILLS_NOOP_OUTPUT;
-        if (cmd.includes(DESKTOP_DEPS_SENTINEL)) return `${DESKTOP_DEPS_SENTINEL} present`;
-        if (cmd.includes("SETTINGS=")) return "__SETTINGS_OK__";
-        if (cmd.includes("gsd-context-monitor")) return "__CLEANUP_OK__";
-        if (cmd.includes("host/parent")) return "__HOST_PARENT_OK__";
-        if (cmd.includes("host/name")) return "__HOST_NAME_OK__";
-        if (cmd.includes("host/id")) return "__HOST_ID_OK__";
-        return null;
-      });
-      const ch: SshChannel = { exec };
-
-      const result = await runBootstrapForHost(ch, HOST);
-
-      expect(result.gcTimerBootstrapped).toBe(false);
-      expect(result.hadError).toBe(true);
-    });
-
-    it("(gc-6) enable-now returns without sentinel → hadError=true, gcTimerBootstrapped=false", async () => {
-      const exec = vi.fn(async (cmd: string) => {
-        if (cmd.includes("is-enabled agent-supervisor")) return "enabled\nEXIT:0";
-        if (cmd.includes("daemon-reload")) return "__RELOAD_OK__";
-        if (cmd.includes("enable --now interactive-messages-gc.timer"))
-          return "Failed to start interactive-messages-gc.timer\n";
-        if (cmd.includes("is-enabled interactive-messages-gc.timer")) return "disabled\nEXIT:1";
-        if (cmd.includes("__USAGE_REPORTER_RETIRED__")) return "__USAGE_REPORTER_RETIRED__";
-        if (cmd.includes(ROLES_KEY_MIGRATION_SENTINEL)) return ROLES_NOOP_OUTPUT;
-        if (cmd.includes(ROLE_SKILLS_MIGRATION_SENTINEL)) return ROLE_SKILLS_NOOP_OUTPUT;
-        if (cmd.includes(DESKTOP_DEPS_SENTINEL)) return `${DESKTOP_DEPS_SENTINEL} present`;
-        if (cmd.includes("SETTINGS=")) return "__SETTINGS_OK__";
-        if (cmd.includes("gsd-context-monitor")) return "__CLEANUP_OK__";
-        if (cmd.includes("host/parent")) return "__HOST_PARENT_OK__";
-        if (cmd.includes("host/name")) return "__HOST_NAME_OK__";
-        if (cmd.includes("host/id")) return "__HOST_ID_OK__";
-        return null;
-      });
-      const ch: SshChannel = { exec };
-
-      const result = await runBootstrapForHost(ch, HOST);
-
-      expect(result.gcTimerBootstrapped).toBe(false);
-      expect(result.hadError).toBe(true);
-    });
-  });
-
   describe("step 1d: sensor-runner.service enable", () => {
     function sensorExec(isEnabled: string | null, enableNow: string | null) {
       return vi.fn(async (cmd: string) => {
@@ -1828,8 +1748,6 @@ describe("runBootstrapForHost", () => {
       const exec = vi.fn(async (cmd: string) => {
         if (cmd.includes("is-enabled agent-supervisor")) return "enabled\nEXIT:0";
         if (cmd.includes("daemon-reload")) return "__RELOAD_OK__";
-        if (cmd.includes("is-enabled interactive-messages-gc.timer"))
-          return "enabled\nEXIT:0";
         // Step 1c: enable-now BEFORE is-enabled so the --now variant matches first.
         if (cmd.includes("enable --now scheduled-agents-scheduler.service"))
           return "__SCHED_OK__";
@@ -1884,8 +1802,6 @@ describe("runBootstrapForHost", () => {
       const exec = vi.fn(async (cmd: string) => {
         if (cmd.includes("is-enabled agent-supervisor")) return "enabled\nEXIT:0";
         if (cmd.includes("daemon-reload")) return "__RELOAD_OK__";
-        if (cmd.includes("is-enabled interactive-messages-gc.timer"))
-          return "enabled\nEXIT:0";
         if (cmd.includes("enable --now scheduled-agents-scheduler.service"))
           return null;
         if (cmd.includes("is-enabled scheduled-agents-scheduler.service"))
@@ -1913,8 +1829,6 @@ describe("runBootstrapForHost", () => {
       const exec = vi.fn(async (cmd: string) => {
         if (cmd.includes("is-enabled agent-supervisor")) return "enabled\nEXIT:0";
         if (cmd.includes("daemon-reload")) return "__RELOAD_OK__";
-        if (cmd.includes("is-enabled interactive-messages-gc.timer"))
-          return "enabled\nEXIT:0";
         if (cmd.includes("enable --now scheduled-agents-scheduler.service"))
           return "Failed to start scheduled-agents-scheduler.service\n";
         if (cmd.includes("is-enabled scheduled-agents-scheduler.service"))

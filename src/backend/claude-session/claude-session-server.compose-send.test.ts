@@ -1273,19 +1273,15 @@ describe("__applyInputMessageForTests — pv-send-watchdog wire-up (Task 2)", ()
 // Backend watchdog match primitive replaced with FIFO head-pop (order-based),
 // matching PrettyView.tsx:1961-1979. CC processes input serially, JSONL is
 // written in order, WS preserves order — SEND ORDER is the match signal.
-// notifyMatched is called with (sessionId, content). Content is passed so the
-// watchdog can classify arriving user turns into per-category FIFOs (compose
-// vs widget-submit envelope) — an envelope must not clear a pending compose
-// arm and vice versa. See pv-send-watchdog.ts notifyMatched docblock for the
-// full rationale (2026-09-28 category-split for the interactive-messages
-// envelope migration).
+// notifyMatched is called with just (sessionId) — no content arg — clearing
+// the OLDEST pending arm on that session regardless of content shape.
 
 describe("__applyOnLineNotifyForTests — single-notify order-based (quick-260908-bqx)", () => {
   afterEach(() => {
     vi.clearAllMocks();
   });
 
-  it("Test 1 (slash-command wrapper, WITH args): notifyMatched called EXACTLY ONCE with (sessionId, content)", () => {
+  it("Test 1 (slash-command wrapper, WITH args): notifyMatched called EXACTLY ONCE with just (sessionId)", () => {
     const content =
       "<command-message>id</command-message>" +
       "<command-name>/id</command-name>" +
@@ -1299,10 +1295,10 @@ describe("__applyOnLineNotifyForTests — single-notify order-based (quick-26090
     });
 
     expect(spy).toHaveBeenCalledTimes(1);
-    expect(spy).toHaveBeenCalledWith("sess-A", content);
+    expect(spy).toHaveBeenCalledWith("sess-A");
   });
 
-  it("user image frame (Claude Code inlined pasted image paths): notifyMatched called with its text", () => {
+  it("user image frame (Claude Code inlined pasted image paths): notifyMatched called once", () => {
     const spy = vi.fn();
     __applyOnLineNotifyForTests({
       frame: { type: "image", role: "user", text: "[Image #1] see this" },
@@ -1311,7 +1307,7 @@ describe("__applyOnLineNotifyForTests — single-notify order-based (quick-26090
     });
 
     expect(spy).toHaveBeenCalledTimes(1);
-    expect(spy).toHaveBeenCalledWith("sess-A", "[Image #1] see this");
+    expect(spy).toHaveBeenCalledWith("sess-A");
   });
 
   it("assistant image frame: notifyMatched NOT called", () => {
@@ -1325,7 +1321,7 @@ describe("__applyOnLineNotifyForTests — single-notify order-based (quick-26090
     expect(spy).not.toHaveBeenCalled();
   });
 
-  it("Test 2 (plain user turn): notifyMatched called EXACTLY ONCE with (sessionId, content)", () => {
+  it("Test 2 (plain user turn): notifyMatched called EXACTLY ONCE with just (sessionId)", () => {
     const spy = vi.fn();
     __applyOnLineNotifyForTests({
       frame: { type: "message", role: "user", content: "hello" },
@@ -1334,10 +1330,10 @@ describe("__applyOnLineNotifyForTests — single-notify order-based (quick-26090
     });
 
     expect(spy).toHaveBeenCalledTimes(1);
-    expect(spy).toHaveBeenCalledWith("sess-A", "hello");
+    expect(spy).toHaveBeenCalledWith("sess-A");
   });
 
-  it("Test 3 (multi-line user turn): notifyMatched called EXACTLY ONCE with (sessionId, content)", () => {
+  it("Test 3 (multi-line user turn): notifyMatched called EXACTLY ONCE with just (sessionId)", () => {
     const spy = vi.fn();
     __applyOnLineNotifyForTests({
       frame: { type: "message", role: "user", content: "line one\nline two" },
@@ -1346,7 +1342,7 @@ describe("__applyOnLineNotifyForTests — single-notify order-based (quick-26090
     });
 
     expect(spy).toHaveBeenCalledTimes(1);
-    expect(spy).toHaveBeenCalledWith("sess-A", "line one\nline two");
+    expect(spy).toHaveBeenCalledWith("sess-A");
   });
 
   it("Test 4 (guard — wrong type): frame with type 'assistant' → notifyMatched NOT called", () => {
