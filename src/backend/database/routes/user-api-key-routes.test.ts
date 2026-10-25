@@ -18,7 +18,7 @@ vi.mock("../db/index.js", () => ({
   db: {
     select: () => ({
       from: () => ({
-        where: () => ({ limit: async () => [{ id: "u1", username: "ashley" }] }),
+        where: () => ({ limit: async () => [{ id: "u1", username: "owner" }] }),
       }),
     }),
     insert: () => ({

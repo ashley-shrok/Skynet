@@ -129,7 +129,7 @@ afterAll(() => server.close());
 beforeEach(() => {
   vi.useRealTimers();
   tables.users = [
-    { id: "u1", username: "ashley", passwordHash: "hash:pw", isOidc: false, totpEnabled: true, totpSecret: "S", totpBackupCodes: JSON.stringify(["backup-1"]) },
+    { id: "u1", username: "owner", passwordHash: "hash:pw", isOidc: false, totpEnabled: true, totpSecret: "S", totpBackupCodes: JSON.stringify(["backup-1"]) },
     { id: "u2", username: "nocode", passwordHash: "hash:pw2", isOidc: false, totpEnabled: false, totpSecret: null, totpBackupCodes: null },
     { id: "u3", username: "sso", passwordHash: "", isOidc: true, totpEnabled: false, totpSecret: null, totpBackupCodes: null },
     { id: "u4", username: "both", passwordHash: "hash:pw4", isOidc: true, totpEnabled: false, totpSecret: null, totpBackupCodes: null },
@@ -140,7 +140,7 @@ beforeEach(() => {
     { id: "s3", userId: "u3", confirmedAt: null },
     { id: "s4", userId: "u4", confirmedAt: null },
   ];
-  for (const u of ["ashley", "nocode", "sso", "both"]) loginRateLimiter.resetAttempts("127.0.0.1", u);
+  for (const u of ["owner", "nocode", "sso", "both"]) loginRateLimiter.resetAttempts("127.0.0.1", u);
   for (const u of ["u1", "u2", "u3", "u4"]) loginRateLimiter.resetTOTPAttempts(u);
 });
 
@@ -157,45 +157,45 @@ async function call(
   return { status: res.status, body: (await res.json()) as Record<string, unknown> };
 }
 
-const ashley = { "x-user": "u1", "x-session": "s1" };
+const owner = { "x-user": "u1", "x-session": "s1" };
 
 describe("confirm it's you", () => {
   it("refuses a stale sign-in, accepts after confirming, and refuses again after 10 minutes", async () => {
-    const first = await call("/sensitive", ashley);
+    const first = await call("/sensitive", owner);
     expect(first.status).toBe(403);
     expect(first.body).toMatchObject({ code: "REAUTH_REQUIRED", totpRequired: true });
 
-    const wrongPw = await call("/confirm-identity", ashley, { password: "nope", totpCode: "123456" });
+    const wrongPw = await call("/confirm-identity", owner, { password: "nope", totpCode: "123456" });
     expect(wrongPw.status).toBe(401);
-    const wrongCode = await call("/confirm-identity", ashley, { password: "pw", totpCode: "000000" });
+    const wrongCode = await call("/confirm-identity", owner, { password: "pw", totpCode: "000000" });
     expect(wrongCode.status).toBe(401);
-    expect((await call("/sensitive", ashley)).status).toBe(403);
+    expect((await call("/sensitive", owner)).status).toBe(403);
 
-    const ok = await call("/confirm-identity", ashley, { password: "pw", totpCode: "123456" });
+    const ok = await call("/confirm-identity", owner, { password: "pw", totpCode: "123456" });
     expect(ok.status).toBe(200);
     expect(ok.body.confirmed).toBe(true);
-    expect((await call("/sensitive", ashley)).body).toEqual({ done: true });
+    expect((await call("/sensitive", owner)).body).toEqual({ done: true });
 
     // Eleven minutes on, the confirmation has run out.
     tables.sessions[0].confirmedAt = new Date(Date.now() - RECENT_AUTH_WINDOW_MS - 60_000).toISOString();
-    expect((await call("/sensitive", ashley)).status).toBe(403);
+    expect((await call("/sensitive", owner)).status).toBe(403);
   });
 
   it("counts a fresh sign-in as confirmed", async () => {
     tables.sessions[0].confirmedAt = new Date().toISOString();
-    expect((await call("/sensitive", ashley)).status).toBe(200);
+    expect((await call("/sensitive", owner)).status).toBe(200);
   });
 
   it("accepts a backup code once", async () => {
-    const ok = await call("/confirm-identity", ashley, { password: "pw", totpCode: "backup-1" });
+    const ok = await call("/confirm-identity", owner, { password: "pw", totpCode: "backup-1" });
     expect(ok.status).toBe(200);
     expect(JSON.parse(tables.users[0].totpBackupCodes as string)).toEqual([]);
     tables.sessions[0].confirmedAt = null;
-    expect((await call("/confirm-identity", ashley, { password: "pw", totpCode: "backup-1" })).status).toBe(401);
+    expect((await call("/confirm-identity", owner, { password: "pw", totpCode: "backup-1" })).status).toBe(401);
   });
 
   it("asks for a code when two-step codes are on", async () => {
-    const res = await call("/confirm-identity", ashley, { password: "pw" });
+    const res = await call("/confirm-identity", owner, { password: "pw" });
     expect(res.status).toBe(400);
   });
 
@@ -239,20 +239,20 @@ describe("confirm it's you", () => {
   });
 
   it("won't take the same two-step code twice", async () => {
-    expect((await call("/confirm-identity", ashley, { password: "pw", totpCode: "654321" })).status).toBe(200);
-    expect((await call("/confirm-identity", ashley, { password: "pw", totpCode: "654321" })).status).toBe(401);
+    expect((await call("/confirm-identity", owner, { password: "pw", totpCode: "654321" })).status).toBe(200);
+    expect((await call("/confirm-identity", owner, { password: "pw", totpCode: "654321" })).status).toBe(401);
   });
 
   it("says to sign in again when the two-step secret can't be read", async () => {
     tables.users[0].totpSecret = null;
-    const res = await call("/confirm-identity", ashley, { password: "pw", totpCode: "123456" });
+    const res = await call("/confirm-identity", owner, { password: "pw", totpCode: "123456" });
     expect(res.status).toBe(409);
   });
 
   it("locks out after repeated wrong passwords", async () => {
     let last = 0;
     for (let i = 0; i < 12; i++) {
-      last = (await call("/confirm-identity", ashley, { password: "nope", totpCode: "123456" })).status;
+      last = (await call("/confirm-identity", owner, { password: "nope", totpCode: "123456" })).status;
     }
     expect(last).toBe(429);
   });
@@ -265,15 +265,15 @@ describe("signing out one session", () => {
   };
 
   it("signs out your own session without asking", async () => {
-    expect((await del("s1", ashley)).status).toBe(200);
+    expect((await del("s1", owner)).status).toBe(200);
   });
 
   it("asks before signing out a different session", async () => {
-    const res = await del("s2", ashley);
+    const res = await del("s2", owner);
     expect(res.status).toBe(403);
     expect(res.body.code).toBe("REAUTH_REQUIRED");
     tables.sessions[0].confirmedAt = new Date().toISOString();
-    expect((await del("s2", ashley)).status).toBe(200);
+    expect((await del("s2", owner)).status).toBe(200);
   });
 
   it("never lets an access key sign out sessions", async () => {
