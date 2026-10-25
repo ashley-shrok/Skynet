@@ -241,6 +241,9 @@ ensure_inotifywait() {
 #   (2) resume-summary ("Resuming the full session will consume …") — fires when session age >
 #       CLAUDE_CODE_RESUME_THRESHOLD_MINUTES (default 70) or token-count > CLAUDE_CODE_RESUME_TOKEN_THRESHOLD
 #       (default 100000). Answered at source via the two env vars below.
+#   (3) cold-resume usage limit ("this will use N% of your usage limit", 2.1.304+) — not gated by
+#       those env vars. Answered at source via the top-level resumeReturnDismissed flag in
+#       ~/.claude.json (dismiss_resume_return_dialog(), which also covers (2)).
 # Compaction is NOT configured here: the fleet settings.json written by the distributor
 # (run-bootstrap.ts SETTINGS_MERGE_JQ) is the one place — idle compaction off, near-limit
 # compaction at 95% of the 1M window.
@@ -606,6 +609,28 @@ accept_trust_for_workdir() {
     d.projects[wd].hasTrustDialogAccepted=true;
     try{ fs.writeFileSync(f,JSON.stringify(d,null,2)+"\n"); console.log("set"); }catch(e){ console.log("skip"); }
   ' "$wd" 2>/dev/null | grep -q '^set$' && log "accepted trust for workdir '$wd' in ~/.claude.json (dialog will not render)"
+  return 0
+}
+
+# Idempotent user-wide "never ask again" for the resume dialogs. From 2.1.304 a resume of a quiet
+# session can open a blocking "this will use N% of your usage limit" dialog that the resume-threshold
+# env vars don't gate; only the top-level resumeReturnDismissed flag in ~/.claude.json suppresses it
+# (it also suppresses the resume-summary dialog). Same shape as accept_trust_for_workdir, but written
+# via temp file + rename so a failed write can't truncate the file. Called before every launch so a
+# harness rewrite of the file that drops the key is repaired on the next wake.
+dismiss_resume_return_dialog() {
+  command -v node >/dev/null 2>&1 || return 0
+  node -e '
+    const fs=require("fs"),os=require("os"),p=require("path");
+    const f=p.join(os.homedir(),".claude.json");
+    let d={}; try{ d=JSON.parse(fs.readFileSync(f,"utf8")); }catch(e){ if(fs.existsSync(f)){ console.log("skip"); process.exit(0); } }
+    if(typeof d!=="object"||!d||Array.isArray(d)){ console.log("skip"); process.exit(0); }
+    if(d.resumeReturnDismissed===true){ console.log("noop"); process.exit(0); }
+    d.resumeReturnDismissed=true;
+    const t=f+".supervisor-"+process.pid+".tmp";
+    try{ fs.writeFileSync(t,JSON.stringify(d,null,2)+"\n",{mode:0o600}); fs.renameSync(t,f); console.log("set"); }
+    catch(e){ try{ fs.unlinkSync(t); }catch(_){} console.log("skip"); }
+  ' 2>/dev/null | grep -q '^set$' && log "set resumeReturnDismissed in ~/.claude.json (resume usage-limit dialog will not render)"
   return 0
 }
 
@@ -3198,8 +3223,8 @@ drive() {
     sleep 1                                     # brief settle so claude's Ink renders past the initial paint before the observable-outcome scrape
     pane="$(timeout -k 5 10 tmux capture-pane -pt "$sess" -S -40 2>/dev/null)"
     case "$pane" in
-      *"Resume from summary"*|*"Resume full session"*|*"Yes, I trust this folder"*|*"Enter to confirm"*)
-        log "WARNING: '$name' still sitting at an interactive prompt after resume — NOT at a REPL, will be relay-deaf until cleared. Prompt source-suppression (env vars + hasTrustDialogAccepted) may have regressed; restore the scrape+answer loop if this fires more than once (session '$sess')";;
+      *"Resume from summary"*|*"Resume full session"*|*"of your 5-hour usage limit"*|*"Yes, I trust this folder"*|*"Enter to confirm"*)
+        log "WARNING: '$name' still sitting at an interactive prompt after resume — NOT at a REPL, will be relay-deaf until cleared. Prompt source-suppression (env vars + hasTrustDialogAccepted + resumeReturnDismissed) may have regressed; restore the scrape+answer loop if this fires more than once (session '$sess')";;
       *)
         # THE RE-ARM-YOUR-MONITORS NUDGE IS RETIRED (2026-09-14). It existed because a resume
         # restored the conversation but not the previous session's background Monitors, leaving a
@@ -3478,6 +3503,7 @@ launch() {
     log "${mode}ing '$name' (session '$sess') — RESUME ${resume:0:8} in $cwd"
   else log "${mode}ing '$name' (session '$sess') — fresh /id in $cwd"; fi
   accept_trust_for_workdir "$cwd"                 # source-of-truth: kill the folder-trust prompt
+  dismiss_resume_return_dialog                    # source-of-truth: kill the resume usage-limit prompt
   drive "$name" "$sess" "$resume" "$cwd"
   log "'$name' ${mode} done"
 }
