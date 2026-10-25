@@ -1,7 +1,7 @@
 # Campaign: rename DMs from agents to users — call it "notified"
 
 **Opened:** 2026-10-25
-**Status:** in_progress
+**Status:** closed
 **Workspace:** .planning/campaigns/notified/
 
 ## Concept
@@ -24,9 +24,12 @@ depends on how the user set up their bot.
 
 ## Shapes
 
-- **[declared] shape-notified** — user-facing wording becomes "notified", agent docs bridge DM ↔ notify, no phone mentions — in_progress
+- **[declared] shape-notified** — user-facing wording becomes "notified", agent docs bridge DM ↔ notify, no phone mentions — closed
 
 ## Other work
+
+- Collapsed project/Projects-header envelopes' screen-reader label also changed to "An agent notified you" (review finding; same envelope) — done
+- Envelope shows on a message while its send is still pending (pre-existing; the shape kept envelope rules out of scope) — noted-only, offered to the user as a possible follow-up
 
 ## Lingerers (explicitly approved)
 

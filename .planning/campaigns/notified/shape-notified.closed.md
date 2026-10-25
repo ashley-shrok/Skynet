@@ -108,3 +108,41 @@ saturn-box-maintainer-3 is doing the work, on the shared branch. The id skill
 edit goes in the substrate source, never the installed copy. Tests that pin
 the old hover labels or the Preferences line need updating with the new
 wording. Committed only; push and deploy wait for separate greenlights.
+
+---
+
+## Close-Out
+
+**Closed:** 2026-10-25
+**Overall verdict:** closed-hit
+
+### Shape features (conformance)
+
+- **What the user sees: message envelope hover label** — present · Reads "Notified you" followed by the time; "Also sent to your phone" is gone.
+- **What the user sees: sidebar envelope hover label** — present · Reads "Notified you", replacing "Sent you a message".
+- **What the user sees: Preferences → Notifications line** — present · Reads exactly "When an agent notifies you, it arrives through Telegram."
+- **What the user sees: nothing else visible changes** — present · Only label text and one line of copy changed; the remaining phone wording belongs to the out-of-scope phone-number preference.
+- **id skill: section renamed to "Notifying the user", in the agreed order** — present · What it is, what she experiences, the vocabulary bridge, rules of use; group-room bullet removed. "Top of its section" paraphrases "top tier of the list".
+- **id skill: other envelope descriptions** — present · Both say "Notified you", point at the renamed section, no phone.
+- **id skill: Preferences → Notifications entry** — present · No longer "phone notifications"; quotes the new line.
+- **id skill: old section name references updated** — present · No remaining references to the old name.
+- **id skill: agent-to-agent wording stays DM** — present · Peer-agent DMs, DMing on her behalf, being woken by a DM all intact.
+- **Scope: no What's new note** — present · None added.
+- **Scope: internal names stay "dm"** — present · Unchanged.
+- **Handoff: substrate source; tests updated; committed only** — present · Single local commit, tests cover all three strings.
+- **What would make it wrong: "notify" read as something other than a one-on-one relay DM** — present · Avoided; explicitly rules out group rooms and ordinary replies.
+- **What would make it wrong: agent-to-agent messages called notifications / DM dropped** — present · Avoided.
+- **What would make it wrong: user-facing wording still promises a phone** — present · Avoided; a test guards the Preferences line.
+- **What would make it wrong: notification behavior, sorting, or envelope rules changed** — present · Avoided; only strings, comments and tests changed.
+
+### Additions (in the result, not in the shape)
+
+None.
+
+### Follow-ups
+
+None.
+
+### Notes
+
+No divergences. The planning documents committed alongside are process records, not product features.

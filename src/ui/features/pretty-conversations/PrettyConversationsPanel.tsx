@@ -3786,7 +3786,7 @@ export function PrettyConversationsPanel({
                     <span
                       className="pv-section-dm-mark"
                       role="img"
-                      aria-label="An agent sent you a message"
+                      aria-label="An agent notified you"
                       data-testid="pv-projects-super-header-dm"
                     >
                       <Mail aria-hidden="true" />

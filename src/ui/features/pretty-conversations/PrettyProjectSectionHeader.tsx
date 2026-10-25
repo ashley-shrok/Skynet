@@ -435,7 +435,7 @@ export function PrettyProjectSectionHeader({
           <span
             className="pv-section-dm-mark"
             role="img"
-            aria-label="An agent sent you a message"
+            aria-label="An agent notified you"
             data-testid={`pv-project-section-dm-${slug}`}
           >
             <Mail aria-hidden="true" />

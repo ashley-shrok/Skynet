@@ -1493,7 +1493,8 @@ crown, then gear.
   appear as ordinary agent bubbles, always open, with a small red
   **envelope** on the top-left corner ("Notified you") — the same envelope
   the sidebar puts on the conversation until the user opens it. One that
-  failed to send shows open too, with a "⚠ not sent" mark (tap it for the reason) and no envelope. Coming to a
+  failed to send shows open too, with a "⚠ not sent" mark (tap it for the
+  reason) and no envelope. Coming to a
   conversation that has one the user hasn't seen lands on the oldest unseen
   one and briefly rings it, instead of the bottom. Messages **between agents** show as quiet grey cards, folded:
   the sender's picture, "Finch → Bilbo" and a one-line preview; tap to
