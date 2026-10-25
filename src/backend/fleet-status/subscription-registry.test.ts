@@ -167,9 +167,9 @@ describe("subscription-registry", () => {
     expect(sender).not.toHaveBeenCalled();
   });
 
-  it("Test 6b: a late pid_stale gone for the OLD pid is skipped when a recycled claude already republished the same tmux key", () => {
+  it("Test 6b: a late pid_stale gone for the OLD pid is skipped when a relaunched claude already republished the same tmux key", () => {
     const registry = createSubscriptionRegistry();
-    // Old claude (pid 1000) → /id reset → fresh claude (pid 2000) in the same tmux.
+    // Old claude (pid 1000) → relaunch → fresh claude (pid 2000) in the same tmux.
     registry.publishSessionState("host-42", { ...makeState("host-42", "tina", "session-old"), pid: 1000 });
     registry.publishSessionState("host-42", { ...makeState("host-42", "tina", "session-new"), pid: 2000 });
 
@@ -184,7 +184,7 @@ describe("subscription-registry", () => {
     expect(registry.getSnapshot().map((s) => s.sessionId)).toEqual(["session-new"]);
   });
 
-  it("Test 6c: a pid_stale gone is skipped when source B's pid-less recycling entry now holds the key", () => {
+  it("Test 6c: a pid_stale gone is skipped when source B's pid-less entry now holds the key", () => {
     const registry = createSubscriptionRegistry();
     registry.publishSessionState("host-42", { ...makeState("host-42", "tina", "session-1"), pid: null });
 

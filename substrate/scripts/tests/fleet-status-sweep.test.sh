@@ -397,6 +397,40 @@ for ln in sys.stdin:
   assert_eq "a=None,b=None,c=None,d=null,long=a,null=None" "$parents" "project-list parents (yaml scalars, long frontmatter)"
 }
 
+# Case 10: condense sentinels. `.compact-requested` (dropped by the agent or
+# the app) → compact_requested; `.compacting` (held by the supervisor while
+# /compact runs) → compacting. The retired recycle fields are no longer emitted.
+test_case_10_condense_sentinels() {
+  make_live_identity "idle" "---
+---
+"
+  make_live_identity "queued" "---
+---
+"
+  make_live_identity "running" "---
+---
+"
+  touch "$FIXTURE/fleet/identities/queued/.compact-requested"
+  touch "$FIXTURE/fleet/identities/running/.compacting"
+  # Legacy sentinels must not leak into the new fields.
+  touch "$FIXTURE/fleet/identities/idle/.recycle-requested"
+  touch "$FIXTURE/fleet/identities/idle/.recycled-at"
+
+  local out
+  out=$(run_sweep)
+  assert_identity_line_count "$out" "3"
+  assert_identity_field "$out" "idle" "compact_requested" 'false'
+  assert_identity_field "$out" "idle" "compacting" 'false'
+  assert_identity_field "$out" "queued" "compact_requested" 'true'
+  assert_identity_field "$out" "queued" "compacting" 'false'
+  assert_identity_field "$out" "running" "compact_requested" 'false'
+  assert_identity_field "$out" "running" "compacting" 'true'
+  local f
+  for f in recycled_at recycle_requested layer1_recycling; do
+    assert_identity_field "$out" "idle" "$f" 'null'
+  done
+}
+
 # ============================================================
 # MAIN
 # ============================================================
@@ -414,6 +448,7 @@ run_test test_case_06_bare_archive_dir
 run_test test_case_07_name_collision_both_trees
 run_test test_case_08_project_parent
 run_test test_case_09_project_parent_yaml_scalars_and_long_frontmatter
+run_test test_case_10_condense_sentinels
 
 printf '\n===============================\n'
 printf 'PASS: %s  FAIL: %s\n' "$PASS" "$FAIL"

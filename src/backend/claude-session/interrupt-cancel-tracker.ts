@@ -16,7 +16,7 @@
  *     output between" shape identified every real cancellation and nothing else.
  *   • Pressed after output began, the harness stops and writes a user entry
  *     "[Request interrupted by user]" (or "... for tool use") immediately.
- *   • If the harness restarts (dormancy /exit, recycle, crash) BEFORE the next
+ *   • If the harness restarts (dormancy /exit, crash relaunch) BEFORE the next
  *     prompt, `--resume` rebuilds from the file and REVIVES the cancelled prompt
  *     (anthropics/claude-code#103213): new entries descend from it (a synthetic
  *     "No response requested." reply, or the next prompt). The tracker reports

@@ -577,8 +577,8 @@ describe("Phase 50 optimistic bubbles — integration (D-22 scenarios a-g)", () 
     expect(escalations.length).toBe(0);
   });
 
-  it("(h) Fix #2 session-recycle path — mid-armed watchdog on OLD session is cleared; no full-resend into NEW session", async () => {
-    // Regression: transitionToActiveNew (session recycle) previously reset
+  it("(h) Fix #2 session-file-change path — mid-armed watchdog on OLD session is cleared; no full-resend into NEW session", async () => {
+    // Regression: transitionToActiveNew (session-file change) previously reset
     // buffered per-session state (harnessTasks, backgroundedAgents, plan
     // pending, tail-state, etc.) but did NOT clear:
     //   • queueEnqueueDedup Map    (stale hashes suppress fresh-session frames)
@@ -587,7 +587,7 @@ describe("Phase 50 optimistic bubbles — integration (D-22 scenarios a-g)", () 
     //   • pendingMqidsForThisConnection Set (stale mqid bookkeeping)
     //
     // A watchdog armed against the OLD sessionId whose full-resend timer
-    // fires post-recycle directly violates the shape invariant "retry
+    // fires post-change directly violates the shape invariant "retry
     // never submits an unintended message" AND leaks private OLD-session
     // content into the NEW session's transcript.
     //
@@ -638,7 +638,7 @@ describe("Phase 50 optimistic bubbles — integration (D-22 scenarios a-g)", () 
     expect(pendingMqidsForThisConnection.has("m1")).toBe(true);
 
     // 2. Populate queueEnqueueDedup with an OLD-session hash to prove the
-    //    recycle cleanup wipes it. Real production sets these hashes via
+    //    session-change cleanup wipes it. Real production sets these hashes via
     //    __applyQueueDedupForTests when an enqueue frame parses; we insert
     //    directly to keep the test focused on the cleanup step under test.
     queueEnqueueDedup.set(computeContentHash("secret-old-body"), Date.now());
@@ -647,10 +647,10 @@ describe("Phase 50 optimistic bubbles — integration (D-22 scenarios a-g)", () 
     // 3. Simulate transitionToActiveNew mid-arm (before any signal arrives).
     //    Fires ~1s after the split-send — well before the 2500ms retry
     //    timer would otherwise trigger. Snapshot exec call count so
-    //    post-recycle activity can be measured in isolation from the
+    //    post-change activity can be measured in isolation from the
     //    (legitimate) initial split-send body+Enter calls.
     await vi.advanceTimersByTimeAsync(1000);
-    const execCallCountAtRecycle = exec.mock.calls.length;
+    const execCallCountAtChange = exec.mock.calls.length;
     __applyTransitionToActiveNewCleanupForTests({
       oldSessionId: OLD_SESSION_ID,
       queueEnqueueDedup,
@@ -664,22 +664,22 @@ describe("Phase 50 optimistic bubbles — integration (D-22 scenarios a-g)", () 
     // 4. Advance 30s — well past every watchdog stage.
     await vi.advanceTimersByTimeAsync(30_000);
 
-    // 5. No escalation fired post-recycle. exec call count is UNCHANGED
-    //    from the snapshot at recycle time — only the initial split-send
-    //    body + Enter (both pre-recycle) executed. Any additional exec
+    // 5. No escalation fired post-change. exec call count is UNCHANGED
+    //    from the snapshot at change time — only the initial split-send
+    //    body + Enter (both pre-change) executed. Any additional exec
     //    call would indicate the watchdog fired retry Enter (→ +1),
     //    full-resend (→ +3), or the give-up escalation (via wsSend, not
-    //    exec) — all forbidden post-recycle.
-    expect(exec.mock.calls.length).toBe(execCallCountAtRecycle);
-    // Sanity: those pre-recycle calls were exactly the split-send pair.
-    expect(execCallCountAtRecycle).toBe(2);
+    //    exec) — all forbidden post-change.
+    expect(exec.mock.calls.length).toBe(execCallCountAtChange);
+    // Sanity: those pre-change calls were exactly the split-send pair.
+    expect(execCallCountAtChange).toBe(2);
 
-    // No POST-recycle exec call contains the OLD body — proves full-resend
+    // No POST-change exec call contains the OLD body — proves full-resend
     // body write did NOT retype OLD content into NEW composebox. Skip the
-    // pre-recycle calls (index 0 body, index 1 Enter) because the initial
+    // pre-change calls (index 0 body, index 1 Enter) because the initial
     // body write LEGITIMATELY contains the OLD body.
-    const postRecycleCalls = exec.mock.calls.slice(execCallCountAtRecycle);
-    for (const call of postRecycleCalls) {
+    const postChangeCalls = exec.mock.calls.slice(execCallCountAtChange);
+    for (const call of postChangeCalls) {
       const cmd = call[1] as string;
       expect(cmd).not.toContain("secret-old-body");
     }
@@ -787,5 +787,5 @@ describe("Phase 50 optimistic bubbles — integration (D-22 scenarios a-g)", () 
 void clearPvSendWatchdog;
 // clearPvSendWatchdogsForSession is used indirectly via
 // __applyTransitionToActiveNewCleanupForTests in scenario (h); the import
-// stays for direct-invocation availability in future recycle-scenario tests.
+// stays for direct-invocation availability in future session-change-scenario tests.
 void clearPvSendWatchdogsForSession;

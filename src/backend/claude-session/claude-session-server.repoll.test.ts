@@ -38,7 +38,6 @@ function makeState(
     changeoverState: "active",
     currentSessionFile: "/home/ubuntu/.claude/projects/-home-ubuntu-proj/abc123.jsonl",
     holdingTicks: 0,
-    holdingReason: null,
     ...overrides,
   };
 }
@@ -157,100 +156,6 @@ describe("discovery repoll branch — case (b): active + same file + state=holdi
     expect(state.changeoverState).toBe("active");
     expect(state.holdingTicks).toBe(0);
     // WS received the correct frame:
-    expect(wsSend).toHaveBeenCalledOnce();
-    expect(JSON.parse(wsSend.mock.calls[0][0] as string)).toEqual({ type: "session_holding_cleared" });
-  });
-});
-
-// ── Case (b') — same-file-active during holding armed by id_reset ───────────
-// Regression: patch #358 (follow-up to #356). When Layer 1 armed the overlay
-// via /id reset, the 3-second same-file-active repoll tick MUST NOT clear the
-// overlay — Claude is still running its /id save flow, discovery correctly
-// reports the OLD session file as active, and the real recycle is coming. The
-// clear must be deferred to transitionToActiveNew when the NEW UUID appears.
-
-describe("discovery repoll branch — case (b'): active + same file + state=holding + reason=id_reset → NO clear", () => {
-  it("real helper with holdingReason='id_reset' guard is a no-op; state stays holding; WS receives nothing", () => {
-    const wsSend = vi.fn();
-    const mockWs = { readyState: 1, send: wsSend }; // WebSocket.OPEN
-    const state = makeState({
-      changeoverState: "holding",
-      currentSessionFile: SESSION_FILE,
-      holdingTicks: 1,
-      holdingReason: "id_reset", // Layer 1 armed via real /id reset
-    });
-
-    // Inline the real helper WITH the patch-#358 guard (mirrors
-    // transitionFromHoldingToActiveSameFile in claude-session-server.ts).
-    const transitionFromHoldingToActiveSameFile = vi.fn(() => {
-      if (state.changeoverState !== "holding") return;
-      if (state.holdingReason === "id_reset") return; // ← patch #358 guard
-      state.changeoverState = "active";
-      state.holdingReason = null;
-      state.holdingTicks = 0;
-      if (mockWs.readyState === 1) {
-        try { mockWs.send(JSON.stringify({ type: "session_holding_cleared" })); } catch { /* ignore */ }
-      }
-    });
-
-    const { stubs } = makeHelpers();
-    stubs.transitionFromHoldingToActiveSameFile = transitionFromHoldingToActiveSameFile;
-
-    __applyRepollResultForTests(
-      { status: "active", pid: 100, sessionFile: SESSION_FILE },
-      state,
-      stubs,
-    );
-
-    // Reducer still dispatches (it doesn't know about the reason):
-    expect(transitionFromHoldingToActiveSameFile).toHaveBeenCalledOnce();
-    // But the helper's guard means the OVERLAY state is UNCHANGED (still holding, still id_reset):
-    expect(state.changeoverState).toBe("holding");
-    expect(state.holdingReason).toBe("id_reset");
-    // holdingTicks DOES bump — that's the reducer's timeout bookkeeping,
-    // orthogonal to the clear-path guard. If the /id reset gets stuck and
-    // the new session file never appears, HOLDING_TIMEOUT_TICKS still fires
-    // transitionToDead as the safety valve. Initial 1 + this tick = 2.
-    expect(state.holdingTicks).toBe(2);
-    // And NO WS frame was sent — nothing clears the overlay client-side:
-    expect(wsSend).not.toHaveBeenCalled();
-  });
-
-  it("holdingReason='discovery_diff' still clears normally (patch #244 behavior preserved)", () => {
-    const wsSend = vi.fn();
-    const mockWs = { readyState: 1, send: wsSend };
-    const state = makeState({
-      changeoverState: "holding",
-      currentSessionFile: SESSION_FILE,
-      holdingTicks: 2,
-      holdingReason: "discovery_diff", // Layer 2 false-alarm arm
-    });
-
-    const transitionFromHoldingToActiveSameFile = vi.fn(() => {
-      if (state.changeoverState !== "holding") return;
-      if (state.holdingReason === "id_reset") return;
-      state.changeoverState = "active";
-      state.holdingReason = null;
-      state.holdingTicks = 0;
-      if (mockWs.readyState === 1) {
-        try { mockWs.send(JSON.stringify({ type: "session_holding_cleared" })); } catch { /* ignore */ }
-      }
-    });
-
-    const { stubs } = makeHelpers();
-    stubs.transitionFromHoldingToActiveSameFile = transitionFromHoldingToActiveSameFile;
-
-    __applyRepollResultForTests(
-      { status: "active", pid: 100, sessionFile: SESSION_FILE },
-      state,
-      stubs,
-    );
-
-    // False-alarm self-clear MUST still fire (Fix B / patch #244 preserved):
-    expect(transitionFromHoldingToActiveSameFile).toHaveBeenCalledOnce();
-    expect(state.changeoverState).toBe("active");
-    expect(state.holdingReason).toBeNull();
-    expect(state.holdingTicks).toBe(0);
     expect(wsSend).toHaveBeenCalledOnce();
     expect(JSON.parse(wsSend.mock.calls[0][0] as string)).toEqual({ type: "session_holding_cleared" });
   });
@@ -385,11 +290,12 @@ describe("discovery repoll branch — case (e): inactive/not_claude + state=acti
   });
 });
 
-// ── quick 260813-0qx — attach-path reset-window coverage ────────────────────
+// ── quick 260813-0qx — attach-path launch-window coverage ────────────────────
 //
-// Groups A/B/C exercise the new attach-path reset-window branch
+// Groups A/B/C exercise the new attach-path launch-window branch
 // (claude-session-server.ts ~L5155-onward) that fixes the deactivate →
-// /id reset window → reactivate → "no active Claude session" latch. See
+// launch window (claude relaunching) → reactivate → "no active Claude
+// session" latch. See
 // .planning/quick/260813-0qx-deactivate-reactivate-during-reset-latch/
 // 260813-0qx-PLAN.md for the diagnosis + spec.
 //
@@ -399,8 +305,7 @@ describe("discovery repoll branch — case (e): inactive/not_claude + state=acti
 //
 // Group B proves the post-holding handoff into the existing repoll
 // reducer works: after the attach branch seeds
-// {changeoverState:"holding", holdingReason:"discovery_diff",
-// holdingTicks:0, currentSessionFile:null}, subsequent ticks flowing
+// {changeoverState:"holding", holdingTicks:0, currentSessionFile:null}, subsequent ticks flowing
 // through __applyRepollResultForTests recover correctly (active-with-new-
 // file → transitionToActiveNew; N ticks of no_pid_session_file →
 // transitionToDead at HOLDING_TIMEOUT_TICKS; exec_error ticks don't burn
@@ -411,7 +316,7 @@ describe("discovery repoll branch — case (e): inactive/not_claude + state=acti
 
 // ── Group A: __classifyAttachInactiveForTests truth table ───────────────────
 
-describe("attach-path reset-window classifier — Group A truth table (quick 260813-0qx)", () => {
+describe("attach-path launch-window classifier — Group A truth table (quick 260813-0qx)", () => {
   // Helper factories for the two shapes the classifier consumes.
   const inactive = (
     reason:
@@ -428,31 +333,31 @@ describe("attach-path reset-window classifier — Group A truth table (quick 260
     sessionFile: SESSION_FILE,
   });
 
-  // no_pid_session_file → always reset_window (identity-shape irrelevant).
-  it("no_pid_session_file + isIdentityShapedCached:null → reset_window", () => {
-    expect(__classifyAttachInactiveForTests(inactive("no_pid_session_file"), null)).toBe("reset_window");
+  // no_pid_session_file → always launch_window (identity-shape irrelevant).
+  it("no_pid_session_file + isIdentityShapedCached:null → launch_window", () => {
+    expect(__classifyAttachInactiveForTests(inactive("no_pid_session_file"), null)).toBe("launch_window");
   });
-  it("no_pid_session_file + isIdentityShapedCached:false → reset_window", () => {
-    expect(__classifyAttachInactiveForTests(inactive("no_pid_session_file"), false)).toBe("reset_window");
+  it("no_pid_session_file + isIdentityShapedCached:false → launch_window", () => {
+    expect(__classifyAttachInactiveForTests(inactive("no_pid_session_file"), false)).toBe("launch_window");
   });
-  it("no_pid_session_file + isIdentityShapedCached:true → reset_window", () => {
-    expect(__classifyAttachInactiveForTests(inactive("no_pid_session_file"), true)).toBe("reset_window");
+  it("no_pid_session_file + isIdentityShapedCached:true → launch_window", () => {
+    expect(__classifyAttachInactiveForTests(inactive("no_pid_session_file"), true)).toBe("launch_window");
   });
 
-  // no_open_session_file → always reset_window (identity-shape irrelevant).
-  it("no_open_session_file + isIdentityShapedCached:null → reset_window", () => {
-    expect(__classifyAttachInactiveForTests(inactive("no_open_session_file"), null)).toBe("reset_window");
+  // no_open_session_file → always launch_window (identity-shape irrelevant).
+  it("no_open_session_file + isIdentityShapedCached:null → launch_window", () => {
+    expect(__classifyAttachInactiveForTests(inactive("no_open_session_file"), null)).toBe("launch_window");
   });
-  it("no_open_session_file + isIdentityShapedCached:false → reset_window", () => {
-    expect(__classifyAttachInactiveForTests(inactive("no_open_session_file"), false)).toBe("reset_window");
+  it("no_open_session_file + isIdentityShapedCached:false → launch_window", () => {
+    expect(__classifyAttachInactiveForTests(inactive("no_open_session_file"), false)).toBe("launch_window");
   });
-  it("no_open_session_file + isIdentityShapedCached:true → reset_window", () => {
-    expect(__classifyAttachInactiveForTests(inactive("no_open_session_file"), true)).toBe("reset_window");
+  it("no_open_session_file + isIdentityShapedCached:true → launch_window", () => {
+    expect(__classifyAttachInactiveForTests(inactive("no_open_session_file"), true)).toBe("launch_window");
   });
 
   // not_claude — identity-shape gates the verdict.
-  it("not_claude + isIdentityShapedCached:true → reset_window (identity pane mid-reset)", () => {
-    expect(__classifyAttachInactiveForTests(inactive("not_claude"), true)).toBe("reset_window");
+  it("not_claude + isIdentityShapedCached:true → launch_window (identity pane mid-relaunch)", () => {
+    expect(__classifyAttachInactiveForTests(inactive("not_claude"), true)).toBe("launch_window");
   });
   it("not_claude + isIdentityShapedCached:false → fallback_01 (bare shell — terminal)", () => {
     expect(__classifyAttachInactiveForTests(inactive("not_claude"), false)).toBe("fallback_01");
@@ -505,7 +410,7 @@ describe("attach-path reset-window classifier — Group A truth table (quick 260
 // production constant. Keep in sync.
 const TIMEOUT = 200; // ← MUST equal HOLDING_TIMEOUT_TICKS in claude-session-server.ts:187
 
-describe("attach-path reset-window handoff — Group B post-holding recovery/timeout (quick 260813-0qx)", () => {
+describe("attach-path launch-window handoff — Group B post-holding recovery/timeout (quick 260813-0qx)", () => {
   // Case B1: recovery — new session file appears after attach-branch seeded
   // holding with currentSessionFile:null.
   it("B1: active tick with new sessionFile → transitionToActiveNew fires; no other helpers called", () => {
@@ -513,7 +418,6 @@ describe("attach-path reset-window handoff — Group B post-holding recovery/tim
       changeoverState: "holding",
       currentSessionFile: null,
       holdingTicks: 0,
-      holdingReason: "discovery_diff",
     });
     const {
       stubs,
@@ -548,7 +452,6 @@ describe("attach-path reset-window handoff — Group B post-holding recovery/tim
       changeoverState: "holding",
       currentSessionFile: null,
       holdingTicks: 0,
-      holdingReason: "discovery_diff",
     });
     const { stubs, transitionToDead } = makeHelpers();
 
@@ -587,7 +490,6 @@ describe("attach-path reset-window handoff — Group B post-holding recovery/tim
       changeoverState: "holding",
       currentSessionFile: null,
       holdingTicks: 0,
-      holdingReason: "discovery_diff",
     });
     const {
       stubs,
@@ -618,7 +520,6 @@ describe("attach-path reset-window handoff — Group B post-holding recovery/tim
       changeoverState: "holding",
       currentSessionFile: null,
       holdingTicks: 5,
-      holdingReason: "discovery_diff",
     });
     const { stubs, transitionToActiveNew } = makeHelpers();
 
@@ -639,13 +540,12 @@ describe("attach-path reset-window handoff — Group B post-holding recovery/tim
 
 // ── Group C: mixed-sequence integration smoke test ──────────────────────────
 
-describe("attach-path reset-window handoff — Group C integration smoke test (quick 260813-0qx)", () => {
+describe("attach-path launch-window handoff — Group C integration smoke test (quick 260813-0qx)", () => {
   it("no_pid×2 → exec_error×3 → active recovery: budget preserved, recovery fires", () => {
     const state = makeState({
       changeoverState: "holding",
       currentSessionFile: null,
       holdingTicks: 0,
-      holdingReason: "discovery_diff",
     });
     const { stubs, transitionToActiveNew } = makeHelpers();
     // Wire transitionToActiveNew to also mutate state (so if the test grew

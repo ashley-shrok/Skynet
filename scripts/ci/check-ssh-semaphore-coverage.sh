@@ -57,8 +57,6 @@ ALLOW_LIST=(
   # sessions.ts — tmux list-sessions discovery; low-frequency, low-risk route.
   "src/backend/database/routes/sessions.ts"
 
-  # agent-reset.ts — one-shot exec for agent reset command.
-  "src/backend/database/routes/agent-reset.ts"
 
 
   # roles-list-for-host.ts — lists roles via SSH exec.

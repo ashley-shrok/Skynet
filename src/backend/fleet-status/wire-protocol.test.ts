@@ -284,61 +284,61 @@ describe("wire-protocol", () => {
     expect(FRAME_SCHEMA_VERSION).toBe(1);
   });
 
-  // Phase 53 Plan 01 — recycling is an optional, back-compat boolean field on
-  // SessionState. Source: ~/fleet/identities/<tmuxSession>/.recycled-at sentinel
-  // file on the target host. Semantics: true → sentinel present (recycle in flight);
-  // false → sentinel absent; null → normalised-null; undefined → pre-Phase-53 watcher.
+  // Phase 53 Plan 01 — condensing is an optional, back-compat boolean field on
+  // SessionState. Source: ~/fleet/identities/<tmuxSession>/.compact-requested OR
+  // .compacting on the target host. Semantics: true → a compaction is queued or in
+  // flight; false → neither present; null → normalised-null; undefined → not stamped.
   // Frontend treats undefined/null identically (both → false). FRAME_SCHEMA_VERSION
   // deliberately held at 1 (same T-41-03-05 mitigation as lastMessageAt/aiTitle/dormant).
 
-  it("Test P53-01 A (Phase 53 Plan 01 schema forward — true): SessionState parses when recycling is true — the boolean value is preserved", () => {
-    const withRecyclingTrue = { ...validSessionState, recycling: true };
-    const result = SessionStateSchema.safeParse(withRecyclingTrue);
+  it("Test P53-01 A (Phase 53 Plan 01 schema forward — true): SessionState parses when condensing is true — the boolean value is preserved", () => {
+    const withCondensingTrue = { ...validSessionState, condensing: true };
+    const result = SessionStateSchema.safeParse(withCondensingTrue);
     expect(result.success).toBe(true);
     if (result.success) {
-      expect(result.data.recycling).toBe(true);
+      expect(result.data.condensing).toBe(true);
     }
   });
 
-  it("Test P53-01 B (Phase 53 Plan 01 schema forward — false): SessionState parses when recycling is false — the boolean value is preserved", () => {
-    const withRecyclingFalse = { ...validSessionState, recycling: false };
-    const result = SessionStateSchema.safeParse(withRecyclingFalse);
+  it("Test P53-01 B (Phase 53 Plan 01 schema forward — false): SessionState parses when condensing is false — the boolean value is preserved", () => {
+    const withCondensingFalse = { ...validSessionState, condensing: false };
+    const result = SessionStateSchema.safeParse(withCondensingFalse);
     expect(result.success).toBe(true);
     if (result.success) {
-      expect(result.data.recycling).toBe(false);
+      expect(result.data.condensing).toBe(false);
     }
   });
 
-  it("Test P53-01 C (Phase 53 Plan 01 schema null): SessionState parses when recycling is explicitly null — the null value is preserved (pre-Phase-53 path through nullable)", () => {
-    const withNull = { ...validSessionState, recycling: null };
+  it("Test P53-01 C (Phase 53 Plan 01 schema null): SessionState parses when condensing is explicitly null — the null value is preserved (pre-Phase-53 path through nullable)", () => {
+    const withNull = { ...validSessionState, condensing: null };
     const result = SessionStateSchema.safeParse(withNull);
     expect(result.success).toBe(true);
     if (result.success) {
-      expect(result.data.recycling).toBeNull();
+      expect(result.data.condensing).toBeNull();
     }
   });
 
-  it("Test P53-01 D (Phase 53 Plan 01 schema back-compat): SessionState parses when recycling is OMITTED — field is optional, pre-Phase-53 watcher remains compatible", () => {
-    // validSessionState fixture at top-of-file does NOT carry recycling —
-    // parse must succeed; the parsed result has recycling === undefined
+  it("Test P53-01 D (Phase 53 Plan 01 schema back-compat): SessionState parses when condensing is OMITTED — field is optional, pre-Phase-53 watcher remains compatible", () => {
+    // validSessionState fixture at top-of-file does NOT carry condensing —
+    // parse must succeed; the parsed result has condensing === undefined
     const result = SessionStateSchema.safeParse(validSessionState);
     expect(result.success).toBe(true);
     if (result.success) {
-      expect(result.data.recycling).toBeUndefined();
+      expect(result.data.condensing).toBeUndefined();
     }
   });
 
-  it("Test P53-01 E (Phase 53 Plan 01 schema type-enforcement): SessionState rejects recycling of wrong type (string) — z.boolean() enforces the type when the field IS present", () => {
-    const withBadType = { ...validSessionState, recycling: "yes" };
+  it("Test P53-01 E (Phase 53 Plan 01 schema type-enforcement): SessionState rejects condensing of wrong type (string) — z.boolean() enforces the type when the field IS present", () => {
+    const withBadType = { ...validSessionState, condensing: "yes" };
     const result = SessionStateSchema.safeParse(withBadType);
     expect(result.success).toBe(false);
     if (!result.success) {
       const paths = result.error.issues.map((i) => i.path.join("."));
-      expect(paths.some((p) => p.includes("recycling"))).toBe(true);
+      expect(paths.some((p) => p.includes("condensing"))).toBe(true);
     }
   });
 
-  it("Test P53-01 F (Phase 53 Plan 01 schema version guard): FRAME_SCHEMA_VERSION is NOT bumped by the additive+optional recycling extension — stays at 1", () => {
+  it("Test P53-01 F (Phase 53 Plan 01 schema version guard): FRAME_SCHEMA_VERSION is NOT bumped by the additive+optional condensing extension — stays at 1", () => {
     // Additive+optional fields never require a version bump per T-41-03-05 mitigation.
     expect(FRAME_SCHEMA_VERSION).toBe(1);
   });
@@ -358,7 +358,7 @@ describe("wire-protocol", () => {
 // Additive-optional invariant: FRAME_SCHEMA_VERSION deliberately HELD AT 1
 // (T-41-03-05 mitigation, fifth iteration inheriting the pattern established
 // by Phase 41 lastMessageAt, continued by Phase 47 aiTitle + Phase 52
-// dormant + Phase 53 recycling).
+// dormant + Phase 53 condensing).
 // ---------------------------------------------------------------------------
 
 describe("wire-protocol Phase 59 additive axes — lastStopAt + lastStatusChangeAt", () => {
@@ -440,7 +440,7 @@ describe("wire-protocol Phase 59 additive axes — lastStopAt + lastStatusChange
 
   it("Test P57-01 E (Phase 59 Plan 01 schema version guard): FRAME_SCHEMA_VERSION remains 1 — the two additive+optional axes never require a version bump (T-41-03-05 mitigation)", () => {
     // Fifth iteration of the pattern established by Phase 41 lastMessageAt
-    // (continued by Phase 47 aiTitle + Phase 52 dormant + Phase 53 recycling).
+    // (continued by Phase 47 aiTitle + Phase 52 dormant + Phase 53 condensing).
     expect(FRAME_SCHEMA_VERSION).toBe(1);
   });
 
@@ -478,7 +478,7 @@ describe("wire-protocol Phase 59 additive axes — lastStopAt + lastStatusChange
 //
 // Additive-optional invariant: FRAME_SCHEMA_VERSION deliberately HELD AT 1 —
 // sixth iteration of the T-41-03-05 mitigation established by Phase 41
-// lastMessageAt (Phase 41 → 47 aiTitle → 52 dormant → 53 recycling → 59
+// lastMessageAt (Phase 41 → 47 aiTitle → 52 dormant → 53 condensing → 59
 // lastStopAt + lastStatusChangeAt → this Phase 62 addition).
 //
 // Option-1 rollout retention proof: Phase 59 lastStopAt + lastStatusChangeAt
@@ -583,7 +583,7 @@ describe("wire-protocol Phase 62 additive axes — activityMtime + stoppedMtime"
   it("Test P62-03 F (schema version guard): FRAME_SCHEMA_VERSION remains 1 — the two additive+optional axes never require a version bump (T-41-03-05 mitigation, sixth iteration)", () => {
     // Sixth iteration of the pattern:
     //   Phase 41 lastMessageAt → Phase 47 aiTitle → Phase 52 dormant →
-    //   Phase 53 recycling → Phase 59 lastStopAt + lastStatusChangeAt →
+    //   Phase 53 condensing → Phase 59 lastStopAt + lastStatusChangeAt →
     //   this Phase 62 activityMtime + stoppedMtime.
     // Every prior addition held the version at 1; this one continues that.
     expect(FRAME_SCHEMA_VERSION).toBe(1);
@@ -1003,7 +1003,7 @@ describe("wire-protocol Phase 117 Plan 117-03 — project-list-changed frame", (
   it("Test P117-03-9 (FRAME_SCHEMA_VERSION unchanged): adding a discriminated-union entry does NOT bump the version — additive-optional invariant", () => {
     // Iterations of the T-41-03-05 mitigation. Lineage:
     //   Phase 41 lastMessageAt → Phase 47 aiTitle → Phase 52 dormant →
-    //   Phase 53 recycling → Phase 59 lastStopAt/lastStatusChangeAt →
+    //   Phase 53 condensing → Phase 59 lastStopAt/lastStatusChangeAt →
     //   Phase 62 activityMtime/stoppedMtime → Phase 90 contextPct →
     //   Phase 111 identityAppearance → THIS Phase 117 project-list-changed frame.
     //   (Phase 115 identity-archived frame retired in Phase 122 follow-up.)

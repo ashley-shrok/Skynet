@@ -22,8 +22,7 @@
  * wire frame (T-30-02 mitigation).
  *
  * THIS MODULE IS PURE. It imports nothing I/O-shaped (no ws / ssh2 / logger /
- * fs). All side effects go through the injected `wsSend` callback. Same
- * "pure module, testable in isolation" property as layer1-detect.ts — the
+ * fs). All side effects go through the injected `wsSend` callback — the
  * caller in claude-session-server.ts owns the WebSocket-open guard and the
  * try/catch around ws.send, and passes a closure that does exactly what the
  * pre-Phase-30 emit sites did.
@@ -37,7 +36,7 @@
  * call, and neither is deleted.
  *
  * REASON VOCABULARY (per 30-CONTEXT.md § Backend observations):
- *   holding:  id_reset | discovery_diff | pid_death | exit_scan
+ *   holding:  discovery_diff
  *   active:   (none) | same_file_recovery | session_changed | dormancy_cleared
  *   dormant:  (none)
  *   inactive: holding_timeout | no_session | session_marked_inactive |
@@ -111,8 +110,7 @@ export type PaneStateEmitter = {
  * the pre-Phase-30 emit sites did (open-guard + try/catch around ws.send).
  *
  * Instantiation lives in the WS connection scope in claude-session-server.ts
- * (per Plan 30-01 Task 2 Step 3, right after the `layer1: Layer1State`
- * declaration). One emitter per WS; per-pane-switch teardown does NOT tear
+ * (per Plan 30-01 Task 2 Step 3). One emitter per WS; per-pane-switch teardown does NOT tear
  * down the emitter — the connection lifetime is the emitter's lifetime.
  * (A subsequent connectToPane on the same WS reuses the emitter; the dedupe
  * on last-emit correctly re-fires when the new pane's first transition

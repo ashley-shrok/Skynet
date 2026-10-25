@@ -405,10 +405,9 @@ function makeSweepJsonl(input: {
       schema_version: version,
       identity: raw.identity,
       dormant: raw.dormant ?? false,
-      recycled_at: raw.recycled_at ?? false,
-      recycle_requested: raw.recycle_requested ?? false,
+      compact_requested: raw.compact_requested ?? false,
+      compacting: raw.compacting ?? false,
       jsonl_path: raw.jsonl_path ?? null,
-      layer1_recycling: raw.layer1_recycling ?? null,
       // Phase 111 Plan 03 — optional appearance fields (present only when supplied
       // by the test; absent = undefined = pre-Phase-111-01 host simulation).
       ...(raw.identity_cosmetics !== undefined
@@ -1706,7 +1705,7 @@ describe("isRealUserTurn — user 2026-08-23 lock predicate matrix", () => {
       timestamp: "2026-08-29T15:13:00.000Z",
       uuid: "u9",
     });
-    // Agent-supervisor /exit before recycle — contains <command-name>/exit</command-name> → DROP.
+    // Agent-supervisor /exit before a restart — contains <command-name>/exit</command-name> → DROP.
     expect(await scanSingleLine(rawLine)).toBeNull();
   });
 
@@ -1985,9 +1984,9 @@ describe("Phase 44 Plan 02 — discovery-based JSONL path derivation + caching +
     // keyed send-log store (getIdentityLastSend), so the JSONL tail is no
     // longer the source of truth for that axis — the counter no longer
     // increments from source A on this axis (the increment logic was
-    // removed with the swap; the counter mechanic itself stays defined
-    // because source B pollDormantOnlyIdentities still uses the constant
-    // + field for its Layer 1 recycling tail-scan rediscovery contract).
+    // removed with the swap; the threshold constant itself is now retired
+    // too — its last consumer, source B's `/id reset` tail-scan, went away
+    // with agent reset).
     //
     // Net observable change: 7 ticks in source A yields exactly 1
     // discovery call (the cold-cache tick 1) — no rediscovery trip. The
@@ -4037,1528 +4036,257 @@ describe("quick-260820-tm0 — perHostState pruning on refresh", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// Phase 53 Plan 01 — source A recycling stat + fingerprint
+// ==============================================================================
+// Condense — source B `condensing` axis (per-identity, PID-independent)
 //
-// Contract (locked by 53-01-PLAN.md § task 2 + § threat_model T-53-01-01/02):
-//   - Per PID-tick, when tmuxSession is non-null, orchestrator executes
-//     `stat ~/fleet/identities/'<escapedTmuxSession>'/.recycled-at 2>/dev/null
-//     >/dev/null && echo yes || echo no` on the SSH channel. Trimmed stdout
-//     "yes" → recycling true; "no" → recycling false; anything else (null, throw)
-//     → fail-open (preserve cached value, default false on cold start).
-//   - Composed SessionState.recycling carries the derived boolean.
-//   - computeFingerprint includes recycling as a distinct axis so a recycling-only
-//     flip publishes a new frame (status/backgroundTasks/lastMessageAt/aiTitle/dormant
-//     all unchanged still fires publishSessionState on recycling delta).
-//   - PidCacheEntry.recycling caches the value for fail-open across ticks.
-//   - If tmuxSession is null (identity name unknown) → skip stat, use cache.
-//   - No source B added — the caretaker's sentinel is placed while the outgoing
-//     PID is still alive and held for 8s after the fresh PID is up, so source A
-//     coverage is sufficient (see Phase 53 RESEARCH § Assumption A1).
-// ---------------------------------------------------------------------------
+// condensing = `.compact-requested` (dropped by the agent or the app) ||
+// `.compacting` (held by the supervisor while the compaction runs). Source B
+// is the SOLE publisher of the axis; source A omits it. Compaction happens in
+// place — the agent keeps its live PID — so source B lifts its live-PID skip
+// while condensing and publishes a final condensing:false frame on the way out
+// before evicting. The retired `.recycle-requested` / `.recycled-at` sentinels
+// and the `/id reset` transcript scan must never be probed.
+// ==============================================================================
 
-describe("Phase 53 Plan 01 — source A recycling stat + fingerprint", () => {
+describe("Condense — source B condensing axis", () => {
   beforeEach(() => {
     vi.clearAllMocks();
   });
-
-  // Local jsonlMessageLine — same shape as sibling describes.
-  function jsonlMessageLine(
-    tsMillis: number,
-    role: "user" | "assistant",
-    content: string,
-  ): string {
-    return JSON.stringify({
-      type: role,
-      message: { role, content },
-      timestamp: new Date(tsMillis).toISOString(),
-      uuid: `uuid-${tsMillis}-${role}`,
-    });
-  }
-
-  function buildDiscoveryFixture(
-    identityName: string,
-    discoveredPath: string,
-    matchesIdentity = true,
-  ): string {
-    // Phase 32 refactor: shell script now does match+early-exit,
-    // stdout is just the mtime-latest matching path (or empty).
-    return matchesIdentity ? `${discoveredPath}
-` : "";
-  }
-
-  // wireBaseResponses — mirrors the Phase 52 Plan 01 Task 2 sibling exactly,
-  // but also wires a default .recycled-at response ("no\n") so recycling tests
-  // that don't need to override the recycling stat get the safe default.
-  //
-  // quick-260823-73o migration: source A no longer stamps the recycling axis;
-  // source B (identity-folder-keyed) is the sole publisher. wireBaseResponses
-  // therefore wires "ls -1 ~/fleet/identities/" → "tina\n" so source B
-  // enumerates tina every tick and exercises the recycle-axis pipeline that
-  // used to live in source A. Assertions in this describe block that check
-  // recycling MUST look at the source-B frame (sessionId === "__dormant__"),
-  // not the source-A frame (pid === 12345, always recycling:false now).
-  function wireBaseResponses(
-    channel: MockSshChannel,
-    jsonlContents: string,
-    discoveryOverride?: string,
-  ): void {
-    channel.setResponse("ls -1 ~/.claude/sessions/", "/home/ubuntu/.claude/sessions/12345.json\n");
-    // quick-260823-73o: source B needs to iterate tina to publish the recycling axis.
-    channel.setResponse("~/fleet/identities/ -mindepth", "tina\n");
-    channel.setResponse(
-      "cat ~/.claude/sessions/12345.json",
-      makeSessionJson(),
-    );
-    channel.setResponse("cat /proc/12345/stat", makeStatContents("12345"));
-    channel.setResponse("cat /proc/12345/environ", "TMUX_PANE=%2\0");
-    channel.setResponse("tmux display-message", "tina");
-    channel.setResponse(
-      "fleet-status/last-stop-payload.json",
-      makeValidPayload(),
-    );
-    const discoveryStdout =
-      discoveryOverride ??
-      buildDiscoveryFixture(
-        "tina",
-        "~/.claude/projects/-home-ubuntu-skynet-tina/discovered.jsonl",
-      );
-    channel.setResponse("IDENTITY=", discoveryStdout);
-    channel.setResponse("discovered.jsonl", jsonlContents);
-    // Default dormant stat response (not dormant) — mirrors Phase 52 Task 2 sibling.
-    channel.setResponse("stat ~/fleet/identities/'tina'/.dormant", "no\n");
-    // Default recycled-at stat response (not recycling) — override per test as needed.
-    channel.setResponse("stat ~/fleet/identities/'tina'/.recycled-at", "no\n");
-    // quick-260823-recycle-overlay: default .recycle-requested stat (not present).
-    // Override per test to exercise the new source-A axis.
-    channel.setResponse(
-      "test -f ~/fleet/identities/'tina'/.recycle-requested",
-      "no\n",
-    );
-  }
-
-  // quick-260823-73o helper — pick the source-B frame from the publish log.
-  // Source B frames carry sessionId "__dormant__" + pid null; source A frames
-  // carry the real sessionId and pid 12345. Under the migration, only source B
-  // stamps the recycling axis, so tests must look at the source-B frame.
-  function pickSourceBFrame(
-    publishedStates: Array<{ hostId: string; state: SessionState }>,
-  ): SessionState | undefined {
-    const frames = publishedStates.filter(
-      (p) => p.state.sessionId === "__dormant__",
-    );
-    return frames[frames.length - 1]?.state;
-  }
-
-  // ---------------------------------------------------------------------------
-  // Test P53-01-T1-i — stat returns "yes\n" → SessionState.recycling === true.
-  // ---------------------------------------------------------------------------
-
-  it("Test P53-01-T1-i: stat returns 'yes\\n' → composed SessionState.recycling === true; publishSessionState called with recycling:true", async () => {
-    const channel = new MockSshChannel();
-    wireBaseResponses(channel, jsonlMessageLine(1000, "assistant", "hi") + "\n");
-    // Override default recycled-at response to simulate sentinel present.
-    channel.setResponse(
-      "stat ~/fleet/identities/'tina'/.recycled-at",
-      "yes\n",
-    );
-
-    const deps = buildDeps({
-      acquireSshChannel: vi.fn().mockResolvedValue(channel),
-    });
-
-    const orchestrator = createSshPollOrchestrator(deps);
-    await orchestrator.start();
-
-    expect(deps.registry.publishedStates.length).toBeGreaterThan(0);
-    // quick-260823-73o: source B is the sole publisher of the recycling axis.
-    const sourceBFrame = pickSourceBFrame(deps.registry.publishedStates);
-    expect(sourceBFrame).toBeDefined();
-    expect(sourceBFrame!.recycling).toBe(true);
-  });
-
-  // ---------------------------------------------------------------------------
-  // Test P53-01-T1-ii — stat returns "no\n" → SessionState.recycling === false.
-  // ---------------------------------------------------------------------------
-
-  it("Test P53-01-T1-ii: stat returns 'no\\n' → composed SessionState.recycling === false", async () => {
-    const channel = new MockSshChannel();
-    wireBaseResponses(channel, jsonlMessageLine(1000, "assistant", "hi") + "\n");
-    channel.setResponse(
-      "stat ~/fleet/identities/'tina'/.recycled-at",
-      "no\n",
-    );
-
-    const deps = buildDeps({
-      acquireSshChannel: vi.fn().mockResolvedValue(channel),
-    });
-
-    const orchestrator = createSshPollOrchestrator(deps);
-    await orchestrator.start();
-
-    expect(deps.registry.publishedStates.length).toBeGreaterThan(0);
-    // inline-260830-source-a-omit-recycling: source A omits recycling;
-    // source B SKIPS when live PID + !isRecycling. Semantic: no frame
-    // stamps recycling:true.
-    for (const p of deps.registry.publishedStates) {
-      expect(p.state.recycling).not.toBe(true);
-    }
-  });
-
-  // ---------------------------------------------------------------------------
-  // Test P53-01-T1-iii — stat returns null (SSH hiccup) → cached value preserved
-  //                       (fail-open). Cold start cache defaults to false.
-  // ---------------------------------------------------------------------------
-
-  it("Test P53-01-T1-iii: stat returns null (SSH hiccup) → cold-start cached value (false) preserved (fail-open)", async () => {
-    const channel = new MockSshChannel();
-    wireBaseResponses(channel, jsonlMessageLine(1000, "assistant", "hi") + "\n");
-    // Return null — simulates SSH channel error mid-tick. Orchestrator MUST
-    // fall through to cached value (default false on cold start), NOT throw.
-    channel.setResponse(
-      "stat ~/fleet/identities/'tina'/.recycled-at",
-      null,
-    );
-
-    const deps = buildDeps({
-      acquireSshChannel: vi.fn().mockResolvedValue(channel),
-    });
-
-    const orchestrator = createSshPollOrchestrator(deps);
-    await expect(orchestrator.start()).resolves.not.toThrow();
-
-    expect(deps.registry.publishedStates.length).toBeGreaterThan(0);
-    // Fail-open — cold-start cache default is false.
-    // inline-260830-source-a-omit-recycling: source A omits the recycling
-    // axis (undefined). Source B SKIPS publish when the identity has a live
-    // PID AND !isRecycling (liveTmuxSet skip-and-evict — preserved from the
-    // quick-260823-73o migration). Semantic under the new contract:
-    // no published frame stamps recycling:true this tick.
-    for (const p of deps.registry.publishedStates) {
-      expect(p.state.recycling).not.toBe(true);
-    }
-  });
-
-  // ---------------------------------------------------------------------------
-  // Test P53-01-T1-iv — two consecutive ticks with SAME recycling value →
-  //                     fingerprint-suppressed (no second publish).
-  // ---------------------------------------------------------------------------
-
-  it("Test P53-01-T1-iv: two consecutive ticks with SAME recycling value (all other axes unchanged) → second tick fingerprint-suppressed (no second publish)", async () => {
-    const channel = new MockSshChannel();
-    wireBaseResponses(channel, jsonlMessageLine(1000, "assistant", "hi") + "\n");
-    channel.setResponse(
-      "stat ~/fleet/identities/'tina'/.recycled-at",
-      "no\n",
-    );
-
-    const setIntervalFns: Array<{ fn: () => void; ms: number }> = [];
-    const deps = buildDeps({
-      acquireSshChannel: vi.fn().mockResolvedValue(channel),
-      setInterval: vi.fn((fn: () => void, ms: number) => {
-        setIntervalFns.push({ fn, ms });
-        return setIntervalFns.length as unknown as ReturnType<typeof setInterval>;
-      }),
-    });
-
-    const orchestrator = createSshPollOrchestrator(deps);
-    await orchestrator.start(); // tick 1: publishes with recycling:false
-
-    const publishesAfterTick1 = deps.registry.publishedStates.length;
-    expect(publishesAfterTick1).toBeGreaterThan(0);
-
-    // Tick 2: everything unchanged (same recycling value, same session json,
-    // same tail contents) → fingerprint identical → no publish.
-    const pollFn = setIntervalFns.find((f) => f.ms === 2000);
-    expect(pollFn).toBeDefined();
-    if (pollFn) {
-      await pollFn.fn();
-    }
-
-    expect(deps.registry.publishedStates.length).toBe(publishesAfterTick1);
-  });
-
-  // ---------------------------------------------------------------------------
-  // Test P53-01-T1-v — recycling-only delta (status/backgroundTasks/lastMessageAt/
-  //                    aiTitle/dormant all held identical across ticks; only recycling
-  //                    flips false→true on tick 2) → second tick DOES publish
-  //                    (fingerprint delta detected on recycling axis).
-  // ---------------------------------------------------------------------------
-
-  it("Test P53-01-T1-v: recycling flips false→true (all other axes unchanged) → second tick publishes (fingerprint delta on recycling axis)", async () => {
-    const channel = new MockSshChannel();
-    wireBaseResponses(channel, jsonlMessageLine(1000, "assistant", "hi") + "\n");
-    // Tick 1: recycling:false
-    channel.setResponse(
-      "stat ~/fleet/identities/'tina'/.recycled-at",
-      "no\n",
-    );
-
-    const setIntervalFns: Array<{ fn: () => void; ms: number }> = [];
-    const deps = buildDeps({
-      acquireSshChannel: vi.fn().mockResolvedValue(channel),
-      setInterval: vi.fn((fn: () => void, ms: number) => {
-        setIntervalFns.push({ fn, ms });
-        return setIntervalFns.length as unknown as ReturnType<typeof setInterval>;
-      }),
-    });
-
-    const orchestrator = createSshPollOrchestrator(deps);
-    await orchestrator.start(); // tick 1: recycling:false published
-
-    const publishesAfterTick1 = deps.registry.publishedStates.length;
-    expect(publishesAfterTick1).toBeGreaterThan(0);
-    // inline-260830-source-a-omit-recycling: source A omits recycling; source
-    // B skips when live PID + !isRecycling. Tick 1 semantic: no frame stamps
-    // recycling:true.
-    for (const p of deps.registry.publishedStates) {
-      expect(p.state.recycling).not.toBe(true);
-    }
-
-    // Tick 2: recycling flips to true — ALL OTHER axes unchanged (same session
-    // json, same tail, same hook payload, same dormant). Fingerprint MUST see
-    // the recycling delta and fire publish.
-    channel.setResponse(
-      "stat ~/fleet/identities/'tina'/.recycled-at",
-      "yes\n",
-    );
-
-    const pollFn = setIntervalFns.find((f) => f.ms === 2000);
-    expect(pollFn).toBeDefined();
-    if (pollFn) {
-      await pollFn.fn();
-    }
-
-    const publishesAfterTick2 = deps.registry.publishedStates.length;
-    expect(publishesAfterTick2).toBe(publishesAfterTick1 + 1);
-    expect(
-      deps.registry.publishedStates[publishesAfterTick2 - 1].state.recycling,
-    ).toBe(true);
-  });
-});
-
-// ==============================================================================
-// Phase 53 CR C2/C3 — source B recycling coverage (2026-08-21)
-//
-// Post-execute code review flagged two gaps in Phase 53's initial source-A-only
-// design:
-//
-//   C2: When the outgoing claude PID exits during a recycle, source A stops
-//       publishing for that key. A browser tab opening during the PID-vanish
-//       window (before the fresh PID comes up) sees no state for the identity
-//       and its row incorrectly shows "ready" instead of "recycling."
-//
-//   C3: When source B publishes for a dormant identity, it previously omitted
-//       recycling. If both .dormant AND .recycled-at existed on the same
-//       identity, the source-B frame blanked the recycling axis in the registry
-//       snapshot — later subscribers saw not-recycling.
-//
-// Fix: source B stats both .dormant AND .recycled-at on every tick, and
-// publishes when EITHER axis changes vs cache. dormantOnlyIdentities cache
-// widened from Map<name, boolean> to Map<name, {dormant, recycling}>.
-// ==============================================================================
-
-describe("Phase 53 CR C2/C3 — source B recycling coverage", () => {
-  beforeEach(() => {
-    vi.clearAllMocks();
-  });
-
-  // wireEmptySessions helper — copy of the Phase 52 T3 sibling for isolation.
-  function wireEmptySessions(channel: MockSshChannel): void {
-    channel.setResponse("ls -1 ~/.claude/sessions/", "");
-    channel.setResponse("fleet-status/last-stop-payload.json", makeValidPayload());
-  }
-
-  // ---------------------------------------------------------------------------
-  // Test P53-CR-C2-i — Identity with .recycled-at present + NO live PID →
-  //                    source B publishes recycling:true frame (C2 fix).
-  // Pre-fix: source A only, no publish for this key → browser saw "ready".
-  // ---------------------------------------------------------------------------
-
-  it("Test P53-CR-C2-i: identity with .recycled-at present + no live PID → source B publishes recycling:true frame", async () => {
-    const channel = new MockSshChannel();
-    wireEmptySessions(channel);
-    channel.setResponse("~/fleet/identities/ -mindepth", "tina\n");
-    // dormant absent, recycling present — the exact PID-vanish window.
-    channel.setResponse("stat ~/fleet/identities/'tina'/.dormant", "no\n");
-    channel.setResponse("stat ~/fleet/identities/'tina'/.recycled-at", "yes\n");
-
-    const deps = buildDeps({
-      acquireSshChannel: vi.fn().mockResolvedValue(channel),
-    });
-
-    const orchestrator = createSshPollOrchestrator(deps);
-    await orchestrator.start();
-
-    expect(deps.registry.publishedStates).toHaveLength(1);
-    const p = deps.registry.publishedStates[0];
-    expect(p.state.sessionId).toBe("__dormant__");
-    expect(p.state.pid).toBeNull();
-    expect(p.state.tmuxSession).toBe("tina");
-    expect(p.state.dormant).toBe(false);
-    expect(p.state.recycling).toBe(true);
-  });
-
-  // ---------------------------------------------------------------------------
-  // Test P53-CR-C3-i — Identity with BOTH .dormant AND .recycled-at + no live
-  //                    PID → source B publishes with BOTH true (C3 fix).
-  // Pre-fix: source B omitted recycling → registry snapshot blanked the axis.
-  // ---------------------------------------------------------------------------
-
-  it("Test P53-CR-C3-i: identity with both .dormant and .recycled-at → source B publishes dormant:true AND recycling:true (no axis blanking)", async () => {
-    const channel = new MockSshChannel();
-    wireEmptySessions(channel);
-    channel.setResponse("~/fleet/identities/ -mindepth", "tina\n");
-    channel.setResponse("stat ~/fleet/identities/'tina'/.dormant", "yes\n");
-    channel.setResponse("stat ~/fleet/identities/'tina'/.recycled-at", "yes\n");
-
-    const deps = buildDeps({
-      acquireSshChannel: vi.fn().mockResolvedValue(channel),
-    });
-
-    const orchestrator = createSshPollOrchestrator(deps);
-    await orchestrator.start();
-
-    expect(deps.registry.publishedStates).toHaveLength(1);
-    const p = deps.registry.publishedStates[0];
-    expect(p.state.dormant).toBe(true);
-    expect(p.state.recycling).toBe(true);
-  });
-
-  // ---------------------------------------------------------------------------
-  // Test P53-CR-C2-ii — recycling-only change on tick 2 publishes new frame
-  //                     (fingerprint suppression respects the recycling axis).
-  // ---------------------------------------------------------------------------
-
-  it("Test P53-CR-C2-ii: source B tick 2 with recycling flipped (dormant unchanged) → new publish (cache respects recycling axis)", async () => {
-    const channel = new MockSshChannel();
-    wireEmptySessions(channel);
-    channel.setResponse("~/fleet/identities/ -mindepth", "tina\n");
-    channel.setResponse("stat ~/fleet/identities/'tina'/.dormant", "no\n");
-    channel.setResponse("stat ~/fleet/identities/'tina'/.recycled-at", "no\n");
-
-    const setIntervalFns: Array<{ fn: () => void; ms: number }> = [];
-    const deps = buildDeps({
-      acquireSshChannel: vi.fn().mockResolvedValue(channel),
-      setInterval: vi.fn((fn: () => void, ms: number) => {
-        setIntervalFns.push({ fn, ms });
-        return 0 as unknown as ReturnType<typeof setInterval>;
-      }),
-    });
-
-    const orchestrator = createSshPollOrchestrator(deps);
-    await orchestrator.start();
-    // Tick 1: first-appearance publish with recycling:false.
-    expect(deps.registry.publishedStates).toHaveLength(1);
-    expect(deps.registry.publishedStates[0].state.recycling).toBe(false);
-
-    // Tick 2: recycling flips true. dormantOnlyIdentities cache differs → publish.
-    channel.setResponse("stat ~/fleet/identities/'tina'/.recycled-at", "yes\n");
-    const pollFn = setIntervalFns.find((s) => s.ms >= 500 && s.ms <= 3000)?.fn;
-    expect(pollFn).toBeDefined();
-    await pollFn!();
-
-    expect(deps.registry.publishedStates).toHaveLength(2);
-    expect(deps.registry.publishedStates[1].state.recycling).toBe(true);
-    expect(deps.registry.publishedStates[1].state.dormant).toBe(false);
-  });
-});
-
-// ==============================================================================
-// quick-260822-0vw — Layer 1 /id reset OR composition into source A recycling
-//
-// Phase 53-03 swapped all three consumer sites to `useSessionIsRecycling` which
-// reads a single wire axis. Phase 53's initial source-A composition only set
-// `recycling:true` when `.recycled-at` sentinel was present (placed at t=N,
-// END of save flow). This quick task adds a Layer 1 tail predicate:
-//
-//   derivedRecyclingComposed = derivedLayer1Recycling || derivedSentinelRecycling
-//
-// so the recycling axis arms at t=0 (user presses reset → `/id reset` lands in
-// the session file as the most-recent real user turn) rather than only at t=N.
-//
-// Source B (dormant-only, no live PID) is UNCHANGED — dormant identities have
-// no JSONL to tail-scan; the sentinel remains the sole source B recycling input.
-//
-// All three consumer sites (`SessionHoldingOverlay`, `ComposeBox`,
-// `PrettyConversationRow` via `useSessionIsRecycling`) are NOT touched —
-// they pick up the earlier signal for free via the one-axis architecture.
-// ==============================================================================
-
-describe("quick-260822-0vw — Layer 1 /id reset OR composition into source A recycling", () => {
-  beforeEach(() => {
-    vi.clearAllMocks();
-  });
-
-  // Local helper — produces a JSONL line that satisfies detectIdReset.
-  // Shape mirrors session-file-parser.id-reset.test.ts Test 1 (bare /id reset).
-  function idResetLine(tsMillis: number): string {
-    return JSON.stringify({
-      type: "user",
-      message: {
-        role: "user",
-        content: "<command-name>/id</command-name><command-args>reset</command-args>",
-      },
-      timestamp: new Date(tsMillis).toISOString(),
-      uuid: `uuid-id-reset-${tsMillis}`,
-    });
-  }
-
-  // Plain assistant message — no /id reset markup. Used to verify the sentinel
-  // path still fires when Layer 1 is quiet (regression guard for P53-01 behavior).
-  function plainMessageLine(
-    tsMillis: number,
-    role: "user" | "assistant",
-    content: string,
-  ): string {
-    return JSON.stringify({
-      type: role,
-      message: { role, content },
-      timestamp: new Date(tsMillis).toISOString(),
-      uuid: `uuid-${tsMillis}-${role}`,
-    });
-  }
-
-  function buildDiscoveryFixture(
-    identityName: string,
-    discoveredPath: string,
-    matchesIdentity = true,
-  ): string {
-    // Phase 32 refactor: shell script now does match+early-exit,
-    // stdout is just the mtime-latest matching path (or empty).
-    return matchesIdentity ? `${discoveredPath}
-` : "";
-  }
-
-  // wireBaseResponses — same shape as the Phase 53 Plan 01 sibling, extended to
-  // allow overriding the JSONL tail response for Layer-1 tests.
-  //
-  // quick-260823-73o migration: source A no longer stamps the recycling axis;
-  // source B (identity-folder-keyed) is the sole publisher of that axis. The
-  // Layer 1 tail scan (once source-A-owned) also moved to source B. Wire
-  // "ls -1 ~/fleet/identities/" → "tina\n" so source B iterates tina every
-  // tick and exercises the axis. Assertions in this describe block that check
-  // recycling MUST look at the source-B frame (sessionId === "__dormant__").
-  function wireBaseResponses(
-    channel: MockSshChannel,
-    jsonlContents: string,
-    discoveryOverride?: string,
-  ): void {
-    channel.setResponse("ls -1 ~/.claude/sessions/", "/home/ubuntu/.claude/sessions/12345.json\n");
-    channel.setResponse("~/fleet/identities/ -mindepth", "tina\n");
-    channel.setResponse(
-      "cat ~/.claude/sessions/12345.json",
-      makeSessionJson(),
-    );
-    channel.setResponse("cat /proc/12345/stat", makeStatContents("12345"));
-    channel.setResponse("cat /proc/12345/environ", "TMUX_PANE=%2\0");
-    channel.setResponse("tmux display-message", "tina");
-    channel.setResponse(
-      "fleet-status/last-stop-payload.json",
-      makeValidPayload(),
-    );
-    const discoveryStdout =
-      discoveryOverride ??
-      buildDiscoveryFixture(
-        "tina",
-        "~/.claude/projects/-home-ubuntu-skynet-tina/discovered.jsonl",
-      );
-    channel.setResponse("IDENTITY=", discoveryStdout);
-    channel.setResponse("discovered.jsonl", jsonlContents);
-    // Default dormant stat response (not dormant).
-    channel.setResponse("stat ~/fleet/identities/'tina'/.dormant", "no\n");
-    // Default recycled-at stat response (not recycling) — override per test as needed.
-    channel.setResponse("stat ~/fleet/identities/'tina'/.recycled-at", "no\n");
-    // quick-260823-73o: source B also probes .recycle-requested per identity;
-    // default no so tests that only exercise Layer 1 / .recycled-at aren't
-    // accidentally armed via the third axis.
-    channel.setResponse(
-      "test -f ~/fleet/identities/'tina'/.recycle-requested",
-      "no\n",
-    );
-  }
-
-  // quick-260823-73o helper — pick the source-B frame from the publish log.
-  function pickSourceBFrame(
-    publishedStates: Array<{ hostId: string; state: SessionState }>,
-  ): SessionState | undefined {
-    const frames = publishedStates.filter(
-      (p) => p.state.sessionId === "__dormant__",
-    );
-    return frames[frames.length - 1]?.state;
-  }
-
-  // ---------------------------------------------------------------------------
-  // Test QT-260822-0vw-T1-i — Layer 1 alone triggers recycling.
-  // The JSONL tail contains a /id reset line; .recycled-at sentinel is absent.
-  // Expected: SessionState.recycling === true (Layer 1 fires before sentinel).
-  // ---------------------------------------------------------------------------
-
-  it("Test QT-260822-0vw-T1-i: Layer 1 alone (/id reset in tail, sentinel absent) → recycling === true", async () => {
-    const channel = new MockSshChannel();
-    // Tail contains a /id reset user turn (satisfies detectIdReset).
-    wireBaseResponses(channel, idResetLine(2000) + "\n");
-    // Sentinel absent — recycling should still be true from Layer 1 alone.
-    channel.setResponse("stat ~/fleet/identities/'tina'/.recycled-at", "no\n");
-
-    const deps = buildDeps({
-      acquireSshChannel: vi.fn().mockResolvedValue(channel),
-    });
-
-    const orchestrator = createSshPollOrchestrator(deps);
-    await orchestrator.start();
-
-    expect(deps.registry.publishedStates.length).toBeGreaterThan(0);
-    // quick-260823-73o: source B owns the recycling axis; look at its frame.
-    const sourceBFrame = pickSourceBFrame(deps.registry.publishedStates);
-    expect(sourceBFrame).toBeDefined();
-    expect(sourceBFrame!.recycling).toBe(true);
-  });
-
-  // ---------------------------------------------------------------------------
-  // Test QT-260822-0vw-T1-ii — Sentinel alone triggers recycling (regression
-  // guard for Phase 53-01 behavior). The tail contains a plain assistant message
-  // (no /id reset); .recycled-at sentinel is present.
-  // Expected: recycling === true (OR does NOT accidentally become AND).
-  // ---------------------------------------------------------------------------
-
-  it("Test QT-260822-0vw-T1-ii: sentinel alone (.recycled-at present, no /id reset in tail) → recycling === true (OR not AND)", async () => {
-    const channel = new MockSshChannel();
-    // Plain assistant message — Layer 1 predicate will be false.
-    wireBaseResponses(channel, plainMessageLine(1000, "assistant", "hello") + "\n");
-    // Sentinel present — recycling should be true from sentinel alone.
-    channel.setResponse("stat ~/fleet/identities/'tina'/.recycled-at", "yes\n");
-
-    const deps = buildDeps({
-      acquireSshChannel: vi.fn().mockResolvedValue(channel),
-    });
-
-    const orchestrator = createSshPollOrchestrator(deps);
-    await orchestrator.start();
-
-    expect(deps.registry.publishedStates.length).toBeGreaterThan(0);
-    // quick-260823-73o: source B owns the recycling axis; look at its frame.
-    const sourceBFrame = pickSourceBFrame(deps.registry.publishedStates);
-    expect(sourceBFrame).toBeDefined();
-    expect(sourceBFrame!.recycling).toBe(true);
-  });
-
-  // ---------------------------------------------------------------------------
-  // Test QT-260822-0vw-T1-iii — Both signals true → still recycling (OR is
-  // idempotent). The tail contains a /id reset line AND .recycled-at is present.
-  // Expected: recycling === true; source B publishes ONE recycling frame
-  // (fingerprint identity — OR of two trues yields the same true axis value).
-  // ---------------------------------------------------------------------------
-
-  it("Test QT-260822-0vw-T1-iii: both Layer 1 and sentinel true → source B publishes exactly one recycling:true frame (OR is idempotent)", async () => {
-    const channel = new MockSshChannel();
-    // /id reset in tail + sentinel present.
-    wireBaseResponses(channel, idResetLine(2000) + "\n");
-    channel.setResponse("stat ~/fleet/identities/'tina'/.recycled-at", "yes\n");
-
-    const deps = buildDeps({
-      acquireSshChannel: vi.fn().mockResolvedValue(channel),
-    });
-
-    const orchestrator = createSshPollOrchestrator(deps);
-    await orchestrator.start();
-
-    // quick-260823-73o: source B owns the recycling axis; look at its frame.
-    const sourceBFrames = deps.registry.publishedStates.filter(
-      (p) => p.state.sessionId === "__dormant__",
-    );
-    expect(sourceBFrames).toHaveLength(1);
-    expect(sourceBFrames[0].state.recycling).toBe(true);
-  });
-
-  // ---------------------------------------------------------------------------
-  // Test QT-260822-0vw-T1-iv — Neither signal → not recycling.
-  // Plain message in tail, .recycled-at absent.
-  // Expected: recycling === false.
-  // ---------------------------------------------------------------------------
-
-  it("Test QT-260822-0vw-T1-iv: neither Layer 1 nor sentinel → recycling === false", async () => {
-    const channel = new MockSshChannel();
-    // Plain message — no /id reset; sentinel absent.
-    wireBaseResponses(channel, plainMessageLine(1000, "user", "hello") + "\n");
-    channel.setResponse("stat ~/fleet/identities/'tina'/.recycled-at", "no\n");
-
-    const deps = buildDeps({
-      acquireSshChannel: vi.fn().mockResolvedValue(channel),
-    });
-
-    const orchestrator = createSshPollOrchestrator(deps);
-    await orchestrator.start();
-
-    expect(deps.registry.publishedStates.length).toBeGreaterThan(0);
-    // inline-260830-source-a-omit-recycling: source A omits the recycling
-    // axis (undefined). Source B SKIPS publish when the identity has a live
-    // PID AND !isRecycling (liveTmuxSet skip-and-evict — preserved from the
-    // quick-260823-73o migration). Semantic under the new contract:
-    // no published frame stamps recycling:true this tick.
-    for (const p of deps.registry.publishedStates) {
-      expect(p.state.recycling).not.toBe(true);
-    }
-  });
-
-  // ---------------------------------------------------------------------------
-  // Test QT-260822-0vw-T1-v — SSH failure on session file tail → Layer 1 falls
-  // back to cached value (fail-open). Cold-start cache default is false.
-  // Sentinel also absent (no\n). Expected: recycling === false; no throw.
-  // ---------------------------------------------------------------------------
-
-  it("Test QT-260822-0vw-T1-v: SSH failure on JSONL tail → Layer 1 falls back to cold-start cache (false); no throw", async () => {
-    const channel = new MockSshChannel();
-    wireBaseResponses(channel, "");
-    // Wire JSONL tail to null — simulates SSH hiccup on tail -c 262144 exec.
-    channel.setResponse("discovered.jsonl", null);
-    // Sentinel absent.
-    channel.setResponse("stat ~/fleet/identities/'tina'/.recycled-at", "no\n");
-
-    const deps = buildDeps({
-      acquireSshChannel: vi.fn().mockResolvedValue(channel),
-    });
-
-    const orchestrator = createSshPollOrchestrator(deps);
-    await expect(orchestrator.start()).resolves.not.toThrow();
-
-    expect(deps.registry.publishedStates.length).toBeGreaterThan(0);
-    // Fail-open: cold-start cache default is false; matches sentinel's own
-    // fail-open contract at Test P53-01-T1-iii.
-    // inline-260830-source-a-omit-recycling: source A omits the recycling
-    // axis (undefined). Source B SKIPS publish when the identity has a live
-    // PID AND !isRecycling (liveTmuxSet skip-and-evict — preserved from the
-    // quick-260823-73o migration). Semantic under the new contract:
-    // no published frame stamps recycling:true this tick.
-    for (const p of deps.registry.publishedStates) {
-      expect(p.state.recycling).not.toBe(true);
-    }
-  });
-
-  // ---------------------------------------------------------------------------
-  // inline-260830-layer1-skip-harness-synthetic-user-turns — REGRESSION
-  //
-  // Bug (user 2026-08-30, taylor session): during the ~30s window between
-  // user clicking reset and the /id skill dropping `.recycle-requested`,
-  // the overlay stayed off — Layer 1 never fired despite `/id reset` being
-  // the freshest real user turn in the JSONL. Root cause: the /id skill's
-  // own bash/read tool_use invocations write tool_result turns to JSONL as
-  // `type:"user"` entries with ARRAY content. scanTailForLayer1RecyclingSignal
-  // iterated ALL user turns and set `lastResult = detectIdReset(parsed)`
-  // unconditionally. detectIdReset returns FALSE (not null) for array-content
-  // user turns — so each tool_result flipped lastResult back to false,
-  // drowning the /id reset signal. Same class of drowning for /exit
-  // (agent-supervisor injects it before recycle), resumed-injection
-  // sentinels, and control-char kill signals.
-  //
-  // Fix: pre-filter the scan with `isRealUserTurn` so harness-
-  // synthetic user turns don't reach detectIdReset. Real user speech is
-  // the only thing that flips the axis.
-  //
-  // These tests build tails matching real recycle-window shapes and
-  // assert Layer 1 STAYS TRUE. Together with today's Bug B fix
-  // (inline-260830-source-a-omit-recycling), the overlay now arms at
-  // t=~2s (first Layer 1 tick after /id reset lands in JSONL) instead of
-  // t=~30s (sentinel drop), and stays armed through the whole recycle
-  // window because source A can no longer wipe the cache.
-  // ---------------------------------------------------------------------------
-
-  function toolResultUserLine(tsMillis: number, toolUseId: string): string {
-    return JSON.stringify({
-      type: "user",
-      message: {
-        role: "user",
-        content: [
-          {
-            type: "tool_result",
-            tool_use_id: toolUseId,
-            content: "tool output",
-          },
-        ],
-      },
-      timestamp: new Date(tsMillis).toISOString(),
-      uuid: `uuid-tool-result-${tsMillis}`,
-    });
-  }
-
-  function exitCommandLine(tsMillis: number): string {
-    return JSON.stringify({
-      type: "user",
-      message: {
-        role: "user",
-        content:
-          "<command-name>/exit</command-name>\n<command-args></command-args>",
-      },
-      timestamp: new Date(tsMillis).toISOString(),
-      uuid: `uuid-exit-${tsMillis}`,
-    });
-  }
-
-  function resumedInjectionLine(tsMillis: number): string {
-    return JSON.stringify({
-      type: "user",
-      message: {
-        role: "user",
-        content:
-          "Your session was just resumed by the agent-supervisor. Your background Monitors stopped with the previous session — start them again per the id skill.",
-      },
-      timestamp: new Date(tsMillis).toISOString(),
-      uuid: `uuid-resumed-${tsMillis}`,
-    });
-  }
-
-  it("Test inline-260830-layer1-skip-tool-results: /id reset followed by tool_result flood → Layer 1 stays TRUE (source B publishes recycling:true)", async () => {
-    const channel = new MockSshChannel();
-    // Tail: /id reset THEN many tool_result user turns (simulates the /id skill
-    // running bash/read/write during the ~30s save flow).
-    const tail =
-      idResetLine(2000) +
-      "\n" +
-      toolResultUserLine(2100, "toolu_01") +
-      "\n" +
-      toolResultUserLine(2200, "toolu_02") +
-      "\n" +
-      toolResultUserLine(2300, "toolu_03") +
-      "\n" +
-      toolResultUserLine(2400, "toolu_04") +
-      "\n";
-    wireBaseResponses(channel, tail);
-    channel.setResponse("stat ~/fleet/identities/'tina'/.recycled-at", "no\n");
-
-    const deps = buildDeps({
-      acquireSshChannel: vi.fn().mockResolvedValue(channel),
-    });
-
-    const orchestrator = createSshPollOrchestrator(deps);
-    await orchestrator.start();
-
-    // Layer 1 must survive the tool_result flood — source B publishes true.
-    const sourceBFrame = pickSourceBFrame(deps.registry.publishedStates);
-    expect(sourceBFrame).toBeDefined();
-    expect(sourceBFrame!.recycling).toBe(true);
-  });
-
-  it("Test inline-260830-layer1-skip-exit: /id reset followed by /exit → Layer 1 stays TRUE (source B publishes recycling:true)", async () => {
-    const channel = new MockSshChannel();
-    // Tail: /id reset THEN /exit (agent-supervisor injects /exit right before
-    // recycle — /exit is a string-content user turn but detectIdReset returns
-    // false for it because the content has no <command-name>/id</command-name>).
-    const tail =
-      idResetLine(2000) + "\n" + exitCommandLine(2500) + "\n";
-    wireBaseResponses(channel, tail);
-    channel.setResponse("stat ~/fleet/identities/'tina'/.recycled-at", "no\n");
-
-    const deps = buildDeps({
-      acquireSshChannel: vi.fn().mockResolvedValue(channel),
-    });
-
-    const orchestrator = createSshPollOrchestrator(deps);
-    await orchestrator.start();
-
-    const sourceBFrame = pickSourceBFrame(deps.registry.publishedStates);
-    expect(sourceBFrame).toBeDefined();
-    expect(sourceBFrame!.recycling).toBe(true);
-  });
-
-  it("Test inline-260830-layer1-skip-resumed: /id reset followed by resumed-injection sentinel → Layer 1 stays TRUE", async () => {
-    const channel = new MockSshChannel();
-    // Tail: /id reset THEN the agent-supervisor resumed-injection sentinel
-    // (a string-content user turn that isRealUserTurn's step 7 explicitly
-    // excludes — it's supervisor-injected boilerplate, not real user speech).
-    const tail =
-      idResetLine(2000) + "\n" + resumedInjectionLine(2500) + "\n";
-    wireBaseResponses(channel, tail);
-    channel.setResponse("stat ~/fleet/identities/'tina'/.recycled-at", "no\n");
-
-    const deps = buildDeps({
-      acquireSshChannel: vi.fn().mockResolvedValue(channel),
-    });
-
-    const orchestrator = createSshPollOrchestrator(deps);
-    await orchestrator.start();
-
-    const sourceBFrame = pickSourceBFrame(deps.registry.publishedStates);
-    expect(sourceBFrame).toBeDefined();
-    expect(sourceBFrame!.recycling).toBe(true);
-  });
-
-  it("Test inline-260830-layer1-real-user-after-reset: /id reset followed by a REAL user prompt → Layer 1 flips FALSE (semantic: last real user turn wins)", async () => {
-    const channel = new MockSshChannel();
-    // Tail: /id reset THEN a plain string-content user prompt (e.g., user
-    // typed "actually never mind" — extremely rare in practice because the
-    // composebox clears after submit, but semantically important). This
-    // "last REAL user turn wins" semantic is preserved: a real subsequent
-    // prompt DOES flip Layer 1 back to false.
-    const tail =
-      idResetLine(2000) +
-      "\n" +
-      plainMessageLine(2500, "user", "actually never mind") +
-      "\n";
-    wireBaseResponses(channel, tail);
-    channel.setResponse("stat ~/fleet/identities/'tina'/.recycled-at", "no\n");
-
-    const deps = buildDeps({
-      acquireSshChannel: vi.fn().mockResolvedValue(channel),
-    });
-
-    const orchestrator = createSshPollOrchestrator(deps);
-    await orchestrator.start();
-
-    // No frame stamps recycling:true — Layer 1 flipped false via a real
-    // subsequent user turn; sentinel absent; nothing arms.
-    for (const p of deps.registry.publishedStates) {
-      expect(p.state.recycling).not.toBe(true);
-    }
-  });
-});
-
-// ─────────────────────────────────────────────────────────────────────────────
-// quick-260823-recycle-overlay — `.recycle-requested` source-A stat as the
-// THIRD OR term in the recycling axis composition
-//
-// Motivation (user 2026-08-23): the recycle-overlay would come up LATE —
-// only after the harness actually closed. Root cause: the OR composition
-// covered `.recycled-at` (supervisor-authored, appears at supervisor
-// reconcile time) + Layer 1 JSONL scan (should fire when /id reset lands),
-// but NOT `.recycle-requested` (agent-authored, appears the moment the
-// /id reset skill runs). This test group locks the new axis behavior:
-//   - probe returns "yes" → SessionState.recycling === true (independent of
-//     the other two axes' values)
-//   - all three axes false → SessionState.recycling === false
-//   - three-way OR: any single axis true → composed true
-// ─────────────────────────────────────────────────────────────────────────────
-
-describe("quick-260823-recycle-overlay — `.recycle-requested` source-A stat + three-axis OR", () => {
-  function jsonlMessageLine(
-    tsMillis: number,
-    role: "user" | "assistant",
-    content: string,
-  ): string {
-    return JSON.stringify({
-      type: role,
-      message: { role, content },
-      timestamp: new Date(tsMillis).toISOString(),
-      uuid: `uuid-${tsMillis}-${role}`,
-    });
-  }
-
-  function buildDiscoveryFixture(
-    identityName: string,
-    discoveredPath: string,
-  ): string {
-    // Phase 32 refactor: shell script now does match+early-exit,
-    // stdout is just the mtime-latest matching path.
-    return `${discoveredPath}
-`;
-  }
-
-  // quick-260823-73o migration: source A no longer stamps the recycling axis;
-  // source B is the sole publisher. Wire identities listing → tina so source B
-  // enumerates every tick; assertions look at the source-B frame.
-  function wireBaseResponses(
-    channel: MockSshChannel,
-    jsonlContents: string,
-    discoveryOverride?: string,
-  ): void {
-    channel.setResponse("ls -1 ~/.claude/sessions/", "/home/ubuntu/.claude/sessions/12345.json\n");
-    channel.setResponse("~/fleet/identities/ -mindepth", "tina\n");
-    channel.setResponse("cat ~/.claude/sessions/12345.json", makeSessionJson());
-    channel.setResponse("cat /proc/12345/stat", makeStatContents("12345"));
-    channel.setResponse("cat /proc/12345/environ", "TMUX_PANE=%2\0");
-    channel.setResponse("tmux display-message", "tina");
-    channel.setResponse(
-      "fleet-status/last-stop-payload.json",
-      makeValidPayload(),
-    );
-    const discoveryStdout =
-      discoveryOverride ??
-      buildDiscoveryFixture(
-        "tina",
-        "~/.claude/projects/-home-ubuntu-skynet-tina/discovered.jsonl",
-      );
-    channel.setResponse("IDENTITY=", discoveryStdout);
-    channel.setResponse("discovered.jsonl", jsonlContents);
-    channel.setResponse("stat ~/fleet/identities/'tina'/.dormant", "no\n");
-    channel.setResponse("stat ~/fleet/identities/'tina'/.recycled-at", "no\n");
-    channel.setResponse(
-      "test -f ~/fleet/identities/'tina'/.recycle-requested",
-      "no\n",
-    );
-  }
-
-  function pickSourceBFrame(
-    publishedStates: Array<{ hostId: string; state: SessionState }>,
-  ): SessionState | undefined {
-    const frames = publishedStates.filter(
-      (p) => p.state.sessionId === "__dormant__",
-    );
-    return frames[frames.length - 1]?.state;
-  }
-
-  it("Test A: `.recycle-requested` probe returns 'yes' → SessionState.recycling === true (even when `.recycled-at` and Layer 1 both false)", async () => {
-    const channel = new MockSshChannel();
-    wireBaseResponses(channel, jsonlMessageLine(1000, "assistant", "hi") + "\n");
-    channel.setResponse(
-      "test -f ~/fleet/identities/'tina'/.recycle-requested",
-      "yes\n",
-    );
-    // Explicit sanity: `.recycled-at` still false, Layer 1 still false (assistant-only tail).
-    channel.setResponse("stat ~/fleet/identities/'tina'/.recycled-at", "no\n");
-
-    const deps = buildDeps({
-      acquireSshChannel: vi.fn().mockResolvedValue(channel),
-    });
-    const orchestrator = createSshPollOrchestrator(deps);
-    await orchestrator.start();
-
-    expect(deps.registry.publishedStates.length).toBeGreaterThan(0);
-    // quick-260823-73o: source B owns the recycling axis; look at its frame.
-    const sourceBFrame = pickSourceBFrame(deps.registry.publishedStates);
-    expect(sourceBFrame).toBeDefined();
-    expect(sourceBFrame!.recycling).toBe(true);
-  });
-
-  it("Test B: all three axes return 'no' → SessionState.recycling === false", async () => {
-    const channel = new MockSshChannel();
-    wireBaseResponses(channel, jsonlMessageLine(1000, "assistant", "hi") + "\n");
-    // All three defaults from wireBaseResponses.
-
-    const deps = buildDeps({
-      acquireSshChannel: vi.fn().mockResolvedValue(channel),
-    });
-    const orchestrator = createSshPollOrchestrator(deps);
-    await orchestrator.start();
-
-    expect(deps.registry.publishedStates.length).toBeGreaterThan(0);
-    // inline-260830-source-a-omit-recycling: source A omits the recycling
-    // axis (undefined). Source B SKIPS publish when the identity has a live
-    // PID AND !isRecycling (liveTmuxSet skip-and-evict — preserved from the
-    // quick-260823-73o migration). Semantic under the new contract:
-    // no published frame stamps recycling:true this tick.
-    for (const p of deps.registry.publishedStates) {
-      expect(p.state.recycling).not.toBe(true);
-    }
-  });
-
-  it("Test C: `.recycle-requested` probe returns null (SSH hiccup) → cold-start cached value (false) preserved (fail-open, matches Test P53-01-T1-iii pattern)", async () => {
-    const channel = new MockSshChannel();
-    wireBaseResponses(channel, jsonlMessageLine(1000, "assistant", "hi") + "\n");
-    // Override to return null (SSH failure).
-    channel.setResponse(
-      "test -f ~/fleet/identities/'tina'/.recycle-requested",
-      null,
-    );
-
-    const deps = buildDeps({
-      acquireSshChannel: vi.fn().mockResolvedValue(channel),
-    });
-    const orchestrator = createSshPollOrchestrator(deps);
-    await expect(orchestrator.start()).resolves.not.toThrow();
-
-    expect(deps.registry.publishedStates.length).toBeGreaterThan(0);
-    // inline-260830-source-a-omit-recycling: source A omits the recycling
-    // axis (undefined). Source B SKIPS publish when the identity has a live
-    // PID AND !isRecycling (liveTmuxSet skip-and-evict — preserved from the
-    // quick-260823-73o migration). Semantic under the new contract:
-    // no published frame stamps recycling:true this tick.
-    for (const p of deps.registry.publishedStates) {
-      expect(p.state.recycling).not.toBe(true);
-    }
-  });
-
-  it("Test D: `.recycle-requested` probe fires exactly once per tick (single SSH round-trip added by this axis)", async () => {
-    const channel = new MockSshChannel();
-    wireBaseResponses(channel, jsonlMessageLine(1000, "assistant", "hi") + "\n");
-
-    const deps = buildDeps({
-      acquireSshChannel: vi.fn().mockResolvedValue(channel),
-    });
-    const orchestrator = createSshPollOrchestrator(deps);
-    await orchestrator.start();
-
-    const probeCalls = channel.countCallsMatching(
-      "test -f ~/fleet/identities/'tina'/.recycle-requested",
-    );
-    // Exactly ONE per tick under source A (the single `pollAllHosts` tick fired by start()).
-    expect(probeCalls).toBe(1);
-  });
-});
-
-// ==============================================================================
-// quick-260823-73o — recycle axes in source B (per-identity, PID-independent)
-//
-// Motivation (user 2026-08-23): Patch #495 shipped diagnostic logs +
-// `.recycle-requested` in SOURCE A but user narrated a full /id reset cycle
-// with no overlay. Layer 1 fired at 04:45:47Z but
-// `fleet_status_recycling_armed` NEVER fired for tina across the reset window.
-// Root cause: source A iterates per-PID (~/.claude/tasks/*.json). During
-// tina's reset the outgoing claude PID is being torn down and per-PID
-// iteration hits a lifecycle gap where none of the three axes evaluate true
-// across the sentinel-present window. Source B is identity-folder-keyed and
-// runs unconditionally per identity per tick, but it explicitly SKIPS any
-// identity in liveTmuxSet — so during the first seconds of recycle (tina
-// still has a live PID + sentinel on disk), source B ALSO skips tina.
-//
-// This migration moves ALL THREE recycle axes (`.recycle-requested`,
-// `.recycled-at`, Layer 1 /id reset) out of source A's per-PID loop and into
-// source B's per-identity iteration, and conditionally lifts the liveTmuxSet
-// skip so `isRecycling === true` identities always publish from source B
-// regardless of live PID state. Source A publishes `recycling: false`
-// unconditionally after migration — source B becomes the sole publisher of
-// the recycling axis.
-//
-// The 6 tests below LOCK the new contract. On the current source-A code they
-// are RED (source B never publishes recycling:true for a live-PID identity
-// because of the unconditional skip). Task 2 flips them GREEN.
-// ==============================================================================
-
-describe("quick-260823-73o — recycle axes in source B (per-identity, PID-independent)", () => {
-  beforeEach(() => {
-    vi.clearAllMocks();
-  });
-
-  // Local JSONL fixture helpers — copied from the quick-260822-0vw describe block
-  // to keep this block self-contained. Same shape as
-  // session-file-parser.id-reset.test.ts Test 1 (bare /id reset).
-  function idResetLine(tsMillis: number): string {
-    return JSON.stringify({
-      type: "user",
-      message: {
-        role: "user",
-        content: "<command-name>/id</command-name><command-args>reset</command-args>",
-      },
-      timestamp: new Date(tsMillis).toISOString(),
-      uuid: `uuid-id-reset-${tsMillis}`,
-    });
-  }
-
-  function plainMessageLine(
-    tsMillis: number,
-    role: "user" | "assistant",
-    content: string,
-  ): string {
-    return JSON.stringify({
-      type: role,
-      message: { role, content },
-      timestamp: new Date(tsMillis).toISOString(),
-      uuid: `uuid-${tsMillis}-${role}`,
-    });
-  }
-
-  function buildDiscoveryFixture(
-    identityName: string,
-    discoveredPath: string,
-  ): string {
-    // Phase 32 refactor: shell script now does match+early-exit,
-    // stdout is just the mtime-latest matching path.
-    return `${discoveredPath}
-`;
-  }
 
   /**
-   * wireLivePidAndIdentity — wires the MockSshChannel so BOTH source A (per-PID
-   * for PID 12345 → tmux `tina`) AND source B (per-identity iteration for
-   * "tina") execute successfully. Overridable per-test:
-   *   - opts.recycleRequested — "yes"|"no", default "no"
-   *   - opts.recycledAt       — "yes"|"no", default "no"
-   *   - opts.dormant          — "yes"|"no", default "no"
-   *   - opts.jsonlTail        — the tail contents (string, default plain assistant msg)
-   *   - opts.livePid          — whether to wire a live PID at all (default true).
-   *     When false, "ls -1 ~/.claude/sessions/" returns "" so source A silent.
-   *
-   * MockSshChannel is FIRST-MATCH-WINS on substring: a single "IDENTITY="
-   * fixture serves both source A's discovery call AND source B's discovery
-   * call in the same tick (both source A and source B call the same
-   * discoverIdentityJsonlPathViaChannel helper with the same identityName
-   * → same buildDiscoveryScript output → same "IDENTITY=" prefix).
-   *
-   * Same shape for the sentinel stat responses: `stat ~/fleet/identities/'tina'/.dormant`
-   * and `test -f ~/fleet/identities/'tina'/.recycle-requested` — source A and
-   * source B both issue these; the mock returns the same value to both callers.
+   * Wires source A (live PID 12345 → tmux `tina`, unless livePid=false) and
+   * source B (identities dir lists `tina`) on the legacy path.
    */
-  function wireLivePidAndIdentity(
+  function wireTina(
     channel: MockSshChannel,
     opts: {
-      recycleRequested?: "yes" | "no";
-      recycledAt?: "yes" | "no";
+      compactRequested?: "yes" | "no" | null;
+      compacting?: "yes" | "no" | null;
       dormant?: "yes" | "no";
-      jsonlTail?: string;
       livePid?: boolean;
     } = {},
   ): void {
     const {
-      recycleRequested = "no",
-      recycledAt = "no",
+      compactRequested = "no",
+      compacting = "no",
       dormant = "no",
-      jsonlTail = plainMessageLine(1000, "assistant", "hi") + "\n",
       livePid = true,
     } = opts;
-
-    // Source A wiring — live PID for tina at 12345 (or empty sessions if livePid=false).
     if (livePid) {
       channel.setResponse(
         "ls -1 ~/.claude/sessions/",
         "/home/ubuntu/.claude/sessions/12345.json\n",
       );
-      channel.setResponse(
-        "cat ~/.claude/sessions/12345.json",
-        makeSessionJson(),
-      );
+      channel.setResponse("cat ~/.claude/sessions/12345.json", makeSessionJson());
       channel.setResponse("cat /proc/12345/stat", makeStatContents("12345"));
       channel.setResponse("cat /proc/12345/environ", "TMUX_PANE=%2\0");
       channel.setResponse("tmux display-message", "tina");
     } else {
       channel.setResponse("ls -1 ~/.claude/sessions/", "");
     }
-    channel.setResponse(
-      "fleet-status/last-stop-payload.json",
-      makeValidPayload(),
-    );
-
-    // Source B wiring — identities dir lists tina every tick.
+    channel.setResponse("fleet-status/last-stop-payload.json", makeValidPayload());
     channel.setResponse("~/fleet/identities/ -mindepth", "tina\n");
+    channel.setResponse(
+      "IDENTITY=",
+      "~/.claude/projects/-home-ubuntu-skynet-tina/discovered.jsonl\n",
+    );
+    channel.setResponse("discovered.jsonl", "");
+    channel.setResponse("stat ~/fleet/identities/'tina'/.dormant", `${dormant}\n`);
+    setSentinel(channel, ".compact-requested", compactRequested);
+    setSentinel(channel, ".compacting", compacting);
+  }
 
-    // Discovery — shared substring "IDENTITY=" serves both source A and source B.
-    const discoveryStdout = buildDiscoveryFixture(
-      "tina",
-      "~/.claude/projects/-home-ubuntu-skynet-tina/discovered.jsonl",
-    );
-    channel.setResponse("IDENTITY=", discoveryStdout);
-    // JSONL tail — matched via "discovered.jsonl" substring; source A + source B
-    // both `tail -c 262144 <jsonlPath>` where jsonlPath ends in `discovered.jsonl`.
-    channel.setResponse("discovered.jsonl", jsonlTail);
-
-    // Per-identity sentinel stats — same substring serves source A and source B.
+  function setSentinel(
+    channel: MockSshChannel,
+    file: ".compact-requested" | ".compacting",
+    value: "yes" | "no" | null,
+  ): void {
     channel.setResponse(
-      "stat ~/fleet/identities/'tina'/.dormant",
-      `${dormant}\n`,
-    );
-    channel.setResponse(
-      "stat ~/fleet/identities/'tina'/.recycled-at",
-      `${recycledAt}\n`,
-    );
-    channel.setResponse(
-      "test -f ~/fleet/identities/'tina'/.recycle-requested",
-      `${recycleRequested}\n`,
+      `stat ~/fleet/identities/'tina'/${file}`,
+      value === null ? null : `${value}\n`,
     );
   }
 
-  // ---------------------------------------------------------------------------
-  // Test QT-260823-73o-T1-i — `.recycle-requested` present + live PID for tina
-  //   → source B publishes recycling:true (source-B frame: pid:null +
-  //   sessionId:"__dormant__" + tmuxSession:"tina"). Source A also publishes
-  //   its own frame for PID 12345 with recycling:false (source A no longer
-  //   stamps this axis after the migration). publishedStates.length >= 2.
-  // ---------------------------------------------------------------------------
+  function sourceBFrames(
+    publishedStates: Array<{ hostId: string; state: SessionState }>,
+  ): SessionState[] {
+    return publishedStates
+      .filter((p) => p.state.sessionId === "__dormant__")
+      .map((p) => p.state);
+  }
 
-  it("Test QT-260823-73o-T1-i: `.recycle-requested` present + live PID → source B publishes recycling:true (independent of source A's frame)", async () => {
-    const channel = new MockSshChannel();
-    wireLivePidAndIdentity(channel, { recycleRequested: "yes" });
-
+  function depsWithTicks(channel: MockSshChannel): {
+    deps: ReturnType<typeof buildDeps>;
+    tick: () => Promise<void>;
+  } {
+    const setIntervalFns: Array<{ fn: () => void; ms: number }> = [];
     const deps = buildDeps({
       acquireSshChannel: vi.fn().mockResolvedValue(channel),
+      setInterval: vi.fn((fn: () => void, ms: number) => {
+        setIntervalFns.push({ fn, ms });
+        return setIntervalFns.length as unknown as ReturnType<typeof setInterval>;
+      }),
     });
+    const tick = async (): Promise<void> => {
+      const pollFn = setIntervalFns.find((f) => f.ms === 2000);
+      expect(pollFn).toBeDefined();
+      await pollFn!.fn();
+    };
+    return { deps, tick };
+  }
 
-    const orchestrator = createSshPollOrchestrator(deps);
-    await orchestrator.start();
+  it.each([
+    ["compactRequested", ".compact-requested"],
+    ["compacting", ".compacting"],
+  ] as const)(
+    "no live PID + %s sentinel → source B publishes condensing:true",
+    async (key) => {
+      const channel = new MockSshChannel();
+      wireTina(channel, { livePid: false, [key]: "yes" });
+      const deps = buildDeps({ acquireSshChannel: vi.fn().mockResolvedValue(channel) });
+      await createSshPollOrchestrator(deps).start();
 
-    // At least two publishes: source A (for PID 12345) + source B (for tina identity).
-    expect(deps.registry.publishedStates.length).toBeGreaterThanOrEqual(2);
+      expect(deps.registry.publishedStates).toHaveLength(1);
+      const state = deps.registry.publishedStates[0].state;
+      expect(state.sessionId).toBe("__dormant__");
+      expect(state.pid).toBeNull();
+      expect(state.tmuxSession).toBe("tina");
+      expect(state.dormant).toBe(false);
+      expect(state.condensing).toBe(true);
+    },
+  );
 
-    // Source B frame — identified by sessionId "__dormant__".
-    const sourceBFrames = deps.registry.publishedStates.filter(
-      (p) => p.state.sessionId === "__dormant__",
-    );
-    expect(sourceBFrames.length).toBeGreaterThanOrEqual(1);
-    const sb = sourceBFrames[0];
-    expect(sb.state.tmuxSession).toBe("tina");
-    expect(sb.state.pid).toBeNull();
-    expect(sb.state.recycling).toBe(true);
-
-    // Source A frame — identified by numeric pid 12345. Source A no longer
-    // stamps recycling after the migration.
-    // inline-260830-source-a-omit-recycling: source A now OMITS the recycling
-    // field entirely (was `false`; changed to preserve store cache written by
-    // source B — see ssh-poll-orchestrator.ts:1455 comment).
-    const sourceAFrames = deps.registry.publishedStates.filter(
-      (p) => p.state.pid === 12345,
-    );
-    expect(sourceAFrames.length).toBeGreaterThanOrEqual(1);
-    expect(sourceAFrames[0].state.recycling).toBeUndefined();
-  });
-
-  // ---------------------------------------------------------------------------
-  // Test QT-260823-73o-T1-ii — `.recycled-at` present + live PID for tina
-  //   → same shape as T1-i but with `.recycled-at` yes instead of `.recycle-requested`.
-  // ---------------------------------------------------------------------------
-
-  it("Test QT-260823-73o-T1-ii: `.recycled-at` present + live PID → source B publishes recycling:true", async () => {
+  it("dormant + compacting → source B publishes dormant:true AND condensing:true (no axis blanking)", async () => {
     const channel = new MockSshChannel();
-    wireLivePidAndIdentity(channel, { recycledAt: "yes" });
+    wireTina(channel, { livePid: false, dormant: "yes", compacting: "yes" });
+    const deps = buildDeps({ acquireSshChannel: vi.fn().mockResolvedValue(channel) });
+    await createSshPollOrchestrator(deps).start();
 
-    const deps = buildDeps({
-      acquireSshChannel: vi.fn().mockResolvedValue(channel),
-    });
-
-    const orchestrator = createSshPollOrchestrator(deps);
-    await orchestrator.start();
-
-    expect(deps.registry.publishedStates.length).toBeGreaterThanOrEqual(2);
-
-    const sourceBFrames = deps.registry.publishedStates.filter(
-      (p) => p.state.sessionId === "__dormant__",
-    );
-    expect(sourceBFrames.length).toBeGreaterThanOrEqual(1);
-    expect(sourceBFrames[0].state.tmuxSession).toBe("tina");
-    expect(sourceBFrames[0].state.pid).toBeNull();
-    expect(sourceBFrames[0].state.recycling).toBe(true);
-
-    // inline-260830-source-a-omit-recycling: source A omits recycling.
-    const sourceAFrames = deps.registry.publishedStates.filter(
-      (p) => p.state.pid === 12345,
-    );
-    expect(sourceAFrames.length).toBeGreaterThanOrEqual(1);
-    expect(sourceAFrames[0].state.recycling).toBeUndefined();
-  });
-
-  // ---------------------------------------------------------------------------
-  // Test QT-260823-73o-T1-iii — no live PID for tina + `.recycle-requested` yes
-  //   → source B publishes recycling:true (regression guard — Phase 53 CR C2
-  //   behavior preserved via the new path). Exactly ONE publish (source A silent).
-  // ---------------------------------------------------------------------------
-
-  it("Test QT-260823-73o-T1-iii: no live PID + `.recycle-requested` present → source B publishes recycling:true (single publish, source A silent)", async () => {
-    const channel = new MockSshChannel();
-    wireLivePidAndIdentity(channel, {
-      recycleRequested: "yes",
-      livePid: false,
-    });
-
-    const deps = buildDeps({
-      acquireSshChannel: vi.fn().mockResolvedValue(channel),
-    });
-
-    const orchestrator = createSshPollOrchestrator(deps);
-    await orchestrator.start();
-
-    // Exactly one publish — source B only (no live PID → source A silent).
     expect(deps.registry.publishedStates).toHaveLength(1);
-    const p = deps.registry.publishedStates[0];
-    expect(p.state.sessionId).toBe("__dormant__");
-    expect(p.state.pid).toBeNull();
-    expect(p.state.tmuxSession).toBe("tina");
-    expect(p.state.recycling).toBe(true);
+    expect(deps.registry.publishedStates[0].state.dormant).toBe(true);
+    expect(deps.registry.publishedStates[0].state.condensing).toBe(true);
   });
 
-  // ---------------------------------------------------------------------------
-  // Test QT-260823-73o-T1-iv — live PID for tina + JSONL tail's last user turn
-  //   is /id reset + no sentinels → source B publishes recycling:true via
-  //   Layer 1 axis. Source A publishes recycling:false. publishedStates.length >= 2.
-  // ---------------------------------------------------------------------------
-
-  it("Test QT-260823-73o-T1-iv: live PID + Layer 1 (/id reset in tail) → source B publishes recycling:true via Layer 1 axis", async () => {
+  it("no live PID, no sentinels → source B publishes condensing:false", async () => {
     const channel = new MockSshChannel();
-    wireLivePidAndIdentity(channel, {
-      jsonlTail: idResetLine(2000) + "\n",
-      // sentinels default false via wireLivePidAndIdentity defaults.
-    });
+    wireTina(channel, { livePid: false });
+    const deps = buildDeps({ acquireSshChannel: vi.fn().mockResolvedValue(channel) });
+    await createSshPollOrchestrator(deps).start();
 
-    const deps = buildDeps({
-      acquireSshChannel: vi.fn().mockResolvedValue(channel),
-    });
-
-    const orchestrator = createSshPollOrchestrator(deps);
-    await orchestrator.start();
-
-    expect(deps.registry.publishedStates.length).toBeGreaterThanOrEqual(2);
-
-    // Source B frame — recycling:true from Layer 1.
-    const sourceBFrames = deps.registry.publishedStates.filter(
-      (p) => p.state.sessionId === "__dormant__",
-    );
-    expect(sourceBFrames.length).toBeGreaterThanOrEqual(1);
-    expect(sourceBFrames[0].state.tmuxSession).toBe("tina");
-    expect(sourceBFrames[0].state.recycling).toBe(true);
-
-    // Source A frame — recycling omitted (source A no longer stamps).
-    // inline-260830-source-a-omit-recycling: source A omits recycling.
-    const sourceAFrames = deps.registry.publishedStates.filter(
-      (p) => p.state.pid === 12345,
-    );
-    expect(sourceAFrames.length).toBeGreaterThanOrEqual(1);
-    expect(sourceAFrames[0].state.recycling).toBeUndefined();
+    expect(deps.registry.publishedStates).toHaveLength(1);
+    expect(deps.registry.publishedStates[0].state.condensing).toBe(false);
   });
 
-  // ---------------------------------------------------------------------------
-  // Test QT-260823-73o-T1-v — live PID + all three axes false → source B does
-  //   NOT publish recycling:true. Either publishes recycling:false OR does not
-  //   publish a source-B frame at all (either is acceptable per fingerprint
-  //   semantics). GUARD: no published frame this tick has recycling === true.
-  // ---------------------------------------------------------------------------
-
-  it("Test QT-260823-73o-T1-v: live PID + no axes true → no published frame has recycling:true (negative case)", async () => {
+  it("live PID + .compact-requested → source B publishes condensing:true alongside source A's frame, which omits the axis", async () => {
     const channel = new MockSshChannel();
-    wireLivePidAndIdentity(channel);
-    // All defaults: recycleRequested=no, recycledAt=no, jsonlTail=plain assistant msg.
+    wireTina(channel, { compactRequested: "yes" });
+    const deps = buildDeps({ acquireSshChannel: vi.fn().mockResolvedValue(channel) });
+    await createSshPollOrchestrator(deps).start();
 
-    const deps = buildDeps({
-      acquireSshChannel: vi.fn().mockResolvedValue(channel),
-    });
+    const b = sourceBFrames(deps.registry.publishedStates);
+    expect(b).toHaveLength(1);
+    expect(b[0].tmuxSession).toBe("tina");
+    expect(b[0].condensing).toBe(true);
+    const a = deps.registry.publishedStates.filter((p) => p.state.pid === 12345);
+    expect(a.length).toBeGreaterThanOrEqual(1);
+    for (const p of a) expect(p.state.condensing).toBeUndefined();
+  });
 
-    const orchestrator = createSshPollOrchestrator(deps);
-    await orchestrator.start();
+  it("live PID + no sentinels → source B stays silent; no frame stamps condensing:true", async () => {
+    const channel = new MockSshChannel();
+    wireTina(channel);
+    const deps = buildDeps({ acquireSshChannel: vi.fn().mockResolvedValue(channel) });
+    await createSshPollOrchestrator(deps).start();
 
-    // Guard: NO published frame has recycling:true this tick.
-    // inline-260830-source-a-omit-recycling: source A frames now have
-    // recycling === undefined (omitted). Source B, when it publishes, still
-    // stamps false explicitly. Assert the negative — no frame stamps true.
+    expect(deps.registry.publishedStates.length).toBeGreaterThan(0);
+    expect(sourceBFrames(deps.registry.publishedStates)).toHaveLength(0);
     for (const p of deps.registry.publishedStates) {
-      expect(p.state.recycling).not.toBe(true);
+      expect(p.state.condensing).not.toBe(true);
     }
   });
 
-  // ---------------------------------------------------------------------------
-  // Test QT-260823-73o-T1-vi — tick 1: `.recycle-requested` yes → source B
-  //   publishes recycling:true. Tick 2: `.recycle-requested` no, `.recycled-at`
-  //   no, jsonl tail unchanged (no /id reset) → source B publishes
-  //   recycling:false (fingerprint delta detected on recycling axis). No stale
-  //   recycling:true persistence.
-  // ---------------------------------------------------------------------------
-
-  it("Test QT-260823-73o-T1-vi: recycling flip true→false across ticks → source B publishes recycling:false on tick 2 (fingerprint delta preserved, no stale persistence)", async () => {
+  it("sentinel stat returns null (SSH hiccup) → treated as not condensing, no throw", async () => {
     const channel = new MockSshChannel();
-    // Tick 1: `.recycle-requested` yes.
-    wireLivePidAndIdentity(channel, { recycleRequested: "yes" });
+    wireTina(channel, { livePid: false, compactRequested: null, compacting: null });
+    const deps = buildDeps({ acquireSshChannel: vi.fn().mockResolvedValue(channel) });
+    await expect(createSshPollOrchestrator(deps).start()).resolves.not.toThrow();
 
-    const setIntervalFns: Array<{ fn: () => void; ms: number }> = [];
-    const deps = buildDeps({
-      acquireSshChannel: vi.fn().mockResolvedValue(channel),
-      setInterval: vi.fn((fn: () => void, ms: number) => {
-        setIntervalFns.push({ fn, ms });
-        return setIntervalFns.length as unknown as ReturnType<typeof setInterval>;
-      }),
-    });
-
-    const orchestrator = createSshPollOrchestrator(deps);
-    await orchestrator.start(); // tick 1
-
-    // Tick 1 source-B frame is recycling:true.
-    const tick1SbFrames = deps.registry.publishedStates.filter(
-      (p) => p.state.sessionId === "__dormant__",
-    );
-    expect(tick1SbFrames.length).toBeGreaterThanOrEqual(1);
-    expect(tick1SbFrames[tick1SbFrames.length - 1].state.recycling).toBe(true);
-
-    const publishesAfterTick1 = deps.registry.publishedStates.length;
-
-    // Tick 2: `.recycle-requested` flips to no. All other axes stay false.
-    channel.setResponse(
-      "test -f ~/fleet/identities/'tina'/.recycle-requested",
-      "no\n",
-    );
-    // (recycledAt and jsonl tail already false/plain from wireLivePidAndIdentity defaults.)
-
-    const pollFn = setIntervalFns.find((s) => s.ms === 2000);
-    expect(pollFn).toBeDefined();
-    if (pollFn) {
-      await pollFn.fn();
-    }
-
-    // Fingerprint delta on recycling axis → source B re-publishes with recycling:false.
-    expect(deps.registry.publishedStates.length).toBeGreaterThan(publishesAfterTick1);
-    // The NEW source-B publish this tick has recycling:false.
-    const tick2NewFrames = deps.registry.publishedStates.slice(publishesAfterTick1);
-    const tick2SbFrame = tick2NewFrames.find(
-      (p) => p.state.sessionId === "__dormant__",
-    );
-    expect(tick2SbFrame).toBeDefined();
-    expect(tick2SbFrame!.state.recycling).toBe(false);
+    expect(deps.registry.publishedStates).toHaveLength(1);
+    expect(deps.registry.publishedStates[0].state.condensing).toBe(false);
   });
 
-  // ---------------------------------------------------------------------------
-  // Test inline-260830-source-a-omit-recycling — REGRESSION
-  //
-  // Bug (user 2026-08-30, taylor session): during a real /id reset, the
-  // overlay armed briefly the instant `.recycle-requested` dropped, then
-  // disappeared and never came back through the /exit + harness kill + fresh
-  // claude launch window. Root cause: source A stamped `recycling: false`
-  // explicitly on every publish for the live PID; source B stamped
-  // `recycling: true` when the sentinel was present. Within the same tick,
-  // source A ran first (per-PID loop) then source B; the frontend store's
-  // Axis E (session-working-store.ts:382) preserved cache only when the wire
-  // field was undefined — an explicit `false` flipped it. So source A's next
-  // status-change publish (busy↔shell) wiped the store cache back to false.
-  // Source B's fingerprint dedup then skipped republishing because
-  // isRecycling remained true, leaving the store stuck at false for the
-  // rest of the recycle window.
-  //
-  // Fix: source A OMITS the recycling field entirely (undefined). Store
-  // Axis E preserves cache on undefined. Source B stays sole authority.
-  //
-  // This test pins the source-A-omit contract at the wire boundary. The
-  // store-side preserve-on-undefined contract is already covered by
-  // session-working-store.test.ts Test P53-02-vii ("recycling:true, then
-  // isWorking toggles → recycling still true"). Together they close the
-  // full pipeline: source A never stamps → Axis E never flips false from
-  // source A frames → cache stays true through the recycle window.
-  // ---------------------------------------------------------------------------
-
-  it("Test inline-260830-source-a-omit-recycling: EVERY source A frame (across multiple ticks + status flips) has recycling===undefined regardless of sentinel state", async () => {
+  it("fingerprint: unchanged sentinels suppress; a condensing-only flip publishes", async () => {
     const channel = new MockSshChannel();
-    // Start with sentinel present so source B fires recycling:true and any
-    // source A frame that stamped `false` would surface in the assertion.
-    wireLivePidAndIdentity(channel, { recycleRequested: "yes" });
+    wireTina(channel, { livePid: false });
+    const { deps, tick } = depsWithTicks(channel);
+    await createSshPollOrchestrator(deps).start();
+    expect(deps.registry.publishedStates).toHaveLength(1);
 
-    const setIntervalFns: Array<{ fn: () => void; ms: number }> = [];
-    const deps = buildDeps({
-      acquireSshChannel: vi.fn().mockResolvedValue(channel),
-      setInterval: vi.fn((fn: () => void, ms: number) => {
-        setIntervalFns.push({ fn, ms });
-        return setIntervalFns.length as unknown as ReturnType<typeof setInterval>;
-      }),
+    await tick(); // unchanged → suppressed
+    expect(deps.registry.publishedStates).toHaveLength(1);
+
+    setSentinel(channel, ".compacting", "yes");
+    await tick();
+    expect(deps.registry.publishedStates).toHaveLength(2);
+    expect(deps.registry.publishedStates[1].state.condensing).toBe(true);
+    expect(deps.registry.publishedStates[1].state.dormant).toBe(false);
+  });
+
+  it("live PID: requested → compacting → done publishes true, holds, then a final condensing:false frame before evicting", async () => {
+    const channel = new MockSshChannel();
+    wireTina(channel, { compactRequested: "yes" });
+    const { deps, tick } = depsWithTicks(channel);
+    await createSshPollOrchestrator(deps).start();
+    expect(sourceBFrames(deps.registry.publishedStates).map((s) => s.condensing)).toEqual([true]);
+
+    // Supervisor picks the request up: .compact-requested → .compacting.
+    // Still condensing → fingerprint unchanged → no new source-B frame.
+    setSentinel(channel, ".compact-requested", "no");
+    setSentinel(channel, ".compacting", "yes");
+    await tick();
+    expect(sourceBFrames(deps.registry.publishedStates).map((s) => s.condensing)).toEqual([true]);
+
+    // Compaction finished: both gone → pre-evict condensing:false frame.
+    setSentinel(channel, ".compacting", "no");
+    await tick();
+    expect(sourceBFrames(deps.registry.publishedStates).map((s) => s.condensing)).toEqual([true, false]);
+
+    // Evicted: source A owns the identity again; source B stays silent.
+    await tick();
+    expect(sourceBFrames(deps.registry.publishedStates).map((s) => s.condensing)).toEqual([true, false]);
+  });
+
+  it("legacy source B probes .dormant / .compact-requested / .compacting once each per identity per tick — no retired sentinels, no transcript tail", async () => {
+    const channel = new MockSshChannel();
+    wireTina(channel, { livePid: false });
+    const deps = buildDeps({ acquireSshChannel: vi.fn().mockResolvedValue(channel) });
+    await createSshPollOrchestrator(deps).start();
+
+    expect(channel.countCallsMatching("stat ~/fleet/identities/'tina'/.dormant")).toBe(1);
+    expect(channel.countCallsMatching("stat ~/fleet/identities/'tina'/.compact-requested")).toBe(1);
+    expect(channel.countCallsMatching("stat ~/fleet/identities/'tina'/.compacting")).toBe(1);
+    expect(channel.countCallsMatching(".recycle")).toBe(0);
+    // No live PID → nothing should discover or tail tina's JSONL.
+    expect(channel.countCallsMatching("IDENTITY=")).toBe(0);
+    expect(channel.countCallsMatching("tail -c")).toBe(0);
+  });
+
+  it("emits fleet_status_condensing_armed with the per-sentinel breakdown", async () => {
+    const channel = new MockSshChannel();
+    wireTina(channel, { compacting: "yes" });
+    const deps = buildDeps({ acquireSshChannel: vi.fn().mockResolvedValue(channel) });
+    await createSshPollOrchestrator(deps).start();
+
+    const armed = (systemLogger.info as unknown as MockInstance).mock.calls
+      .map((c: unknown[]) => c[1] as Record<string, unknown> | undefined)
+      .filter((f) => f?.operation === "fleet_status_condensing_armed");
+    expect(armed).toHaveLength(1);
+    expect(armed[0]).toMatchObject({
+      identityName: "tina",
+      hasLivePid: true,
+      compactRequested: false,
+      compacting: true,
     });
-
-    const orchestrator = createSshPollOrchestrator(deps);
-    await orchestrator.start();
-
-    // Simulate a status flip mid-recycle by re-firing the poller (source A
-    // will publish a fresh frame on the next fingerprint delta — a real
-    // recycle window sees these constantly as claude toggles busy↔shell).
-    const pollFn = setIntervalFns.find((s) => s.ms === 2000)?.fn;
-    expect(pollFn).toBeDefined();
-    // Bump the SessionJson so source A's fingerprint changes on the next tick.
-    channel.setResponse(
-      "cat ~/.claude/sessions/12345.json",
-      makeSessionJson({ status: "shell" }),
-    );
-    await pollFn!();
-
-    // Then flip the sentinel to `.recycled-at` (supervisor rename) — source B
-    // should stay recycling:true via that axis and source A should still omit.
-    channel.setResponse(
-      "test -f ~/fleet/identities/'tina'/.recycle-requested",
-      "no\n",
-    );
-    channel.setResponse(
-      "stat ~/fleet/identities/'tina'/.recycled-at",
-      "yes\n",
-    );
-    await pollFn!();
-
-    // Every source A frame across all ticks — recycling must be undefined.
-    const sourceAFrames = deps.registry.publishedStates.filter(
-      (p) => p.state.pid === 12345,
-    );
-    expect(sourceAFrames.length).toBeGreaterThanOrEqual(1);
-    for (const f of sourceAFrames) {
-      expect(f.state.recycling).toBeUndefined();
-    }
-
-    // Source B frames — at least one recycling:true frame across all ticks.
-    const sourceBTrueFrames = deps.registry.publishedStates.filter(
-      (p) => p.state.sessionId === "__dormant__" && p.state.recycling === true,
-    );
-    expect(sourceBTrueFrames.length).toBeGreaterThanOrEqual(1);
   });
 });
 
@@ -5833,9 +4561,9 @@ describe("Phase 55: session-file cache writes", () => {
     channel.setResponse("id.jsonl", "");
     // Dormant sentinel for identity aqua.
     channel.setResponse("stat ~/fleet/identities/'aqua'/.dormant", "no\n");
-    channel.setResponse("stat ~/fleet/identities/'aqua'/.recycled-at", "no\n");
+    channel.setResponse("stat ~/fleet/identities/'aqua'/.compacting", "no\n");
     channel.setResponse(
-      "test -f ~/fleet/identities/'aqua'/.recycle-requested",
+      "stat ~/fleet/identities/'aqua'/.compact-requested",
       "no\n",
     );
 
@@ -7276,7 +6004,7 @@ describe("transport-vs-dead distinction in stat read (bounty 9c8d4a72)", () => {
     expect(deps.registry.publishedGone).toHaveLength(1);
     expect(deps.registry.publishedGone[0].hostId).toBe("host-1");
     expect(deps.registry.publishedGone[0].sessionId).toBe("test-session-id");
-    // Scoped to the dead PID so a recycled claude in the same tmux key
+    // Scoped to the dead PID so a relaunched claude in the same tmux key
     // can't be wiped by this reap (registry superseded guard).
     expect(deps.registry.publishedGonePids).toEqual([12345]);
   });
@@ -7734,14 +6462,14 @@ describe("Phase 92 — batch sweep dispatch", () => {
     );
     // gamma is the dormant-only identity — no live PID → source B publishes.
     channel.setResponse("stat ~/fleet/identities/'gamma'/.dormant", "no\n");
-    // Recycled-at + recycle-requested sentinels off for all three.
+    // Condense sentinels (.compacting + .compact-requested) off for all three.
     for (const name of IDENTITIES) {
       channel.setResponse(
-        `stat ~/fleet/identities/'${name}'/.recycled-at`,
+        `stat ~/fleet/identities/'${name}'/.compacting`,
         "no\n",
       );
       channel.setResponse(
-        `test -f ~/fleet/identities/'${name}'/.recycle-requested`,
+        `stat ~/fleet/identities/'${name}'/.compact-requested`,
         "no\n",
       );
     }
@@ -7770,10 +6498,9 @@ describe("Phase 92 — batch sweep dispatch", () => {
       identities: IDENTITIES.map((identity) => ({
         identity,
         dormant: false,
-        recycled_at: false,
-        recycle_requested: false,
+        compacting: false,
+        compact_requested: false,
         jsonl_path: null,
-        layer1_recycling: null,
       })),
       pids: [
         {
@@ -7858,7 +6585,7 @@ describe("Phase 92 — batch sweep dispatch", () => {
     expect(channel.countCallsMatching("stat ~/fleet/identities/")).toBe(0);
     // (g) Composition matches: 2 source-A frames (alpha+beta live PIDs) + 1
     //     source-B frame (gamma dormant-only). alpha/beta skipped by source B
-    //     because they have live PIDs AND are not recycling.
+    //     because they have live PIDs AND are not condensing.
     expect(deps.registry.publishedStates).toHaveLength(3);
     const tmuxSessions = deps.registry.publishedStates
       .map((p) => p.state.tmuxSession)
@@ -7960,7 +6687,7 @@ describe("Phase 92 — batch sweep dispatch", () => {
     );
 
     // Strict deep-equal on the sorted arrays. Any divergence — dormant flip,
-    // recycling flip, aiTitle drift, lastMessageAt drift, backgroundTasks
+    // condensing flip, aiTitle drift, lastMessageAt drift, backgroundTasks
     // shape drift, lastStopAt drift — fails this assertion.
     expect(batchSorted).toEqual(legacySorted);
 
@@ -9004,10 +7731,9 @@ describe("Phase 111 Plan 03 — appearance axis at both publish sources", () => 
       identities: [{
         identity: "pixel",
         dormant: false,
-        recycled_at: false,
-        recycle_requested: false,
+        compacting: false,
+        compact_requested: false,
         jsonl_path: null,
-        layer1_recycling: null,
         ...identityFields,
       }],
       pids: [{
@@ -9042,10 +7768,9 @@ describe("Phase 111 Plan 03 — appearance axis at both publish sources", () => 
       identities: [{
         identity: "pixel",
         dormant: false,
-        recycled_at: false,
-        recycle_requested: false,
+        compacting: false,
+        compact_requested: false,
         jsonl_path: null,
-        layer1_recycling: null,
         ...identityFields,
       }],
       pids: [], // no pid → source B publishes
@@ -9337,10 +8062,9 @@ describe("Phase 111 Plan 03 — appearance axis at both publish sources", () => 
         identities: [{
           identity: "pixel",
           dormant: false,
-          recycled_at: false,
-          recycle_requested: false,
+          compacting: false,
+          compact_requested: false,
           jsonl_path: null,
-          layer1_recycling: null,
           identity_cosmetics: { displayName: "Pixel" },
           role_cosmetics: { colorHue: 100 },
           role: "box-maintainer",
@@ -9369,10 +8093,10 @@ describe("Phase 111 Plan 03 — appearance axis at both publish sources", () => 
 
   // ---------------------------------------------------------------------------
   // Case 7: pre-evict transition frame carries appearance (source B only)
-  // Covers the D-09 edge where the recycling-false transition frame fires
+  // Covers the D-09 edge where the condensing-false transition frame fires
   // before source B evicts for a live-PID identity.
   // ---------------------------------------------------------------------------
-  it("Case 7 (load-bearing: pre-evict frame must carry appearance): recycling→live transition emits a pre-evict frame with populated identityAppearance", async () => {
+  it("Case 7 (load-bearing: pre-evict frame must carry appearance): condensing→live transition emits a pre-evict frame with populated identityAppearance", async () => {
     const channel = new MockSshChannel();
     channel.setResponse("test -x ~/.local/bin/fleet-status-sweep", "yes\n");
 
@@ -9385,16 +8109,15 @@ describe("Phase 111 Plan 03 — appearance axis at both publish sources", () => 
       }),
     });
 
-    // Tick 1: identity has a PID AND is recycling → source B publishes
-    // (live PID + recycling = source B does NOT evict per the `!isRecycling` guard)
+    // Tick 1: identity has a PID AND is condensing → source B publishes
+    // (live PID + condensing = source B does NOT evict per the `!isCondensing` guard)
     const tick1 = makeSweepJsonl({
       identities: [{
         identity: "pixel",
         dormant: false,
-        recycled_at: true, // sentinel-based recycling
-        recycle_requested: false,
+        compacting: true, // compaction in flight
+        compact_requested: false,
         jsonl_path: null,
-        layer1_recycling: null,
         identity_cosmetics: BASE_IDENTITY_COSMETICS,
         role_cosmetics: BASE_ROLE_COSMETICS,
         role: "box-maintainer",
@@ -9412,16 +8135,15 @@ describe("Phase 111 Plan 03 — appearance axis at both publish sources", () => 
     const afterTick1Len = deps.registry.publishedStates.length;
     const pollFn7 = setIntervalFns7.find((f) => f.ms === 2000);
 
-    // Tick 2: identity has same PID but NOT recycling → source B fires the
-    // pre-evict recycling-false transition frame, then evicts
+    // Tick 2: identity has same PID but NOT condensing → source B fires the
+    // pre-evict condensing-false transition frame, then evicts
     const tick2 = makeSweepJsonl({
       identities: [{
         identity: "pixel",
         dormant: false,
-        recycled_at: false, // recycling cleared
-        recycle_requested: false,
+        compacting: false, // compaction finished
+        compact_requested: false,
         jsonl_path: null,
-        layer1_recycling: null,
         identity_cosmetics: { displayName: "Pixel Updated" },
         role_cosmetics: BASE_ROLE_COSMETICS,
         role: "box-maintainer",
@@ -9437,9 +8159,9 @@ describe("Phase 111 Plan 03 — appearance axis at both publish sources", () => 
     if (pollFn7) { await pollFn7.fn(); }
 
     const tick2Publishes = deps.registry.publishedStates.slice(afterTick1Len);
-    // The pre-evict frame should carry recycling: false
+    // The pre-evict frame should carry condensing: false
     const preEvictFrame = tick2Publishes.find(
-      (s) => s.state.tmuxSession === "pixel" && s.state.recycling === false,
+      (s) => s.state.tmuxSession === "pixel" && s.state.condensing === false,
     );
     // The pre-evict source B frame must have appearance populated
     expect(preEvictFrame).toBeDefined();
@@ -9460,10 +8182,9 @@ describe("Phase 111 Plan 03 — appearance axis at both publish sources", () => 
         {
           identity: "alpha",
           dormant: false,
-          recycled_at: false,
-          recycle_requested: false,
+          compacting: false,
+          compact_requested: false,
           jsonl_path: null,
-          layer1_recycling: null,
           identity_cosmetics: { displayName: "Alpha" },
           role_cosmetics: { colorHue: 100 },
           role: "engineer",
@@ -9472,10 +8193,9 @@ describe("Phase 111 Plan 03 — appearance axis at both publish sources", () => 
         {
           identity: "beta",
           dormant: true,
-          recycled_at: false,
-          recycle_requested: false,
+          compacting: false,
+          compact_requested: false,
           jsonl_path: null,
-          layer1_recycling: null,
           identity_cosmetics: { displayName: "Beta" },
           role_cosmetics: { colorHue: 200 },
           role: "designer",
@@ -9567,10 +8287,9 @@ describe("Phase 111 Plan 03 — appearance axis at both publish sources", () => 
       identities: [{
         identity: "pixel",
         dormant: false,
-        recycled_at: false,
-        recycle_requested: false,
+        compacting: false,
+        compact_requested: false,
         jsonl_path: null,
-        layer1_recycling: null,
         identity_cosmetics: BASE_IDENTITY_COSMETICS,
         role_cosmetics: BASE_ROLE_COSMETICS,
         role: "box-maintainer",
@@ -9593,10 +8312,9 @@ describe("Phase 111 Plan 03 — appearance axis at both publish sources", () => 
       identities: [{
         identity: "pixel",
         dormant: false,
-        recycled_at: false,
-        recycle_requested: false,
+        compacting: false,
+        compact_requested: false,
         jsonl_path: null,
-        layer1_recycling: null,
         identity_cosmetics: BASE_IDENTITY_COSMETICS,
         role_cosmetics: BASE_ROLE_COSMETICS,
         role: "box-maintainer",
@@ -9689,8 +8407,8 @@ describe("Phase 111 Plan 03 — appearance axis at both publish sources", () => 
     channel.setResponse("cat ~/.claude/fleet-status/last-stop-payload.json", makeValidPayload());
     channel.setResponse("~/fleet/identities/ -mindepth", "tina\n");
     channel.setResponse("stat ~/fleet/identities/'tina'/.dormant", "no\n");
-    channel.setResponse("stat ~/fleet/identities/'tina'/.recycled-at", "no\n");
-    channel.setResponse("test -f ~/fleet/identities/'tina'/.recycle-requested", "no\n");
+    channel.setResponse("stat ~/fleet/identities/'tina'/.compacting", "no\n");
+    channel.setResponse("stat ~/fleet/identities/'tina'/.compact-requested", "no\n");
 
     const deps = buildDeps({ acquireSshChannel: vi.fn().mockResolvedValue(channel) });
     const orchestrator = createSshPollOrchestrator(deps);
@@ -9758,10 +8476,9 @@ describe("archived identity — cosmetics cache outlives the identity_gone tick"
     return {
       identity: name,
       dormant: false,
-      recycled_at: false,
-      recycle_requested: false,
+      compacting: false,
+      compact_requested: false,
       jsonl_path: null,
-      layer1_recycling: null,
       identity_cosmetics: { displayName: name },
       role_cosmetics: { users: ["alice"] },
       role: "box-maintainer",

@@ -154,48 +154,34 @@ export type BackgroundTask = z.infer<typeof BackgroundTaskSchema>;
 // ---------------------------------------------------------------------------
 
 // ---------------------------------------------------------------------------
-// Phase 53 Plan 01 (2026-08-21): added `recycling` as an OPTIONAL, NULLABLE
-// boolean field carrying the backend-authoritative identity-recycling signal
-// for a session.
+// `condensing` — an OPTIONAL, NULLABLE boolean carrying the backend-
+// authoritative "this agent's context is being condensed" signal. (Phase 53
+// introduced the slot as `recycling` for the retired agent-reset flow;
+// Condense replaced reset and the field was renamed.)
 //
-// Source: the caretaker's `~/fleet/identities/<tmuxSession>/.recycled-at`
-// sentinel file on the target host. Presence of the sentinel ⇔ identity is
-// currently being replaced via the /id-reset routine (renamed from
-// `.recycle-requested` at recycle-intent detection, before the outgoing claude
-// PID exits; removed with an 8s delay after the fresh claude is up and driven
-// through /id — the whole window is on-disk with no gaps).
+// Source: two sentinel files under `~/fleet/identities/<tmuxSession>/` on the
+// target host — `.compact-requested` (dropped by the agent or the app to ask
+// the supervisor for a compaction) and `.compacting` (held by the supervisor,
+// agent-supervisor.sh handle_compaction, while the compaction runs). The
+// agent is condensing while EITHER is present. Compaction happens in place:
+// the same claude process and the same JSONL session file carry on.
 //
 // Semantics:
-//   - true      → sentinel file present; the identity is being replaced via the
-//                 /id-reset routine (recycle in flight).
-//   - false     → sentinel file absent; the identity is in normal operation OR
-//                 dormant OR any other non-recycling state.
-//   - null      → normalised-null in transit (backend may emit null when it
-//                 cannot distinguish true/false due to SSH error — frontend
-//                 store treats as `false` at Axis E because `null === true`
-//                 evaluates false. In practice source B never emits null —
-//                 fail-open logic collapses null stats to boolean `false`
-//                 before construction — so this branch is defensive only.
-//   - undefined → the emitting source does NOT participate in the recycling
+//   - true      → a compaction is queued or in flight.
+//   - false     → neither sentinel present.
+//   - null      → normalised-null in transit — frontend store treats as
+//                 `false` at Axis E because `null === true` is false. Source B
+//                 never emits null in practice; defensive only.
+//   - undefined → the emitting source does NOT participate in the condensing
 //                 axis for this frame. Frontend store Axis E preserves the
-//                 cached value (session-working-store.ts:382). See §
-//                 inline-260830-source-a-omit-recycling below.
-//
-// Scope-lock: recycling means SPECIFICALLY "identity is being replaced via the
-// reset routine." It does NOT expand to memory-cap restarts, dormancy-wake, or
-// any other harness-down state. Those have their own overlays (dormant /
-// connection-drop / inactive) and MUST NOT flip recycling.
+//                 cached value (session-working-store.ts). See below.
 //
 // Sole authority: source B (per-identity enumeration in pollDormantOnlyIdentities)
-// is the ONLY publisher that stamps recycling. Source A OMITS the field per
-// inline-260830-source-a-omit-recycling (user 2026-08-30, taylor) — an
-// earlier version had source A stamp `recycling: false` explicitly on every
-// per-PID publish, which wiped the frontend cache immediately after source B
-// fired `recycling: true` on sentinel drop. Source B's fingerprint dedup then
-// suppressed the re-publish, leaving the store stuck at false through the
-// rest of the recycle window. Migrating to source-B-only + source-A-omit
-// (via undefined preserved by Axis E) closes that gap end-to-end. See
-// ssh-poll-orchestrator.ts:1455 and the QT-260823-73o + inline-260830 tests.
+// is the ONLY publisher that stamps condensing. Source A OMITS the field
+// (inline-260830-source-a-omit) — if source A stamped `false` on every
+// per-PID publish it would wipe the frontend cache right after source B
+// flipped it true, and source B's fingerprint dedup would then suppress the
+// re-publish, leaving the store stuck at false for the rest of the window.
 //
 // Additive-optional invariant: FRAME_SCHEMA_VERSION deliberately HELD AT 1
 // (same T-41-03-05 mitigation established for lastMessageAt in Phase 41 and
@@ -244,7 +230,7 @@ export type BackgroundTask = z.infer<typeof BackgroundTaskSchema>;
 //   Phase 41 lastMessageAt (2026-08-15)     → held at 1
 //   Phase 47 aiTitle       (2026-08-20)     → held at 1
 //   Phase 52 dormant       (2026-08-20)     → held at 1
-//   Phase 53 recycling     (2026-08-21)     → held at 1
+//   Phase 53 condensing    (2026-08-21)     → held at 1
 //   Phase 59 lastStopAt+lastStatusChangeAt  (2026-08-29) → held at 1
 //   Phase 62 activityMtime + stoppedMtime   (2026-08-30) → held at 1 (this)
 //
@@ -309,7 +295,7 @@ export type BackgroundTask = z.infer<typeof BackgroundTaskSchema>;
 //   Phase 41 lastMessageAt                       → held at 1
 //   Phase 47 aiTitle                             → held at 1
 //   Phase 52 dormant                             → held at 1
-//   Phase 53 recycling                           → held at 1
+//   Phase 53 condensing                          → held at 1
 //   Phase 59 lastStopAt + lastStatusChangeAt     → held at 1
 //   Phase 62 activityMtime + stoppedMtime        → held at 1
 //   Phase 90 contextPct  (2026-09-08)            → held at 1 (this)
@@ -357,7 +343,7 @@ export type BackgroundTask = z.infer<typeof BackgroundTaskSchema>;
 //   Phase 41 lastMessageAt                       → held at 1
 //   Phase 47 aiTitle                             → held at 1
 //   Phase 52 dormant                             → held at 1
-//   Phase 53 recycling                           → held at 1
+//   Phase 53 condensing                          → held at 1
 //   Phase 59 lastStopAt + lastStatusChangeAt     → held at 1
 //   Phase 62 activityMtime + stoppedMtime        → held at 1
 //   Phase 90 contextPct  (2026-09-08)            → held at 1
@@ -431,7 +417,7 @@ export type IdentityAppearance = z.infer<typeof IdentityAppearanceSchema>;
 // Additive-optional invariant: FRAME_SCHEMA_VERSION deliberately HELD AT 1
 // — fifth iteration of the T-41-03-05 mitigation established for
 // lastMessageAt in Phase 41 and inherited by aiTitle in Phase 47 + dormant
-// in Phase 52 + recycling in Phase 53.
+// in Phase 52 + condensing (then `recycling`) in Phase 53.
 // ---------------------------------------------------------------------------
 
 export const SessionStateSchema = z.object({
@@ -452,8 +438,8 @@ export const SessionStateSchema = z.object({
   aiTitle: z.string().nullable().optional(),
   // Phase 52 Plan 01 — inline supervisor-dormancy signal (see block comment above).
   dormant: z.boolean().nullable().optional(),
-  // Phase 53 Plan 01 — inline backend-authoritative recycling signal (see block comment above).
-  recycling: z.boolean().nullable().optional(),
+  // Inline backend-authoritative condensing signal (see block comment above).
+  condensing: z.boolean().nullable().optional(),
   // Phase 59 Plan 01 — mtime of the per-session Stop file (see block comment above).
   lastStopAt: z.number().nullable().optional(),
   // Phase 59 Plan 01 — server-derived status-transition timestamp (see block comment above).
@@ -464,7 +450,7 @@ export const SessionStateSchema = z.object({
   stoppedMtime: z.number().nullable().optional(),
   // When this identity's agent last finished a turn — the per-session Stop
   // file mtime, kept durably per (host, identity) by the attention
-  // turn-finish store so it survives session rotation, recycles and
+  // turn-finish store so it survives session rotation, relaunches and
   // dormancy (lastStopAt above resets with the session). Carried on live AND
   // dormant frames. Drives the sidebar unread mark + recency ordering.
   lastFinishAt: z.number().nullable().optional(),
@@ -552,9 +538,9 @@ const FrontendUpdateFrameSchema = z.object({
 //   - "identity_gone": the identity folder disappeared between sweep ticks
 //     (self-archive, folder deletion) — the identity is truly gone.
 //   - "pid_stale":     a claude PID died but the tmux session persists — the
-//     process cycled (e.g. /id reset) and a fresh claude will re-attach in
+//     process cycled (e.g. a crash relaunch) and a fresh claude will re-attach in
 //     seconds. NOT a true identity-ending event.
-// Frontend gates tab-close on `identity_gone` only, so reset no longer nukes
+// Frontend gates tab-close on `identity_gone` only, so a relaunch never nukes
 // the open tab. Sidebar row cleanup applies to both. Optional at the schema
 // level for over-the-wire tolerance (drift-lock makes older-clients
 // non-issue, but keeping it optional is cheap defense-in-depth).
@@ -686,7 +672,7 @@ export const FrontendSessionProjectChangedFrameSchema = z.object({
 //   Phase 41 lastMessageAt                       → held at 1
 //   Phase 47 aiTitle                             → held at 1
 //   Phase 52 dormant                             → held at 1
-//   Phase 53 recycling                           → held at 1
+//   Phase 53 condensing                          → held at 1
 //   Phase 59 lastStopAt + lastStatusChangeAt     → held at 1
 //   Phase 62 activityMtime + stoppedMtime        → held at 1
 //   Phase 90 contextPct                          → held at 1

@@ -19,10 +19,9 @@
  *
  * WHY BYTE-PATTERN NOT JSON-PARSE (D-01):
  *
- * Mirrors the shape used by the Layer 1 recycle detector at
- * `layer1-detect.ts:82-106` (isUserTurn + isIdResetUserTurn) —
- * production-proven, ~40× cheaper than JSON.parse per line, and tolerant
- * to the minor byte-shape drift Claude Code has historically shipped. If
+ * Raw-string `line.includes` checks — ~40× cheaper than JSON.parse per
+ * line, and tolerant to the minor byte-shape drift Claude Code has
+ * historically shipped. If
  * the assumption ever breaks, this file is the SINGLE source of truth for
  * identity-first-turn detection — fix here, not scattered across the
  * dormant-branch wiring.
@@ -189,8 +188,7 @@ const DELIMITER_SET = new Set(["<", " ", "\r"]);
  *
  * Load-bearing checks (in order):
  *   1. Line contains `"type":"user"` AND does NOT contain `"tool_result"`
- *      (mirrors `isUserTurn` in `layer1-detect.ts:82` — NOT imported here
- *      to keep this module independent per D-09).
+ *      (self-contained here — this module stays independent per D-09).
  *   2. Line contains `<command-name>/id</command-name>` (literal).
  *   3. Line contains `<command-args><identityName>` where the character
  *      immediately after the identity name is one of `<`, ` `, `\r`, or
@@ -200,7 +198,7 @@ const DELIMITER_SET = new Set(["<", " ", "\r"]);
  * JSON.parse — the byte-shape assumption is captured entirely here.
  *
  * Exported for unit testing under the established `__forTests` convention
- * (see `layer1-detect.ts:199`, `claude-session-server.ts` seams).
+ * (see the `claude-session-server.ts` seams).
  *
  * @param line — one raw JSONL line (the first user-role line of a file).
  * @param identityName — the identity to match (e.g. `tanya`, `tiffany`).

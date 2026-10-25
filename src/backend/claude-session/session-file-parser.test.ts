@@ -1017,7 +1017,7 @@ describe("parseSessionLine — queue-operation enqueue as kind:message (Phase 50
     // <command-name> wrapper). Wrapper form is skipped downstream at
     // parser L1290; this test locks the mirroring enqueue skip so the raw
     // text doesn't render as a plain-text user bubble in PrettyView.
-    for (const content of ["/id reset", "/id save", "/id tanya", "/id reset (glued transcript)"]) {
+    for (const content of ["/id list", "/id save", "/id tanya", "/id save (glued transcript)"]) {
       const parsed = parseSessionLine(
         line({
           type: "queue-operation",
@@ -1052,7 +1052,7 @@ describe("parseSessionLine — queue-operation enqueue as kind:message (Phase 50
       line({
         type: "queue-operation",
         operation: "enqueue",
-        content: "remember that /id reset recycles the session",
+        content: "remember that /id save writes the role file",
         timestamp: "2026-09-04T12:00:02.000Z",
       }),
       "sess-A",

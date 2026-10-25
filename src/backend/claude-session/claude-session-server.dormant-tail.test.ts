@@ -29,8 +29,8 @@
  *             ws.on("close"). Verified via structural file inspection.
  *
  * NEW test file (not extending dormant-poll.test.ts) — single-responsibility
- * per the repo convention (layer1 tests are separate from repoll tests are
- * separate from dormant-poll tests).
+ * per the repo convention (repoll tests are separate from dormant-poll
+ * tests).
  *
  * Uses the __applyDormantBranchTailOpenForTests seam (new in 32-02) for
  * CASE-DT1..DT3 + DT6, and the pre-existing

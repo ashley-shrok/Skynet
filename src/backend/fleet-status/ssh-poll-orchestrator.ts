@@ -42,7 +42,7 @@ import {
 import { isStaleFromStat } from "./liveness-check.js";
 import { resolvePidToTmuxSession } from "./pid-to-tmux.js";
 import { filterAmbientTasks } from "./ambient-filter.js";
-import { detectIdReset, isTeammateMessage } from "../claude-session/session-file-parser.js";
+import { isTeammateMessage } from "../claude-session/session-file-parser.js";
 import {
   buildIdentityMatchScript,
   shellSingleQuote,
@@ -440,7 +440,9 @@ interface PidCacheEntry {
   // `jsonlPath`'s tail-scan (Phase 47 Plan 02: `tail -c 262144`) failed to
   // advance a NON-NULL cached `lastMessageAt`. Reset to 0 on any tick that
   // advances lastMessageAt.
-  // On reaching STALE_TAIL_REDISCOVERY_THRESHOLD, invalidate `jsonlPath`
+  // (The STALE_TAIL_REDISCOVERY_THRESHOLD trip that invalidated `jsonlPath`
+  // is retired — the counter is carried but no longer advanced.) Original
+  // intent: on reaching the threshold, invalidate `jsonlPath`
   // so the next tick re-fires discovery — defense against Claude Code
   // JSONL rotation mid-session (a resume can rotate the active file,
   // leaving the cached path pointing at a stale JSONL; compaction stays in
@@ -467,20 +469,15 @@ interface PidCacheEntry {
   // preservation matches lastMessageAt / aiTitle patterns — transient SSH
   // hiccups do NOT flip a valid dormant reading.
   dormant: boolean;
-  // quick-260823-73o — the source-A recycling cache fields (`recycling`,
-  // `layer1RecyclingCached`, `recycleRequestedCached`) are REMOVED here.
-  // All three recycle axes now live in source B's `identityRecycleState`
-  // per-identity cache map (see PerHostState below + pollDormantOnlyIdentities
-  // per-identity iteration). Source A stamps `recycling: false` unconditionally
-  // and no longer computes any of the three axes. See quick-260823-73o
-  // objective for the full RCA (source A's per-PID lifecycle-gap window
-  // during /id reset).
+  // Source A carries NO condensing cache: the condensing axis lives solely in
+  // source B's `sourceBIdentityState` per-identity cache (see PerHostState
+  // below + composeAndPublishPerIdentity). Source A omits the field.
   // -------------------------------------------------------------------------
   // Phase 59 Plan 02 (WIP shell-idle gate — 2026-08-26): three new cache axes
   // for the WIP indicator's stop-gate derivation. Both new axes participate
   // in computeFingerprint so a value change on either publishes a new frame
   // even when status + backgroundTasks + lastMessageAt + aiTitle + dormant +
-  // recycling are all unchanged.
+  // condensing are all unchanged.
   // -------------------------------------------------------------------------
   // Cached previous-tick `sessionJson.status` value, used exclusively to
   // derive `lastStatusChangeAt` via poll-to-poll status-value delta
@@ -555,25 +552,17 @@ interface PidCacheEntry {
   identityAppearance: IdentityAppearance | null;
 }
 
-// quick-260823-73o — source B per-identity cache entry. Replaces the prior
-// Phase 52 Task 3 Map<name, {dormant, recycling}> shape (which was widened
-// in Phase 53 CR C2/C3) with a fuller record now that source B owns the
-// full three-axis recycle pipeline (was source A's).
+// Source B per-identity cache entry (identity-folder-keyed, PID-independent).
 //
 // Field semantics:
 //   dormant                   — `.dormant` sentinel stat; participates in fingerprint.
-//   recycling                 — OR-composed axis: layer1 || requested || sentinel;
-//                                participates in fingerprint.
-//   layer1RecyclingCached     — last non-null Layer 1 tail-scan result (bool);
-//                                cache-preserved on SSH hiccup (null return).
-//   jsonlPath                 — cached discovery result (path or null); nulled
-//                                to force re-discovery on stale-tail threshold.
-//   staleTailTickCount        — count of consecutive ticks where the tail-scan
-//                                returned null while the cached Layer 1 was true;
-//                                threshold trip nulls jsonlPath for re-discovery.
-//   lastPublishedFingerprint  — the (dormant|recycling|appearance) tuple last
-//                                published for this identity; fingerprint-
-//                                suppression compares against this on every tick.
+//   condensing                — `.compact-requested` || `.compacting`: the
+//                                agent's context is being condensed in place
+//                                (queued or in flight); participates in fingerprint.
+//   lastPublishedFingerprint  — the (dormant|condensing|appearance|lastFinish)
+//                                tuple last published for this identity;
+//                                fingerprint-suppression compares against this
+//                                on every tick.
 //   identityAppearance        — Phase 111 Plan 03: resolved appearance from the
 //                                sweep line's appearance keys. Stamped on BOTH
 //                                the publish branch AND the suppress branch so the
@@ -581,12 +570,9 @@ interface PidCacheEntry {
 //                                Semantics: object → resolved this tick; null →
 //                                the emitting host sent no appearance keys
 //                                (pre-Plan-111-01) or this is the legacy path.
-interface IdentityRecycleCacheEntry {
+interface SourceBIdentityCacheEntry {
   dormant: boolean;
-  recycling: boolean;
-  layer1RecyclingCached: boolean;
-  jsonlPath: string | null;
-  staleTailTickCount: number;
+  condensing: boolean;
   lastPublishedFingerprint: string;
   identityAppearance: IdentityAppearance | null;
 }
@@ -596,15 +582,13 @@ interface PerHostState {
   channel: SshChannel;
   livenessMap: Map<number, PidCacheEntry>;
   lastHookWarnAt: number;
-  // quick-260823-73o — source B per-identity cache. Replaces the prior
-  // `dormantOnlyIdentities: Map<string, {dormant, recycling}>` (Phase 52 T3
-  // widened by Phase 53 CR C2/C3). Now that source B owns the full three-axis
-  // recycle pipeline (migrated out of source A's per-PID loop to close the
-  // /id-reset lifecycle-gap window), the cache carries the internal
-  // discovery/scan state alongside the two published axes. See
-  // IdentityRecycleCacheEntry docblock above for field-level semantics and
-  // pollDormantOnlyIdentities for the per-tick update contract.
-  identityRecycleState: Map<string, IdentityRecycleCacheEntry>;
+  // Source B per-identity cache (dormant + condensing axes). Entries exist
+  // for identities source B currently publishes for — identities with no
+  // live PID, or live identities that are condensing; a live identity that
+  // is not condensing is evicted (source A owns its frames). See
+  // SourceBIdentityCacheEntry above for field-level semantics and
+  // composeAndPublishPerIdentity for the per-tick update contract.
+  sourceBIdentityState: Map<string, SourceBIdentityCacheEntry>;
   // -------------------------------------------------------------------------
   // Phase 92: sweep-first / legacy-fallback dispatch state.
   //
@@ -685,12 +669,12 @@ interface PerHostState {
 
   // Per-identity raw cosmetics cache — populated by the source-B loop on every
   // successful sweep tick for EVERY live-tree identity (before the skip-and-
-  // evict branch that trims `identityRecycleState`). Consumers query it via
+  // evict branch that trims `sourceBIdentityState`). Consumers query it via
   // `getCachedIdentityCosmetics` on the orchestrator's public surface to gate
   // WS frames without doing their own SSH read per frame.
   //
-  // Distinct from `identityRecycleState` because that map's lifetime is tied
-  // to the recycle pipeline (live-and-not-recycling identities get evicted).
+  // Distinct from `sourceBIdentityState` because that map's lifetime is tied
+  // to source B's publish set (live-and-not-condensing identities get evicted).
   // This map's lifetime is tied to the live tree: an identity present in the
   // last sweep's identity lines has an entry; an identity that dropped off
   // the live tree has its entry removed alongside the `lastTickLiveTreeIdentities`
@@ -822,33 +806,18 @@ interface PerPidFetchedState {
 
 /**
  * Snapshot of every value the per-identity iteration of
- * pollDormantOnlyIdentities fetches over SSH before the compose+publish
- * phase. Fields carry RESEARCH.md exec-site letters (B1..B5).
+ * pollDormantOnlyIdentities fetches over SSH (legacy path) or reads off a
+ * SweepIdentityLine (batch path) before the compose+publish phase. Fields
+ * carry RESEARCH.md exec-site letters.
  */
 interface PerIdentityFetchedState {
   name: string;
   /** B1 — `.dormant` sentinel */
   isDormant: boolean;
-  /** B2 — `.recycled-at` sentinel */
-  isRecycledAt: boolean;
-  /** B3 — `.recycle-requested` sentinel */
-  isRecycleRequested: boolean;
-  /**
-   * Resolved layer1 recycling value AFTER fail-open preservation against
-   * the cached value (mirrors the L1060-1090 legacy scan-then-reconcile
-   * logic). This is NOT raw B5 — it's the final value the compose helper
-   * plugs into the OR-composition.
-   */
-  layer1RecyclingCached: boolean;
-  /** B4 — Phase 32 discovery result (post-stale-check in the legacy path) */
-  jsonlPath: string | null;
-  /**
-   * Next-tick stale-tail counter value. Legacy path increments/resets per
-   * the L1060-1089 rotation-defense rules; batch path resets to 0 (Plan 02's
-   * script does its own per-tick discovery, so cache-based staleness does
-   * not apply). Consumed by compose for the cache write.
-   */
-  nextStaleTailTickCount: number;
+  /** B2 — `.compact-requested` sentinel (agent or app asked to condense) */
+  isCompactRequested: boolean;
+  /** B3 — `.compacting` sentinel (supervisor is compacting right now) */
+  isCompacting: boolean;
   /**
    * B6..B9 — Phase 111 Plan 03: resolved appearance from the sweep line's
    * appearance keys. The shared `appearanceFromIdentityLine` helper calls
@@ -886,7 +855,7 @@ interface PerIdentityFetchedState {
  * confirmed on Tabitha's session file now explicitly rejected:
  * - Ctrl-C kill signal: supervisor delivers "\x03\x03" as plain-string
  *   content; after trimming, stripping all ASCII control chars yields "".
- * - /exit slash-command: agent-supervisor fires `/exit` before recycle;
+ * - /exit slash-command: agent-supervisor fires `/exit` before a restart;
  *   content contains "<command-name>/exit</command-name>".
  * - Resumed-injection sentinel: supervisor injects "Your session was just
  *   resumed by the agent-supervisor…" as a type:"user" turn in some paths.
@@ -897,9 +866,7 @@ interface PerIdentityFetchedState {
  * file's own lastMessageAt path anymore (retired — the derivation now reads
  * from the identity-name-keyed send-log store via getIdentityLastSend), but
  * the src/backend/database/routes/sessions.ts byte-parallel copy of
- * scanTailForNewestMessageAt still depends on this predicate's contract, and
- * scanTailForLayer1RecyclingSignal below still calls this to pre-filter real
- * user turns from harness-synthetic noise.
+ * scanTailForNewestMessageAt still depends on this predicate's contract.
  */
 function isRealUserTurn(rawLine: string): { ok: true; ts: number } | { ok: false } {
   const trimmed = rawLine.trim();
@@ -926,7 +893,7 @@ function isRealUserTurn(rawLine: string): { ok: true; ts: number } | { ok: false
   const isCommand = t.startsWith("<command-");
   if (!isCommand && isXmlWrapper) return { ok: false };
   // Step 5 (2026-08-29 refinement): drop /exit slash-command injected by agent-supervisor
-  // before recycle. user's own slash-commands (/id, /build, /gsd:*) are unaffected.
+  // before a restart. user's own slash-commands (/id, /build, /gsd:*) are unaffected.
   if (content.includes("<command-name>/exit</command-name>")) return { ok: false };
   // Step 6 (2026-08-29 refinement): drop control-chars-only content (e.g. Ctrl-C kill
   // signal "\x03\x03"). t is already trimmed of regular whitespace; stripping ASCII
@@ -945,24 +912,12 @@ function isRealUserTurn(rawLine: string): { ok: true; ts: number } | { ok: false
   return { ok: true, ts };
 }
 
-/**
- * Phase 44 Plan 02 — N consecutive ticks with a stale tail (against a
- * NON-NULL cached lastMessageAt) before re-running discovery. At the
- * default 2s poll cadence, this is ~10s of "cached path returned no
- * fresher message-bearing frame" before we invalidate the cached
- * discovery path and re-scan `~/.claude/projects/*​/`.
- *
- * This is a defense against Claude Code JSONL rotation mid-session (a
- * resume can rotate the active file, leaving the cached path pointing at a
- * stale JSONL that has stopped growing; compaction stays in the same file
- * and sessionId). See
- * 44-CONTEXT.md § ssh-poll-orchestrator.ts swap.
- *
- * Sessions with NO cached lastMessageAt do NOT tick this counter — the
- * threshold is a rotation-defense, not a no-history-kick. See the
- * PidCacheEntry.staleTailTickCount docblock above for the full rationale.
- */
-const STALE_TAIL_REDISCOVERY_THRESHOLD = 5;
+// Phase 44 Plan 02's STALE_TAIL_REDISCOVERY_THRESHOLD (N stale-tail ticks →
+// re-run discovery, a defense against JSONL rotation on resume) is retired:
+// source A stopped advancing the counter with the Phase 85 lastMessageAt swap,
+// and its last consumer — source B's `/id reset` tail-scan — went away with
+// agent reset. Compaction stays in the same JSONL file and sessionId, so
+// Condense needs no rediscovery.
 
 // Phase 44 Plan 02 — the former jsonlPathForSession helper (cwd + sessionId
 // → constructed path) has been removed. It built the JSONL path via
@@ -1083,84 +1038,6 @@ function scanTailForLatestAiTitle(tailContents: string): string | null {
 }
 
 // ---------------------------------------------------------------------------
-// quick-260822-0vw — Layer 1 /id reset scanner
-// ---------------------------------------------------------------------------
-
-/**
- * Scan a JSONL tail buffer and return the Layer 1 recycling signal for the
- * most-recent real user turn in the buffer.
- *
- * Returns:
- *   true  — the last parseable user turn (per detectIdReset semantics) was
- *            an /id reset turn
- *   false — the last parseable user turn was NOT an /id reset turn
- *   null  — the tail contained ZERO parseable user turns (no signal at all;
- *            the caller should preserve its cached value — same fail-open
- *            semantics as scanTailForNewestMessageAt returns null on no
- *            message-bearing lines)
- *
- * Implementation mirrors layer1-detect.applyLineToLayer1State's "last user
- * turn wins" reducer semantics: iterate lines in order, for each try to
- * JSON.parse (skip malformed silently — matches the module's existing
- * tolerance), skip non-user types, then call detectIdReset and remember the
- * result on each user-turn hit. The last-remembered value is returned (or null
- * if no user turn was found). ONE buffer, called as a THIRD scan on the same
- * `tailRaw` already read by scanTailForNewestMessageAt + scanTailForLatestAiTitle
- * — no new SSH round-trip.
- */
-function scanTailForLayer1RecyclingSignal(tailContents: string): boolean | null {
-  let lastResult: boolean | null = null;
-  const lines = tailContents.split("\n");
-  for (const line of lines) {
-    if (line.trim() === "") continue;
-    // inline-260830-layer1-skip-harness-synthetic-user-turns (user
-    // 2026-08-30, taylor): pre-filter with isRealUserTurn so
-    // harness-synthetic user turns do NOT flip lastResult back to false
-    // after a real /id reset has been seen. Historical behavior: this
-    // loop iterated ALL type:"user" lines and set lastResult =
-    // detectIdReset(parsed) unconditionally. detectIdReset returns FALSE
-    // (not null) for:
-    //   - array-content user turns (tool_result — the /id skill's own
-    //     bash/read tool_use → tool_result exchanges fill the JSONL
-    //     during the ~30s recycle window; each one flipped lastResult
-    //     false, drowning the /id reset signal),
-    //   - the /exit user turn agent-supervisor injects right before
-    //     recycle (content is a string but doesn't contain
-    //     `<command-name>/id</command-name>`),
-    //   - control-char kill signals + resumed-injection sentinels,
-    //   - non-command XML-wrapped strings.
-    // user report 2026-08-30 (chad 20:09:07):
-    // [fleet_status_recycling_armed] showed layer1:false, requested:true
-    // — the sentinel drop was the ONLY arm axis; Layer 1 never fired
-    // during the 30s window while the /id skill was running. This filter
-    // restores the intended semantic ("last REAL user turn wins" —
-    // matches the lastMessageAt scan at scanTailForNewestMessageAt which
-    // has always used isRealUserTurn). detectIdReset stays the
-    // final classifier; the isRealUserTurn gate just makes sure
-    // only real user speech reaches it.
-    if (!isRealUserTurn(line).ok) continue;
-    let parsed: Record<string, unknown>;
-    try {
-      parsed = JSON.parse(line) as Record<string, unknown>;
-    } catch {
-      // Malformed line — skip silently (matches existing parser tolerance).
-      // Also isRealUserTurn's own JSON.parse would have returned
-      // { ok: false } and we'd have already continued above; this catch is
-      // structural belt-and-suspenders (a race where the same line parses
-      // differently between the two calls is not possible).
-      continue;
-    }
-    // The type check inside detectIdReset (parsed.type === "user") is
-    // now redundant with isRealUserTurn's own type gate, but
-    // detectIdReset is called by other consumers too (Plan 30-01
-    // observation channel in claude-session-server.ts) so keeping its
-    // internal check preserves defense-in-depth.
-    lastResult = detectIdReset(parsed);
-  }
-  return lastResult;
-}
-
-// ---------------------------------------------------------------------------
 // Phase 44 Plan 02 — SshChannel-adapter for discoverIdentitySessionFile
 // ---------------------------------------------------------------------------
 
@@ -1246,11 +1123,11 @@ function computeFingerprint(state: SessionState): string {
   // distinguishable from cold cache. In practice source A always stamps a
   // strict boolean; the ?? branch handles the "field omitted" path from
   // source B's future explicit-null frames.
-  // Phase 53 Plan 01: recycling is a distinct axis of the fingerprint — a
-  // recycling-only flip publishes a new frame even when status +
+  // Phase 53 Plan 01: condensing is a distinct axis of the fingerprint — a
+  // condensing-only flip publishes a new frame even when status +
   // backgroundTasks + lastMessageAt + aiTitle + dormant are all unchanged.
-  // Same tri-valued pattern as dormant: "1"/"0"/"" so a recycling-only flip
-  // is detectable vs cold cache. Source A always stamps a strict boolean.
+  // Same tri-valued pattern as dormant: "1"/"0"/"" so a condensing-only flip
+  // is detectable vs cold cache. Only source B stamps it (source A omits).
   // Phase 59 Plan 02: lastStopAt + lastStatusChangeAt are two additional
   // distinct axes — a change to either (per-session Stop-hook file rewrote,
   // or server-derived status-value transitioned) publishes a new frame even
@@ -1277,7 +1154,7 @@ function computeFingerprint(state: SessionState): string {
   // included: it carries the sweep's avatar version (`&v=`), so an avatar
   // change must publish a frame.
   // (Phase 115 Plan 115-02: `hidden` retired from the fingerprint axis list per D-21.)
-  return `${state.status}|${state.waitingFor ?? ""}|${bgKey}|${state.updatedAt}|${state.lastMessageAt ?? ""}|${state.aiTitle ?? ""}|${state.dormant === true ? "1" : state.dormant === false ? "0" : ""}|${state.recycling === true ? "1" : state.recycling === false ? "0" : ""}|${state.lastStopAt ?? ""}|${state.lastStatusChangeAt ?? ""}|${state.activityMtime ?? ""}|${state.stoppedMtime ?? ""}|${appearanceFingerprintSegment(state.identityAppearance ?? null)}|${state.lastFinishAt ?? ""}`;
+  return `${state.status}|${state.waitingFor ?? ""}|${bgKey}|${state.updatedAt}|${state.lastMessageAt ?? ""}|${state.aiTitle ?? ""}|${state.dormant === true ? "1" : state.dormant === false ? "0" : ""}|${state.condensing === true ? "1" : state.condensing === false ? "0" : ""}|${state.lastStopAt ?? ""}|${state.lastStatusChangeAt ?? ""}|${state.activityMtime ?? ""}|${state.stoppedMtime ?? ""}|${appearanceFingerprintSegment(state.identityAppearance ?? null)}|${state.lastFinishAt ?? ""}`;
 }
 
 // ---------------------------------------------------------------------------
@@ -1755,7 +1632,7 @@ export function createSshPollOrchestrator(
     }
   };
 
-  // Source-B (dormant / recycling) frames carry the stored finished-turn time
+  // Source-B (dormant / condensing) frames carry the stored finished-turn time
   // too, so a dormant agent's unread mark survives a page reload.
   const lastFinishField = (hostId: string, identityName: string): { lastFinishAt?: number } => {
     const v = turnFinishStore.get(hostId, identityName);
@@ -2244,7 +2121,7 @@ export function createSshPollOrchestrator(
    *     blocking the batch path until channel reconnect.
    *   - `empty-output-on-nonempty-box`: sweep returned zero identity + zero
    *     pid lines, but we have prior-tick evidence the box has content
-   *     (livenessMap or identityRecycleState non-empty). Caller falls through
+   *     (livenessMap or sourceBIdentityState non-empty). Caller falls through
    *     to legacy for this tick but does NOT latch — the next tick re-tries
    *     the batch (script might be back after a transient failure).
    *
@@ -2413,7 +2290,7 @@ export function createSshPollOrchestrator(
 
     // Empty output disambiguation: freshly-provisioned or empty box vs
     // broken script. Prior-tick evidence of content (livenessMap or
-    // identityRecycleState non-empty) → treat empty as suspicious and fall
+    // sourceBIdentityState non-empty) → treat empty as suspicious and fall
     // back to legacy for this tick. Otherwise accept as a genuine
     // empty-box emission.
     //
@@ -2429,7 +2306,7 @@ export function createSshPollOrchestrator(
     ) {
       const hasPriorContent =
         hostState.livenessMap.size > 0 ||
-        hostState.identityRecycleState.size > 0 ||
+        hostState.sourceBIdentityState.size > 0 ||
         hostState.lastTickLiveApps.size > 0;
       if (hasPriorContent) {
         return { ok: false, reason: "empty-output-on-nonempty-box" };
@@ -2483,10 +2360,10 @@ export function createSshPollOrchestrator(
       if (identityLine.archived === true) continue;
       // Populate the per-host cosmetics cache BEFORE compose+publish. Must
       // happen unconditionally — the compose branch below evicts
-      // `identityRecycleState` for live-and-not-recycling identities (the
+      // `sourceBIdentityState` for live-and-not-condensing identities (the
       // common case), so we cannot piggyback on that map's lifetime for the
-      // WS gate lookup. This map's lifetime is tied to the live tree, not the
-      // recycle pipeline.
+      // WS gate lookup. This map's lifetime is tied to the live tree, not
+      // source B's publish set.
       hostState.identityCosmeticsCache.set(identityLine.identity, {
         identityCosmetics:
           (identityLine.identity_cosmetics as RawCosmetics | null | undefined) ??
@@ -2503,7 +2380,7 @@ export function createSshPollOrchestrator(
         ...(Array.isArray(identityLine.roles) ? { roles: identityLine.roles } : {}),
       });
       const fetched = identityLineToPerIdentityFetched(identityLine, hostState);
-      const cached = hostState.identityRecycleState.get(identityLine.identity);
+      const cached = hostState.sourceBIdentityState.get(identityLine.identity);
       composeAndPublishPerIdentity(hostState, liveTmuxSet, fetched, cached);
     }
 
@@ -2676,36 +2553,19 @@ export function createSshPollOrchestrator(
   /**
    * Adapter: SweepIdentityLine → PerIdentityFetchedState. Direct field-copy.
    *
-   * B5 (layer1_recycling) fail-open reconciliation lives here so compose sees
-   * the resolved value ready to plug into the OR-composition:
-   *   - non-null value → use it directly (fresh scan verdict)
-   *   - null (tail unreadable this tick) → preserve cached value
-   *
-   * Stale-tail rediscovery counter resets to 0 in the batch path. Plan 02's
-   * script does its own discovery every tick, so the multi-tick rotation
-   * defense doesn't apply the same way; the counter stays defined on the
-   * cache for legacy-path continuity but batch-mode ticks never increment it.
+   * The condense sentinels are read with `=== true` so a peer host still
+   * running an older sweep script (which omits `compact_requested` /
+   * `compacting`) reads as not condensing.
    */
   function identityLineToPerIdentityFetched(
     identityLine: SweepIdentityLine,
     hostState: PerHostState,
   ): PerIdentityFetchedState {
-    const cached = hostState.identityRecycleState.get(identityLine.identity);
-    // B5 fail-open — null tail-scan preserves cached layer1RecyclingCached.
-    const layer1RecyclingCached =
-      identityLine.layer1_recycling !== null
-        ? identityLine.layer1_recycling
-        : (cached?.layer1RecyclingCached ?? false);
     return {
       name: identityLine.identity,
       isDormant: identityLine.dormant,
-      isRecycledAt: identityLine.recycled_at,
-      isRecycleRequested: identityLine.recycle_requested,
-      layer1RecyclingCached,
-      jsonlPath: identityLine.jsonl_path,
-      // Batch-path scripts perform per-tick discovery server-side; the multi-
-      // tick rotation defense does not apply here.
-      nextStaleTailTickCount: 0,
+      isCompactRequested: identityLine.compact_requested === true,
+      isCompacting: identityLine.compacting === true,
       // Phase 111 Plan 03: appearance resolved via the shared helper once per
       // identity per tick. hostState.host.id carries the string host id.
       identityAppearance: appearanceFromIdentityLine(identityLine, hostState.host.id, identityLine.identity),
@@ -2713,63 +2573,50 @@ export function createSshPollOrchestrator(
   }
 
   // ---------------------------------------------------------------------------
-  // Source B — per-identity enumeration + full three-axis recycle pipeline
+  // Source B — per-identity enumeration: dormant + condensing axes
   //
   // History:
   //   - Phase 52 Plan 01 Task 3: introduced source B for the dormant axis only
   //     (identity-folder-keyed enumeration, PID-independent).
-  //   - Phase 53 CR C2/C3: widened source B to also cover the recycling axis
-  //     (`.recycled-at` sentinel) for identities with NO live PID (PID-vanish
-  //     window during recycle).
-  //   - quick-260823-73o: MIGRATED all three recycle axes (`.recycle-requested`,
-  //     `.recycled-at`, Layer 1 /id reset scan) out of source A's per-PID loop
-  //     and into source B here. Source A now stamps recycling:false
-  //     unconditionally; source B is the SOLE publisher of the recycling axis.
-  //     The unconditional `liveTmuxSet.has(name)` skip is CONDITIONALLY lifted:
-  //     skip only when `!isRecycling`. When any of the three axes fires true,
-  //     source B publishes regardless of whether source A also published for
-  //     the same identity in the same tick (no conflict — source A no longer
-  //     stamps the axis). RCA: source A iterates ~/.claude/tasks/*.json (PID
-  //     files); during /id reset the outgoing PID is being torn down and
-  //     source A's per-PID iteration hits a lifecycle-timing gap where none
-  //     of the three axes ever evaluate true across the sentinel-present
-  //     window. Source B is identity-folder-keyed and runs unconditionally
-  //     per identity per tick — the correct architectural seam. See
-  //     quick-260823-73o-PLAN.md for the full RCA + user's UAT narration.
+  //   - Phase 53 / quick-260823-73o: source B became the SOLE publisher of a
+  //     second per-identity axis (then "recycling", for the retired agent
+  //     reset). Source A omits the field.
+  //   - Condense: that axis is now `condensing` = `.compact-requested` ||
+  //     `.compacting`. The supervisor compacts the agent's context in place
+  //     (agent-supervisor.sh handle_compaction); the agent may keep its live
+  //     PID throughout, so the `liveTmuxSet.has(name)` skip is CONDITIONAL:
+  //     skip only when `!isCondensing`. While condensing, source B publishes
+  //     regardless of whether source A also published for the same identity
+  //     this tick (no conflict — source A never stamps the axis).
   //
   // Per-tick pipeline (per identity):
-  //   1. Parallel-stat all three sentinels (`.dormant`, `.recycled-at`,
-  //      `.recycle-requested`) — 3 exec calls in parallel per identity.
-  //   2. Discover jsonlPath if cache is null OR stale-tail threshold tripped;
-  //      cached across ticks so discovery only fires once per identity.
-  //   3. If jsonlPath known, `tail -c 262144 <path>` and scan for Layer 1
-  //      /id reset signal (fail-open on null return → preserve cache).
-  //   4. Compose isRecycling = layer1 || requested || sentinel.
-  //   5. Skip-and-evict branch: if identity has live PID AND !isRecycling,
-  //      delete cache entry and continue (source A owns publish; matches
-  //      pre-migration skip semantics for non-recycling live-PID identities).
-  //   6. Fingerprint = `${dormant?1:0}|${recycling?1:0}`. Compare against
-  //      cached lastPublishedFingerprint; if identical, advance cache and skip
-  //      publish. If different (or first appearance), publish source-B frame
-  //      and update cache fingerprint.
-  //   7. When isRecycling is true, emit `fleet_status_recycling_armed` log
-  //      (moved from source A) with identityName + hasLivePid + per-axis
-  //      breakdown + cached values.
+  //   1. Parallel-stat the three sentinels (`.dormant`, `.compact-requested`,
+  //      `.compacting`) — 3 exec calls in parallel per identity (legacy path;
+  //      the batch sweep emits them on the SweepIdentityLine).
+  //   2. Compose isCondensing = compactRequested || compacting.
+  //   3. Skip-and-evict branch: if identity has live PID AND !isCondensing,
+  //      delete cache entry and continue (source A owns publish).
+  //   4. Fingerprint = `${dormant}|${condensing}|appearance|lastFinish`.
+  //      Compare against cached lastPublishedFingerprint; if identical,
+  //      advance cache and skip publish. If different (or first appearance),
+  //      publish source-B frame and update cache fingerprint.
+  //   5. When isCondensing is true, emit `fleet_status_condensing_armed` log
+  //      with identityName + hasLivePid + per-sentinel breakdown.
   //
   // Fail-open: if `ls` returns null (SSH error) or empty (no identities dir),
   // log a debug and skip source B for this tick. Source A still fires normally.
   //
   // Shell-quoting via shellSingleQuote (T-52-01-02 mitigation): identity names
   // from `ls` output are attacker-controlled (a compromised host could name
-  // an identity `; rm -rf $HOME`), so each stat + tail + discovery command
-  // interpolates the FULL quoted argument — cannot escape.
+  // an identity `; rm -rf $HOME`), so each stat command interpolates the FULL
+  // quoted argument — cannot escape.
   // ---------------------------------------------------------------------------
 
   async function pollDormantOnlyIdentities(
     hostState: PerHostState,
     liveTmuxSet: Set<string>,
   ): Promise<void> {
-    const { host, channel, identityRecycleState } = hostState;
+    const { host, channel, sourceBIdentityState } = hostState;
 
     // Enumerate identity folders. Use `find -type d` (not `ls -1`) so
     // leftover backup tarballs / notes / .DS_Store in ~/fleet/identities/
@@ -2802,176 +2649,73 @@ export function createSshPollOrchestrator(
       .filter(Boolean);
 
     // Phase 1 — parallel-stat all three sentinels per identity.
-    const statResults = await Promise.all(
-      identityNames.map(async (name) => {
+    const fetchedStates = await Promise.all(
+      identityNames.map(async (name): Promise<PerIdentityFetchedState> => {
         const quotedName = shellSingleQuote(name);
-        const [dormantOut, recyclingOut, requestedOut] = await Promise.all([
+        const [dormantOut, compactRequestedOut, compactingOut] = await Promise.all([
           channel.exec(
             `stat ~/fleet/identities/${quotedName}/.dormant 2>/dev/null >/dev/null && echo yes || echo no`,
           ),
           channel.exec(
-            `stat ~/fleet/identities/${quotedName}/.recycled-at 2>/dev/null >/dev/null && echo yes || echo no`,
+            `stat ~/fleet/identities/${quotedName}/.compact-requested 2>/dev/null >/dev/null && echo yes || echo no`,
           ),
           channel.exec(
-            `test -f ~/fleet/identities/${quotedName}/.recycle-requested 2>/dev/null && echo yes || echo no`,
+            `stat ~/fleet/identities/${quotedName}/.compacting 2>/dev/null >/dev/null && echo yes || echo no`,
           ),
         ]);
         // T-52-01-01 mitigation: only "yes" or "no" are meaningful. Anything
-        // else (null, unexpected output) → treat as false. Source B's stat
-        // axes are per-tick reads with no per-identity fail-open cache for
-        // the raw stat outputs; the Layer 1 tail-scan below IS cache-preserved.
-        const isDormant = dormantOut !== null && dormantOut.trim() === "yes";
-        const isRecycledAt =
-          recyclingOut !== null && recyclingOut.trim() === "yes";
-        const isRecycleRequested =
-          requestedOut !== null && requestedOut.trim() === "yes";
-        return { name, isDormant, isRecycledAt, isRecycleRequested };
+        // else (null, unexpected output) → treat as false. Per-tick reads with
+        // no fail-open cache for the raw stat outputs.
+        return {
+          name,
+          isDormant: dormantOut !== null && dormantOut.trim() === "yes",
+          isCompactRequested:
+            compactRequestedOut !== null && compactRequestedOut.trim() === "yes",
+          isCompacting: compactingOut !== null && compactingOut.trim() === "yes",
+          // Legacy path (pre-Phase-92 exec fan-out) has no appearance source;
+          // adding one would mean new SSH channels, which D-01 exists to avoid.
+          identityAppearance: null,
+        };
       }),
     );
 
-    // Phase 2-7 — sequential per-identity iteration (discovery + tail scan +
-    // OR compose + skip/publish). Sequential rather than parallel because
-    // each identity's Layer 1 scan uses its own cached jsonlPath and we want
-    // deterministic cache updates in the presence of test-time mocked SSH.
-    for (const { name, isDormant, isRecycledAt, isRecycleRequested } of statResults) {
-      const cached = identityRecycleState.get(name);
-      const fetched = await fetchPerIdentityState(
-        hostState,
-        name,
-        cached,
-        isDormant,
-        isRecycledAt,
-        isRecycleRequested,
-      );
+    // Phase 2-5 — sequential per-identity compose + skip/publish so cache
+    // updates stay deterministic.
+    for (const fetched of fetchedStates) {
+      const cached = sourceBIdentityState.get(fetched.name);
       composeAndPublishPerIdentity(hostState, liveTmuxSet, fetched, cached);
     }
   }
 
   /**
-   * fetchPerIdentityState — runs the pre-Phase-92 B1..B5 exec fan-out for one
-   * identity IN THE LEGACY PATH. Zero cache mutation, zero publish, zero
-   * logging.
-   *
-   * Discovery (B4) fires when the cache is empty; the fetched jsonlPath
-   * reflects a fresh discovery result (or null when discovery couldn't
-   * resolve). Layer 1 recycling scan (B5) runs against the tail read for the
-   * resolved path — the same fail-open preservation + rotation-defense
-   * stale-counter logic as pre-refactor. Returns a PerIdentityFetchedState
-   * that composeAndPublishPerIdentity consumes to drive the same publish
-   * contract as the pre-refactor per-identity iteration body.
-   *
-   * The three sentinel results (B1/B2/B3) are passed in from the caller's
-   * outer Promise.all — they're computed identically for every identity so
-   * batching them there stays in the legacy per-identity iteration wrapper.
-   */
-  async function fetchPerIdentityState(
-    hostState: PerHostState,
-    name: string,
-    cached: IdentityRecycleCacheEntry | undefined,
-    isDormant: boolean,
-    isRecycledAt: boolean,
-    isRecycleRequested: boolean,
-  ): Promise<PerIdentityFetchedState> {
-    const { channel } = hostState;
-
-    // Phase 2 — discovery (fires when cache empty; rediscovers after
-    // stale-tail threshold trip nulls the cached jsonlPath).
-    let jsonlPath: string | null = cached?.jsonlPath ?? null;
-    if (jsonlPath === null) {
-      jsonlPath = await discoverIdentityJsonlPathViaChannel(channel, name);
-    }
-
-    // Phase 3 — Layer 1 tail scan.
-    // Fail-open: null return → preserve cached value.
-    let layer1RecyclingCached: boolean = cached?.layer1RecyclingCached ?? false;
-    let nextStaleTailTickCount = cached?.staleTailTickCount ?? 0;
-    if (jsonlPath !== null) {
-      const tailRaw = await channel.exec(
-        `tail -c 262144 ${jsonlPath} 2>/dev/null || true`,
-      );
-      if (tailRaw !== null && tailRaw.trim() !== "") {
-        const scannedLayer1 = scanTailForLayer1RecyclingSignal(tailRaw);
-        if (scannedLayer1 !== null) {
-          layer1RecyclingCached = scannedLayer1;
-          // Fresh non-null scan → reset stale counter.
-          nextStaleTailTickCount = 0;
-        } else if (layer1RecyclingCached) {
-          // Tail had zero user turns AND we had a cached true value →
-          // increment stale counter (defense against JSONL rotation
-          // silently retiring the file we were watching).
-          nextStaleTailTickCount++;
-        } else {
-          // Tail had zero user turns and cache was false — reset counter.
-          nextStaleTailTickCount = 0;
-        }
-      } else if (layer1RecyclingCached) {
-        // Empty tail / null exec AND cached true → tick stale counter.
-        nextStaleTailTickCount++;
-      }
-      // else: empty tail + cached false → keep counter at 0 (no signal to defend).
-      if (nextStaleTailTickCount >= STALE_TAIL_REDISCOVERY_THRESHOLD) {
-        jsonlPath = null;
-        nextStaleTailTickCount = 0;
-      }
-    }
-
-    return {
-      name,
-      isDormant,
-      isRecycledAt,
-      isRecycleRequested,
-      layer1RecyclingCached,
-      jsonlPath,
-      nextStaleTailTickCount,
-      // Legacy path (pre-Phase-92 exec fan-out) has no appearance source; adding
-      // one would mean new SSH channels, which D-01 exists to avoid. Legacy
-      // contributes plain rows — today's behaviour, honest degradation.
-      identityAppearance: null,
-    };
-  }
-
-  /**
    * composeAndPublishPerIdentity — full downstream of the per-identity
-   * iteration: OR compose the three recycle axes, apply the skip-and-evict
-   * transition-edge, fingerprint suppression, publish, cache write. Zero
-   * SSH calls.
-   *
-   * Byte-identical observable behavior to the pre-refactor per-identity
-   * iteration body. Batch-path callers synthesize the `fetched` struct from
-   * a SweepIdentityLine and drive this same publish contract.
+   * iteration: OR compose the two condense sentinels, apply the skip-and-
+   * evict transition-edge, fingerprint suppression, publish, cache write.
+   * Zero SSH calls. Shared by the legacy and batch paths.
    */
   function composeAndPublishPerIdentity(
     hostState: PerHostState,
     liveTmuxSet: Set<string>,
     fetched: PerIdentityFetchedState,
-    cached: IdentityRecycleCacheEntry | undefined,
+    cached: SourceBIdentityCacheEntry | undefined,
   ): void {
-    const { host, identityRecycleState } = hostState;
-    const {
-      name,
-      isDormant,
-      isRecycledAt,
-      isRecycleRequested,
-      layer1RecyclingCached,
-      jsonlPath,
-      nextStaleTailTickCount,
-    } = fetched;
+    const { host, sourceBIdentityState } = hostState;
+    const { name, isDormant, isCompactRequested, isCompacting } = fetched;
 
-    // Phase 4 — OR compose. Three axes match source A's pre-migration
-    // semantics.
-    const isRecycling = layer1RecyclingCached || isRecycleRequested || isRecycledAt;
+    // Phase 2 — OR compose: queued or in flight both count as condensing.
+    const isCondensing = isCompactRequested || isCompacting;
 
-    // Phase 5 — conditional skip. When identity has a live PID AND is NOT
-    // recycling, source A owns publish for the non-recycle axes — evict this
+    // Phase 3 — conditional skip. When identity has a live PID AND is NOT
+    // condensing, source A owns publish for the other axes — evict this
     // identity's source-B cache and continue.
     //
     // TRANSITION EDGE (quick-260823-73o T1-vi lock): if we're about to skip-
-    // and-evict AND the cached source-B frame had recycling:true, publish a
-    // final recycling:false source-B frame BEFORE evicting so consumers see
+    // and-evict AND the cached source-B frame had condensing:true, publish a
+    // final condensing:false source-B frame BEFORE evicting so consumers see
     // the transition.
-    if (liveTmuxSet.has(name) && !isRecycling) {
-      const cachedRecycling = cached?.recycling ?? false;
-      if (cachedRecycling) {
+    if (liveTmuxSet.has(name) && !isCondensing) {
+      const cachedCondensing = cached?.condensing ?? false;
+      if (cachedCondensing) {
         // Phase 111 Plan 03: two construction sites, no factory — deliberate,
         // see 111-03. Appearance carried on this pre-evict frame so no frame
         // blanks appearance that a neighbouring frame carries (D-09).
@@ -2987,34 +2731,33 @@ export function createSshPollOrchestrator(
           lastMessageAt: null,
           aiTitle: null,
           dormant: isDormant,
-          recycling: false,
+          condensing: false,
           identityAppearance: fetched.identityAppearance,
           ...lastFinishField(host.id, name),
         };
         deps.registry.publishSessionState(host.id, state);
         systemLogger.info(
-          "Fleet-status: source B frame published (recycling-false transition, pre-evict)",
+          "Fleet-status: source B frame published (condensing-false transition, pre-evict)",
           {
             operation: "fleet_status_source_b_publish",
             fleetHostId: host.id,
             identityName: name,
             dormant: isDormant,
-            recycling: false,
+            condensing: false,
             previousDormant: cached?.dormant ?? null,
-            previousRecycling: cached?.recycling ?? null,
+            previousCondensing: cached?.condensing ?? null,
             identityAppearanceResolved: state.identityAppearance !== null,
           },
         );
       }
-      identityRecycleState.delete(name);
+      sourceBIdentityState.delete(name);
       return;
     }
 
-    // Phase 6 — fingerprint + publish/suppress.
+    // Phase 4 — fingerprint + publish/suppress.
     // Phase 111 Plan 03: appearance segment appended at END per the append-at-END
-    // rule. No commit in this repo's history widened this fingerprint before
-    // this plan — this is the first extension of source B's inline fingerprint.
-    const fingerprint = `${isDormant ? "1" : "0"}|${isRecycling ? "1" : "0"}|${appearanceFingerprintSegment(fetched.identityAppearance)}|${turnFinishStore.get(host.id, name) ?? ""}`;
+    // rule.
+    const fingerprint = `${isDormant ? "1" : "0"}|${isCondensing ? "1" : "0"}|${appearanceFingerprintSegment(fetched.identityAppearance)}|${turnFinishStore.get(host.id, name) ?? ""}`;
 
     if (cached !== undefined && cached.lastPublishedFingerprint === fingerprint) {
       // Cache hit — fingerprint identical → advance internal state but skip
@@ -3022,12 +2765,9 @@ export function createSshPollOrchestrator(
       // Phase 111 Plan 03: identityAppearance stamped here (suppress branch) so
       // the cache stays lockstep with derivation (Pitfall 3 — missing this
       // branch would silently stale-compare on the next tick that changes appearance).
-      identityRecycleState.set(name, {
+      sourceBIdentityState.set(name, {
         dormant: isDormant,
-        recycling: isRecycling,
-        layer1RecyclingCached,
-        jsonlPath,
-        staleTailTickCount: nextStaleTailTickCount,
+        condensing: isCondensing,
         lastPublishedFingerprint: fingerprint,
         identityAppearance: fetched.identityAppearance,
       });
@@ -3036,15 +2776,12 @@ export function createSshPollOrchestrator(
 
     // Fingerprint delta (or first appearance) → publish + update cache.
     const previousDormant = cached?.dormant ?? null;
-    const previousRecycling = cached?.recycling ?? null;
+    const previousCondensing = cached?.condensing ?? null;
 
     // Phase 111 Plan 03: identityAppearance stamped here (publish branch).
-    identityRecycleState.set(name, {
+    sourceBIdentityState.set(name, {
       dormant: isDormant,
-      recycling: isRecycling,
-      layer1RecyclingCached,
-      jsonlPath,
-      staleTailTickCount: nextStaleTailTickCount,
+      condensing: isCondensing,
       lastPublishedFingerprint: fingerprint,
       identityAppearance: fetched.identityAppearance,
     });
@@ -3064,7 +2801,7 @@ export function createSshPollOrchestrator(
       lastMessageAt: null,
       aiTitle: null,
       dormant: isDormant,
-      recycling: isRecycling,
+      condensing: isCondensing,
       identityAppearance: fetched.identityAppearance,
       ...lastFinishField(host.id, name),
     };
@@ -3075,25 +2812,22 @@ export function createSshPollOrchestrator(
       fleetHostId: host.id,
       identityName: name,
       dormant: isDormant,
-      recycling: isRecycling,
+      condensing: isCondensing,
       previousDormant,
-      previousRecycling,
+      previousCondensing,
       identityAppearanceResolved: state.identityAppearance !== null,
     });
 
-    // Phase 7 — arm log.
-    if (isRecycling) {
-      systemLogger.info("Fleet-status: recycling axis armed", {
-        operation: "fleet_status_recycling_armed",
+    // Phase 5 — arm log.
+    if (isCondensing) {
+      systemLogger.info("Fleet-status: condensing axis armed", {
+        operation: "fleet_status_condensing_armed",
         fleetHostId: host.id,
         identityName: name,
         hasLivePid: liveTmuxSet.has(name),
-        layer1: layer1RecyclingCached,
-        requested: isRecycleRequested,
-        sentinel: isRecycledAt,
-        composed: isRecycling,
-        cachedLayer1: cached?.layer1RecyclingCached ?? false,
-        cachedRecycling: cached?.recycling ?? false,
+        compactRequested: isCompactRequested,
+        compacting: isCompacting,
+        cachedCondensing: cached?.condensing ?? false,
         cachedDormant: cached?.dormant ?? false,
       });
     }
@@ -3632,8 +3366,8 @@ export function createSshPollOrchestrator(
       lastMessageAt: derivedLastMessageAt,
       aiTitle: derivedAiTitle,
       dormant: derivedDormant,
-      // inline-260830-source-a-omit-recycling: recycling field OMITTED on
-      // source A frames. Source B is the sole recycling authority.
+      // inline-260830-source-a-omit: condensing field OMITTED on source A
+      // frames. Source B is the sole condensing authority.
       lastStopAt: derivedLastStopAt,
       lastStatusChangeAt: derivedLastStatusChangeAt,
       activityMtime: derivedActivityMtime,
@@ -3873,7 +3607,7 @@ export function createSshPollOrchestrator(
         // Phase 52 T3 dormantOnlyIdentities map). Populated by
         // pollDormantOnlyIdentities on each tick with the full 3-axis pipeline
         // state per identity.
-        identityRecycleState: new Map(),
+        sourceBIdentityState: new Map(),
         // Phase 115 hotfix (2026-09-18): initialized empty so the FIRST
         // successful sweep for this host publishes nothing gone (no previous
         // tick to diff against). Subsequent ticks compare against this and
@@ -3978,8 +3712,8 @@ export function createSshPollOrchestrator(
 
   // A pid_stale gone deletes the registry entry for (host, tmuxSession), but
   // source B's per-identity fingerprint cache still remembers what it last
-  // published there — so a recycling:true state that was live before the
-  // reap would be suppressed as "unchanged" and never re-sent (the recycle
+  // published there — so a condensing:true state that was live before the
+  // reap would be suppressed as "unchanged" and never re-sent (the condense
   // overlay / composer lock would clear early). Blank the fingerprint so the
   // next source-B tick republishes.
   function invalidateSourceBFingerprint(
@@ -3987,7 +3721,7 @@ export function createSshPollOrchestrator(
     tmuxSession: string | null,
   ): void {
     if (tmuxSession === null) return;
-    const cached = hostState.identityRecycleState.get(tmuxSession);
+    const cached = hostState.sourceBIdentityState.get(tmuxSession);
     if (cached !== undefined) cached.lastPublishedFingerprint = "";
   }
 

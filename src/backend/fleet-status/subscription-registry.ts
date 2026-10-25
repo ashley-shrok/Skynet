@@ -170,7 +170,7 @@ export interface SubscriptionRegistry {
    * contextpct-store value differs from the contextPct last stamped on it.
    * Without this, a contextPct change only reaches clients on the next frame
    * published for some other reason (status flip etc.), so the meter freezes
-   * for the length of a busy turn — e.g. pinned at the pre-recycle value.
+   * for the length of a busy turn — e.g. pinned at the pre-condense value.
    * No-op when no state is cached, the value is unchanged, or the stored
    * value is null, so callers can invoke it on every context-pct tick.
    */
@@ -228,9 +228,10 @@ export interface SubscriptionRegistry {
    * If the key does NOT exist, this is a no-op (prevents false-negative churn
    * from watcher restart cycles).
    *
-   * Superseded guard: the cache is keyed by (host, tmuxSession), and /id
-   * reset re-launches claude in the SAME tmux session. The stale-PID reap can
-   * land after the fresh claude (or source B's recycling frame) has already
+   * Superseded guard: the cache is keyed by (host, tmuxSession), and a
+   * relaunch (crash recovery, supervisor restart) brings claude back in the
+   * SAME tmux session. The stale-PID reap can land after the fresh claude (or
+   * a pid-less source-B frame) has already
    * published into that key — deleting then would wipe the NEW session's
    * row. So when `opts.pid` is given, only an entry carrying that exact PID
    * is deleted; without a pid (host-watcher frame), only an entry whose
@@ -1021,7 +1022,7 @@ export function createSubscriptionRegistry(
 
       state.delete(key);
       // `pid_stale`: the claude PID died but the tmux session may persist
-      // (reset, kill-inside-tmux). Frontend keeps open tabs open — a fresh
+      // (relaunch, kill-inside-tmux). Frontend keeps open tabs open — a fresh
       // claude typically re-attaches in seconds.
       const frame = makeGoneFrame(hostId, tmuxSession, sessionId, "pid_stale");
       if (appFrameFilter !== undefined) {
@@ -1043,7 +1044,7 @@ export function createSubscriptionRegistry(
       // its publishSessionGone(pid_stale) has already deleted the state entry.
       // Early-returning here would silently swallow the only signal that
       // closes the frontend's open pane (pid_stale keeps the tab open by
-      // design, for the /id reset case). Fall back to identityName as
+      // design, for the relaunch case). Fall back to identityName as
       // tmuxSession (source-A + source-B both key identity sessions that way)
       // and "" as sessionId (frontend's tab-close matcher reads hostId +
       // tmuxSession + reason only — sessionId is a display field on this

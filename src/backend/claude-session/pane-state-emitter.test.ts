@@ -51,16 +51,16 @@ describe("createPaneStateEmitter", () => {
     expect(emitter.getCurrent()).toEqual({ state: "active", reason: undefined });
   });
 
-  // --- Test 3: emit("holding", "id_reset") — reason included on wire ---
-  it("emit('holding', 'id_reset') includes the reason field", () => {
+  // --- Test 3: emit("holding", "discovery_diff") — reason included on wire ---
+  it("emit('holding', 'discovery_diff') includes the reason field", () => {
     const wsSend = vi.fn();
     const emitter = createPaneStateEmitter({ wsSend });
-    emitter.emit("holding", "id_reset");
+    emitter.emit("holding", "discovery_diff");
     expect(wsSend).toHaveBeenCalledTimes(1);
     expect(wsSend).toHaveBeenCalledWith(
-      JSON.stringify({ type: "pane_state", state: "holding", reason: "id_reset" }),
+      JSON.stringify({ type: "pane_state", state: "holding", reason: "discovery_diff" }),
     );
-    expect(emitter.getCurrent()).toEqual({ state: "holding", reason: "id_reset" });
+    expect(emitter.getCurrent()).toEqual({ state: "holding", reason: "discovery_diff" });
   });
 
   // --- Test 4: dedupe — identical (state, reason) emits ONCE ---
@@ -73,29 +73,29 @@ describe("createPaneStateEmitter", () => {
   });
 
   // --- Test 5: differing reason is NOT a dedupe ---
-  it("emit('holding','id_reset') then emit('holding','discovery_diff') → wsSend called TWICE", () => {
+  it("emit('holding','discovery_diff') then emit('holding','pid_death') → wsSend called TWICE", () => {
     const wsSend = vi.fn();
     const emitter = createPaneStateEmitter({ wsSend });
-    emitter.emit("holding", "id_reset");
     emitter.emit("holding", "discovery_diff");
+    emitter.emit("holding", "pid_death");
     expect(wsSend).toHaveBeenCalledTimes(2);
     expect(wsSend).toHaveBeenNthCalledWith(
       1,
-      JSON.stringify({ type: "pane_state", state: "holding", reason: "id_reset" }),
+      JSON.stringify({ type: "pane_state", state: "holding", reason: "discovery_diff" }),
     );
     expect(wsSend).toHaveBeenNthCalledWith(
       2,
-      JSON.stringify({ type: "pane_state", state: "holding", reason: "discovery_diff" }),
+      JSON.stringify({ type: "pane_state", state: "holding", reason: "pid_death" }),
     );
   });
 
   // --- Test 6: dedupe is against LAST emit only, not any prior emit ---
-  it("emit('holding','id_reset') → emit('active') → emit('holding','id_reset') → wsSend called THREE times", () => {
+  it("emit('holding','discovery_diff') → emit('active') → emit('holding','discovery_diff') → wsSend called THREE times", () => {
     const wsSend = vi.fn();
     const emitter = createPaneStateEmitter({ wsSend });
-    emitter.emit("holding", "id_reset");
+    emitter.emit("holding", "discovery_diff");
     emitter.emit("active");
-    emitter.emit("holding", "id_reset");
+    emitter.emit("holding", "discovery_diff");
     expect(wsSend).toHaveBeenCalledTimes(3);
   });
 
@@ -134,8 +134,7 @@ describe("createPaneStateEmitter", () => {
       { state: "active", reason: "session_changed" }, // new session file appeared
       { state: "active", reason: "dormancy_cleared" }, // .dormant sentinel disappeared
       // holding
-      { state: "holding", reason: "id_reset" }, // Layer 1 parser saw /id reset
-      { state: "holding", reason: "discovery_diff" }, // Layer 2 discovery detected file change
+      { state: "holding", reason: "discovery_diff" }, // discovery repoll detected file change
       { state: "holding", reason: "pid_death" }, // fallback: pid died
       { state: "holding", reason: "exit_scan" }, // fallback: /exit scan
       // dormant

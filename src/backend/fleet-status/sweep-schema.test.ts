@@ -8,7 +8,7 @@
  *   - Malformed-line resilience (broken JSON skipped, good lines returned)
  *   - stat_result discriminated-union survives round-trip
  *   - Empty blob → empty result (matches "empty box, sweep exits 0 with empty stdout")
- *   - Parity map walk: every RESEARCH.md-enumerated exec site (A0/A1–A12, B0/B1–B5)
+ *   - Parity map walk: every RESEARCH.md-enumerated exec site (A0/A1–A12, B0/B1–B5; B5 now a retired skip row)
  *     is either declared as a schema field on a line type OR has a documented
  *     skipped_reason. This is the parity guarantee for Phase 92.
  */
@@ -35,10 +35,9 @@ function makeIdentityLine(
     schema_version: 1,
     identity: "tabitha",
     dormant: false,
-    recycled_at: false,
-    recycle_requested: false,
+    compact_requested: false,
+    compacting: false,
     jsonl_path: "/home/ubuntu/.claude/projects/-home-ubuntu/abcd-1234.jsonl",
-    layer1_recycling: false,
     ...overrides,
   };
 }
@@ -362,10 +361,9 @@ describe("SWEEP_FIELD_PARITY — parity map walk", () => {
       "schema_version",
       "identity",
       "dormant",
-      "recycled_at",
-      "recycle_requested",
+      "compact_requested",
+      "compacting",
       "jsonl_path",
-      "layer1_recycling",
       // Phase 111 Plan 111-01/111-02 appearance fields:
       "role",
       "identity_cosmetics",
@@ -495,10 +493,9 @@ describe("Phase 115 Plan 115-05: SweepIdentityLine.archived", () => {
       schema_version: 1,
       identity: "gamma",
       dormant: false,
-      recycled_at: false,
-      recycle_requested: false,
+      compact_requested: false,
+      compacting: false,
       jsonl_path: null,
-      layer1_recycling: null,
       pinned: false,
       archived: true,
     };
@@ -525,10 +522,9 @@ describe("Phase 115 Plan 115-05: SweepIdentityLine.archived", () => {
       schema_version: 1,
       identity: "tabitha",
       dormant: false,
-      recycled_at: false,
-      recycle_requested: false,
+      compact_requested: false,
+      compacting: false,
       jsonl_path: null,
-      layer1_recycling: null,
       // No `archived` field.
     };
     const result = parseSweepJsonl(JSON.stringify(line));
@@ -558,10 +554,9 @@ describe("Phase 111 mid-distribution: older-box line (no appearance keys) parses
       schema_version: 1,
       identity: "pixel",
       dormant: false,
-      recycled_at: false,
-      recycle_requested: false,
+      compact_requested: false,
+      compacting: false,
       jsonl_path: "/home/ubuntu/.claude/projects/abcd.jsonl",
-      layer1_recycling: false,
       role: "box-maintainer",
       identity_cosmetics: { displayName: "Pixel", task: "Building things" },
       role_cosmetics: { title: "Skynet", colorHue: 324 },
@@ -574,10 +569,9 @@ describe("Phase 111 mid-distribution: older-box line (no appearance keys) parses
       schema_version: 1,
       identity: "tabitha",
       dormant: false,
-      recycled_at: false,
-      recycle_requested: false,
+      compact_requested: false,
+      compacting: false,
       jsonl_path: null,
-      layer1_recycling: null,
       // No role, identity_cosmetics, role_cosmetics, pinned keys.
     };
 
@@ -982,5 +976,46 @@ describe("parseSweepJsonl — project-list dispatch", () => {
 
   it("isSweepLineOfCurrentSchema accepts a project-list line", () => {
     expect(isSweepLineOfCurrentSchema(JSON.parse(line([])))).toBe(true);
+  });
+});
+
+describe("Condense sentinels: SweepIdentityLine.compact_requested / compacting", () => {
+  it("carries both sentinels through the parser", () => {
+    const blob = [
+      makeIdentityLine({ identity: "queued", compact_requested: true }),
+      makeIdentityLine({ identity: "running", compacting: true }),
+    ]
+      .map((x) => JSON.stringify(x))
+      .join("\n");
+    const result = parseSweepJsonl(blob);
+    expect(result.schemaMismatch).toBe(false);
+    expect(result.identityLines.map((l) => [l.identity, l.compact_requested, l.compacting])).toEqual([
+      ["queued", true, false],
+      ["running", false, true],
+    ]);
+  });
+
+  it("an older peer that still emits the retired recycle fields and omits the new ones parses cleanly", () => {
+    const legacy = {
+      line_kind: "identity",
+      schema_version: 1,
+      identity: "tabitha",
+      dormant: false,
+      recycled_at: true,
+      recycle_requested: true,
+      jsonl_path: null,
+      layer1_recycling: true,
+    };
+    const result = parseSweepJsonl(JSON.stringify(legacy));
+    expect(result.schemaMismatch).toBe(false);
+    expect(result.identityLines).toHaveLength(1);
+    expect(result.identityLines[0].compact_requested).toBeUndefined();
+    expect(result.identityLines[0].compacting).toBeUndefined();
+  });
+
+  it("SWEEP_FIELD_PARITY maps B2/B3 to the condense sentinels and retires B5", () => {
+    expect(SWEEP_FIELD_PARITY.B2.field).toBe("compact_requested");
+    expect(SWEEP_FIELD_PARITY.B3.field).toBe("compacting");
+    expect(SWEEP_FIELD_PARITY.B5.field).toBeNull();
   });
 });

@@ -48,8 +48,7 @@ const fakeConn = {} as import("ssh2").Client;
 /**
  * Build a JSONL line matching the empirical Claude Code first-user-turn shape
  * for `/id <identityName>`, as observed at
- * `~/.claude/projects/-home-ubuntu-skynet-tanya/*.jsonl` and mirrored by the
- * fixtures in `layer1-detect.test.ts:91-105`.
+ * `~/.claude/projects/-home-ubuntu-skynet-tanya/*.jsonl`.
  *
  * Optional `delimiter` param overrides the character that appears immediately
  * after the identity name inside `<command-args>`. Defaults to `<` (empirical:

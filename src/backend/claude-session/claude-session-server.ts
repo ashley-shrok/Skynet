@@ -19,7 +19,6 @@ import { readSessionFileCache } from "../fleet-status/session-file-cache.js";
 import { discoverIdentitySessionFile } from "./discover-identity-session-file.js";
 import {
   parseSessionLine,
-  detectIdReset,
   normalizePastedHarnessEnvelopes,
   extractText,
 } from "./session-file-parser.js";
@@ -44,11 +43,6 @@ import {
 // (Plan 01 output). Used by handleFetchOlderRange below AND by
 // startActiveSessionFlow's Hunk B totalLines probe.
 import { readSessionFileRange } from "./session-file-range-reader.js";
-import {
-  applyLineToLayer1State,
-  type Layer1State,
-} from "./layer1-detect.js";
-import { __applySentinelCheckForTests } from "./sentinel-detect.js";
 import {
   performDormantWakeGate,
   MARKER_FALLBACK_MS,
@@ -909,10 +903,10 @@ export function __applyTaskNotificationForTests(
 
 // Phase 3 session-changeover tuning constants. Holding timeout: 200 * 3s = 600s (10min).
 // Per D-31 and CONTEXT.md § holding timeout — Nelly's original timing note said "new .jsonl
-// appears within ~5s; fully-loaded identity ~30-70s later" but real /id reset flows
-// under load can take multiple minutes (user 2026-08-09: original 45s tripped the
-// "recycle failed — refresh to check" red overlay ~60s into a normal reset that later
-// completed fine; then teardownPane meant even after success nothing cleared the overlay).
+// appears within ~5s; fully-loaded identity ~30-70s later" but a relaunch under load
+// can take multiple minutes (user 2026-08-09: original 45s tripped the red "refresh to
+// check" overlay ~60s into a relaunch that later completed fine; then teardownPane
+// meant even after success nothing cleared the overlay).
 // 10min matches the client-side belt-and-suspenders watchdog at
 // src/ui/features/pretty-view/PrettyView.tsx (was 5min, bumped in the same change) so
 // the two agree; the client watchdog covers the WS-drop case where the backend can't
@@ -2506,26 +2500,11 @@ export type __RepollStateForTests = {
   changeoverState: "active" | "holding" | "dead";
   currentSessionFile: string | null;
   holdingTicks: number;
-  // Follow-up to patch #356: the reason we entered holding. Used by the
-  // real transitionFromHoldingToActiveSameFile helper to skip the same-file
-  // self-clear when the overlay was armed by a real /id reset (Layer 1)
-  // OR by a `.recycle-requested` sentinel probe (Layer 3, 2026-08-18).
-  // The reducer __applyRepollResultForTests does NOT read this field —
-  // it belongs to the helper's guard, not the reducer's dispatch. Kept on
-  // the shared state box so tests that inline the real helper's shape
-  // (see case (b) in claude-session-server.repoll.test.ts) can drive it.
-  holdingReason: "id_reset" | "discovery_diff" | "sentinel" | null;
 };
 
 /** Helpers injected into the repoll tick logic. */
 export type __RepollHelpersForTests = {
-  // quick 260808-ohn: reason union renamed "exit_marker" → "id_reset" to
-  // match the new Layer 1 tail-state detector. Layer 2 (this file) still
-  // passes "discovery_diff"; Layer 1 (onLine, via layer1-detect.ts) now
-  // passes "id_reset"; Layer 3 (sentinel-detect.ts, 2026-08-18) passes
-  // "sentinel". All three reasons flow into the same transitionToHolding
-  // signature — no behavior change from Layer 2's perspective.
-  transitionToHolding: (reason: "id_reset" | "discovery_diff" | "sentinel") => void;
+  transitionToHolding: (reason: "discovery_diff") => void;
   transitionToActiveNew: (newSessionFile: string) => void;
   transitionFromHoldingToActiveSameFile: () => void;
   transitionToDead: (reason: string) => void;
@@ -2580,19 +2559,20 @@ export function __applyRepollResultForTests(
 //
 // The initial-attach `if (result.status === "inactive") { ... }` block has to
 // decide, between the dormant-identity branch and FALLBACK-01, whether the
-// discovery result signals a /id-reset (or fresh-spawn) window on THIS pane
+// discovery result signals a launch window on THIS pane (claude starting up
+// after a crash-relaunch, fresh spawn, or dormant wake)
 // — in which case we enter holding + start the discovery-repoll timer instead
 // of tearing down. Terminal reasons (no_tmux_session, exec_error) fall through
 // unchanged to FALLBACK-01; not_claude on a non-identity pane (bare shell)
 // also falls through.
 //
-// This pure classifier is the SINGLE SOURCE OF TRUTH for the "reset_window vs
+// This pure classifier is the SINGLE SOURCE OF TRUTH for the "launch_window vs
 // fallback_01" decision — the production branch calls it directly (so the
 // reducer and the test-observed classifier are the same code), and the tests
 // exercise the same function via this seam. That guarantees drift between
 // "what tests assert" and "what production does" cannot arise here.
 //
-// Reset-window reasons (map to "reset_window"):
+// Launch-window reasons (map to "launch_window"):
 //   • no_pid_session_file
 //   • no_open_session_file
 //   • not_claude AND isIdentityShapedCached === true
@@ -2605,14 +2585,14 @@ export function __applyRepollResultForTests(
 export function __classifyAttachInactiveForTests(
   result: import("./session-file-discovery.js").ClaudeSessionDiscoveryResult,
   isIdentityShapedCached: boolean | null,
-): "reset_window" | "fallback_01" {
+): "launch_window" | "fallback_01" {
   if (result.status === "active") return "fallback_01";
   const reason = result.reason;
   if (reason === "no_pid_session_file" || reason === "no_open_session_file") {
-    return "reset_window";
+    return "launch_window";
   }
   if (reason === "not_claude" && isIdentityShapedCached === true) {
-    return "reset_window";
+    return "launch_window";
   }
   return "fallback_01";
 }
@@ -2699,18 +2679,18 @@ export async function __applyDormantPollTickForTests(
 
 /**
  * Fix #2 (post-Phase-50 code review): shared cleanup helper for the
- * session-recycle path (transitionToActiveNew). Called from the closure
+ * session-file-change path (transitionToActiveNew). Called from the closure
  * transitionToActiveNew AND directly from optimistic-bubbles.integration.test.ts
  * scenario (h) via the __applyTransitionToActiveNewCleanupForTests export.
  *
- * Clears three per-connection state slots that previously survived the
- * recycle and could leak OLD-session behavior into the NEW session:
+ * Clears three per-connection state slots that previously survived a
+ * session-file change and could leak OLD-session behavior into the NEW session:
  *
  *   1. queueEnqueueDedup Map — stale content-hash entries could suppress
  *      fresh-session type:"user" frames on content collision.
  *   2. pv-send-watchdog module `pending` (via clearPvSendWatchdogsForSession)
  *      — a mid-arm watchdog for the OLD sessionId whose full-resend timer
- *      fires post-recycle would retype OLD body into NEW composebox,
+ *      fires post-change would retype OLD body into NEW composebox,
  *      violating the shape invariant "retry never submits unintended
  *      message" and leaking OLD-session content into the NEW transcript.
  *   3. pendingMqidsForThisConnection Set — stale mqid bookkeeping so the
@@ -2731,8 +2711,8 @@ function applyTransitionToActiveNewCleanup(args: {
     pendingMqidsForThisConnection,
   } = args;
   // (1) queueEnqueueDedup is per-connection scope (declared in the ws-server
-  //     closure at L~2419) — not sessionId-keyed at the top level. A recycle
-  //     is a session boundary; every stale hash was scoped to the OLD
+  //     closure at L~2419) — not sessionId-keyed at the top level. A new
+  //     session file is a session boundary; every stale hash was scoped to the OLD
   //     session's content flow, so blanket .clear() is correct.
   queueEnqueueDedup.clear();
   // (2) Watchdog module state — clear every pending entry matching the OLD
@@ -2743,7 +2723,7 @@ function applyTransitionToActiveNewCleanup(args: {
   //     ws.on("close") does not attempt double-clears on already-cancelled
   //     watchdogs (harmless but noise). Any mqids for OTHER sessions on
   //     this connection stay — a WS connection could in principle hold
-  //     watchdogs for different session UUIDs during a rapid recycle,
+  //     watchdogs for different session UUIDs during a rapid session-file change,
   //     though the common case is a 1:1 connection:session mapping.
   for (const mqid of clearedMqids) {
     pendingMqidsForThisConnection.delete(mqid);
@@ -2753,7 +2733,7 @@ function applyTransitionToActiveNewCleanup(args: {
 /**
  * Test-only re-export of the applyTransitionToActiveNewCleanup helper.
  * Consumed by optimistic-bubbles.integration.test.ts scenario (h) so
- * the recycle cleanup contract is exercised without needing to spin up
+ * the session-file-change cleanup contract is exercised without needing to spin up
  * a full WS server + SSH connection + tail restart.
  */
 export const __applyTransitionToActiveNewCleanupForTests =
@@ -2882,7 +2862,7 @@ export async function __applyInputMessageForTests(deps: {
   // triggers the invisible wake — the send won't actually deliver, but the
   // sentinel drop is still the right thing to do because the user did action
   // this pane). When dormant AND all four Phase-56 deps are wired, delegate
-  // to performDormantWakeGate (shared helper — also used by /agent-reset).
+  // to performDormantWakeGate (shared helper).
   // The gate drops the sentinel, polls .resume-complete until fresh or
   // MARKER_FALLBACK_MS, then returns. Then fall through to the normal send
   // code (which will run the MAX_INPUT_BYTES cap + split-send delivery).
@@ -4455,11 +4435,6 @@ wss.on("connection", async (ws: WebSocket, req) => {
   // for the piggyback context-pct emit (readContextPctFromJsonl). Null
   // until discovery completes; also null when discovery returns no-match.
   let dormantSessionFile: string | null = null;
-  // 2026-08-18 Layer 3 (session-holding-overlay-arm-on-recycle-sentinel):
-  // per-tick in-flight guard for the `.recycle-requested` sentinel probe
-  // that piggybacks on the context-pct tick. Mirrors dormantInFlight —
-  // prevents slow-SSH pileups if a probe takes longer than the 3s tick.
-  let sentinelInFlight = false;
   // Phase 95 Part C — per-WS closure state for the pv-context-pct-sweep
   // batch dispatch. sweepScriptPresent is `null` before the first probe;
   // becomes true/false after probe. Cleared naturally on WS close (whole
@@ -4599,27 +4574,19 @@ wss.on("connection", async (ws: WebSocket, req) => {
   let inputChain: Promise<void> = Promise.resolve();
   let stopped = false;
 
-  // Phase 3 session-changeover state machine. Per D-30 (two-layer detection):
+  // Phase 3 session-changeover state machine. Per D-30:
   // `active`  — currently tailing a live session; ticker also polls context-% + tasks.
-  // `holding` — recycle in progress: /exit was seen OR discovery repoll showed a
-  //             changed sessionFile, but the new tail has not started yet
-  //             (Layer 1 fires this on `/exit`; Layer 2 fires it same-tick when
-  //             it spots a changed file with no prior /exit).
-  // `dead`    — holding timed out (~45s); one final `{type:"inactive"}` was sent
+  // `holding` — session file in flux: discovery repoll showed a changed or
+  //             missing sessionFile (claude crashed / relaunching, fresh
+  //             launch, dormant wake) and the new tail has not started yet.
+  //             Compaction keeps the same file and never enters holding.
+  // `dead`    — holding timed out (HOLDING_TIMEOUT_TICKS); one final `{type:"inactive"}` was sent
   //             and all pollers/tail were stopped. WS remains open so the client
   //             can render FALLBACK-01; no auto-restart from here.
   type ChangeoverState = "active" | "holding" | "dead";
   let changeoverState: ChangeoverState = "active";
   let currentSessionFile: string | null = null; // set on first discovery success and each session_changed
   let sessionIdFromFile: string | null = null; // UUID basename of currentSessionFile; drives harness-tasks poller cmd (BLOCKER fix)
-  // Layer 1 tail-state (quick 260808-ohn / diagnostic drop
-  // session-holding-layer1-detect-id-reset-not-exit): tracks whether the
-  // most-recent user turn observed on this pane's session file is /id
-  // reset. Reset to {mostRecentUserTurnIsIdReset: null} on teardownPane
-  // and transitionToActiveNew — both are per-connection resets where a
-  // fresh tail is about to start. See layer1-detect.ts for the reducer
-  // + rationale. Replaces the pre-refactor `hasSeenExit` boolean.
-  let layer1: Layer1State = { mostRecentUserTurnIsIdReset: null };
   // Phase 30 Plan 30-01 (PS30-01): per-connection authoritative pane_state
   // emitter. Consolidates today's five racing wire frames (dormant /
   // session_holding / session_holding_cleared / session_changed / inactive)
@@ -4641,14 +4608,6 @@ wss.on("connection", async (ws: WebSocket, req) => {
       }
     },
   });
-  // Follow-up to patch #356 (2026-08-08): the reason we entered holding.
-  // Layer 2's transitionFromHoldingToActiveSameFile helper reads this to
-  // decide whether a "same-file active" repoll tick should self-clear the
-  // overlay. When holdingReason === "id_reset" the overlay stays up until
-  // the NEW session file appears (transitionToActiveNew) — because Claude
-  // is still running its /id save flow before the real recycle, and
-  // Layer 2's same-file reading is stale.
-  let holdingReason: "id_reset" | "discovery_diff" | "sentinel" | null = null;
   let holdingTicks = 0; // # of 3s ticks in `holding`; timeout at HOLDING_TIMEOUT_TICKS
   let discoveryRepollInFlight = false; // guard against slow SSH pileups (mirrors contextPctInFlight)
   let discoveryRepollTimer: NodeJS.Timeout | null = null;
@@ -4694,10 +4653,6 @@ wss.on("connection", async (ws: WebSocket, req) => {
       dormantPollTimer = null;
     }
     dormantPollInFlight = false;
-    // 2026-08-18 Layer 3: reset sentinel probe in-flight flag on teardown so
-    // the next connect starts clean. No timer of its own — piggybacks on
-    // context-pct tick.
-    sentinelInFlight = false;
     if (harnessTasksTimer) {
       clearInterval(harnessTasksTimer);
       harnessTasksTimer = null;
@@ -4767,8 +4722,6 @@ wss.on("connection", async (ws: WebSocket, req) => {
     changeoverState = "active";
     currentSessionFile = null;
     sessionIdFromFile = null;
-    layer1 = { mostRecentUserTurnIsIdReset: null };
-    holdingReason = null;
     holdingTicks = 0;
     discoveryRepollInFlight = false;
     currentHostId = null;
@@ -4847,87 +4800,10 @@ wss.on("connection", async (ws: WebSocket, req) => {
 
   // Tail's onLine handler — extracted from the pre-Phase-3 inline lambda so
   // `transitionToActiveNew` can restart the tail with the SAME callbacks
-  // rather than duplicating them. Body is byte-for-byte preserved from the
-  // pre-refactor code with ONE addition: the Layer 1 tail-state-derived
-  // /id reset detector right after the ws-open guard (quick 260808-ohn).
+  // rather than duplicating them.
   // ── PHASE-43 OBSERVATION CHANNEL START — DO NOT EDIT BODY BELOW; extend switch cases in Region B only ──
   const onLine = (line: string) => {
     if (stopped || ws.readyState !== WebSocket.OPEN) return;
-
-    // Phase 30 Plan 30-02 (PS30-02): parser observation channel for
-    // /id reset. Runs BEFORE Layer 1 dispatch so the earliest real
-    // "recycling starts now" signal fires first — /id reset lands in
-    // the JSONL BEFORE Claude Code terminates, so this beats the
-    // PID-death /exit-scan heuristic that Layer 1's tail-state reducer
-    // + Layer 2's discovery-repoll fall back to. Detection is
-    // ORTHOGONAL to the parseSessionLine message-emission path below:
-    // post quick-260829-r9i (2026-08-29) the /id user turn is SKIPPED
-    // as session-lifecycle noise (user reversed the prior HARD LOCK
-    // on slash-command visibility), but that emission-channel change
-    // does not touch this observation channel — the pane_state:holding
-    // fire is unaffected. On real /id reset the emitter's dedupe
-    // (Plan 30-01 pane-state-emitter.ts) collapses this + the Layer 1
-    // tail-state reducer's own transitionToHolding ("id_reset") below
-    // into ONE wire frame.
-    //
-    // Fresh JSON.parse here mirrors the backgrounded-agents parallel
-    // scan pattern at ~L1665 below — cheap at these volumes and keeps
-    // the observation channel decoupled from parseSessionLine's
-    // internal implementation (parseSessionLine JSON.parses again
-    // internally; the two parses are independent and the aggregate
-    // cost is still negligible on live tail volumes).
-    try {
-      const obj = JSON.parse(line) as Record<string, unknown>;
-      if (detectIdReset(obj)) {
-        paneStateEmitter.emit("holding", "id_reset");
-      }
-    } catch {
-      /* malformed line — parseSessionLine below will surface as kind:"malformed" */
-    }
-
-    // Phase 30 F2 acknowledgment: after the parser observation channel
-    // above fires paneStateEmitter.emit("holding", "id_reset") on real
-    // /id reset lines, this Layer 1 arm_holding path is functionally
-    // redundant for wire emission (emitter dedupe collapses both to
-    // one frame). The branch stays intact as defense-in-depth against
-    // future parser regressions (raw-string detection in layer1-detect.ts
-    // is a disjoint code path from object-based detection in
-    // session-file-parser.ts:detectIdReset), and because Layer 1 ALSO
-    // owns the clear_holding transition + the holdingReason === "id_reset"
-    // guard at L2232 in transitionFromHoldingToActiveSameFile that this
-    // arm path is the sole producer of. Do NOT delete this branch.
-
-    // Phase 3 Layer 1 (rewired 2026-08-08, quick 260808-ohn / diagnostic drop
-    // session-holding-layer1-detect-id-reset-not-exit):
-    //
-    // Feed every raw JSONL line through the tail-state reducer in
-    // layer1-detect.ts. The reducer updates `layer1.mostRecentUserTurnIsIdReset`
-    // iff the line is a user turn, then decides an action based on
-    // the new state + current changeoverState. The SessionHoldingOverlay
-    // is armed IFF the file's most-recent user turn is /id reset —
-    // computed uniformly across `-n +1` replay AND live-append, so
-    // historical /exit or historical /id reset lines from prior
-    // recycles no longer re-flash the overlay on WS reconnect (user
-    // empirically saw 14 arm+clear pairs in ~1h under the pre-refactor
-    // /exit edge-triggered detector). Sub-second detection of the
-    // current session's /id reset is preserved. Layer 2 (discovery
-    // repoll in the ticker) still catches SIGTERM-fallback and
-    // recover-in-different-cwd via sessionFile diff. See
-    // layer1-detect.ts for the reducer's rationale + unit tests, and
-    // CONTEXT.md D-30 for the two-layer architecture.
-    //
-    // Fall through — the parser will now SKIP the /id reset turn as
-    // session-lifecycle noise (user reversed the HARD LOCK on
-    // slash-command visibility in quick-260829-r9i, 2026-08-29). The
-    // state transition is orthogonal to whether the /id reset text
-    // renders as a chat bubble — this Layer 1 dispatch must still run
-    // regardless. DO NOT `return` here.
-    const layer1Action = applyLineToLayer1State(line, layer1, changeoverState);
-    if (layer1Action === "arm_holding") {
-      transitionToHolding("id_reset");
-    } else if (layer1Action === "clear_holding") {
-      transitionFromHoldingToActiveSameFile();
-    }
 
     // Parallel raw-line scan for backgrounded Agent invocations (patch
     // #61). Runs ALONGSIDE parseSessionLine, not through it — RENDER-01
@@ -5296,8 +5172,8 @@ wss.on("connection", async (ws: WebSocket, req) => {
 
   // BLOCKER fix (plan-checker 2026-07-18): the harness-tasks poller setup
   // is extracted into a helper so `transitionToActiveNew` can rebind it
-  // against the NEW sessionId after a recycle. The pre-Phase-3 code baked
-  // the initial-connect UUID into `tasksCmd` as a `const`, so post-recycle
+  // against the NEW sessionId after a session-file change. The pre-Phase-3
+  // code baked the initial-connect UUID into `tasksCmd` as a `const`, so after
   // the poller kept querying the DEAD session's tasks directory forever.
   //
   // The helper is idempotent — safe to call at any state; teardown-and-
@@ -5378,23 +5254,18 @@ wss.on("connection", async (ws: WebSocket, req) => {
   // ---------------------------------------------------------------------------
   // Phase 3 state-transition helpers. All three close over the connection-
   // scoped state (changeoverState, currentSessionFile, sessionIdFromFile,
-  // layer1, holdingTicks, ws, sshConn, etc.) and the connection-scoped
+  // holdingTicks, ws, sshConn, etc.) and the connection-scoped
   // context (currentHostId, currentTmuxSession — set on connectToPane).
   // ---------------------------------------------------------------------------
 
-  // Called when the tail's onLine dispatches Layer 1's tail-state-derived
-  // /id reset detector (sub-second, quick 260808-ohn) OR when the ticker's
-  // discovery-repoll notices a changed sessionFile (Layer 2's
-  // SIGTERM-fallback path). Idempotent against double-fire — if state is
-  // already `holding` or `dead`, this is a no-op. That protects against the
-  // race where Layer 1 fires on the tail's onLine milliseconds before the
-  // ticker's Layer 2 repoll notices the same recycle.
-  const transitionToHolding = (
-    reason: "id_reset" | "discovery_diff" | "sentinel",
-  ): void => {
+  // Called when the ticker's discovery-repoll notices a changed or missing
+  // sessionFile (e.g. claude crashed and is being relaunched, or a fresh
+  // launch / dormant wake started a new file), or by the attach-path
+  // launch-window branch. Idempotent against double-fire — if state is
+  // already `holding` or `dead`, this is a no-op.
+  const transitionToHolding = (reason: "discovery_diff"): void => {
     if (changeoverState !== "active") return;
     changeoverState = "holding";
-    holdingReason = reason;
     holdingTicks = 0;
     if (!stopped && ws.readyState === WebSocket.OPEN) {
       try {
@@ -5404,11 +5275,9 @@ wss.on("connection", async (ws: WebSocket, req) => {
       }
     }
     // Phase 30 Plan 30-01 (PS30-01): authoritative pane_state alongside the
-    // legacy session_holding frame. `reason` forwards through — Layer 1
-    // dispatches "id_reset"; Layer 2 discovery-repoll dispatches
-    // "discovery_diff". The emitter's own guard + dedupe make this safe
-    // even under the pre-existing idempotent-double-fire race between L1
-    // and L2 (both funnel here with the same reason on rare co-fires).
+    // legacy session_holding frame. `reason` forwards through (discovery
+    // repoll dispatches "discovery_diff"). The emitter's own guard + dedupe
+    // make repeated fires safe.
     paneStateEmitter.emit("holding", reason);
     sshLogger.info("Claude session entering holding state", {
       operation: "claude_session_holding",
@@ -5425,11 +5294,11 @@ wss.on("connection", async (ws: WebSocket, req) => {
   // active-branch sees the SAME sessionFile while changeoverState === "holding".
   // This means the overlay was armed by a false alarm (e.g. a transient SSH
   // blip that slipped through before Fix A, or a brief bare-shell gap that
-  // resolved on the next tick), NOT a real recycle. The same-file result on
+  // resolved on the next tick), NOT a real session-file change. The same-file result on
   // an active tick proves claude never actually stopped writing to this file.
   //
   // Contrast with transitionToActiveNew (called when sessionFile CHANGED) which
-  // is a heavy-reset for a confirmed real recycle. This helper is surgical:
+  // is a heavy-reset for a confirmed session-file change. This helper is surgical:
   // flip changeoverState back to active, reset holdingTicks, emit
   // session_holding_cleared. The frontend handler clears only isHolding +
   // holdingTimeoutError and does NOT touch messages / contextPct / harnessTasks
@@ -5441,40 +5310,7 @@ wss.on("connection", async (ws: WebSocket, req) => {
   // first tick's WS send completes).
   const transitionFromHoldingToActiveSameFile = (): void => {
     if (changeoverState !== "holding") return;
-    // Follow-up to patch #356 (2026-08-08): if we entered holding because
-    // Layer 1 saw a real /id reset in the tail, the 3-second repoll tick's
-    // "same-file active" reading is STALE — Claude is still running its
-    // /id save flow (many tool invocations) before exit, so discovery
-    // correctly reports the OLD session file as active. Clearing here
-    // would flash the SessionHoldingOverlay off within ~1-3s of user
-    // typing /id reset even though the real recycle is still coming.
-    // Skip the clear; wait for transitionToActiveNew when the new session
-    // file appears (Layer 2's real-recycle path, unchanged).
-    //
-    // 2026-08-18: Same rule extended to `holdingReason === "sentinel"`.
-    // Layer 3 (sentinel-detect) arms when `.recycle-requested` is present
-    // on the target box, but the agent-supervisor's kill+respawn is
-    // asynchronous and typically lags the sentinel drop by seconds.
-    // Discovery may still see the OLD session file as active during that
-    // window — same "stale-active-reading" trap as id_reset, same fix:
-    // defer the clear to transitionToActiveNew.
-    if (holdingReason === "id_reset" || holdingReason === "sentinel") {
-      sshLogger.debug(
-        `Layer 2 same-file-active during ${holdingReason} holding — deferring clear to transitionToActiveNew`,
-        {
-          operation: "claude_session_holding_same_file_deferred",
-          holdingReason,
-          userId,
-          sessionId,
-          hostId: currentHostId,
-          tmuxSession: currentTmuxSession,
-          sessionFile: currentSessionFile,
-        },
-      );
-      return;
-    }
     changeoverState = "active";
-    holdingReason = null;
     holdingTicks = 0;
     if (!stopped && ws.readyState === WebSocket.OPEN) {
       try {
@@ -5486,7 +5322,7 @@ wss.on("connection", async (ws: WebSocket, req) => {
     // Phase 30 Plan 30-01: false-alarm-recovery case. Surface the recovery
     // reason so the frontend + logs can distinguish this "we armed holding
     // then discovery repoll proved it was a false alarm" path from the
-    // real-recycle transitionToActiveNew ("session_changed") path.
+    // file-changed transitionToActiveNew ("session_changed") path.
     paneStateEmitter.emit("active", "same_file_recovery");
     sshLogger.info("Claude session self-cleared from holding on same-file recovery", {
       operation: "claude_session_holding_cleared",
@@ -5517,10 +5353,10 @@ wss.on("connection", async (ws: WebSocket, req) => {
       tailHandle = null;
     }
     // Fix #2 (post-Phase-50 code review): clear session-scoped state that
-    // previously survived the recycle and could leak OLD-session behavior:
+    // previously survived a session-file change and could leak OLD-session behavior:
     //   • queueEnqueueDedup Map (stale hashes suppress fresh frames)
     //   • pv-send-watchdog `pending` for the OLD sessionId (a mid-arm
-    //     watchdog whose full-resend fires post-recycle would retype OLD
+    //     watchdog whose full-resend fires post-change would retype OLD
     //     body into NEW composebox — shape-invariant violation)
     //   • pendingMqidsForThisConnection Set entries for those cleared mqids
     // Runs BEFORE the other buffered-state resets so OLD-session watchdogs
@@ -5541,17 +5377,13 @@ wss.on("connection", async (ws: WebSocket, req) => {
     backgroundedAgents.clear();
     backgroundedAgentsLastSerialized = "[]";
     // Phase 51 Plan 01: clear the pendingAgentAdmission scratch map alongside
-    // backgroundedAgents on session recycle. Same rationale — the fresh
+    // backgroundedAgents on session-file change. Same rationale — the fresh
     // session's `-n +1` replay repopulates from scratch.
     pendingAgentAdmission.clear();
     backgroundedShells.clear();
     backgroundedShellsLastSerialized = "[]";
     taskIdToToolUseId.clear();
     pendingStops.clear();
-    // quick 260808-ohn: reset Layer 1 tail-state on session recycle so the
-    // new tail's -n +1 replay converges on clean bookkeeping.
-    layer1 = { mostRecentUserTurnIsIdReset: null };
-    holdingReason = null;
     holdingTicks = 0;
     // Phase 47 Plan 03 Hunk A: reset the streaming-tail line-counter for
     // the new session file. The new `tail -F -n +1` will re-play from line
@@ -5588,7 +5420,7 @@ wss.on("connection", async (ws: WebSocket, req) => {
         /* ws may be mid-close */
       }
     }
-    // Phase 30 Plan 30-01: real-recycle path. The new session file's UUID
+    // Phase 30 Plan 30-01: session-file-changed path. The new session file's UUID
     // stays on the legacy session_changed frame only — pane_state's
     // reason field is enum-shaped (no filesystem paths per T-30-01
     // mitigation). "session_changed" as reason keeps parity with the
@@ -5602,7 +5434,7 @@ wss.on("connection", async (ws: WebSocket, req) => {
       tmuxSession: currentTmuxSession,
       oldSessionFile,
       newSessionFile,
-      // For post-deploy debugging: distinguishes recycle (UUID changed)
+      // For post-deploy debugging: distinguishes a new session (UUID changed)
       // from recover-in-different-cwd (UUID preserved, projects/slug
       // subdir moved).
       sessionIdChanged:
@@ -5693,9 +5525,9 @@ wss.on("connection", async (ws: WebSocket, req) => {
   // Now both call sites use this single helper:
   //   1. startActiveSessionFlow (steady-state — active session established
   //      on initial attach or via wake-from-dormant handoff).
-  //   2. The attach-path reset-window branch inside the initial-attach
+  //   2. The attach-path launch-window branch inside the initial-attach
   //      inactive block (see below near L~5087) — flips changeoverState
-  //      to "holding" then starts the timer here so the /id-reset window
+  //      to "holding" then starts the timer here so the launch window's
   //      recovery uses the same recovery reducer the steady-state ticker uses.
   //
   // Behavior is byte-preserved for the steady-state site (same closure vars,
@@ -5741,10 +5573,11 @@ wss.on("connection", async (ws: WebSocket, req) => {
 
           if (result.status === "active") {
             if (result.sessionFile !== currentSessionFile) {
-              // File moved: recycle OR recover-in-different-cwd.
+              // File moved: crash-relaunch / fresh launch OR
+              // recover-in-different-cwd.
               if (changeoverState === "active") {
-                // SIGTERM-fallback path: /exit never landed but the file
-                // changed. Emit both holding and changed on the SAME tick.
+                // Changed while we thought we were active. Emit both
+                // holding and changed on the SAME tick.
                 transitionToHolding("discovery_diff");
               }
               transitionToActiveNew(result.sessionFile);
@@ -5757,7 +5590,7 @@ wss.on("connection", async (ws: WebSocket, req) => {
             // — nominal steady-state, no state change needed.
           } else if (!isExecErrorTick) {
             // status === "inactive" with a REAL inactive reason (not an SSH
-            // failure). Bare-shell gap during recycle is expected.
+            // failure). Bare-shell gap during a relaunch is expected.
             if (changeoverState === "active") {
               transitionToHolding("discovery_diff");
             }
@@ -6900,7 +6733,7 @@ wss.on("connection", async (ws: WebSocket, req) => {
     // dormantLastEmitted, isIdentityShapedCached, identityShapeProbeInFlight,
     // backgroundedAgents, backgroundedAgentsLastSerialized, backgroundedShells,
     // backgroundedShellsLastSerialized, changeoverState, currentSessionFile,
-    // sessionIdFromFile, hasSeenExit, holdingTicks, discoveryRepollInFlight,
+    // sessionIdFromFile, holdingTicks, discoveryRepollInFlight,
     // currentHostId, currentTmuxSession, stopped.
     startActiveSessionFlow = async ({ pid, sessionFile, tmuxSession: activeTmuxSession, hostId: activeHostId, startReason }: {
       pid: number;
@@ -7108,7 +6941,7 @@ wss.on("connection", async (ws: WebSocket, req) => {
       contextPctInFlight = true;
       const connSnapshot = sshConn;
       // Read currentSessionFile at poll-fire time (not up-front) so a
-      // session recycle after connect is picked up on the next tick —
+      // session-file change after connect is picked up on the next tick —
       // matches how other closure-scoped fields are consulted inside
       // this callback.
       const sessionFileSnapshot = currentSessionFile;
@@ -7261,72 +7094,6 @@ wss.on("connection", async (ws: WebSocket, req) => {
               }
             })();
           }
-
-          // 2026-08-18 Layer 3 — sentinel-present recycle detector.
-          // Piggybacks the same context-pct tick + connSnapshot the dormant
-          // block above uses: check whether `~/fleet/identities/<name>/
-          // .recycle-requested` exists on the pane's target box; if yes AND
-          // we're currently `active`, arm the SessionHoldingOverlay via
-          // transitionToHolding("sentinel"). Covers the window between the
-          // agent dropping the sentinel and the supervisor tearing down
-          // claude — Layer 1 (/id reset in JSONL) and Layer 2 (session-file
-          // swap) both miss that window because they need the recycle to
-          // have visibly progressed.
-          //
-          // Identity name = currentTmuxSession (fleet convention pairs tmux
-          // session name with identity name). If they don't match, the
-          // probe silently returns "no" (path doesn't exist) and no-ops —
-          // Layer 1 still covers the /id reset case regardless.
-          //
-          // See sentinel-detect.ts for the pure reducer + rationale.
-          if (
-            !sentinelInFlight &&
-            currentTmuxSession !== null &&
-            changeoverState === "active" &&
-            !stopped &&
-            ws.readyState === WebSocket.OPEN
-          ) {
-            sentinelInFlight = true;
-            const sentinelConnSnapshot = connSnapshot;
-            const sentinelIdentityName = currentTmuxSession;
-            (async () => {
-              try {
-                await __applySentinelCheckForTests(
-                  {
-                    connSnapshot: sentinelConnSnapshot,
-                    identityName: sentinelIdentityName,
-                    execCommand,
-                    // quick-260823-recycle-overlay: forensic-trail log so
-                    // future recycle-overlay-late-mount investigations see
-                    // exactly what Layer 3's probe observed each tick.
-                    // Only emitted when probe COMPLETES (SSH exception path
-                    // stays silent — matches the "skip this tick silently"
-                    // catch-block posture; a stuck SSH is orthogonal to the
-                    // arm/no-arm decision).
-                    log: (p) => {
-                      sshLogger.info(
-                        "Layer 3 sentinel probe",
-                        {
-                          operation: "claude_session_layer3_sentinel_probe",
-                          userId,
-                          sessionId,
-                          hostId: currentHostId,
-                          identityName: p.identityName,
-                          present: p.present,
-                          changeoverState: p.changeoverState,
-                          action: p.action,
-                        },
-                      );
-                    },
-                  },
-                  { changeoverState },
-                  { transitionToHolding },
-                );
-              } finally {
-                sentinelInFlight = false;
-              }
-            })();
-          }
         } catch {
           // SSH error during context-pct tick — skip silently.
           // Peer SSH transport can drop mid-flight and reject execCommand
@@ -7338,7 +7105,7 @@ wss.on("connection", async (ws: WebSocket, req) => {
           // user on a single peer's disconnect (yeti forensic 2026-09-29
           // 13:15:02Z: aqua@100.82.225.100 dropped, crashed the container).
           // Mirrors the "skip this tick silently" posture of
-          // __applyDormantPollTickForTests + __applySentinelCheckForTests.
+          // __applyDormantPollTickForTests.
         } finally {
           contextPctInFlight = false;
         }
@@ -7597,21 +7364,20 @@ wss.on("connection", async (ws: WebSocket, req) => {
     //
     // BLOCKER fix (plan-checker 2026-07-18): setup is now via the module-
     // scoped `setupHarnessTasksPoller` helper so `transitionToActiveNew`
-    // can rebind against the fresh session's UUID after a recycle. Pre-
+    // can rebind against the fresh session's UUID after a file change. Pre-
     // Phase-3, the poller was baked into a local `const tasksCmd` at
     // connect time and stayed pointed at the DEAD session's UUID forever
-    // after a recycle. `sessionIdFromFile` is set just above in the initial
+    // after a file change. `sessionIdFromFile` is set just above in the initial
     // session-file assignment block.
     setupHarnessTasksPoller(sessionIdFromFile!);
 
-    // Phase 3 Layer 2: discovery-repoll backstop. Runs the SAME full
+    // Phase 3: discovery-repoll. Runs the SAME full
     // `discoverClaudeSession` call the initial connectToPane branch used,
     // once per tick, on the same SSH connection. On change:
     //   - active + new file  → transitionToHolding("discovery_diff") then
     //                          transitionToActiveNew(newFile) same tick
-    //                          (SIGTERM-fallback path — /exit never landed)
+    //                          (crash-relaunch / fresh launch)
     //   - holding + new file → transitionToActiveNew(newFile)
-    //                          (normal recycle after /exit)
     //   - holding + no file  → increment holdingTicks; if >= timeout, dead
     //   - active + inactive  → transitionToHolding (defensive — treated as
     //                          recover-pending; may resolve as file appears
@@ -7626,7 +7392,7 @@ wss.on("connection", async (ws: WebSocket, req) => {
     //
     // quick 260813-0qx: timer setup extracted to the connection-scoped
     // startDiscoveryRepollTimer helper (~L2600) so the attach-path
-    // reset-window branch can start the same timer without duplicating the
+    // launch-window branch can start the same timer without duplicating the
     // body. Behavior byte-preserved for this steady-state site.
     startDiscoveryRepollTimer(activeTmuxSession);
 
@@ -8124,10 +7890,11 @@ wss.on("connection", async (ws: WebSocket, req) => {
         return;
       }
 
-      // quick 260813-0qx — attach-path reset-window branch.
+      // quick 260813-0qx — attach-path launch-window branch.
       //
       // If discoverClaudeSession returned inactive with a reason that signals we
-      // are inside a /id reset (or fresh spawn) window on THIS pane — rather
+      // are inside a launch window on THIS pane (crash-relaunch, fresh spawn,
+      // dormant wake: claude is starting but has no session file yet) — rather
       // than a terminal "no claude here" verdict — enter holding + start the
       // discovery-repoll timer instead of falling through to FALLBACK-01. The
       // repoll timer's existing branches (see startDiscoveryRepollTimer /
@@ -8137,14 +7904,14 @@ wss.on("connection", async (ws: WebSocket, req) => {
       // emits the terminal inactive frame FALLBACK-01 would have sent
       // immediately.
       //
-      // Reset-window reasons (classified via __classifyAttachInactiveForTests
+      // Launch-window reasons (classified via __classifyAttachInactiveForTests
       // — the SINGLE SOURCE OF TRUTH shared with the test suite so the
       // production branch and the classifier tests never drift):
       //   * no_pid_session_file  — claude process exists but hasn't written a
       //                            fresh PID file yet
       //   * no_open_session_file — PID file found but new JSONL not yet open
       //   * not_claude AND identity-shape pane WITHOUT .dormant sentinel — the
-      //                            identity pane is mid-reset (claude process
+      //                            identity pane is mid-relaunch (claude process
       //                            gone briefly), not a bare shell. Piggybacks
       //                            on isIdentityShapedCached set inside the
       //                            dormant-identity probe block above; we do
@@ -8156,27 +7923,26 @@ wss.on("connection", async (ws: WebSocket, req) => {
       // WIRING CHOICE — reuse transitionToHolding("discovery_diff"): at attach
       // time changeoverState === "active" (module default at L1690), so the
       // helper's `if (changeoverState !== "active") return;` guard passes and
-      // it flips state to "holding", sets holdingReason = "discovery_diff",
-      // resets holdingTicks = 0, sends {type:"session_holding"} on the WS,
+      // it flips state to "holding", resets holdingTicks = 0, sends {type:"session_holding"} on the WS,
       // fires paneStateEmitter.emit("holding", "discovery_diff"), and logs
       // "claude_session_holding". currentSessionFile is null at this point
       // (no baseline yet — the attach-time active path hadn't run) — the
       // helper's log payload records that as `oldSessionFile: null`, which is
       // the correct semantics: there IS no old file. Below we seed
       // currentHostId / currentTmuxSession so the log payload references the
-      // right pane, then add an extra reset-window-specific log line and start
+      // right pane, then add an extra launch-window-specific log line and start
       // the discovery-repoll timer via the shared helper.
       if (
         __classifyAttachInactiveForTests(result, isIdentityShapedCached) ===
-        "reset_window"
+        "launch_window"
       ) {
         currentHostId = hostId;
         currentTmuxSession = tmuxSession;
         transitionToHolding("discovery_diff");
         sshLogger.info(
-          "Claude session entering attach-path reset-window holding",
+          "Claude session entering attach-path launch-window holding",
           {
-            operation: "claude_session_holding_attach_reset_window",
+            operation: "claude_session_holding_attach_launch_window",
             reason: result.reason,
             identityShape: isIdentityShapedCached,
             userId,
@@ -8215,7 +7981,7 @@ wss.on("connection", async (ws: WebSocket, req) => {
       // exec_error), so no new information disclosure surface per T-30-01.
       paneStateEmitter.emit("inactive", result.reason);
       // Diagnostic drop: pv-claude-session-ws-zombie-after-tmux-teardown — if the
-      // reset-window branch above (L8121-8122) seeded currentHostId /
+      // launch-window branch above (L8121-8122) seeded currentHostId /
       // currentTmuxSession before falling through here, nulling sshConn below
       // leaves the WS with a bound tmuxSession but no live SSH conn — a
       // future input frame trips the entry-guard drop. Close the WS with

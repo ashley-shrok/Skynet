@@ -7,7 +7,7 @@ ONE exec-per-host-per-cycle that emits all per-identity + per-live-PID state
 as a JSONL blob on stdout. See:
     .planning/phases/92-fleet-status-poller-batch-sweep-one-exec-per-host-not-one-pe/
         92-CONTEXT.md   — locked design decisions
-        92-RESEARCH.md  — full exec inventory (A0..A12, B0..B5)
+        92-RESEARCH.md  — full exec inventory (A0..A12, B0..B5; B5 since retired)
         92-01-PLAN.md   — schema module (parser + version constant)
         92-02-PLAN.md   — THIS script's spec
 
@@ -60,16 +60,14 @@ Exec-site → emission mapping (parity with RESEARCH.md § "Current per-identity
     A12 tail -c 262144 <jsonlPath>               → SweepPidLine.jsonl_tail
     B0  find identities/                         → identity enumeration (this script)
     B1  stat identities/<name>/.dormant  (B)     → SweepIdentityLine.dormant
-    B2  stat identities/<name>/.recycled-at      → SweepIdentityLine.recycled_at
-    B3  test -f identities/<name>/.recycle-requested → SweepIdentityLine.recycle_requested
+    B2  stat identities/<name>/.compact-requested → SweepIdentityLine.compact_requested
+    B3  stat identities/<name>/.compacting       → SweepIdentityLine.compacting
+                                                   (B2 || B3 = the agent is condensing:
+                                                   a compaction is queued or in flight,
+                                                   see agent-supervisor.sh handle_compaction)
     B4  Phase 32 discovery script                → SweepIdentityLine.jsonl_path
-    B5  tail-scan + isRealUserTurn + detectIdReset
-                                                 → SweepIdentityLine.layer1_recycling
 
 Ports verbatim (behavioral parity required — Plan 05 has a regression test):
-    * isRealUserTurn        — ssh-poll-orchestrator.ts L432–L472 (7 steps).
-    * scanTailForLayer1RecyclingSignal — ssh-poll-orchestrator.ts L636 (reducer).
-    * detectIdReset               — claude-session/session-file-parser.ts L883.
     * __matchesIdentityFirstTurnForTests + delimiter guard
                                   — claude-session/discover-identity-session-file.ts
                                     L109 (DELIMITER_SET) + L134–L158 (predicate).
@@ -96,7 +94,6 @@ import subprocess
 import sys
 import time
 import traceback
-from datetime import datetime
 
 # ---------------------------------------------------------------------------
 # Schema version — MUST match SWEEP_SCHEMA_VERSION in sweep-schema.ts.
@@ -159,7 +156,7 @@ FRONTMATTER_HEAD_BYTES = 4096
 PROJECT_FRONTMATTER_HEAD_BYTES = 65536
 
 # ---------------------------------------------------------------------------
-# JSONL tail width — mirrors A12 / B5 exec sites in ssh-poll-orchestrator.ts.
+# JSONL tail width — mirrors the A12 exec site in ssh-poll-orchestrator.ts.
 # ---------------------------------------------------------------------------
 
 TAIL_BYTES = 262144  # 256 KB — same window as `tail -c 262144`.
@@ -508,184 +505,6 @@ def discover_identity_jsonl_path(identity_name, home):
         _log("discovery_unexpected_error", identity=identity_name,
              err=traceback.format_exc(limit=1).strip())
         return None
-
-
-# ---------------------------------------------------------------------------
-# Section — port of detectIdReset (session-file-parser.ts L883).
-# ---------------------------------------------------------------------------
-
-
-def _detect_id_reset(obj):
-    """Return True iff obj is a real `/id reset` user turn.
-
-    Port of detectIdReset in session-file-parser.ts. Four conditions:
-      1. obj["type"] == "user"
-      2. obj.get("isMeta") is not True
-      3. message.content is a plain string (not a list — tool_result lives
-         in array-shaped content).
-      4. content contains BOTH `<command-name>/id</command-name>`
-         AND `<command-args>reset` (prefix match — freeform explanations
-         like `<command-args>reset because I want to switch roles</command-args>`
-         still qualify).
-
-    NB: the pattern is `<command-args>reset`, NOT `<command-args><identity_name>`
-    — the plan's narrative was a summary; the load-bearing predicate is on the
-    literal token "reset". See detectIdReset docblock for the full history.
-    """
-    if not isinstance(obj, dict):
-        return False
-    if obj.get("type") != "user":
-        return False
-    if obj.get("isMeta") is True:
-        return False
-    msg = obj.get("message")
-    if not isinstance(msg, dict):
-        return False
-    content = msg.get("content")
-    if isinstance(content, list):
-        return False
-    if not isinstance(content, str):
-        return False
-    if "<command-name>/id</command-name>" not in content:
-        return False
-    if "<command-args>reset" not in content:
-        return False
-    return True
-
-
-# ---------------------------------------------------------------------------
-# Section — port of isRealUserTurn (ssh-poll-orchestrator.ts L432–L472).
-# ---------------------------------------------------------------------------
-
-_CONTROL_CHAR_RE = re.compile(r"[\x00-\x1F]")
-
-
-def _is_real_user_turn(raw_line):
-    """Return (True, ts_ms) if raw_line is a real user user turn, else (False, None).
-
-    Verbatim port of the 7-step predicate in ssh-poll-orchestrator.ts
-    L432–L472. Numbering below matches the TS steps 1..7 (plus the timestamp
-    parse at the end).
-    """
-    trimmed = raw_line.strip()
-    if trimmed == "":
-        return False, None
-    try:
-        obj = json.loads(trimmed)
-    except Exception:
-        return False, None
-    if not isinstance(obj, dict):
-        return False, None
-    # Step 2 (numbering per TS docblock): top.type must be "user".
-    if obj.get("type") != "user":
-        return False, None
-    # Step 3: message.content must be a plain string.
-    msg = obj.get("message")
-    if not isinstance(msg, dict):
-        return False, None
-    content = msg.get("content")
-    if not isinstance(content, str):
-        return False, None
-    # Step 4: XML-wrapper exclusion — reject "<...>" content UNLESS it's a
-    # <command-...> slash-command.
-    t = content.strip()
-    is_xml_wrapper = t.startswith("<") and t.endswith(">")
-    is_command = t.startswith("<command-")
-    if not is_command and is_xml_wrapper:
-        return False, None
-    # Step 5: drop /exit slash-command injected by agent-supervisor.
-    if "<command-name>/exit</command-name>" in content:
-        return False, None
-    # Step 6: drop control-chars-only content (e.g. "\x03\x03" Ctrl-C).
-    if _CONTROL_CHAR_RE.sub("", t) == "":
-        return False, None
-    # Step 7: drop agent-supervisor resumed-injection sentinel.
-    if content.startswith("Your session was just resumed by the agent-supervisor"):
-        return False, None
-    # Timestamp: must be ISO-8601 parseable → unix ms.
-    raw_ts = obj.get("timestamp")
-    if not isinstance(raw_ts, str):
-        return False, None
-    ts_ms = _parse_iso_to_unix_ms(raw_ts)
-    if ts_ms is None:
-        return False, None
-    return True, ts_ms
-
-
-def _parse_iso_to_unix_ms(iso_str):
-    """Parse an ISO-8601 timestamp string to unix ms int, or None on failure.
-
-    Mirrors JS Date.parse semantics closely enough for the timestamp parser
-    (we only use the truthy/falsy return, not the exact ms value — the JS
-    return is used for lastMessageAt elsewhere but here it's just a gate).
-    Handles the `Z` suffix and `±HH:MM` offsets, plus fractional seconds.
-    """
-    try:
-        s = iso_str
-        # Python 3.6 doesn't accept 'Z' in fromisoformat; normalize.
-        if s.endswith("Z"):
-            s = s[:-1] + "+00:00"
-        # datetime.fromisoformat is 3.7+; use a manual parse fallback for 3.6.
-        try:
-            dt = datetime.fromisoformat(s)
-        except (AttributeError, ValueError):
-            # Fallback: strip fractional seconds, use strptime.
-            fmt = "%Y-%m-%dT%H:%M:%S"
-            main = s
-            if "." in main:
-                # Preserve tz suffix if present after the fractional part.
-                head, tail = main.split(".", 1)
-                # tail may contain "digits[+offset]"; find the first non-digit.
-                i = 0
-                while i < len(tail) and tail[i].isdigit():
-                    i += 1
-                main = head + tail[i:]
-            try:
-                dt = datetime.strptime(main, fmt + "%z")
-            except ValueError:
-                try:
-                    dt = datetime.strptime(main, fmt)
-                except ValueError:
-                    return None
-        ts = dt.timestamp()
-        return int(ts * 1000)
-    except Exception:
-        return None
-
-
-# ---------------------------------------------------------------------------
-# Section — port of scanTailForLayer1RecyclingSignal (ssh-poll-orchestrator.ts L636).
-# ---------------------------------------------------------------------------
-
-
-def scan_tail_for_layer1_recycling_signal(tail_contents):
-    """Return True/False/None per the reducer at L636.
-
-    Walks lines in order (chronological on JSONL append). For each line:
-      * skip empty lines.
-      * pre-filter with isRealUserTurn (skip harness-synthetic user
-        turns per inline-260830-layer1-skip-harness-synthetic-user-turns).
-      * JSON.parse and apply detectIdReset; remember the result.
-
-    Return the LAST remembered result (last real user turn wins). None if
-    no real user turn was seen (caller preserves cached value — fail-open).
-    """
-    last_result = None
-    if not tail_contents:
-        return None
-    for line in tail_contents.split("\n"):
-        if line.strip() == "":
-            continue
-        ok, _ts = _is_real_user_turn(line)
-        if not ok:
-            continue
-        try:
-            parsed = json.loads(line)
-        except Exception:
-            # Belt-and-suspenders — _is_real_user_turn would already have failed here.
-            continue
-        last_result = _detect_id_reset(parsed)
-    return last_result
 
 
 # ---------------------------------------------------------------------------
@@ -1484,13 +1303,13 @@ def _desktop_running(name, home):
         return False
 
 
-def _build_identity_line(name, home, sentinels, jsonl_path, jsonl_tail_cache, role_cosmetics_memo):
+def _build_identity_line(name, home, sentinels, jsonl_path, role_cosmetics_memo):
     """Assemble a SweepIdentityLine dict.
 
-    Runs discovery lazily via `jsonl_path` (already computed and passed in
-    to allow sharing with per-PID emission — A11 folded into B4). Caches the
-    tail read result in `jsonl_tail_cache` keyed by identity name so the
-    per-PID emission below can reuse it without a second read.
+    `jsonl_path` is computed once per tick by discover_all_identity_jsonl_paths
+    and shared with per-PID emission (A11 folded into B4). The identity line
+    does NOT read the JSONL tail — only PID lines carry it (A12), so the
+    256 KB read happens only for identities with a live PID.
 
     New parameter `role_cosmetics_memo` (Phase 111-01): a per-tick dict shared
     across all identity lines so each role file is read at most once per tick
@@ -1501,14 +1320,6 @@ def _build_identity_line(name, home, sentinels, jsonl_path, jsonl_tail_cache, ro
     null cosmetics and the identity line is STILL emitted. Membership (the line
     being present) must never depend on appearance reads succeeding (T-111-04).
     """
-    layer1 = None
-    tail_str = None
-    if jsonl_path is not None:
-        tail_str = _read_tail_bytes(jsonl_path)
-        if tail_str is not None:
-            layer1 = scan_tail_for_layer1_recycling_signal(tail_str)
-    jsonl_tail_cache[name] = tail_str
-
     # ---- Phase 111-01: appearance block. ----
     # Outer try/except is a belt: the helpers already swallow OSError, but this
     # guarantees that no unforeseen path error inside the appearance block can
@@ -1567,10 +1378,9 @@ def _build_identity_line(name, home, sentinels, jsonl_path, jsonl_tail_cache, ro
         "schema_version": SCHEMA_VERSION,
         "identity": name,
         "dormant": sentinels["dormant"],
-        "recycled_at": sentinels["recycled_at"],
-        "recycle_requested": sentinels["recycle_requested"],
+        "compact_requested": sentinels["compact_requested"],
+        "compacting": sentinels["compacting"],
         "jsonl_path": jsonl_path,
-        "layer1_recycling": layer1,
         "role": role,
         "identity_cosmetics": identity_cosmetics,
         "role_cosmetics": role_cosmetics,
@@ -1645,18 +1455,18 @@ def _build_pid_line(pid, identity, home, identity_jsonl_paths, jsonl_tail_cache)
     else:
         dormant_a = False
 
-    # A12: jsonl_tail — reuse the cache populated during identity emission.
-    # If the identity had no discovered path OR the tail read failed, the
-    # cached value is None; emit None.
+    # A12: jsonl_tail — read at most once per identity per tick (several
+    # PIDs can share an identity), memoized in `jsonl_tail_cache`. If the
+    # identity had no discovered path OR the tail read failed, emit None.
     jsonl_tail = None
     if identity is not None:
-        # Cache miss (identity not in the identity-set — should be rare;
-        # can happen if a live PID exists for an identity whose folder does
-        # not exist under ~/fleet/identities/). Attempt discovery just for
-        # this PID's identity so ai-title scan still has fresh input.
         if identity not in jsonl_tail_cache:
             fallback_path = identity_jsonl_paths.get(identity)
             if fallback_path is None:
+                # Identity not in the per-tick discovery map (rare — e.g. a
+                # live PID whose folder is missing under ~/fleet/identities/).
+                # Discover just for this PID's identity so the ai-title scan
+                # still has fresh input.
                 fallback_path = discover_identity_jsonl_path(identity, home)
                 identity_jsonl_paths[identity] = fallback_path
             if fallback_path is not None:
@@ -1687,7 +1497,7 @@ def _build_pid_line(pid, identity, home, identity_jsonl_paths, jsonl_tail_cache)
 
 
 def _enumerate_identities(home):
-    """Return list of dicts {name, dormant, recycled_at, recycle_requested, pinned, archived}.
+    """Return list of dicts {name, dormant, compact_requested, compacting, pinned, archived}.
 
     Walks ~/fleet/identities/ only. Skips entries whose name fails the
     safe-char regex (G6 server-side belt). On FileNotFoundError, returns [] —
@@ -1717,18 +1527,20 @@ def _enumerate_identities(home):
                     _log("identity_name_skipped", name=name[:40])
                     continue
                 dormant = os.path.exists(os.path.join(entry.path, ".dormant"))
-                recycled_at = os.path.exists(
-                    os.path.join(entry.path, ".recycled-at"),
+                # Condense: the agent or the app drops .compact-requested;
+                # the supervisor holds .compacting while /compact runs.
+                compact_requested = os.path.exists(
+                    os.path.join(entry.path, ".compact-requested"),
                 )
-                recycle_requested = os.path.exists(
-                    os.path.join(entry.path, ".recycle-requested"),
+                compacting = os.path.exists(
+                    os.path.join(entry.path, ".compacting"),
                 )
                 pinned = os.path.exists(os.path.join(entry.path, ".pinned"))
                 out.append({
                     "name": name,
                     "dormant": dormant,
-                    "recycled_at": recycled_at,
-                    "recycle_requested": recycle_requested,
+                    "compact_requested": compact_requested,
+                    "compacting": compacting,
                     "pinned": pinned,
                     "archived": False,
                 })
@@ -2186,8 +1998,8 @@ def main():
         identity_records.append({
             "name": identity,
             "dormant": False,
-            "recycled_at": False,
-            "recycle_requested": False,
+            "compact_requested": False,
+            "compacting": False,
             "pinned": False,
             # Synthetic records (identity known only via /proc/<pid>/environ)
             # are always LIVE — a PID cannot be running for an identity whose
@@ -2206,8 +2018,7 @@ def main():
         [rec["name"] for rec in identity_records], home,
     )
 
-    # ---- Emit identity lines first (all Layer-1 tail scans run here). ----
-    jsonl_tail_cache = {}  # name -> str | None (populated by _build_identity_line)
+    # ---- Emit identity lines first. ----
     role_cosmetics_memo = {}  # role -> dict | None (at most one read per role per tick)
     for rec in identity_records:
         line = _build_identity_line(
@@ -2215,19 +2026,19 @@ def main():
             home,
             {
                 "dormant": rec["dormant"],
-                "recycled_at": rec["recycled_at"],
-                "recycle_requested": rec["recycle_requested"],
+                "compact_requested": rec["compact_requested"],
+                "compacting": rec["compacting"],
                 "pinned": rec["pinned"],
                 "archived": rec["archived"],
             },
             identity_jsonl_paths.get(rec["name"]),
-            jsonl_tail_cache,
             role_cosmetics_memo,
         )
         _emit(line)
 
     # ---- Emit pid lines. Skip PIDs with no resolved identity — matches
     #      today's "no tmuxSession → no source-A frame" path. ----
+    jsonl_tail_cache = {}  # name -> str | None (A12 tail, one read per identity)
     for pid, identity in resolved_pids:
         if identity is None:
             continue

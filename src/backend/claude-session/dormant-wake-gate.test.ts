@@ -2,8 +2,7 @@
  * dormant-wake-gate.test.ts — unit tests for the shared wake-gate primitive
  * extracted from claude-session-server.ts's Phase 56 Plan 01 send-while-
  * dormant branch. Companion integration coverage lives in dormant-poll.test.ts
- * (SWD-1..SWD-4) which exercises the WS caller's wire-up end-to-end, and in
- * agent-reset.test.ts which exercises the endpoint caller.
+ * (SWD-1..SWD-4) which exercises the WS caller's wire-up end-to-end.
  */
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
@@ -177,7 +176,7 @@ describe("performDormantWakeGate", () => {
     expect(result.fellBack).toBe(false);
   });
 
-  it("setWakeTriggerTs omitted (agent-reset case): gate works, agent_reset prefix propagates through op tags", async () => {
+  it("setWakeTriggerTs omitted (one-shot caller case): gate works, custom op prefix propagates through op tags", async () => {
     const triggerTs = 4_000_000;
     let nowCounter = triggerTs;
     const now = vi.fn(() => {
@@ -198,15 +197,15 @@ describe("performDormantWakeGate", () => {
       markerCommand,
       // setWakeTriggerTs intentionally omitted
       now,
-      logOpPrefix: "agent_reset",
+      logOpPrefix: "one_shot",
       mqid: "none",
       pollIntervalMs: 0,
     });
 
     expect(result.fellBack).toBe(false);
     const infoOps = opsFromInfo();
-    expect(infoOps).toContain("agent_reset_dormant_send_start");
-    expect(infoOps).toContain("agent_reset_dormant_marker_fresh");
+    expect(infoOps).toContain("one_shot_dormant_send_start");
+    expect(infoOps).toContain("one_shot_dormant_marker_fresh");
     expect(infoOps).not.toContain("pv_input_dormant_send_start");
   });
 });

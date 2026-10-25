@@ -12,7 +12,7 @@
  * │  (b) force array-nesting when one identity has multiple live PIDs (rare │
  * │  but real — coordinator identities can run parallel claude sessions).   │
  * │  Two-tier keeps each JSONL line flat, matches the caller's own internal │
- * │  decomposition (livenessMap keyed by PID, identityRecycleState keyed    │
+ * │  decomposition (livenessMap keyed by PID, condensing state keyed       │
  * │  by identity), and keeps the wire small. Rows are joined by `identity`. │
  * └─────────────────────────────────────────────────────────────────────────┘
  *
@@ -117,11 +117,13 @@ export interface SweepRawCosmetics {
  *
  * Field ↔ RESEARCH.md exec-site parity (see SWEEP_FIELD_PARITY):
  *   • dormant           ↔ B1 (`.dormant` sentinel present)
- *   • recycled_at       ↔ B2 (`.recycled-at` sentinel present)
- *   • recycle_requested ↔ B3 (`.recycle-requested` sentinel present)
+ *   • compact_requested ↔ B2 (`.compact-requested` sentinel present — the
+ *                          agent or the app asked the supervisor to condense)
+ *   • compacting        ↔ B3 (`.compacting` sentinel present — the supervisor
+ *                          is running the compaction right now)
+ *                          The identity is "condensing" while EITHER is true.
  *   • jsonl_path        ↔ B4 (Phase 32 discovery result, null when no match)
- *   • layer1_recycling  ↔ B5 (tail-scan verdict; null = tail unreadable this
- *                          tick, caller preserves cached value — fail-open)
+ *   • (B5 retired — the `/id reset` transcript scan went away with reset)
  *   • identity_cosmetics ↔ B6 (Plan 111-01: raw identity frontmatter cosmetics;
  *                          `role` from the same read also arrives here — see B6
  *                          comment in SWEEP_FIELD_PARITY)
@@ -142,10 +144,13 @@ export interface SweepIdentityLine {
   schema_version: SweepSchemaVersion;
   identity: string;
   dormant: boolean;
-  recycled_at: boolean;
-  recycle_requested: boolean;
+  // Condense sentinels — optional so a peer host still running an older
+  // sweep script (which emits neither key, and may still emit retired keys
+  // that the lenient cast simply ignores) parses cleanly. Consumers MUST read
+  // these with `=== true` so absent ⇒ not condensing.
+  compact_requested?: boolean;
+  compacting?: boolean;
   jsonl_path: string | null;
-  layer1_recycling: boolean | null;
   // Phase 111 Plan 111-01: appearance fields — optional (?: not required) so
   // a mid-distribution older box that emits a line without these keys still
   // parses without error. isSweepLineOfCurrentSchema checks only schema_version
@@ -664,10 +669,14 @@ export const SWEEP_FIELD_PARITY: Record<
 
   // --- Per-identity source-B exec sites ---
   B1: { field: "dormant" },
-  B2: { field: "recycled_at" },
-  B3: { field: "recycle_requested" },
+  B2: { field: "compact_requested" },
+  B3: { field: "compacting" },
   B4: { field: "jsonl_path" },
-  B5: { field: "layer1_recycling" },
+  B5: {
+    field: null,
+    skipped_reason:
+      "retired: the `/id reset` transcript tail-scan died with agent reset (Condense replaced it); condensing is read from the B2/B3 sentinels instead",
+  },
   // Phase 111 Plan 111-01 appearance fields (Plan 111-02 adds TypeScript coverage).
   // Note for B6: the `role` field on SweepIdentityLine also arrives from the same
   // identity-frontmatter read (B6 exec site). A separate B10 was not invented

@@ -444,7 +444,7 @@ describe("pv-send-watchdog (Phase 50 Plan 02 Task 1)", () => {
   });
 
   it("T-12 (Fix #2) clearPvSendWatchdogsForSession(sessionId) cancels only matching-session watchdogs; unrelated sessions survive", async () => {
-    // Regression: on session recycle, pv-send-watchdog entries armed against
+    // Regression: on session-file change, pv-send-watchdog entries armed against
     // the OLD sessionId must be cancelled so their full-resend stage does
     // not retype the OLD body into the NEW Claude session's composebox.
     const exec = makeExec();

@@ -530,14 +530,14 @@ export function clearPvSendWatchdog(mqid: string): void {
 /**
  * Fix #2 (post-Phase-50 code review): clear every pending watchdog whose
  * sessionId matches. Called from claude-session-server.ts's
- * transitionToActiveNew when a session recycles.
+ * transitionToActiveNew when the pane moves to a new session file.
  *
  * DISTINCT from `__resetPvSendWatchdogForTests` (which clears the ENTIRE
  * module-level pending maps — hermetic-test-only) and from
  * `clearPvSendWatchdog(mqid)` (which clears exactly one by mqid).
  *
  * Rationale: without this, a watchdog armed against the OLD session can
- * fire its full-resend stage AFTER the session recycled — retyping the
+ * fire its full-resend stage AFTER the session file changed — retyping the
  * OLD body into the NEW Claude session's composebox. That directly
  * violates the shape invariant "retry never submits an unintended
  * message" and can leak private OLD-session content into a NEW session
@@ -552,14 +552,14 @@ export function clearPvSendWatchdogsForSession(sessionId: string): string[] {
   for (const [mqid, entry] of pendingByMqid) {
     if (entry.sessionId === sessionId) {
       entry.logger.debug(
-        "pv-send-watchdog: cleared (session recycle)",
+        "pv-send-watchdog: cleared (session file changed)",
         {
           operation: "pv_send_watchdog_clear_session",
           mqid,
           sessionId: entry.sessionId,
         },
       );
-      entry.logger.info("[diag-dormant-send] watchdog-cleared", { operation: "diag_dormant_watchdog_cleared", mqid, sessionId: entry.sessionId, elapsedMs: Date.now() - entry.armedAt, reason: "session_recycle" });
+      entry.logger.info("[diag-dormant-send] watchdog-cleared", { operation: "diag_dormant_watchdog_cleared", mqid, sessionId: entry.sessionId, elapsedMs: Date.now() - entry.armedAt, reason: "session_changed" });
       cancelTimers(entry);
       clearedMqids.push(mqid);
     }

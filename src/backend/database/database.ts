@@ -62,6 +62,7 @@ import identityPinRoutes from "./routes/identity-pin.js";
 // identity's host. Mounted BEFORE the generic /identities router so the
 // :key/archive sub-route isn't intercepted by the generic /:identityKey handler.
 import identityArchiveRoutes from "./routes/identity-archive.js";
+import identityCondenseRoutes from "./routes/identity-condense.js";
 // Phase 143 Plan 143-04 (D-01/D-02/D-03/D-04): POST /identities/:key/unarchive
 // drops `.unarchive-requested` inside `~/fleet/identities-archive/<key>/` after
 // three fast-path preconditions (archive-exists, name-collision, all-roles-live).
@@ -184,12 +185,6 @@ import composeDraftsRoutes from "./routes/compose-drafts.js";
 import identitySendLogRoutes from "../fleet-status/identity-send-log-routes.js";
 import attentionRoutes from "../attention/attention-routes.js";
 import sessionsRoutes from "./routes/sessions.js";
-// Phase 90 Plan 00 Wave 0 Task 3 — /agent-reset/:hostId/:tmuxSessionName
-// endpoint. Dispatches /id reset via a one-shot SSH + tmux send-keys, the
-// SAME input path PrettyView's compose-box reset button uses today (post-
-// swap in Task 3). Matching nginx location blocks land in BOTH
-// docker/nginx.conf AND docker/nginx-https.conf per CLAUDE.md nginx caveat.
-import agentResetRoutes from "./routes/agent-reset.js";
 // Phase 90 Plan 04 Task 3 — GET /relay-room/:roomId/participants endpoint.
 // Returns the humans + agents partition for a relay room, classified
 // server-side via the shared participants-classifier module (also used
@@ -2091,6 +2086,10 @@ app.use("/identities", identityPinRoutes);
 // :key/archive sub-route isn't intercepted by identitiesRoutes's /:identityKey
 // handlers. Same discipline as the exists-on-host + no-dormancy mounts above.
 app.use("/identities", identityArchiveRoutes);
+// POST /identities/:key/condense drops `.compact-requested` (Condense
+// conversation); the agent-supervisor carries it out. Same mount discipline
+// as identity-archive — before the generic /identities router.
+app.use("/identities", identityCondenseRoutes);
 // Phase 143 Plan 143-04 (D-01): POST /identities/:key/unarchive drops
 // `.unarchive-requested` sentinel in the archive folder with three preconditions
 // (D-02: archive-exists, name-collision, all-roles-live). Coexists with
@@ -2233,10 +2232,6 @@ app.use("/compose-drafts", composeDraftsRoutes);
 app.use("/identity-send-log", identitySendLogRoutes);
 app.use("/attention", attentionRoutes);
 app.use("/sessions", sessionsRoutes);
-// Phase 90 Plan 00 Wave 0 Task 3 — POST /agent-reset/:hostId/:tmuxSessionName.
-// Nginx dual-update required (see CLAUDE.md nginx caveat) — location blocks
-// added in BOTH docker/nginx.conf AND docker/nginx-https.conf.
-app.use("/agent-reset", agentResetRoutes);
 // Phase 91 Plan 03 — POST /relay-room/create (sub-slice C: new-conversation
 // modal backend endpoint). Mounts BEFORE the participants route so Express
 // finds /relay-room/create before the /:roomId/participants wildcard. The two

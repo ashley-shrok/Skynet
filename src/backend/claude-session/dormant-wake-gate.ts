@@ -2,19 +2,16 @@
  * dormant-wake-gate.ts — shared dormancy wake-gate primitive.
  *
  * Extracted from __applyInputMessageForTests's Phase 56 Plan 01 send-while-
- * dormant branch (claude-session-server.ts) so both the pretty-view WS input
- * path AND the /agent-reset backend endpoint dispatch through the same
- * primitive. Prior to extraction the WS path had the wake gate; agent-reset
- * (Phase 90 Plan 00 Wave 0 Task 3 mechanical rewire, 2026-09-08) did NOT — a
- * regression that made reset on a dormant pane paste `/id reset` into a bare
- * bash shell, producing `-bash: /id: No such file or directory` (2026-09-20
- * incident: lark-box-maintainer).
+ * dormant branch (claude-session-server.ts) so every caller that types into a
+ * possibly-dormant pane wakes it first instead of pasting into a bare bash
+ * shell (`-bash: /id: No such file or directory`, 2026-09-20 incident:
+ * lark-box-maintainer).
  *
  * The gate:
  *   1. Records triggerTs = now().
  *   2. Optionally calls setWakeTriggerTs(triggerTs) so a caller-supplied
  *      per-connection dormant-poll can hold its dormant:true frame in place
- *      while the wake completes (WS path uses this; agent-reset does not).
+ *      while the wake completes (the WS path uses this).
  *   3. `rm -f ~/fleet/identities/'<tmuxSession>'/.dormant` over the caller-
  *      supplied SSH connection. Failure is logged but non-fatal — pane may
  *      still be usable; any real tmux-side error surfaces later.
@@ -31,8 +28,8 @@
  *
  * Callers must have ALREADY determined dormancy before invoking. Detection
  * differs by caller: the WS path reads its subscribed dormant-poll's closure
- * signal (dormantLastEmitted); agent-reset does an SSH `test -f .dormant`
- * beforehand. The gate itself does no dormancy detection — its contract is
+ * signal (dormantLastEmitted); a one-shot caller would do an SSH
+ * `test -f .dormant` beforehand. The gate itself does no dormancy detection — its contract is
  * "wake this pane."
  */
 
@@ -76,7 +73,7 @@ export interface DormantWakeGateDeps {
   /** Test seam. Defaults to Date.now. */
   now?: () => number;
   /**
-   * Log op prefix (e.g. "pv_input" or "agent_reset"). Emitted as
+   * Log op prefix (e.g. "pv_input"). Emitted as
    * `${prefix}_dormant_send_start`, `${prefix}_dormant_sentinel_drop_failed`,
    * `${prefix}_dormant_wait_marker`, `${prefix}_dormant_marker_fresh`, and
    * `${prefix}_dormant_marker_fallback`. Underscores in the prefix are also
@@ -146,7 +143,7 @@ export async function performDormantWakeGate(
     );
     // Fall through to marker-poll anyway — the pane may still be usable,
     // and any real tmux-side failure will surface via the caller's own send
-    // path (WS: send_keys_error frame; agent-reset: 502 from split-send throw).
+    // path (WS: send_keys_error frame).
   }
 
   sshLogger.info(
