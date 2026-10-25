@@ -58,6 +58,9 @@ describe("ChatMessage — file-chip a-override", () => {
       />,
     );
     expect(screen.getAllByText("PBM APP recon - proposed changes.xlsx")).toHaveLength(1);
+    expect(screen.getByRole("link", { name: /PBM APP recon/ }).getAttribute("href")).toBe(
+      url.replace(/ /g, "%20"),
+    );
     expect(container.textContent).not.toContain("](");
   });
 

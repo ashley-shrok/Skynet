@@ -463,6 +463,7 @@ Construct one like so — read the app's parent domain from
     fi
     FILE=/home/ubuntu/note.md            # MUST be an absolute path (leading /)
     ENC=$(python3 -c 'import sys, urllib.parse; print(urllib.parse.quote(sys.argv[1]))' "$FILE")
+    [ -n "$ENC" ] || { echo "couldn't encode $FILE" >&2; exit 1; }
     printf '[%s](%s/file/%s%s)\n' "$(basename "$FILE")" "$APP_PARENT" "$HOST" "$ENC"
 
 **What the user sees.** The frontend renders your file URL as a **chip**

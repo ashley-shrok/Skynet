@@ -145,61 +145,114 @@ export interface OpenFileInConversationDetail {
 
 /** Start of a markdown link destination that is a Skynet file URL. */
 const FILE_LINK_START_RE = /\]\(https?:\/\/[^/\s()]+\/file\//g;
-/** Trailing markdown link title: ` "title"`. */
-const LINK_TITLE_RE = /\s+"[^"\n]*"$/;
+/** Trailing CommonMark link title — `"t"`, `'t'` or `(t)` — after whitespace. */
+const LINK_TITLE_RE = /[ \t]+("[^"]*"|'[^']*'|\([^()]*\))$/;
+/** Opening / closing code fence, after any blockquote markers. */
+const FENCE_RE = /^(?:\s*>)*\s{0,3}(`{3,}|~{3,})/;
+
+/**
+ * End of the destination starting at `start` — the `)` that closes the link,
+ * balancing nested parens and skipping backslash escapes the way CommonMark
+ * does. -1 when the line ends first.
+ */
+function linkDestinationEnd(line: string, start: number): number {
+  let depth = 0;
+  for (let i = start; i < line.length; i++) {
+    const c = line[i];
+    if (c === "\\") i++;
+    else if (c === "(") depth++;
+    else if (c === ")") {
+      if (depth === 0) return i;
+      depth--;
+    }
+  }
+  return -1;
+}
+
+/**
+ * Percent-encode the whitespace in a link destination that only fails to
+ * parse because of it. A destination that is already valid — no whitespace
+ * once a title and trailing whitespace are set aside — is returned as is.
+ */
+function repairDestination(raw: string): string {
+  const trailing = /[ \t]*$/.exec(raw)![0];
+  let dest = raw.slice(0, raw.length - trailing.length);
+  let title = "";
+  const t = LINK_TITLE_RE.exec(dest);
+  if (t) {
+    title = t[0];
+    dest = dest.slice(0, t.index);
+  }
+  if (!/[ \t]/.test(dest)) return raw;
+  return dest.replace(/ /g, "%20").replace(/\t/g, "%09") + title + trailing;
+}
+
+/** Repair the file links in one line of prose, leaving inline code alone. */
+function repairLine(line: string): string {
+  // Split out inline code spans (a backtick run closed by an equal run).
+  const parts = line.split(/(`+)/);
+  let out = "";
+  for (let i = 0; i < parts.length; i++) {
+    const p = parts[i];
+    if (i % 2 === 1) {
+      const close = parts.indexOf(p, i + 2);
+      if (close !== -1) {
+        out += parts.slice(i, close + 1).join("");
+        i = close;
+        continue;
+      }
+      out += p;
+      continue;
+    }
+    out += repairProse(p);
+  }
+  return out;
+}
+
+function repairProse(text: string): string {
+  if (!text.includes("/file/")) return text;
+  let out = "";
+  let pos = 0;
+  FILE_LINK_START_RE.lastIndex = 0;
+  let m: RegExpExecArray | null;
+  while ((m = FILE_LINK_START_RE.exec(text)) !== null) {
+    const destStart = m.index + 2;
+    const end = linkDestinationEnd(text, destStart);
+    if (end === -1) continue;
+    out += text.slice(pos, destStart) + repairDestination(text.slice(destStart, end));
+    pos = end;
+    FILE_LINK_START_RE.lastIndex = end;
+  }
+  return out + text.slice(pos);
+}
 
 /**
  * Repair markdown links to Skynet file URLs whose path holds literal spaces:
  * `[x](https://…/file/host/a b.xlsx)`. CommonMark forbids spaces in a link
  * destination, so the link fails to parse and GFM's autolinker grabs the bare
- * URL up to the first space — a chip for a file that doesn't exist. Spaces in
- * the destination become `%20` (the chip decodes them back). Parens nested
- * in the filename are balanced the way CommonMark balances them; fenced code
- * is left alone.
+ * URL up to the first space — a chip for a file that doesn't exist. Such
+ * destinations get their whitespace percent-encoded (the chip decodes it
+ * back); links that already parse, fenced code and inline code are left as
+ * they are.
  */
 export function encodeFileLinkSpaces(text: string): string {
   if (!text.includes("/file/")) return text;
-  let inFence = false;
+  let fence: { char: string; len: number } | null = null;
   return text
     .split("\n")
     .map((line) => {
-      if (/^\s*(```|~~~)/.test(line)) {
-        inFence = !inFence;
+      const f = FENCE_RE.exec(line);
+      if (f) {
+        const run = f[1];
+        if (!fence) fence = { char: run[0], len: run.length };
+        else if (
+          run[0] === fence.char &&
+          run.length >= fence.len &&
+          line.slice(f[0].length).trim() === ""
+        ) fence = null;
         return line;
       }
-      if (inFence || !line.includes("/file/")) return line;
-      let out = "";
-      let pos = 0;
-      FILE_LINK_START_RE.lastIndex = 0;
-      let m: RegExpExecArray | null;
-      while ((m = FILE_LINK_START_RE.exec(line)) !== null) {
-        const destStart = m.index + 2;
-        let depth = 0;
-        let end = -1;
-        for (let i = destStart; i < line.length; i++) {
-          const c = line[i];
-          if (c === "(") depth++;
-          else if (c === ")") {
-            if (depth === 0) {
-              end = i;
-              break;
-            }
-            depth--;
-          }
-        }
-        if (end === -1) break;
-        let dest = line.slice(destStart, end);
-        let title = "";
-        const t = LINK_TITLE_RE.exec(dest);
-        if (t) {
-          title = t[0];
-          dest = dest.slice(0, t.index);
-        }
-        out += line.slice(pos, destStart) + dest.replace(/ /g, "%20") + title;
-        pos = end;
-        FILE_LINK_START_RE.lastIndex = end;
-      }
-      return out + line.slice(pos);
+      return fence ? line : repairLine(line);
     })
     .join("\n");
 }

@@ -88,6 +88,7 @@ describe("parseFileChipPayload", () => {
 
 describe("encodeFileLinkSpaces", () => {
   const base = "https://term.example/file/workstation/home/u";
+  const same = (text: string) => expect(encodeFileLinkSpaces(text)).toBe(text);
 
   it("encodes spaces in a file link destination", () => {
     expect(encodeFileLinkSpaces(`See [a b.xlsx](${base}/a b.xlsx) now`)).toBe(
@@ -95,29 +96,58 @@ describe("encodeFileLinkSpaces", () => {
     );
   });
 
+  it("encodes tabs too", () => {
+    expect(encodeFileLinkSpaces(`[x](${base}/a\tb.md)`)).toBe(`[x](${base}/a%09b.md)`);
+  });
+
   it("balances parens inside the filename", () => {
     expect(encodeFileLinkSpaces(`[x](${base}/copy (1).md)`)).toBe(`[x](${base}/copy%20(1).md)`);
   });
 
-  it("repairs every link on a line and keeps a link title", () => {
-    expect(encodeFileLinkSpaces(`[a](${base}/a b.md "t t") and [c](${base}/c d.md)`)).toBe(
-      `[a](${base}/a%20b.md "t t") and [c](${base}/c%20d.md)`,
+  it("skips escaped parens when finding the link's end", () => {
+    expect(encodeFileLinkSpaces(`[x](${base}/a\\) b.md)`)).toBe(`[x](${base}/a\\)%20b.md)`);
+  });
+
+  it("repairs every link on a line and keeps any title form", () => {
+    expect(
+      encodeFileLinkSpaces(
+        `[a](${base}/a b.md "t t") [b](${base}/b c.md 't t') [c](${base}/c d.md (t t))`,
+      ),
+    ).toBe(
+      `[a](${base}/a%20b.md "t t") [b](${base}/b%20c.md 't t') [c](${base}/c%20d.md (t t))`,
     );
   });
 
-  it("leaves non-file links, bare URLs and fenced code alone", () => {
-    const text = [
-      "[w](https://example.com/a b)",
-      `${base}/a b.md`,
-      "```",
-      `[x](${base}/a b.md)`,
-      "```",
-    ].join("\n");
-    expect(encodeFileLinkSpaces(text)).toBe(text);
+  it("leaves links that already parse alone", () => {
+    same(`[a](${base}/a.md (my title))`);
+    same(`[a](${base}/a.md 'my title')`);
+    same(`[a](${base}/a.md "my title")`);
+    same(`[a](${base}/a.md )`);
+    same(`[a](${base}/a%20b.md)`);
   });
 
-  it("leaves an unterminated link alone", () => {
-    const text = `[x](${base}/a b.md`;
-    expect(encodeFileLinkSpaces(text)).toBe(text);
+  it("keeps going past an unterminated link", () => {
+    expect(encodeFileLinkSpaces(`[x](${base}/a (b.md and [y](${base}/c d.md)`)).toBe(
+      `[x](${base}/a (b.md and [y](${base}/c%20d.md)`,
+    );
+    same(`[x](${base}/a b.md`);
+  });
+
+  it("leaves non-file links and bare URLs alone", () => {
+    same("[w](https://example.com/a b)");
+    same(`${base}/a b.md`);
+  });
+
+  it("leaves inline code and fenced code alone, including quoted fences", () => {
+    same(`Write \`[x](${base}/a b.md)\` like so`);
+    same(["```", `[x](${base}/a b.md)`, "```"].join("\n"));
+    same(["> ```", `> [x](${base}/a b.md)`, "> ```"].join("\n"));
+  });
+
+  it("closes a fence only on a matching marker", () => {
+    const text = ["~~~", "```", "~~~", `[x](${base}/a b.md)`].join("\n");
+    expect(encodeFileLinkSpaces(text)).toBe(text.replace("a b.md", "a%20b.md"));
+    const long = ["````", "```", `[x](${base}/a b.md)`, "````", `[y](${base}/c d.md)`].join("\n");
+    expect(encodeFileLinkSpaces(long)).toBe(long.replace("c d.md", "c%20d.md"));
   });
 });
