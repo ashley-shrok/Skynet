@@ -1345,12 +1345,6 @@ app.post("/database/export", authenticateJWT, requireRecentAuth, async (req, res
         VALUES (?, ?)
       `);
       for (const setting of settingsData) {
-        if (
-          setting.key.startsWith("reset_code_") ||
-          setting.key.startsWith("temp_reset_token_")
-        ) {
-          continue;
-        }
         insertSetting.run(setting.key, setting.value);
       }
     } finally {

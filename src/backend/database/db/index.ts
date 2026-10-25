@@ -706,19 +706,22 @@ async function initializeCompleteDatabase(): Promise<void> {
 
   await migrateSchema();
 
+  // Open sign-up and self-service password reset were removed; drop their
+  // old switches and any half-finished reset codes so nothing reads them.
   try {
-    const row = sqlite
-      .prepare("SELECT value FROM settings WHERE key = 'allow_registration'")
-      .get();
-    if (!row) {
-      sqlite
-        .prepare(
-          "INSERT INTO settings (key, value) VALUES ('allow_registration', 'true')",
-        )
-        .run();
+    const removed = sqlite
+      .prepare(
+        "DELETE FROM settings WHERE key IN ('allow_registration', 'allow_password_reset') OR key LIKE 'reset\\_code\\_%' ESCAPE '\\' OR key LIKE 'temp\\_reset\\_token\\_%' ESCAPE '\\'",
+      )
+      .run();
+    if (removed.changes > 0) {
+      databaseLogger.info("Removed retired sign-up / password-reset settings", {
+        operation: "db_init_retired_settings_removed",
+        count: removed.changes,
+      });
     }
   } catch (e) {
-    databaseLogger.warn("Could not initialize default settings", {
+    databaseLogger.warn("Could not remove retired sign-up / reset settings", {
       operation: "db_init",
       error: e,
     });

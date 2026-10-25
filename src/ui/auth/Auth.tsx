@@ -8,7 +8,6 @@ import {
   EyeOff,
   User,
   KeyRound,
-  ArrowLeft,
   Shield,
   CheckCircle2,
 } from "lucide-react";
@@ -17,14 +16,9 @@ import {
   loginUser,
   registerUser,
   getUserInfo,
-  getRegistrationAllowed,
   getPasswordLoginAllowed,
-  getPasswordResetAllowed,
   getOIDCConfig,
   getSetupRequired,
-  initiatePasswordReset,
-  verifyPasswordResetCode,
-  completePasswordReset,
   getOIDCAuthorizeUrl,
   verifyTOTPLogin,
   getCurrentToken,
@@ -35,6 +29,7 @@ import {
   shouldTriggerSilentSignin,
 } from "./silent-signin";
 import { validateReturnUrl, parseReturnFromSearch } from "./return-url";
+import { makeInitialAvatar } from "./initial-avatar";
 // Phase 70 Plan 04: login header lockup (icon + wordmark, L1131-1142) now
 // sourced from brandingConfig (Plan 70-03) so operator-provided assets
 // unify with the conversation-list header per D-08's "same icon+wordmark"
@@ -126,8 +121,9 @@ function tryReturnUrlRedirect(): boolean {
   return false;
 }
 
-type AuthView = "login" | "register" | "reset" | "totp" | "external";
-type ResetStep = "email" | "code" | "newpass";
+// "register" is only the first-admin setup on a brand-new instance; there is
+// no open sign-up and no self-service password reset.
+type AuthView = "login" | "register" | "totp" | "external";
 
 interface AuthProps {
   onLogin: (username: string, userId?: string, isAdmin?: boolean) => void;
@@ -229,12 +225,6 @@ export function Auth({ onLogin }: AuthProps) {
   const [totpTempToken, setTotpTempToken] = useState("");
   const totpInputRef = useRef<HTMLInputElement>(null);
 
-  const [resetStep, setResetStep] = useState<ResetStep>("email");
-  const [resetCode, setResetCode] = useState("");
-  const [newPassword, setNewPassword] = useState("");
-  const [confirmNewPassword, setConfirmNewPassword] = useState("");
-  const [resetTempToken, setResetTempToken] = useState("");
-
   const [language, setLanguage] = useState(
     () => localStorage.getItem("i18nextLng") ?? "en",
   );
@@ -245,9 +235,7 @@ export function Auth({ onLogin }: AuthProps) {
     i18n.changeLanguage(code);
   }
 
-  const [registrationAllowed, setRegistrationAllowed] = useState(true);
   const [passwordLoginAllowed, setPasswordLoginAllowed] = useState(true);
-  const [passwordResetAllowed, setPasswordResetAllowed] = useState(true);
   const [oidcConfigured, setOidcConfigured] = useState(false);
   const [oidcConfigLoaded, setOidcConfigLoaded] = useState(false);
   const silentSigninHandledRef = useRef(false);
@@ -268,15 +256,9 @@ export function Auth({ onLogin }: AuthProps) {
   }, []);
 
   useEffect(() => {
-    getRegistrationAllowed()
-      .then((res) => setRegistrationAllowed(res.allowed))
-      .catch(() => {});
     getPasswordLoginAllowed()
       .then((res) => setPasswordLoginAllowed(res.allowed))
       .catch(() => {});
-    getPasswordResetAllowed()
-      .then((allowed) => setPasswordResetAllowed(allowed))
-      .catch(() => setPasswordResetAllowed(false));
     getOIDCConfig()
       .then((res) => setOidcConfigured(!!res))
       .catch(() => setOidcConfigured(false))
@@ -367,19 +349,12 @@ export function Auth({ onLogin }: AuthProps) {
     setUsername("");
     setPassword("");
     setConfirmPassword("");
-    setResetStep("email");
-    setResetCode("");
-    setNewPassword("");
-    setConfirmNewPassword("");
-    setResetTempToken("");
     setTotpCode("");
     setTotpTempToken("");
   }
 
   function switchView(v: AuthView) {
-    const currentUsername = username;
     resetAll();
-    if (v === "reset") setUsername(currentUsername);
     setView(v);
   }
 
@@ -448,7 +423,11 @@ export function Auth({ onLogin }: AuthProps) {
     }
     setLoading(true);
     try {
-      await registerUser(username.trim(), password);
+      await registerUser(
+        username.trim(),
+        password,
+        await makeInitialAvatar(username.trim()),
+      );
       const res = await loginUser(username.trim(), password);
       if (res.requires_totp) {
         setTotpTempToken(res.temp_token);
@@ -522,85 +501,6 @@ export function Auth({ onLogin }: AuthProps) {
         error?.response?.data?.error ||
           error?.message ||
           t("errors.invalidTotpCode"),
-      );
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  async function handleResetInitiate(e: React.FormEvent) {
-    e.preventDefault();
-    if (!username.trim()) {
-      toast.error(t("errors.requiredField"));
-      return;
-    }
-    setLoading(true);
-    try {
-      await initiatePasswordReset(username.trim());
-      setResetStep("code");
-      toast.success(t("messages.resetCodeSent"));
-    } catch (err: unknown) {
-      const error = err as {
-        message?: string;
-        response?: { data?: { error?: string } };
-      };
-      toast.error(
-        error?.response?.data?.error ||
-          error?.message ||
-          t("errors.failedPasswordReset"),
-      );
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  async function handleResetVerify(e: React.FormEvent) {
-    e.preventDefault();
-    setLoading(true);
-    try {
-      const res = await verifyPasswordResetCode(username.trim(), resetCode);
-      setResetTempToken(res.tempToken as string);
-      setResetStep("newpass");
-      toast.success(t("messages.codeVerified"));
-    } catch (err: unknown) {
-      const error = err as {
-        message?: string;
-        response?: { data?: { error?: string } };
-      };
-      toast.error(
-        error?.response?.data?.error ||
-          error?.message ||
-          t("errors.failedVerifyCode"),
-      );
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  async function handleResetComplete(e: React.FormEvent) {
-    e.preventDefault();
-    if (newPassword.length < 6) {
-      toast.error(t("errors.minLength", { min: 6 }));
-      return;
-    }
-    if (newPassword !== confirmNewPassword) {
-      toast.error(t("errors.passwordMismatch"));
-      return;
-    }
-    setLoading(true);
-    try {
-      await completePasswordReset(username.trim(), resetTempToken, newPassword);
-      toast.success(t("messages.passwordResetSuccess"));
-      switchView("login");
-    } catch (err: unknown) {
-      const error = err as {
-        message?: string;
-        response?: { data?: { error?: string } };
-      };
-      toast.error(
-        error?.response?.data?.error ||
-          error?.message ||
-          t("errors.failedCompleteReset"),
       );
     } finally {
       setLoading(false);
@@ -755,155 +655,6 @@ export function Auth({ onLogin }: AuthProps) {
                     {t("common.cancel")}
                   </Button>
                 </form>
-              </div>
-            )}
-
-            {/* Reset password view */}
-            {view === "reset" && (
-              <div className="flex flex-col gap-5">
-                <button
-                  onClick={() => switchView("login")}
-                  className="flex items-center gap-1.5 text-xs text-[color:var(--color-pv-fg-muted)] hover:text-[color:var(--color-pv-fg)] transition-colors w-fit"
-                >
-                  <ArrowLeft className="size-3.5" />
-                  {t("common.back")}
-                </button>
-                <div className="flex flex-col gap-1">
-                  <h1 className="text-xl font-bold">
-                    {t("auth.forgotPassword")}
-                  </h1>
-                  <p className="text-xs text-[color:var(--color-pv-fg-muted)]">
-                    {t("auth.resetCodeDesc")}
-                  </p>
-                </div>
-                <div className="flex items-center gap-2">
-                  {(["email", "code", "newpass"] as ResetStep[]).map(
-                    (step, i) => {
-                      const stepIdx = ["email", "code", "newpass"].indexOf(
-                        resetStep,
-                      );
-                      const done = i < stepIdx;
-                      const active = i === stepIdx;
-                      return (
-                        <div
-                          key={step}
-                          className="flex items-center gap-2 flex-1"
-                        >
-                          <div
-                            className={`size-5 flex items-center justify-center text-[10px] font-bold border transition-colors ${done ? "bg-[hsla(var(--pv-hue,35),55%,45%,0.9)] border-[hsla(var(--pv-hue,35),65%,55%,0.55)] text-[#fbf5e8]" : active ? "border-[hsla(var(--pv-hue,35),55%,50%,0.4)] text-[color:var(--color-pv-code-fg)]" : "border-[color:var(--color-pv-border-quiet)] text-[color:var(--color-pv-fg-muted)]"}`}
-                          >
-                            {done ? <CheckCircle2 className="size-3" /> : i + 1}
-                          </div>
-                          {i < 2 && (
-                            <div
-                              className={`h-px flex-1 transition-colors ${done ? "bg-[hsla(var(--pv-hue,35),55%,45%,0.9)]" : "bg-[color:var(--color-pv-border-quiet)]"}`}
-                            />
-                          )}
-                        </div>
-                      );
-                    },
-                  )}
-                </div>
-                {resetStep === "email" && (
-                  <form
-                    onSubmit={handleResetInitiate}
-                    className="flex flex-col gap-4"
-                  >
-                    <Field label={t("common.username")} htmlFor="reset-user">
-                      <Input
-                        id="reset-user"
-                        value={username}
-                        onChange={(e) => setUsername(e.target.value)}
-                        placeholder="your_username"
-                        disabled={loading}
-                        autoComplete="username"
-                        autoCorrect="off"
-                        autoCapitalize="none"
-                        spellCheck={false}
-                      />
-                    </Field>
-                    <Button
-                      type="submit"
-                      className="w-full font-bold"
-                      disabled={loading}
-                    >
-                      {loading ? t("common.loading") : t("auth.sendResetCode")}
-                    </Button>
-                  </form>
-                )}
-                {resetStep === "code" && (
-                  <form
-                    onSubmit={handleResetVerify}
-                    className="flex flex-col gap-4"
-                  >
-                    <Field label={t("auth.resetCode")} htmlFor="reset-code">
-                      <Input
-                        id="reset-code"
-                        value={resetCode}
-                        onChange={(e) =>
-                          setResetCode(e.target.value.replace(/\D/g, ""))
-                        }
-                        placeholder="000000"
-                        maxLength={6}
-                        className="text-center font-mono text-lg tracking-widest"
-                        disabled={loading}
-                      />
-                    </Field>
-                    <Button
-                      type="submit"
-                      className="w-full font-bold"
-                      disabled={loading || resetCode.length !== 6}
-                    >
-                      {loading
-                        ? t("common.loading")
-                        : t("auth.verifyCodeButton")}
-                    </Button>
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      className="w-full"
-                      onClick={() => setResetStep("email")}
-                      disabled={loading}
-                    >
-                      {t("common.back")}
-                    </Button>
-                  </form>
-                )}
-                {resetStep === "newpass" && (
-                  <form
-                    onSubmit={handleResetComplete}
-                    className="flex flex-col gap-4"
-                  >
-                    <Field label={t("auth.newPassword")} htmlFor="new-pass">
-                      <PasswordInput
-                        id="new-pass"
-                        value={newPassword}
-                        onChange={setNewPassword}
-                        disabled={loading}
-                      />
-                    </Field>
-                    <Field
-                      label={t("auth.confirmNewPassword")}
-                      htmlFor="confirm-new-pass"
-                    >
-                      <PasswordInput
-                        id="confirm-new-pass"
-                        value={confirmNewPassword}
-                        onChange={setConfirmNewPassword}
-                        disabled={loading}
-                      />
-                    </Field>
-                    <Button
-                      type="submit"
-                      className="w-full font-bold"
-                      disabled={loading}
-                    >
-                      {loading
-                        ? t("common.loading")
-                        : t("auth.resetPasswordButton")}
-                    </Button>
-                  </form>
-                )}
               </div>
             )}
 

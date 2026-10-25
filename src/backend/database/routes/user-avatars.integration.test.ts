@@ -247,6 +247,10 @@ vi.mock("drizzle-orm", async () => {
 const authControl = { userId: "user-placeholder", pass: true };
 const mockRegisterUser = vi.fn<[string, string], Promise<void>>().mockResolvedValue(undefined);
 
+vi.mock("../../utils/recent-auth.js", () => ({
+  requireRecentAuth: (_req: unknown, _res: unknown, next: () => void) => next(),
+}));
+
 vi.mock("../../utils/auth-manager.js", () => ({
   AuthManager: {
     getInstance: () => ({
@@ -258,7 +262,11 @@ vi.mock("../../utils/auth-manager.js", () => ({
         (req as Record<string, unknown>).userId = authControl.userId;
         next();
       },
-      createAdminMiddleware: () => (_req: unknown, _res: unknown, next: () => void) => next(),
+      // The seeded admin is the one creating the account (there is no open sign-up).
+      createAdminMiddleware: () => (req: unknown, _res: unknown, next: () => void) => {
+        (req as Record<string, unknown>).userId = "seed-admin-id";
+        next();
+      },
       registerUser: (...args: [string, string]) => mockRegisterUser(...args),
       generateJWTToken: vi.fn().mockResolvedValue("fake-jwt-token"),
       verifyJWTToken: vi.fn().mockResolvedValue({ userId: authControl.userId, sessionId: "session-1" }),
@@ -327,7 +335,7 @@ vi.mock("./user-settings-routes.js", () => ({ registerUserSettingsRoutes: vi.fn(
 vi.mock("./user-totp-routes.js", () => ({ registerUserTotpRoutes: vi.fn() }));
 vi.mock("./user-session-routes.js", () => ({ registerUserSessionRoutes: vi.fn() }));
 vi.mock("./user-oidc-account-routes.js", () => ({ registerUserOidcAccountRoutes: vi.fn() }));
-vi.mock("./user-password-reset-routes.js", () => ({ registerUserPasswordResetRoutes: vi.fn() }));
+vi.mock("./user-admin-password-routes.js", () => ({ registerUserAdminPasswordRoutes: vi.fn(), MIN_PASSWORD_LENGTH: 6 }));
 vi.mock("./user-admin-routes.js", () => ({ registerUserAdminRoutes: vi.fn() }));
 vi.mock("./user-data-access-routes.js", () => ({ registerUserDataAccessRoutes: vi.fn() }));
 vi.mock("../../utils/shared-credential-manager.js", () => ({
@@ -657,9 +665,6 @@ function bootstrapDb(): void {
       expires_at TEXT NOT NULL
     )
   `);
-  sqliteDb
-    .prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('allow_registration', 'true')")
-    .run();
   sqliteDb
     .prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('allow_password_login', 'true')")
     .run();

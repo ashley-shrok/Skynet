@@ -269,19 +269,6 @@ export async function deleteAccount(
   }
 }
 
-export async function updateRegistrationAllowed(
-  allowed: boolean,
-): Promise<Record<string, unknown>> {
-  try {
-    const response = await authApi.patch("/users/registration-allowed", {
-      allowed,
-    });
-    return response.data;
-  } catch (error) {
-    handleApiError(error, "update registration allowed");
-  }
-}
-
 export async function getOidcAutoProvision(): Promise<{ enabled: boolean }> {
   try {
     const response = await authApi.get("/users/oidc-auto-provision");
@@ -314,28 +301,6 @@ export async function updatePasswordLoginAllowed(
     return response.data;
   } catch (error) {
     handleApiError(error, "update password login allowed");
-  }
-}
-
-export async function getPasswordResetAllowed(): Promise<boolean> {
-  try {
-    const response = await authApi.get("/users/password-reset-allowed");
-    return response.data.allowed;
-  } catch (error) {
-    handleApiError(error, "get password reset allowed");
-  }
-}
-
-export async function updatePasswordResetAllowed(
-  allowed: boolean,
-): Promise<{ allowed: boolean }> {
-  try {
-    const response = await authApi.patch("/users/password-reset-allowed", {
-      allowed,
-    });
-    return response.data;
-  } catch (error) {
-    handleApiError(error, "update password reset allowed");
   }
 }
 

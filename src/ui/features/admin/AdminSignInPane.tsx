@@ -1,13 +1,13 @@
 /**
  * Admin → Sign-in: instance-wide login policy.
  *
- *   - Allow registration (new accounts from the login page)
- *   - Allow password reset
  *   - Sign-ins last (hours a login stays valid) — saves when the box is
  *     left or Enter is pressed, like every other setting here
  *
- * OIDC-only controls — "allow password login" and "auto-provision OIDC
- * users" — render only when the instance actually uses OIDC. Turning off
+ * There is no open sign-up or self-service password reset (admins add users
+ * and set forgotten passwords through the API), so there are no switches
+ * for them. OIDC-only controls — "allow password login" and "auto-provision
+ * OIDC users" — render only when the instance actually uses OIDC. Turning off
  * password login without OIDC would lock everyone out, so it's hidden
  * rather than offered.
  */
@@ -23,28 +23,17 @@ import {
 } from "@/components/kit";
 import {
   getOidcAutoProvision,
-  getPasswordResetAllowed,
   updateOidcAutoProvision,
   updatePasswordLoginAllowed,
-  updatePasswordResetAllowed,
-  updateRegistrationAllowed,
 } from "@/api/user-management-api";
 import { getSessionTimeout, updateSessionTimeout } from "@/api/settings-api";
-import { getPasswordLoginAllowed, getRegistrationAllowed } from "@/main-axios";
+import { getPasswordLoginAllowed } from "@/main-axios";
 import { adminErrorMessage } from "./admin-ui";
 
-type ToggleKey =
-  | "registration"
-  | "passwordReset"
-  | "passwordLogin"
-  | "oidcAutoProvision";
+type ToggleKey = "passwordLogin" | "oidcAutoProvision";
 
 function updaterFor(key: ToggleKey): (v: boolean) => Promise<unknown> {
   switch (key) {
-    case "registration":
-      return updateRegistrationAllowed;
-    case "passwordReset":
-      return updatePasswordResetAllowed;
     case "passwordLogin":
       return updatePasswordLoginAllowed;
     case "oidcAutoProvision":
@@ -77,10 +66,6 @@ export function AdminSignInPane({ oidcInUse }: { oidcInUse: boolean }) {
       if (!cancelled)
         setError(adminErrorMessage(err, "Failed to load sign-in settings."));
     };
-    getRegistrationAllowed()
-      .then((r) => set("registration")(r.allowed))
-      .catch(fail);
-    getPasswordResetAllowed().then(set("passwordReset")).catch(fail);
     if (oidcInUse) {
       getPasswordLoginAllowed()
         .then((r) => set("passwordLogin")(r.allowed))
@@ -162,7 +147,10 @@ export function AdminSignInPane({ oidcInUse }: { oidcInUse: boolean }) {
   // save that failed (the error was shown; a silent retry would surprise).
   // Esc in the box puts the saved value back instead.
   const pending = useRef<number | null>(null);
-  pending.current = timeoutValid && timeoutDirty && !timeoutBusy && !timeoutError ? parsedTimeout : null;
+  pending.current =
+    timeoutValid && timeoutDirty && !timeoutBusy && !timeoutError
+      ? parsedTimeout
+      : null;
   useEffect(
     () => () => {
       if (pending.current !== null) {
@@ -193,43 +181,28 @@ export function AdminSignInPane({ oidcInUse }: { oidcInUse: boolean }) {
   };
 
   return (
-    <div
-      className="flex flex-col gap-5"
-      data-testid="admin-signin-pane"
-    >
-      <div className="flex flex-col gap-2">
-        <KitSettingsGroup title="Accounts">
-          <KitSettingsRow
-            label="Allow registration"
-            description="Anyone who can reach the login page can create an account."
-            control={toggle("registration", "Allow registration")}
-          />
-          <KitSettingsRow
-            label="Allow password reset"
-            description="Users can reset a forgotten password from the login page."
-            control={toggle("passwordReset", "Allow password reset")}
-          />
-          {oidcInUse && (
-            <>
-              <KitSettingsRow
-                label="Allow password login"
-                description="When off, users can only sign in through OIDC."
-                control={toggle("passwordLogin", "Allow password login")}
-              />
-              <KitSettingsRow
-                label="Auto-create OIDC users"
-                description="Create an account the first time someone signs in through OIDC."
-                control={toggle("oidcAutoProvision", "Auto-create OIDC users")}
-              />
-            </>
+    <div className="flex flex-col gap-5" data-testid="admin-signin-pane">
+      {oidcInUse && (
+        <div className="flex flex-col gap-2">
+          <KitSettingsGroup title="Accounts">
+            <KitSettingsRow
+              label="Allow password login"
+              description="When off, users can only sign in through OIDC."
+              control={toggle("passwordLogin", "Allow password login")}
+            />
+            <KitSettingsRow
+              label="Auto-create OIDC users"
+              description="Create an account the first time someone signs in through OIDC."
+              control={toggle("oidcAutoProvision", "Auto-create OIDC users")}
+            />
+          </KitSettingsGroup>
+          {error && (
+            <KitBanner tone="danger" data-testid="admin-signin-error">
+              {error}
+            </KitBanner>
           )}
-        </KitSettingsGroup>
-        {error && (
-          <KitBanner tone="danger" data-testid="admin-signin-error">
-            {error}
-          </KitBanner>
-        )}
-      </div>
+        </div>
+      )}
 
       <div className="flex flex-col gap-2">
         <KitSettingsGroup
@@ -274,7 +247,11 @@ export function AdminSignInPane({ oidcInUse }: { oidcInUse: boolean }) {
                     onBlur={() => void saveTimeout()}
                     {...(timeoutDirty ? { "data-modal-esc-local": "" } : {})}
                     onKeyDown={(e) => {
-                      if (e.key === "Escape" && timeoutDirty && timeout !== null) {
+                      if (
+                        e.key === "Escape" &&
+                        timeoutDirty &&
+                        timeout !== null
+                      ) {
                         e.preventDefault();
                         setTimeoutDraft(String(timeout));
                         setTimeoutError(null);
@@ -282,7 +259,9 @@ export function AdminSignInPane({ oidcInUse }: { oidcInUse: boolean }) {
                     }}
                     className="w-20 text-right"
                   />
-                  <span className="text-[14px] text-[var(--k-t2)]">{timeoutBusy ? "saving…" : "hours"}</span>
+                  <span className="text-[14px] text-[var(--k-t2)]">
+                    {timeoutBusy ? "saving…" : "hours"}
+                  </span>
                 </form>
               )
             }

@@ -21,9 +21,7 @@ const PROTECTED: Array<[file: string, method: string, path: string]> = [
   ["database/routes/user-session-routes.ts", "delete", "/sessions/:sessionId"],
   ["database/routes/user-admin-routes.ts", "post", "/make-admin"],
   ["database/routes/user-admin-routes.ts", "post", "/remove-admin"],
-  ["database/routes/users.ts", "patch", "/registration-allowed"],
   ["database/routes/users.ts", "patch", "/password-login-allowed"],
-  ["database/routes/users.ts", "patch", "/password-reset-allowed"],
   ["database/routes/users.ts", "patch", "/oidc-auto-provision"],
   ["database/routes/users.ts", "post", "/oidc-config"],
   ["database/routes/users.ts", "delete", "/oidc-config"],
@@ -36,6 +34,7 @@ const PROTECTED: Array<[file: string, method: string, path: string]> = [
   ["database/routes/push-subscriptions.ts", "post", "/telegram/link"],
   ["database/routes/user-phone-routes.ts", "put", "/me/phone"],
   ["database/routes/user-admin-routes.ts", "post", "/:id/phone"],
+  ["database/routes/user-admin-password-routes.ts", "post", "/:id/set-password"],
 ];
 
 function middlewareOf(src: string, method: string, path: string): string {
@@ -50,6 +49,19 @@ describe("confirm-it's-you coverage", () => {
   it.each(PROTECTED)("%s %s %s needs a recent confirmation", (file, method, path) => {
     const src = readFileSync(join(ROOT, file), "utf8");
     expect(middlewareOf(src, method, path)).toContain("requireRecentAuth");
+  });
+});
+
+describe("account creation", () => {
+  it("after the first account, only a confirmed admin can create one", () => {
+    const src = readFileSync(join(ROOT, "database/routes/users.ts"), "utf8");
+    expect(middlewareOf(src, "post", "/create")).toContain("requireFirstUserOrConfirmedAdmin");
+    const gate = src.slice(
+      src.indexOf("async function requireFirstUserOrConfirmedAdmin("),
+      src.indexOf('router.post("/create"'),
+    );
+    expect(gate).toContain("requireAdmin(");
+    expect(gate).toContain("requireRecentAuth(");
   });
 });
 
@@ -74,9 +86,7 @@ describe("only password sign-ins start confirmed", () => {
 
 describe("sign-in settings are written to disk straight away", () => {
   const SETTINGS: Array<[method: string, path: string, saves: number]> = [
-    ["patch", "/registration-allowed", 1],
     ["patch", "/oidc-auto-provision", 1],
-    ["patch", "/password-reset-allowed", 1],
     ["post", "/oidc-config", 2],
     ["delete", "/oidc-config", 1],
   ];

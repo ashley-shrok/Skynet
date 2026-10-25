@@ -1406,14 +1406,20 @@ export {
 // AUTHENTICATION
 // ============================================================================
 
+// Creates the first admin on a brand-new instance. After that, accounts are
+// only made by an admin (the server refuses anyone else).
 export async function registerUser(
   username: string,
   password: string,
+  avatar: Blob,
 ): Promise<Record<string, unknown>> {
   try {
-    const response = await authApi.post("/users/create", {
-      username,
-      password,
+    const form = new FormData();
+    form.append("username", username);
+    form.append("password", password);
+    form.append("avatar", avatar, "avatar.png");
+    const response = await authApi.post("/users/create", form, {
+      headers: { "Content-Type": "multipart/form-data" },
     });
     return response.data;
   } catch (error) {
@@ -1513,15 +1519,6 @@ export async function unlockUserData(
   }
 }
 
-export async function getRegistrationAllowed(): Promise<{ allowed: boolean }> {
-  try {
-    const response = await authApi.get("/users/registration-allowed");
-    return response.data;
-  } catch (error) {
-    handleApiError(error, "check registration status");
-  }
-}
-
 export async function getPasswordLoginAllowed(): Promise<{ allowed: boolean }> {
   try {
     const response = await authApi.get("/users/password-login-allowed");
@@ -1568,49 +1565,6 @@ export async function getUserCount(): Promise<UserCount> {
     return response.data;
   } catch (error) {
     handleApiError(error, "fetch user count");
-  }
-}
-
-export async function initiatePasswordReset(
-  username: string,
-): Promise<Record<string, unknown>> {
-  try {
-    const response = await authApi.post("/users/initiate-reset", { username });
-    return response.data;
-  } catch (error) {
-    handleApiError(error, "initiate password reset");
-  }
-}
-
-export async function verifyPasswordResetCode(
-  username: string,
-  resetCode: string,
-): Promise<Record<string, unknown>> {
-  try {
-    const response = await authApi.post("/users/verify-reset-code", {
-      username,
-      resetCode,
-    });
-    return response.data;
-  } catch (error) {
-    handleApiError(error, "verify reset code");
-  }
-}
-
-export async function completePasswordReset(
-  username: string,
-  tempToken: string,
-  newPassword: string,
-): Promise<Record<string, unknown>> {
-  try {
-    const response = await authApi.post("/users/complete-reset", {
-      username,
-      tempToken,
-      newPassword,
-    });
-    return response.data;
-  } catch (error) {
-    handleApiError(error, "complete password reset");
   }
 }
 
@@ -1674,12 +1628,9 @@ export {
   removeAdminStatus,
   deleteUser,
   deleteAccount,
-  updateRegistrationAllowed,
   getOidcAutoProvision,
   updateOidcAutoProvision,
   updatePasswordLoginAllowed,
-  getPasswordResetAllowed,
-  updatePasswordResetAllowed,
   updateOIDCConfig,
   disableOIDCConfig,
   type ApiKey,

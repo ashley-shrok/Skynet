@@ -44,10 +44,8 @@ const m = vi.hoisted(() => ({
   revokeAllUserSessions: vi.fn(),
   setUserPhone: vi.fn(),
   setUserNotificationsEnabled: vi.fn(),
-  getPasswordResetAllowed: vi.fn(),
   getOidcAutoProvision: vi.fn(),
   getOIDCConfig: vi.fn(),
-  getRegistrationAllowed: vi.fn(),
   getPasswordLoginAllowed: vi.fn(),
   getSSHHosts: vi.fn(),
 }));
@@ -62,17 +60,13 @@ vi.mock("@/api/user-management-api", () => ({
   revokeAllUserSessions: m.revokeAllUserSessions,
   setUserPhone: m.setUserPhone,
   setUserNotificationsEnabled: m.setUserNotificationsEnabled,
-  getPasswordResetAllowed: m.getPasswordResetAllowed,
   getOidcAutoProvision: m.getOidcAutoProvision,
-  updateRegistrationAllowed: vi.fn(),
-  updatePasswordResetAllowed: vi.fn(),
   updatePasswordLoginAllowed: vi.fn(),
   updateOidcAutoProvision: vi.fn(),
 }));
 
 vi.mock("@/main-axios", () => ({
   getOIDCConfig: m.getOIDCConfig,
-  getRegistrationAllowed: m.getRegistrationAllowed,
   getPasswordLoginAllowed: m.getPasswordLoginAllowed,
 }));
 
@@ -166,9 +160,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   m.getUserList.mockResolvedValue({ users: USERS });
   m.getOIDCConfig.mockResolvedValue(null);
-  m.getRegistrationAllowed.mockResolvedValue({ allowed: true });
   m.getPasswordLoginAllowed.mockResolvedValue({ allowed: true });
-  m.getPasswordResetAllowed.mockResolvedValue(false);
   m.getOidcAutoProvision.mockResolvedValue({ enabled: false });
   m.getSessions.mockResolvedValue({ sessions: [] });
   m.getSSHHosts.mockResolvedValue([]);
@@ -435,10 +427,22 @@ describe("AdminModal — Sign-in", () => {
     renderModal();
     await screen.findByTestId("admin-users-pane");
     await userEvent.click(screen.getByTestId("admin-tab-signin"));
-    await screen.findByTestId("admin-signin-registration");
+    await screen.findByTestId("admin-signin-timeout-input");
     expect(screen.queryByTestId("admin-signin-passwordLogin")).toBeNull();
     expect(screen.queryByTestId("admin-signin-oidcAutoProvision")).toBeNull();
     expect(m.getPasswordLoginAllowed).not.toHaveBeenCalled();
+  });
+
+  it("has no sign-up or password-reset switches", async () => {
+    m.getOIDCConfig.mockResolvedValue({ client_id: "abc" });
+    renderModal();
+    await screen.findByTestId("admin-users-pane");
+    await userEvent.click(screen.getByTestId("admin-tab-signin"));
+    await screen.findByTestId("admin-signin-passwordLogin");
+    expect(screen.queryByTestId("admin-signin-registration")).toBeNull();
+    expect(screen.queryByTestId("admin-signin-passwordReset")).toBeNull();
+    expect(screen.queryByText(/allow registration/i)).toBeNull();
+    expect(screen.queryByText(/allow password reset/i)).toBeNull();
   });
 
   it("shows OIDC-only switches when a provider is configured", async () => {

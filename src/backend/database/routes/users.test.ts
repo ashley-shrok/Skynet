@@ -13,7 +13,8 @@
  *  4: image/gif → 400 "PNG, JPEG, or WebP", no row, no file
  *  5: authManager.registerUser throws → 500, row rolled back, file unlinked
  *  6: Happy path invokes DatabaseSaveTrigger.forceSave("phase-85-user-avatar-create")
- *  7: allow_registration=false → 403 BEFORE file-write (no orphan file)
+ *  7: once an account exists, only a confirmed admin can create one; the
+ *     refusals fire BEFORE file-write (no orphan file)
  *
  * Test infrastructure:
  *  - Real better-sqlite3 in-memory DB for $client (prepare/transaction semantics)
@@ -271,6 +272,16 @@ vi.mock("drizzle-orm", async () => {
   };
 });
 
+vi.mock("../../utils/recent-auth.js", () => ({
+  requireRecentAuth: (_req: unknown, res: unknown, next: () => void) => {
+    if (!authControl.recentPass) {
+      (res as import("express").Response).status(403).json({ code: "REAUTH_REQUIRED" });
+      return;
+    }
+    next();
+  },
+}));
+
 // ---------------------------------------------------------------------------
 // Mock: auth-manager — registerUser is stubbed; createAuthMiddleware configurable
 //
@@ -281,7 +292,12 @@ vi.mock("drizzle-orm", async () => {
 
 // authControl must be declared before vi.mock (hoisted) but as an object so
 // the factory closes over the stable reference, not a snapshot value.
-const authControl = { userId: "caller-id", pass: true };
+const authControl = {
+  userId: "caller-id",
+  pass: true,
+  adminPass: true,
+  recentPass: true,
+};
 
 const mockRegisterUser = vi.fn<[string, string], Promise<void>>();
 
@@ -296,7 +312,14 @@ vi.mock("../../utils/auth-manager.js", () => ({
         (req as Record<string, unknown>).userId = authControl.userId;
         next();
       },
-      createAdminMiddleware: () => (_req: unknown, _res: unknown, next: () => void) => next(),
+      createAdminMiddleware: () => (req: unknown, res: unknown, next: () => void) => {
+        if (!authControl.adminPass) {
+          (res as import("express").Response).status(403).json({ error: "Admin access required" });
+          return;
+        }
+        (req as Record<string, unknown>).userId = authControl.userId;
+        next();
+      },
       registerUser: (...args: [string, string]) => mockRegisterUser(...args),
     }),
   },
@@ -408,8 +431,9 @@ vi.mock("./user-session-routes.js", () => ({
 vi.mock("./user-oidc-account-routes.js", () => ({
   registerUserOidcAccountRoutes: vi.fn(),
 }));
-vi.mock("./user-password-reset-routes.js", () => ({
-  registerUserPasswordResetRoutes: vi.fn(),
+vi.mock("./user-admin-password-routes.js", () => ({
+  registerUserAdminPasswordRoutes: vi.fn(),
+  MIN_PASSWORD_LENGTH: 6,
 }));
 vi.mock("./user-admin-routes.js", () => ({
   registerUserAdminRoutes: vi.fn(),
@@ -626,7 +650,7 @@ function bootstrapDb(): void {
     )
   `);
 
-  // settings table for allow_registration gate
+  // settings table (read by sign-in setting routes)
   sqliteDb.exec(`
     CREATE TABLE IF NOT EXISTS settings (
       key TEXT PRIMARY KEY,
@@ -655,9 +679,6 @@ function bootstrapDb(): void {
       updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
     )
   `);
-
-  // Seed: allow_registration=true by default
-  sqliteDb.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('allow_registration', 'true')").run();
 
   // Seed roles
   sqliteDb.prepare("INSERT OR IGNORE INTO roles (id, name) VALUES ('role-admin', 'admin')").run();
@@ -731,6 +752,8 @@ describe("POST /users/create (Phase 85 — multipart with mandatory avatar)", ()
 
     // Reset auth control to default (passthrough, "caller-id" as userId)
     authControl.pass = true;
+    authControl.adminPass = true;
+    authControl.recentPass = true;
     authControl.userId = "caller-id";
 
     // Reset mock call state (not implementations)
@@ -1025,16 +1048,20 @@ describe("POST /users/create (Phase 85 — multipart with mandatory avatar)", ()
   });
 
   // -------------------------------------------------------------------------
-  // Test 7: allow_registration=false → 403 BEFORE file-write
+  // Test 7: no open sign-up — once an account exists, only a confirmed admin
+  // can create one, and the refusals fire BEFORE file-write
   // -------------------------------------------------------------------------
 
-  it("POST /users/create — allow_registration=false rejects BEFORE file-write", async () => {
-    // Disable registration
-    sqliteDb.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('allow_registration', 'false')").run();
+  function seedExistingUser(): void {
+    sqliteDb
+      .prepare("INSERT INTO users (id, username, password_hash, is_admin) VALUES ('admin-1', 'owner', 'x', 1)")
+      .run();
+  }
 
-    const res = await multipartRequestMixed(server, {
+  async function createAs(username: string) {
+    return multipartRequestMixed(server, {
       path: "/users/create",
-      textFields: { username: "user", password: "s3cret123" },
+      textFields: { username, password: "s3cret123" },
       file: {
         fieldName: "avatar",
         filename: "avatar.png",
@@ -1042,17 +1069,72 @@ describe("POST /users/create (Phase 85 — multipart with mandatory avatar)", ()
         bytes: MINIMAL_PNG_BYTES,
       },
     });
+  }
 
-    // Existing gate status (users.ts:93-96)
+  it("POST /users/create — the first account on a brand-new instance needs no sign-in and becomes admin", async () => {
+    authControl.adminPass = false;
+    authControl.recentPass = false;
+
+    const res = await createAs("first");
+
+    expect(res.status).toBe(200);
+    expect((res.body as { is_admin: boolean }).is_admin).toBe(true);
+  });
+
+  it("POST /users/create — once an account exists, a non-admin is refused BEFORE file-write", async () => {
+    seedExistingUser();
+    authControl.adminPass = false;
+
+    const res = await createAs("stranger");
+
     expect(res.status).toBe(403);
-    expect((res.body as { error: string }).error).toBe("Registration is currently disabled");
-
-    // No file written — gate fires BEFORE req.file check and file write
     expect(mockWriteUserAvatar).not.toHaveBeenCalled();
-
-    // No user row
+    expect(mockCreateOrUpdateUser).not.toHaveBeenCalled();
     const count = sqliteDb.prepare("SELECT COUNT(*) as c FROM users").get() as { c: number };
-    expect(count.c).toBe(0);
+    expect(count.c).toBe(1);
+  });
+
+  it("POST /users/create — an admin who hasn't confirmed it's them is refused BEFORE file-write", async () => {
+    seedExistingUser();
+    authControl.userId = "admin-1";
+    authControl.recentPass = false;
+
+    const res = await createAs("newbie");
+
+    expect(res.status).toBe(403);
+    expect((res.body as { code: string }).code).toBe("REAUTH_REQUIRED");
+    expect(mockWriteUserAvatar).not.toHaveBeenCalled();
+    const count = sqliteDb.prepare("SELECT COUNT(*) as c FROM users").get() as { c: number };
+    expect(count.c).toBe(1);
+  });
+
+  it("POST /users/create — refuses a password shorter than 6 characters", async () => {
+    const res = await multipartRequestMixed(server, {
+      path: "/users/create",
+      textFields: { username: "first", password: "short" },
+      file: {
+        fieldName: "avatar",
+        filename: "avatar.png",
+        contentType: "image/png",
+        bytes: MINIMAL_PNG_BYTES,
+      },
+    });
+    expect(res.status).toBe(400);
+    expect(mockCreateOrUpdateUser).not.toHaveBeenCalled();
+  });
+
+  it("POST /users/create — a confirmed admin creates an ordinary (non-admin) user", async () => {
+    seedExistingUser();
+    authControl.userId = "admin-1";
+
+    const res = await createAs("newbie");
+
+    expect(res.status).toBe(200);
+    expect((res.body as { is_admin: boolean }).is_admin).toBe(false);
+    const row = sqliteDb
+      .prepare("SELECT is_admin FROM users WHERE username = 'newbie'")
+      .get() as { is_admin: number };
+    expect(row.is_admin).toBe(0);
   });
 
   // -------------------------------------------------------------------------
@@ -1522,6 +1604,8 @@ describe("PUT /users/:id/avatar (Phase 85 — change endpoint)", () => {
 
     // Reset auth control
     authControl.pass = true;
+    authControl.adminPass = true;
+    authControl.recentPass = true;
     authControl.userId = "user-id";
 
     // Reset mock calls
@@ -1920,6 +2004,8 @@ describe("GET /users/:id/avatar (Phase 85 — serve endpoint)", () => {
     bootstrapDb();
 
     authControl.pass = true;
+    authControl.adminPass = true;
+    authControl.recentPass = true;
     authControl.userId = "any-user-id";
 
     mockWriteUserAvatar.mockClear();
@@ -2118,6 +2204,8 @@ describe("DELETE /users/delete-account (M5 — forceSave after row deletion)", (
     bootstrapDb();
 
     authControl.pass = true;
+    authControl.adminPass = true;
+    authControl.recentPass = true;
     authControl.userId = "user-id";
 
     mockWriteUserAvatar.mockClear();

@@ -30,7 +30,10 @@ import { registerUserConfirmIdentityRoutes } from "./user-confirm-identity-route
 import { requireRecentAuth } from "../../utils/recent-auth.js";
 import { registerUserSessionRoutes } from "./user-session-routes.js";
 import { registerUserOidcAccountRoutes } from "./user-oidc-account-routes.js";
-import { registerUserPasswordResetRoutes } from "./user-password-reset-routes.js";
+import {
+  MIN_PASSWORD_LENGTH,
+  registerUserAdminPasswordRoutes,
+} from "./user-admin-password-routes.js";
 import { registerUserAdminRoutes } from "./user-admin-routes.js";
 import { registerAdminHostsRoutes } from "../../admin-hosts/routes.js";
 import { registerUserPhoneRoutes } from "./user-phone-routes.js";
@@ -61,7 +64,7 @@ const router = express.Router();
 
 // Router-level timing middleware — SLICE 1 of auth-slow-requests-on-pwa-boot bounty.
 // Runs for EVERY /users/* request (including unauthenticated paths like
-// /users/registration-allowed and OIDC callback routes) — all are useful signal.
+// /users/setup-required and OIDC callback routes) — all are useful signal.
 // Closure-captures startTimeNs so we never need to stash it on req.
 // Uses authLogger (AUTH category) since the timing data is primarily for auth
 // latency attribution.
@@ -100,12 +103,19 @@ function isNonEmptyString(val: unknown): val is string {
 const authenticateJWT = authManager.createAuthMiddleware();
 const requireAdmin = authManager.createAdminMiddleware();
 
+class SetupAlreadyDoneError extends Error {}
+
 /**
  * @openapi
  * /users/create:
  *   post:
  *     summary: Create a new user
- *     description: Creates a new user with a username and password.
+ *     description: |
+ *       Multipart form with username, password and a required avatar file.
+ *       On a brand-new instance with no users, anyone may create the first
+ *       account, which becomes the admin. After that only an admin whose
+ *       session confirmed it's them in the last 10 minutes may create
+ *       accounts (never admins); access keys are refused.
  *     tags:
  *       - Users
  *     requestBody:
@@ -124,30 +134,49 @@ const requireAdmin = authManager.createAdminMiddleware();
  *         description: User created successfully.
  *       400:
  *         description: Username and password are required.
+ *       401:
+ *         description: Not signed in (once the instance has users).
  *       403:
- *         description: Registration is currently disabled.
+ *         description: Not an admin, or REAUTH_REQUIRED / REAUTH_UNAVAILABLE.
  *       409:
  *         description: Username already exists.
  *       500:
  *         description: Failed to create user.
  */
-// Phase 103 D-10: multipart-origin-guard — CORS-simple content types don't preflight
-router.post("/create", multipartOriginGuard, userAvatarUpload.single("avatar"), async (req, res) => {
+// Accounts are made two ways only: the very first one on a brand-new
+// instance (it becomes the admin), and after that by an admin who has
+// confirmed it's them. There is no open sign-up.
+function countUsers(): number {
+  const row = db.$client
+    .prepare("SELECT COUNT(*) as count FROM users")
+    .get() as { count?: number } | undefined;
+  return row?.count || 0;
+}
+
+async function requireFirstUserOrConfirmedAdmin(
+  req: Request,
+  res: Response,
+  next: NextFunction,
+) {
+  let count: number;
   try {
-    const row = db.$client
-      .prepare("SELECT value FROM settings WHERE key = 'allow_registration'")
-      .get();
-    if (row && (row as Record<string, unknown>).value !== "true") {
-      return res
-        .status(403)
-        .json({ error: "Registration is currently disabled" });
-    }
+    count = countUsers();
   } catch (e) {
-    authLogger.warn("Failed to check registration status", {
-      operation: "registration_check",
-      error: e,
+    authLogger.error("Failed to count users for account creation", e, {
+      operation: "user_create_count_failed",
     });
+    return res.status(500).json({ error: "Failed to create user" });
   }
+  if (count === 0) return next();
+  requireAdmin(req, res, (err?: unknown) => {
+    if (err) return next(err);
+    requireRecentAuth(req, res, next);
+  });
+}
+
+// Phase 103 D-10: multipart-origin-guard — CORS-simple content types don't preflight
+router.post("/create", multipartOriginGuard, requireFirstUserOrConfirmedAdmin, userAvatarUpload.single("avatar"), async (req, res) => {
+  const createdBy = (req as AuthenticatedRequest).userId ?? null;
 
   // D-07 (T-85-06): Mandatoriness enforcement — avatar part MUST be present.
   // This fires BEFORE any DB write or file write so no side effects occur on failure.
@@ -173,6 +202,12 @@ router.post("/create", multipartOriginGuard, userAvatarUpload.single("avatar"), 
     return res
       .status(400)
       .json({ error: "Username and password are required" });
+  }
+
+  if (password.length < MIN_PASSWORD_LENGTH) {
+    return res.status(400).json({
+      error: `password must be at least ${MIN_PASSWORD_LENGTH} characters`,
+    });
   }
 
   try {
@@ -277,6 +312,9 @@ router.post("/create", multipartOriginGuard, userAvatarUpload.single("avatar"), 
           .prepare("SELECT COUNT(*) as count FROM users")
           .get() as { count?: number };
         const first = (countResult?.count || 0) === 0;
+        if (!first && !createdBy) {
+          throw new SetupAlreadyDoneError();
+        }
         db.$client
           .prepare(
             "INSERT INTO users (id, username, password_hash, is_admin, is_oidc, client_id, client_secret, issuer_url, authorization_url, token_url, identifier_path, name_path, scopes, totp_secret, totp_enabled, totp_backup_codes, avatar_path, mxid) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
@@ -314,6 +352,15 @@ router.post("/create", multipartOriginGuard, userAvatarUpload.single("avatar"), 
     } catch (sqlErr) {
       // T-85-07: SQL INSERT failed — rollback the file we already wrote (ENOENT-tolerant).
       await unlinkUserAvatar(avatarFilename);
+      if (sqlErr instanceof SetupAlreadyDoneError) {
+        // Someone else made the first account between our gate and the insert.
+        await bestEffortDeactivate("user_create_deactivate_after_setup_race");
+        authLogger.warn("Account creation refused: first account already exists", {
+          operation: "user_create_setup_race",
+          username,
+        });
+        return res.status(403).json({ error: "Only an admin can create accounts" });
+      }
       // D-05 rollback: deactivate the just-minted Matrix account (best-effort).
       await bestEffortDeactivate("user_create_deactivate_after_insert_fail");
       authLogger.error("Failed to insert user row during registration", sqlErr, {
@@ -335,7 +382,7 @@ router.post("/create", multipartOriginGuard, userAvatarUpload.single("avatar"), 
         await db.insert(userRoles).values({
           userId: id,
           roleId: defaultRole[0].id,
-          grantedBy: id,
+          grantedBy: createdBy ?? id,
         });
       } else {
         authLogger.warn("Default role not found during user registration", {
@@ -423,6 +470,7 @@ router.post("/create", multipartOriginGuard, userAvatarUpload.single("avatar"), 
       userId: id,
       username,
       isAdmin: isFirstUser,
+      createdBy: createdBy ?? "first_account_setup",
     });
     res.json({
       message: "User created",
@@ -1519,34 +1567,17 @@ router.get("/oidc/callback", async (req, res) => {
           "true";
       }
 
+      // No open sign-up: a new SSO user only gets an account when automatic
+      // account creation is on, or on a brand-new instance with no users.
       if (!isFirstUser && !oidcAutoProvision) {
-        try {
-          const regRow = db.$client
-            .prepare(
-              "SELECT value FROM settings WHERE key = 'allow_registration'",
-            )
-            .get();
-          if (regRow && (regRow as Record<string, unknown>).value !== "true") {
-            authLogger.warn(
-              "OIDC user attempted to register when registration is disabled",
-              {
-                operation: "oidc_registration_disabled",
-                identifier,
-                name,
-              },
-            );
-
-            const redirectUrl = new URL(frontendOrigin);
-            redirectUrl.searchParams.set("error", "registration_disabled");
-
-            return res.redirect(redirectUrl.toString());
-          }
-        } catch (e) {
-          authLogger.warn("Failed to check registration status during OIDC", {
-            operation: "oidc_registration_check",
-            error: e,
-          });
-        }
+        authLogger.warn("OIDC sign-in refused: no account and auto-provision is off", {
+          operation: "oidc_registration_disabled",
+          identifier,
+          name,
+        });
+        const redirectUrl = new URL(frontendOrigin);
+        redirectUrl.searchParams.set("error", "registration_disabled");
+        return res.redirect(redirectUrl.toString());
       }
 
       const id = nanoid();
@@ -1555,6 +1586,9 @@ router.get("/oidc/callback", async (req, res) => {
           .prepare("SELECT COUNT(*) as count FROM users")
           .get() as { count?: number };
         const first = (countResult?.count || 0) === 0;
+        if (!first && !oidcAutoProvision) {
+          throw new SetupAlreadyDoneError();
+        }
         db.$client
           .prepare(
             "INSERT INTO users (id, username, password_hash, is_admin, is_oidc, oidc_identifier, client_id, client_secret, issuer_url, authorization_url, token_url, identifier_path, name_path, scopes) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
@@ -1753,6 +1787,15 @@ router.get("/oidc/callback", async (req, res) => {
       .cookie("jwt", token, authManager.getSecureCookieOptions(req, maxAge))
       .redirect(redirectUrl.toString());
   } catch (err) {
+    if (err instanceof SetupAlreadyDoneError) {
+      // Someone made the first account between our check and the insert.
+      authLogger.warn("OIDC sign-in refused: first account already exists", {
+        operation: "oidc_registration_disabled",
+      });
+      const redirectUrl = new URL(frontendOrigin);
+      redirectUrl.searchParams.set("error", "registration_disabled");
+      return res.redirect(redirectUrl.toString());
+    }
     authLogger.error("OIDC callback failed", err);
 
     const redirectUrl = new URL(frontendOrigin);
@@ -2201,88 +2244,6 @@ router.get("/db-health", requireAdmin, async (req, res) => {
   }
 });
 
-/**
- * @openapi
- * /users/registration-allowed:
- *   get:
- *     summary: Get registration status
- *     description: Checks if user registration is currently allowed.
- *     tags:
- *       - Users
- *     responses:
- *       200:
- *         description: Registration status.
- *       500:
- *         description: Failed to get registration allowed status.
- */
-router.get("/registration-allowed", async (req, res) => {
-  try {
-    const row = db.$client
-      .prepare("SELECT value FROM settings WHERE key = 'allow_registration'")
-      .get();
-    res.json({
-      allowed: row ? (row as Record<string, unknown>).value === "true" : true,
-    });
-  } catch (err) {
-    authLogger.error("Failed to get registration allowed", err);
-    res.status(500).json({ error: "Failed to get registration allowed" });
-  }
-});
-
-/**
- * @openapi
- * /users/registration-allowed:
- *   patch:
- *     summary: Set registration status
- *     description: Enables or disables user registration.
- *     tags:
- *       - Users
- *     requestBody:
- *       required: true
- *       content:
- *         application/json:
- *           schema:
- *             type: object
- *             properties:
- *               allowed:
- *                 type: boolean
- *     responses:
- *       200:
- *         description: Registration status updated.
- *       400:
- *         description: Invalid value for allowed.
- *       403:
- *         description: Not authorized.
- *       500:
- *         description: Failed to set registration allowed status.
- */
-router.patch("/registration-allowed", authenticateJWT, requireRecentAuth, async (req, res) => {
-  const userId = (req as AuthenticatedRequest).userId;
-  try {
-    const user = await db.select().from(users).where(eq(users.id, userId));
-    if (!user || user.length === 0 || !user[0].isAdmin) {
-      return res.status(403).json({ error: "Not authorized" });
-    }
-    const { allowed } = req.body;
-    if (typeof allowed !== "boolean") {
-      return res.status(400).json({ error: "Invalid value for allowed" });
-    }
-    // UPSERT rather than bare UPDATE: on a DB where the init-time seed at
-    // db/index.ts:571-578 never fired (older migration path, or race), a
-    // straight UPDATE affects 0 rows silently and the caller sees a lying 200.
-    db.$client
-      .prepare(
-        "INSERT INTO settings (key, value) VALUES ('allow_registration', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
-      )
-      .run(allowed ? "true" : "false");
-    await persistSignInSetting("allow_registration");
-    res.json({ allowed });
-  } catch (err) {
-    authLogger.error("Failed to set registration allowed", err);
-    res.status(500).json({ error: "Failed to set registration allowed" });
-  }
-});
-
 router.get("/oidc-auto-provision", async (_req, res) => {
   try {
     const row = db.$client
@@ -2411,85 +2372,6 @@ router.patch("/password-login-allowed", authenticateJWT, requireRecentAuth, asyn
   } catch (err) {
     authLogger.error("Failed to set password login allowed", err);
     res.status(500).json({ error: "Failed to set password login allowed" });
-  }
-});
-
-/**
- * @openapi
- * /users/password-reset-allowed:
- *   get:
- *     summary: Get password reset status
- *     description: Checks if password reset is currently allowed.
- *     tags:
- *       - Users
- *     responses:
- *       200:
- *         description: Password reset status.
- *       500:
- *         description: Failed to get password reset allowed status.
- */
-router.get("/password-reset-allowed", async (req, res) => {
-  try {
-    const row = db.$client
-      .prepare("SELECT value FROM settings WHERE key = 'allow_password_reset'")
-      .get();
-    res.json({
-      allowed: row ? (row as { value: string }).value === "true" : true,
-    });
-  } catch (err) {
-    authLogger.error("Failed to get password reset allowed", err);
-    res.status(500).json({ error: "Failed to get password reset allowed" });
-  }
-});
-
-/**
- * @openapi
- * /users/password-reset-allowed:
- *   patch:
- *     summary: Set password reset status
- *     description: Enables or disables password reset.
- *     tags:
- *       - Users
- *     requestBody:
- *       required: true
- *       content:
- *         application/json:
- *           schema:
- *             type: object
- *             properties:
- *               allowed:
- *                 type: boolean
- *     responses:
- *       200:
- *         description: Password reset status updated.
- *       400:
- *         description: Invalid value for allowed.
- *       403:
- *         description: Not authorized.
- *       500:
- *         description: Failed to set password reset allowed status.
- */
-router.patch("/password-reset-allowed", authenticateJWT, requireRecentAuth, async (req, res) => {
-  const userId = (req as AuthenticatedRequest).userId;
-  try {
-    const user = await db.select().from(users).where(eq(users.id, userId));
-    if (!user || user.length === 0 || !user[0].isAdmin) {
-      return res.status(403).json({ error: "Not authorized" });
-    }
-    const { allowed } = req.body;
-    if (typeof allowed !== "boolean") {
-      return res.status(400).json({ error: "Invalid value for allowed" });
-    }
-    db.$client
-      .prepare(
-        "INSERT OR REPLACE INTO settings (key, value) VALUES ('allow_password_reset', ?)",
-      )
-      .run(allowed ? "true" : "false");
-    await persistSignInSetting("allow_password_reset");
-    res.json({ allowed });
-  } catch (err) {
-    authLogger.error("Failed to set password reset allowed", err);
-    res.status(500).json({ error: "Failed to set password reset allowed" });
   }
 });
 
@@ -2634,7 +2516,7 @@ router.delete("/delete-account", authenticateJWT, async (req, res) => {
   }
 });
 
-registerUserPasswordResetRoutes(router, { authManager });
+registerUserAdminPasswordRoutes(router, { authManager, requireAdmin });
 
 /**
  * @openapi
