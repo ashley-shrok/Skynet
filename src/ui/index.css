@@ -700,3 +700,26 @@ body[data-split-dnd] [data-split-divider-handle] {
     user-select: none;
   }
 }
+
+/* Swipe-left-to-remove on list rows (useRowKebabContextMenu's `swipe`). The
+   strip hangs off the row's right edge and fills the space the row uncovers. */
+@media (pointer: coarse) {
+  [data-swipe-row] {
+    touch-action: pan-y;
+  }
+}
+.row-swipe-action {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 100%;
+  display: flex;
+  align-items: center;
+  overflow: hidden;
+  padding-left: 18px;
+  background: var(--k-danger);
+  color: #fff;
+  font: 600 0.82rem/1 var(--font-sans);
+  white-space: nowrap;
+  pointer-events: none;
+}

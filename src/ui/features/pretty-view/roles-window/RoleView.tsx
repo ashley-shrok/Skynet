@@ -29,7 +29,7 @@ import {
   kitConfirm,
   kitPrompt,
 } from "@/components/kit";
-import { RowKebabMenu, type RowKebabMenuItem } from "@/features/pretty-conversations/RowKebabMenu";
+import { RowGestures, RowKebabMenu, type RowKebabMenuItem } from "@/features/pretty-conversations/RowKebabMenu";
 import { roleAvatarUrl, updateRoleAvatarByName, type RoleSummary } from "@/api/identities-api";
 import { getRoleFileByName, updateRoleFileByName } from "@/api/claude-session-api";
 import {
@@ -39,7 +39,7 @@ import {
   removeInstanceWide,
   type InstanceWideItem,
 } from "@/api/instance-wide-api";
-import { archiveRole } from "@/api/role-archive-api";
+import { confirmAndArchiveRole, confirmAndDeleteRoleSkill } from "./role-actions";
 import {
   createRoleSkill,
   listRoleSkills,
@@ -415,6 +415,12 @@ export function RoleView({
 
   // ── Skills ───────────────────────────────────────────────────────────────
   const [skills, setSkills] = useState<TabState<RoleSkillEntry[]>>({ status: "loading" });
+  const deleteSkillFromList = async (skill: string): Promise<void> => {
+    if (!(await confirmAndDeleteRoleSkill({ hostId, roleName: name, skill }))) return;
+    setSkills((prev) =>
+      prev.status === "ready" ? { status: "ready", data: prev.data.filter((s) => s.name !== skill) } : prev,
+    );
+  };
   useEffect(() => {
     if (tab !== "skills") return;
     let cancelled = false;
@@ -519,21 +525,7 @@ export function RoleView({
   };
 
   const handleArchive = async (): Promise<void> => {
-    const body =
-      agents.length === 0
-        ? "No agents hold it. This can't be undone from here — archived roles can be brought back from Archived roles."
-        : `This also archives the ${plural(agents.length, "agent")} holding it:\n` +
-          agents.map((i) => `• ${i.task || i.displayName}`).join("\n");
-    if (!(await kitConfirm({ title: `Archive ${label}?`, body, confirmLabel: "Archive", destructive: true }))) return;
-    try {
-      await archiveRole(hostId, name);
-      console.info({ operation: "role_archived", hostId, roleName: name, agentCount: agents.length });
-      onArchived();
-    } catch (err) {
-      const errMessage = err instanceof Error ? err.message : String(err);
-      console.warn({ operation: "role_archive_failed", hostId, roleName: name, errMessage });
-      void kitAlert({ title: `Couldn't archive ${label}`, body: errMessage });
-    }
+    if (await confirmAndArchiveRole({ hostId, name, label, agents })) onArchived();
   };
 
   const menuItems: RowKebabMenuItem[] = [
@@ -818,15 +810,24 @@ export function RoleView({
         <KitSettingsGroup note="How to do things this role does again and again. Every agent holding the role is told about them when it loads.">
           {skills.data.map((r) => (
             // Same row as the Skills window: the name as written, its
-            // one-line description under it.
-            <KitSettingsRow
+            // one-line description under it. Swipe left deletes (touch).
+            <RowGestures
               key={r.name}
-              label={r.name}
-              description={r.description}
-              truncate
-              onClick={() => onOpenSkill(r.name, r.description)}
-              data-testid={`role-view-skill-${r.name}`}
-            />
+              swipe={readOnly ? undefined : { label: "Delete", onSwipe: () => void deleteSkillFromList(r.name) }}
+            >
+              {(g) => (
+                <KitSettingsRow
+                  holdProps={g.holdProps}
+                  label={r.name}
+                  description={r.description}
+                  truncate
+                  onClick={() => onOpenSkill(r.name, r.description)}
+                  data-testid={`role-view-skill-${r.name}`}
+                >
+                  {g.swipeAction}
+                </KitSettingsRow>
+              )}
+            </RowGestures>
           ))}
         </KitSettingsGroup>
         {readOnly ? null : (

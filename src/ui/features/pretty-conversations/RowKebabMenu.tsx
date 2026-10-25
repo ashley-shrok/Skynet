@@ -398,10 +398,26 @@ export interface RowKebabContextMenu {
   menu: React.ReactNode;
   /** Open the menu at a viewport point (press-and-hold on touch). */
   openAt: (x: number, y: number) => void;
-  /** Spread on the surface: press-and-hold on touch opens the menu.
-   *  `data-hold-menu` turns off text selection and the iOS callout there on
-   *  touch screens (index.css). */
-  holdProps: RowTouchGestures["handlers"] & { "data-hold-menu"?: "" };
+  /** Spread on the surface: press-and-hold on touch opens the menu (and,
+   *  with `swipe`, a swipe left runs the remove action). `data-hold-menu`
+   *  turns off text selection and the iOS callout there on touch screens
+   *  (index.css). */
+  holdProps: RowTouchGestures["handlers"] & {
+    "data-hold-menu"?: "";
+    "data-swipe-row"?: "";
+    style?: React.CSSProperties;
+  };
+  /** With `swipe`: the red action strip — render it inside the surface (it
+   *  trails the row's right edge as the row slides left). */
+  swipeAction: React.ReactNode;
+}
+
+export interface RowSwipeAction {
+  /** What the swipe does, shown on the strip ("Delete", "Archive"). */
+  label: string;
+  /** Run the remove — normally behind its own confirm. The row slides back
+   *  when it is still there afterwards (e.g. the confirm was cancelled). */
+  onSwipe: () => void;
 }
 
 /** How long after a press-and-hold opens the menu the finger's lift is ignored. */
@@ -413,6 +429,7 @@ function logDismiss(how: string): void {
 
 export function useRowKebabContextMenu(
   items: RowKebabMenuItem[],
+  options: { swipe?: RowSwipeAction } = {},
 ): RowKebabContextMenu {
   const [pos, setPos] = React.useState<{ x: number; y: number } | null>(null);
   const enabled = items.length > 0;
@@ -517,10 +534,38 @@ export function useRowKebabContextMenu(
     [enabled],
   );
 
-  const hold = useRowTouchGestures({ onHold: enabled ? openAt : undefined });
-  const holdProps = enabled ? { ...hold.handlers, "data-hold-menu": "" as const } : hold.handlers;
+  const swipe = options.swipe;
+  const onSwipe = swipe?.onSwipe;
+  const onSwipeArchive = React.useMemo(
+    () =>
+      onSwipe
+        ? () => {
+            systemLogger.info("row swipe → remove", { operation: "row_swipe", label: swipe?.label });
+            onSwipe();
+          }
+        : undefined,
+    [onSwipe, swipe?.label],
+  );
+  const hold = useRowTouchGestures({ onHold: enabled ? openAt : undefined, onSwipeArchive });
+  const holdProps: RowKebabContextMenu["holdProps"] = { ...hold.handlers };
+  if (enabled || swipe) holdProps["data-hold-menu"] = "";
+  if (swipe) {
+    holdProps["data-swipe-row"] = "";
+    if (hold.style) holdProps.style = hold.style;
+  }
+  const swipeAction =
+    swipe && hold.offset !== 0 ? (
+      <span
+        className="row-swipe-action"
+        aria-hidden="true"
+        data-testid="row-swipe-action"
+        style={{ width: -hold.offset }}
+      >
+        <span>{swipe.label}</span>
+      </span>
+    ) : null;
 
-  return { onContextMenu, menu, openAt, holdProps };
+  return { onContextMenu, menu, openAt, holdProps, swipeAction };
 }
 
 /**
@@ -533,15 +578,48 @@ export function useRowKebabContextMenu(
  */
 export function RowKebabContextMenuSurface({
   items,
+  swipe,
   children,
 }: {
   items: RowKebabMenuItem[];
-  children: React.ReactElement;
+  /** Swipe left runs this remove action (touch). */
+  swipe?: RowSwipeAction;
+  children: React.ReactElement<{ children?: React.ReactNode }>;
 }): React.JSX.Element {
-  const { onContextMenu, menu, holdProps } = useRowKebabContextMenu(items);
+  const { onContextMenu, menu, holdProps, swipeAction } = useRowKebabContextMenu(items, { swipe });
+  // The strip renders inside the row so it moves with it.
+  const child = swipeAction
+    ? React.cloneElement(children, undefined, children.props.children, swipeAction)
+    : children;
   return (
     <>
-      <Slot.Root onContextMenu={onContextMenu} {...holdProps}>{children}</Slot.Root>
+      <Slot.Root onContextMenu={onContextMenu} {...holdProps}>{child}</Slot.Root>
+      {menu}
+    </>
+  );
+}
+
+/**
+ * Render-prop form for rows drawn in a .map() whose element can't take Slot
+ * props (KitSettingsRow takes them as `holdProps`). Renders the menu itself.
+ *
+ *   <RowGestures key={id} swipe={{ label: "Delete", onSwipe }}>
+ *     {(g) => <KitSettingsRow holdProps={g.holdProps} …>{g.swipeAction}</KitSettingsRow>}
+ *   </RowGestures>
+ */
+export function RowGestures({
+  items = [],
+  swipe,
+  children,
+}: {
+  items?: RowKebabMenuItem[];
+  swipe?: RowSwipeAction;
+  children: (g: Pick<RowKebabContextMenu, "holdProps" | "swipeAction" | "onContextMenu">) => React.ReactNode;
+}): React.JSX.Element {
+  const { onContextMenu, menu, holdProps, swipeAction } = useRowKebabContextMenu(items, { swipe });
+  return (
+    <>
+      {children({ onContextMenu, holdProps, swipeAction })}
       {menu}
     </>
   );

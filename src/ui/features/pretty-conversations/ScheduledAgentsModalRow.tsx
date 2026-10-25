@@ -155,7 +155,10 @@ export function ScheduledAgentsModalRow({
     { label: "Open", onClick: () => onOpen(row), testId: `${testId}-open` },
     { label: "Delete…", danger: true, onClick: () => onDelete(row), testId: `${testId}-delete` },
   ];
-  const contextMenu = useRowKebabContextMenu(menuItems);
+  // Touch: swipe left deletes (behind the same confirm as the menu's Delete…).
+  const contextMenu = useRowKebabContextMenu(menuItems, {
+    swipe: { label: "Delete", onSwipe: () => onDelete(row) },
+  });
 
   const nowSecs = Math.floor(Date.now() / 1000);
   const when = row.sensor ? (
@@ -234,6 +237,7 @@ export function ScheduledAgentsModalRow({
       holdProps={contextMenu.holdProps}
     >
       {contextMenu.menu}
+      {contextMenu.swipeAction}
     </KitSettingsRow>
   );
 }

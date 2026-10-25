@@ -10,6 +10,7 @@ import * as React from "react";
 // editable targets and empty item lists fall through to the native menu.
 
 import {
+  RowGestures,
   RowKebabMenu,
   RowKebabContextMenuSurface,
   useRowKebabContextMenu,
@@ -317,5 +318,79 @@ describe("useRowKebabContextMenu — press-and-hold (holdProps)", () => {
     render(<Nested />);
     hold(screen.getByTestId("inner"));
     expect(screen.getAllByTestId("row-kebab-context-anchor")).toHaveLength(1);
+  });
+});
+
+describe("useRowKebabContextMenu — swipe left to remove", () => {
+  beforeEach(() => {
+    document.body.innerHTML = "";
+    vi.useFakeTimers();
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  function swipeLeft(el: HTMLElement, dx: number): void {
+    el.getBoundingClientRect = () =>
+      ({ width: 200, height: 40, top: 0, left: 0, right: 200, bottom: 40, x: 0, y: 0, toJSON: () => ({}) }) as DOMRect;
+    const at = (x: number) => [{ identifier: 0, clientX: x, clientY: 20, target: el }];
+    fireEvent.touchStart(el, { touches: at(180), changedTouches: at(180) });
+    fireEvent.touchMove(el, { touches: at(170), changedTouches: at(170) });
+    fireEvent.touchMove(el, { touches: at(180 + dx), changedTouches: at(180 + dx) });
+  }
+
+  it("RowGestures: a swipe shows the strip and, past the line, runs the remove", () => {
+    const onSwipe = vi.fn();
+    render(
+      <RowGestures swipe={{ label: "Delete", onSwipe }}>
+        {(g) => (
+          <div data-testid="swipe-row" {...g.holdProps}>
+            Row{g.swipeAction}
+          </div>
+        )}
+      </RowGestures>,
+    );
+    const el = screen.getByTestId("swipe-row");
+    expect(el.hasAttribute("data-swipe-row")).toBe(true);
+    swipeLeft(el, -120);
+    const strip = screen.getByTestId("row-swipe-action");
+    expect(strip.textContent).toBe("Delete");
+    expect(strip.style.width).toBe("120px");
+    expect(el.style.transform).toBe("translateX(-120px)");
+    const end = [{ identifier: 0, clientX: 60, clientY: 20, target: el }];
+    fireEvent.touchEnd(el, { touches: [], changedTouches: end });
+    act(() => {
+      vi.advanceTimersByTime(200);
+    });
+    expect(onSwipe).toHaveBeenCalledTimes(1);
+    // Still there (a cancelled confirm) → slides back.
+    expect(screen.queryByTestId("row-swipe-action")).toBeNull();
+  });
+
+  it("no swipe option → a sideways move does nothing", () => {
+    render(
+      <RowGestures items={[{ label: "Open", onClick: () => {} }]}>
+        {(g) => (
+          <div data-testid="swipe-row" {...g.holdProps}>
+            Row{g.swipeAction}
+          </div>
+        )}
+      </RowGestures>,
+    );
+    const el = screen.getByTestId("swipe-row");
+    swipeLeft(el, -120);
+    expect(screen.queryByTestId("row-swipe-action")).toBeNull();
+    expect(el.hasAttribute("data-swipe-row")).toBe(false);
+  });
+
+  it("RowKebabContextMenuSurface puts the strip inside its row", () => {
+    render(
+      <RowKebabContextMenuSurface items={[]} swipe={{ label: "Delete", onSwipe: () => {} }}>
+        <div data-testid="surface-row">File</div>
+      </RowKebabContextMenuSurface>,
+    );
+    const el = screen.getByTestId("surface-row");
+    swipeLeft(el, -80);
+    expect(el.querySelector('[data-testid="row-swipe-action"]')).toBeTruthy();
   });
 });

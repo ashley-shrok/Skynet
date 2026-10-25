@@ -23,7 +23,6 @@ import {
   writeRoleSkillFileBinary,
   createRoleSkillFile,
   deleteRoleSkillFile,
-  deleteRoleSkill,
   renameRoleSkill,
   RoleSkillAlreadyExistsError,
   RenamedButEditsNotSavedError,
@@ -32,6 +31,7 @@ import {
   type RoleSkillFileEntry,
   roleSkillFileUrl,
 } from "@/api/role-skills-api";
+import { confirmAndDeleteRoleSkill } from "./role-actions";
 import { roleDisplayName } from "@/lib/role-display-name";
 import SkillFileTab, { type SkillFileTabData } from "../SkillFileTab";
 import { fileViewNeverNeedsContent, type BinaryDraft } from "../file-viewers/registry";
@@ -403,22 +403,7 @@ export function RoleSkillView({
   };
 
   const handleDeleteSkill = async (): Promise<void> => {
-    if (
-      !(await kitConfirm({
-        title: `Delete skill "${skill}"?`,
-        body: "This removes the skill and every file inside it. This can't be undone.",
-        confirmLabel: "Delete skill",
-        destructive: true,
-      }))
-    )
-      return;
-    try {
-      await deleteRoleSkill(hostId, roleName, skill);
-      console.info({ operation: "role_skill_deleted", hostId, roleName, skill });
-      onDeleted();
-    } catch (err) {
-      void kitAlert({ title: "Couldn't delete the skill", body: err instanceof Error ? err.message : undefined });
-    }
+    if (await confirmAndDeleteRoleSkill({ hostId, roleName, skill })) onDeleted();
   };
 
   // The open file's view is remounted per file, so its unsaved edits go with

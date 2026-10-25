@@ -29,6 +29,7 @@ import { RoleSkillView } from "./RoleSkillView";
 import { requestOpenScheduledTasks } from "@/features/pretty-conversations/open-scheduled-tasks";
 import { NewRoleView } from "./NewRoleView";
 import { ArchivedRolesView } from "./ArchivedRolesView";
+import { confirmAndArchiveRole } from "./role-actions";
 
 /** The app accent — a role with no colorHue. */
 export const ROLE_FALLBACK_HUE = 190;
@@ -242,6 +243,21 @@ export function RolesWindow({
     [identities, hostId, isShared],
   );
 
+  // A role just archived (from its view or a swipe in the list) leaves the list.
+  const noteArchived = (roleName: string): void => {
+    setRoles((prev) =>
+      prev.status === "ready" ? { status: "ready", data: prev.data.filter((r) => r.name !== roleName) } : prev,
+    );
+    setArchivedKey((k) => k + 1);
+    // Restored earlier and archived again: it counts as archived.
+    setRestoredNames((prev) => {
+      if (!prev.has(roleName)) return prev;
+      const next = new Set(prev);
+      next.delete(roleName);
+      return next;
+    });
+  };
+
   // A new picture keeps its file name, so the library's image needs a fresh URL.
   const [avatarBusts, setAvatarBusts] = useState<Record<string, number>>({});
 
@@ -348,6 +364,18 @@ export function RolesWindow({
         agentsFor={(r) => agentsHolding(r).length}
         avatarBusts={avatarBusts}
         onOpenRole={(role) => void go({ view: "role", role })}
+        onArchiveRole={(role) => {
+          if (hostId == null) return;
+          const id = hostId;
+          void confirmAndArchiveRole({
+            hostId: id,
+            name: role.name,
+            label: roleDisplayName(role.name, role.displayName),
+            agents: agentsHolding(role),
+          }).then((ok) => {
+            if (ok) noteArchived(role.name);
+          });
+        }}
         onNewRole={() => void go({ view: "new" })}
         onOpenArchived={() => void go({ view: "archived" })}
       />
@@ -374,17 +402,7 @@ export function RolesWindow({
           setRolesKey((k) => k + 1);
         }}
         onArchived={() => {
-          setRoles((prev) =>
-            prev.status === "ready" ? { status: "ready", data: prev.data.filter((r) => r.name !== nav.role.name) } : prev,
-          );
-          setArchivedKey((k) => k + 1);
-          // Restored earlier and archived again: it counts as archived.
-          setRestoredNames((prev) => {
-            if (!prev.has(nav.role.name)) return prev;
-            const next = new Set(prev);
-            next.delete(nav.role.name);
-            return next;
-          });
+          noteArchived(nav.role.name);
           void go({ view: "library" });
         }}
         onOpenScheduledTasks={async () => {

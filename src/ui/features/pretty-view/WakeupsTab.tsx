@@ -17,8 +17,10 @@ import {
   KitSettingsGroup,
   KitSettingsRow,
   KitSwitch,
+  kitConfirm,
 } from "@/components/kit";
 import { cn } from "@/lib/utils";
+import { RowGestures } from "@/features/pretty-conversations/RowKebabMenu";
 import type { Wakeup } from "@/api/claude-session-api";
 import type { SensorStatus } from "@/api/sensor-status-types";
 import {
@@ -96,6 +98,7 @@ export function WakeupsTab({
   onToggle,
   onOpen,
   onNew,
+  onDelete,
 }: {
   state: TabState<Wakeup[]>;
   /** Coordinators manage wake-ups from their roles: no button on an empty list. */
@@ -103,6 +106,9 @@ export function WakeupsTab({
   onToggle: (slug: string, enabled: boolean) => Promise<void>;
   onOpen: (slug: string) => void;
   onNew: () => void;
+  /** Swipe left on a row (touch) deletes it, after the same confirm as the
+   *  wake-up's own "Delete wake-up…". */
+  onDelete?: (slug: string) => Promise<void>;
 }) {
   // Rows with an on/off save in flight (several can be at once).
   const [busy, setBusy] = useState<ReadonlySet<string>>(new Set());
@@ -149,12 +155,35 @@ export function WakeupsTab({
     }
   };
 
+  const remove = async (w: Wakeup): Promise<void> => {
+    if (!onDelete) return;
+    const ok = await kitConfirm({
+      title: "Delete this wake-up?",
+      body: `“${w.name}” will stop firing. This can't be undone.`,
+      confirmLabel: "Delete",
+      destructive: true,
+    });
+    if (!ok) return;
+    setError(null);
+    try {
+      await onDelete(w.slug);
+      console.info({ operation: "wakeup_deleted", slug: w.slug, from: "list-swipe" });
+    } catch (e) {
+      setError(`Couldn't delete “${w.name}”: ${e instanceof Error ? e.message : String(e)}`);
+    }
+  };
+
   return (
     <div className="flex flex-col gap-3">
       <KitSettingsGroup note={WAKEUPS_NOTE} data-testid="wakeups-list">
         {state.data.map((w) => (
-          <KitSettingsRow
+          <RowGestures
             key={w.slug}
+            swipe={onDelete ? { label: "Delete", onSwipe: () => void remove(w) } : undefined}
+          >
+            {(g) => (
+          <KitSettingsRow
+            holdProps={g.holdProps}
             data-testid={`wakeup-row-${w.slug}`}
             leading={<WakeupKindTile wakeup={w} off={!w.enabled} />}
             label={<span className={cn("font-semibold", !w.enabled && "text-[var(--k-t2)]")}>{w.name}</span>}
@@ -187,7 +216,11 @@ export function WakeupsTab({
               />
             }
             onClick={() => onOpen(w.slug)}
-          />
+          >
+            {g.swipeAction}
+          </KitSettingsRow>
+            )}
+          </RowGestures>
         ))}
       </KitSettingsGroup>
       {error && (

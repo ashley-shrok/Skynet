@@ -20,6 +20,7 @@ import type { Host } from "@/types/ui-types";
 import { roleAvatarUrl, type RoleSummary } from "@/api/identities-api";
 import type { InstanceWideList } from "@/api/instance-wide-api";
 import { roleDisplayName } from "@/lib/role-display-name";
+import { RowGestures } from "@/features/pretty-conversations/RowKebabMenu";
 import type { TabState } from "../IdentityFileTab";
 import { roleAvatarColor, roleHue } from "./RolesWindow";
 
@@ -41,6 +42,7 @@ export function RolesLibraryView({
   agentsFor,
   avatarBusts,
   onOpenRole,
+  onArchiveRole,
   onNewRole,
   onOpenArchived,
 }: {
@@ -54,6 +56,9 @@ export function RolesLibraryView({
   /** Per role: when its picture last changed here (fresh image URL). */
   avatarBusts?: Record<string, number>;
   onOpenRole: (role: RoleSummary) => void;
+  /** Swipe left on a role row (touch) — archive it, behind the usual confirm.
+   *  Shared roles never get it (they must stop being shared first). */
+  onArchiveRole?: (role: RoleSummary) => void;
   onNewRole: () => void;
   onOpenArchived: () => void;
 }): JSX.Element {
@@ -146,9 +151,12 @@ export function RolesLibraryView({
   const row = (r: RoleSummary): JSX.Element => {
     const label = roleDisplayName(r.name, r.displayName);
     const n = agentsFor(r);
+    const swipe = onArchiveRole && !r.instanceWide ? { label: "Archive", onSwipe: () => onArchiveRole(r) } : undefined;
     return (
+      <RowGestures key={r.name} swipe={swipe}>
+        {(g) => (
       <KitSettingsRow
-        key={r.name}
+        holdProps={g.holdProps}
         leading={
           <KitAvatar
             src={r.avatar ? withBust(roleAvatarUrl(hostId, r.name), avatarBusts?.[r.name]) : null}
@@ -162,7 +170,11 @@ export function RolesLibraryView({
         value={n > 0 ? agentCountLabel(n) : undefined}
         onClick={() => onOpenRole(r)}
         data-testid={`roles-window-row-${r.name}`}
-      />
+      >
+        {g.swipeAction}
+      </KitSettingsRow>
+        )}
+      </RowGestures>
     );
   };
 

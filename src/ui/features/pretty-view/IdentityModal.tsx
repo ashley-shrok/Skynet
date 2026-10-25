@@ -897,6 +897,7 @@ export function IdentityModal({
               void push({ view: "wakeup", slug, title: w?.name ?? slug });
             }}
             onNew={() => void push({ view: "new-wakeup", title: "New wake-up" })}
+            onDelete={(slug) => deleteIdentityWakeup(slug)}
           />
         </TabsContent>
 

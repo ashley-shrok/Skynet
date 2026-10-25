@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Bot, ChevronLeft, FileText, PanelLeft, Plus, User } from "lucide-react";
-import { RowKebabMenu } from "@/features/pretty-conversations/RowKebabMenu";
+import { RowGestures, RowKebabMenu } from "@/features/pretty-conversations/RowKebabMenu";
 import { Modal, ModalHead, ModalBody, ModalFoot, ModalSidebar, useModalFullscreen } from "@/components/modal";
 import {
   KitBanner,
@@ -930,11 +930,13 @@ export default function SkillsEditorModal({
     [apiHostId, selectedSkillName, activeTab],
   );
 
-  const handleDeleteSkill = useCallback(async (): Promise<void> => {
-    if (selectedHostId == null || selectedSkillName == null || selectedIsInstance) return;
+  // Delete one of this host's own skills — from the open skill's ⋯ menu, or a
+  // swipe on its row in the list (which leaves an open skill alone unless it
+  // is the one deleted).
+  const deleteHostSkill = useCallback(async (hostId: number, skillName: string): Promise<void> => {
     if (
       !(await kitConfirm({
-        title: `Delete skill "${selectedSkillName}"?`,
+        title: `Delete skill "${skillName}"?`,
         body: "This removes the skill folder and every file inside it. This can't be undone.",
         confirmLabel: "Delete skill",
         destructive: true,
@@ -943,21 +945,29 @@ export default function SkillsEditorModal({
       return;
     try {
       savingRef.current = true; // bypass draft-guard on the state clear
-      await deleteSkill(selectedHostId, selectedSkillName);
-      const entries = await listSkills(selectedHostId, { includeDistributed: true });
+      await deleteSkill(hostId, skillName);
+      console.info({ operation: "skill_deleted", hostId, skill: skillName });
+      const entries = await listSkills(hostId, { includeDistributed: true });
       setSkills({ status: "ready", data: entries });
-      setSelectedSkillName(null);
-      setFiles({ status: "loading" });
-      setActiveTab(null);
-      setTabData(new Map());
-      setDrafts(new Map());
-      setDirtySet(new Set());
+      if (hostId === selectedHostId && skillName === selectedSkillName && !selectedIsInstance) {
+        setSelectedSkillName(null);
+        setFiles({ status: "loading" });
+        setActiveTab(null);
+        setTabData(new Map());
+        setDrafts(new Map());
+        setDirtySet(new Set());
+      }
       savingRef.current = false;
     } catch (err) {
       savingRef.current = false;
       void kitAlert({ title: "Couldn't delete the skill", body: err instanceof Error ? err.message : undefined });
     }
   }, [selectedHostId, selectedSkillName, selectedIsInstance]);
+
+  const handleDeleteSkill = useCallback(async (): Promise<void> => {
+    if (selectedHostId == null || selectedSkillName == null || selectedIsInstance) return;
+    await deleteHostSkill(selectedHostId, selectedSkillName);
+  }, [selectedHostId, selectedSkillName, selectedIsInstance, deleteHostSkill]);
 
   const clearSkillSelection = useCallback(() => {
     setBinaryDrafts(new Map());
@@ -1209,9 +1219,16 @@ export default function SkillsEditorModal({
   const renderRow = (row: LibraryRow): JSX.Element => {
     const nobody = !row.flags.you && !row.flags.agents;
     const refusedHere = refused?.name === row.name;
+    // Swipe left deletes (touch) — only this host's own, editable skills.
+    const swipe =
+      row.section === "own" && !row.readOnly && !row.instance && selectedHostId != null
+        ? { label: "Delete", onSwipe: () => void deleteHostSkill(selectedHostId, row.name) }
+        : undefined;
     return (
+      <RowGestures key={`${row.section}:${row.name}`} swipe={swipe}>
+        {(g) => (
       <KitSettingsRow
-        key={`${row.section}:${row.name}`}
+        holdProps={g.holdProps}
         label={row.name}
         description={
           refusedHere ? (
@@ -1232,7 +1249,11 @@ export default function SkillsEditorModal({
           </>
         }
         data-testid={`skills-editor-modal-row-${row.name}`}
-      />
+      >
+        {g.swipeAction}
+      </KitSettingsRow>
+        )}
+      </RowGestures>
     );
   };
 

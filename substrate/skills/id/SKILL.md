@@ -640,6 +640,15 @@ opens that same menu when held for about half a second. Moving the finger
 cancels the hold, so scrolling never opens one. Nothing on a touch screen
 can be dragged; a hold opens the menu instead.
 
+**Swipe left to remove (touch).** In list windows, swiping a row left runs
+that row's remove action behind its usual confirm: Files-tab rows and
+scheduled tasks (Delete), roles (Archive — not shared roles), a role's skills
+and the user's own skills in the Skills window (Delete — not shared,
+fleet-distributed or read-only ones), and an agent's wake-ups (Delete). The
+row slides away over a red strip naming the action; cancelling the confirm
+brings it back. Sidebar conversation rows are different: they archive at
+once, with Undo (§ Sidebar content → Conversation rows).
+
 ### Header of the conversation list
 
 One control sits at the top of the conversation list, beside the app logo.

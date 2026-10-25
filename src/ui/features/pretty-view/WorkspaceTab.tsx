@@ -1325,8 +1325,13 @@ function WorkspaceListView({
             const menuItems = rowMenuItems(entry);
 
             return (
-              // Right-click the row → the same menu as its ⋮.
-              <RowKebabContextMenuSurface key={entryPath} items={menuItems}>
+              // Right-click the row → the same menu as its ⋮. Touch: hold
+              // opens it, swipe left deletes (behind the same confirm).
+              <RowKebabContextMenuSurface
+                key={entryPath}
+                items={menuItems}
+                swipe={readOnly ? undefined : { label: "Delete", onSwipe: () => void handleDelete(entry) }}
+              >
               <div
                 data-testid="workspace-row"
                 data-path={entryPath}
