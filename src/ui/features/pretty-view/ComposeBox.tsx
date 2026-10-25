@@ -1997,7 +1997,7 @@ export function ComposeBox({
         hostName={hostName}
         onAnswer={handleAskAnswer}
         onOpenFile={onOpenAskFile}
-        disabled={isHolding === true || recycleActive === true || reconnectingActive === true || canSend === false}
+        disabled={reconnectingActive === true || canSend === false}
       />
     )}
     <div
