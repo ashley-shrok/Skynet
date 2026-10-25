@@ -968,9 +968,9 @@
     background: var(--pv-sb-hover);
   }
 }
-/* Phone: about a home screen's icon size at the usual text sizes. */
+/* Phone: an iPhone home screen's icon size (~67pt at a 20px text size). */
 .pv-app-tile.pv-app-tile--mobile {
-  --pv-app-icon: 2.7em;
+  --pv-app-icon: 3.35em;
 }
 
 /* Letter typography for the iconless fallback lives here; the child
