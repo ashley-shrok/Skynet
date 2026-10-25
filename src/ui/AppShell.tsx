@@ -876,8 +876,8 @@ export function AppShell({
         // Close open tabs ONLY on `identity_gone` — the identity folder
         // truly disappeared (self-archive, folder deletion). `pid_stale`
         // fires from the fleet-status stale-reap when a claude PID dies
-        // but the tmux session persists (e.g. /id reset cycles the claude
-        // process inside the same tmux window) — the identity is coming
+        // but the tmux session persists (e.g. a crashed claude relaunched,
+        // or an agent going dormant, inside the same tmux window) — the identity is coming
         // right back, so the tab must stay open. Sidebar row cleanup
         // above applies to both reasons; tab-close is gated. Undefined
         // reason (defensive against a wire-shape drift) treated as

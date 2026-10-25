@@ -8,13 +8,8 @@ import {
   putComposeDraft,
 } from "@/api/compose-drafts-api";
 import { stampIdentitySendLog } from "@/api/identity-send-log-api";
-// Phase 90 Plan 00 Wave 0 Task 3 (D-03 mechanical rewire, user 2026-09-08):
-// the reset button dispatches through the new backend `/agent-reset/:hostId/
-// :tmuxSessionName` endpoint instead of routing through the pretty-view WS
-// funnel. Same behavior end-to-end (drain-sweep + text-clear + onResetClicked
-// + error-message discipline PRESERVED verbatim) — only the dispatch call
-// target changes. Plan 06's relay-pane badge appendage will hit the SAME
-// endpoint as a first-class caller (single seam for both surfaces).
+// Condense conversation posts to /identities/:key/condense (the same request
+// the relay-pane badge's button makes).
 import { authApi } from "@/main-axios";
 import { seedSessionLastMessageAt } from "@/state/session-working-store";
 import { AttachmentChipStrip, type StagedAttachmentLike } from "./AttachmentChipStrip";
@@ -33,7 +28,7 @@ import { MicButton } from "./MicButton";
 import { SkillActionsButton } from "./SkillActionsButton";
 import { RecordingControls } from "./RecordingControls";
 import { HoldFeedbackPill, type HoldFeedback } from "./HoldFeedbackPill";
-import { MemoryGauge, memoryBand } from "./MemoryGauge";
+import { MemoryGauge, condenseConfirm, memoryBand } from "./MemoryGauge";
 import { appendVoiceLabel } from "./voice-label";
 import { AskTray } from "./ask/AskTray";
 import { buildAnswerMessage, trayWrapReply, type QuestionAnswer } from "./ask/answer-format";
@@ -97,7 +92,7 @@ import type { OpenAsk } from "./ask/open-ask";
 //    flushes immediately. pagehide + visibilitychange fire a
 //    fetch(keepalive:true) so a mid-typing tab close survives. A 10s
 //    setInterval retries any dirty body after failed saves. Successful
-//    send (any of Send / go-ahead / reset-send) clears the persisted
+//    send (any of Send / go-ahead / condense) clears the persisted
 //    draft.
 //
 //    NO ERROR UI on failed autosave — mirrors the same "no ghost UI that
@@ -254,13 +249,9 @@ export interface ComposeBoxProps {
   // back to null so a subsequent parent re-render doesn't force-repopulate
   // the textarea with the same value.
   onOverrideTextConsumed?: () => void;
-  // Patch #122: fired synchronously when the meter well's Reset button is
-  // clicked, BEFORE the `/id reset` payload is dispatched via `onSend`.
-  // Lets PrettyView flip `isHolding` true immediately instead of waiting
-  // for the backend `session_holding` WS frame (~seconds delayed).
-  // Optional — omitted when the caller isn't wiring the session-holding
-  // overlay.
-  onResetClicked?: () => void;
+  // Fired once a Condense conversation request has been accepted, so the
+  // parent can show "Condensing…" before the fleet-status poll catches up.
+  onCondenseRequested?: () => void;
   // Patch #96: invoked by the ThumbsUp "good to go" button BEFORE dispatching
   // the message text. Jumps scrollTop to bottom and enters Slack-follow mode
   // so the reply comes in stuck to the tail without waiting for the JSONL echo.
@@ -309,12 +300,9 @@ export interface ComposeBoxProps {
   // show the inline error — the component does not need to pre-emptively
   // block the attempt since onSend returns false when WS is not ready.
   canSend?: boolean;
-  // Patch #122: when true, force all meter well segments to their unlit
-  // state (well glow, border, and background stay intact). user UX rule:
-  // during session recycle the meter should read as `powered but empty`,
-  // not `powered and filled` — segments only re-populate when the backend
-  // emits `context_pct` on the fresh session.
-  isHolding?: boolean;
+  // A condense is under way: the memory pie reads "Condensing…". Nothing
+  // else is disabled — anything sent meanwhile reaches the agent afterwards.
+  condensing?: boolean;
   // Live Claude Code context-window percentage (0-100), scraped by the
   // backend from the tmux status line. null = unknown yet on this attach.
   // Rendered as a vertical fill bar to the left of the textarea:
@@ -332,6 +320,9 @@ export interface ComposeBoxProps {
   // that copy is now universal ("Write a message…") since the identity badge
   // + project breadcrumb carry the who/where context.
   identityName?: string;
+  // The identity's key (its folder name) — where Condense conversation sends
+  // its request. Falls back to tmuxSession when absent.
+  identityKey?: string | null;
   // ============================================================
   // Phase 05 upload wiring — all optional so existing read-only /
   // no-uploads callers stay backward-compatible.
@@ -420,52 +411,23 @@ export interface ComposeBoxProps {
   // clears the aside display and WS-sends {type:'aside_dismissed',
   // hostId, tmuxSession} per CONTEXT.md § Dismiss.
   onAsideDismiss?: () => void;
-  // Quick 260729-j8l: session-recycle-in-flight signal from PrettyView.
-  // When true, every WS-side-effecting compose control is disabled or
-  // hidden (Send button, reset cell, paperclip, ThumbsUp,
-  // Queue, Mic). Textarea REMAINS typeable so user can pre-draft the
-  // next message during the 2-15s recycle window (autosave path
-  // patches #57/#119 untouched → the draft survives the recycle by the
-  // existing mechanism).
-  //
-  // Why SEPARATE from asideActive: aside MORPHS Send into an X/Resume
-  // affordance (identity-hue X icon, onClick fires onAsideDismiss).
-  // Recycle wants Send to STAY as Send but be DISABLED (no morph, no
-  // dismiss handler — there is nothing to dismiss). Because the Send-
-  // button behavior differs, the two props are kept independent — do
-  // NOT collapse into a combined `interactionsDisabled` flag.
-  //
-  // For the aux buttons (attach, ThumbsUp, Queue) and Send-
-  // when-not-morphed, the disable EFFECT is identical to asideActive
-  // (just render `disabled=true`), so those predicates OR-in
-  // `|| recycleActive === true` matching the existing
-  // `|| asideActive === true` pattern verbatim.
-  //
-  // Value is `showOverlay` in PrettyView (delay-armed by ~350ms after
-  // `isHolding` flips true, patch #74). Using `showOverlay` not
-  // `isHolding` here matches the overlay's own visibility gate so the
-  // controls disable exactly when the scrim mounts.
-  recycleActive?: boolean;
   // Phase 24: plan-mode approval prompt is pending. When true, every WS-side-
   // effecting compose control is disabled (Send button STAYS as Send but
   // disabled=true; reset, ThumbsUp, Queue all disabled). Textarea
   // REMAINS typeable so user can pre-draft her feedback message while the
-  // plan-approval prompt is open — matches the recycleActive behavior verbatim.
+  // plan-approval prompt is open.
   //
-  // Why SEPARATE from asideActive AND recycleActive (per CONTEXT § "Do NOT
-  // collapse"): asideActive MORPHS Send into X/Resume; recycleActive keeps
-  // Send as Send but disabled. Because the Send-button behavior differs,
-  // props stay independent. For every aux-button disable predicate that
-  // reads `|| recycleActive === true`, also OR-in `|| reconnectingActive === true`.
+  // Why SEPARATE from asideActive (per CONTEXT § "Do NOT collapse"):
+  // asideActive MORPHS Send into X/Resume; this keeps Send as Send but
+  // disabled. Because the Send-button behavior differs, props stay
+  // independent.
   //
   // Pretty-view WS reconnect window (patch #148 auto-retry between an old
   // socket's onclose and a fresh session frame). During that ~2s window the
-  // WS is not open so onSend would no-op silently; disable Send + reset +
-  // ThumbsUp + Queue exactly like recycleActive.
+  // WS is not open so onSend would no-op silently; disable Send + Condense +
+  // ThumbsUp + Queue.
   // Textarea, mic, and attach stay usable (mic records locally; attach
-  // stores locally until Send). Independent prop rather than OR'd into
-  // recycleActive so future readers of either prop keep their documented
-  // semantics.
+  // stores locally until Send).
   //
   // Value from PrettyView: `status === "error"`.
   reconnectingActive?: boolean;
@@ -786,12 +748,13 @@ export function ComposeBox({
   onOptimisticSend,
   overrideText,
   onOverrideTextConsumed,
-  onResetClicked,
+  onCondenseRequested,
   canSend,
-  isHolding,
+  condensing,
   contextPct,
   hostId,
   tmuxSession,
+  identityKey,
   identityName,
   onGoodToGo,
   onInterrupt,
@@ -811,7 +774,6 @@ export function ComposeBox({
   onRetryBatch,
   asideActive,
   onAsideDismiss,
-  recycleActive,
   reconnectingActive,
   voiceModeFeed,
   className,
@@ -851,7 +813,7 @@ export function ComposeBox({
   // harness death via double Ctrl-C.
   const interruptLastFireRef = useRef<number>(0);
   // Guards async setState from firing after unmount. Load-bearing for
-  // dispatchResetPayload's .then/.catch (line ~2029/2038) — under JSDOM
+  // requestCondense's .then/.catch — under JSDOM
   // teardown a stale promise resolving after the component unmounts
   // schedules a React setState that hits `resolveUpdatePriority`, which
   // needs `window` — and JSDOM has already torn `window` down by then.
@@ -929,39 +891,7 @@ export function ComposeBox({
   // keyword branch where parseFloat resolves to NaN.
   const maxHeightPxRef = useRef<number | null>(null);
 
-  // Patch #83: drain-sweep animation state for the reset cell click.
-  // isDraining triggers "all segments render as dim" so the well
-  // visually empties (each segment's transition-delay is
-  // (SEG_COUNT - 1 - i) * 35ms, so the topmost segment fades first and
-  // the bottommost last — top→bottom sweep). isPulsing peaks the reset
-  // cell's lit-green styling near the end of the drain (~420–770ms)
-  // rather than at click-time, so the cell reads as "flushing the well
-  // through itself" rather than a naked hover flash.
-  const [isDraining, setIsDraining] = useState(false);
   const heldPctRef = useRef<number | null>(null);
-  const [isPulsing, setIsPulsing] = useState(false);
-  const drainEndTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const pulseOnTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const pulseOffTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const clearDrainTimers = useCallback(() => {
-    if (drainEndTimerRef.current) {
-      clearTimeout(drainEndTimerRef.current);
-      drainEndTimerRef.current = null;
-    }
-    if (pulseOnTimerRef.current) {
-      clearTimeout(pulseOnTimerRef.current);
-      pulseOnTimerRef.current = null;
-    }
-    if (pulseOffTimerRef.current) {
-      clearTimeout(pulseOffTimerRef.current);
-      pulseOffTimerRef.current = null;
-    }
-  }, []);
-  useEffect(() => {
-    return () => {
-      clearDrainTimers();
-    };
-  }, [clearDrainTimers]);
 
   // Patch #181: press feedback on every composebox button. Delegated
   // handler on the compose root adds `.pv-btn-pressed` to whatever
@@ -1669,11 +1599,8 @@ export function ComposeBox({
       const glued = rebaseGluedOnPrimary(result.glued, baseText);
       setText(glued);
       scheduleAutosave(glued);
-      // Bounty mic-available-when-composebox-disabled (quick 260731-ulo): during recycle, land transcript in textarea but skip auto-send — user sends manually once the overlay clears.
-      // Phase 24: same treatment during plan-mode pending — text lands, no auto-send.
-      // Reconnect window: same treatment — text lands, no auto-send while WS is between sockets.
-      // quick 260808-cd6: same treatment during dormant/waking — text lands, no auto-send.
-      if (!recycleActive && !reconnectingActive) {
+      // Reconnect window: text lands, no auto-send while WS is between sockets.
+      if (!reconnectingActive) {
         // D-16-05: route through the SAME handleSend — attachment branching,
         // newline normalization, Phase 50 D-18 optimistic-bubble seeding
         // all still apply.
@@ -1695,114 +1622,29 @@ export function ComposeBox({
     voice.start({ autoCommit: true });
   }
 
-  // Reset-send: mirrors handleSend (clears textarea on success, surfaces
-  // inline error on failure) except (a) it wraps the trimmed body in
-  // parentheses appended to "/id reset " so the reset carries a hint
-  // through to the fresh session, and (b) it fires even when the body is
-  // blank — in which case it sends just "/id reset".
-  //
-  // Quick 260803-7vf: split into fireResetSyncFx (synchronous UI effects)
-  // + dispatchResetPayload (payload construction + dispatch tail) so
-  // handleVoiceResetSend can compose them with an await in between —
-  // syncFx runs BEFORE the STT round-trip (patch #122 latency guarantee),
-  // dispatch runs AFTER the transcript resolves so the glued payload
-  // reaches onSend.
-
-  // Synchronous UI effects — MUST run BEFORE any await in the recording
-  // branch (patch #122 latency guarantee: drain-sweep animation fires on
-  // click, not after the ~1-3s STT round-trip).
-  //
-  // quick 260905-d79 invariant: onResetClicked is NOT called here any more.
-  // It moved into dispatchResetPayload's `if (dispatched)` branch so that
-  // a disconnected socket (funnel.send returns false) does NOT falsely mount
-  // the overlay for 10 minutes. The drain-sweep / pulse animation below
-  // still fires unconditionally on click as an always-fire visual affordance.
-  function fireResetSyncFx() {
+  // Condense conversation: asks for the agent's conversation to be compacted
+  // (the supervisor carries the request out). Whatever is typed in the box
+  // goes along as guidance for what the summary keeps, and is cleared once
+  // the request is accepted. While dictating, the recording is transcribed
+  // and glued on first. A failed request keeps the text and says so.
+  function requestCondense(guidance: string) {
     setErrorMessage(null);
-
-    // Patch #83: fire the drain-sweep animation IMMEDIATELY on click,
-    // regardless of dispatch success. Visual feedback on click reads
-    // better than post-hoc gating; the /id reset payload is dispatched
-    // synchronously in the same function anyway, so the drain matches
-    // reality within the ~800ms window. Clear any in-flight drain
-    // first so back-to-back clicks restart cleanly rather than
-    // stacking timers.
-    clearDrainTimers();
-    setIsDraining(true);
-    setIsPulsing(false);
-    pulseOnTimerRef.current = setTimeout(() => {
-      pulseOnTimerRef.current = null;
-      setIsPulsing(true);
-    }, 420);
-    pulseOffTimerRef.current = setTimeout(() => {
-      pulseOffTimerRef.current = null;
-      setIsPulsing(false);
-    }, 770);
-    drainEndTimerRef.current = setTimeout(() => {
-      drainEndTimerRef.current = null;
-      setIsDraining(false);
-    }, 800);
-  }
-
-  // Payload construction + dispatch tail. Body is the raw textarea/glued
-  // string; trim + collapse mirror the pre-refactor behavior exactly.
-  //
-  // Phase 90 Plan 00 Wave 0 Task 3 (D-03 mechanical rewire, user
-  // 2026-09-08): the dispatch call target changed from `funnel.send` (which
-  // routed through the pretty-view WS) to `authApi.post('/agent-reset/…')`
-  // (which routes through the new backend endpoint that opens a one-shot
-  // SSH + dispatches the same `tmux send-keys` split-send the WS path
-  // does). Every OTHER observable is PRESERVED verbatim:
-  //   - fireResetSyncFx already fired at the caller (drain-sweep +
-  //     text-clear are unconditional-on-click affordances, unchanged).
-  //   - onResetClicked STILL fires on dispatch SUCCESS ONLY (quick
-  //     260905-d79 invariant — a disconnected/failed dispatch does NOT
-  //     falsely mount the overlay for 10 minutes).
-  //   - setText("") + clearAfterSend STILL fire on dispatch success.
-  //   - "Not connected — try again in a moment" error message STILL surfaces
-  //     on dispatch failure.
-  // The endpoint constructs the `/id reset (<body>)` payload server-side
-  // from the optional body — we pass the trimmed body verbatim.
-  //
-  // NB: this function's contract shifts from synchronous (funnel.send
-  // returns bool) to fire-and-forget-async (authApi.post returns Promise).
-  // Callers (handleResetSend, handleVoiceResetSend) don't await this — the
-  // observable UX affordances all resolve inside the .then/.catch. Same
-  // shape the AttachmentChipStrip's onSendWithAttachments path already uses.
-  function dispatchResetPayload(body: string) {
-    const trimmed = body.trim();
-    // Phase 85 send-log parity (preserved across the Phase 90 rewire): the
-    // OLD funnel-based dispatch fired stampIdentitySendLog + seedSession
-    // LastMessageAt inside useComposeSend BEFORE onSend was called. The
-    // rewire routes reset off the funnel so we call the same two primitives
-    // directly here to preserve behavior for the row-recency signal on
-    // user's device (D-06 optimistic-advance). Same guards as
-    // useComposeSend (identityName + tmuxSession must both be present).
-    if (identityName != null && identityName !== "" && tmuxSession != null) {
-      const stampTs = Date.now();
-      stampIdentitySendLog(identityName, stampTs);
-      seedSessionLastMessageAt(hostId, tmuxSession, stampTs);
-    }
+    const key = identityKey ?? tmuxSession ?? "";
     authApi
-      .post(
-        `/agent-reset/${hostId}/${encodeURIComponent(tmuxSession ?? "")}`,
-        { body: trimmed },
-      )
+      .post(`/identities/${encodeURIComponent(key)}/condense`, {
+        hostId,
+        guidance: guidance.trim(),
+      })
       .then((response) => {
-        // 200 + {ok:true} → dispatch succeeded; run success-path effects.
-        // Any other shape → surface the not-connected error message (matches
-        // pre-rewire dispatched=false semantics).
-        //
-        // isMountedRef guard: swallow the state updates when a stale promise
-        // resolves after the component unmounted (JSDOM teardown race —
-        // see isMountedRef ref definition above).
+        // isMountedRef guard: a stale promise resolving after unmount
+        // (JSDOM teardown race) must not touch state.
         if (!isMountedRef.current) return;
         const okShape =
           response?.data &&
           typeof response.data === "object" &&
           (response.data as { ok?: unknown }).ok === true;
         if (okShape) {
-          onResetClicked?.();
+          onCondenseRequested?.();
           setText("");
           clearAfterSend();
         } else {
@@ -1815,47 +1657,19 @@ export function ComposeBox({
       });
   }
 
-  function handleResetSend() {
-    fireResetSyncFx();
-    dispatchResetPayload(text);
-  }
-
-  // Quick 260803-7vf: recording-state reset — combines send-while-recording
-  // (stop → transcribe → glue) with reset dispatch. fireResetSyncFx runs
-  // FIRST (before any await) so onResetClicked/drain-sweep don't wait on
-  // the STT round-trip. Then await endSend, then dispatch the glued
-  // payload. On STT failure (endSend returns null) we fall back to the
-  // existing textarea body — reset ALWAYS dispatches, never silent no-op
-  // (locked design decision #4).
-  async function handleVoiceResetSend() {
-    fireResetSyncFx();
-    const baseText = text;
-    const result = await voice.endSend(baseText);
-    const body = result ? result.glued : baseText;
-    dispatchResetPayload(body);
-  }
-
-  // Router: branch on voice.state so the meter-well reset button does the
-  // right thing in either idle or recording state. Wired into the reset
-  // button's onClick below.
   // Live voice state for handlers that await a confirm (the dialog doesn't
   // freeze the page, so recording can start or stop while it's open).
   const voiceStateRef = useRef(voice.state);
   voiceStateRef.current = voice.state;
 
-  async function handleResetClick() {
-    if (
-      !(await kitConfirm({
-        title: "Reset the agent's context window?",
-        body: "It saves where it's up to, then restarts fresh.",
-        confirmLabel: "Reset",
-      }))
-    )
-      return;
+  async function handleCondenseClick() {
+    if (!(await kitConfirm(condenseConfirm(true)))) return;
     if (voiceStateRef.current === "recording") {
-      void handleVoiceResetSend();
+      const baseText = text;
+      const result = await voice.endSend(baseText);
+      requestCondense(result ? result.glued : baseText);
     } else {
-      handleResetSend();
+      requestCondense(text);
     }
   }
 
@@ -1903,14 +1717,9 @@ export function ComposeBox({
   }
 
   function handleKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
-    // Quick 260729-j8l: during session recycle the Send button is
-    // disabled (via sendDisabled below) but the textarea stays typeable
-    // so user can pre-draft the next message. Swallow the Enter-send
-    // path too so a bare Enter can't slip past the disabled button.
-    // Phase 24: same treatment during plan-mode pending — textarea stays
-    // typeable but Enter-send is swallowed.
-    // Reconnect window: same treatment — Enter can't slip past disabled Send.
-    if (recycleActive || reconnectingActive) return;
+    // Reconnect window: Send is disabled (via sendDisabled below) but the
+    // textarea stays typeable; swallow Enter so it can't slip past.
+    if (reconnectingActive) return;
     // Touch devices: Enter inserts a newline (browser default); Send button sends.
     if (isTouchDevice === true) return;
 
@@ -1957,7 +1766,6 @@ export function ComposeBox({
   // for the primaryHold construction (which itself moved up so its
   // holdInitiatedRef can be read inside showMicButton).
   const sendDisabled =
-    recycleActive === true ||
     reconnectingActive === true ||
     (canSend === false && !hasAttachments) ||
     (text.trim() === "" && !hasAttachments);
@@ -1997,8 +1805,8 @@ export function ComposeBox({
     suspended: voice.state !== "idle",
     send: (transcript) => {
       // Same gate as handleVoiceSend's auto-send: no dispatch while the pane
-      // is recycling or between sockets — onUndelivered parks the words.
-      if (recycleActive || reconnectingActive) return false;
+      // is between sockets — onUndelivered parks the words.
+      if (reconnectingActive) return false;
       const payload = normalizeNewlinesForSend(transcript.trim());
       if (!payload) return true;
       return funnelSend(appendVoiceLabel(payload), { trigger: "voice-mode" });
@@ -2113,7 +1921,7 @@ export function ComposeBox({
   // and the same round button turning into 👍 under a second tap would
   // restart the agent that was just stopped.
   const working = agentWorking === true || interruptFeedback != null;
-  const quickDisabled = asideActive === true || recycleActive === true || reconnectingActive === true;
+  const quickDisabled = asideActive === true || reconnectingActive === true;
   const mainAction: "resume" | "send" | "stop" | "thumbs" = asideActive
     ? "resume"
     : hasDraft || !harness
@@ -2138,8 +1946,7 @@ export function ComposeBox({
   const recordingHere = voice.state === "starting" || voice.state === "recording";
   // The card's red edge follows the memory pie, which holds its last reading
   // through brief dropouts — hold it here the same way.
-  if (isDraining || isHolding === true) heldPctRef.current = null;
-  else if (contextPct != null) heldPctRef.current = contextPct;
+  if (contextPct != null) heldPctRef.current = contextPct;
 
   const fireInterrupt = () => {
     const now = Date.now();
@@ -2301,9 +2108,9 @@ export function ComposeBox({
         {harness && !(isTouchDevice === true && recordingHere) && (
           <MemoryGauge
             pct={contextPct ?? null}
-            emptied={isDraining || isHolding === true}
-            resetDisabled={canSend === false || asideActive === true || recycleActive === true || reconnectingActive === true || voice.state === "transcribing"}
-            onStartFresh={() => { void handleResetClick(); }}
+            condensing={condensing === true}
+            condenseDisabled={canSend === false || asideActive === true || reconnectingActive === true || voice.state === "transcribing"}
+            onCondense={() => { void handleCondenseClick(); }}
           />
         )}
         {/* Hands-free voice mode (harness only). Steps aside while this
@@ -2315,7 +2122,6 @@ export function ComposeBox({
             // end the manual recording's track).
             disabled={
               asideActive === true ||
-              recycleActive === true ||
               reconnectingActive === true ||
               manualRecordingAnywhere ||
               (voiceMode.phase === "off" && voiceModeAnywhere)

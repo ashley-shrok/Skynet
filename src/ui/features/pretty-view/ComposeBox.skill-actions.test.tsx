@@ -184,14 +184,18 @@ describe("ComposeBox — skill-actions menu", () => {
     }
   });
 
-  it.each([
-    ["recycleActive", { recycleActive: true }],
-    ["reconnectingActive", { reconnectingActive: true }],
-  ])("disabled exactly like thumbs-up while %s", async (_label, extra) => {
-    render(<ComposeBox {...baseProps(extra)} />);
+  it("disabled exactly like thumbs-up while reconnectingActive", async () => {
+    render(<ComposeBox {...baseProps({ reconnectingActive: true })} />);
     const btn = await findButton();
     expect(btn.disabled).toBe(true);
     expect((screen.getByLabelText("Send 'thumbs up'") as HTMLButtonElement).disabled).toBe(true);
+  });
+
+  it("stays enabled while condensing (nothing is disabled during a condense)", async () => {
+    render(<ComposeBox {...baseProps({ condensing: true })} />);
+    const btn = await findButton();
+    expect(btn.disabled).toBe(false);
+    expect((screen.getByLabelText("Send 'thumbs up'") as HTMLButtonElement).disabled).toBe(false);
   });
 
   it("disabled while asideActive (the thumbs-up steps away for Resume then)", async () => {

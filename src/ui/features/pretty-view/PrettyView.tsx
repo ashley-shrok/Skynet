@@ -50,7 +50,6 @@ import { attentionKey, subscribeDmArrival } from "@/state/attention-store";
 import "@/components/kit/kit.css";
 import "./conversation.css";
 import { AsideBubble } from "./AsideBubble";
-import { SessionHoldingOverlay } from "./SessionHoldingOverlay";
 import { PrettyViewLoadingOverlay } from "./PrettyViewLoadingOverlay";
 import { PrettyViewErrorOverlay } from "./PrettyViewErrorOverlay";
 import { usePaneResolvingMachine } from "./usePaneResolvingMachine";
@@ -109,18 +108,11 @@ import {
 // Phase 137 Plan 03 (D-16): UserPreferences type for the fallbackVoice
 // resolution chain in the speak flow.
 import type { UserPreferences } from "@/api/open-tabs-api";
-// Phase 53 Plan 03 — the retired recycling bridge import is REMOVED here
-// (see tombstone comment near line ~2415 and Task 2 deletion).
 import {
   useSessionIsWorking,
   useSessionIsWorkingRaw,
-  // Phase 53 Plan 03 — backend-authoritative recycling axis hook (Plan 53-02).
-  // Replaces the retired client-side recycling bridge which required this
-  // PrettyView to be mounted for a row's recycling state to be accurate.
-  // Consumed at THREE sites: SessionHoldingOverlay mount gate, ComposeBox
-  // isHolding, ComposeBox recycleActive — all three fed from the same
-  // isRecycling boolean (CONTEXT.md "one source for both surfaces" scope-lock).
-  useSessionIsRecycling,
+  // Backend-authoritative condensing axis — the memory pie's "Condensing…".
+  useSessionIsCondensing,
   useSessionActivityMtime,
 } from "@/state/session-working-store";
 import { useSessionWaitingFor } from "@/state/session-waiting-store";
@@ -677,6 +669,9 @@ function useFleetIdentityHosts(): Record<string, number> {
   );
 }
 
+/** How long the pie says Condensing… on a request alone, before the poll confirms it. */
+const OPTIMISTIC_CONDENSE_MS = 2 * 60 * 1000;
+
 export function PrettyView({
   source: sourceProp,
   hostId,
@@ -1070,17 +1065,14 @@ export function PrettyView({
   // Phase 3: session-changeover holding state. True during the ~5s gap
   // between the old Claude session's death and the new one's launch (per
   // Plan 03-01 backend's Layer 1 raw-line /exit scan OR Layer 2 discovery-
-  // repoll's SIGTERM-fallback path). Cleared by `session_changed` (recycle
-  // completed) or `inactive` with reason "holding_timeout" (recycle failed).
+  // repoll's SIGTERM-fallback path). Cleared by `session_changed` (the new
+  // session landed) or `inactive` with reason "holding_timeout" (it never did).
   // WebSocket is NOT closed during holding — the tail restart is server-side
   // and transparent to this client (see CONTEXT.md § Frontend event handling).
   //
-  // Phase 30 (PS30-04): isHolding local state slot DELETED — the
-  // ComposeBox isHolding prop now derives from `renderedState === "holding"`
-  // (backend-authoritative). setIsHolding sites in the WS handler cases
-  // for session_holding / session_holding_cleared / session_changed /
-  // inactive are also DELETED — the pane_state WS frame drives the
-  // rendered state directly through the paneState React state slot below.
+  // Phase 30 (PS30-04): no local holding state — the pane_state WS frame
+  // drives the rendered state directly through the paneState React state
+  // slot below.
   // Patch #87: identity modal open state. Clicking the lg IdentityBadge sets
   // this to true; the IdentityModal handles close via onOpenChange (Esc,
   // backdrop, X button all route through shadcn Dialog's onOpenChange).
@@ -1148,12 +1140,7 @@ export function PrettyView({
   const [feedbackModalContext, setFeedbackModalContext] = useState<
     null | { eventId: string; exchangeText: string }
   >(null);
-  // Phase 30: SessionHoldingOverlay mounts directly on
-  // `renderedState === "holding"`. Patch #74's delay-arm boolean was
-  // retired in Phase 29 (subsumed into the hook's 150ms spinner delay-arm)
-  // and Phase 30 further deletes the spinner delay-arm itself — see the
-  // hook rewrite in Task 2 of Plan 30-03.
-  // phase-29: DELETED — patch #122 warm-red recycle-failed variant flag.
+  // The holding overlay is gone (it covered resets, which are gone too).
   // Retired with the 10-minute client watchdog per SPEC req 5. Backend
   // HOLDING_TIMEOUT_TICKS=200 (10min) remains the authoritative give-up
   // signal; when it fires, backend emits `pane_state` with state=inactive
@@ -1181,59 +1168,33 @@ export function PrettyView({
   // after the paint-delay expires. Hook stays trivial (Phase 30 SPEC — the
   // hook has zero setTimeouts). Companion state slot below.
   const [showResolvingSpinner, setShowResolvingSpinner] = useState(false);
-  // quick 260905-d79 — client-hint-with-backend-override reintroduced.
-  //
-  // Phase 30 (PS30-05) deleted patch #381's client-hint as redundant once
-  // Plan 30-02's JSONL-tail scan closed the sourcing gap. UAT then surfaced
-  // a DIFFERENT gap: source B's SSH poll cadence + SSH exec round-trip still
-  // introduces a few-seconds lag between the user pressing reset and the
-  // `recycling` axis flipping on the wire. This implementation is the
-  // "documented fallback" the Phase 30 comment explicitly named.
-  //
-  // Design:
-  //   - optimisticRecycling: per-pane React state (NOT promoted to
-  //     session-working-store — user's explicit decision this session;
-  //     source B catches the JSONL append within seconds so the
-  //     "user switches tabs mid-recycle" window is small enough to accept
-  //     losing overlay-across-mount).
-  //   - Flipped true ONLY on dispatch success (funnel.send returns true),
-  //     so a disconnected socket does NOT falsely show the overlay for 10 min.
-  //   - Self-clears after 10 minutes if the backend authoritative frame never
-  //     arrives (upper-bound safety net).
-  //   - Backend takeover: when isRecycling flips true the optimistic slot is
-  //     cleared early — the overlay stays mounted via isRecycling; when
-  //     isRecycling subsequently flips false the overlay unmounts cleanly.
-  //   - All three consumer sites (overlay mount gate, isHolding, recycleActive)
-  //     now read from effectiveRecycling = isRecycling || optimisticRecycling.
-  const [optimisticRecycling, setOptimisticRecycling] = useState(false);
-  const optimisticRecyclingTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Condensing: the fleet-status poll only sees a Condense request a few
+  // seconds after it's made, so a successful request flips this local hint
+  // at once. The backend axis takes over when it turns true (effect below);
+  // the hint clears itself after OPTIMISTIC_CONDENSE_MS if it never does.
+  const [optimisticCondensing, setOptimisticCondensing] = useState(false);
+  const optimisticCondensingTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const onResetClicked = useCallback(() => {
-    if (optimisticRecyclingTimerRef.current !== null) {
-      clearTimeout(optimisticRecyclingTimerRef.current);
+  const onCondenseRequested = useCallback(() => {
+    if (optimisticCondensingTimerRef.current !== null) {
+      clearTimeout(optimisticCondensingTimerRef.current);
     }
-    setOptimisticRecycling(true);
-    optimisticRecyclingTimerRef.current = setTimeout(() => {
-      optimisticRecyclingTimerRef.current = null;
-      setOptimisticRecycling(false);
-    }, 10 * 60 * 1000);
+    setOptimisticCondensing(true);
+    optimisticCondensingTimerRef.current = setTimeout(() => {
+      optimisticCondensingTimerRef.current = null;
+      setOptimisticCondensing(false);
+    }, OPTIMISTIC_CONDENSE_MS);
   }, []);
 
   // Cleanup timeout on unmount.
   useEffect(() => {
     return () => {
-      if (optimisticRecyclingTimerRef.current !== null) {
-        clearTimeout(optimisticRecyclingTimerRef.current);
-        optimisticRecyclingTimerRef.current = null;
+      if (optimisticCondensingTimerRef.current !== null) {
+        clearTimeout(optimisticCondensingTimerRef.current);
+        optimisticCondensingTimerRef.current = null;
       }
     };
   }, []);
-
-  // NOTE: The backend-takeover useEffect (watching isRecycling) lives further
-  // below, after `isRecycling` is declared via useSessionIsRecycling. Hooks must
-  // reference the variable AFTER its `const` declaration — placing the effect here
-  // would cause a temporal dead zone ReferenceError. Search for
-  // "backend-takeover clear" to find the effect.
 
   // Phase 124 Plan 02 (shape 3 — message thumbs, D-18/D-23/D-32/D-33/D-34/D-35/D-38):
   // handleThumbsUp / handleThumbsDown are the PrettyView-side handlers wired
@@ -1392,7 +1353,7 @@ export function PrettyView({
   // pieces the pending-only clear misses — the displayed asideText and
   // the 8s dismissCooldownUntilRef. Called from both changeover paths
   // (paneKey change and session_changed WS event) so a new pane or
-  // recycled session starts with a genuinely blank aside surface. Safe
+  // restarted session starts with a genuinely blank aside surface. Safe
   // even if the new pane's tmux has a live BTW overlay: the backend's
   // connect-time re-attach probe (ASIDE-09) re-emits aside_ready.
   const clearAsideState = useCallback(() => {
@@ -2059,8 +2020,8 @@ export function PrettyView({
         ? PENDING_SEND_TIMEOUT_MS_DORMANT
         : PENDING_SEND_TIMEOUT_MS_NORMAL;
       const isAttachmentSend = !!(attachments && attachments.length > 0);
-      // Optimistic WIP skips /id commands (recycle overlay owns
-      // that feedback). WS-not-open sends release it instead of arming.
+      // Optimistic WIP skips /id commands (an identity load is not a turn
+      // of conversation). WS-not-open sends release it instead of arming.
       if (immediateFailure) {
         clearOptimisticWipForMqid(mqid, "immediate-failure");
       } else if (!isIdCommand(payload) || isAttachmentSend) {
@@ -2246,31 +2207,19 @@ export function PrettyView({
     optimisticWipPrevWorkingRef.current = isWorking;
     if (!was && isWorking) clearOptimisticWip("backend-working");
   }, [isWorking, clearOptimisticWip]);
-  // Phase 53 Plan 03 — backend-authoritative recycling signal, sourced from
-  // the working-store's Axis E (Plan 53-02). Replaces the retired client-side
-  // recycling bridge (deleted in Task 2) which required this PrettyView to be
-  // mounted for a row's recycling state to be visible. Consumed by THREE sites below:
-  // the SessionHoldingOverlay mount gate (patch #74 site) AND ComposeBox's
-  // isHolding + recycleActive props. Reuses sessionWorkingKey (line above) —
-  // same key shape.
-  const isRecycling = useSessionIsRecycling(sessionWorkingKey);
-  // quick 260905-d79: composite for all three overlay/ComposeBox consumer sites.
-  // effectiveRecycling = backend-authoritative OR client-optimistic (dispatch success).
-  const effectiveRecycling = isRecycling || optimisticRecycling;
-
-  // quick 260905-d79: backend-takeover clear — when backend authoritative recycling
-  // flips true, the optimistic slot is cleared early. The overlay stays mounted via
-  // `isRecycling`; when isRecycling subsequently flips false the overlay unmounts.
-  // This effect lives HERE (after isRecycling's const declaration) rather than with
-  // the other onResetClicked effects above to avoid a temporal dead zone ReferenceError
-  // (`const isRecycling` is only in scope from this line forward).
+  // Backend-authoritative condensing signal (working-store), OR the local
+  // hint set when this pane's own request succeeded.
+  const isCondensing = useSessionIsCondensing(sessionWorkingKey);
+  const effectiveCondensing = isCondensing || optimisticCondensing;
+  // Backend takeover: once the poll reports condensing, drop the local hint;
+  // the pie then follows the backend until the compaction lands.
   useEffect(() => {
-    if (isRecycling && optimisticRecyclingTimerRef.current !== null) {
-      clearTimeout(optimisticRecyclingTimerRef.current);
-      optimisticRecyclingTimerRef.current = null;
-      setOptimisticRecycling(false);
+    if (isCondensing && optimisticCondensingTimerRef.current !== null) {
+      clearTimeout(optimisticCondensingTimerRef.current);
+      optimisticCondensingTimerRef.current = null;
+      setOptimisticCondensing(false);
     }
-  }, [isRecycling]);
+  }, [isCondensing]);
 
   // Phase 126 Plan 02 (D-02, D-08, D-09, D-10, D-12) — arm-on-new-assistant-bubble.
   //
@@ -2468,7 +2417,7 @@ export function PrettyView({
   // a fresh WS attach that lands on a different sessionFile than the previous
   // WS just emits the normal `session` metadata frame. When the WS is paused
   // (hidden-pane-close) and the target's session file rotates in the meantime
-  // (e.g. `/id reset` recycles the identity), the reopen path silently lands
+  // (e.g. a crashed agent relaunched in a fresh session), the reopen path silently lands
   // on the new file. Under patch #504's insertion-sort, new-file frames
   // (line=1,2,3...) then sort ABOVE the preserved old-file frames — new
   // content lands invisible above the viewport. Compare in the `session`
@@ -2620,8 +2569,8 @@ export function PrettyView({
   // pane's stacking context, so in split view the modal rendered under the
   // neighbouring pane. IdentityModal now portals to document.body with a
   // proper full-viewport backdrop (blocking=true default). The chat-region
-  // wrapper below stays — it's still the geometric parent for
-  // SessionHoldingOverlay's `absolute inset-0`. No ref needed.
+  // wrapper below stays — it's still the geometric parent for the
+  // chat-surface overlays' `absolute inset-0`. No ref needed.
 
   // Phase 4: derive per-pane identity + hue.
   //
@@ -3568,9 +3517,8 @@ export function PrettyView({
           if (parsed.reason === "holding_timeout") {
             // Do NOT setStatus("inactive") on holding_timeout — keep the
             // compose surface flex layout intact so the overlay stays
-            // covered until session_changed (recycle actually completed)
-            // OR another reset click clears it via a fresh pane_state
-            // emit from the backend.
+            // covered until session_changed (the new session landed)
+            // OR a fresh pane_state emit from the backend clears it.
             setInactiveReason(parsed.reason);
             break;
           }
@@ -3748,7 +3696,7 @@ export function PrettyView({
         case "session_holding_cleared": {
           // Fix B (2026-07-30): backend self-cleared holding because the same
           // sessionFile came back active on the next repoll tick (not a real
-          // recycle). Phase 30: the rendered-state transition off "holding"
+          // session change). Phase 30: the rendered-state transition off "holding"
           // comes from the sibling pane_state emit("active",
           // "same_file_recovery") funneled through
           // transitionFromHoldingToActiveSameFile (see Plan 30-01 § L2260).
@@ -3759,7 +3707,7 @@ export function PrettyView({
           break;
         }
         case "session_changed": {
-          // Phase 3 recycle completed: server has stopped the old tail and
+          // Session changed (e.g. a crashed agent relaunched): server has stopped the old tail and
           // started a fresh one on the new sessionFile. Reset ALL per-session
           // state; the incoming `message` events from the fresh tail (which
           // uses `tail -F -n +1`) will re-hydrate the conversation from line 1.
@@ -3772,7 +3720,7 @@ export function PrettyView({
           // arrives (holding only fires from active/streaming). But if a fatal
           // `error` frame from the WS layer landed in the same window (rare —
           // e.g. a network blip that produced a tail_error escalated to error
-          // right before the recycle completed), status would be "error" and
+          // right before the session changed), status would be "error" and
           // the scroll region would not re-mount after our state reset,
           // stranding the user on the error banner even though the backend
           // has successfully switched to a fresh session. One extra line
@@ -3797,10 +3745,10 @@ export function PrettyView({
           setBackgroundedAgents([]);
           setBackgroundedShells([]);
           setStatus("streaming");
-          // Phase 14 followup: full aside-surface reset — a recycled
+          // Phase 14 followup: full aside-surface reset — a new
           // session can't carry a live BTW overlay from the OLD session,
           // and any residual 8s dismiss cooldown is irrelevant across the
-          // recycle. Backend re-attach probe re-emits aside_ready if the
+          // change. Backend re-attach probe re-emits aside_ready if the
           // new session somehow has one.
           clearAsideState();
           // Fix #3 (post-Phase-50 code review): symmetric with backend Fix
@@ -4211,7 +4159,7 @@ export function PrettyView({
   //     below owns the reopen path exclusively.
   //
   // STATE PRESERVATION: messages/contextPct/harnessTasks/backgroundedAgents/
-  // backgroundedShells/asideText/isHolding are NOT touched — they
+  // backgroundedShells/asideText are NOT touched — they
   // survive the close and are immediately visible on re-show. appendDedup
   // absorbs any tail-replay dupes from the fresh tail on reopen (same as reconnect).
   //
@@ -4360,12 +4308,6 @@ export function PrettyView({
   // via the pure resolveRenderedState reducer; the backend's pane_state
   // emit is the authoritative signal for every terminal state and no
   // client-side wall-clock deadline can override it.
-
-  // Phase 53 Plan 03 — the publishSessionRecycling useEffect was retired here.
-  // The overlay + ComposeBox recycling props now read the backend-authoritative
-  // recycling axis via useSessionIsRecycling(sessionWorkingKey) above (see
-  // line ~1075). The retired client-side recycling bridge store was deleted
-  // in this plan's Task 2 (see 53-03-SUMMARY.md).
 
   // Phase 14 (plain-language-translation-asides) Wave 3 — isIdle-transition
   // arm emitter. This is THE SOLE trigger source for the aside subsystem
@@ -4737,55 +4679,13 @@ export function PrettyView({
         />
       )}
       {/* Chat-region wrapper. `relative` provides the positioning parent
-          for SessionHoldingOverlay's `absolute inset-0`; `flex-1 flex
+          for the chat-surface overlays' `absolute inset-0`; `flex-1 flex
           flex-col` lets its children (status branches, chat-content,
           harness/agents/shells panels) arrange vertically with chat-content
           flex-1 filling remaining space. (2026-09-30 UAT: IdentityModal
           no longer portals into this wrapper — see the useState delete
           near L2164 for why.) */}
       <div className="relative flex-1 min-h-0 flex flex-col">
-      {/* Patch #74 + quick 260729-j8l: session-recycle overlay.
-          Absolute-positioned via SessionHoldingOverlay's own
-          `absolute inset-0`. Quick 260729-j8l moved the mount from
-          data-pv-root into THIS chat-region wrapper (the same wrapper
-          IdentityModal portals INTO for the "modal covers only bubble/
-          tasks/shells" treatment) so the scrim is geometrically
-          constrained to messages/tasks/shells and leaves ComposeBox
-          uncovered. That in turn lets user pre-draft the next
-          message during the 2-15s recycle window — the ComposeBox
-          textarea stays typeable while every WS-side-effecting
-          control (Send, reset cell, paperclip, ThumbsUp, Lightbulb,
-          Queue, Mic) is disabled via ComposeBox's `recycleActive`
-          prop wired below. Mount gate is `isRecycling`
-          (Phase 53 Plan 03 rewire — backend-authoritative via working-store). Sits
-          BELOW IdentityBadge (z-[99] < z-[101]) so the badge stays
-          visible and clickable during a recycle (user wants the
-          identity affordance reachable mid-recycle — supersedes patch
-          #111 rationale), still below app-modal dialogs (z-[500]) —
-          component-local, not an app-modal event.
-          Replaces the previous sticky top-of-scroll banner (retired
-          in patch #74) per user's live 2026-07-19 design read.
-
-          quick 260812-ma8: this wrapper hosts SessionHoldingOverlay only.
-          (The former dormant-overlay was moved OUT of this wrapper into
-          the scroll container in mid-August 2026, then deleted entirely
-          in Phase 56 Plan 03.) */}
-      {/* Phase 53 Plan 03 — SessionHoldingOverlay mount gate swapped to
-          the backend-authoritative recycling axis (working-store Axis E)
-          via `useSessionIsRecycling(sessionWorkingKey)` (computed at the
-          hook scope near line ~1075). Previously (Phase 30 PS30-06) this
-          was gated on the paneState WS frame from THIS pane's own
-          claude-session server — an unmounted pane's row therefore could
-          not observe its own recycling state, which is the bug this phase
-          closes. `isRecycling` is derived from the fleet-status poller
-          reading the caretaker's `.recycled-at` sentinel per Plan 53-01.
-          The connection-drop overlay (a separate concern per CONTEXT.md)
-          stays on `wsTransportState`. Phase 30 PS30-06 `error` prop was
-          retired in Phase 29 and stays retired.
-          quick 260905-d79: now gated on `effectiveRecycling` (= isRecycling
-          || optimisticRecycling) — single source for all three consumer sites
-          (this mount gate, isHolding, recycleActive). */}
-      {effectiveRecycling && <SessionHoldingOverlay />}
       {/* Phase 30 (PS30-06) + phase-30-restore-resolving-overlay-paint-delay
           (2026-08-10): PrettyViewLoadingOverlay is the resolving-state
           spinner. Mount gate is `showResolvingSpinner` — a boolean flipped
@@ -4822,7 +4722,7 @@ export function PrettyView({
       {/* Phase 93 Slice 3 (D-20) + Slice 6 post-close reshape:
           ChatSurfaceErrorState — friendly OVERLAY for relay rooms that are no
           longer available (kicked, room-not-found, WS inactive frame). One of
-          the StatusOverlay family (loading, recycling, connection failed).
+          the StatusOverlay family (loading, connection failed).
           The message-list container below
           stays mounted underneath the overlay. Structured log fires from a
           separate useEffect above — do NOT re-inline it here (spamming logs
@@ -5148,8 +5048,8 @@ export function PrettyView({
       <div className="pv-fade-top" aria-hidden="true" />
       {/* The dock: the task list and the composer float over the end of the
           message list on a darkening fade (shape-conversation-view). Above
-          the recycle overlay (z-99) so the composer stays usable for
-          pre-drafting; below the pill (z-101). */}
+          the chat-surface overlays (z-99) so the composer stays usable;
+          below the pill (z-101). */}
       <div ref={setDockEl} className="pv-dock" data-touch={isTouchDevice ? "true" : undefined} data-testid="pv-dock">
         {errorMessage && status === "streaming" && (
           <div className="pv-compose-error text-center">
@@ -5248,7 +5148,7 @@ export function PrettyView({
             // textarea and acks via onOverrideTextConsumed on the same tick.
             overrideText={composeOverrideText}
             onOverrideTextConsumed={handleOverrideTextConsumed}
-            onResetClicked={onResetClicked}
+            onCondenseRequested={onCondenseRequested}
             // Phase 60 finish-line fix (2026-08-29): Phase 60 widened the
             // ComposeBox MOUNT gate above to include `renderedState === "dormant"`
             // (invisible-wake target) and `renderedState === "active"` (cold-
@@ -5287,21 +5187,10 @@ export function PrettyView({
               renderedState === "active" ||
               renderedState === "inactive"
             }
-            // Phase 53 Plan 03 — isHolding now derives from `isRecycling`
-            // (working-store Axis E) — one source for all three ComposeBox +
-            // overlay recycle sites per CONTEXT.md scope-lock. Previously
-            // derived from `renderedState === "holding"` (Phase 30 PS30-04).
-            // quick 260905-d79: updated to effectiveRecycling (= isRecycling ||
-            // optimisticRecycling) so controls disable optimistically on dispatch
-            // success, preventing the user from hammering reset again mid-recycle.
-            isHolding={effectiveRecycling}
-            // Phase 53 Plan 03 — recycleActive now derives from `isRecycling`
-            // (same source as isHolding above and the overlay mount). Semantic
-            // preserved (WS-side-effecting controls disabled while the holding
-            // overlay is up). Previously derived from `renderedState === "holding"`.
-            // quick 260905-d79: updated to effectiveRecycling — same source as
-            // isHolding and overlay mount gate per "one source for all three sites".
-            recycleActive={effectiveRecycling}
+            // The memory pie reads "Condensing…" while a condense is under
+            // way; nothing else in the composer is disabled.
+            condensing={effectiveCondensing}
+            identityKey={source.kind === "relay" ? null : pvIdentityKey}
             // Phase 30: reconnectingActive derives from `status === "error"
             // || renderedState === "error"`. status="error" covers the
             // transient reconnect window (WS onclose fired, retry ladder

@@ -35,9 +35,8 @@ vi.mock("@/api/compose-drafts-api", () => ({
   flushComposeDraftKeepalive: vi.fn(),
 }));
 
-// Phase 90 Plan 00 Wave 0 Task 3 (D-03 mechanical rewire): ComposeBox's
-// dispatchResetPayload now uses authApi.post — mock it so voice tests can
-// drive success/failure of the reset-while-recording flow.
+// Condense conversation posts through authApi.post — mock it so voice tests
+// can drive the condense-while-recording flow.
 vi.mock("@/main-axios", async (importOriginal) => {
   const orig = (await importOriginal()) as Record<string, unknown>;
   return {
@@ -155,9 +154,9 @@ beforeEach(() => {
     }),
   );
 
-  // Reset button now shows a kit confirm (kitConfirm) first (patched to prevent
-  // accidental resets). Auto-accept in tests that click it — the confirm
-  // gate itself is covered by ComposeBox.reset-confirm.test.tsx.
+  // Condense shows a kit confirm (kitConfirm) first. Auto-accept in tests
+  // that click it — the confirm gate itself is covered by
+  // ComposeBox.condense.test.tsx.
   autoAnswerKitDialogs({ confirm: true });
 });
 
@@ -171,11 +170,11 @@ afterEach(() => {
 // Tests
 // ---------------------------------------------------------------------------
 
-// shape-conversation-view: the reset is Start fresh in the memory gauge's
-// pop-over. Opens the pop-over and returns the Start fresh button.
-async function openStartFresh(): Promise<HTMLButtonElement> {
+// Condense conversation lives in the memory gauge's pop-over. Opens the
+// pop-over and returns the Condense conversation button.
+async function openCondense(): Promise<HTMLButtonElement> {
   fireEvent.click(screen.getByTestId("memory-gauge"));
-  return (await screen.findByRole("button", { name: "Start fresh" })) as HTMLButtonElement;
+  return (await screen.findByRole("button", { name: "Condense conversation" })) as HTMLButtonElement;
 }
 
 describe("ComposeBox — Phase 16 voice flow", () => {
@@ -471,14 +470,11 @@ describe("ComposeBox — Phase 16 voice flow", () => {
     expect(spinner).toBeNull();
   });
 
-  it("Test 13 (quick 260803-7vf): reset-while-recording glues transcript onto textarea body and dispatches `/id reset (glued)`", async () => {
-    // user 2026-08-03: "if you are recording and you hit the reset button,
-    // then it essentially combines the functionality of the send button when
-    // you're recording and the functionality of the reset button." One click,
-    // one motion, one dispatch. Fire sync fx immediately (patch #122 latency
-    // guarantee: onResetClicked before the ~1-3s STT round-trip), then after
-    // endSend resolves dispatch `/id reset (glued)` where glued = textarea
-    // body + " " + transcript.
+  it("Test 13 (quick 260803-7vf): condense-while-recording glues transcript onto textarea body and sends it as guidance", async () => {
+    // user 2026-08-03 (originally for reset): pressing it while recording
+    // combines the send-while-recording behaviour with the button's own —
+    // one click, one request. After endSend resolves, the condense request
+    // carries guidance = textarea body + " " + transcript.
     vi.stubGlobal(
       "fetch",
       vi.fn().mockResolvedValue({
@@ -488,8 +484,8 @@ describe("ComposeBox — Phase 16 voice flow", () => {
       }),
     );
     const onSend = vi.fn(() => true);
-    const onResetClicked = vi.fn();
-    render(<ComposeBox {...baseProps({ onSend, onResetClicked })} />);
+    const onCondenseRequested = vi.fn();
+    render(<ComposeBox {...baseProps({ onSend, onCondenseRequested })} />);
 
     const textarea = screen.getByPlaceholderText(/message/i) as HTMLTextAreaElement;
     fireEvent.change(textarea, { target: { value: "hi there" } });
@@ -506,28 +502,21 @@ describe("ComposeBox — Phase 16 voice flow", () => {
       recorder.emitData(new Blob(["audio"], { type: "audio/webm" }));
     });
 
-    fireEvent.click(await openStartFresh());
+    fireEvent.click(await openCondense());
 
-    // quick 260905-d79 (updated Phase 90 rewire): onResetClicked now fires
-    // on dispatch SUCCESS from the authApi.post promise resolution (inside
-    // dispatchResetPayload's .then(ok) branch) — not sync-on-click, so a
-    // rejected HTTP dispatch doesn't falsely mount the overlay. Fires after
-    // endSend resolves + authApi.post resolves with {ok:true}.
-    //
-    // Phase 90 Plan 00 Wave 0 Task 3: dispatchResetPayload now hits the
-    // /agent-reset endpoint. The endpoint receives the trimmed body; the
-    // server-side constructs the "/id reset (<body>)" payload. Assertion
-    // rewritten to check the endpoint call params instead of onSend.
+    // onCondenseRequested fires on request SUCCESS (authApi.post resolves
+    // {ok:true}), after endSend resolves. No identityKey prop → the key
+    // falls back to the tmux session.
     const postMock = authApi.post as ReturnType<typeof vi.fn>;
     await waitFor(() => {
       expect(postMock).toHaveBeenCalledWith(
-        "/agent-reset/1/s1",
-        { body: "hi there and one more thing" },
+        "/identities/s1/condense",
+        { hostId: 1, guidance: "hi there and one more thing" },
       );
     });
-    // onSend must NOT have been called for the reset (routes off the funnel).
+    // onSend must NOT have been called (condense routes off the funnel).
     expect(onSend).not.toHaveBeenCalled();
-    expect(onResetClicked).toHaveBeenCalled();
+    await waitFor(() => expect(onCondenseRequested).toHaveBeenCalled());
 
     // Textarea cleared after successful dispatch.
     await waitFor(() => {
@@ -535,11 +524,10 @@ describe("ComposeBox — Phase 16 voice flow", () => {
     });
   });
 
-  it("Test 14 (quick 260803-7vf): reset-while-recording with STT failure falls back to dispatch with existing textarea body", async () => {
-    // Locked design decision #4: reset ALWAYS dispatches when the user
-    // pressed reset. STT failure MUST NOT produce a silent no-op — fall
-    // back to the existing textarea body so user still gets a reset
-    // with contextual hint attached.
+  it("Test 14 (quick 260803-7vf): condense-while-recording with STT failure falls back to the existing textarea body as guidance", async () => {
+    // Locked design decision #4: the request ALWAYS goes when the user
+    // pressed the button. STT failure MUST NOT produce a silent no-op —
+    // fall back to the existing textarea body as guidance.
     vi.stubGlobal(
       "fetch",
       vi.fn().mockResolvedValue({
@@ -549,8 +537,8 @@ describe("ComposeBox — Phase 16 voice flow", () => {
       }),
     );
     const onSend = vi.fn(() => true);
-    const onResetClicked = vi.fn();
-    render(<ComposeBox {...baseProps({ onSend, onResetClicked })} />);
+    const onCondenseRequested = vi.fn();
+    render(<ComposeBox {...baseProps({ onSend, onCondenseRequested })} />);
 
     const textarea = screen.getByPlaceholderText(/message/i) as HTMLTextAreaElement;
     fireEvent.change(textarea, { target: { value: "existing body" } });
@@ -565,26 +553,22 @@ describe("ComposeBox — Phase 16 voice flow", () => {
       recorder.emitData(new Blob(["audio"], { type: "audio/webm" }));
     });
 
-    fireEvent.click(await openStartFresh());
+    fireEvent.click(await openCondense());
 
-    // KEY assertion: reset dispatches with the EXISTING textarea body —
-    // NOT plain "/id reset", NOT a silent no-op. Under Phase 90 rewire the
-    // endpoint receives the body verbatim; the server builds the "/id reset
-    // (<body>)" payload from it.
+    // KEY assertion: the request goes with the EXISTING textarea body as
+    // guidance — NOT a silent no-op.
     const postMock = authApi.post as ReturnType<typeof vi.fn>;
     await waitFor(() => {
       expect(postMock).toHaveBeenCalledWith(
-        "/agent-reset/1/s1",
-        { body: "existing body" },
+        "/identities/s1/condense",
+        { hostId: 1, guidance: "existing body" },
       );
     });
     expect(onSend).not.toHaveBeenCalled();
-    // quick 260905-d79: onResetClicked fires on dispatch SUCCESS from
-    // authApi.post's promise resolution.
-    expect(onResetClicked).toHaveBeenCalled();
+    await waitFor(() => expect(onCondenseRequested).toHaveBeenCalled());
   });
 
-  it("Test 15 (quick 260803-7vf): transcribing state disables Start fresh", async () => {
+  it("Test 15 (quick 260803-7vf): transcribing state disables Condense conversation", async () => {
     // Locked design decision #5: transcribing gate mirrors the send-button
     // transcribing-disable pattern to prevent double-fire. Freeze the
     // transcribing state with a never-resolving fetch (mirrors Test 11).
@@ -605,12 +589,12 @@ describe("ComposeBox — Phase 16 voice flow", () => {
     fireEvent.click(sendTranscriptBtn);
 
     // With fetch frozen the hook stays in "transcribing" — wait for the
-    // transcribing Send spinner, then Start fresh must render disabled.
+    // transcribing Send spinner, then Condense conversation must render disabled.
     await waitFor(() => {
       const send = screen.getByRole("button", { name: "Send" }) as HTMLButtonElement;
       expect(send.querySelector("svg.animate-spin")).not.toBeNull();
     });
-    const btn = await openStartFresh();
+    const btn = await openCondense();
     expect(btn.disabled).toBe(true);
   });
 

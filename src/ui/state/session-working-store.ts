@@ -76,14 +76,13 @@
 // contract of the three-axis single-chokepoint architecture. See
 // 47-CONTEXT.md § Working-store third axis.
 //
-// Phase 53 (Plan 02): the store now carries a FIFTH axis, recycling, with
-// direct swap-and-notify semantics (like dormant Axis D). Publish path grows
-// an Axis E block below Axis D; sourced from the backend-authoritative
-// `.recycled-at` sentinel plumbed by Plan 53-01; consumed by BOTH the
-// PrettyView holding overlay AND the PrettyConversationRow row spinner via
-// useSessionIsRecycling — retires the client-side recycling bridge store
-// (Plan 53-03, deleted) which required a mounted pane to publish; see
-// 53-CONTEXT.md § Shape (one source for both surfaces).
+// Phase 53 (Plan 02): the store carries a FIFTH axis, condensing (then
+// `recycling`, for the retired agent reset), with direct swap-and-notify
+// semantics (like dormant Axis D). Publish path has an Axis E block below
+// Axis D; sourced from the backend-authoritative condense sentinels
+// (`.compact-requested` / `.compacting`, folded into one wire boolean by
+// source B); consumed via useSessionIsCondensing by every surface that shows
+// the agent is condensing, mounted pane or not (one source for all surfaces).
 //
 // Store pattern mirrors src/ui/state/conversation-store.ts: module-scoped
 // `state` object + Map + Set<() => void> listener registry + snapshotVersion
@@ -123,23 +122,20 @@ type WorkingRecord = {
   // in Plan 03 reads a simple boolean. Reconciliation: direct swap-and-notify
   // (no max-wins, no last-wins — just a boolean gate on the sentinel).
   dormant: boolean;
-  // Phase 53 Plan 02 — the backend-authoritative recycling signal mirrored
-  // from the fleet-status wire frame (SessionState.recycling).
-  // `true` when the wire frame carried `recycling: true` (the caretaker's
-  // `.recycled-at` sentinel present, identity being replaced via /id-reset).
-  // `false` when the wire frame carried `false`, `null`, or omitted the field
-  // entirely (safe default — no false positives). Wire's three-valued input
-  // (true / false / null / undefined) collapses to strict boolean at the store
-  // boundary in the Axis E block below via `state_arg.recycling === true`.
-  // Hook consumers read a simple boolean. Reconciliation is direct
-  // swap-and-notify (no max-wins, no last-wins) — recycling is a strict
-  // boolean gate on the sentinel file's presence. Preserved across Axis A
-  // (isWorking) republishes via `recycling: existing?.recycling ?? false` in
-  // the Axis A nextMap write (defensive against the Pitfall-3 pattern
-  // documented in Phase 53 RESEARCH.md). Consumed by useSessionIsRecycling(key),
-  // which Plan 53-03 wires into both the PrettyView holding overlay mount gate
-  // AND the PrettyConversationRow row-spinner input.
-  recycling: boolean;
+  // The backend-authoritative condensing signal mirrored from the
+  // fleet-status wire frame (SessionState.condensing). `true` when the wire
+  // frame carried `condensing: true` (`.compact-requested` or `.compacting`
+  // present — the agent's context is being condensed in place, queued or in
+  // flight). `false` when the wire frame carried `false`, `null`, or omitted
+  // the field entirely (safe default — no false positives). Wire's
+  // three-valued input collapses to strict boolean at the store boundary in
+  // the Axis E block below via `state_arg.condensing === true`. Hook
+  // consumers read a simple boolean. Reconciliation is direct swap-and-notify
+  // (no max-wins, no last-wins). Preserved across Axis A (isWorking)
+  // republishes via `condensing: existing?.condensing ?? false` in the Axis A
+  // nextMap write (defensive against the Pitfall-3 pattern documented in
+  // Phase 53 RESEARCH.md). Consumed by useSessionIsCondensing(key).
+  condensing: boolean;
   // Phase 59 Plan 03 (WIP shell-idle gate — 2026-08-29): stop-gate axes.
   // Mirrors wire `lastStopAt`; `null` when the wire carried null OR omitted
   // the field. Cache-preserved across every Axis (A/B/C/D/E) republish per
@@ -268,21 +264,6 @@ export function publishFleetStatusSessionState(
   state_arg: SessionState,
 ): void {
   const key = `${hostId}:${state_arg.tmuxSession ?? ""}`;
-
-  // Bounty `pv-recycling-flag-latched-true-until-tab-refresh` diagnostic hook (2026-09-08):
-  // log every incoming SessionState frame with per-axis presence + value so console-forward
-  // captures the wire shape server-side. Lets us reconstruct frame history for a stuck
-  // session without needing to catch the bug live in a stuck tab (2026-09-08 diagnostic tab
-  // OOM'd before we could inspect). Small structured line per frame; console-forward is
-  // cheap and batched. Delete when the recycling-latch bounty closes.
-  try {
-    const rec = "recycling" in state_arg ? state_arg.recycling : "<absent>";
-    const wrk = "isWorking" in state_arg ? state_arg.isWorking : "<absent>";
-    const drm = "dormant" in state_arg ? state_arg.dormant : "<absent>";
-    console.info(
-      `[pv-session-state] key=${key} recycling=${JSON.stringify(rec)} isWorking=${JSON.stringify(wrk)} dormant=${JSON.stringify(drm)} axes=[${Object.keys(state_arg).join(",")}]`,
-    );
-  } catch {}
 
   // Phase 62 Plan 04 (WIP hook-based rewrite 2026-08-30) — the affordance
   // stops lying. Two-branch predicate structure:
@@ -449,12 +430,12 @@ export function publishFleetStatusSessionState(
       lastMessageAt: existing?.lastMessageAt ?? null,
       aiTitle: existing?.aiTitle ?? null,
       dormant: existing?.dormant ?? false,
-      recycling: existing?.recycling ?? false,
+      condensing: existing?.condensing ?? false,
       previous: existing?.isWorking ?? null,
       previousLastMessageAt: existing?.lastMessageAt ?? null,
       previousAiTitle: existing?.aiTitle ?? null,
       previousDormant: existing?.dormant ?? false,
-      previousRecycling: existing?.recycling ?? false,
+      previousCondensing: existing?.condensing ?? false,
       lastStopAt: existing?.lastStopAt ?? null,
       lastStatusChangeAt: existing?.lastStatusChangeAt ?? null,
       previousLastStopAt: existing?.lastStopAt ?? null,
@@ -474,7 +455,7 @@ export function publishFleetStatusSessionState(
       lastMessageAt: existing?.lastMessageAt ?? null,
       aiTitle: existing?.aiTitle ?? null,
       dormant: existing?.dormant ?? false,
-      recycling: existing?.recycling ?? false,
+      condensing: existing?.condensing ?? false,
       // Phase 59 Plan 03 — Pitfall-3 preservation: an Axis-A-only isWorking
       // flip that carries no lastStopAt / lastStatusChangeAt signal MUST NOT
       // wipe the cached values. Axes F/G below handle wire-driven updates.
@@ -531,7 +512,7 @@ export function publishFleetStatusSessionState(
         lastMessageAt: existingAfterAxes.lastMessageAt,
         aiTitle: existingAfterAxes.aiTitle,
         dormant,
-        recycling: existingAfterAxes.recycling,
+        condensing: existingAfterAxes.condensing,
         // Phase 59 Plan 03 — preserve stop-gate axes on dormant flip.
         lastStopAt: existingAfterAxes.lastStopAt,
         lastStatusChangeAt: existingAfterAxes.lastStatusChangeAt,
@@ -544,24 +525,25 @@ export function publishFleetStatusSessionState(
     }
   }
 
-  // ── Axis E — recycling swap-and-notify block (Phase 53 Plan 02) ──
-  // Wire semantic (optional field): `recycling: true` sets true; `recycling:
-  // false` sets false (explicit reset); `recycling` absent (undefined)
-  // preserves the cached value — an Axis-A-only republish that carries no
-  // recycling signal must NOT wipe a recycling:true set by a prior frame;
-  // matches the optional-field convention on the wire (recycling?: boolean).
+  // ── Axis E — condensing swap-and-notify block (Phase 53 Plan 02) ──
+  // Wire semantic (optional field): `condensing: true` sets true; `condensing:
+  // false` sets false (explicit reset); `condensing` absent (undefined)
+  // preserves the cached value — source A frames never carry the field, so an
+  // Axis-A-only republish must NOT wipe a condensing:true set by a prior
+  // source-B frame; matches the optional-field convention on the wire
+  // (condensing?: boolean | null).
   //
-  // Direct swap-and-notify: no max-wins, no last-wins — recycling is a strict
-  // boolean gate on the `.recycled-at` sentinel file's presence. Fire only
-  // when we have an explicit signal AND it differs from cache. Brand-new-key
-  // case is handled above in Axis A which now also preserves recycling in its
-  // nextMap write; here we only fire on change.
-  if (state_arg.recycling !== undefined) {
-    const recycling = state_arg.recycling === true;
+  // Direct swap-and-notify: no max-wins, no last-wins — condensing is a
+  // strict boolean gate on the condense sentinels' presence. Fire only when
+  // we have an explicit signal AND it differs from cache. Brand-new-key case
+  // is handled above in Axis A which also preserves condensing in its nextMap
+  // write; here we only fire on change.
+  if (state_arg.condensing !== undefined) {
+    const condensing = state_arg.condensing === true;
     const existingAfterAxes = state.map.get(key);
     if (
       existingAfterAxes !== undefined &&
-      existingAfterAxes.recycling !== recycling
+      existingAfterAxes.condensing !== condensing
     ) {
       const nextMap = new Map(state.map);
       nextMap.set(key, {
@@ -569,11 +551,11 @@ export function publishFleetStatusSessionState(
         lastMessageAt: existingAfterAxes.lastMessageAt,
         aiTitle: existingAfterAxes.aiTitle,
         dormant: existingAfterAxes.dormant,
-        recycling,
-        // Phase 59 Plan 03 — preserve stop-gate axes on recycling flip.
+        condensing,
+        // Phase 59 Plan 03 — preserve stop-gate axes on condensing flip.
         lastStopAt: existingAfterAxes.lastStopAt,
         lastStatusChangeAt: existingAfterAxes.lastStatusChangeAt,
-        // Phase 62 Plan 04 — preserve direct-signal axes on recycling flip.
+        // Phase 62 Plan 04 — preserve direct-signal axes on condensing flip.
         activityMtime: existingAfterAxes.activityMtime,
         stoppedMtime: existingAfterAxes.stoppedMtime,
       });
@@ -611,7 +593,7 @@ export function publishFleetStatusSessionState(
         lastMessageAt: existingAfterAxes.lastMessageAt,
         aiTitle: existingAfterAxes.aiTitle,
         dormant: existingAfterAxes.dormant,
-        recycling: existingAfterAxes.recycling,
+        condensing: existingAfterAxes.condensing,
         lastStopAt,
         lastStatusChangeAt: existingAfterAxes.lastStatusChangeAt,
         // Phase 62 Plan 04 — preserve direct-signal axes on lastStopAt flip.
@@ -649,7 +631,7 @@ export function publishFleetStatusSessionState(
         lastMessageAt: existingAfterAxes.lastMessageAt,
         aiTitle: existingAfterAxes.aiTitle,
         dormant: existingAfterAxes.dormant,
-        recycling: existingAfterAxes.recycling,
+        condensing: existingAfterAxes.condensing,
         lastStopAt: existingAfterAxes.lastStopAt,
         lastStatusChangeAt,
         // Phase 62 Plan 04 — preserve direct-signal axes on
@@ -691,7 +673,7 @@ export function publishFleetStatusSessionState(
         lastMessageAt: existingAfterAxes.lastMessageAt,
         aiTitle: existingAfterAxes.aiTitle,
         dormant: existingAfterAxes.dormant,
-        recycling: existingAfterAxes.recycling,
+        condensing: existingAfterAxes.condensing,
         lastStopAt: existingAfterAxes.lastStopAt,
         lastStatusChangeAt: existingAfterAxes.lastStatusChangeAt,
         activityMtime,
@@ -730,7 +712,7 @@ export function publishFleetStatusSessionState(
         lastMessageAt: existingAfterAxes.lastMessageAt,
         aiTitle: existingAfterAxes.aiTitle,
         dormant: existingAfterAxes.dormant,
-        recycling: existingAfterAxes.recycling,
+        condensing: existingAfterAxes.condensing,
         lastStopAt: existingAfterAxes.lastStopAt,
         lastStatusChangeAt: existingAfterAxes.lastStatusChangeAt,
         activityMtime: existingAfterAxes.activityMtime,
@@ -809,7 +791,7 @@ function advanceSessionLastMessageAt(key: string, ts: number | null): void {
     lastMessageAt: ts,
     aiTitle: existing?.aiTitle ?? null,
     dormant: existing?.dormant ?? false,
-    recycling: existing?.recycling ?? false,
+    condensing: existing?.condensing ?? false,
     // Phase 59 Plan 03 — preserve cached stop-gate axes across the Axis B
     // chokepoint write. Seed-created records default both to null.
     lastStopAt: existing?.lastStopAt ?? null,
@@ -902,7 +884,7 @@ function advanceSessionAiTitle(key: string, title: string | null): void {
     lastMessageAt: existing?.lastMessageAt ?? null,
     aiTitle: title,
     dormant: existing?.dormant ?? false,
-    recycling: existing?.recycling ?? false,
+    condensing: existing?.condensing ?? false,
     // Phase 59 Plan 03 — preserve cached stop-gate axes across the Axis C
     // chokepoint write. Seed-created records default both to null.
     lastStopAt: existing?.lastStopAt ?? null,
@@ -1029,30 +1011,26 @@ export function useSessionIsDormant(key: string | null): boolean {
 }
 
 /**
- * Phase 53 Plan 02 — Hook: derive 'is this session recycling?' for a single
- * key. Returns a strict boolean (never null/undefined).
+ * Hook: derive 'is this session condensing?' for a single key. Returns a
+ * strict boolean (never null/undefined).
  *
  *   - Null key              → false (short-circuit; no useSyncExternalStore work).
  *   - Unknown key           → false (key never published — default-safe).
- *   - recycling === false   → false (sentinel absent; no recycle in flight).
- *   - recycling === true    → true  (sentinel present; identity being replaced
- *                                    via /id-reset).
+ *   - condensing === false  → false (no compaction queued or in flight).
+ *   - condensing === true   → true  (`.compact-requested` or `.compacting`
+ *                                    present — the supervisor is condensing
+ *                                    the agent's context in place).
  *
- * Source: caretaker's ~/fleet/identities/<tmuxSession>/.recycled-at sentinel,
- * plumbed via ssh-poll-orchestrator source A per Phase 53 RESEARCH § Assumption
- * A1, see Phase 53 Plan 01.
- *
- * Consumer surfaces: PrettyView holding overlay mount gate + PrettyConversationRow
- * row-spinner input in Plan 53-03. Retires the client-side recycling bridge store
- * (deleted in 53-03) that previously bridged them — required a mounted pane to
- * publish; any unmounted row was blind to its own session's recycling state.
+ * Source: ~/fleet/identities/<tmuxSession>/.compact-requested + .compacting,
+ * folded into SessionState.condensing by ssh-poll-orchestrator source B.
+ * Works for unmounted rows too — no pane needs to be open to publish it.
  */
-export function useSessionIsRecycling(key: string | null): boolean {
+export function useSessionIsCondensing(key: string | null): boolean {
   const getSnapshot = (): boolean => {
     if (key === null) return false;
     const record = state.map.get(key);
     if (record === undefined) return false;
-    return record.recycling;
+    return record.condensing;
   };
   return useSyncExternalStore(subscribe, getSnapshot, getSnapshot);
 }
@@ -1070,7 +1048,7 @@ export function getSessionWorkingSnapshot(): ReadonlyMap<
     lastMessageAt: number | null;
     aiTitle: string | null;
     dormant: boolean;
-    recycling: boolean;
+    condensing: boolean;
     // Phase 59 Plan 03 — stop-gate axes exposed on the test-only snapshot
     // so Test P can assert Axis-A cache preservation of lastStopAt.
     lastStopAt: number | null;

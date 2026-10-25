@@ -292,6 +292,11 @@ button.pv-float:focus-visible { outline: 2px solid var(--k-acc); outline-offset:
 .pv-mem-pop[data-band="amber"] .pv-mem-pop-bar > i { background: var(--pv-amber); }
 .pv-mem-pop[data-band="red"] .pv-mem-pop-bar > i { background: var(--pv-red); }
 .pv-mem-pop p { margin: 0 0 12px; font-size: 13px; line-height: 1.45; color: var(--k-t2); }
+.pv-mem-condense svg { width: 15px; height: 15px; }
+.pv-mem-condense:disabled { cursor: default; opacity: 0.6; filter: none; }
+/* Condensing: the pie stays, no alarm — the red halo stops while it works. */
+.pv-mem[data-condensing="true"] { padding: 0 11px 0 9px; }
+.pv-mem[data-condensing="true"]::after { animation: none; opacity: 0; }
 
 /* ── Messages ── */
 /* The agent: a solid bubble in its own colour. */

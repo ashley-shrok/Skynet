@@ -195,9 +195,9 @@ describe("PrettyView — reconnect recovery regression (commit 4a28b005)", () =>
     // Send button should now be disabled (reconnectingActive=true derives
     // from status==="error").
     // Assert the thumbs-up (the main button with nothing typed) is disabled —
-    // its disabled gate is reconnectingActive (plus recycle / aside), cleaner
+    // its disabled gate is reconnectingActive (plus aside), cleaner
     // than Send, which isn't rendered with an empty textarea.
-    // (shape-conversation-view moved the reset behind the memory gauge.)
+    // (Condense conversation lives behind the memory gauge.)
     const resetBtnErrored = (await screen.findByRole("button", {
       name: "Send 'thumbs up'",
     })) as HTMLButtonElement;

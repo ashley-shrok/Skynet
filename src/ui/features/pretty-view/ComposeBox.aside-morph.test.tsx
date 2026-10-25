@@ -7,7 +7,7 @@
  * covers the BODY consumption:
  *
  *   Task 1: aux button `disabled` predicates extended with `|| asideActive === true`
- *     - Start fresh (in the memory gauge's pop-over) — disabled when asideActive
+ *     - Condense conversation (in the memory gauge's pop-over) — disabled when asideActive
  *     - paperclip button — disabled when asideActive
  *     - thumbs-up (Send 'thumbs up') — not offered while an aside is up
  *       (shape-conversation-view: the main button is Resume then)
@@ -29,10 +29,10 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, fireEvent } from "@testing-library/react";
 
-// The reset is Start fresh in the memory gauge's pop-over.
-async function openStartFresh(): Promise<HTMLButtonElement> {
+// Condense conversation lives in the memory gauge's pop-over.
+async function openCondense(): Promise<HTMLButtonElement> {
   fireEvent.click(screen.getByTestId("memory-gauge"));
-  return (await screen.findByRole("button", { name: "Start fresh" })) as HTMLButtonElement;
+  return (await screen.findByRole("button", { name: "Condense conversation" })) as HTMLButtonElement;
 }
 
 vi.mock("@/api/compose-drafts-api", () => ({
@@ -59,7 +59,7 @@ describe("ComposeBox — Phase 14 Wave 4 aside morph (Task 1: aux button disable
     localStorage.clear();
   });
 
-  it("Task 1 Test 1: Start fresh becomes disabled when asideActive=true", async () => {
+  it("Task 1 Test 1: Condense conversation becomes disabled when asideActive=true", async () => {
     render(
       <ComposeBox
         {...baseProps({
@@ -67,19 +67,19 @@ describe("ComposeBox — Phase 14 Wave 4 aside morph (Task 1: aux button disable
         })}
       />,
     );
-    const resetBtn = await openStartFresh();
-    expect((resetBtn as HTMLButtonElement).disabled).toBe(true);
+    const condenseBtn = await openCondense();
+    expect((condenseBtn as HTMLButtonElement).disabled).toBe(true);
   });
 
-  it("Task 1 Test 2: Start fresh stays enabled when asideActive is undefined (backward-compat)", async () => {
+  it("Task 1 Test 2: Condense conversation stays enabled when asideActive is undefined (backward-compat)", async () => {
     render(
       <ComposeBox
         {...baseProps({})}
       />,
     );
-    const resetBtn = await openStartFresh();
+    const condenseBtn = await openCondense();
     // canSend=true, no aside → not disabled
-    expect((resetBtn as HTMLButtonElement).disabled).toBe(false);
+    expect((condenseBtn as HTMLButtonElement).disabled).toBe(false);
   });
 
   it("Task 1 Test 3: paperclip button becomes disabled when asideActive=true", () => {

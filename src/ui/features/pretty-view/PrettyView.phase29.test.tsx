@@ -12,22 +12,24 @@
 //     as vitest tests so regressions pin exact file+identifier
 //   GROUP 2-7 — six mount-behavior tests (A-F):
 //     A — pane_state:active → no overlay (message view)
-//     B — pane_state:holding → SessionHoldingOverlay
-//     C — pane_state:holding then pane_state:active → SessionHoldingOverlay
-//         unmounts, message view visible
+//     B — pane_state:holding → no overlay (the holding overlay was retired
+//         with agent reset; holding now only comes from the discovery
+//         repoll, reason discovery_diff)
+//     C — pane_state:holding then pane_state:active → message view +
+//         composer visible
 //     D — no pane_state received → PrettyViewLoadingOverlay (resolving)
 //     E — WS ladder terminally exhausted → PrettyViewErrorOverlay
 //     F — pane_state:holding then transient WS drop → overlay does NOT
 //         flip to resolving (D-11 don't-flicker)
-//   Test G — reset button click assertion (patch #381 anti-pattern
-//     DELETED) — lives inside GROUP 1's grep gates rather than as a
+//   Test G — condense-request callback assertion (patch #381 anti-pattern
+//     stays DELETED) — lives inside GROUP 1's grep gates rather than as a
 //     runtime test, because the assertion is a source-code invariant
-//     (onResetClicked's body contains no client-side pane-state
+//     (onCondenseRequested's body contains no client-side pane-state
 //     mutation) not a rendered-DOM invariant.
 //
 // Sub-step I / Test H — backend-side round-trip latency approximation
 // (F4 acknowledgment on record) — NOT included at the integration level
-// here because it exercises the backend detectIdReset + pane-state-
+// here because it exercises the backend discovery repoll + pane-state-
 // emitter path, which lives under src/backend/claude-session/. Plan
 // 30-01's pane-state-emitter.test.ts already covers the synchronous
 // emit contract; adding a duplicated frontend-integration variant here
@@ -100,14 +102,6 @@ vi.mock("@/hooks/use-is-touch-device", () => ({
 }));
 
 import { PrettyView } from "./PrettyView";
-// Phase 53 Plan 03 — import publishFleetStatusSessionState + __resetForTest to
-// seed the working-store recycling axis for GROUP 3 Test B, GROUP 4 Test C,
-// and GROUP 7 Test F (which assert SessionHoldingOverlay mount/unmount; the
-// overlay is now gated on isRecycling from the working-store, not paneState).
-import {
-  publishFleetStatusSessionState,
-  __resetForTest as resetWorkingStore,
-} from "@/state/session-working-store";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Source-path anchors for grep-level tests (GROUP 1 below).
@@ -196,14 +190,14 @@ describe("Phase 30 — structural-grep gates (PS30-04 + PS30-05 + PS30-06)", () 
     expect(pvSrc).not.toMatch(/\bshowSpinner\b/);
   });
 
-  it("PrettyView.tsx: overlay mount gates use renderedState === '...' (backend-authoritative) — dormant/error use renderedState; resolving uses showResolvingSpinner; holding moved to useSessionIsRecycling (Phase 53 Plan 03); inactive retired 2026-08-31 (branch renders nothing)", () => {
-    // Phase 53 Plan 03: "holding" was intentionally moved off renderedState
-    // and is now driven by useSessionIsRecycling (working-store Axis E).
+  it("PrettyView.tsx: overlay mount gates use renderedState === '...' (backend-authoritative) — dormant/error use renderedState; resolving uses showResolvingSpinner; holding mounts no overlay (retired with agent reset); inactive retired 2026-08-31 (branch renders nothing)", () => {
+    // "holding" mounts no overlay: the holding overlay was retired along
+    // with agent reset (holding now only comes from the discovery repoll).
     // 2026-08-31: the "no active Claude session" inactive fallback was
     // retired — the inactive branch now renders nothing, so there is no
     // renderedState === "inactive" gate to assert. The other overlays still
-    // use renderedState — locked by assertions below. The new hook
-    // consumption is locked by the new grep gate below.
+    // use renderedState — locked by assertions below. The condensing hook
+    // consumption is locked by the grep gate below.
     expect(pvSrc).toMatch(/renderedState === "dormant"/);
     expect(pvSrc).toMatch(/renderedState === "error"/);
     // phase-30-restore-resolving-overlay-paint-delay (2026-08-10): the
@@ -244,10 +238,11 @@ describe("Phase 30 — structural-grep gates (PS30-04 + PS30-05 + PS30-06)", () 
     // pattern above is the load-bearing invariant.)
   });
 
-  it("Test G: onResetClicked no longer contains any client-side pane-state mutation (patch #381 anti-pattern DELETED)", () => {
-    // Find the onResetClicked useCallback body and assert it contains no
-    // setIsHolding, no captureFirstFrame, no setPaneState.
-    const anchorIdx = pvSrc.indexOf("const onResetClicked = useCallback");
+  it("Test G: onCondenseRequested contains no client-side pane-state mutation (patch #381 anti-pattern stays DELETED)", () => {
+    // Find the onCondenseRequested useCallback body and assert it contains
+    // no setIsHolding, no captureFirstFrame, no setPaneState — it only
+    // drives the memory pie's optimistic "Condensing…".
+    const anchorIdx = pvSrc.indexOf("const onCondenseRequested = useCallback");
     expect(anchorIdx).toBeGreaterThan(0);
     // Body extends until the closing `}, [])` (mount-once useCallback).
     const bodyEnd = pvSrc.indexOf("}, [])", anchorIdx);
@@ -258,20 +253,17 @@ describe("Phase 30 — structural-grep gates (PS30-04 + PS30-05 + PS30-06)", () 
     expect(body).not.toMatch(/setPaneState\(/);
   });
 
-  it("Phase 53 Plan 03: PrettyView consumes useSessionIsRecycling from the working-store (NOT the retired session-recycling-store bridge)", () => {
-    // (i) The retired call site is gone — no live open-paren call.
-    // Tombstone comment may name the identifier but must not include `(`.
+  it("PrettyView consumes useSessionIsCondensing from the working-store; the holding overlay and reset/recycling wiring are gone", () => {
+    // Retired bridges stay retired.
     expect(pvSrc).not.toMatch(/publishSessionRecycling\(/);
-    // (ii) No live import from the retired store.
     expect(pvSrc).not.toMatch(/from ["']@\/state\/session-recycling-store["']/);
-    // (iii) New hook consumed from the working-store.
-    expect(pvSrc).toMatch(/useSessionIsRecycling/);
-    // (iv) Overlay mount gate reads isRecycling (not renderedState === "holding").
-    // quick 260905-d79: mount gate now uses `effectiveRecycling` (= isRecycling ||
-    // optimisticRecycling) — still derived from isRecycling as the authoritative
-    // backend axis; the composite is declared immediately after the hook call.
-    // Accept either the old direct form or the new composite form.
-    expect(pvSrc).toMatch(/\{(?:isRecycling|effectiveRecycling) && <SessionHoldingOverlay/);
+    // The condensing axis comes from the working-store and feeds the pie.
+    expect(pvSrc).toMatch(/useSessionIsCondensing\(/);
+    expect(pvSrc).toMatch(/condensing=\{effectiveCondensing\}/);
+    // No holding overlay, no recycling hook.
+    expect(pvSrc).not.toMatch(/<SessionHoldingOverlay/);
+    expect(pvSrc).not.toMatch(/from ["']\.\/SessionHoldingOverlay["']/);
+    expect(pvSrc).not.toMatch(/useSessionIsRecycling/);
   });
 
   it("usePaneResolvingMachine.ts: reduced to trivial derivation (<60 LOC, zero React state/effect machinery)", () => {
@@ -338,10 +330,10 @@ describe("Phase 30 integration — Test A: pane_state:active → no overlay moun
 });
 
 // ═════════════════════════════════════════════════════════════════════════════
-// GROUP 3 — Test B: pane_state:holding → SessionHoldingOverlay
+// GROUP 3 — Test B: pane_state:holding → no overlay
 // ═════════════════════════════════════════════════════════════════════════════
 
-describe("Phase 30 integration — Test B: pane_state:holding → SessionHoldingOverlay mounts", () => {
+describe("Phase 30 integration — Test B: pane_state:holding mounts no overlay", () => {
   let resizeObserverStub: ReturnType<typeof vi.fn>;
 
   beforeEach(() => {
@@ -362,46 +354,27 @@ describe("Phase 30 integration — Test B: pane_state:holding → SessionHolding
     vi.unstubAllGlobals();
   });
 
-  it("session then pane_state:holding → SessionHoldingOverlay mounted", async () => {
+  it("session then pane_state:holding (discovery_diff) → no overlay, no spinner", () => {
     render(<PrettyView hostId={1} tmuxSession="s1" isVisible={true} />);
     const ws = getCurrentWs();
     act(() => { ws.onopen?.(); });
     sendFrame(ws, { type: "session", sessionFile: "/tmp/x.jsonl" });
-    sendFrame(ws, { type: "pane_state", state: "holding", reason: "id_reset" });
-    // Phase 53 Plan 03 — SessionHoldingOverlay mount is now gated on the
-    // backend-authoritative recycling axis (useSessionIsRecycling), not
-    // pane_state:holding. Seed the working-store so the overlay mounts.
-    await act(async () => {
-      publishFleetStatusSessionState("1", {
-        hostId: "1",
-        tmuxSession: "s1",
-        sessionId: "test-session",
-        pid: 12345,
-        status: "idle",
-        backgroundTasks: [],
-        updatedAt: Date.now(),
-        lastMessageAt: null,
-        aiTitle: null,
-        dormant: false,
-        recycling: true,
-      });
-    });
-    // SessionHoldingOverlay carries the "Session recycling" copy per
-    // patch #74's centered card. Look for the recycling status text.
-    expect(screen.getByText(/Session recycling/i)).toBeTruthy();
-    // No other terminal overlay simultaneously.
+    sendFrame(ws, { type: "pane_state", state: "holding", reason: "discovery_diff" });
+    advance(500);
+    // The holding overlay is retired — nothing covers the conversation.
+    expect(screen.queryByText(/Session recycling/i)).toBeNull();
+    expect(screen.queryByRole("status", { name: /Loading conversation/i })).toBeNull();
+    expect(screen.queryByRole("alert")).toBeNull();
     expect(screen.queryByText(/Session is asleep/i)).toBeNull();
     expect(screen.queryByText(/no active Claude session/i)).toBeNull();
-    // Clean up store for subsequent tests.
-    act(() => { resetWorkingStore(); });
   });
 });
 
 // ═════════════════════════════════════════════════════════════════════════════
-// GROUP 4 — Test C: holding → active swap unmounts SessionHoldingOverlay
+// GROUP 4 — Test C: holding → active swap
 // ═════════════════════════════════════════════════════════════════════════════
 
-describe("Phase 30 integration — Test C: holding → active swap unmounts the overlay", () => {
+describe("Phase 30 integration — Test C: holding → active swap", () => {
   let resizeObserverStub: ReturnType<typeof vi.fn>;
 
   beforeEach(() => {
@@ -422,54 +395,20 @@ describe("Phase 30 integration — Test C: holding → active swap unmounts the 
     vi.unstubAllGlobals();
   });
 
-  it("pane_state:holding then pane_state:active → SessionHoldingOverlay unmounts", async () => {
-    render(<PrettyView hostId={1} tmuxSession="s1" isVisible={true} />);
+  it("pane_state:holding then pane_state:active → message view with the composer, no overlay", () => {
+    const { container } = render(<PrettyView hostId={1} tmuxSession="s1" isVisible={true} onSend={vi.fn(() => true)} />);
     const ws = getCurrentWs();
     act(() => { ws.onopen?.(); });
     sendFrame(ws, { type: "session", sessionFile: "/tmp/x.jsonl" });
-    sendFrame(ws, { type: "pane_state", state: "holding", reason: "id_reset" });
-    // Phase 53 Plan 03 — seed recycling:true to mount the overlay.
-    await act(async () => {
-      publishFleetStatusSessionState("1", {
-        hostId: "1",
-        tmuxSession: "s1",
-        sessionId: "test-session",
-        pid: 12345,
-        status: "idle",
-        backgroundTasks: [],
-        updatedAt: Date.now(),
-        lastMessageAt: null,
-        aiTitle: null,
-        dormant: false,
-        recycling: true,
-      });
-    });
-    expect(screen.getByText(/Session recycling/i)).toBeTruthy();
+    sendFrame(ws, { type: "pane_state", state: "holding", reason: "discovery_diff" });
 
-    // Backend emits pane_state:active (recycle completed OR
+    // Backend emits pane_state:active (session change landed OR
     // dormancy_cleared OR same_file_recovery — reason omitted for
     // simplicity, any active is a "swap back to normal" signal).
     sendFrame(ws, { type: "pane_state", state: "active" });
-    // Phase 53 Plan 03 — follow-up publish with recycling:false to clear overlay.
-    await act(async () => {
-      publishFleetStatusSessionState("1", {
-        hostId: "1",
-        tmuxSession: "s1",
-        sessionId: "test-session",
-        pid: 12345,
-        status: "idle",
-        backgroundTasks: [],
-        updatedAt: Date.now(),
-        lastMessageAt: null,
-        aiTitle: null,
-        dormant: false,
-        recycling: false,
-      });
-    });
-    // SessionHoldingOverlay unmounts.
     expect(screen.queryByText(/Session recycling/i)).toBeNull();
-    // Clean up store for subsequent tests.
-    act(() => { resetWorkingStore(); });
+    expect(screen.queryByRole("status", { name: /Loading conversation/i })).toBeNull();
+    expect(container.querySelector('textarea[placeholder="Write a message…"]')).not.toBeNull();
   });
 });
 
@@ -587,50 +526,26 @@ describe("Phase 30 integration — Test F: D-11 don't-flicker (transient WS drop
     vi.unstubAllGlobals();
   });
 
-  it("pane_state:holding then transient WS close → SessionHoldingOverlay stays mounted (D-11)", async () => {
+  it("pane_state:holding then transient WS close → no spinner flicker, no overlay (D-11)", () => {
     render(<PrettyView hostId={1} tmuxSession="s1" isVisible={true} />);
     const ws0 = getCurrentWs();
     act(() => { ws0.onopen?.(); });
     sendFrame(ws0, { type: "session", sessionFile: "/tmp/x.jsonl" });
-    sendFrame(ws0, { type: "pane_state", state: "holding", reason: "id_reset" });
-    // Phase 53 Plan 03 (B5 belt-and-suspenders fix) — SessionHoldingOverlay
-    // mount is now gated on the backend-authoritative recycling axis
-    // (useSessionIsRecycling), not pane_state:holding. Seed the working-store
-    // so the overlay mounts, then verify it stays mounted through a WS drop.
-    await act(async () => {
-      publishFleetStatusSessionState("1", {
-        hostId: "1",
-        tmuxSession: "s1",
-        sessionId: "test-session",
-        pid: 12345,
-        status: "idle",
-        backgroundTasks: [],
-        updatedAt: Date.now(),
-        lastMessageAt: null,
-        aiTitle: null,
-        dormant: false,
-        recycling: true,
-      });
-    });
-    expect(screen.getByText(/Session recycling/i)).toBeTruthy();
+    sendFrame(ws0, { type: "pane_state", state: "holding", reason: "discovery_diff" });
 
     // Transient close — a single retry attempt. wsTransportState goes
     // to "opening" (status=error, reconnectAttempts=1). Under Phase 30
     // the resolveRenderedState reducer's D-11 branch keeps rendering
     // the last-known paneState="holding" instead of reverting to the
-    // resolving spinner. Under Phase 53, the overlay stays because
-    // the working-store recycling axis (isRecycling=true) is independent
-    // of the WS transport state — the backend-authoritative signal
-    // outlives the transient disconnect.
+    // resolving spinner.
     fireClose(ws0);
     // Do NOT advance timers past the backoff — we're mid-drop, not
-    // fully-retried. The overlay must stay mounted.
-    expect(screen.getByText(/Session recycling/i)).toBeTruthy();
-    // No spinner flicker.
+    // fully-retried. Advance past the 400ms paint-delay only.
+    advance(500);
+    // No spinner flicker, and no holding overlay (retired).
     expect(
       screen.queryByRole("status", { name: /Loading conversation/i }),
     ).toBeNull();
-    // Clean up store for subsequent tests.
-    act(() => { resetWorkingStore(); });
+    expect(screen.queryByText(/Session recycling/i)).toBeNull();
   });
 });

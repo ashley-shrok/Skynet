@@ -6,7 +6,6 @@
  * exactly ONE seedSessionLastMessageAt call per send:
  *
  *   Test 1 — text submit (Enter key)
- *   Test 2 — reset button (context-window drain + send)
  *   Test 3 — thumbs-up quick-reply
  *   Test 5 — Send button click (equivalent to text submit; quick-send
  *            is exercised as thumbs-up above)
@@ -81,9 +80,6 @@ describe("useComposeSend — universal send-log hook (Phase 85 Plan 06)", () => 
     vi.clearAllMocks();
     // Patch #129 hygiene: localStorage draft mirror leaks between tests.
     localStorage.clear();
-    // Reset button now shows a kit confirm (kitConfirm) first (patched to prevent
-    // accidental resets). Auto-accept in tests that click it — the confirm
-    // gate itself is covered by ComposeBox.reset-confirm.test.tsx.
     autoAnswerKitDialogs({ confirm: true });
   });
 
@@ -112,32 +108,6 @@ describe("useComposeSend — universal send-log hook (Phase 85 Plan 06)", () => 
 
     expect(seedSessionLastMessageAt).toHaveBeenCalledTimes(1);
     expect(seedSessionLastMessageAt).toHaveBeenCalledWith(42, "ivy", stampTs);
-  });
-
-  it("Test 2: reset button click fires exactly one stamp + one advance", async () => {
-    render(<ComposeBox {...baseProps()} />);
-
-    // shape-conversation-view: the reset is Start fresh in the memory
-    // gauge's pop-over.
-    fireEvent.click(screen.getByTestId("memory-gauge"));
-    const resetBtn = await screen.findByRole("button", { name: "Start fresh" });
-
-    act(() => {
-      fireEvent.click(resetBtn);
-    });
-
-    // The kit confirm resolves asynchronously before the reset dispatches.
-    await waitFor(() => expect(stampIdentitySendLog).toHaveBeenCalled());
-    await new Promise((r) => setTimeout(r, 0));
-    expect(stampIdentitySendLog).toHaveBeenCalledTimes(1);
-    expect(stampIdentitySendLog).toHaveBeenCalledWith("ivy", expect.any(Number));
-
-    expect(seedSessionLastMessageAt).toHaveBeenCalledTimes(1);
-    expect(seedSessionLastMessageAt).toHaveBeenCalledWith(
-      42,
-      "ivy",
-      expect.any(Number),
-    );
   });
 
   it("Test 3: thumbs-up click fires exactly one stamp + one advance", () => {

@@ -232,15 +232,7 @@ import {
   useSessionIsDormant,
   getSessionWorkingSnapshot,
   subscribeSessionWorkingStore,
-  // Phase 53 Plan 03 — recycling axis (Plan 53-02) hook. Replaces the retired
-  // client-side recycling bridge which required a mounted PrettyView pane to
-  // publish the recycling state, leaving unmounted rows blind to their own
-  // session's recycling state.
-  useSessionIsRecycling,
 } from "@/state/session-working-store";
-// Phase 53 Plan 03 — the retired recycling-bridge hook import is REMOVED;
-// now using useSessionIsRecycling from the working-store above
-// (backend-authoritative via Plan 53-01 + Plan 53-02).
 // Phase 92 Plan 04: panel hydrate effect derives pinnedIds from the
 // identities-store's `pinned: boolean` field (populated on-demand from disk
 // by the backend per Plan 92-02) rather than fetching from GET /user-
@@ -537,7 +529,6 @@ const PrettyConversationRowLive = memo(function PrettyConversationRowLive(props:
     inActiveSet,
   } = props;
   const isWorking = useSessionIsWorking(sessionKey);
-  const isRecycling = useSessionIsRecycling(sessionKey);
   const aiTitle = useSessionAiTitle(sessionKey);
   const isRdp = row.rdpHostRow === true;
   const isRelayRoom = typeof row.roomId === "string" && row.roomId.length > 0;
@@ -582,7 +573,6 @@ const PrettyConversationRowLive = memo(function PrettyConversationRowLive(props:
       currentProjectSlug={props.currentProjectSlug}
       subtitleMode={props.subtitleMode}
       isWorking={isWorking}
-      isRecycling={isRecycling}
       inActiveSet={inActiveSet}
       aiTitle={aiTitle}
     />

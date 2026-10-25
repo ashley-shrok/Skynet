@@ -125,7 +125,7 @@ vi.mock("@/state/session-working-store", async (importOriginal) => {
     ...orig,
     useSessionIsWorking: vi.fn(() => false),
     useSessionIsWorkingRaw: vi.fn(() => "idle"),
-    useSessionIsRecycling: vi.fn(() => false),
+    useSessionIsCondensing: vi.fn(() => false),
   };
 });
 

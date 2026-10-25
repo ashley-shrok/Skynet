@@ -206,21 +206,16 @@ export interface SessionState {
   // silently; adding it now gives future readers a canonical browser-side
   // type. MUST stay in lockstep with the backend schema.
   dormant?: boolean | null;
-  // Phase 53 Plan 02 (2026-08-21): the backend-authoritative recycling signal.
-  // Source: the caretaker's ~/fleet/identities/<tmuxSession>/.recycled-at
-  // sentinel file on the target host — renamed from `.recycle-requested` at
-  // recycle-intent detection (before the outgoing claude PID exits), removed
-  // with an 8s delay after the fresh claude is up and driven through `/id`.
-  // Scope is EXCLUSIVELY /id-reset-initiated identity replacement — NOT
-  // memory-cap restarts, NOT dormancy-wake, NOT connection drops. Semantics:
-  // `true` = sentinel present (recycle in flight), `false` = sentinel absent
-  // (any other state), `null` = normalised-null in transit (SSH error),
-  // `undefined` = emitting backend pre-dates Phase 53. Frontend treats
-  // undefined and null identically (both → false at the session-working-store
-  // boundary — see session-working-store.ts Axis E block added in Task 2
-  // below). Mirrors backend `SessionStateSchema.recycling`. MUST stay in
-  // lockstep with the backend schema.
-  recycling?: boolean | null;
+  // The backend-authoritative condensing signal: `true` while the agent's
+  // context is being condensed in place — `.compact-requested` OR
+  // `.compacting` present under ~/fleet/identities/<tmuxSession>/ on the
+  // target host. `false` = neither present, `null` = normalised-null in
+  // transit, `undefined` = the emitting source does not stamp this axis (or
+  // the backend pre-dates it). Frontend treats undefined and null identically
+  // at the session-working-store boundary (Axis E). Mirrors backend
+  // `SessionStateSchema.condensing`. MUST stay in lockstep with the backend
+  // schema.
+  condensing?: boolean | null;
   // Phase 59 Plan 01 (WIP-shell-idle-gate 2026-08-29): the two axes that
   // back the WIP-shell-idle-gate predicate. Together they let the frontend
   // decide whether a `shell` status is real mid-turn work or leftover stale

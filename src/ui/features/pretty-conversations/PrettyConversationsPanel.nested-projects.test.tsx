@@ -354,7 +354,7 @@ vi.mock("@/state/session-working-store", () => ({
   useSessionAiTitle: () => null,
   getSessionWorkingSnapshot: () => new Map(),
   useSessionIsDormant: () => false,
-  useSessionIsRecycling: () => false,
+  useSessionIsCondensing: () => false,
 }));
 
 vi.mock("@/state/session-queue-pending-store", () => ({

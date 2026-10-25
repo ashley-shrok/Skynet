@@ -153,7 +153,7 @@ describe("SplitView — Pane wrapper stacking context (quick-260829-fh3)", () =>
     // — that would indicate the Tailwind class was mistyped as e.g.
     // `isolation-isolate` (which does exist as a longhand utility but is
     // not the shorthand the fix mandated and not the token this repo
-    // uses at SessionHoldingOverlay.tsx:133 et al).
+    // uses on its chat-surface overlays).
     expect(paneOuter.className).not.toMatch(/isolation-/);
   });
 });

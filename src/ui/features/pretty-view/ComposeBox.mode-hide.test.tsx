@@ -57,7 +57,7 @@ describe("ComposeBox mode-hide (Phase 93 Slice 3 Task 2)", () => {
 
   it("Test 2 (mode=relay harness controls hidden): no memory gauge, thumbs-up, Stop or recap — only Send", () => {
     const { container } = render(<ComposeBox {...baseProps({ mode: "relay", onInterrupt: vi.fn(), agentWorking: true })} />);
-    // Memory gauge (and its Start fresh) absent.
+    // Memory gauge (and its Condense conversation) absent.
     expect(container.querySelector('[data-testid="memory-gauge"]')).toBeNull();
     expect(container.querySelector('button[aria-label^="Agent memory"]')).toBeNull();
     // ThumbsUp button absent.

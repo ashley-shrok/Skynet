@@ -3,7 +3,7 @@ import type { ReactNode } from "react";
 // The conversation view's status overlay: a solid darkening over the message
 // area with one card in the middle (styles: .pv-status in conversation.css).
 // Mounted inside the chat region, so the composer below stays usable.
-// Loading, session recycling, connection failed, room gone and drop files all
+// Loading, connection failed, room gone and drop files all
 // use it — a new state of the conversation surface should too.
 
 export interface StatusOverlayProps {

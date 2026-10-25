@@ -21,10 +21,10 @@
  *   - Test 15: type-surface exhaustiveness proof (compile-time only —
  *     tsc --noEmit; runtime is a no-op sanity check)
  *
- * The pattern is copied verbatim from
- * src/backend/claude-session/layer1-detect.test.ts (the canonical fork
- * test-seam analog). No mocks, no timers, no `renderHook` — this is a
- * pure function; the whole test file is `import + expect`.
+ * resolveRenderedState is a pure function over the backend's pane_state
+ * facts (including holding, which the discovery repoll emits while a session
+ * change settles). No mocks, no timers, no `renderHook` — the whole test
+ * file is `import + expect`.
  */
 
 import { describe, it, expect } from "vitest";

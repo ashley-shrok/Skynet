@@ -197,7 +197,7 @@ vi.mock("@/state/session-working-store", () => ({
   useSessionAiTitle: () => null,
   getSessionWorkingSnapshot: () => new Map(),
   useSessionIsDormant: () => false,
-  useSessionIsRecycling: () => false,
+  useSessionIsCondensing: () => false,
 }));
 
 // Phase 137 D-29: GlobalFilesModal retired — mock removed.

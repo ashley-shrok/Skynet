@@ -1408,8 +1408,8 @@ const Pane = memo(function Pane({
         {/* zIndex: 100 — above the pane-local state overlays in the z-[95]
             /z-[99] band (DropOverlay z-[95], SessionHoldingOverlay z-[99],
             PrettyViewLoadingOverlay z-[99], PrettyViewErrorOverlay z-[99]) so
-            the drop-preview stays visible when the pane's session is being
-            recycled or is otherwise showing one of those scrims. Was
+            the drop-preview stays visible when the pane is showing one of
+            those scrims. Was
             zIndex:20 pre-2026-09-02, which sat UNDER SessionHoldingOverlay in
             the shared Pane-isolate stacking context (the .flex-1.relative
             wrapper doesn't establish its own stacking context, so the coral

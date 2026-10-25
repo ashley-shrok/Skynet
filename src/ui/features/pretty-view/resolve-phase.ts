@@ -44,8 +44,9 @@
  *   grep -c "^import " src/ui/features/pretty-view/resolve-phase.ts → 0
  * This is what makes the truth-table unit tests in resolve-phase.test.ts
  * cheap to set up (import + call — no mocks, no timers, no renderHook).
- * The pattern is copied verbatim from
- * src/backend/claude-session/layer1-detect.ts's "no I/O imports" invariant.
+ * The I/O stays on the backend: the discovery repoll decides when a pane is
+ * holding (session file changed, new one not yet settled) and emits
+ * pane_state; this file only maps those facts to a rendered state.
  *
  * ARCHITECTURAL NOTE — post-resolve semantics (D-11 / D-12 inheritance):
  *

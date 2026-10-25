@@ -209,7 +209,6 @@ function PrettyConversationRowImpl({
   projects = [],
   currentProjectSlug = null,
   isWorking = null,
-  isRecycling = false,
   inActiveSet = false,
   subtitleMode = "hostname",
   aiTitle = null,
@@ -303,21 +302,12 @@ function PrettyConversationRowImpl({
   // to render; `null` and `true` both suppress. Panel resolves via
   // useSessionWorking(sessionWorkingKey(row)).
   isWorking?: boolean | null;
-  // quick-260730-qbl: true when the row's pretty-view surface is currently
-  // rendering SessionHoldingOverlay (patch #74). Suppresses the ready-dot
-  // regardless of other conditions — a row whose pane is showing the
-  // "session recycling…" overlay is NOT ready for user's next
-  // instruction, so showing the ready-dot would be a false-positive
-  // signal. Phase 53 Plan 03: Panel resolves via useSessionIsRecycling
-  // (working-store Axis E, backend-authoritative) — keyed identically
-  // to useSessionIsWorking: `${hostId}:${tmuxSession ?? ""}`.
-  isRecycling?: boolean;
   // Phase 47 Plan 04 — the identity's freshest ai-title sourced from the
   // working-store's aiTitle axis (Plan 47-03 LAST-WINS chokepoint). Null
   // when no ai-title has been published yet, or when this row has no
   // working-store key (RDP rows via sessionKey === null → hook short-
   // circuits). Panel resolves via useSessionAiTitle(sessionWorkingKey(row))
-  // — keyed identically to the isWorking / isRecycling stores. Consumed
+  // — keyed identically to the isWorking store. Consumed
   // in Plan 47-05 as the row's subtitle content; NOT yet
   // rendered by this component's tree — the prop is accepted here so the
   // type surface is stable before Plan 47-05 wires the visual. Default
@@ -506,7 +496,7 @@ function PrettyConversationRowImpl({
 
   // No working affordance on the row (user 2026-10-21): the avatar spinner
   // ring is retired — the unread outline and DM badge below carry the
-  // "come look" cue. `working` / `recycling` classes stay as state hooks.
+  // "come look" cue. The `working` class stays as a state hook.
 
   const rowClassName = cn(
     "pv-row",
@@ -514,7 +504,6 @@ function PrettyConversationRowImpl({
     selected && "selected",
     inActiveSet && "active-set",
     isWorking === true && "working",
-    isRecycling === true && "recycling",
     pinned && "pinned",
     // Unread: the agent finished a turn this user hasn't seen. Brighter
     // outline in the row's own hue (pretty-conversations.css).

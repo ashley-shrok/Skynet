@@ -80,7 +80,7 @@ vi.mock("@/state/session-working-store", async (importOriginal) => {
   return {
     ...orig,
     useSessionIsWorking: vi.fn(() => false),
-    useSessionIsRecycling: vi.fn(() => false),
+    useSessionIsCondensing: vi.fn(() => false),
   };
 });
 

@@ -5,8 +5,8 @@
  * Failure mode this closes:
  *   - PrettyView WS pauses via hidden-pane debounced-close (pane hidden 60s).
  *     Messages state preserved across the pause (per WS-pause effect).
- *   - Target's session file rotates while paused (`/id reset` recycles the
- *     identity: new sessionId → new `~/.claude/sessions/<uuid>.jsonl`).
+ *   - Target's session file rotates while paused (e.g. the agent's Claude
+ *     restarts: new sessionId → new `~/.claude/sessions/<uuid>.jsonl`).
  *   - Pane becomes visible → fresh WS opens → backend runs
  *     `startActiveSessionFlow` and emits `{type:"session", sessionFile:<new>}`
  *     as pure metadata. It does NOT emit `session_changed` — that fires only
@@ -79,10 +79,9 @@ vi.mock("@/api/compose-drafts-api", () => ({
   flushComposeDraftKeepalive: vi.fn(),
 }));
 
-// Phase 90 Plan 00 Wave 0 Task 3 (D-03 mechanical rewire): reset now
-// dispatches through authApi.post — mock it success-by-default so tests
-// D1/D2/D3 continue driving the optimistic overlay via the same async
-// success path.
+// Condense conversation posts through authApi.post — mock it
+// success-by-default so tests D1/D2/D3 drive the optimistic "Condensing…"
+// via the async success path.
 vi.mock("@/main-axios", async (importOriginal) => {
   const orig = (await importOriginal()) as Record<string, unknown>;
   return {
@@ -114,19 +113,23 @@ vi.mock("@/hooks/use-is-touch-device", () => ({
 
 import { PrettyView } from "./PrettyView";
 
-// shape-conversation-view: the reset is Start fresh in the memory gauge's
-// pop-over — tap the gauge, then Start fresh (synchronous, so it also works
-// under fake timers).
-function clickStartFresh(container: HTMLElement): void {
+// Condense conversation lives in the memory gauge's pop-over — tap the
+// gauge, then Condense conversation (synchronous, so it also works under
+// fake timers).
+function clickCondense(container: HTMLElement): void {
   const gauge = container.querySelector('[data-testid="memory-gauge"]') as HTMLButtonElement | null;
   expect(gauge).not.toBeNull();
   act(() => {
     fireEvent.click(gauge!);
   });
-  const btn = screen.getByRole("button", { name: "Start fresh" }) as HTMLButtonElement;
+  const btn = screen.getByRole("button", { name: "Condense conversation" }) as HTMLButtonElement;
   act(() => {
     fireEvent.click(btn);
   });
+}
+
+function gauge(container: HTMLElement): HTMLElement | null {
+  return container.querySelector('[data-testid="memory-gauge"]');
 }
 
 function sendSessionFrame(ws: WsStub, sessionFile: string): void {
@@ -380,20 +383,18 @@ describe("PrettyView — session-file rotation detection at fresh-WS attach", ()
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// quick 260905-d79 — optimistic session-recycling overlay cases
-//
-// Three new invariants that prove the client-hint-with-backend-override
-// design works end-to-end:
-//   D1 — reset click → SessionHoldingOverlay mounts immediately, no wire
-//        frame required.
-//   D2 — optimistic mount + backend recycling:true (overlay stays) →
-//        backend recycling:false (overlay unmounts, proving optimistic slot
-//        was cleared by the backend-takeover useEffect).
-//   D3 — optimistic mount + NO backend signal → 10-min timer self-clears
-//        the overlay.
+// Optimistic "Condensing…" on the memory pie (client hint with backend
+// override; the hint pattern came from quick 260905-d79's retired
+// recycling overlay):
+//   D1 — Condense accepted → the pie reads Condensing… immediately, no
+//        wire frame required.
+//   D2 — optimistic hint + backend condensing:true (stays) → backend
+//        condensing:false (clears, proving the optimistic slot was cleared
+//        by the backend-takeover useEffect).
+//   D3 — optimistic hint + NO backend signal → 2-min timer self-clears.
 // ─────────────────────────────────────────────────────────────────────────────
 
-function makeRecyclingState(recycling: boolean) {
+function makeCondensingState(condensing: boolean) {
   return {
     hostId: "1",
     tmuxSession: "s1",
@@ -405,11 +406,11 @@ function makeRecyclingState(recycling: boolean) {
     lastMessageAt: null,
     aiTitle: null,
     dormant: false,
-    recycling,
+    condensing,
   };
 }
 
-describe("PrettyView — quick 260905-d79 optimistic session-recycling overlay", () => {
+describe("PrettyView — optimistic Condensing… on the memory pie", () => {
   const originalGetBoundingClientRect =
     HTMLElement.prototype.getBoundingClientRect;
   const originalOffsetHeightDescriptor = Object.getOwnPropertyDescriptor(
@@ -417,8 +418,8 @@ describe("PrettyView — quick 260905-d79 optimistic session-recycling overlay",
     "offsetHeight",
   );
 
-  // Auto-accept the reset-button kit confirm in the reset-click tests
-  // below. Confirm gate itself is covered by ComposeBox.reset-confirm.test.tsx.
+  // Auto-accept the Condense kit confirm in the tests below. The confirm
+  // gate itself is covered by ComposeBox.condense.test.tsx.
   beforeEach(() => {
     autoAnswerKitDialogs({ confirm: true });
   });
@@ -480,7 +481,7 @@ describe("PrettyView — quick 260905-d79 optimistic session-recycling overlay",
     vi.useRealTimers();
   });
 
-  it("Test D1: reset click immediately mounts SessionHoldingOverlay without any recycling wire frame", async () => {
+  it("Test D1: Condense accepted → the pie reads Condensing… without any condensing wire frame", async () => {
     const { container } = render(
       <PrettyView
         hostId={1}
@@ -493,25 +494,24 @@ describe("PrettyView — quick 260905-d79 optimistic session-recycling overlay",
     // Open WS and send session frame so the compose box is available.
     sendSessionFrame(ws, "/tmp/d1.jsonl");
 
-    // Wait for the memory gauge (home of Start fresh) to appear.
     await waitFor(() => {
-      const btn = container.querySelector('[data-testid="memory-gauge"]');
-      expect(btn).not.toBeNull();
+      expect(gauge(container)).not.toBeNull();
     });
 
-    // No overlay yet — no wire frame published.
+    // Not condensing yet — no wire frame published.
+    expect(gauge(container)!.getAttribute("data-condensing")).toBeNull();
+
+    clickCondense(container);
+
+    // Optimistic slot flipped on request success.
+    await waitFor(() => {
+      expect(gauge(container)!.getAttribute("data-condensing")).toBe("true");
+    });
+    // No overlay of any kind.
     expect(screen.queryByText(/Session recycling/i)).toBeNull();
-
-    // Click reset.
-    clickStartFresh(container);
-
-    // Overlay mounts immediately — optimistic slot flipped on dispatch success.
-    await waitFor(() => {
-      expect(screen.queryByText(/Session recycling/i)).not.toBeNull();
-    });
   });
 
-  it("Test D2: backend recycling:true → overlay stays (optimistic cleared early) → backend recycling:false → overlay unmounts", async () => {
+  it("Test D2: backend condensing:true → stays (optimistic cleared early) → backend condensing:false → clears", async () => {
     const { container } = render(
       <PrettyView
         hostId={1}
@@ -524,36 +524,33 @@ describe("PrettyView — quick 260905-d79 optimistic session-recycling overlay",
     sendSessionFrame(ws, "/tmp/d2.jsonl");
 
     await waitFor(() => {
-      const btn = container.querySelector('[data-testid="memory-gauge"]');
-      expect(btn).not.toBeNull();
+      expect(gauge(container)).not.toBeNull();
     });
 
-    // Click reset — optimistic slot set.
-    clickStartFresh(container);
+    clickCondense(container);
 
     await waitFor(() => {
-      expect(screen.queryByText(/Session recycling/i)).not.toBeNull();
+      expect(gauge(container)!.getAttribute("data-condensing")).toBe("true");
     });
 
-    // Backend authoritative frame lands: recycling:true — overlay stays mounted,
+    // Backend authoritative frame lands: condensing:true — stays, and the
     // optimistic slot is cleared (backend takeover useEffect fires).
     await act(async () => {
-      publishFleetStatusSessionState("1", makeRecyclingState(true));
+      publishFleetStatusSessionState("1", makeCondensingState(true));
     });
-    expect(screen.queryByText(/Session recycling/i)).not.toBeNull();
+    expect(gauge(container)!.getAttribute("data-condensing")).toBe("true");
 
-    // Backend frame: recycling:false — overlay must unmount.
-    // If the optimistic slot were still set, overlay would stay, and this fails —
-    // proving the backend-takeover useEffect correctly cleared the optimistic slot.
+    // Backend frame: condensing:false — must clear. If the optimistic slot
+    // were still set it would stay, and this fails.
     await act(async () => {
-      publishFleetStatusSessionState("1", makeRecyclingState(false));
+      publishFleetStatusSessionState("1", makeCondensingState(false));
     });
     await waitFor(() => {
-      expect(screen.queryByText(/Session recycling/i)).toBeNull();
+      expect(gauge(container)!.getAttribute("data-condensing")).toBeNull();
     });
   });
 
-  it("Test D3: optimistic mount with no backend signal → 10-min timer self-clears overlay", async () => {
+  it("Test D3: optimistic Condensing… with no backend signal → 2-min timer self-clears", async () => {
     // Switch to fake timers for this test only — restored in afterEach via vi.useRealTimers().
     vi.useFakeTimers();
 
@@ -580,33 +577,23 @@ describe("PrettyView — quick 260905-d79 optimistic session-recycling overlay",
     // Advance timers to let any delay-arm effects settle (resolving spinner guard etc.)
     act(() => { vi.advanceTimersByTime(500); });
 
-    // The memory gauge (home of Start fresh) should now be present.
-    expect(container.querySelector('[data-testid="memory-gauge"]')).not.toBeNull();
+    expect(gauge(container)).not.toBeNull();
 
-    // Start fresh — under Phase 90 rewire this fires an authApi.post; the
-    // optimistic slot is set inside the .then() handler when the promise
-    // resolves with {ok:true}. Under fake timers, the promise still
-    // resolves via microtask flush — need an explicit await + advance to
-    // let the .then chain complete.
-    clickStartFresh(container);
-
-    // Flush pending microtasks (the authApi.post promise resolution) —
-    // vi.useFakeTimers doesn't block microtasks by default, but an
-    // explicit yield + timer-tick ensures the .then runs before assertion.
+    // The optimistic slot is set inside the authApi.post .then() once the
+    // confirm and the request resolve — flush microtasks explicitly.
+    clickCondense(container);
     await act(async () => {
-      // Yield the microtask queue.
-      await Promise.resolve();
-      await Promise.resolve();
+      for (let k = 0; k < 5; k++) await Promise.resolve();
     });
 
-    // Overlay must be mounted after the promise resolves.
-    expect(screen.queryByText(/Session recycling/i)).not.toBeNull();
+    expect(gauge(container)!.getAttribute("data-condensing")).toBe("true");
 
-    // Advance fake timers by 10 minutes + 1 ms — setTimeout callback fires,
-    // setOptimisticRecycling(false) → React re-renders → overlay unmounts.
-    act(() => { vi.advanceTimersByTime(10 * 60 * 1000 + 1); });
+    // Just short of 2 minutes: still condensing.
+    act(() => { vi.advanceTimersByTime(2 * 60 * 1000 - 1000); });
+    expect(gauge(container)!.getAttribute("data-condensing")).toBe("true");
 
-    // Overlay must be gone — the 10-min upper-bound self-clear fired.
-    expect(screen.queryByText(/Session recycling/i)).toBeNull();
+    // Past 2 minutes: the upper-bound self-clear fired.
+    act(() => { vi.advanceTimersByTime(1001); });
+    expect(gauge(container)!.getAttribute("data-condensing")).toBeNull();
   });
 });

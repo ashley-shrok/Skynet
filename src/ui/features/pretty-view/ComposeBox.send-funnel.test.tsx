@@ -10,8 +10,9 @@
  * same mount() factory rendering <PrettyView> (end-to-end, not <ComposeBox>
  * directly), same mqid capture pattern.
  *
- * Scope: main-textarea only. The other affordances (quick-reply buttons and
- * reset) are Plan 68-03's responsibility.
+ * Scope: main-textarea only. The quick-reply buttons are Plan 68-03's
+ * responsibility. Condense conversation goes off the funnel entirely (Tests 5+
+ * below).
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
@@ -78,8 +79,7 @@ vi.mock("@/hooks/use-is-touch-device", () => ({
   useIsTouchDevice: vi.fn(() => false),
 }));
 
-// Phase 90 Plan 00 Wave 0 Task 3 (D-03 mechanical rewire): ComposeBox's
-// reset button now dispatches through authApi.post('/agent-reset/...')
+// Condense conversation posts to authApi.post('/identities/<key>/condense')
 // instead of routing through the pretty-view WS funnel. Mock authApi.post
 // so tests can drive success + failure paths.
 vi.mock("@/main-axios", async (importOriginal) => {
@@ -140,15 +140,15 @@ function countConfirmedBubbles(container: HTMLElement): number {
   return count;
 }
 
-// shape-conversation-view: the reset is Start fresh in the memory gauge's
-// pop-over (tap the gauge, then Start fresh).
-async function startFresh(container: HTMLElement): Promise<void> {
+// Condense conversation lives in the memory gauge's pop-over (tap the gauge,
+// then Condense conversation).
+async function condense(container: HTMLElement): Promise<void> {
   const gauge = container.querySelector('[data-testid="memory-gauge"]') as HTMLButtonElement | null;
   expect(gauge).not.toBeNull();
   act(() => {
     fireEvent.click(gauge!);
   });
-  const btn = (await screen.findByRole("button", { name: "Start fresh" })) as HTMLButtonElement;
+  const btn = (await screen.findByRole("button", { name: "Condense conversation" })) as HTMLButtonElement;
   expect(btn.disabled).toBe(false);
   act(() => {
     fireEvent.click(btn);
@@ -179,9 +179,9 @@ describe("ComposeBox — send funnel (Phase 68 Plan 01)", () => {
     });
     vi.useRealTimers();
     localStorage.clear();
-    // Reset button now shows a kit confirm (kitConfirm) first (patched to prevent
-    // accidental resets). Auto-accept in tests that click it — the confirm
-    // gate itself is covered by ComposeBox.reset-confirm.test.tsx.
+    // Condense shows a kit confirm (kitConfirm) first. Auto-accept in tests
+    // that click it — the confirm gate itself is covered by
+    // ComposeBox.condense.test.tsx.
     autoAnswerKitDialogs({ confirm: true });
   });
 
@@ -277,249 +277,150 @@ describe("ComposeBox — send funnel (Phase 68 Plan 01)", () => {
     expect(onSendMqidCapture).toMatch(/^pv-optim-\d+-[0-9a-z]{8}$/);
   });
 
+  function mountStreaming() {
+    const view = render(
+      <PrettyView
+        hostId={1}
+        tmuxSession="s1"
+        isVisible={true}
+        onSend={onSendMock}
+      />,
+    );
+    const ws = getCurrentWs();
+    flipToStreaming(ws);
+    return { ...view, ws };
+  }
+
+  function gaugeEl(container: HTMLElement): HTMLElement {
+    return container.querySelector('[data-testid="memory-gauge"]') as HTMLElement;
+  }
+
   it(
-    "Test 5 (Phase 90 rewire): reset dispatches through POST /agent-reset endpoint; ZERO bubbles rendered; NO WS input frame containing /id reset",
+    "Test 5: Condense posts /identities/<key>/condense with { hostId, guidance }; ZERO bubbles; NO WS input frame; onSend not called",
     async () => {
       const { authApi } = await import("@/main-axios");
       const postMock = authApi.post as ReturnType<typeof vi.fn>;
-      // Default: resolve success so onResetClicked side effects don't matter
-      // to this test's assertions (Tests 6a/6b lock those).
       postMock.mockResolvedValue({ status: 200, data: { ok: true } });
 
-      const { container, unmount } = render(
-        <PrettyView
-          hostId={1}
-          tmuxSession="s1"
-          isVisible={true}
-          onSend={onSendMock}
-        />,
-      );
-
-      const ws = getCurrentWs();
-      flipToStreaming(ws);
+      const { container, unmount, ws } = mountStreaming();
 
       await waitFor(() => {
         expect(container.querySelector('textarea[placeholder="Write a message…"]')).not.toBeNull();
       });
 
-      await startFresh(container);
+      await condense(container);
 
-      // Assertion 1: POST /agent-reset/1/s1 called with body { body: "" }
-      // (empty textarea → trimmed empty body).
+      // No identity resolves for "s1" in this harness, so the key falls back
+      // to the tmux session.
       await waitFor(() => {
         expect(postMock).toHaveBeenCalled();
       });
       const [url, body] = postMock.mock.calls[0] as [string, Record<string, unknown>];
-      expect(url).toBe("/agent-reset/1/s1");
-      expect(body).toEqual({ body: "" });
+      expect(url).toBe("/identities/s1/condense");
+      expect(body).toEqual({ hostId: 1, guidance: "" });
 
-      // Assertion 2: ZERO pending bubbles rendered (reset never seeded a
-      // bubble even under the OLD funnel path — render-blacklist for /id
-      // commands. Under the rewire, the funnel path isn't invoked at all
-      // for reset, so this is even more strictly zero.)
+      // Off the funnel entirely: no bubble, no WS input frame, no onSend.
       expect(countPendingBubbles(container)).toBe(0);
-
-      // Assertion 3: NO WS input frame carrying /id reset. The rewire
-      // routes reset entirely off the pretty-view WS.
       const sentCalls = ws.send.mock.calls.map(
         (c: [string]) => JSON.parse(c[0]) as Record<string, unknown>,
       );
-      const inputFrame = sentCalls.find(
-        (f) =>
-          f.type === "input" &&
-          typeof f.data === "string" &&
-          (f.data as string).startsWith("/id reset"),
-      );
-      expect(inputFrame).toBeUndefined();
-
-      // Assertion 4: onSend prop was NOT called for the reset click either
-      // — the rewire skips the funnel entirely.
+      expect(sentCalls.find((f) => f.type === "input")).toBeUndefined();
       expect(onSendMock).not.toHaveBeenCalled();
 
       unmount();
     },
   );
 
-  // quick 260905-d79 (updated for Phase 90 rewire) — dispatch-success-vs-fail
-  // gate for onResetClicked. The invariant is unchanged: onResetClicked
-  // fires ONLY on dispatch success so a disconnected/failed dispatch does
-  // NOT falsely mount the SessionHoldingOverlay for 10 minutes. Only the
-  // dispatch mechanism changed: authApi.post's promise resolution/rejection
-  // is now what gates the side-effect (was: funnel.send's synchronous
-  // boolean return).
-  //
-  // The observable proxy for onResetClicked firing is SessionHoldingOverlay
-  // mounting: PrettyView's onResetClicked sets optimisticRecycling=true which
-  // effectiveRecycling=isRecycling||optimisticRecycling gates to true.
+  // onCondenseRequested fires ONLY on request success; PrettyView's handler
+  // turns on the optimistic "Condensing…" on the memory pie. A failed
+  // request must not leave the pie claiming a condense is under way.
 
   it(
-    "Test 6a (Phase 90 rewire): reset with dispatch success (authApi.post resolves {ok:true}) → SessionHoldingOverlay mounts optimistically",
+    "Test 6a: Condense accepted → the pie reads Condensing… optimistically; Send stays usable",
     async () => {
       const { authApi } = await import("@/main-axios");
       const postMock = authApi.post as ReturnType<typeof vi.fn>;
       postMock.mockResolvedValue({ status: 200, data: { ok: true } });
 
-      const { container } = render(
-        <PrettyView
-          hostId={1}
-          tmuxSession="s1"
-          isVisible={true}
-          onSend={vi.fn(() => true)}
-        />,
-      );
-      const ws = getCurrentWs();
-      flipToStreaming(ws);
+      const { container } = mountStreaming();
 
-      await waitFor(() =>
-        expect(container.querySelector('[data-testid="memory-gauge"]')).not.toBeNull(),
-      );
+      await waitFor(() => expect(gaugeEl(container)).not.toBeNull());
+      expect(gaugeEl(container).getAttribute("data-condensing")).toBeNull();
 
-      expect(screen.queryByText(/Session recycling/i)).toBeNull();
+      await condense(container);
 
-      await startFresh(container);
-
-      // Overlay mounts once the promise resolves — onResetClicked fired.
       await waitFor(() => {
-        expect(screen.queryByText(/Session recycling/i)).not.toBeNull();
+        expect(gaugeEl(container).getAttribute("data-condensing")).toBe("true");
       });
+      expect(gaugeEl(container).textContent).toContain("Condensing…");
+      // No overlay, nothing disabled: the user can keep writing and sending.
+      expect(screen.queryByText(/Session recycling/i)).toBeNull();
+      const textarea = container.querySelector(
+        'textarea[placeholder="Write a message…"]',
+      ) as HTMLTextAreaElement;
+      expect(textarea.disabled).toBe(false);
+      typeAndEnter(container, "still here");
+      await waitFor(() => expect(onSendMock).toHaveBeenCalledTimes(1));
     },
   );
 
   it(
-    "Test 6b (Phase 90 rewire): reset with dispatch fail (authApi.post rejects) → SessionHoldingOverlay does NOT mount",
+    "Test 6b: Condense request fails → the pie does NOT read Condensing…",
     async () => {
       const { authApi } = await import("@/main-axios");
       const postMock = authApi.post as ReturnType<typeof vi.fn>;
       postMock.mockRejectedValue(new Error("Network Error"));
 
-      const { container } = render(
-        <PrettyView
-          hostId={1}
-          tmuxSession="s1"
-          isVisible={true}
-          onSend={vi.fn(() => true)}
-        />,
-      );
-      const ws = getCurrentWs();
-      flipToStreaming(ws);
+      const { container } = mountStreaming();
 
-      await waitFor(() =>
-        expect(container.querySelector('[data-testid="memory-gauge"]')).not.toBeNull(),
-      );
+      await waitFor(() => expect(gaugeEl(container)).not.toBeNull());
 
-      expect(screen.queryByText(/Session recycling/i)).toBeNull();
+      await condense(container);
 
-      await startFresh(container);
-
-      // Wait for the promise rejection to be flushed.
-      await new Promise((r) => setTimeout(r, 30));
-
-      // Overlay must NOT mount — onResetClicked was NOT called because
-      // authApi.post rejected.
-      expect(screen.queryByText(/Session recycling/i)).toBeNull();
+      await waitFor(() => expect(container.textContent).toContain("Not connected"));
+      expect(gaugeEl(container).getAttribute("data-condensing")).toBeNull();
     },
   );
 
-  // Task 3 behaviors 9-13 (regression suite per plan) — verify the mechanical
-  // rewire preserves every observable ComposeBox reset behavior end-to-end.
-
   it(
-    "Test 9 (Phase 90 rewire behavior 9): reset click still fires the drain-sweep animation (fireResetSyncFx runs before dispatch)",
+    "Test 11: Condense sends the typed text as guidance and clears the textarea on success",
     async () => {
       const { authApi } = await import("@/main-axios");
       const postMock = authApi.post as ReturnType<typeof vi.fn>;
       postMock.mockResolvedValue({ status: 200, data: { ok: true } });
 
-      const { container } = render(
-        <PrettyView
-          hostId={1}
-          tmuxSession="s1"
-          isVisible={true}
-          onSend={vi.fn(() => true)}
-        />,
-      );
-      const ws = getCurrentWs();
-      flipToStreaming(ws);
-
-      await waitFor(() =>
-        expect(container.querySelector('[data-testid="memory-gauge"]')).not.toBeNull(),
-      );
-
-      await startFresh(container);
-
-      // The drain plays on the memory gauge (it shows as emptied). Its
-      // presence + not-erroring is proof enough that the sync-fx path didn't
-      // crash; the gauge is not unmounted by the click.
-      await waitFor(() => {
-        const gauge = container.querySelector('[data-testid="memory-gauge"]');
-        expect(gauge).not.toBeNull();
-        expect(gauge!.getAttribute("aria-label")).toMatch(/^Agent memory/);
-      });
-    },
-  );
-
-  it(
-    "Test 11 (Phase 90 rewire behavior 11): reset click clears the textarea on dispatch success",
-    async () => {
-      const { authApi } = await import("@/main-axios");
-      const postMock = authApi.post as ReturnType<typeof vi.fn>;
-      postMock.mockResolvedValue({ status: 200, data: { ok: true } });
-
-      const { container } = render(
-        <PrettyView
-          hostId={1}
-          tmuxSession="s1"
-          isVisible={true}
-          onSend={vi.fn(() => true)}
-        />,
-      );
-      const ws = getCurrentWs();
-      flipToStreaming(ws);
+      const { container } = mountStreaming();
 
       await waitFor(() =>
         expect(container.querySelector('textarea[placeholder="Write a message…"]')).not.toBeNull(),
       );
 
-      // Type some text into the textarea.
       const textarea = container.querySelector(
         'textarea[placeholder="Write a message…"]',
       ) as HTMLTextAreaElement;
       act(() => {
-        fireEvent.change(textarea, { target: { value: "hello" } });
+        fireEvent.change(textarea, { target: { value: "  keep the API notes  " } });
       });
-      expect(textarea.value).toBe("hello");
 
-      // Click reset — endpoint is invoked with the trimmed body, success
-      // path clears the textarea.
-      await startFresh(container);
+      await condense(container);
 
       await waitFor(() => {
         expect(textarea.value).toBe("");
       });
 
-      // Endpoint received the body verbatim.
       const [, body] = postMock.mock.calls[0] as [string, Record<string, unknown>];
-      expect(body).toEqual({ body: "hello" });
+      expect(body).toEqual({ hostId: 1, guidance: "keep the API notes" });
     },
   );
 
   it(
-    "Test 12 (Phase 90 rewire behavior 12): dispatch failure → error message set + textarea NOT cleared + onResetClicked NOT called",
+    "Test 12: request failure → error message set + textarea NOT cleared + no Condensing…",
     async () => {
       const { authApi } = await import("@/main-axios");
       const postMock = authApi.post as ReturnType<typeof vi.fn>;
       postMock.mockRejectedValue(new Error("Network Error"));
 
-      const { container } = render(
-        <PrettyView
-          hostId={1}
-          tmuxSession="s1"
-          isVisible={true}
-          onSend={vi.fn(() => true)}
-        />,
-      );
-      const ws = getCurrentWs();
-      flipToStreaming(ws);
+      const { container } = mountStreaming();
 
       await waitFor(() =>
         expect(container.querySelector('textarea[placeholder="Write a message…"]')).not.toBeNull(),
@@ -533,17 +434,13 @@ describe("ComposeBox — send funnel (Phase 68 Plan 01)", () => {
       });
       expect(textarea.value).toBe("should stay");
 
-      await startFresh(container);
+      await condense(container);
 
-      // Wait for the rejection to flush.
       await waitFor(() => {
-        // Error message surfaces (text or aria) in the compose area.
-        expect(container.textContent).toContain("Not connected");
+        expect(container.textContent).toContain("Not connected — try again in a moment");
       });
-      // Textarea preserved on failure (no wipe).
       expect(textarea.value).toBe("should stay");
-      // No overlay (proxy for onResetClicked NOT firing).
-      expect(screen.queryByText(/Session recycling/i)).toBeNull();
+      expect(gaugeEl(container).getAttribute("data-condensing")).toBeNull();
     },
   );
 });

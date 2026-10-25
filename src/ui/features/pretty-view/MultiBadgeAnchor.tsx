@@ -28,9 +28,8 @@
 //   cell (IdentityBadge's own `absolute` positioning scoped to the cell so
 //   it doesn't collapse against the page). NO meter appendage.
 // - AGENT (D-02/D-08): AgentBadgeWithMeter (Task 1 port) — plain badge
-//   PLUS a shrunk meter + reset appendage. Meter reads via Wave 0
-//   useSessionContextPct; reset dispatches via Wave 0 /agent-reset endpoint.
-//   Reset is INTERNAL to AgentBadgeWithMeter.
+//   PLUS the memory pie. It reads via Wave 0 useSessionContextPct; its
+//   Condense conversation request is INTERNAL to AgentBadgeWithMeter.
 //
 // ## Loading vs. empty discrimination (Warning 2)
 //
@@ -50,7 +49,7 @@
 //
 // Badge-click in relay case is a no-op — human cells render bare
 // IdentityBadge with no onClick prop; agent cells render
-// AgentBadgeWithMeter whose badge is inert (reset button is separately
+// AgentBadgeWithMeter whose badge is inert (the memory pie is separately
 // clickable). No IdentityModal, no navigation.
 
 import { useEffect } from "react";
@@ -184,7 +183,7 @@ function HumanBadgeCell({
 
 /**
  * A single agent's badge cell. Renders AgentBadgeWithMeter (Task 1 port —
- * plain badge + shrunk meter + reset appendage). Graceful degradation on
+ * plain badge + memory pie). Graceful degradation on
  * missing host mapping: renders the plain badge without appendage and
  * emits a structured warn.
  */

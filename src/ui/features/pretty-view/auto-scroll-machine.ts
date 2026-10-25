@@ -39,9 +39,10 @@
  *   grep -v '^#' src/ui/features/pretty-view/auto-scroll-machine.ts | grep -c '^import ' → 0
  * This is what makes the state-transition unit tests in
  * auto-scroll-machine.test.ts cheap to set up (import + call — no mocks,
- * no timers, no DOM harness, no renderHook). Pattern copied verbatim from
- * src/ui/features/pretty-view/resolve-phase.ts and (upstream)
- * src/backend/claude-session/layer1-detect.ts.
+ * no timers, no DOM harness, no renderHook). Same pattern as
+ * src/ui/features/pretty-view/resolve-phase.ts, the pure reducer that maps
+ * the backend's pane_state frames (active / holding while the discovery
+ * repoll settles a session change / dormant / …) to what the pane renders.
  */
 
 // ── Mode union (two-state model — LOCKED) ────────────────────────────────────
