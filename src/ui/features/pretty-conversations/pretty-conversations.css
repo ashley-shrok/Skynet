@@ -555,27 +555,37 @@
   }
 }
 
-/* DM'd — the agent DM'd this user: a red envelope on the avatar's corner,
-   the same red on every row so it outranks any unread dot. */
-.pv-avatar .pv-dm-badge {
+/* DM'd — the agent DM'd this user: a red envelope in the unread dot's place,
+   bigger, and the same red on every row. Steps aside for the ⋮ like the dot. */
+.pv-dm-badge {
   position: absolute;
-  top: -5px;
-  right: -5px;
+  top: 50%;
+  right: 6px;
   z-index: 3;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 15px;
-  height: 15px;
-  box-sizing: border-box;
+  width: 18px;
+  height: 18px;
   border-radius: 999px;
+  transform: translateY(-50%);
   background: #e5484d;
-  border: 2px solid var(--pv-sb-bg);
+  box-shadow: 0 0 0 2px var(--pv-sb-bg);
+  pointer-events: none;
+  transition: opacity 0.12s;
 }
-.pv-avatar .pv-dm-badge .pv-dm-badge-icon {
-  width: 8px;
-  height: 8px;
+.pv-dm-badge .pv-dm-badge-icon {
+  width: 11px;
+  height: 11px;
   color: #fff;
+}
+.pv-row--dm .pv-body {
+  padding-right: 22px;
+}
+@media (min-width: 768px) {
+  .pv-row:is(:hover, :focus-within) .pv-dm-badge {
+    opacity: 0;
+  }
 }
 
 /* Local work not pushed to any remote: amber disc on the avatar's corner. */
@@ -883,16 +893,23 @@
   .pv-row-kebab-slot {
     right: 6px;
   }
-  .pv-avatar .pv-dm-badge {
-    width: 18px;
-    height: 18px;
-    top: -3px;
-    right: -3px;
-    border-color: var(--k-s1);
+  .pv-row--dm .pv-body {
+    padding-right: 30px;
   }
-  .pv-avatar .pv-dm-badge .pv-dm-badge-icon {
-    width: 10px;
-    height: 10px;
+  .pv-dm-badge {
+    width: 22px;
+    height: 22px;
+    right: 10px;
+    box-shadow: none;
+  }
+  @media (pointer: fine) {
+    .pv-dm-badge {
+      right: 42px;
+    }
+  }
+  .pv-dm-badge .pv-dm-badge-icon {
+    width: 13px;
+    height: 13px;
   }
   .pv-avatar .pv-trapped-work-indicator {
     width: 18px;

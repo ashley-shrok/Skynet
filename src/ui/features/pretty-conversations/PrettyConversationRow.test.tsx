@@ -3123,6 +3123,27 @@ describe("PrettyConversationRow (shape-sidebar): unread dot + no pin glyph", () 
     expect(container.querySelector('[data-testid="pv-unread-dot"]')).toBeNull();
   });
 
+  it.each(["desktop", "mobile"] as const)(
+    "a notified %s row shows the envelope at the row's end in the dot's place",
+    (variant) => {
+      const { container } = render(
+        <PrettyConversationRow
+          row={makeRow({ unread: true, dm: true })}
+          selected={false}
+          pinned={false}
+          variant={variant}
+          onSelect={vi.fn()}
+        />,
+      );
+      const badge = container.querySelector('[data-testid="pv-dm-badge"]');
+      expect(badge).not.toBeNull();
+      expect(badge!.getAttribute("aria-label")).toBe("Notified you");
+      expect(badge!.closest(".pv-avatar")).toBeNull();
+      expect(badge!.parentElement?.classList.contains("pv-row")).toBe(true);
+      expect(container.querySelector('[data-testid="pv-unread-dot"]')).toBeNull();
+    },
+  );
+
   it.each(["desktop", "mobile"] as const)("a pinned %s row renders no pin glyph", (variant) => {
     const { container } = render(
       <PrettyConversationRow

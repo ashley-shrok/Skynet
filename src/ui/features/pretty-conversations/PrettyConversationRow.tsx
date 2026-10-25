@@ -508,8 +508,8 @@ function PrettyConversationRowImpl({
     // Unread: the agent finished a turn this user hasn't seen. Brighter
     // outline in the row's own hue (pretty-conversations.css).
     row.unread === true && "pv-row--unread",
-    // DM'd: the agent DM'd this user. Keeps the unread outline and adds a red
-    // envelope badge on the avatar (pretty-conversations.css).
+    // DM'd: the agent DM'd this user. Keeps the unread outline; a red
+    // envelope takes the unread dot's place at the row's end.
     row.dm === true && "pv-row--dm",
     // Phase 41 Plan 01: amb-recession className toggle retired.
     // (Phase 115 post-code-review fix 3: `hidden && "hidden"` className toggle
@@ -756,17 +756,6 @@ function PrettyConversationRowImpl({
               silent-for-non-participants). Icon: GitPullRequestDraft from
               lucide-react. Tooltip copy VERBATIM per D-07. No click behavior
               (hover-only affordance per D-05). */}
-          {row.dm === true && (
-            <span
-              className="pv-dm-badge"
-              data-testid="pv-dm-badge"
-              role="img"
-              aria-label="Notified you"
-              title="Notified you"
-            >
-              <Mail className="pv-dm-badge-icon" aria-hidden="true" />
-            </span>
-          )}
           {trappedWork?.hasTrappedWork === true && (
             <span
               className="pv-trapped-work-indicator"
@@ -863,9 +852,20 @@ function PrettyConversationRowImpl({
         </div>
 
         {/* Unread: a small dot in the agent's own colour at the row's end
-            (pretty-conversations.css). Pinned rows carry no pin glyph — they
-            already sit under Pinned. */}
-        {row.unread === true && (
+            (pretty-conversations.css). Notified (the agent DM'd this user):
+            a bigger red envelope in the dot's place. Pinned rows carry no pin
+            glyph — they already sit under Pinned. */}
+        {row.dm === true ? (
+          <span
+            className="pv-dm-badge"
+            data-testid="pv-dm-badge"
+            role="img"
+            aria-label="Notified you"
+            title="Notified you"
+          >
+            <Mail className="pv-dm-badge-icon" aria-hidden="true" />
+          </span>
+        ) : row.unread === true && (
           <span className="pv-unread-dot" data-testid="pv-unread-dot" aria-label="Unread" role="img" />
         )}
         {/* Phase 48 Plan 05 — the right-column meta wrapper RETIRED entirely.

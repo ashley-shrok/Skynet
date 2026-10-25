@@ -847,8 +847,8 @@ not something agents drive.
   (if any) — and each run of rows sits on one rounded panel. An
   **unread** conversation (the agent finished a turn the user hasn't seen)
   shows a small dot in the agent's colour at the row's end and a brighter
-  title; a **red envelope** on the picture ("Notified you") means the agent
-  notified the user (§ Notifying the user); an **amber disc** on the
+  title; a bigger **red envelope** in that dot's place ("Notified you")
+  means the agent notified the user (§ Notifying the user); an **amber disc** on the
   picture means the agent has local work not pushed anywhere.
   **Swipe to archive (phone).** Swiping a conversation row to the left
   archives it at once, no confirm: the row slides away and a bar says
