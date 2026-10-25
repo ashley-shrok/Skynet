@@ -524,7 +524,7 @@ export const FLEET_SUBSTRATE_CATALOG: readonly CatalogEntry[] = [
     restartHook: null,
   },
 
-  // precompact-reground: PreCompact hook (manual + auto) for an identity's
+  // precompact-reground: PreCompact hook (every trigger) for an identity's
   // main session. Tells the summarizer to leave out what the agent's
   // directive files hold and to end the summary with the agent's own note to
   // re-load itself (invoke the id skill for its name) before anything else.

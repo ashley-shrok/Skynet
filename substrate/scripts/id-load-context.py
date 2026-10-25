@@ -466,9 +466,10 @@ def main():
         # The agent invoked a skill itself; only the id skill with a name loads.
         tool_input = payload.get("tool_input")
         if payload.get("tool_name") != "Skill" or not isinstance(tool_input, dict) \
-                or tool_input.get("skill") != "id":
-            return
-        arg = str(tool_input.get("args") or "").strip()
+                or tool_input.get("skill") != "id" or payload.get("agent_id"):
+            return  # subagents (agent_id set) never load an identity
+        words = str(tool_input.get("args") or "").split()
+        arg = words[0] if words else ""
     elif event == "UserPromptSubmit":
         m = re.match(r"^/id\s+(\S+)\s*$", str(payload.get("prompt") or "").strip())
         if not m:

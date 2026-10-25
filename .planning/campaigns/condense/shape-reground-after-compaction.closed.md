@@ -53,3 +53,46 @@ When an agent's context is compacted, the summary that replaces its conversation
 - Repeat the "invoke the id skill yourself, does it arrive in full" test on 2.1.310 (binary unpacked at /tmp/cc310/bin310).
 - Prove end to end in a throwaway session on 2.1.310: compact, check the summary omits the files and ends with the directive, the agent invokes the id skill, the load files arrive, no re-announcement.
 - Any agent-facing behavior change needs the id skill edit in the same work (that's the clause). No what's-new note: users don't see this.
+
+---
+
+## Close-Out
+
+**Closed:** 2026-10-25
+**Overall verdict:** closed-hit
+
+### Shape features (conformance)
+
+- **Before the summary is written, a small step instructs the summarizer** — present · Pre-compaction step tells the summarizer to leave out the id skill, role, identity and project files and to end with a verbatim first-person directive to invoke the id skill under its own name first; works from the identity name alone (quotes the identity file's location as a reference, not a list).
+- **The summary carries the directive; nothing sent after compaction** — present · No after-compaction hook added; none in live settings.
+- **The agent invokes the id skill itself, whole skill arrives in full** — present · Directive names the id skill and the agent's own name; the full-arrival retest on 2.1.310 is a run-time check, not visible in the material.
+- **The load brings the agent's own files too** — present · The load step now also answers the agent's own id skill call, building the same context with the same size handling; wired in the fleet settings merge and check.
+- **Short id skill clause** — present · "Re-loading after a compaction": load first, don't announce, carry on from the summary, don't act on the identity file's next action as if starting fresh (a direct consequence of carrying on from the summary).
+- **Every kind of compaction covered; background summary stays on** — present · Fires on manual and automatic; nothing turns the background summary off.
+- **Philosophy** — present · Same loading path as a fresh start, trust via the summary, never blocks, simple.
+- **Prior context: prototype hooks removed** — present · None on t1000, workstation, thenasty, zoeybattlestation; beelink and laptop unchecked as stated.
+- **Scope edges** — present · Nothing from shapes 3 or 4; no tempting-but-no items; Keep an Eye recorded.
+- **Handoff notes** — cannot-verify · Committed, not pushed. The 2.1.310 retest and end-to-end proof are run-time checks with no evidence recorded in the material.
+- **What would make it wrong: agent keeps working on paraphrased directives** — present · Firm verbatim first-person directive plus matching id skill clause.
+- **What would make it wrong: re-load brings the id skill but not the agent's own files** — present · Load step runs on the agent's own id skill call.
+- **What would make it wrong: agent re-announces itself** — present · Directive and clause both say don't.
+- **What would make it wrong: a compaction is held up or fails** — present · Step catches every error and always exits cleanly.
+- **What would make it wrong: helper agents or identity-less sessions get a directive** — present · Silent for helpers, no identity name, invalid names, missing identity file.
+- **What would make it wrong: summary restates the files** — present · Summarizer told explicitly not to restate them.
+
+### Additions (in the result, not in the shape)
+
+None.
+
+### Follow-ups
+
+- Resume "usage limit" dialog that could leave a woken agent stuck — recorded in the campaign as must-land before close — issue
+- Keep an Eye for a week on how often agents actually re-load after compaction, once the campaign ships — deferred
+
+### Notes
+
+No divergences. Run-time evidence for the record (from the implementer's session, not the reviewer): on 2.1.310 the agent-invoked id skill arrived in full with the load context attached; end to end, a compacted test agent re-loaded first, did not re-announce, and carried on. Without the new clause, the re-loaded test agent acted on a pre-authorized next action in its identity file mid-conversation; with the clause it did not.
+
+### Post-close review fixes (2026-10-25)
+
+The unbiased code review found that Claude Code doesn't mark a subagent's compaction in the pre-summary payload, so the "silent for helper agents" guard never fired; subagents and nested sessions also inherit the identity name. Fixed by having the summarizer instructions apply only when the conversation is the identity's own main session (began with its load, or with an earlier summary of one). Also: the agent-invoked load now refuses subagents and takes the first word of its argument as the name; the directive says it still holds when kept messages follow the summary (background-summary case); the pre-summary hook now runs on every compaction trigger rather than only manual and auto. Re-verified end to end on 2.1.310: a main session re-loaded after compaction without re-announcing or redoing its identity file's next action; a helper-style session's summary carried no re-load directive.

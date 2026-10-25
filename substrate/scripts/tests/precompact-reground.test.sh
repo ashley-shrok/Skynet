@@ -82,13 +82,15 @@ test_main_session_gets_instructions() {
     assert_contains $t "$out" "~/fleet/identities/alpha/alpha.md" || return
     assert_contains $t "$out" "invoking the id skill with the argument \`alpha\` (Skill tool, skill \`id\`, args \`alpha\`)" || return
     assert_contains $t "$out" "I do not introduce myself again" || return
+    assert_contains $t "$out" "ONLY if this conversation is \`alpha\`'s own main session" || return
+    assert_contains $t "$out" "This holds even if more of the conversation follows this summary" || return
   done
   pass
 }
 
 test_silent_cases() {
   local t=test_silent_cases out
-  # subagent compaction
+  # subagent compaction, should Claude Code ever say so in the payload
   out="$(run_hook alpha '{"hook_event_name":"PreCompact","trigger":"auto","agent_id":"a1"}')"
   [ -z "$out" ] || { fail $t "spoke for a subagent: $out"; return; }
   # no identity in the environment

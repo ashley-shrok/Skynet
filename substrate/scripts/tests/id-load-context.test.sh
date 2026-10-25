@@ -84,9 +84,10 @@ assert_not_contains() {
 }
 
 # Run the hook as a PostToolUse payload: tool name, skill, args.
-run_skill_hook() {
-  printf '%s' "$(jq -n --arg t "$1" --arg s "$2" --arg a "$3" \
-      '{hook_event_name: "PostToolUse", tool_name: $t, tool_input: {skill: $s, args: $a}}')" \
+run_skill_hook() {  # tool, skill, args, [agent_id]
+  printf '%s' "$(jq -n --arg t "$1" --arg s "$2" --arg a "$3" --arg g "${4:-}" \
+      '{hook_event_name: "PostToolUse", tool_name: $t, tool_input: {skill: $s, args: $a}}
+       + (if $g == "" then {} else {agent_id: $g} end)')" \
     | HOME="$SCRATCH/home" "$HOOK"
 }
 
@@ -104,10 +105,13 @@ test_agent_invoked_id_skill() {
   out="$(printf '%s' "$raw" | jq -r '.hookSpecificOutput.additionalContext')"
   assert_contains $t "$out" "for \`alpha\`" || return
   assert_contains $t "$out" "keeper directives" || return
+  # Only the first word of the args names the identity.
+  out="$(run_skill_hook Skill id "alpha please" | jq -r '.hookSpecificOutput.additionalContext')"
+  assert_contains $t "$out" "for \`alpha\`" || return
   local case_
-  for case_ in "Skill|build|alpha" "Skill|id|" "Skill|id|save" "Skill|id|nobody" "Skill|id|alpha extra" "Read|id|alpha"; do
-    IFS='|' read -r tn sk ar <<< "$case_"
-    if [ -n "$(run_skill_hook "$tn" "$sk" "$ar")" ]; then
+  for case_ in "Skill|build|alpha|" "Skill|id||" "Skill|id|save|" "Skill|id|nobody|" "Read|id|alpha|" "Skill|id|alpha|sub-1"; do
+    IFS='|' read -r tn sk ar ag <<< "$case_"
+    if [ -n "$(run_skill_hook "$tn" "$sk" "$ar" "$ag")" ]; then
       fail $t "hook spoke on: $case_"
       return
     fi

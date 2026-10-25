@@ -393,7 +393,7 @@ export const SETTINGS_MERGE_JQ =
   `      | .PostToolUse = ((.PostToolUse // []) | if any(.[]?.hooks[]?.command // ""; test("pending-context-drain")) then . else . + [{"hooks":[{"type":"command","command":"$HOME/.local/bin/pending-context-drain"}]}] end)` +
   `      | .SessionStart = ((.SessionStart // []) | if any(.[]?.hooks[]?.command // ""; test("pending-context-drain")) then . else . + [{"hooks":[{"type":"command","command":"$HOME/.local/bin/pending-context-drain"}]}] end)` +
   `      | .PostToolUse = ((.PostToolUse // []) | if any(.[]?.hooks[]?.command // ""; test("id-load-context")) then . else . + [{"matcher":"Skill","hooks":[{"type":"command","command":"$HOME/.local/bin/id-load-context"}]}] end)` +
-  `      | .PreCompact = ((.PreCompact // []) | if any(.[]?.hooks[]?.command // ""; test("precompact-reground")) then . else . + [{"matcher":"manual|auto","hooks":[{"type":"command","command":"$HOME/.local/bin/precompact-reground"}]}] end)` +
+  `      | .PreCompact = ((.PreCompact // []) | if any(.[]?.hooks[]?.command // ""; test("precompact-reground")) then . else . + [{"hooks":[{"type":"command","command":"$HOME/.local/bin/precompact-reground"}]}] end)` +
   `    )`;
 
 /** CHECK jq expression. Returns true iff every required key is set. */

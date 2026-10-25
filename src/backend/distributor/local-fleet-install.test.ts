@@ -706,7 +706,8 @@ describe("BR2 — bootstrap patches settings.json + runs gsd-context-monitor cle
     const reground = (parsed.hooks.PreCompact as Group[]).find((g) =>
       (g.hooks ?? []).some((h) => h.command === "$HOME/.local/bin/precompact-reground"),
     );
-    expect(reground?.matcher).toBe("manual|auto");
+    expect(reground).toBeDefined();
+    expect(reground?.matcher).toBeUndefined();
   });
 
   it("settings.json already has all seven keys → noop, no rewrite (mtime unchanged)", async () => {
