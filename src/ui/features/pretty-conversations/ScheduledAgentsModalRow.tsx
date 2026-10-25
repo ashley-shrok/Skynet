@@ -87,7 +87,7 @@ export interface ScheduledAgentsModalRowProps {
   row: ScheduledAgentListItem;
   onOpen: (row: ScheduledAgentListItem) => void;
   onToggle: (row: ScheduledAgentListItem, enabled: boolean) => void;
-  onDelete: (row: ScheduledAgentListItem) => void;
+  onDelete: (row: ScheduledAgentListItem) => void | Promise<unknown>;
   /** Fire once now, outside the schedule. Not offered for one-time tasks
    *  (firing one early would use it up) — the server rejects those too. */
   onRunNow: (row: ScheduledAgentListItem) => void;

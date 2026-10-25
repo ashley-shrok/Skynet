@@ -383,6 +383,86 @@ describe("useRowKebabContextMenu — swipe left to remove", () => {
     expect(el.hasAttribute("data-swipe-row")).toBe(false);
   });
 
+  it("a remove that returns a promise keeps the row out until it settles", async () => {
+    let settle: () => void = () => {};
+    const onSwipe = vi.fn(() => new Promise<void>((r) => (settle = r)));
+    render(
+      <RowGestures swipe={{ label: "Delete", onSwipe }}>
+        {(g) => (
+          <div data-testid="swipe-row" {...g.holdProps}>
+            Row{g.swipeAction}
+          </div>
+        )}
+      </RowGestures>,
+    );
+    const el = screen.getByTestId("swipe-row");
+    swipeLeft(el, -120);
+    fireEvent.touchEnd(el, { touches: [], changedTouches: [{ identifier: 0, clientX: 60, clientY: 20, target: el }] });
+    act(() => {
+      vi.advanceTimersByTime(200);
+    });
+    expect(onSwipe).toHaveBeenCalledTimes(1);
+    // Confirm still open: row out, strip showing.
+    expect(el.style.transform).toBe("translateX(-200px)");
+    expect(screen.getByTestId("row-swipe-action")).toBeTruthy();
+    await act(async () => {
+      settle();
+    });
+    expect(screen.queryByTestId("row-swipe-action")).toBeNull();
+  });
+
+  it("a swipe that starts on a child of a multi-child row keeps going (the child isn't remounted)", () => {
+    const onSwipe = vi.fn();
+    render(
+      <RowKebabContextMenuSurface items={[]} swipe={{ label: "Delete", onSwipe }}>
+        <div data-testid="surface-row">
+          {/* Mapped (keyed) cells beside a plain one, like a Files-tab row. */}
+          {["icon", "name"].map((k) => (
+            <span key={k} data-testid={k}>
+              {k}
+            </span>
+          ))}
+          <span>12 KB</span>
+        </div>
+      </RowKebabContextMenuSurface>,
+    );
+    const row = screen.getByTestId("surface-row");
+    row.getBoundingClientRect = () =>
+      ({ width: 200, height: 40, top: 0, left: 0, right: 200, bottom: 40, x: 0, y: 0, toJSON: () => ({}) }) as DOMRect;
+    const name = screen.getByTestId("name");
+    const at = (x: number) => [{ identifier: 0, clientX: x, clientY: 20, target: name }];
+    fireEvent.touchStart(name, { touches: at(180), changedTouches: at(180) });
+    fireEvent.touchMove(name, { touches: at(160), changedTouches: at(160) });
+    expect(name.isConnected).toBe(true);
+    fireEvent.touchMove(name, { touches: at(60), changedTouches: at(60) });
+    expect(row.style.transform).toBe("translateX(-120px)");
+    fireEvent.touchEnd(name, { touches: [], changedTouches: at(60) });
+    act(() => {
+      vi.advanceTimersByTime(200);
+    });
+    expect(onSwipe).toHaveBeenCalledTimes(1);
+  });
+
+  it("a touch in a text field inside the row is neither a swipe nor a hold", () => {
+    const onSwipe = vi.fn();
+    render(
+      <RowKebabContextMenuSurface items={[{ label: "Rename", onClick: () => {} }]} swipe={{ label: "Delete", onSwipe }}>
+        <div data-testid="surface-row">
+          <input data-testid="rename" />
+        </div>
+      </RowKebabContextMenuSurface>,
+    );
+    const input = screen.getByTestId("rename");
+    const at = (x: number) => [{ identifier: 0, clientX: x, clientY: 20, target: input }];
+    fireEvent.touchStart(input, { touches: at(180), changedTouches: at(180) });
+    act(() => {
+      vi.advanceTimersByTime(600);
+    });
+    expect(screen.queryByTestId("row-kebab-context-anchor")).toBeNull();
+    fireEvent.touchMove(input, { touches: at(40), changedTouches: at(40) });
+    expect(screen.queryByTestId("row-swipe-action")).toBeNull();
+  });
+
   it("RowKebabContextMenuSurface puts the strip inside its row", () => {
     render(
       <RowKebabContextMenuSurface items={[]} swipe={{ label: "Delete", onSwipe: () => {} }}>

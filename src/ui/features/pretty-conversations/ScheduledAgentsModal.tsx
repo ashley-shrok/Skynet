@@ -591,7 +591,7 @@ export function ScheduledAgentsModal({
                   row={row}
                   onOpen={openTask}
                   onToggle={toggleFromList}
-                  onDelete={(r) => void deleteFromList(r)}
+                  onDelete={(r) => deleteFromList(r)}
                   onRunNow={(r) => void runNow(r)}
                   runNowPending={runNowPending.has(keyOf(row))}
                   toggling={toggling.has(keyOf(row))}

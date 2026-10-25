@@ -58,7 +58,7 @@ export function RolesLibraryView({
   onOpenRole: (role: RoleSummary) => void;
   /** Swipe left on a role row (touch) — archive it, behind the usual confirm.
    *  Shared roles never get it (they must stop being shared first). */
-  onArchiveRole?: (role: RoleSummary) => void;
+  onArchiveRole?: (role: RoleSummary) => Promise<unknown>;
   onNewRole: () => void;
   onOpenArchived: () => void;
 }): JSX.Element {
@@ -151,7 +151,9 @@ export function RolesLibraryView({
   const row = (r: RoleSummary): JSX.Element => {
     const label = roleDisplayName(r.name, r.displayName);
     const n = agentsFor(r);
-    const swipe = onArchiveRole && !r.instanceWide ? { label: "Archive", onSwipe: () => onArchiveRole(r) } : undefined;
+    // Same "shared" test as the role view, whose Archive is off for those.
+    const isShared = !!r.instanceWide || !!instanceWide?.items.some((i) => i.name === r.name);
+    const swipe = onArchiveRole && !isShared ? { label: "Archive", onSwipe: () => onArchiveRole(r) } : undefined;
     return (
       <RowGestures key={r.name} swipe={swipe}>
         {(g) => (

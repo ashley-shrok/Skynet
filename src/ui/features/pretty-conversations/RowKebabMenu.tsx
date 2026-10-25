@@ -415,9 +415,10 @@ export interface RowKebabContextMenu {
 export interface RowSwipeAction {
   /** What the swipe does, shown on the strip ("Delete", "Archive"). */
   label: string;
-  /** Run the remove — normally behind its own confirm. The row slides back
-   *  when it is still there afterwards (e.g. the confirm was cancelled). */
-  onSwipe: () => void;
+  /** Run the remove — normally behind its own confirm. Return its promise:
+   *  the row stays slid out until it settles, then slides back if it is still
+   *  there (e.g. the confirm was cancelled). */
+  onSwipe: () => void | Promise<unknown>;
 }
 
 /** How long after a press-and-hold opens the menu the finger's lift is ignored. */
@@ -541,7 +542,7 @@ export function useRowKebabContextMenu(
       onSwipe
         ? () => {
             systemLogger.info("row swipe → remove", { operation: "row_swipe", label: swipe?.label });
-            onSwipe();
+            return onSwipe();
           }
         : undefined,
     [onSwipe, swipe?.label],
@@ -587,8 +588,11 @@ export function RowKebabContextMenuSurface({
   children: React.ReactElement<{ children?: React.ReactNode }>;
 }): React.JSX.Element {
   const { onContextMenu, menu, holdProps, swipeAction } = useRowKebabContextMenu(items, { swipe });
-  // The strip renders inside the row so it moves with it.
-  const child = swipeAction
+  // The strip renders inside the row so it moves with it. Whenever the row can
+  // swipe, its children keep one shape (strip slot present, null while idle):
+  // changing the shape mid-swipe would remount the element under the finger,
+  // and the rest of the touch would never reach the row.
+  const child = swipe
     ? React.cloneElement(children, undefined, children.props.children, swipeAction)
     : children;
   return (

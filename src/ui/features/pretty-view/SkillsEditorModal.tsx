@@ -158,6 +158,8 @@ export default function SkillsEditorModal({
   const [saving, setSaving] = useState(false);
   const [togglingInvocation, setTogglingInvocation] = useState(false);
   const savingRef = useRef(false);
+  const selectedHostIdRef = useRef(selectedHostId);
+  selectedHostIdRef.current = selectedHostId;
   // Instance-wide section: skills whose master copy lives in the app. When
   // one is picked, every file call goes to INSTANCE_HOST_ID instead of the
   // selected host. Non-admins see them read-only.
@@ -948,7 +950,8 @@ export default function SkillsEditorModal({
       await deleteSkill(hostId, skillName);
       console.info({ operation: "skill_deleted", hostId, skill: skillName });
       const entries = await listSkills(hostId, { includeDistributed: true });
-      setSkills({ status: "ready", data: entries });
+      // The user may have switched hosts while it ran — that list isn't this one.
+      if (hostId === selectedHostIdRef.current) setSkills({ status: "ready", data: entries });
       if (hostId === selectedHostId && skillName === selectedSkillName && !selectedIsInstance) {
         setSelectedSkillName(null);
         setFiles({ status: "loading" });
@@ -1222,7 +1225,7 @@ export default function SkillsEditorModal({
     // Swipe left deletes (touch) — only this host's own, editable skills.
     const swipe =
       row.section === "own" && !row.readOnly && !row.instance && selectedHostId != null
-        ? { label: "Delete", onSwipe: () => void deleteHostSkill(selectedHostId, row.name) }
+        ? { label: "Delete", onSwipe: () => deleteHostSkill(selectedHostId, row.name) }
         : undefined;
     return (
       <RowGestures key={`${row.section}:${row.name}`} swipe={swipe}>

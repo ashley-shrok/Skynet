@@ -38,6 +38,15 @@ function isOwnTarget(e: { currentTarget: Element; target: EventTarget | null }):
   return e.target instanceof Node && e.currentTarget.contains(e.target);
 }
 
+/** A text field inside a row (a rename box) keeps its own touch behaviour —
+ *  dragging the caret or a long-press for paste is not a swipe or a hold. */
+function isEditableTarget(target: EventTarget | null): boolean {
+  return (
+    target instanceof Element &&
+    target.closest('input, textarea, select, [contenteditable=""], [contenteditable="true"]') !== null
+  );
+}
+
 /** Touches already taken by a hold surface. Surfaces can nest (a badge inside
  *  a bar); the innermost sees the touch first and keeps it, as with
  *  right-click. */
@@ -49,7 +58,7 @@ export interface RowTouchGestureOptions {
   /** Open the item's menu at the given viewport point. */
   onHold?: (x: number, y: number) => void;
   /** Called once the row has slid fully out. Omit for rows that can't be archived. */
-  onSwipeArchive?: () => void;
+  onSwipeArchive?: () => void | Promise<unknown>;
 }
 
 export interface RowTouchGestures {
@@ -94,7 +103,7 @@ export function useRowTouchGestures({ onHold, onSwipeArchive }: RowTouchGestureO
 
   const onTouchStart = useCallback(
     (e: TouchEvent<HTMLElement>) => {
-      if (!isOwnTarget(e) || claimedTouches.has(e.nativeEvent)) return;
+      if (!isOwnTarget(e) || claimedTouches.has(e.nativeEvent) || isEditableTarget(e.target)) return;
       if (onHold || onSwipeArchive) claimedTouches.add(e.nativeEvent);
       if (e.touches.length !== 1) {
         // A second finger cancels whatever was going on — a half-done swipe
@@ -184,7 +193,18 @@ export function useRowTouchGestures({ onHold, onSwipeArchive }: RowTouchGestureO
         });
         setOffset(-Math.max(width.current, 1));
         setTimeout(() => {
-          onSwipeArchive();
+          const pending = onSwipeArchive();
+          if (pending instanceof Promise) {
+            // A remove behind a confirm: the row stays out until it's
+            // answered, then slides back if it is still here (cancelled).
+            void pending
+              .catch(() => {})
+              .then(() => {
+                setAnimating(true);
+                setOffset(0);
+              });
+            return;
+          }
           // The archive normally removes the row; if it stays, bring it back.
           setAnimating(false);
           setOffset(0);

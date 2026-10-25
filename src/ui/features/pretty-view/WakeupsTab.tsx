@@ -179,7 +179,7 @@ export function WakeupsTab({
         {state.data.map((w) => (
           <RowGestures
             key={w.slug}
-            swipe={onDelete ? { label: "Delete", onSwipe: () => void remove(w) } : undefined}
+            swipe={onDelete ? { label: "Delete", onSwipe: () => remove(w) } : undefined}
           >
             {(g) => (
           <KitSettingsRow

@@ -699,6 +699,12 @@ body[data-split-dnd] [data-split-divider-handle] {
     -webkit-user-select: none;
     user-select: none;
   }
+  /* A rename box in such a row still edits and selects normally. */
+  [data-hold-menu] :is(input, textarea, [contenteditable=""], [contenteditable="true"]) {
+    -webkit-touch-callout: default;
+    -webkit-user-select: text;
+    user-select: text;
+  }
 }
 
 /* Swipe-left-to-remove on list rows (useRowKebabContextMenu's `swipe`). The

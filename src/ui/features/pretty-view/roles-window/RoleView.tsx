@@ -813,7 +813,7 @@ export function RoleView({
             // one-line description under it. Swipe left deletes (touch).
             <RowGestures
               key={r.name}
-              swipe={readOnly ? undefined : { label: "Delete", onSwipe: () => void deleteSkillFromList(r.name) }}
+              swipe={readOnly ? undefined : { label: "Delete", onSwipe: () => deleteSkillFromList(r.name) }}
             >
               {(g) => (
                 <KitSettingsRow

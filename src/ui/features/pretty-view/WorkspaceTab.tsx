@@ -1330,7 +1330,7 @@ function WorkspaceListView({
               <RowKebabContextMenuSurface
                 key={entryPath}
                 items={menuItems}
-                swipe={readOnly ? undefined : { label: "Delete", onSwipe: () => void handleDelete(entry) }}
+                swipe={readOnly ? undefined : { label: "Delete", onSwipe: () => handleDelete(entry) }}
               >
               <div
                 data-testid="workspace-row"

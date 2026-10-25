@@ -364,10 +364,10 @@ export function RolesWindow({
         agentsFor={(r) => agentsHolding(r).length}
         avatarBusts={avatarBusts}
         onOpenRole={(role) => void go({ view: "role", role })}
-        onArchiveRole={(role) => {
+        onArchiveRole={async (role) => {
           if (hostId == null) return;
           const id = hostId;
-          void confirmAndArchiveRole({
+          await confirmAndArchiveRole({
             hostId: id,
             name: role.name,
             label: roleDisplayName(role.name, role.displayName),
