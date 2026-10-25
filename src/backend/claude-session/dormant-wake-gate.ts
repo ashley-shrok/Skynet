@@ -67,7 +67,7 @@ export interface DormantWakeGateDeps {
    * Optional: connection-scoped write-back for the WS path. When supplied,
    * called exactly once with triggerTs so the WS's own subscribed dormant-
    * poll can hold its dormant:true frame in place while the wake completes.
-   * Agent-reset (no subscribed poll) omits this.
+   * A one-shot caller (no subscribed poll) omits this.
    */
   setWakeTriggerTs?: (ts: number) => void;
   /** Test seam. Defaults to Date.now. */
