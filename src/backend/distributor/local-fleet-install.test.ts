@@ -1052,6 +1052,29 @@ describe("BR2 — bootstrap patches settings.json + runs gsd-context-monitor cle
     expect(again.hadError).toBe(false);
   });
 
+  it("retired context watch: installed script and each identity's state folder are removed", async () => {
+    process.env.SKYNET_PUBLIC_URL = "https://skynet.example.com";
+    await fs.mkdir(path.join(tmpRoot, ".local/bin"), { recursive: true });
+    await fs.writeFile(path.join(tmpRoot, ".local/bin/context-watch"), "#!/usr/bin/env python3\n");
+    const stateA = path.join(tmpRoot, "fleet/identities/alpha/ctxwatch/.state");
+    const stateB = path.join(tmpRoot, "fleet/identities/beta/ctxwatch/.state");
+    await fs.mkdir(stateA, { recursive: true });
+    await fs.mkdir(stateB, { recursive: true });
+    await fs.writeFile(path.join(stateA, "ctxwatch.pid"), "123");
+    await fs.writeFile(path.join(stateA, "nudged"), "1");
+    await fs.writeFile(path.join(stateB, "ctxwatch.pid"), "456");
+    await fs.writeFile(path.join(stateB, "stray.txt"), "keep me");
+    const { bootstrapFleetSubstrateLocally } = await importFresh();
+    const result = await bootstrapFleetSubstrateLocally(host);
+    expect(result.gsdContextMonitorCleanupOk).toBe(true);
+    await expect(fs.access(path.join(tmpRoot, ".local/bin/context-watch"))).rejects.toThrow();
+    await expect(fs.access(path.join(tmpRoot, "fleet/identities/alpha/ctxwatch"))).rejects.toThrow();
+    await expect(fs.access(path.join(tmpRoot, "fleet/identities/alpha"))).resolves.toBeUndefined();
+    // A folder holding something unexpected is left alone (only known files go).
+    await expect(fs.access(path.join(stateB, "ctxwatch.pid"))).rejects.toThrow();
+    await expect(fs.readFile(path.join(stateB, "stray.txt"), "utf-8")).resolves.toBe("keep me");
+  });
+
   it("gsd-context-monitor cleanup: matching hook present in settings + hook file present → strip settings entry AND unlink hook file", async () => {
     process.env.SKYNET_PUBLIC_URL = "https://skynet.example.com";
     const claudeDir = path.join(tmpRoot, ".claude");

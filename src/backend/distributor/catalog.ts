@@ -355,13 +355,6 @@ export const FLEET_SUBSTRATE_CATALOG: readonly CatalogEntry[] = [
     restartHook: "scheduled-agents-scheduler.service",
   },
   {
-    slug: "context-watch",
-    sourceKind: "bundled",
-    bundledPath: "/app/fleet-substrate/scripts/context-watch.py",
-    installPath: "~/.local/bin/context-watch",
-    restartHook: null,
-  },
-  {
     slug: "file-watch",
     sourceKind: "bundled",
     bundledPath: "/app/fleet-substrate/scripts/file-watch.py",
@@ -371,10 +364,10 @@ export const FLEET_SUBSTRATE_CATALOG: readonly CatalogEntry[] = [
   // inbox-watcher — fifth ambient-watcher child (shape-agent-supervisor-inbox).
   // Watches ~/fleet/identities/<name>/inbox/ for message files dropped by any
   // process on the box, surfaces their paths up to ambient-monitor's parent via
-  // the RAW-PASTE-FILE: stdout protocol. Harness-bound like the other four
+  // the RAW-PASTE-FILE: stdout protocol. Harness-bound like the other
   // ambient-watcher children — a bytes change here waits for the next natural
-  // harness recycle to apply. Accepted trade-off; mirrors context-watch /
-  // file-watch distribution shape.
+  // harness relaunch to apply. Accepted trade-off; mirrors the file-watch
+  // distribution shape.
   {
     slug: "inbox-watcher",
     sourceKind: "bundled",
@@ -973,14 +966,14 @@ export const FLEET_SUBSTRATE_CATALOG: readonly CatalogEntry[] = [
     restartHook: null,
   },
 
-  // --- ambient-monitor (1 row: the single launcher that spawns the four ambient watchers) ---
-  // Replaces what were once four separate Monitor invocations (relay receiver, wake-up scheduler,
-  // context-watch, file-watch) with a single launch. The four watchers stay as their own
+  // --- ambient-monitor (1 row: the single launcher that spawns the ambient watchers) ---
+  // Replaces what were once separate Monitor invocations (relay receiver, wake-up scheduler,
+  // file-watch, and the since-retired context watch) with a single launch. The watchers stay as their own
   // canonical entries above (still distributed, still on-disk at their existing paths);
   // ambient-monitor invokes them via those entry points.
   //
   // 2026-09-14: the AGENT-SUPERVISOR now starts this, not the agent — one launcher per harness it
-  // brings up (fresh / recycle / dormant-wake), passing --inject-to <session> --harness-pid <pid>.
+  // brings up (fresh / recover / dormant-wake), passing --inject-to <session> --harness-pid <pid>.
   // In that mode the launcher delivers each wake line INTO the session as a <task-notification>
   // envelope rather than writing to stdout, because with no harness-owned Monitor there is nothing
   // to raise events through. Motivating constraint: one Skynet instance is barred from having the
@@ -988,7 +981,7 @@ export const FLEET_SUBSTRATE_CATALOG: readonly CatalogEntry[] = [
   //
   // No restart hook, and it deliberately needs none: the supervisor starts a fresh launcher on every
   // harness launch and each launcher dies with the harness it watches, so new bytes land on an
-  // identity's next recycle. A restart hook here would be actively WRONG — it would have to kill
+  // identity's next relaunch. A restart hook here would be actively WRONG — it would have to kill
   // live launchers, orphaning their identities mid-session.
   {
     slug: "ambient-monitor",

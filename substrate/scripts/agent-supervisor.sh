@@ -71,12 +71,6 @@ APP_CREATE_LOCK="${AGENT_APP_CREATE_LOCK:-$HOME/fleet/.create-lock}"
 SELF_PATH="$(readlink -f "$0" 2>/dev/null || echo "$0")"
 log() { printf '%s %s\n' "$(date '+%H:%M:%S')" "$*"; }
 
-# Per-identity "last recycle at" — LOG-ONLY. Populated when recycle() finishes; read to enrich
-# the DEAD-recovering + RESUME log lines so a fresh-claude death within the recycle window (which
-# causes the recovery path to resume the pre-recycle session and silently UNDO the recycle) is
-# obvious in the log. Behavior is untouched — user chose visibility over defense (2026-07-23).
-declare -A LAST_RECYCLE_AT=()
-
 # Per-tick snapshot of all tmux session names, populated once by snapshot_sessions() at the top of
 # reconcile() and consumed by match_session() as an in-memory lookup. Replaces 88× per-tick
 # `tmux ls` invocations with a single call. Keys are lowercased session names; values are the
@@ -256,7 +250,7 @@ CLAUDE_LAUNCH_ENV="CLAUDE_CODE_RESUME_THRESHOLD_MINUTES=99999999 CLAUDE_CODE_RES
 
 # Flags passed to every `claude` launch. Consolidated so all 4 launch sites (redrive+drive × resume+fresh)
 # stay in sync — an inline-per-site spelling means a flag can silently fall off some but not others
-# (2026-09-04, user: fleet came back on Sonnet by default after supervisor recycles because --model opus
+# (2026-09-04, user: fleet came back on Sonnet by default after supervisor relaunches because --model opus
 # was never wired in). Adding a flag = one edit here, applies everywhere.
 #
 # The model flag is conditional on $CLAUDE_MODEL (see § config) so a box can pin a different model or
@@ -1165,7 +1159,7 @@ clean_workspace_dependency_dirs() {
 #
 # Executes the four-step retire in the Phase 115 D-13 order:
 #   STEP 1: matrix deactivate  (was Phase 94 step 3)
-#   STEP 2: graceful harness exit  (NEW in Phase 115 — reuses recycle()'s pattern verbatim)
+#   STEP 2: graceful harness exit  (NEW in Phase 115)
 #   STEP 3: tmux kill-session  (was Phase 94 step 2)
 #   STEP 4a: delete .archive-requested sentinel  (Phase 115 D-12 option b — BEFORE folder move)
 #   STEP 4b: move folder to archive/  (was Phase 94 step 1)
@@ -1178,9 +1172,8 @@ clean_workspace_dependency_dirs() {
 # watcher children (including recv.sh, which flushes its cursor to disk); then a bounded tmux
 # kill-session as the hard-stop backstop; then sentinel-delete + folder-move to seal the retire.
 #
-# The graceful-exit step (STEP 2) reuses recycle()'s /exit paste + Enter + SIGTERM survivors
-# pattern verbatim (D-14) so we don't fork a second graceful-exit pattern in the codebase, and
-# waits an ADDITIONAL GRACE_WAIT seconds (= ambient-monitor.py:81 GRACE_SECONDS + 1) so
+# The graceful-exit step (STEP 2) sends /exit (bracketed paste + Enter), SIGTERMs any survivors
+# on the pane tty, and waits an ADDITIONAL GRACE_WAIT seconds (= ambient-monitor.py:81 GRACE_SECONDS + 1) so
 # ambient-monitor completes its own SIGTERM-fanout window before STEP 3's tmux kill lands
 # (RESEARCH §4: without this wait, tmux kill-session would SIGHUP ambient-monitor mid-cleanup,
 # defeating the whole ordering).
@@ -1387,16 +1380,16 @@ retire_identity() {
   fi
 
   # =============================================================================================
-  # STEP 2 (Phase 115 D-13/D-14 NEW): Graceful harness exit — reuses recycle()'s pattern verbatim.
+  # STEP 2 (Phase 115 D-13/D-14 NEW): Graceful harness exit.
   # =============================================================================================
   # Phase 133 D-13a: NO inline retry wrap on this step. GRACE_WAIT (11s) already gives ambient-
   # monitor room to clean up; wrapping in a 3× retry would just re-fire the same graceful-exit
   # burst against a pane that either already exited (waste) or is genuinely stuck (a 3× retry
   # will not un-stick it). Do NOT add a for _attempt in 1 2 3 loop here.
   # Send /exit to the claude REPL via bracketed paste + Enter, wait, then SIGTERM survivors.
-  # After the recycle-style burst, wait an additional GRACE_WAIT seconds so ambient-monitor's
+  # After the /exit burst, wait an additional GRACE_WAIT seconds so ambient-monitor's
   # _harness_watch fires (once/sec poll → ≤1s to detect), its _do_shutdown SIGTERMs the four
-  # watcher children (relay receiver, wakeup-scheduler, context-watch, file-watch), and
+  # watcher children (relay receiver, wakeup-scheduler, file-watch, inbox-watcher), and
   # they exit before STEP 3's tmux kill-session lands. STEP 2 NEVER gates the retire — a stuck
   # harness or a missing tmux session must not block retire; STEP 3 is the backstop.
   local slugname actual
@@ -1407,7 +1400,6 @@ retire_identity() {
   if [ -z "$actual" ]; then
     log "'$name' retire step 2 (graceful exit): no live tmux session; skipping graceful exit"
   else
-    # Copied VERBATIM from recycle() (see ~L1050) per D-14 "same pattern, do NOT invent a second".
     local _ex_tmp; _ex_tmp=$(mktemp)
     printf '%s' "/exit" > "$_ex_tmp"
     timeout -k 5 10 tmux load-buffer -t "$actual" "$_ex_tmp" 2>/dev/null
@@ -1421,7 +1413,7 @@ retire_identity() {
     local tty pid killed=0
     tty="$(timeout -k 5 10 tmux list-panes -t "=$actual" -F '#{pane_tty}' 2>/dev/null | head -1)"
     if [ -n "$tty" ]; then
-      # shellcheck disable=SC2009  # D-14: pattern copied verbatim from recycle() — pgrep does not support -t (tty filter) the same way.
+      # shellcheck disable=SC2009  # pgrep does not support -t (tty filter) the same way.
       for pid in $(ps -t "${tty#/dev/}" -o pid=,comm= 2>/dev/null | grep -iE 'claude|node' | awk '{print $1}'); do
         kill "$pid" 2>/dev/null   # SIGTERM (default signal)
         killed=$((killed+1))
@@ -2843,7 +2835,7 @@ _check_id_first_turn() {
 #      so drive() bails (same shape as wait_for_claude).
 #
 # REPLACES the prior pane-scrape state-machine (7c54898), which false-positived on tmux
-# scrollback: when a pane is reused across recycles it retains the prior session's /id NAME
+# scrollback: when a pane is reused across relaunches it retains the prior session's /id NAME
 # text, and the scrape check called it SUBMITTED without ever pasting. Three workstation
 # agents landed at empty compose that way on 2026-08-29. A new file can't have scrollback.
 submit_id() {
@@ -2941,7 +2933,7 @@ submit_id() {
 # ---- ambient monitor ownership (2026-09-14) -------------------------------------------------
 # The supervisor OWNS each identity's ambient monitor. Previously the agent started it — driven
 # by the id skill's on-wake instructions plus a pasted re-arm nudge on every resume. Since the
-# supervisor is the only thing that ever brings a harness up (fresh / recycle / dormant-wake),
+# supervisor is the only thing that ever brings a harness up (fresh / recover / dormant-wake),
 # it is the natural owner, and the agent is relieved of the job entirely.
 #
 # Our added responsibility is deliberately TINY: start the process, then stay out of the way.
@@ -2985,7 +2977,7 @@ start_ambient_monitor() {
   local name="$1" sess="$2"
   [ "${DRY_RUN:-0}" = 1 ] && { log "DRY_RUN would start ambient monitor for '$name'"; return 0; }
   if [ ! -x "$AMBIENT_MONITOR" ]; then
-    log "ERROR: '$name' ambient monitor NOT STARTED — $AMBIENT_MONITOR missing or not executable. Identity is DEAF (no relay, no schedule, no context-watch, no file-watch) until this is fixed."
+    log "ERROR: '$name' ambient monitor NOT STARTED — $AMBIENT_MONITOR missing or not executable. Identity is DEAF (no relay, no schedule, no file-watch, no inbox) until this is fixed."
     return 1
   fi
   local hpid
@@ -3103,7 +3095,7 @@ _scan_dir_newest_owned() {
 #
 #   Replaces the prior naive "iterate every file, keep the max" that couldn't break early
 #   and forked stat+grep+sed per file — measured at ~47s per identity on a 4000-file box.
-resolve_session() {
+main_session_file() {
   local name="$1" want project_dir best="" mtime file owner cutoff
   local -a find_filter=()
   want="$(_lower "$name")"
@@ -3127,6 +3119,13 @@ resolve_session() {
     done < <(find "$PROJECTS_DIR/" -maxdepth 2 -type f -name '*.jsonl' "${find_filter[@]}" -printf '%T@\t%p\n' 2>/dev/null | sort -rn)
   fi
   [ -n "$best" ] || return 1
+  printf '%s' "$best"
+}
+
+# prints "<cwd>\t<sessionId>" for the identity's newest owned session (see main_session_file).
+resolve_session() {
+  local best
+  best="$(main_session_file "$1")" || return 1
   printf '%s\t%s\n' "$(session_cwd "$best")" "$(basename "$best" .jsonl)"
 }
 
@@ -3295,63 +3294,122 @@ drive() {
   date -u +%Y-%m-%dT%H:%M:%SZ > "$IDENTITIES_DIR/$name/.resume-complete"
 }
 
-# RECYCLE: an EXPLICIT, agent-requested clean restart (distinct from the never-kill rule, which
-# guards against a transient MISREAD spuriously nuking a live agent). The agent itself dropped
-# `<identity>/.recycle-requested` after `/id save` because its context window is filling — a
-# deliberate "please reload me fresh." So here we DO terminate the running claude (graceful /exit,
-# then hard-kill any survivor on the pane tty) and re-drive a fresh `claude + /id`, giving a clean
-# identity+memos reload with zero compaction drift. The relay cursor (SINCE_FILE) means the fresh
-# session catches any messages from the restart gap.
-recycle() {
-  local name="$1" sess="$2"
-  log "recycling '$name' (session '$sess') — clean fresh /id load"
-  # graceful: ask the claude REPL to exit (it's idle at the prompt post-save)
-  # ⚠️ Bracketed paste + separate Enter after settle (see the resume-nudge site for why).
-  _ex_tmp=$(mktemp)
-  printf '%s' "/exit" > "$_ex_tmp"
-  timeout -k 5 10 tmux load-buffer -t "$sess" "$_ex_tmp" 2>/dev/null
-  timeout -k 5 10 tmux paste-buffer -p -t "$sess" 2>/dev/null
-  rm -f "$_ex_tmp"
-  sleep 0.5
-  timeout -k 5 10 tmux send-keys -t "$sess" Enter 2>/dev/null
-  log "'$name' recycle: /exit paste + Enter sent to pane"
-  sleep 3
-  # hard fallback: kill any claude/node still on the pane tty so we're back at a shell
-  local tty pid killed=0; tty="$(timeout -k 5 10 tmux list-panes -t "=$sess" -F '#{pane_tty}' 2>/dev/null | head -1)"
-  if [ -n "$tty" ]; then
-    for pid in $(ps -t "${tty#/dev/}" -o pid=,comm= 2>/dev/null | grep -iE 'claude|node' | awk '{print $1}'); do
-      kill "$pid" 2>/dev/null
-      killed=$((killed+1))
-    done
+# COMPACTION (Condense): the one way an agent gets more room besides Claude Code's own automatic
+# compaction near the limit. The agent drops `<identity>/.compact-requested` itself, or the app
+# drops it when the user presses Condense conversation; its contents, if any, are the user's
+# guidance for what the summary should keep. The supervisor carries it out in two steps, both
+# through the identity's inbox so they serialize with every other paste into the pane (and so a
+# dormant identity is woken by the inbox wake trigger, the same tick):
+#   1. once the agent is at rest at its prompt (or asleep), deliver `/compact [guidance]` and
+#      write `.compacting` holding the request time;
+#   2. on a later tick, once a compaction boundary newer than that time has landed in the
+#      agent's session file, deliver the "Compaction done" event so the agent always takes a
+#      turn afterwards, then remove `.compacting`.
+# The event comes in the supervisor's event envelope, never as plain text, so the agent can't
+# mistake it for the user answering something. `.compact-requested` or `.compacting` present =
+# the app shows "Condensing…".
+COMPACT_TIMEOUT_SECONDS="${COMPACT_TIMEOUT_SECONDS:-900}"
+COMPACT_GUIDANCE_MAX_BYTES="${COMPACT_GUIDANCE_MAX_BYTES:-2000}"
+
+# inbox_drop <name> <payload>: one message file into the identity's inbox, per the inbox-watcher
+# dropper contract (timestamp-hex name, written aside then renamed into place).
+inbox_drop() {
+  local name="$1" payload="$2" inbox="$IDENTITIES_DIR/$1/inbox" fname
+  mkdir -p "$inbox" || return 1
+  fname="$(date -u +%Y%m%dT%H%M%S%3N)-$(od -An -N4 -tx1 /dev/urandom | tr -d ' \n').msg"
+  printf '%s' "$payload" > "$inbox/$fname.tmp" && mv "$inbox/$fname.tmp" "$inbox/$fname"
+}
+
+# agent_at_rest <session>: the harness is at its prompt and not mid-turn (Claude Code shows
+# "esc to interrupt" while a turn or a compaction is running).
+agent_at_rest() {
+  local pane
+  pane="$(timeout -k 5 10 tmux capture-pane -pt "$1" -S -15 2>/dev/null)" || return 1
+  printf '%s' "$pane" | grep -q '❯' || return 1
+  printf '%s' "$pane" | grep -qF 'esc to interrupt' && return 1
+  return 0
+}
+
+# compaction_landed <session-file> <since-iso>: a compaction boundary at or after <since-iso>.
+compaction_landed() {
+  local file="$1" since="$2"
+  grep -F '"compact_boundary"' "$file" 2>/dev/null \
+    | jq -r 'select(.type == "system" and .subtype == "compact_boundary") | .timestamp // empty' 2>/dev/null \
+    | awk -v s="$since" '$0 >= s { found = 1 } END { exit found ? 0 : 1 }'
+}
+
+compaction_done_event() {
+  printf '%s' "<task-notification>
+<summary>Compaction done ($1) — delivered by agent-supervisor</summary>
+<event>Compaction done. This is not a message from the user and answers nothing you asked. Re-load yourself first, as your summary says, then carry on with work you were already cleared to do. If you were waiting on the user, keep waiting.</event>
+</task-notification>"
+}
+
+# start_compaction <name>: step 1 — deliver the compaction and mark it in flight.
+start_compaction() {
+  local name="$1" d="$IDENTITIES_DIR/$1" guidance cmd since
+  guidance="$(head -c "$COMPACT_GUIDANCE_MAX_BYTES" "$d/.compact-requested" 2>/dev/null \
+    | iconv -f UTF-8 -t UTF-8 -c 2>/dev/null | tr '\r\n\t' '   ' | sed -E 's/ +/ /g; s/^ //; s/ $//')"
+  cmd="/compact"
+  [ -n "$guidance" ] && cmd="/compact $guidance"
+  since="$(date -u +%Y-%m-%dT%H:%M:%S.%3NZ)"
+  if ! { printf '%s\n' "$since" > "$d/.compacting.tmp" && mv "$d/.compacting.tmp" "$d/.compacting"; }; then
+    log "ERROR: '$name' compaction: could not write .compacting — request left for the next tick"
+    return 1
   fi
-  if [ "$killed" -gt 0 ]; then
-    log "'$name' recycle: hard-kill SIGTERM'd $killed survivor(s) on tty ${tty:-?} — a wedged claude may not respond to SIGTERM"
-  else
-    log "'$name' recycle: no survivors after /exit — pane at shell"
+  if ! inbox_drop "$name" "$cmd"; then
+    rm -f "$d/.compacting"
+    log "ERROR: '$name' compaction: inbox drop failed — request left for the next tick"
+    return 1
   fi
-  sleep 2
-  # Observe pane state BEFORE drive() — if claude/node is still there, drive() will type its
-  # launch command into a non-empty REPL and fresh /id will fail (text absorbed as input, not
-  # spawned as a shell command). This is Taylor's 2026-08-21 failure signature.
-  local _pane_state="shell"
-  if [ -n "$tty" ] && ps -t "${tty#/dev/}" -o comm= 2>/dev/null | grep -qiE 'claude|node'; then
-    _pane_state="claude-still-present"
-    log "WARNING: '$name' recycle: pane STILL has claude/node after /exit + SIGTERM — drive() about to race a still-alive predecessor (session '$sess')"
+  rm -f "$d/.compact-requested"
+  log "'$name' compaction: delivered /compact via inbox (guidance ${#guidance} chars, since $since)"
+  metric event=compact-start identity="$name" guidance_chars="${#guidance}"
+}
+
+# compaction_progress <name>: step 2 — once the compaction has landed, deliver the event.
+compaction_progress() {
+  local name="$1" d="$IDENTITIES_DIR/$1" since file age
+  since="$(head -n1 "$d/.compacting" 2>/dev/null)"
+  if [ -n "$since" ] && file="$(main_session_file "$name")" && compaction_landed "$file" "$since"; then
+    if inbox_drop "$name" "$(compaction_done_event "$name")"; then
+      rm -f "$d/.compacting"
+      log "'$name' compaction: landed — 'Compaction done' event delivered via inbox"
+      metric event=compact-done identity="$name"
+    else
+      log "ERROR: '$name' compaction: landed but the event's inbox drop failed — retrying next tick"
+    fi
+    return 0
   fi
-  # source-of-truth trust for the recycled session's workdir (already trusted by earlier launch()
-  # in practice, but cheap idempotent belt-and-suspenders for a workdir that was manually cd'd)
-  local _rc_wd; _rc_wd="$(timeout -k 5 10 tmux display -pt "$sess" -F '#{pane_current_path}' 2>/dev/null)"
-  accept_trust_for_workdir "$_rc_wd"
-  log "'$name' recycle: calling drive() (pane_state=$_pane_state, cwd=$_rc_wd)"
-  drive "$name" "$sess" "" "$_rc_wd"        # fresh claude + /id into the same (now shell) session; cwd → jsonl watch
-  log "'$name' recycle: drive() returned"
-  LAST_RECYCLE_AT["$name"]="$(date +%s)"    # log-only: enrich later DEAD/RESUME lines to catch undone recycles
-  # Schedule cleanup of .recycled-at ~8s from now — counted from AFTER drive() returned,
-  # so the app has a visible "recycling" window post-launch (its polling picks up the
-  # sentinel; the delay guarantees at least a few polling cycles observe it). Fire-and-forget
-  # backgrounded subshell + disown so the reconcile loop doesn't block on the sleep.
-  ( sleep 8; rm -f "$IDENTITIES_DIR/$name/.recycled-at" 2>/dev/null && log "'$name' sentinel: .recycled-at cleaned up (+8s post-drive)" ) & disown
-  log "'$name' recycle sequence complete — drive() returned; fresh /id landing verifies on next reconcile"
+  age=$(( $(date +%s) - $(stat -c %Y "$d/.compacting" 2>/dev/null || date +%s) ))
+  if [ "$age" -ge "$COMPACT_TIMEOUT_SECONDS" ]; then
+    rm -f "$d/.compacting"
+    log "WARNING: '$name' compaction: nothing landed ${age}s after /compact was delivered — giving up, no event sent"
+    metric event=compact-timeout identity="$name" age_s="$age"
+  fi
+}
+
+# handle_compaction <name> <session-or-empty>: called once per identity per tick.
+handle_compaction() {
+  local name="$1" sess="$2" d="$IDENTITIES_DIR/$1"
+  if [ -f "$d/.compacting" ]; then
+    [ "${DRY_RUN:-0}" = 1 ] || compaction_progress "$name"
+    # A request arriving while one is in flight is the same request (e.g. a double press).
+    if [ -f "$d/.compact-requested" ] && [ -f "$d/.compacting" ]; then
+      rm -f "$d/.compact-requested"
+      log "'$name' compaction: request while one is in flight — dropped as a duplicate"
+    fi
+    return 0
+  fi
+  [ -f "$d/.compact-requested" ] || return 0
+  if [ "${DRY_RUN:-0}" = 1 ]; then log "DRY_RUN would compact '$name'"; return 0; fi
+  if [ ! -f "$d/.dormant" ]; then
+    # Awake: wait for a live harness at rest. A dormant identity needs no check — the inbox
+    # drop wakes it, and the inbox is drained at its fresh prompt.
+    [ -n "$sess" ] && claude_running_cached "$sess" || return 0
+    agent_at_rest "$sess" || return 0
+  fi
+  start_compaction "$name"
 }
 
 # bring identity $1 up in session $3 (mode $2 = fresh|recover). Fresh: $3 is the slug and the
@@ -3377,31 +3435,6 @@ launch() {
   else
     log "'$name' launch: resolve_session found no prior session AND $IDENTITIES_DIR/$name/workspace absent — fresh /id in \$HOME"
   fi
-  # An explicit recycle request means "reload me CLEAN" — keep the workdir, drop the resume. (Set by
-  # the sentinel branch when the session was already gone; consumed here so it can't leak.)
-  if [ "${FORCE_FRESH:-0}" = 1 ]; then resume=""; FORCE_FRESH=0; log "'$name' forced fresh /id (recycle requested)"; fi
-  # GATE: if the resume target's mtime PRE-DATES a recent recycle for this identity, resuming
-  # would silently undo that recycle. Failure this closes (2026-09-01, tanya on t1000): recycle
-  # sequence "completes" but the fresh post-recycle claude never actually landed (drive() returned
-  # with error, recycle() didn't check the return status), so LAST_RECYCLE_AT is set with no new
-  # post-recycle session written. Two minutes later alive-check finds claude-dead, recovery runs
-  # resolve_session, which picks the only session available (the pre-recycle one) → resume undoes
-  # the recycle. This class of failure was previously log-only ("PRE-DATES recycle at …"); Tanya
-  # flagged it and proposed the promotion. Now: refuse resume, force fresh — same downstream path
-  # as FORCE_FRESH above.
-  if [ -n "$resume" ] && [ -n "${LAST_RECYCLE_AT[$name]:-}" ]; then
-    local _rec="${LAST_RECYCLE_AT[$name]}"
-    local _f
-    for _f in "$PROJECTS_DIR"/*/"$resume".jsonl; do
-      [ -f "$_f" ] || continue
-      local _mtime; _mtime="$(stat -c %Y "$_f" 2>/dev/null)"
-      if [ -n "$_mtime" ] && [ "$_mtime" -lt "$_rec" ]; then
-        log "GATE: '$name' resume target ${resume:0:8} mtime $(date -d "@$_mtime" '+%H:%M:%S') PRE-DATES recycle at $(date -d "@$_rec" '+%H:%M:%S') — refusing resume, forcing fresh /id"
-        resume=""
-      fi
-      break
-    done
-  fi
   if ! timeout -k 5 10 tmux has-session -t "=$sess" 2>/dev/null; then
     timeout -k 5 10 tmux new-session -d -s "$sess" -c "$cwd"     # empty SHELL session in the identity's workdir
     created=1
@@ -3417,13 +3450,6 @@ launch() {
   else log "${mode}ing '$name' (session '$sess') — fresh /id in $cwd"; fi
   accept_trust_for_workdir "$cwd"                 # source-of-truth: kill the folder-trust prompt
   drive "$name" "$sess" "$resume" "$cwd"
-  # Path B recycle-cleanup: if this launch was triggered by a recycle-request whose session was
-  # already gone (FORCE_FRESH path), the .recycled-at sentinel is still there. Same delayed
-  # cleanup as recycle() Path A. Guarded so normal fresh/recover launches (no recycle involved)
-  # don't touch the sentinel — those wouldn't have one anyway.
-  if [ -f "$IDENTITIES_DIR/$name/.recycled-at" ]; then
-    ( sleep 8; rm -f "$IDENTITIES_DIR/$name/.recycled-at" 2>/dev/null && log "'$name' sentinel: .recycled-at cleaned up (+8s post-launch, FORCE_FRESH path)" ) & disown
-  fi
   log "'$name' ${mode} done"
 }
 
@@ -4154,40 +4180,13 @@ reconcile() {
   snapshot_schedule_peek                           # one python subprocess per tick over the fleet; schedule_peek reads from SCHEDULE_PEEK_SNAPSHOT. MUST run AFTER resolve_identities (needs IDENTITIES populated).
   snapshot_matrix_peek                             # parallel curls (default -P 20) to Matrix homeservers for all dormant identities; matrix_peek_cached reads from MATRIX_PEEK_SNAPSHOT.
   if [ "${#IDENTITIES[@]}" -eq 0 ]; then log "no identities to supervise (no <name>/<name>.md folders under $IDENTITIES_DIR)"; return 0; fi
-  local name slugname actual sentinel launched=0
+  local name slugname actual launched=0
   for name in "${IDENTITIES[@]}"; do
     slugname="$(slug "$name")"
     actual="$(match_session "$slugname")"      # existing session (any case) or empty
-    # EXPLICIT recycle request: the agent dropped this after `/id save` to escape a filling
-    # context window. It overrides the normal alive-check (this is a deliberate request, not a
-    # misread), so a healthy running session IS recycled here.
-    sentinel="$IDENTITIES_DIR/$name/.recycle-requested"
-    if [ -f "$sentinel" ]; then
-      if [ "${DRY_RUN:-0}" = 1 ]; then log "DRY_RUN would recycle '$name' (recycle sentinel present)"; continue; fi
-      # Rename → .recycled-at instead of rm, so the app has a visible "recycling"
-      # signal for the ~seconds while the fresh claude boots (cleaned up below by
-      # the delayed rm scheduled at end of recycle() / launch()). The rename is
-      # what closes the loop guard — the sentinel MUST no longer match the
-      # `.recycle-requested` name before reconcile completes this iteration, or
-      # the next tick would re-recycle the freshly-started claude. `|| rm` is a
-      # paranoid fallback in case the mv can't happen (permissions, race).
-      if mv "$sentinel" "$IDENTITIES_DIR/$name/.recycled-at" 2>/dev/null; then
-        log "'$name' sentinel: .recycle-requested → .recycled-at (loop guard active for this recycle)"
-      else
-        rm -f "$sentinel"
-        log "'$name' sentinel: mv to .recycled-at failed — force-removed .recycle-requested (loop guard active via absence)"
-      fi
-      if [ -n "$actual" ]; then
-        recycle "$name" "$actual"
-        launched=$((launched+1)); sleep "${STAGGER_SECONDS:-8}"; continue
-      fi
-      log "'$name' recycle requested but no live session — forcing a FRESH /id load below"
-      # ⚠️ Fall through to the ABSENT branch — but that branch calls launch(), which DISCOVERS the
-      # newest session and RESUMES it (added 2026-07-15, resume-in-workdir). So the old comment here
-      # ("launches fresh") stopped being true: a recycle request whose session was already gone got
-      # silently answered with a RESUME of the very context the agent asked to escape. Force fresh.
-      FORCE_FRESH=1
-    fi
+    # Compaction request (Condense): the agent or the app asked for this identity to be
+    # compacted. Handled before dormancy so a sleeping agent is woken for it via its inbox.
+    handle_compaction "$name" "$actual"
 
     # ---- DORMANCY exemption sentinel (2026-08-09) ----------------------
     # `<identity>/.no-dormancy` opts a specific identity out of dormancy entirely — the
@@ -4285,21 +4284,7 @@ reconcile() {
         [ "${VERBOSE:-0}" = 1 ] && log "'$name' alive on re-probe — skip"
         continue
       fi
-      # Log-only enrichment: if we just recycled this identity, flag how soon after — a death within
-      # a few minutes of a recycle is the smoking-gun signature of the "fresh claude died -> recovery
-      # resumes the OLD session, undoing the recycle" failure mode. Behavior is unchanged.
-      local _rec="${LAST_RECYCLE_AT[$name]:-}" _tag=""
-      if [ -n "$_rec" ]; then
-        local _delta=$(( $(date +%s) - _rec ))
-        if [ "$_delta" -le 300 ]; then _tag=" (${_delta}s AFTER recent recycle — recovery may UNDO the recycle)"
-        else _tag=" (${_delta}s after last recycle)"; fi
-      fi
-      # Also flag orthogonal sentinel state — a DEAD claude while .recycle-requested or .recycled-at
-      # is present tells us the death is in the recycle chain, not a spontaneous crash.
-      local _sen_tag=""
-      [ -f "$IDENTITIES_DIR/$name/.recycle-requested" ] && _sen_tag="$_sen_tag [.recycle-requested present]"
-      [ -f "$IDENTITIES_DIR/$name/.recycled-at" ] && _sen_tag="$_sen_tag [.recycled-at present]"
-      log "'$name' (session '$actual') present but claude DEAD — recovering in place${_tag}${_sen_tag}"
+      log "'$name' (session '$actual') present but claude DEAD — recovering in place"
       launch "$name" recover "$actual"
     else
       log "'$name' (session '$slugname') ABSENT — launching"
@@ -4346,7 +4331,7 @@ EARLY_WAKE_NAMES=""
 # identity, tmux/ps snapshots, sentinel scans) and reach them in alphabetical order — ~5-13s on a
 # loaded box. Same thread, same launch() as the ABSENT branch; the pass that follows then sees the
 # newborn alive and skips it. Only a plain newborn qualifies — anything with a tmux session or a
-# dormant/recycle/archive sentinel is left for reconcile's normal handling (an un-archived identity
+# dormant/archive sentinel is left for reconcile's normal handling (an un-archived identity
 # arrives .dormant, so it is never fast-pathed).
 launch_newborns() {
   local names="$EARLY_WAKE_NAMES" name sess n=0
@@ -4355,7 +4340,6 @@ launch_newborns() {
   for name in $names; do
     [ -f "$IDENTITIES_DIR/$name/$name.md" ] || continue
     [ -e "$IDENTITIES_DIR/$name/.dormant" ] && continue
-    [ -e "$IDENTITIES_DIR/$name/.recycle-requested" ] && continue
     [ -e "$IDENTITIES_DIR/$name/.archive-requested" ] && continue
     sess="$(slug "$name")"
     timeout -k 5 10 tmux ls -F '#{session_name}' 2>/dev/null | tr '[:upper:]' '[:lower:]' | grep -qxF "$(_lower "$sess")" && continue

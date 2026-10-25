@@ -7091,8 +7091,7 @@ wss.on("connection", async (ws: WebSocket, req) => {
     // scrape fallback and plan-pending detection are removed. On a fresh
     // session with no assistant turn yet, pct is null and the frontend
     // renders a loading placeholder (accepted UX tradeoff per CONTEXT.md
-    // § Verification and RESEARCH §3g + G4). Recipe cribbed from
-    // nelly's context-watch.py (2026-07-18); JSONL path from Phase 90.
+    // § Verification and RESEARCH §3g + G4). JSONL path from Phase 90.
     //
     // Phase 95 Part C: batch-first dispatch using the pv-context-pct-sweep
     // script (distributor-shipped to ~/.local/bin/pv-context-pct-sweep).

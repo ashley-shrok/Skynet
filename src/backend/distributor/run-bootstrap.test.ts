@@ -508,6 +508,29 @@ describe("runBootstrapForHost", () => {
       expect(run(home).trimEnd().endsWith("__CLEANUP_OK__")).toBe(true);
       await expect(fsp.access(nodePath.join(roleDir, "SKILL.md"))).rejects.toThrow();
       await expect(fsp.readFile(nodePath.join(roleDir, "notes.md"), "utf-8")).resolves.toBe("keep me");
+
+      // (4) retired context watch: script gone, each identity's state folder gone,
+      //     a folder holding something unexpected kept; no identities at all is fine.
+      await fsp.mkdir(nodePath.join(home, ".local/bin"), { recursive: true });
+      await fsp.writeFile(nodePath.join(home, ".local/bin/context-watch"), "x");
+      const stA = nodePath.join(home, "fleet/identities/alpha/ctxwatch/.state");
+      const stB = nodePath.join(home, "fleet/identities/beta/ctxwatch/.state");
+      await fsp.mkdir(stA, { recursive: true });
+      await fsp.mkdir(stB, { recursive: true });
+      await fsp.writeFile(nodePath.join(stA, "ctxwatch.pid"), "1");
+      await fsp.writeFile(nodePath.join(stA, "pinged"), "1");
+      await fsp.writeFile(nodePath.join(stB, "stray.txt"), "keep me");
+      expect(run(home).trimEnd().endsWith("__CLEANUP_OK__")).toBe(true);
+      await expect(fsp.access(nodePath.join(home, ".local/bin/context-watch"))).rejects.toThrow();
+      await expect(fsp.access(nodePath.join(home, "fleet/identities/alpha/ctxwatch"))).rejects.toThrow();
+      await expect(fsp.access(nodePath.join(home, "fleet/identities/alpha"))).resolves.toBeUndefined();
+      await expect(fsp.readFile(nodePath.join(stB, "stray.txt"), "utf-8")).resolves.toBe("keep me");
+      const bare = await fsp.mkdtemp(nodePath.join(nodeOs.tmpdir(), "retired-substrate-bare-"));
+      try {
+        expect(run(bare).trimEnd().endsWith("__CLEANUP_OK__")).toBe(true);
+      } finally {
+        await fsp.rm(bare, { recursive: true, force: true });
+      }
     } finally {
       await fsp.rm(home, { recursive: true, force: true });
     }

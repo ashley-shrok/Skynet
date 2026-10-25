@@ -115,6 +115,8 @@ import {
   RETIRED_USER_UNITS,
   RETIRED_USER_UNIT_PREFIX,
   RETIRED_USER_UNIT_MARKER,
+  RETIRED_IDENTITY_STATE_FILES,
+  RETIRED_IDENTITY_STATE_DIRS,
   USAGE_REPORTER_RETIRED_DIR,
 } from "./run-bootstrap.js";
 import { migrateRolesKeyUnder } from "./roles-key-migration.js";
@@ -600,7 +602,9 @@ async function busctlUserManagerCall(
  * *.wants/ link to it, then one Reload), unlinks every
  * RETIRED_SUBSTRATE_FILES path under the local home root, rm -rf's every
  * RETIRED_SUBSTRATE_TREES folder, and rmdir's every RETIRED_SUBSTRATE_DIRS
- * folder only when it is empty (ENOENT / ENOTEMPTY are not errors).
+ * folder only when it is empty (ENOENT / ENOTEMPTY are not errors), then
+ * the same file/folder steps for RETIRED_IDENTITY_STATE_* inside every
+ * ~/fleet/identities/<name>/ folder.
  * Idempotent. Never-throws.
  */
 async function removeRetiredSubstrateFilesLocally(host: {
@@ -677,8 +681,7 @@ async function removeRetiredSubstrateFilesLocally(host: {
       warn("rm_tree", target, err);
     }
   }
-  for (const rel of RETIRED_SUBSTRATE_DIRS) {
-    const target = path.join(homeRoot, rel);
+  const rmdirIfEmpty = async (target: string): Promise<void> => {
     try {
       await fs.rmdir(target);
     } catch (err) {
@@ -686,6 +689,25 @@ async function removeRetiredSubstrateFilesLocally(host: {
       if (errno !== "ENOENT" && errno !== "ENOTEMPTY" && errno !== "EEXIST") {
         warn("rmdir", target, err);
       }
+    }
+  };
+  for (const rel of RETIRED_SUBSTRATE_DIRS) await rmdirIfEmpty(path.join(homeRoot, rel));
+  const identitiesDir = path.join(homeRoot, "fleet", "identities");
+  let identities: string[] = [];
+  try {
+    identities = (await fs.readdir(identitiesDir, { withFileTypes: true }))
+      .filter((e) => e.isDirectory())
+      .map((e) => e.name);
+  } catch (err) {
+    const errno = (err as { code?: string } | undefined)?.code;
+    if (errno !== "ENOENT") warn("readdir", identitiesDir, err);
+  }
+  for (const name of identities) {
+    for (const rel of RETIRED_IDENTITY_STATE_FILES) {
+      await unlinkQuiet("unlink", path.join(identitiesDir, name, rel));
+    }
+    for (const rel of RETIRED_IDENTITY_STATE_DIRS) {
+      await rmdirIfEmpty(path.join(identitiesDir, name, rel));
     }
   }
   return ok;

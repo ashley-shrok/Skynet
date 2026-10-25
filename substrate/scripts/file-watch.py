@@ -3,7 +3,7 @@
 
 Started as a role-file watcher (hence the `role-file` event tag); it now covers
 every file an identity holds in context. Sibling of the relay receiver, the
-wake-up scheduler, and the context-watch — but unlike them it never WAKES the
+and the wake-up scheduler — but unlike them it never WAKES the
 agent. Its events are queued in <identity>/pending-context/ and handed over by
 the pending-context-drain hook at the agent's next turn or tool call (see
 Deferred delivery below), so mid-session edits become visible to a running

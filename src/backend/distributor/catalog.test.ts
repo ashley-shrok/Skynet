@@ -44,8 +44,8 @@ describe("FLEET_SUBSTRATE_CATALOG", () => {
     // byte-compare mechanism in Plan 03, so the array has 12 skill-side rows
     // + 10 scripts-side rows + 1 user-onboarding row (agent-supervisor.service)
     // + 1 Phase 114 twinkie row + 24 app-development rows.
-    // file-watch is the 7th helper script (fourth ambient monitor alongside
-    // wakeup-scheduler and context-watch). fleet-status-sweep is the 8th helper
+    // file-watch is the 7th helper script (an ambient monitor alongside
+    // wakeup-scheduler; context-watch since retired). fleet-status-sweep is the 8th helper
     // script (Phase 92 batch sweep for the fleet-status poller).
     // pv-context-pct-sweep is the 9th helper script (Phase 95 batch sweep for the
     // PrettyView context-pct poller). ambient-monitor is the 10th — the single
@@ -135,7 +135,8 @@ describe("FLEET_SUBSTRATE_CATALOG", () => {
     // (shape-wealthy-text) — 76 → 75.
     // +1 for precompact-reground (PreCompact hook — re-ground after
     // compaction) — 75 → 76.
-    expect(FLEET_SUBSTRATE_CATALOG.length).toBe(76);
+    // -1 for context-watch, retired with reset (Condense) — 76 → 75.
+    expect(FLEET_SUBSTRATE_CATALOG.length).toBe(75);
   });
 
   it("Test 2: every bundled row's bundledPath starts with /app/fleet-substrate/skills/, /app/fleet-substrate/scripts/, or /app/fleet-substrate/user-onboarding/", () => {
@@ -280,7 +281,7 @@ describe("FLEET_SUBSTRATE_CATALOG", () => {
     // 2026-10-25 (SKILL.md stays) — 114 → 46.
     // -1 for its SKILL.md, folded into the id skill — 46 → 45.
     expect(skillRows.length).toBe(45);
-    // 18 helper scripts: agent-supervisor + wakeup-scheduler + context-watch +
+    // 18 helper scripts: agent-supervisor + wakeup-scheduler +
     // file-watch (4th ambient monitor) + fleet-status-sweep (Phase 92
     // batch sweep) + (usage-reporter / usage-report / claude-usage-collector
     // retired 2026-10-09 with the usage meter — 21 → 18) +
@@ -309,7 +310,8 @@ describe("FLEET_SUBSTRATE_CATALOG", () => {
     // + id-load-context (UserPromptSubmit hook — `/id` load context)
     // (interactive-messages-gc retired 2026-10-25 — 24 → 23)
     // + precompact-reground (PreCompact hook — re-ground after compaction)
-    expect(scriptRows.length).toBe(24);
+    // - context-watch (retired with reset, Condense campaign)
+    expect(scriptRows.length).toBe(23);
     // user-onboarding files: agent-supervisor.service
     // + scheduled-agents-scheduler.service (this ship: move
     // scheduled-agents scheduler from in-process agent-supervisor child
@@ -465,7 +467,8 @@ describe("FLEET_SUBSTRATE_CATALOG", () => {
     // -71 for the retired interactive-messages widget system — 146 → 75.
     // -1 for the interactive-messages SKILL.md — 75 → 74.
     // +1 for precompact-reground — 74 → 75.
-    expect(bundled.length).toBe(75);
+    // -1 for context-watch, retired with reset — 75 → 74.
+    expect(bundled.length).toBe(74);
     expect(runtime.length).toBe(1);
 
     // Every bundled row retains bundledPath under /app/fleet-substrate/

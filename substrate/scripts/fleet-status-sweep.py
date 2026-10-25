@@ -78,7 +78,7 @@ Ports verbatim (behavioral parity required — Plan 05 has a regression test):
                                     is the load-bearing correctness property).
 
 Constraints:
-    * Python 3.6+ stdlib ONLY (no pip installs). Mirrors context-watch.py +
+    * Python 3.6+ stdlib ONLY (no pip installs). Mirrors
       wakeup-scheduler.py precedent — every managed box already has Python 3.
     * Exit 0 ALWAYS. Never nonzero. `channel.exec` returning null must indicate
       SSH transport failure, never our own failure.

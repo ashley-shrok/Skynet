@@ -74,11 +74,11 @@
  *      Strip any `.hooks.PostToolUse[]` entry whose command references
  *      `gsd-context-monitor.js` from ~/.claude/settings.json AND remove the
  *      hook file at ~/.claude/hooks/gsd-context-monitor.js if present. The
- *      hook is redundant with the ambient context-watch.py Monitor and gave
- *      false pressure warnings (the harness context meter overstates actual
- *      usage). Idempotent — no-op after first sweep on each host. The same
- *      step also sweeps retired substrate (RETIRED_SUBSTRATE_FILES / _DIRS /
- *      _TREES and RETIRED_USER_UNITS — see the constants below).
+ *      hook gave false pressure warnings (the harness context meter
+ *      overstates actual usage). Idempotent — no-op after first sweep on
+ *      each host. The same step also sweeps retired substrate
+ *      (RETIRED_SUBSTRATE_FILES / _DIRS / _TREES, RETIRED_USER_UNITS and
+ *      RETIRED_IDENTITY_STATE_* — see the constants below).
  *
  *   4. host-parent write (Phase 75 D-03):
  *      Write ~/fleet/host/parent with the parent-fleet HTTPS URL
@@ -467,6 +467,13 @@ export const GSD_MONITOR_STRIP_JQ =
  *   - interactive-messages widget system, retired 2026-10-25: the GC script
  *     and the create-widget port lock (the skill folder itself is a tree,
  *     below).
+ *   - .local/bin/context-watch — the 90% "reset yourself" watcher, retired
+ *     with reset (Condense). A watcher already running keeps going until its
+ *     session ends; new ambient monitors no longer start one.
+ *
+ * RETIRED_IDENTITY_STATE_FILES / _DIRS are the same idea for per-identity
+ * runtime state: paths relative to each ~/fleet/identities/<name>/ folder,
+ * files rm -f'd and folders rmdir'd only when empty.
  *
  * NOT retired yet: .local/bin/role-file-watch (renamed to file-watch). A
  * watcher started before the rename re-execs itself from that path on every
@@ -480,8 +487,16 @@ export const RETIRED_SUBSTRATE_FILES = [
   ".claude/skills/app-development/templates/app-starter/app-SLUG.service.template",
   ".local/bin/interactive-messages-gc",
   "fleet/.create-widget-lock",
+  ".local/bin/context-watch",
 ] as const;
 export const RETIRED_SUBSTRATE_DIRS = [".claude/skills/role"] as const;
+export const RETIRED_IDENTITY_STATE_FILES = [
+  "ctxwatch/.state/ctxwatch.pid",
+  "ctxwatch/.state/nudged",
+  "ctxwatch/.state/pinged",
+] as const;
+/** Deepest first — each rmdir only succeeds once the one below it is gone. */
+export const RETIRED_IDENTITY_STATE_DIRS = ["ctxwatch/.state", "ctxwatch"] as const;
 
 /**
  * Retired folders removed WHOLE (rm -rf), unlike RETIRED_SUBSTRATE_DIRS.
@@ -1016,7 +1031,8 @@ export async function runBootstrapForHost(
   //             next sweep drops the now-fileless units from systemd.
   //         (d) rm -f every RETIRED_SUBSTRATE_FILES path, rm -rf every
   //             RETIRED_SUBSTRATE_TREES folder, and rmdir (only if empty)
-  //             every RETIRED_SUBSTRATE_DIRS folder.
+  //             every RETIRED_SUBSTRATE_DIRS folder; the same file/folder
+  //             steps for RETIRED_IDENTITY_STATE_* inside every identity folder.
   //         Idempotent: no-op after first sweep on each host.
   // -------------------------------------------------------------------------
   try {
@@ -1050,6 +1066,10 @@ export async function runBootstrapForHost(
       ...RETIRED_SUBSTRATE_FILES.map((rel) => `rm -f "$HOME/${rel}"`),
       ...RETIRED_SUBSTRATE_TREES.map((rel) => `rm -rf "$HOME/${rel}"`),
       ...RETIRED_SUBSTRATE_DIRS.map((rel) => `rmdir "$HOME/${rel}" 2>/dev/null || true`),
+      ...RETIRED_IDENTITY_STATE_FILES.map((rel) => `rm -f "$HOME"/fleet/identities/*/${rel}`),
+      ...RETIRED_IDENTITY_STATE_DIRS.map(
+        (rel) => `rmdir "$HOME"/fleet/identities/*/${rel} 2>/dev/null || true`,
+      ),
       `echo "__CLEANUP_OK__"`,
     ].join("\n");
 

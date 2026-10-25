@@ -1,14 +1,14 @@
 #!/usr/bin/env python3
-"""ambient-monitor — the single launcher that runs the four ambient watchers.
+"""ambient-monitor — the single launcher that runs the ambient watchers.
 
 Usage:
   ambient-monitor <identity_dir>                                  # stdout mode (legacy)
   ambient-monitor <identity_dir> --inject-to <tmux-session> \\
                                  --harness-pid <pid>              # inject mode
 
-What this replaces: the four separate on-wake Monitor invocations (relay receiver,
-wake-up scheduler, context-watch, file-watch). This launcher spawns the four
-pieces as subprocesses, delivers each wake line to the agent, and forwards
+What this replaces: the separate on-wake Monitor invocations (relay receiver,
+wake-up scheduler, file-watch; the context watch has since been retired). This
+launcher spawns the pieces as subprocesses, delivers each wake line to the agent, and forwards
 SIGTERM/SIGINT/SIGHUP to the children on shutdown so each piece — most importantly
 the relay receiver's message-cursor flush — gets its graceful-shutdown behavior.
 
@@ -48,9 +48,9 @@ Design rules (see shape-mega-monitor.md in the box-maintainer role's bounty fold
     that ONE bit drives two spawn-time decisions — skip the file-watch
     piece (coordinators don't hold role or identity file in context), and
     spawn a SECOND wakeup-scheduler pointed at the role folder (so role-general
-    schedules fire on the coord). Actors: 4 children. Coordinators: 4 children
-    also (recv, identity-scoped scheduler, role-scoped scheduler, context-watch —
-    no file-watch). The bit lives here so the four pieces themselves stay
+    schedules fire on the coord). Actors: recv, scheduler, file-watch, inbox.
+    Coordinators: recv, identity-scoped scheduler, role-scoped scheduler, inbox —
+    no file-watch. The bit lives here so the four pieces themselves stay
     100% pristine on the coord axis.
   - On child death or failed start: emit a wake line naming which piece and why,
     keep the surviving children running. NEVER auto-restart — silent recovery
@@ -356,12 +356,6 @@ CHILDREN.append({
     "env_extra": {},
     "critical": False,
 })
-CHILDREN.append({
-    "name": "context-watch",
-    "cmd": ["python3", str(HOME / ".local/bin/context-watch"), str(IDENTITY_DIR)],
-    "env_extra": {},
-    "critical": False,
-})
 
 # Phase 126: per-role wakeup-scheduler spawn removed — scheduled-agents scheduler in agent-supervisor.sh handles role-general schedules at host scope (D-16(a)). file-watch runs for BOTH coordinators and actors now.
 CHILDREN.append({
@@ -480,8 +474,8 @@ def _inject(event_text, envelope=True):
     two clean ones.
 
     envelope=True (default) wraps event_text in the <task-notification> envelope — the
-    long-standing path for watcher events (relay DMs, scheduled wake-ups, context
-    warnings, role/identity-file edits). envelope=False pastes event_text verbatim with
+    long-standing path for watcher events (relay DMs, scheduled wake-ups,
+    role/identity-file edits). envelope=False pastes event_text verbatim with
     no wrapping — the path for inbox-watcher messages, which ARE user speech and must
     not carry the "not from the user" envelope semantics (see shape-agent-supervisor-
     inbox.md). Bracketed paste, pane-at-shell guard, Enter-with-retries all apply
