@@ -183,6 +183,19 @@ function getBatchFailureUserMessage(reason: BatchFailureReasonForCompose): strin
   }
 }
 
+// A failed Condense request → what the composer says. Only a request that
+// never got an answer is "Not connected"; a server that answered gets a line
+// saying what went wrong instead.
+export function condenseFailureMessage(err: unknown, hostName?: string): string {
+  const status = (err as { response?: { status?: unknown } } | null | undefined)?.response?.status;
+  if (typeof status !== "number") return "Not connected — try again in a moment";
+  if (status === 504) {
+    return `Couldn't reach ${hostName ? hostName : "this agent's machine"} — try again in a moment`;
+  }
+  if (status === 404) return "Couldn't find this agent's machine — it may have been removed";
+  return "Couldn't condense — something went wrong on Skynet's side";
+}
+
 // Interrupt-button fast-path throttle window. Matches the server-side
 // INTERRUPT_THROTTLE_MS (2500ms) so this client guard never lets through a
 // tap the server would only drop anyway — measured basis: Claude Code's
@@ -1641,12 +1654,23 @@ export function ComposeBox({
             clearAfterSend();
           }
         } else {
-          setErrorMessage("Not connected — try again in a moment");
+          console.warn("[ComposeBox] condense request answered without ok", {
+            hostId,
+            identityKey: key,
+            status: response?.status,
+          });
+          setErrorMessage(condenseFailureMessage({ response: { status: response?.status ?? 500 } }, hostName));
         }
       })
-      .catch(() => {
+      .catch((err: unknown) => {
         if (!isMountedRef.current) return;
-        setErrorMessage("Not connected — try again in a moment");
+        console.warn("[ComposeBox] condense request failed", {
+          hostId,
+          identityKey: key,
+          status: (err as { response?: { status?: unknown } } | null)?.response?.status ?? null,
+          message: err instanceof Error ? err.message : String(err),
+        });
+        setErrorMessage(condenseFailureMessage(err, hostName));
       });
   }
 

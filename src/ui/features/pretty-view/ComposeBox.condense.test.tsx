@@ -33,7 +33,7 @@ vi.mock("@/main-axios", async (importOriginal) => {
   };
 });
 
-import { ComposeBox, type ComposeBoxProps } from "./ComposeBox";
+import { ComposeBox, condenseFailureMessage, type ComposeBoxProps } from "./ComposeBox";
 import { authApi } from "@/main-axios";
 
 const postMock = authApi.post as unknown as ReturnType<typeof vi.fn>;
@@ -137,6 +137,25 @@ describe("ComposeBox — Condense conversation", () => {
     expect(onCondenseRequested).not.toHaveBeenCalled();
   });
 
+  it("a server that answered with an error says what went wrong, not 'Not connected'", async () => {
+    autoAnswerKitDialogs({ confirm: true });
+    postMock.mockRejectedValue(Object.assign(new Error("Request failed with status code 500"), { response: { status: 500 } }));
+    render(<ComposeBox {...baseProps()} />);
+    fireEvent.change(textarea(), { target: { value: "keep this" } });
+    await pressCondense();
+    await waitFor(() => expect(screen.getByText("Couldn't condense — something went wrong on Skynet's side")).toBeTruthy());
+    expect(screen.queryByText(/Not connected/)).toBeNull();
+    expect(textarea().value).toBe("keep this");
+  });
+
+  it("an unreachable machine is named", async () => {
+    autoAnswerKitDialogs({ confirm: true });
+    postMock.mockRejectedValue(Object.assign(new Error("Request failed with status code 504"), { response: { status: 504 } }));
+    render(<ComposeBox {...baseProps({ hostName: "workstation" })} />);
+    await pressCondense();
+    await waitFor(() => expect(screen.getByText("Couldn't reach workstation — try again in a moment")).toBeTruthy());
+  });
+
   it("never sends a chat message or an /id command", async () => {
     autoAnswerKitDialogs({ confirm: true });
     const onSend = vi.fn(() => true);
@@ -153,5 +172,23 @@ describe("ComposeBox — Condense conversation", () => {
     fireEvent.change(textarea(), { target: { value: "hello" } });
     const send = screen.getByRole("button", { name: "Send" }) as HTMLButtonElement;
     expect(send.disabled).toBe(false);
+  });
+});
+
+describe("condenseFailureMessage", () => {
+  it("no answer at all → Not connected", () => {
+    expect(condenseFailureMessage(new Error("Network Error"))).toBe("Not connected — try again in a moment");
+  });
+  it("504 → names the machine, or says 'this agent's machine' without a name", () => {
+    expect(condenseFailureMessage({ response: { status: 504 } }, "thenasty")).toBe("Couldn't reach thenasty — try again in a moment");
+    expect(condenseFailureMessage({ response: { status: 504 } })).toBe("Couldn't reach this agent's machine — try again in a moment");
+  });
+  it("404 → the machine may have been removed", () => {
+    expect(condenseFailureMessage({ response: { status: 404 } })).toBe("Couldn't find this agent's machine — it may have been removed");
+  });
+  it("any other answer → something went wrong on Skynet's side", () => {
+    for (const status of [400, 500, 502]) {
+      expect(condenseFailureMessage({ response: { status } })).toBe("Couldn't condense — something went wrong on Skynet's side");
+    }
   });
 });
