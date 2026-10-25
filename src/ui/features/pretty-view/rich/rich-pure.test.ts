@@ -169,6 +169,12 @@ describe("voice mode reads wealthy text as its spoken lines", () => {
     expect(out).toContain("```bash\nls\n```");
   });
 
+  it("reads a section written to start open in full", () => {
+    const out = richSpeakable("<details open>\n<summary>Steps</summary>\n\nFirst do this.\n\n</details>");
+    expect(out).toContain("Steps.");
+    expect(out).toContain("First do this.");
+  });
+
   it("leaves examples inside other code blocks alone", () => {
     const md = "````md\n```chart\n{}\n```\n| a | b |\n| - | - |\n````";
     const segs = splitFences(md);

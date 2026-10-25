@@ -191,10 +191,13 @@ function plainCell(s: string): string {
   return s.replace(/[*_`~]/g, "").replace(/\[([^\]]*)\]\([^)]*\)/g, "$1");
 }
 
+/** A closed section is its summary; one written to start open is read in full. */
 function speakDetails(prose: string): string {
-  return prose.replace(/<details(?:\s[^>]*)?>([\s\S]*?)<\/details>/gi, (_m, inner: string) => {
-    const summary = inner.match(/<summary(?:\s[^>]*)?>([\s\S]*?)<\/summary>/i)?.[1];
-    return ` ${stripStop((summary ?? "Details").replace(/<[^>]+>/g, "").trim())}. `;
+  return prose.replace(/<details(\s[^>]*)?>([\s\S]*?)<\/details>/gi, (_m, attrs: string | undefined, inner: string) => {
+    const summaryRe = /<summary(?:\s[^>]*)?>([\s\S]*?)<\/summary>/i;
+    const summary = stripStop((inner.match(summaryRe)?.[1] ?? "Details").replace(/<[^>]+>/g, "").trim());
+    if (!/\bopen\b/i.test(attrs ?? "")) return ` ${summary}. `;
+    return ` ${summary}. ${inner.replace(summaryRe, "").trim()} `;
   });
 }
 
