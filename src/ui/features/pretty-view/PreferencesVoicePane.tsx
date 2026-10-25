@@ -35,6 +35,10 @@ import {
 import {
   VOICE_MODE_SEND_PHRASE_DEFAULT,
   VOICE_MODE_SEND_PHRASE_MAX_LEN,
+  VOICE_MODE_PAUSE_SECONDS_DEFAULT,
+  VOICE_MODE_PAUSE_SECONDS_MIN,
+  VOICE_MODE_PAUSE_SECONDS_MAX,
+  clampPauseSeconds,
   type VoiceModeEndOfTurn,
 } from "./voice-mode-settings";
 
@@ -45,6 +49,35 @@ export const SPEED_SAVE_DEBOUNCE_MS = 400;
 
 function formatRate(rate: number): string {
   return `${Number(rate.toFixed(2))}×`;
+}
+
+/**
+ * What the pause box's text resolves to: the seconds to keep, plus a note
+ * when the number had to be brought inside the bounds. `seconds` is null when
+ * the text is blank or isn't a number.
+ */
+export function resolvePauseSeconds(text: string): { seconds: number | null; note: string | null } {
+  const trimmed = text.trim();
+  if (trimmed === "") return { seconds: null, note: null };
+  const n = Number(trimmed);
+  const seconds = clampPauseSeconds(n);
+  if (seconds === null) return { seconds: null, note: null };
+  if (n < VOICE_MODE_PAUSE_SECONDS_MIN) {
+    return {
+      seconds,
+      note: `The shortest pause is ${VOICE_MODE_PAUSE_SECONDS_MIN} seconds — voice mode already waits a second and a half to know you've stopped talking.`,
+    };
+  }
+  if (n > VOICE_MODE_PAUSE_SECONDS_MAX) {
+    return { seconds, note: `The longest pause is an hour (${VOICE_MODE_PAUSE_SECONDS_MAX} seconds).` };
+  }
+  return { seconds, note: null };
+}
+
+function savedPauseSeconds(prefs: UserPreferences): number {
+  return typeof prefs.voiceModePauseSeconds === "number"
+    ? (clampPauseSeconds(prefs.voiceModePauseSeconds) ?? VOICE_MODE_PAUSE_SECONDS_DEFAULT)
+    : VOICE_MODE_PAUSE_SECONDS_DEFAULT;
 }
 
 export interface PreferencesVoicePaneProps {
@@ -134,6 +167,10 @@ export function PreferencesVoicePane({
   const lastSavedPhrase = useRef<string>(
     userPrefs.voiceModeSendPhrase ?? VOICE_MODE_SEND_PHRASE_DEFAULT,
   );
+  const [pauseText, setPauseText] = useState<string>(String(savedPauseSeconds(userPrefs)));
+  const lastSavedPause = useRef<number>(savedPauseSeconds(userPrefs));
+  const [savedPause, setSavedPause] = useState<number>(savedPauseSeconds(userPrefs));
+  const [pauseNote, setPauseNote] = useState<string | null>(null);
   const [turnError, setTurnError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -144,6 +181,13 @@ export function PreferencesVoicePane({
     lastSavedPhrase.current = next;
     setPhrase(next);
   }, [userPrefs.voiceModeSendPhrase]);
+  useEffect(() => {
+    const next = savedPauseSeconds(userPrefs);
+    lastSavedPause.current = next;
+    setSavedPause(next);
+    setPauseText(String(next));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [userPrefs.voiceModePauseSeconds]);
 
   // "timed" is the default, so it is stored as null.
   const handleEndOfTurnChange = useCallback(
@@ -151,6 +195,7 @@ export function PreferencesVoicePane({
       const prev = endOfTurn;
       setEndOfTurn(next);
       setTurnError(null);
+      setPauseNote(null);
       const wire = next === "timed" ? null : next;
       try {
         await saveUserPreferences({ voiceModeEndOfTurn: wire });
@@ -186,20 +231,63 @@ export function PreferencesVoicePane({
     }
   }, [phrase, onUserPrefsChanged]);
 
-  // Closing Preferences while the phrase box still has focus may never blur
-  // it — save a changed, valid phrase on the way out.
+  // Saved on blur / Enter, like the phrase. Blank goes back to the default;
+  // out-of-range numbers are brought inside the bounds with a note.
+  // A number box hands over "" for text the browser can't read as a number,
+  // so remember whether the browser flagged it.
+  const pauseBadInput = useRef(false);
+  const commitPause = useCallback(async () => {
+    const bad = pauseBadInput.current;
+    pauseBadInput.current = false;
+    const { seconds, note } = bad ? { seconds: null, note: null } : resolvePauseSeconds(pauseText);
+    setTurnError(null);
+    if (seconds === null) {
+      // Blank puts the saved pause back; anything else that isn't a number says so.
+      setPauseText(String(lastSavedPause.current));
+      setPauseNote(null);
+      if (bad || pauseText.trim() !== "") setTurnError("The pause needs to be a number of seconds.");
+      return;
+    }
+    setPauseText(String(seconds));
+    setPauseNote(note);
+    if (seconds === lastSavedPause.current) return;
+    const wire = seconds === VOICE_MODE_PAUSE_SECONDS_DEFAULT ? null : seconds;
+    try {
+      await saveUserPreferences({ voiceModePauseSeconds: wire });
+      lastSavedPause.current = seconds;
+      setSavedPause(seconds);
+      onUserPrefsChanged?.({ voiceModePauseSeconds: wire });
+    } catch {
+      setPauseText(String(lastSavedPause.current));
+      setPauseNote(null);
+      setTurnError("Couldn't save your pause length — please try again.");
+    }
+  }, [pauseText, onUserPrefsChanged]);
+
+  // Closing Preferences while the phrase or pause box still has focus may
+  // never blur it — save a changed, valid value on the way out.
   const phraseRef = useRef(phrase);
   phraseRef.current = phrase;
+  const pauseTextRef = useRef(pauseText);
+  pauseTextRef.current = pauseText;
   const onPrefsChangedRef = useRef(onUserPrefsChanged);
   onPrefsChangedRef.current = onUserPrefsChanged;
   useEffect(
     () => () => {
       const effective = phraseRef.current.trim() || VOICE_MODE_SEND_PHRASE_DEFAULT;
-      if (effective === lastSavedPhrase.current || !/[\p{L}\p{N}]/u.test(effective)) return;
-      const wire = effective.toLowerCase() === VOICE_MODE_SEND_PHRASE_DEFAULT ? null : effective;
-      saveUserPreferences({ voiceModeSendPhrase: wire })
-        .then(() => onPrefsChangedRef.current?.({ voiceModeSendPhrase: wire }))
-        .catch(() => {});
+      if (effective !== lastSavedPhrase.current && /[\p{L}\p{N}]/u.test(effective)) {
+        const wire = effective.toLowerCase() === VOICE_MODE_SEND_PHRASE_DEFAULT ? null : effective;
+        saveUserPreferences({ voiceModeSendPhrase: wire })
+          .then(() => onPrefsChangedRef.current?.({ voiceModeSendPhrase: wire }))
+          .catch(() => {});
+      }
+      const { seconds } = resolvePauseSeconds(pauseTextRef.current);
+      if (!pauseBadInput.current && seconds !== null && seconds !== lastSavedPause.current) {
+        const wire = seconds === VOICE_MODE_PAUSE_SECONDS_DEFAULT ? null : seconds;
+        saveUserPreferences({ voiceModePauseSeconds: wire })
+          .then(() => onPrefsChangedRef.current?.({ voiceModePauseSeconds: wire }))
+          .catch(() => {});
+      }
     },
     [],
   );
@@ -358,10 +446,46 @@ export function PreferencesVoicePane({
                   />
                 }
                 label="After a pause"
-                description="Three seconds of silence sends it."
+                description={`${savedPause} seconds of silence sends it.`}
               />
             }
           />
+          {endOfTurn === "timed" && (
+            <KitSettingsRow
+              label={<label htmlFor="preferences-voice-mode-pause">Pause</label>}
+              control={
+                <span className="flex items-center gap-2">
+                  <KitInput
+                    id="preferences-voice-mode-pause"
+                    type="number"
+                    size="sm"
+                    inputMode="numeric"
+                    min={VOICE_MODE_PAUSE_SECONDS_MIN}
+                    max={VOICE_MODE_PAUSE_SECONDS_MAX}
+                    step={1}
+                    value={pauseText}
+                    onChange={(e) => {
+                      pauseBadInput.current = e.currentTarget.validity?.badInput === true;
+                      setPauseText(e.target.value);
+                    }}
+                    onBlur={(e) => {
+                      if (e.currentTarget.validity?.badInput) pauseBadInput.current = true;
+                      void commitPause();
+                    }}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") {
+                        e.preventDefault();
+                        (e.target as HTMLInputElement).blur();
+                      }
+                    }}
+                    className="w-20 text-right"
+                    data-testid="preferences-voice-mode-pause"
+                  />
+                  <span className="text-sm text-muted-foreground">seconds</span>
+                </span>
+              }
+            />
+          )}
           <KitSettingsRow
             label={
               <KitOption
@@ -412,6 +536,10 @@ export function PreferencesVoicePane({
           </p>
         ) : endOfTurn === "phrase" ? (
           <p className="k-group-foot">The phrase is left out of what&apos;s sent.</p>
+        ) : pauseNote !== null ? (
+          <p className="k-group-foot" role="status" data-testid="preferences-voice-mode-pause-note">
+            {pauseNote}
+          </p>
         ) : null}
       </section>
 

@@ -279,15 +279,17 @@ describe("PreferencesVoicePane — voice mode: when to send", () => {
     render(<PreferencesVoicePane userId="user1" userPrefs={makePrefs()} />);
     expect((screen.getByTestId("preferences-voice-mode-turn-timed") as HTMLInputElement).checked).toBe(true);
     expect(screen.queryByTestId("preferences-voice-mode-phrase")).toBeNull();
+    expect((screen.getByTestId("preferences-voice-mode-pause") as HTMLInputElement).value).toBe("3");
+    expect(screen.getByText("3 seconds of silence sends it.")).toBeTruthy();
   });
 
-  it("choosing 'when I say a phrase' saves it and shows the phrase prefilled with 'send it'", async () => {
+  it("choosing 'when I say a phrase' saves it and shows the phrase prefilled with 'over'", async () => {
     const onUserPrefsChanged = vi.fn();
     render(<PreferencesVoicePane userId="user1" userPrefs={makePrefs()} onUserPrefsChanged={onUserPrefsChanged} />);
     fireEvent.click(screen.getByTestId("preferences-voice-mode-turn-phrase"));
     await waitFor(() => expect(mockSave).toHaveBeenCalledWith({ voiceModeEndOfTurn: "phrase" }));
     expect(onUserPrefsChanged).toHaveBeenCalledWith({ voiceModeEndOfTurn: "phrase" });
-    expect((screen.getByTestId("preferences-voice-mode-phrase") as HTMLInputElement).value).toBe("send it");
+    expect((screen.getByTestId("preferences-voice-mode-phrase") as HTMLInputElement).value).toBe("over");
   });
 
   it("switching back to 'after a pause' stores null (the default)", async () => {
@@ -317,7 +319,7 @@ describe("PreferencesVoicePane — voice mode: when to send", () => {
     const input = screen.getByTestId("preferences-voice-mode-phrase") as HTMLInputElement;
     fireEvent.change(input, { target: { value: "   " } });
     fireEvent.blur(input);
-    await waitFor(() => expect(input.value).toBe("send it"));
+    await waitFor(() => expect(input.value).toBe("over"));
     expect(mockSave).not.toHaveBeenCalled();
   });
 
@@ -354,3 +356,126 @@ describe("PreferencesVoicePane — voice mode: when to send", () => {
   });
 });
 
+describe("PreferencesVoicePane — voice mode: pause length", () => {
+  it("shows the saved pause and hides the box in phrase mode", () => {
+    const { rerender } = render(
+      <PreferencesVoicePane userId="user1" userPrefs={makePrefs({ voiceModePauseSeconds: 7 })} />,
+    );
+    expect((screen.getByTestId("preferences-voice-mode-pause") as HTMLInputElement).value).toBe("7");
+    expect(screen.getByText("7 seconds of silence sends it.")).toBeTruthy();
+    rerender(
+      <PreferencesVoicePane
+        userId="user1"
+        userPrefs={makePrefs({ voiceModePauseSeconds: 7, voiceModeEndOfTurn: "phrase" })}
+      />,
+    );
+    expect(screen.queryByTestId("preferences-voice-mode-pause")).toBeNull();
+  });
+
+  it("saves a new pause on blur and updates the description", async () => {
+    const onUserPrefsChanged = vi.fn();
+    render(<PreferencesVoicePane userId="user1" userPrefs={makePrefs()} onUserPrefsChanged={onUserPrefsChanged} />);
+    const input = screen.getByTestId("preferences-voice-mode-pause") as HTMLInputElement;
+    fireEvent.change(input, { target: { value: "30" } });
+    fireEvent.blur(input);
+    await waitFor(() => expect(mockSave).toHaveBeenCalledWith({ voiceModePauseSeconds: 30 }));
+    expect(onUserPrefsChanged).toHaveBeenCalledWith({ voiceModePauseSeconds: 30 });
+    await waitFor(() => expect(screen.getByText("30 seconds of silence sends it.")).toBeTruthy());
+  });
+
+  it("stores the default (3) as null", async () => {
+    render(<PreferencesVoicePane userId="user1" userPrefs={makePrefs({ voiceModePauseSeconds: 10 })} />);
+    const input = screen.getByTestId("preferences-voice-mode-pause") as HTMLInputElement;
+    fireEvent.change(input, { target: { value: "3" } });
+    fireEvent.blur(input);
+    await waitFor(() => expect(mockSave).toHaveBeenCalledWith({ voiceModePauseSeconds: null }));
+  });
+
+  it("snaps a pause under 2 seconds up to 2 with a note", async () => {
+    render(<PreferencesVoicePane userId="user1" userPrefs={makePrefs()} />);
+    const input = screen.getByTestId("preferences-voice-mode-pause") as HTMLInputElement;
+    fireEvent.change(input, { target: { value: "1" } });
+    fireEvent.blur(input);
+    await waitFor(() => expect(mockSave).toHaveBeenCalledWith({ voiceModePauseSeconds: 2 }));
+    expect(input.value).toBe("2");
+    expect(screen.getByTestId("preferences-voice-mode-pause-note").textContent).toMatch(/shortest pause is 2 seconds/);
+  });
+
+  it("caps a pause at an hour with a note", async () => {
+    render(<PreferencesVoicePane userId="user1" userPrefs={makePrefs()} />);
+    const input = screen.getByTestId("preferences-voice-mode-pause") as HTMLInputElement;
+    fireEvent.change(input, { target: { value: "99999" } });
+    fireEvent.blur(input);
+    await waitFor(() => expect(mockSave).toHaveBeenCalledWith({ voiceModePauseSeconds: 3600 }));
+    expect(screen.getByTestId("preferences-voice-mode-pause-note").textContent).toMatch(/an hour/);
+  });
+
+  it("rounds a fractional pause to whole seconds", async () => {
+    render(<PreferencesVoicePane userId="user1" userPrefs={makePrefs()} />);
+    const input = screen.getByTestId("preferences-voice-mode-pause") as HTMLInputElement;
+    fireEvent.change(input, { target: { value: "4.6" } });
+    fireEvent.blur(input);
+    await waitFor(() => expect(mockSave).toHaveBeenCalledWith({ voiceModePauseSeconds: 5 }));
+  });
+
+  it("a blank pause puts the saved one back without a save", async () => {
+    render(<PreferencesVoicePane userId="user1" userPrefs={makePrefs({ voiceModePauseSeconds: 10 })} />);
+    const input = screen.getByTestId("preferences-voice-mode-pause") as HTMLInputElement;
+    fireEvent.change(input, { target: { value: "" } });
+    fireEvent.blur(input);
+    await waitFor(() => expect(input.value).toBe("10"));
+    expect(mockSave).not.toHaveBeenCalled();
+    expect(screen.queryByTestId("preferences-voice-mode-turn-error")).toBeNull();
+  });
+
+  it("text the browser can't read as a number keeps the saved pause and says so", async () => {
+    render(<PreferencesVoicePane userId="user1" userPrefs={makePrefs({ voiceModePauseSeconds: 10 })} />);
+    const input = screen.getByTestId("preferences-voice-mode-pause") as HTMLInputElement;
+    // Browsers report "" plus validity.badInput for unreadable text in a number box.
+    Object.defineProperty(input, "validity", { configurable: true, value: { badInput: true } });
+    fireEvent.change(input, { target: { value: "" } });
+    fireEvent.blur(input);
+    await waitFor(() => expect(screen.getByTestId("preferences-voice-mode-turn-error").textContent).toMatch(/number of seconds/));
+    expect(input.value).toBe("10");
+    expect(mockSave).not.toHaveBeenCalled();
+  });
+
+  it("text the browser can't read isn't saved when the pane closes", async () => {
+    const { unmount } = render(<PreferencesVoicePane userId="user1" userPrefs={makePrefs({ voiceModePauseSeconds: 10 })} />);
+    const input = screen.getByTestId("preferences-voice-mode-pause") as HTMLInputElement;
+    Object.defineProperty(input, "validity", { configurable: true, value: { badInput: true } });
+    fireEvent.change(input, { target: { value: "" } });
+    unmount();
+    await Promise.resolve();
+    expect(mockSave).not.toHaveBeenCalled();
+  });
+
+  it("an earlier error doesn't hide the minimum note", async () => {
+    render(<PreferencesVoicePane userId="user1" userPrefs={makePrefs({ voiceModePauseSeconds: 2 })} />);
+    const input = screen.getByTestId("preferences-voice-mode-pause") as HTMLInputElement;
+    fireEvent.change(input, { target: { value: "abc" } });
+    fireEvent.blur(input);
+    fireEvent.change(input, { target: { value: "1" } });
+    fireEvent.blur(input);
+    await waitFor(() => expect(screen.getByTestId("preferences-voice-mode-pause-note")).toBeTruthy());
+    expect(screen.queryByTestId("preferences-voice-mode-turn-error")).toBeNull();
+  });
+
+  it("saves an edited pause if the pane closes before the box loses focus", async () => {
+    const { unmount } = render(<PreferencesVoicePane userId="user1" userPrefs={makePrefs()} />);
+    fireEvent.change(screen.getByTestId("preferences-voice-mode-pause"), { target: { value: "12" } });
+    unmount();
+    await waitFor(() => expect(mockSave).toHaveBeenCalledWith({ voiceModePauseSeconds: 12 }));
+  });
+
+  it("reverts and shows an error when the save fails", async () => {
+    mockSave.mockRejectedValueOnce(new Error("nope"));
+    render(<PreferencesVoicePane userId="user1" userPrefs={makePrefs({ voiceModePauseSeconds: 6 })} />);
+    const input = screen.getByTestId("preferences-voice-mode-pause") as HTMLInputElement;
+    fireEvent.change(input, { target: { value: "9" } });
+    fireEvent.blur(input);
+    await waitFor(() => expect(screen.getByTestId("preferences-voice-mode-turn-error")).toBeTruthy());
+    expect(input.value).toBe("6");
+    expect(screen.getByText("6 seconds of silence sends it.")).toBeTruthy();
+  });
+});

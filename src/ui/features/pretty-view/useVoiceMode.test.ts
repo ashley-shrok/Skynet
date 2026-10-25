@@ -357,6 +357,46 @@ describe("useVoiceMode", () => {
     });
   });
 
+  describe("pause length", () => {
+    it("ends the turn after the user's chosen silence, not the default", async () => {
+      setVoiceModeSettings({ endOfTurn: "timed", pauseSeconds: 8 });
+      const send = vi.fn(() => true);
+      await startVoiceMode(baseArgs({ send }));
+      transcribeReturns("take your time with this one");
+      await sayPiece();
+      await flush(TIMED_END_MS + 1000);
+      expect(send).not.toHaveBeenCalled();
+      await flush(8000 - TIMED_END_MS);
+      expect(send).toHaveBeenCalledWith("take your time with this one");
+    });
+
+    it("picks up a change to the pause mid-session", async () => {
+      setVoiceModeSettings({ endOfTurn: "timed", pauseSeconds: 20 });
+      const send = vi.fn(() => true);
+      await startVoiceMode(baseArgs({ send }));
+      transcribeReturns("quicker now");
+      await sayPiece();
+      await flush(1000);
+      setVoiceModeSettings({ endOfTurn: "timed", pauseSeconds: 2 });
+      await flush(1000);
+      expect(send).toHaveBeenCalledWith("quicker now");
+    });
+
+    it("never goes below 2 seconds even if handed a smaller number", async () => {
+      setVoiceModeSettings({ endOfTurn: "timed", pauseSeconds: 0 });
+      const send = vi.fn(() => true);
+      await startVoiceMode(baseArgs({ send }));
+      transcribeReturns("not too fast");
+      setLevel(0.2);
+      await flush(600);
+      setLevel(0);
+      await flush(1900);
+      expect(send).not.toHaveBeenCalled();
+      await flush(300);
+      expect(send).toHaveBeenCalledWith("not too fast");
+    });
+  });
+
   describe("send-phrase mode", () => {
     beforeEach(() => setVoiceModeSettings({ endOfTurn: "phrase", sendPhrase: "send it" }));
 
@@ -373,6 +413,18 @@ describe("useVoiceMode", () => {
       expect(send).toHaveBeenCalledWith("First, check the logs. Then fix it.");
       expect(cuesPlayed).toEqual(["sent"]);
       expect(result.current.phase).toBe("listening");
+    });
+
+    it("defaults to the phrase 'over'", async () => {
+      setVoiceModeSettings({ endOfTurn: "phrase" });
+      const send = vi.fn(() => true);
+      await startVoiceMode(baseArgs({ send }));
+      transcribeReturns("ship the fix. Send it.");
+      await sayPiece();
+      expect(send).not.toHaveBeenCalled();
+      transcribeReturns("Over.");
+      await sayPiece();
+      expect(send).toHaveBeenCalledWith("ship the fix. Send it.");
     });
 
     it("uses a custom phrase from the preference", async () => {
@@ -893,9 +945,9 @@ describe("useVoiceMode", () => {
       await startVoiceMode(baseArgs({ send }));
       const first = transcribeDeferred();
       await sayPiece();
-      transcribeReturns("send it");
+      transcribeReturns("over");
       await sayPiece();
-      transcribeReturns("now the second message. Send it.");
+      transcribeReturns("now the second message. Over.");
       await sayPiece();
       expect(send).not.toHaveBeenCalled();
       first("the first message");

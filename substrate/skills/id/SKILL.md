@@ -1248,10 +1248,11 @@ crown, then gear.
     messages (with a play button to hear it; a saved voice the current
     voice service doesn't have says what plays instead), a **speed
     slider** (0.25×–4×, default 1×, with a Reset) for how fast agents
-    speak, **when voice mode sends**: *After a pause* (default — three
-    seconds of silence) or *When I say a phrase* (silence never sends;
-    ending with the phrase does — "send it" by default, editable, shown
-    only when that's chosen). Follows the user's account across devices.
+    speak, **when voice mode sends**: *After a pause* (default — a
+    seconds box under it sets how long the silence is: whole seconds, 3 by
+    default, 2 at the least, up to an hour; shown only when that's chosen)
+    or *When I say a phrase* (silence never sends; ending with the phrase
+    does — "over" by default, editable, shown only when that's chosen). Follows the user's account across devices.
   - **Notifications** — where notifications from agents (§ Notifying the
     user) arrive outside the app, through the user's OWN Telegram bot ("When
     an agent notifies you, it arrives through Telegram."); each user sets
@@ -1641,9 +1642,10 @@ crown, then gear.
   each new agent reply aloud, then listens again. It hears speech in pieces
   split at short pauses and transcribes each in the background; a piece
   with no words (a sneeze, a cough) is dropped without a sound. The turn
-  ends after three seconds of silence, or — if the user chose it under
-  Preferences → **Voice** — only when they end with their send phrase ("send it"
-  by default; the phrase is removed from the message). Replies that arrive
+  ends after a pause of silence (three seconds unless the user set another
+  length under Preferences → **Voice**), or — if the user chose it there —
+  only when they end with their send phrase ("over" by default; the phrase is
+  removed from the message). Replies that arrive
   while they're mid-message wait until it's sent. Sounds mark the round
   trip: the mic's send sound when the message goes, a soft ticking from
   then until the agent is done (including while a dormant agent wakes),
@@ -1666,7 +1668,7 @@ crown, then gear.
   **mic** button mutes the mic (crossed out and red while muted; the chip
   reads Muted while it would be listening): voice mode stays on and replies
   are still read aloud, but it hears silence until unmuted. Muted time
-  doesn't count toward the three-second turn end, so muting mid-message
+  doesn't count toward the pause that ends a turn, so muting mid-message
   never sends it; after unmuting the count carries on where it was. Each
   voice-mode session starts unmuted. The chip's × — or ending a sentence
   with "stop voice mode" — ends voice mode and throws away anything not yet

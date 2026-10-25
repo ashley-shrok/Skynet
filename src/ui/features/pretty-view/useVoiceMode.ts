@@ -14,7 +14,8 @@
  *     the draft in spoken order. A piece with no words (sneeze, cough, bump) is
  *     dropped silently — no cue, nothing sent.
  *   - Turn end is the user's preference (voice-mode-settings.ts):
- *       timed  — TIMED_END_MS of silence after a draft exists sends it;
+ *       timed  — the user's pause length (default TIMED_END_MS) of silence
+ *                after a draft exists sends it;
  *       phrase — silence never sends; a piece ending in the send phrase does
  *                (phrase stripped). The phrase only works in this mode.
  *     Either way the draft goes only once every earlier piece has resolved.
@@ -70,7 +71,7 @@ import {
 } from "./speak-singleton";
 import { registerVoiceModeActive } from "./voice-mode-registry";
 import { createVoiceModeCues, type VoiceModeCue, type VoiceModeCues } from "./voice-mode-cues";
-import { getVoiceModeSettings } from "./voice-mode-settings";
+import { getVoiceModeSettings, VOICE_MODE_PAUSE_SECONDS_DEFAULT } from "./voice-mode-settings";
 import { describeMicTrack } from "./mic-level-monitor";
 import { richSpeakable } from "./rich/rich-speech";
 
@@ -84,8 +85,8 @@ const VAD_TICK_MS = 50;
 const SPEECH_START_MS = 200;
 /** A pause this long closes the current piece and starts the next. */
 export const PIECE_GAP_MS = 1500;
-/** Timed mode: silence this long after a draft exists ends the turn. */
-export const TIMED_END_MS = 3000;
+/** Timed mode: default silence after a draft exists that ends the turn (the user can change it). */
+export const TIMED_END_MS = VOICE_MODE_PAUSE_SECONDS_DEFAULT * 1000;
 /** Safety cap on one piece of unbroken speech (the message itself has no cap). */
 export const MAX_PIECE_MS = 5 * 60 * 1000;
 /** Rotate the idle recorder so a quiet stretch never builds a huge clip. */
@@ -615,12 +616,13 @@ export function useVoiceMode(args: UseVoiceModeArgs): UseVoiceModeReturn {
       // No speech in the current piece. Timed turn end counts from the last
       // real speech, so short noises (keys, a door) can't postpone it.
       const last = piecesRef.current[piecesRef.current.length - 1];
+      const settings = getVoiceModeSettings();
       if (
         !mutedRef.current &&
-        getVoiceModeSettings().endOfTurn === "timed" &&
+        settings.endOfTurn === "timed" &&
         last !== undefined &&
         last.endsTurn === undefined &&
-        now - lastSpeechAtRef.current >= TIMED_END_MS
+        now - lastSpeechAtRef.current >= settings.pauseSeconds * 1000
       ) {
         endTurnRef.current("timed", last);
       }
@@ -1127,7 +1129,10 @@ export function useVoiceMode(args: UseVoiceModeArgs): UseVoiceModeReturn {
     setErrorMessage(null);
     setPhase("starting");
     const settings = getVoiceModeSettings();
-    log(`start endOfTurn=${settings.endOfTurn}`);
+    log(
+      `start endOfTurn=${settings.endOfTurn}` +
+        (settings.endOfTurn === "timed" ? ` pauseSeconds=${settings.pauseSeconds}` : ""),
+    );
     // VAD analyser + cue context — created here, inside the start gesture, so
     // cues can play later with the mic open (iOS).
     try {

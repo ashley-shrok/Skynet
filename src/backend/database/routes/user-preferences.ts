@@ -41,6 +41,8 @@ export const TTS_PLAYBACK_RATE_MAX = 4;
 // in src/ui/features/pretty-view — keep the two in step.
 export const VOICE_MODE_END_OF_TURN_VALUES = ["timed", "phrase"] as const;
 export const VOICE_MODE_SEND_PHRASE_MAX_LEN = 40;
+export const VOICE_MODE_PAUSE_SECONDS_MIN = 2;
+export const VOICE_MODE_PAUSE_SECONDS_MAX = 3600;
 
 /**
  * Phase 92 Plan 92-02: parseIdentityHosts mirrors identities.ts:239-255 shape.
@@ -83,6 +85,7 @@ const pickPreferences = (row?: typeof userPreferences.$inferSelect) => ({
   ttsPlaybackRate: row?.ttsPlaybackRate ?? null,
   voiceModeEndOfTurn: row?.voiceModeEndOfTurn ?? null,
   voiceModeSendPhrase: row?.voiceModeSendPhrase ?? null,
+  voiceModePauseSeconds: row?.voiceModePauseSeconds ?? null,
   // Phase 92 Plan 92-02: pinnedConversationIds NO LONGER surfaces on the GET
   // response body — the row is not consulted for pins (D-03 no DB mirror).
   // The frontend Plan 04 projects pinned state from GET /identities' per-
@@ -184,6 +187,7 @@ export async function handlePutPreferences(
     ttsPlaybackRate,
     voiceModeEndOfTurn,
     voiceModeSendPhrase,
+    voiceModePauseSeconds,
     pinnedConversationIds,
     identityHosts: identityHostsRaw,
   } = (body ?? {}) as {
@@ -196,6 +200,7 @@ export async function handlePutPreferences(
     ttsPlaybackRate?: unknown;
     voiceModeEndOfTurn?: unknown;
     voiceModeSendPhrase?: unknown;
+    voiceModePauseSeconds?: unknown;
     pinnedConversationIds?: unknown;
     identityHosts?: unknown;
   };
@@ -260,7 +265,22 @@ export async function handlePutPreferences(
     });
   }
 
-  // voiceModeSendPhrase: null resets to "send it"; otherwise a short phrase
+  // voiceModePauseSeconds: null resets to 3; otherwise whole seconds inside
+  // [VOICE_MODE_PAUSE_SECONDS_MIN, VOICE_MODE_PAUSE_SECONDS_MAX].
+  if (
+    voiceModePauseSeconds !== undefined &&
+    voiceModePauseSeconds !== null &&
+    (typeof voiceModePauseSeconds !== "number" ||
+      !Number.isInteger(voiceModePauseSeconds) ||
+      voiceModePauseSeconds < VOICE_MODE_PAUSE_SECONDS_MIN ||
+      voiceModePauseSeconds > VOICE_MODE_PAUSE_SECONDS_MAX)
+  ) {
+    return res.status(400).json({
+      error: `voiceModePauseSeconds must be a whole number of seconds between ${VOICE_MODE_PAUSE_SECONDS_MIN} and ${VOICE_MODE_PAUSE_SECONDS_MAX}, or null to reset`,
+    });
+  }
+
+  // voiceModeSendPhrase: null resets to "over"; otherwise a short phrase
   // containing at least one letter or digit (it is matched against speech).
   let sendPhrase: string | null | undefined;
   if (voiceModeSendPhrase !== undefined) {
@@ -288,6 +308,7 @@ export async function handlePutPreferences(
   if (ttsPlaybackRate !== undefined) updates.ttsPlaybackRate = ttsPlaybackRate as number | null;
   if (voiceModeEndOfTurn !== undefined) updates.voiceModeEndOfTurn = voiceModeEndOfTurn as string | null;
   if (sendPhrase !== undefined) updates.voiceModeSendPhrase = sendPhrase;
+  if (voiceModePauseSeconds !== undefined) updates.voiceModePauseSeconds = voiceModePauseSeconds as number | null;
 
   // Function-scope scratch for the disk-authoritative echo the response emits
   // for the pin fanout slice. Populated inside the try block below.
@@ -645,7 +666,11 @@ export async function handlePutPreferences(
  *                 voiceModeSendPhrase:
  *                   type: string
  *                   nullable: true
- *                   description: "Spoken send phrase for phrase mode. Null resolves to 'send it'."
+ *                   description: "Spoken send phrase for phrase mode. Null resolves to 'over'."
+ *                 voiceModePauseSeconds:
+ *                   type: integer
+ *                   nullable: true
+ *                   description: "Timed mode silence length in whole seconds, 2-3600. Null resolves to 3."
  */
 router.get("/", authenticateJWT, (req: Request, res: Response) => {
   const userId = (req as AuthenticatedRequest).userId;
@@ -682,7 +707,11 @@ router.get("/", authenticateJWT, (req: Request, res: Response) => {
  *               voiceModeSendPhrase:
  *                 type: string
  *                 nullable: true
- *                 description: "Spoken send phrase for phrase mode (1-40 chars). Null resets to 'send it'."
+ *                 description: "Spoken send phrase for phrase mode (1-40 chars). Null resets to 'over'."
+ *               voiceModePauseSeconds:
+ *                 type: integer
+ *                 nullable: true
+ *                 description: "Timed mode silence length in whole seconds, 2-3600. Null resets to 3."
  *               pinnedConversationIds:
  *                 type: array
  *                 items:

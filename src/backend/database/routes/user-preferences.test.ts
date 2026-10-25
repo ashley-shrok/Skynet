@@ -61,6 +61,7 @@ type Row = {
   ttsPlaybackRate?: number | null;
   voiceModeEndOfTurn?: string | null;
   voiceModeSendPhrase?: string | null;
+  voiceModePauseSeconds?: number | null;
   pinnedConversationIds: string | null;
   updatedAt: string;
 };
@@ -105,6 +106,7 @@ const insertChain = {
           ttsPlaybackRate: v.ttsPlaybackRate ?? existing?.ttsPlaybackRate ?? null,
           voiceModeEndOfTurn: v.voiceModeEndOfTurn ?? existing?.voiceModeEndOfTurn ?? null,
           voiceModeSendPhrase: v.voiceModeSendPhrase ?? existing?.voiceModeSendPhrase ?? null,
+          voiceModePauseSeconds: v.voiceModePauseSeconds ?? existing?.voiceModePauseSeconds ?? null,
           pinnedConversationIds:
             v.pinnedConversationIds ?? existing?.pinnedConversationIds ?? null,
           updatedAt: v.updatedAt ?? new Date().toISOString(),
@@ -1088,16 +1090,18 @@ describe("ttsPlaybackRate GET/PUT", () => {
 });
 
 // ===========================================================================
-// Hands-free voice mode turn end — voiceModeEndOfTurn / voiceModeSendPhrase
+// Hands-free voice mode turn end — voiceModeEndOfTurn / voiceModeSendPhrase /
+// voiceModePauseSeconds
 // ===========================================================================
 
 describe("voice mode turn-end preferences GET/PUT", () => {
-  it("VM-01: GET for a user with no row returns both fields null", () => {
+  it("VM-01: GET for a user with no row returns all three fields null", () => {
     const res = makeRes();
     handleGetPreferences(USER_ID, res as unknown as Response);
     const body = res._body as Record<string, unknown>;
     expect(body.voiceModeEndOfTurn).toBeNull();
     expect(body.voiceModeSendPhrase).toBeNull();
+    expect(body.voiceModePauseSeconds).toBeNull();
   });
 
   it.each(["timed", "phrase", null])("VM-02: PUT voiceModeEndOfTurn: %s returns 200", async (v) => {
@@ -1127,6 +1131,29 @@ describe("voice mode turn-end preferences GET/PUT", () => {
     expect(res._status).toBe(400);
     expect((res._body as { error?: string }).error).toContain("voiceModeSendPhrase");
   });
+
+  it.each([2, 30, 3600])("VM-06: PUT voiceModePauseSeconds: %s returns 200 and echoes it", async (v) => {
+    const res = makeRes();
+    await handlePutPreferences(USER_ID, { voiceModePauseSeconds: v }, res as unknown as Response);
+    expect(res._status).toBe(200);
+    expect((res._body as Record<string, unknown>).voiceModePauseSeconds).toBe(v);
+  });
+
+  it("VM-07: PUT voiceModePauseSeconds: null returns 200 (reset)", async () => {
+    const res = makeRes();
+    await handlePutPreferences(USER_ID, { voiceModePauseSeconds: null }, res as unknown as Response);
+    expect(res._status).toBe(200);
+  });
+
+  it.each([1, 0, -3, 3601, 2.5, "5", Number.NaN, true])(
+    "VM-08: PUT voiceModePauseSeconds: %s returns 400",
+    async (v) => {
+      const res = makeRes();
+      await handlePutPreferences(USER_ID, { voiceModePauseSeconds: v }, res as unknown as Response);
+      expect(res._status).toBe(400);
+      expect((res._body as { error?: string }).error).toContain("voiceModePauseSeconds");
+    },
+  );
 });
 
 // ===========================================================================
