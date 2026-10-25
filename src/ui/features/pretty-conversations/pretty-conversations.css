@@ -555,8 +555,16 @@
   }
 }
 
-/* DM'd — the agent DM'd this user: a red envelope in the unread dot's place,
-   bigger, and the same red on every row. Steps aside for the ⋮ like the dot. */
+/* DM'd — the agent DM'd this user: the whole row takes a red tint (the open
+   conversation keeps its own highlight), and a red envelope sits in the
+   unread dot's place, bigger, the same red on every row. The envelope steps
+   aside for the ⋮ like the dot. */
+.pv-row.pv-row--dm:not(.selected) {
+  background: rgba(229, 72, 77, 0.16);
+}
+.pv-row.pv-row--dm:not(.selected):hover {
+  background: rgba(229, 72, 77, 0.2);
+}
 .pv-dm-badge {
   position: absolute;
   top: 50%;
@@ -570,7 +578,6 @@
   border-radius: 999px;
   transform: translateY(-50%);
   background: #e5484d;
-  box-shadow: 0 0 0 2px var(--pv-sb-bg);
   pointer-events: none;
   transition: opacity 0.12s;
 }
@@ -900,7 +907,6 @@
     width: 22px;
     height: 22px;
     right: 10px;
-    box-shadow: none;
   }
   @media (pointer: fine) {
     .pv-dm-badge {
