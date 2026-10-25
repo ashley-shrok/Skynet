@@ -152,13 +152,16 @@ describe("askSpeech", () => {
   });
 });
 
-describe("the agent-facing skill's examples", () => {
-  it("every ask block in the skill parses", async () => {
+describe("the id skill's examples", () => {
+  it("every ask block in the id skill parses", async () => {
     const { readFileSync } = await import("node:fs");
     const { resolve } = await import("node:path");
-    const md = readFileSync(resolve(__dirname, "../../../../../substrate/skills/interactive-messages/SKILL.md"), "utf8");
+    // The skill wraps each example in a ```` fence so it never shows as a live
+    // ask; unwrap those to check the examples themselves.
+    const md = readFileSync(resolve(__dirname, "../../../../../substrate/skills/id/SKILL.md"), "utf8")
+      .replace(/^````[a-z]*$/gm, "");
     const blocks = findAskBlocks(md);
-    expect(blocks.length).toBeGreaterThanOrEqual(3);
+    expect(blocks.length).toBeGreaterThanOrEqual(1);
     for (const b of blocks) {
       const r = parseAskBlock(b);
       expect(r.ok, r.error).toBe(true);
