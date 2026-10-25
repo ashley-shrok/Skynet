@@ -17,7 +17,6 @@ import { useBrandingConfig } from "@/branding/branding-store";
 import { useGamepadTabNav } from "@/hooks/use-gamepad-tab-nav";
 import { useKeyboardTabNav } from "@/hooks/use-keyboard-tab-nav";
 import { useKeyboardCloseTab } from "@/hooks/use-keyboard-close-tab";
-import { useKeyboardMessageQueue } from "@/hooks/use-keyboard-message-queue";
 // Phase 121 Plan 04: feedback pipeline UI wire.
 //   - useKeyboardTriggerFeedbackDev: dev-only Ctrl+Alt+F / Ctrl+Alt+T chord.
 //     Hook is a no-op in production builds (import.meta.env.DEV gate).
@@ -30,7 +29,6 @@ import { useKeyboardTriggerFeedbackDev } from "@/hooks/use-keyboard-trigger-feed
 import { FeedbackModal } from "@/feedback/FeedbackModal";
 import { postFeedback } from "@/feedback/feedback-api";
 import { fetchFeedbackConfig } from "@/feedback/feedback-fetch";
-import type { IdentityPaneHandle } from "@/features/terminal/terminal-types";
 // Phase 11 Plan 03 (PURGE-02, PURGE-03): AppRail + RailView + 10 sidebar-panel
 // imports (HostsPanel, SessionsPanel, QuickConnectPanel, SshToolsPanel,
 // SnippetsPanel, HistoryPanel, SplitScreenPanel, UserProfilePanel,
@@ -339,17 +337,6 @@ export function AppShell({
   useGamepadTabNav(tabs, activeTabId, setActiveTabId);
   useKeyboardTabNav(tabs, activeTabId, setActiveTabId);
   useKeyboardCloseTab(tabs, activeTabId, closeTab);
-  useKeyboardMessageQueue(tabs, activeTabId, (id) => {
-    const ref = terminalRefs.current.get(id);
-    // Phase 41 code-review H2: cast to Partial<IdentityPaneHandle> because
-    // the ref may hold either a plain TerminalHandle (non-identity SSH
-    // panes) or an IdentityPaneHandle (identity panes via
-    // IdentitySessionPane). Only identity panes implement toggleMessageQueue
-    // — optional chaining short-circuits when the method is absent, which
-    // matches runtime reality and satisfies the type.
-    const handle = (ref?.current as Partial<IdentityPaneHandle> | null) ?? null;
-    handle?.toggleMessageQueue?.();
-  });
   const [userPrefs, setUserPrefs] = useState<UserPreferences>({});
   const [userPrefsLoaded, setUserPrefsLoaded] = useState(false);
   const [hostsLoaded, setHostsLoaded] = useState(false);

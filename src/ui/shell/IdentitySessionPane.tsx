@@ -9,7 +9,6 @@ import { TaskPill, type TaskPillJumpTab } from "@/features/pretty-view/TaskPill"
 import { useSessionDesktopRunning } from "@/api/fleet-status-client";
 import { IdentityModal } from "@/features/pretty-view/IdentityModal";
 import { CreateProjectModal } from "@/features/pretty-conversations/CreateProjectModal";
-import { MessageQueueDrawer } from "@/features/terminal/MessageQueueDrawer";
 import { sessionMatchKey, hueFromSessionName } from "@/features/terminal/session-hue";
 import { useIdentities } from "@/state/identities-store";
 import { useIsMobile } from "@/hooks/use-mobile";
@@ -95,14 +94,12 @@ export interface IdentitySessionPaneProps {
 /**
  * Phase 41 Plan 02: IdentitySessionPane wrapper.
  *
- * Hoists isPrettyMode + pvSendInputRef + pvSendInterruptRef + isMessageQueueOpen
+ * Hoists isPrettyMode + pvSendInputRef + pvSendInterruptRef
  * + isIdentityModalOpen from TerminalInner to this wrapper. PrettyView is always
  * mounted; Terminal is conditionally mounted (only when !isPrettyMode, i.e. when
  * an admin flips the view via the identity-badge context menu).
  *
- * Exposes the IdentityPaneHandle interface via useImperativeHandle
- * (TerminalHandle + the wrapper-owned message-queue toggle):
- * - toggleMessageQueue: wrapper-owned setter.
+ * Exposes the IdentityPaneHandle interface via useImperativeHandle:
  * - disconnect/reconnect/fit/sendInput/notifyResize/refresh: forwarded to inner
  *   Terminal ref when mounted; safe-noop when Terminal is not mounted.
  *
@@ -119,7 +116,6 @@ export const IdentitySessionPane = forwardRef<IdentityPaneHandle, IdentitySessio
     // Terminal's hasAutoActivatedPrettyRef auto-flip: the wrapper is ONLY
     // rendered for identity panes, so the default is always-on.
     const [isPrettyMode, setIsPrettyMode] = useState(true);
-    const [isMessageQueueOpen, setIsMessageQueueOpen] = useState(false);
     const [isIdentityModalOpen, setIsIdentityModalOpen] = useState(false);
     const [identityModalTab, setIdentityModalTab] = useState<TaskPillJumpTab | undefined>(undefined);
     // Badge menu "Move to → New project…": the move to run once the create
@@ -129,7 +125,6 @@ export const IdentitySessionPane = forwardRef<IdentityPaneHandle, IdentitySessio
     >(null);
     // --- Hoisted refs ---
     // PrettyView populates these on mount via onRegisterSendInput/onRegisterSendInterrupt.
-    // MessageQueueDrawer reads pvSendInputRef.current for sends.
     const pvSendInputRef = useRef<((text: string, mqid?: string) => boolean) | null>(null);
     const pvSendInterruptRef = useRef<(() => void) | null>(null);
 
@@ -457,8 +452,8 @@ export const IdentitySessionPane = forwardRef<IdentityPaneHandle, IdentitySessio
     // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [isPrettyMode]);
 
-    // --- useImperativeHandle: expose IdentityPaneHandle (TerminalHandle + toggles) ---
-    // toggleMessageQueue is wrapper-owned. togglePrettyMode was previously
+    // --- useImperativeHandle: expose IdentityPaneHandle (TerminalHandle) ---
+    // togglePrettyMode was previously
     // exposed here for the Ctrl+Shift+O keyboard hook; that pathway is
     // retired — the badge context-menu "Switch to (terminal/chat) view"
     // item is now the sole view-mode toggle affordance.
@@ -470,18 +465,6 @@ export const IdentitySessionPane = forwardRef<IdentityPaneHandle, IdentitySessio
     useImperativeHandle(
       ref,
       () => ({
-        toggleMessageQueue: () => {
-          setIsMessageQueueOpen((v) => {
-            const next = !v;
-            console.info({
-              operation: "identity_session_pane_toggle_message_queue",
-              tabId,
-              prev: v,
-              next,
-            });
-            return next;
-          });
-        },
         disconnect: () => {
           innerTerminalRef.current?.disconnect?.();
         },
@@ -625,7 +608,6 @@ export const IdentitySessionPane = forwardRef<IdentityPaneHandle, IdentitySessio
               // resolution)".
               // WHY SYNTHETIC-STYLE MQID (rationale preserved for context):
               //   Pretty-view composer submits aren't tied to a queue row
-              //   (MessageQueueDrawer's onSend at ~L176 below has a real mqid).
               //   The backend gate is agnostic to what the mqid encodes —
               //   it only reads it as "yes, this is a pretty-view submit,
               //   apply split-send" — so any non-empty string works. The
@@ -660,8 +642,8 @@ export const IdentitySessionPane = forwardRef<IdentityPaneHandle, IdentitySessio
             onInjectedTurnReady={injectedTurnRelay.onInjectedTurnReady}
             // Phase 35 ref-forwarding registration surface for pretty-view outbound
             // writes. IdentitySessionPane holds pvSendInputRef / pvSendInterruptRef
-            // so MessageQueueDrawer (mounted OUTSIDE PrettyView as a sibling below)
-            // can write to PrettyView's WS without prop-drilling wsRef upward.
+            // so wrapper-level code can write to PrettyView's WS without
+            // prop-drilling wsRef upward.
             // Order matters: assign the ref FIRST, then notify the relay hook —
             // so when the hook's drain microtask fires and calls getSendFn(), the
             // ref is already populated.
@@ -696,34 +678,6 @@ export const IdentitySessionPane = forwardRef<IdentityPaneHandle, IdentitySessio
               }}
               previewTheme={previewTerminalTheme}
             />}
-
-          {/* MessageQueueDrawer — hoisted to wrapper alongside PrettyView so it
-              can access pvSendInputRef directly (Pitfall 2 from RESEARCH.md).
-              The two-event split-send body below is VERBATIM from Terminal.tsx
-              L3385-3407 (60ms setTimeout preserved; Phase 35 routing preserved). */}
-          {isMessageQueueOpen && host.id != null && (
-            <MessageQueueDrawer
-              hostId={parseInt(host.id, 10)}
-              tmuxSession={effectiveTmuxSession}
-              onSend={(text, messageQueueItemId) => {
-                const send = pvSendInputRef.current;
-                if (!send) return false;
-                // First WS event: body only. Second event (60ms later): the
-                // \r that Ink treats as submit, PLUS the messageQueueItemId
-                // so the backend deletes the row atomically after both writes
-                // have been applied to the SSH stream (patch #60).
-                // Phase 35: both events now route through PrettyView's own WS
-                // (pvSendInputRef) instead of the borrowed terminal SSH WS.
-                send(text);
-                setTimeout(() => {
-                  const send2 = pvSendInputRef.current;
-                  if (send2) send2("\r", messageQueueItemId);
-                }, 60);
-                return true;
-              }}
-              onClose={() => setIsMessageQueueOpen(false)}
-            />
-          )}
 
           {/* Task pill — terminal-mode surface (PrettyView mounts its own in
               chat mode). Same pill, same round buttons, same behavior in both

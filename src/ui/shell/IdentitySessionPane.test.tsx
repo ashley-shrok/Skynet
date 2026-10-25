@@ -2,8 +2,6 @@
  * Phase 41 Plan 02 — IdentitySessionPane component tests.
  *
  * P1: Terminal NOT mounted by default (isPrettyMode = true initial state).
- * P4: toggleMessageQueue() renders MessageQueueDrawer.
- * P5: MessageQueueDrawer onSend calls pvSendInputRef.current (split-send, 60ms apart).
  * P6: TerminalHandle methods are safe-noop when Terminal is unmounted.
  * P7: When Terminal IS mounted, fit() forwards to inner Terminal ref.
  *
@@ -17,10 +15,8 @@
  *   + forwardRef exposing mock TerminalHandle methods (fit spy, etc.).
  * - @/features/pretty-view/PrettyView: replace with a div that captures
  *   onRegisterSendInput so we can populate pvSendInputRef from tests.
- * - @/features/terminal/MessageQueueDrawer: div with data-testid; exposes onSend
  *   via a global ref so tests can trigger it.
  * - @/state/identities-store: useIdentities returns a Map with one identity.
- * - @/api/message-queue-api: listMessageQueueItems returns [].
  * - @/features/terminal/command-history/CommandHistoryContext: passthrough provider.
  * - @/shell/TabContext: useTabsSafe returns previewTerminalTheme=null.
  */
@@ -118,15 +114,6 @@ vi.mock("@/state/conversation-store", () => ({
   unpinConversation: vi.fn(),
 }));
 
-// ── Mock: message-queue-api ──────────────────────────────────────────────────
-vi.mock("@/api/message-queue-api", () => ({
-  listMessageQueueItems: vi.fn().mockResolvedValue([]),
-  createMessageQueueItem: vi.fn().mockResolvedValue({ id: "mq-1", body: "" }),
-  deleteMessageQueueItem: vi.fn().mockResolvedValue(undefined),
-  flushMessageQueueItemKeepalive: vi.fn().mockResolvedValue(undefined),
-  updateMessageQueueItem: vi.fn().mockResolvedValue(undefined),
-}));
-
 // ── Mock: TabContext ──────────────────────────────────────────────────────────
 vi.mock("@/shell/TabContext", () => ({
   useTabsSafe: vi.fn(() => ({ previewTerminalTheme: null })),
@@ -195,29 +182,6 @@ vi.mock("@/features/pretty-view/PrettyView", () => ({
   },
 }));
 
-// ── Mock MessageQueueDrawer ──────────────────────────────────────────────────
-// Exposes onSend via module-level so P5 can trigger a send.
-let capturedMqOnSend: ((text: string, mqid: string) => boolean) | null = null;
-
-vi.mock("@/features/terminal/MessageQueueDrawer", () => ({
-  MessageQueueDrawer: ({
-    onSend,
-    onClose,
-  }: {
-    onSend: (text: string, mqid: string) => boolean;
-    onClose: () => void;
-  }) => {
-    capturedMqOnSend = onSend;
-    return (
-      <div data-testid="message-queue-drawer">
-        <button data-testid="mq-close" onClick={onClose}>
-          Close
-        </button>
-      </div>
-    );
-  },
-}));
-
 // ── Mock Terminal (forwardRef) ────────────────────────────────────────────────
 // Exposes a spy on fit() so P7 can assert forwarding.
 let mockFitFn: ReturnType<typeof vi.fn> = vi.fn();
@@ -245,7 +209,6 @@ vi.mock("@/features/terminal/Terminal", async (importOriginal) => {
         sendInput: vi.fn(),
         notifyResize: vi.fn(),
         refresh: vi.fn(),
-        toggleMessageQueue: vi.fn(),
         togglePrettyMode: vi.fn(),
       }));
       return <div data-testid="mock-terminal" />;
@@ -307,7 +270,6 @@ describe("IdentitySessionPane — Phase 41 Plan 02", () => {
     terminalUnmountCount = 0;
     capturedRegisterSendInput = null;
     capturedRegisterSendInterrupt = null;
-    capturedMqOnSend = null;
     capturedPrettyViewProps = null;
     mockFitFn = vi.fn();
     vi.useFakeTimers();
@@ -326,57 +288,6 @@ describe("IdentitySessionPane — Phase 41 Plan 02", () => {
     expect(screen.queryByTestId("mock-terminal")).toBeNull();
     // Structural guard: Terminal mount count is 0.
     expect(terminalMountCount).toBe(0);
-  });
-
-  it("P4: toggleMessageQueue() renders MessageQueueDrawer", async () => {
-    const ref = createRef<TerminalHandle>();
-    render(<IdentitySessionPane {...makeProps()} ref={ref} />);
-
-    expect(screen.queryByTestId("message-queue-drawer")).toBeNull();
-
-    await act(async () => {
-      ref.current!.toggleMessageQueue();
-    });
-
-    expect(screen.getByTestId("message-queue-drawer")).toBeInTheDocument();
-  });
-
-  it("P5: MessageQueueDrawer onSend routes through pvSendInputRef (split-send: body then \\r+mqid 60ms later)", async () => {
-    const ref = createRef<TerminalHandle>();
-    render(<IdentitySessionPane {...makeProps()} ref={ref} />);
-
-    // 1. Simulate PrettyView registering a send function into pvSendInputRef.
-    const mockSendFn = vi.fn((_text: string, _mqid?: string) => true);
-    act(() => {
-      capturedRegisterSendInput!(mockSendFn);
-    });
-
-    // 2. Open the message queue drawer.
-    await act(async () => {
-      ref.current!.toggleMessageQueue();
-    });
-    expect(capturedMqOnSend).not.toBeNull();
-
-    // 3. Trigger a send via the drawer's onSend.
-    act(() => {
-      capturedMqOnSend!("hello world", "mq-item-abc");
-    });
-
-    // Body event fires synchronously.
-    expect(mockSendFn).toHaveBeenCalledTimes(1);
-    expect(mockSendFn).toHaveBeenCalledWith("hello world");
-
-    // Advance past 60ms → second event fires with \r + mqid.
-    act(() => {
-      vi.advanceTimersByTime(59);
-    });
-    expect(mockSendFn).toHaveBeenCalledTimes(1); // not yet
-
-    act(() => {
-      vi.advanceTimersByTime(1);
-    });
-    expect(mockSendFn).toHaveBeenCalledTimes(2);
-    expect(mockSendFn).toHaveBeenLastCalledWith("\r", "mq-item-abc");
   });
 
   it("P6: TerminalHandle methods are safe-noop when Terminal is unmounted", async () => {

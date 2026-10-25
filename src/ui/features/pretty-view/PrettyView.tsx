@@ -4719,36 +4719,10 @@ export function PrettyView({
           // rather than composing hsla — but they use the SAME
           // fallback of 35 for consistency.
           "--pv-id-hue": String(pvHue),
-          // Atmospheric depth = TWO radial-gradient overlays (warm
-          // hue-tinted from top-left, fixed cool violet from bottom-right)
-          // over a warm-neutral linear-gradient base. HARD LOCK: this
-          // uses `background-image` ONLY. Do NOT add backdropFilter,
-          // filter, transform, willChange, or perspective to this root
-          // div. Reason (patch #74 rewrite): the absolute-positioned
-          // SessionHoldingOverlay (`absolute inset-0`) resolves against
-          // this root's `relative` positioning. If the root gained
-          // `transform` or `filter`, that would still create a valid
-          // containing block for the overlay (it's absolute, so `inset-0`
-          // would still land correctly) — BUT it would ALSO shift the
-          // stacking context in ways that can steal IdentityBadge's
-          // z-[101] out from under the app-modal z-band, and can trap
-          // any future sticky/fixed descendants inside pretty-view.
-          // `background-image` is safe (it never establishes a
-          // containing block or a new stacking context).
-          //
-          // Note: the top-left warm radial uses the resolved `${pvHue}`
-          // numeric literal rather than `hsla(var(--pv-id-hue),...)`
-          // because CSS custom properties in gradient stops sometimes
-          // need @property declarations to interpolate cleanly across
-          // browsers; embedding the number at style-compute time avoids
-          // that edge case. Inner components' arbitrary-value classes
-          // that use `hsla(var(--pv-id-hue),...)` are FINE because they
-          // resolve at paint time (custom props are dynamic per-cascade).
-          backgroundImage: `
-            radial-gradient(ellipse 800px 400px at 20% 0%, rgba(255,240,215,0.08), transparent 60%),
-            radial-gradient(ellipse 700px 500px at 90% 100%, rgba(255,240,215,0.05), transparent 60%),
-            linear-gradient(160deg, var(--color-pv-base) 0%, var(--color-pv-base-mid) 50%, var(--color-pv-base-end) 100%)
-          `,
+          // Solid, the colour the edge fades darken to (conversation.css).
+          // Background only: no filter / transform here, so this root never
+          // becomes a containing block or stacking context for its overlays.
+          backgroundColor: "rgb(11, 12, 15)",
           ...style,
         } as React.CSSProperties
       }

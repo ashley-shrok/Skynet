@@ -38,12 +38,6 @@ export interface TerminalHandle {
   openFileManager: () => void;
 }
 
-// The IdentitySessionPane wrapper re-exposes the full TerminalHandle
-// surface (forwarding to the inner Terminal when mounted, safe-noops when
-// not) and adds the wrapper-owned toggle for the message queue drawer.
-// (togglePrettyMode was retired alongside the Ctrl+Shift+O keyboard
-// shortcut; the view-mode swap is now surfaced only via the identity-
-// badge context menu's "Switch to (terminal/chat) view" item.)
-export interface IdentityPaneHandle extends TerminalHandle {
-  toggleMessageQueue: () => void;
-}
+// The IdentitySessionPane wrapper re-exposes the full TerminalHandle surface
+// (forwarding to the inner Terminal when mounted, safe-noops when not).
+export type IdentityPaneHandle = TerminalHandle;
