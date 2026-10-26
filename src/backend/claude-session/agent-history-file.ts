@@ -73,10 +73,15 @@ export function buildAgentHistoryScript(identityNames: readonly string[]): strin
   if (names.length === 0) return "true";
   // LOAD-BEARING: joined on one line — every statement ends with `;`.
   return (
-    // Claude names the folder after the launch dir's REAL path — where $HOME
-    // is a symlink (Bazzite/Silverblue: /home → /var/home) the name must use
-    // the resolved home, while the folder itself is still reached via $HOME.
-    `RH=$(cd "$HOME" 2>/dev/null && pwd -P); [ -n "$RH" ] || RH="$HOME"; ` +
+    // Claude names the folder after the launch dir's REAL path on the HOST,
+    // while the folder itself is reached via $HOME. Two cases differ:
+    //   - inside the Skynet container (local-host poll channel), $HOME is the
+    //     bind mount (HOME_HOST_DIR, e.g. /host-home) — name from the host
+    //     home, SKYNET_HOME_MOUNT_SRC;
+    //   - a symlinked home (Bazzite/Silverblue: /home → /var/home) — name
+    //     from the resolved home.
+    `RH=""; if [ -n "\${SKYNET_HOME_MOUNT_SRC:-}" ] && [ -n "\${HOME_HOST_DIR:-}" ] && [ "$HOME" = "$HOME_HOST_DIR" ]; then RH="$SKYNET_HOME_MOUNT_SRC"; fi; ` +
+    `[ -n "$RH" ] || RH=$(cd "$HOME" 2>/dev/null && pwd -P); [ -n "$RH" ] || RH="$HOME"; ` +
     `for N in ${names.map(shellSingleQuote).join(" ")}; do ` +
     `  D="$HOME/.claude/projects/$(printf '%s' "$RH/fleet/identities/$N/workspace" | sed 's/[^a-zA-Z0-9]/-/g')"; ` +
     `  [ -d "$D" ] || continue; ` +
@@ -118,8 +123,10 @@ export function parseAgentHistoryStdout(stdout: string): AgentHistoryRecord[] {
 }
 
 /**
- * Newest record per name whose first user turn is that name's `/id` load.
- * Every requested name appears in the result (null when it has none).
+ * Newest record per name whose first user turn is that name's `/id` load;
+ * equal times go to the alphabetically first path (same rule as the Python
+ * sweeps), so every implementation picks the same file regardless of listing
+ * order. Every requested name appears in the result (null when it has none).
  */
 export function pickNewestOwned(
   identityNames: readonly string[],
@@ -129,7 +136,9 @@ export function pickNewestOwned(
   for (const r of records) {
     if (!matchesIdentityFirstTurn(r.firstUserLine, r.name)) continue;
     const cur = best.get(r.name);
-    if (!cur || r.mtime > cur.mtime) best.set(r.name, { path: r.path, mtime: r.mtime });
+    if (!cur || r.mtime > cur.mtime || (r.mtime === cur.mtime && r.path < cur.path)) {
+      best.set(r.name, { path: r.path, mtime: r.mtime });
+    }
   }
   const result = new Map<string, string | null>();
   for (const n of identityNames) result.set(n, best.get(n)?.path ?? null);
@@ -204,6 +213,8 @@ export async function findAgentHistoryFile(
 async function findAgentHistoryFileLocal(identityName: string): Promise<string | null> {
   // Claude named the folder on the host, so name it from the HOST home
   // (SKYNET_HOME_MOUNT_SRC in a compose install; native dev = os.homedir()).
+  // SKYNET_HOME_MOUNT_SRC can't be resolved from in here (it's a host path),
+  // so on a host with a symlinked home it must be set to the resolved path.
   const hostHome = process.env.SKYNET_HOME_MOUNT_SRC || (await fsp.realpath(os.homedir()).catch(() => os.homedir()));
   const dir = path.join(getLocalClaudeProjectsRoot(), agentHistoryFolderName(hostHome, identityName));
   let entries;

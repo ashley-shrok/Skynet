@@ -178,9 +178,16 @@ def agent_history_folder(identity_name, home):
     identity is launched in ~/fleet/identities/<name>/workspace/ — so the
     folder is known from the name alone, and survives archiving (which moves
     the identity, not its transcripts). Mirrors agent-history-file.ts."""
-    # Claude names the folder after the launch dir's REAL path (a symlinked
-    # home, e.g. Bazzite's /home -> /var/home, resolves first).
-    real_home = os.path.realpath(home)
+    # Claude names the folder after the launch dir's REAL path on the HOST.
+    # Inside the Skynet container (local-host poll) HOME is the bind mount
+    # (HOME_HOST_DIR), so name from the host home (SKYNET_HOME_MOUNT_SRC);
+    # otherwise resolve a symlinked home (e.g. Bazzite's /home -> /var/home).
+    mount_src = os.environ.get("SKYNET_HOME_MOUNT_SRC")
+    mount_dst = os.environ.get("HOME_HOST_DIR")
+    if mount_src and mount_dst and os.path.normpath(home) == os.path.normpath(mount_dst):
+        real_home = mount_src
+    else:
+        real_home = os.path.realpath(home)
     launch_dir = "%s/fleet/identities/%s/workspace" % (real_home.rstrip("/"), identity_name)
     return os.path.join(home, ".claude", "projects", re.sub(r"[^a-zA-Z0-9]", "-", launch_dir))
 
@@ -202,7 +209,9 @@ def discover_identity_jsonl_path(identity_name, home):
             continue
         fpath = os.path.join(folder, fname)
         try:
-            if not os.path.isfile(fpath):
+            # Regular files only, never symlinks — same as the shell lookup's
+            # `find -type f`, so every implementation sees the same candidates.
+            if os.path.islink(fpath) or not os.path.isfile(fpath):
                 continue
             candidates.append((os.stat(fpath).st_mtime, fpath))
         except OSError:

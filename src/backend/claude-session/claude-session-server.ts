@@ -4295,6 +4295,10 @@ wss.on("connection", async (ws: WebSocket, req) => {
   // pattern for lifecycle (cleared in teardownPane, guarded against pileups).
   let dormantPollTimer: NodeJS.Timeout | null = null;
   let dormantPollInFlight = false;
+  // True while the dormant branch is still opening its tail. The dormant poll
+  // skips meanwhile, so a wake can't race the open (which would leave two
+  // tails, one orphaned, and lines delivered twice).
+  let dormantTailOpening = false;
   // Cached path of the identity's most-recent JSONL, resolved by the
   // dormant-branch tail-open seam and consumed by the dormant-poll timer
   // for the piggyback context-pct emit (readContextPctFromJsonl). Null
@@ -7293,6 +7297,9 @@ wss.on("connection", async (ws: WebSocket, req) => {
     // Phase 101 D-03: acquire long-lived slot before opening the tail.
     // Released on stop() or onError — both paths are idempotent (D-06-adjacent).
     if (keepingTail && tailHandle) {
+      // The dormant-branch tail never got a lifecycle id; give the kept,
+      // now long-lived tail one so its later stop line pairs with this one.
+      if (!tailInstanceId) tailInstanceId = randomBytes(4).toString("hex");
       sshLogger.info(
         `[tail-lifecycle] tail=${tailInstanceId} action=keep sessionFile=${sessionFile} reason=${startReason ?? "initial"}`,
         {
@@ -7493,7 +7500,7 @@ wss.on("connection", async (ws: WebSocket, req) => {
               // on active → transitions to active flow via startActiveSessionFlow.
               // dormantPollInFlight guards against slow-SSH pileups.
               dormantPollTimer = setInterval(() => {
-                if (stopped || ws.readyState !== WebSocket.OPEN || !sshConn || dormantPollInFlight) return;
+                if (stopped || ws.readyState !== WebSocket.OPEN || !sshConn || dormantPollInFlight || dormantTailOpening) return;
                 dormantPollInFlight = true;
                 // Phase 30 Plan 30-01: capture dormantLastEmitted BEFORE the
                 // seam runs so we can detect a change post-return and funnel
@@ -7709,6 +7716,8 @@ wss.on("connection", async (ws: WebSocket, req) => {
               // holds a long-lived semaphore slot for its full lifetime.
               // Slot released on handle.stop() or onError — idempotent (D-06-adjacent).
               const dormantTailSlot = acquireTailSlot(hostId);
+              dormantTailOpening = true;
+              try {
               await __applyDormantBranchTailOpenForTests(
                 {
                   conn,
@@ -7779,6 +7788,9 @@ wss.on("connection", async (ws: WebSocket, req) => {
                   },
                 },
               );
+              } finally {
+                dormantTailOpening = false;
+              }
               enteredDormantPoll = true;
             }
           }

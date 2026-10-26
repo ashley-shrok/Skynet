@@ -139,3 +139,58 @@ describe("agent-history lookup — symlinked home (Bazzite: /home → /var/home)
     });
   }
 });
+
+describe("agent-history lookup — inside the Skynet container, ties and symlinked files", () => {
+  // Inside the container the local-host poll runs with HOME = the bind mount
+  // (HOME_HOST_DIR), but Claude named the folders on the host after
+  // SKYNET_HOME_MOUNT_SRC. All three implementations must name from the host.
+  let mount: string;
+  const hostHome = "/home/hostuser";
+  const folder = (name: string) => `${hostHome}/fleet/identities/${name}/workspace`.replace(/[^a-zA-Z0-9]/g, "-");
+  const env = () => ({ HOME: mount, HOME_HOST_DIR: mount, SKYNET_HOME_MOUNT_SRC: hostHome });
+  const expected: Record<string, string | null> = {};
+  const names = ["mounted", "tie", "linked"];
+
+  beforeAll(async () => {
+    mount = await fsp.realpath(await fsp.mkdtemp(path.join(os.tmpdir(), "history-mount-")));
+    const put = async (name: string, file: string, mtime: number) => {
+      const dir = path.join(mount, ".claude", "projects", folder(name));
+      await fsp.mkdir(dir, { recursive: true });
+      const full = path.join(dir, file);
+      await fsp.writeFile(full, idLine(name) + "\n");
+      await fsp.utimes(full, mtime, mtime);
+      return full;
+    };
+    expected.mounted = await put("mounted", "m.jsonl", 1000);
+    // Equal times: the alphabetically first path wins everywhere.
+    expected.tie = await put("tie", "a.jsonl", 2000);
+    await put("tie", "b.jsonl", 2000);
+    // A symlinked .jsonl is never a candidate, however new.
+    expected.linked = await put("linked", "real.jsonl", 1000);
+    const elsewhere = path.join(mount, "elsewhere.jsonl");
+    await fsp.writeFile(elsewhere, idLine("linked") + "\n");
+    await fsp.symlink(elsewhere, path.join(mount, ".claude", "projects", folder("linked"), "z-link.jsonl"));
+    await fsp.utimes(elsewhere, 9000, 9000);
+  });
+
+  afterAll(async () => {
+    await fsp.rm(mount, { recursive: true, force: true }).catch(() => {});
+  });
+
+  it("the shell lookup", async () => {
+    const out = await run("bash", ["-c", buildAgentHistoryScript(names)], env());
+    expect(Object.fromEntries(pickNewestOwned(names, parseAgentHistoryStdout(out)))).toEqual(expected);
+  });
+
+  for (const script of ["pv-context-pct-sweep.py", "fleet-status-sweep.py"]) {
+    it(script, async () => {
+      const driver =
+        "import importlib.util, json, sys\n" +
+        "spec = importlib.util.spec_from_file_location('m', sys.argv[1])\n" +
+        "m = importlib.util.module_from_spec(spec); spec.loader.exec_module(m)\n" +
+        "print(json.dumps({n: m.discover_identity_jsonl_path(n, sys.argv[2]) for n in sys.argv[3:]}))\n";
+      const out = await run("python3", ["-I", "-c", driver, path.join(REPO, "substrate/scripts", script), mount, ...names], env());
+      expect(JSON.parse(out)).toEqual(expected);
+    });
+  }
+});
