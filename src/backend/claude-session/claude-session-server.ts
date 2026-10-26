@@ -84,6 +84,8 @@ import {
   buildArchivedAppsScript,
   parseArchivedAppsStdout,
   readArchivedAppsLocal,
+  readArchivedIdentityLook,
+  type ArchivedIdentityLook,
 } from "./archived-identity.js";
 import {
   isLocalHostId,
@@ -7403,7 +7405,20 @@ wss.on("connection", async (ws: WebSocket, req) => {
         identityKey: tmuxSession,
         folderState,
       });
-      ws.send(JSON.stringify({ type: "archived_state", state: folderState }));
+      let look: ArchivedIdentityLook | null = null;
+      if (folderState === "archived") {
+        try {
+          look = await readArchivedIdentityLook(conn, hostId, tmuxSession);
+        } catch (err) {
+          sshLogger.warn("Archived conversation look unreadable", {
+            operation: "claude_session_archived_look_failed",
+            hostId,
+            identityKey: tmuxSession,
+            err: err instanceof Error ? err.message : String(err),
+          });
+        }
+      }
+      ws.send(JSON.stringify({ type: "archived_state", state: folderState, ...(look ? { look } : {}) }));
       if (folderState !== "archived") {
         // live → the client turns the tab into the live conversation;
         // gone → it says so. Either way nothing is served here.
