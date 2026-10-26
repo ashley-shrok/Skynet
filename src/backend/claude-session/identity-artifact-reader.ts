@@ -397,6 +397,17 @@ export function getLocalIdentitiesRoot(): string {
 }
 
 /**
+ * Returns the local archived-identities root — the `identities-archive`
+ * sibling of the identities root.
+ */
+export function getLocalIdentitiesArchiveRoot(): string {
+  return path.join(path.dirname(getLocalIdentitiesRoot()), "identities-archive");
+}
+
+/** Options for reads that can target an archived agent's folder. */
+export type IdentityFolderOpts = { archived?: boolean };
+
+/**
  * Returns the local roles root directory.
  * Precedence: ROLES_HOST_DIR (test escape hatch) → HOME_HOST_DIR-derived
  * default (`<home>/fleet/roles`).
@@ -1569,10 +1580,11 @@ async function execWithTimeout(
 export async function readIdentityFile(
   conn: SSHClientType | null,
   identityKey: string,
+  opts: IdentityFolderOpts = {},
 ): Promise<{ markdown: string }> {
   if (conn === null) {
     // LOCAL branch
-    const root = getLocalIdentitiesRoot();
+    const root = opts.archived ? getLocalIdentitiesArchiveRoot() : getLocalIdentitiesRoot();
     const filePath = path.join(root, identityKey, identityKey + ".md");
     try {
       const markdown = await fs.readFile(filePath, "utf-8");
@@ -1597,7 +1609,8 @@ export async function readIdentityFile(
   // characters are shell-special inside double quotes, so direct
   // interpolation is safe. shellEscape is redundant + broken in this
   // wrapping and is dropped for the string readers.
-  const cmd = `cat "$HOME/fleet/identities/${identityKey}/${identityKey}.md" 2>/dev/null || true`;
+  const parent = opts.archived ? "identities-archive" : "identities";
+  const cmd = `cat "$HOME/fleet/${parent}/${identityKey}/${identityKey}.md" 2>/dev/null || true`;
   const stdout = await execWithTimeout(conn, cmd);
   return { markdown: stdout };
 }
@@ -1886,10 +1899,11 @@ const WAKEUP_LAST_MARK = "===SKYNET-WAKEUP-LAST:";
 export async function readIdentityWakeups(
   conn: SSHClientType | null,
   identityKey: string,
+  opts: IdentityFolderOpts = {},
 ): Promise<{ wakeups: Wakeup[] }> {
   if (conn === null) {
     // LOCAL branch
-    const root = getLocalIdentitiesRoot();
+    const root = opts.archived ? getLocalIdentitiesArchiveRoot() : getLocalIdentitiesRoot();
     const wakeupsDir = path.join(root, identityKey, "wakeups");
     let dirEntries: Dirent[];
     try {
@@ -1959,7 +1973,7 @@ export async function readIdentityWakeups(
   // failed cd exits non-zero, which the catch below reads as "no wake-ups".
   // Patch #95: direct interpolation (see readIdentityFile for the bug).
   const cmd =
-    `cd "$HOME/fleet/identities/${identityKey}/wakeups" 2>/dev/null && { ` +
+    `cd "$HOME/fleet/${opts.archived ? "identities-archive" : "identities"}/${identityKey}/wakeups" 2>/dev/null && { ` +
     'shopt -s nullglob; ' +
     'for d in */; do s="${d%/}"; [ -f "$s/wakeup.json" ] || continue; ' +
     'echo "===FILE:$s==="; cat "$s/wakeup.json"; echo; ' +

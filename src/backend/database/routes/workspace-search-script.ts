@@ -52,7 +52,9 @@ function targetRootWord(target: TargetSpec): string {
       ? `fleet/roles/${target.roleSlug}`
       : target.kind === "project"
         ? `fleet/projects/${target.projectSlug}`
-        : `fleet/identities/${target.identityKey}/workspace`;
+        : target.kind === "archived-identity"
+          ? `fleet/identities-archive/${target.identityKey}/workspace`
+          : `fleet/identities/${target.identityKey}/workspace`;
   return `"$HOME"/${shellEscape(rel)}`;
 }
 

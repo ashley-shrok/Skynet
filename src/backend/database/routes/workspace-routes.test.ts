@@ -1302,6 +1302,32 @@ describe("project target and reserved root file", () => {
     const res = await postJson("PUT", "/workspace/write-file", { identityKey: "echo", hostId: 42, relativePath: "project.md", content: "x" });
     expect(res.status).toBe(200);
   });
+
+  const archived = { kind: "archived-identity", identityKey: "olden", hostId: 42 };
+
+  it("an archived agent's workspace is read from its archived folder", async () => {
+    stubHome();
+    const res = await postJson("POST", "/workspace/list", { ...archived, relativePath: "" });
+    expect(res.status).toBe(200);
+    expect(stubSftp.readdir.mock.calls[0][0]).toBe("/home/ubuntu/fleet/identities-archive/olden/workspace");
+  });
+
+  it("every change to an archived agent's workspace is refused before the host is touched", async () => {
+    stubHome();
+    const results = [
+      await postJson("PUT", "/workspace/write-file", { ...archived, relativePath: "a.txt", content: "x" }),
+      await postJson("DELETE", "/workspace/entry", { ...archived, relativePath: "a.txt" }),
+      await postJson("POST", "/workspace/rename", { ...archived, from: "a.txt", to: "b.txt" }),
+      await postJson("POST", "/workspace/mkdir", { ...archived, relativePath: "d" }),
+      await postJson("POST", "/workspace/create-file", { ...archived, relativePath: "c.txt" }),
+      await upload({ kind: "archived-identity", identityKey: "olden", hostId: "42", relativePath: "u.txt" }, "u.txt"),
+    ];
+    for (const r of results) {
+      expect(r.status).toBe(403);
+      expect(r.body).toEqual({ error: "read_only" });
+    }
+    expect(stubSftp.realpath).not.toHaveBeenCalled();
+  });
 });
 
 /* --------------------------------------------------------------------- */

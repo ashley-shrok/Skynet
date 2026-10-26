@@ -78,7 +78,16 @@ import type {
   UploadAbortPayload,
 } from "../../ui/api/pretty-view-upload-protocol.js";
 import {
+  probeIdentityFolderState,
+  type IdentityFolderState,
+  type ArchivedApp,
+  buildArchivedAppsScript,
+  parseArchivedAppsStdout,
+  readArchivedAppsLocal,
+} from "./archived-identity.js";
+import {
   isLocalHostId,
+  getLocalIdentitiesArchiveRoot,
   IDENTITY_KEY_RE,
   IDENTITY_SLUG_RE,
   humanizeWakeupSchedule,
@@ -5676,12 +5685,14 @@ wss.on("connection", async (ws: WebSocket, req) => {
       const rawHostId = (msg as { type: unknown; hostId?: unknown }).hostId;
       const hostIdNum = requireHostId(ws, rawHostId, "identity:get-identity-file", { type: "identity:identity-file", markdown: "" }, userId);
       if (hostIdNum === null) return;
+      // View-only window for an archived agent: read its archived folder.
+      const archived = (msg as { archived?: unknown }).archived === true;
       const useLocal = isLocalHostId(hostIdNum);
 
       try {
         let markdown: string;
         if (useLocal) {
-          ({ markdown } = await readIdentityFile(null, identityKey));
+          ({ markdown } = await readIdentityFile(null, identityKey, { archived }));
           sshLogger.info("identity:get-identity-file", {
             operation: "identity_get_identity_file",
             userId, identityKey, hostId: hostIdNum, useLocal: true, payloadSize: markdown.length,
@@ -5695,7 +5706,7 @@ wss.on("connection", async (ws: WebSocket, req) => {
           await getHostSemaphore(hostIdNum).run(async () => {
             const conn = await connectOneShot(resolved as unknown as Parameters<typeof connectOneShot>[0], 5000);
             try {
-              ({ markdown } = await readIdentityFile(conn, identityKey));
+              ({ markdown } = await readIdentityFile(conn, identityKey, { archived }));
               sshLogger.info("identity:get-identity-file", {
                 operation: "identity_get_identity_file",
                 userId, identityKey, hostId: hostIdNum, useLocal: false, payloadSize: markdown.length,
@@ -5742,12 +5753,13 @@ wss.on("connection", async (ws: WebSocket, req) => {
       const rawHostId = (msg as { type: unknown; hostId?: unknown }).hostId;
       const hostIdNum = requireHostId(ws, rawHostId, "identity:list-wakeups", { type: "identity:wakeups", wakeups: [] }, userId);
       if (hostIdNum === null) return;
+      const archived = (msg as { archived?: unknown }).archived === true;
       const useLocal = isLocalHostId(hostIdNum);
 
       try {
         let wakeups: { name: string; enabled: boolean; scheduleHuman: string; instruction: string }[];
         if (useLocal) {
-          ({ wakeups } = await readIdentityWakeups(null, identityKey));
+          ({ wakeups } = await readIdentityWakeups(null, identityKey, { archived }));
           sshLogger.info("identity:list-wakeups", {
             operation: "identity_list_wakeups",
             userId, identityKey, hostId: hostIdNum, useLocal: true, payloadSize: wakeups.length,
@@ -5761,7 +5773,7 @@ wss.on("connection", async (ws: WebSocket, req) => {
           await getHostSemaphore(hostIdNum).run(async () => {
             const conn = await connectOneShot(resolved as unknown as Parameters<typeof connectOneShot>[0], 5000);
             try {
-              ({ wakeups } = await readIdentityWakeups(conn, identityKey));
+              ({ wakeups } = await readIdentityWakeups(conn, identityKey, { archived }));
               sshLogger.info("identity:list-wakeups", {
                 operation: "identity_list_wakeups",
                 userId, identityKey, hostId: hostIdNum, useLocal: false, payloadSize: wakeups.length,
@@ -5781,6 +5793,47 @@ wss.on("connection", async (ws: WebSocket, req) => {
         try {
           ws.send(JSON.stringify({ type: "identity:wakeups", wakeups: [], error: err instanceof Error ? err.message : String(err) }));
         } catch (err) { databaseLogger.warn(`[ws-server] send-failed msgType=identity:wakeups err="${err instanceof Error ? err.message : String(err)}"`, { operation: "ws_send_failed" }); }
+      }
+      return;
+    }
+
+    // identity:list-archived-apps — an archived agent's conversation apps, for
+    // its view-only window (title, description, picture; never served).
+    if (msg.type === "identity:list-archived-apps") {
+      const rawKey = (msg as { identityKey?: unknown }).identityKey;
+      const reply = (apps: ArchivedApp[], error?: string) => {
+        try { ws.send(JSON.stringify({ type: "identity:archived-apps", apps, ...(error ? { error } : {}) })); } catch (err) { databaseLogger.warn(`[ws-server] send-failed msgType=identity:archived-apps err="${err instanceof Error ? err.message : String(err)}"`, { operation: "ws_send_failed" }); }
+      };
+      if (typeof rawKey !== "string" || !IDENTITY_KEY_RE.test(rawKey)) { reply([], "invalid identityKey"); return; }
+      const identityKey = rawKey;
+      const hostIdNum = requireHostId(ws, (msg as { hostId?: unknown }).hostId, "identity:list-archived-apps", { type: "identity:archived-apps", apps: [] }, userId);
+      if (hostIdNum === null) return;
+      try {
+        let apps: ArchivedApp[] = [];
+        if (isLocalHostId(hostIdNum)) {
+          apps = await readArchivedAppsLocal(getLocalIdentitiesArchiveRoot(), identityKey);
+        } else {
+          const resolved = await resolveHostById(hostIdNum, userId!);
+          if (!resolved) { reply([], "host not found"); return; }
+          await getHostSemaphore(hostIdNum).run(async () => {
+            const conn = await connectOneShot(resolved as unknown as Parameters<typeof connectOneShot>[0], 5000);
+            try {
+              apps = parseArchivedAppsStdout(await execCommand(conn, buildArchivedAppsScript(identityKey)));
+            } finally {
+              try { conn.end(); } catch { /* already closed */ }
+            }
+          });
+        }
+        sshLogger.info("identity:list-archived-apps", {
+          operation: "identity_list_archived_apps",
+          userId, identityKey, hostId: hostIdNum, count: apps.length,
+        });
+        reply(apps);
+      } catch (err) {
+        sshLogger.error("identity:list-archived-apps error", err instanceof Error ? err : new Error(String(err)), {
+          operation: "identity_list_archived_apps_error", userId, identityKey, hostId: hostIdNum,
+        });
+        reply([], err instanceof Error ? err.message : String(err));
       }
       return;
     }
@@ -7327,6 +7380,80 @@ wss.on("connection", async (ws: WebSocket, req) => {
     tailHandle.stop = () => { tailSlot2.release(); origStop2.call(tailHandle); };
     }; // end of startActiveSessionFlow
 
+    // Archived conversation view: `connectToPane` with `archived: true` opens
+    // an archived agent's history read-only. The server decides where the
+    // agent is (live / archived / gone) from its name; the history comes
+    // from the agent's own history folder (same lookup as a sleeping
+    // agent). No pollers, no wake, no input: currentTmuxSession stays null,
+    // so every input / stop / wake frame is dropped by the entry guards.
+    if ((msg as { archived?: unknown }).archived === true) {
+      let folderState: IdentityFolderState;
+      try {
+        folderState = await probeIdentityFolderState((c) => execCommand(conn, c), tmuxSession);
+      } catch (err) {
+        ws.send(JSON.stringify({ type: "error", message: "Couldn't check the archive: " + (err instanceof Error ? err.message : String(err)) }));
+        teardownPane();
+        return;
+      }
+      sshLogger.info("Archived conversation open", {
+        operation: "claude_session_archived_open",
+        userId,
+        sessionId,
+        hostId,
+        identityKey: tmuxSession,
+        folderState,
+      });
+      ws.send(JSON.stringify({ type: "archived_state", state: folderState }));
+      if (folderState !== "archived") {
+        // live → the client turns the tab into the live conversation;
+        // gone → it says so. Either way nothing is served here.
+        teardownPane();
+        return;
+      }
+      currentHostId = hostId;
+      const archivedTailSlot = acquireTailSlot(hostId);
+      await __applyDormantBranchTailOpenForTests(
+        {
+          conn,
+          sshConn: conn,
+          tmuxSession,
+          discoverIdentitySessionFile,
+          tailSessionFile: (c, file, line, errCb) => {
+            cancelTracker = newCancelTracker();
+            const handle = tailSessionFile(c as import("ssh2").Client, file, line, (err) => {
+              archivedTailSlot.release();
+              errCb(err);
+            });
+            const origStop = handle.stop;
+            handle.stop = () => { archivedTailSlot.release(); origStop.call(handle); };
+            return handle;
+          },
+          onLine: onLineTracked,
+          onError,
+          wsSend: (data) => {
+            try { ws.send(data); } catch (err) { databaseLogger.warn(`[ws-server] send-failed err="${err instanceof Error ? err.message : String(err)}"`, { operation: "ws_send_failed" }); }
+          },
+          logger: {
+            info: (m, meta) => sshLogger.info(m, { userId, sessionId, hostId, identityKey: tmuxSession, archived: true, ...meta }),
+            warn: (m, meta) => sshLogger.warn(m, { userId, sessionId, hostId, identityKey: tmuxSession, archived: true, ...meta }),
+          },
+          probeTotalLines: async (sessionFile) => (await readSessionFileRange(conn, sessionFile, 1, 1)).totalLines,
+        },
+        {
+          setTailHandle: (h) => { tailHandle = h; },
+          setDormantSessionFile: (f) => { dormantSessionFile = f; },
+        },
+      );
+      if (!tailHandle) {
+        archivedTailSlot.release();
+        // No history kept for this agent: say so, keep nothing open.
+        ws.send(JSON.stringify({ type: "archived_state", state: "archived", noHistory: true }));
+        try { conn.end(); } catch { /* already closed */ }
+        sshConn = null;
+      }
+      return;
+    }
+
     // Phase 55 Plan 03: cache-hit / batched-fresh shim.
     //
     // sshConn is already established above (connectOneShot at ~L5962) — the
@@ -7883,6 +8010,26 @@ wss.on("connection", async (ws: WebSocket, req) => {
       // do not fall through to any prior session file. The `never reach
       // back` rule is enforced structurally — there is no branch below
       // that could start a tail from an inactive result.
+      // An agent archived while its conversation is open: tell the tab, so
+      // every open copy closes (archiving always closes all copies). Only
+      // probed on the no-agent path, and only for agent-shaped names whose
+      // live folder is gone.
+      if ((result.reason === "not_claude" || result.reason === "no_tmux_session") && !isIdentityShapedCached) {
+        try {
+          if ((await probeIdentityFolderState((c) => execCommand(conn, c), tmuxSession)) === "archived") {
+            sshLogger.info("Open conversation's agent is archived", {
+              operation: "claude_session_agent_archived",
+              userId,
+              sessionId,
+              hostId,
+              tmuxSession,
+            });
+            ws.send(JSON.stringify({ type: "archived_state", state: "archived" }));
+          }
+        } catch {
+          // couldn't look — fall through to the plain inactive frame
+        }
+      }
       ws.send(
         JSON.stringify({ type: "inactive", reason: result.reason }),
       );

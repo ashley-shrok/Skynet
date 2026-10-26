@@ -108,7 +108,9 @@ function targetRootWord(target: GitTargetSpec): string {
   const rel =
     target.kind === "role"
       ? `fleet/roles/${target.roleSlug}`
-      : `fleet/identities/${target.identityKey}/workspace`;
+      : target.kind === "archived-identity"
+        ? `fleet/identities-archive/${target.identityKey}/workspace`
+        : `fleet/identities/${target.identityKey}/workspace`;
   return `"$HOME"/${shellEscape(rel)}`;
 }
 

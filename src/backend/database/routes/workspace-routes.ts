@@ -65,6 +65,8 @@ export const ROLE_SLUG_RE = /^[a-z0-9-]{1,64}$/;
 
 export type TargetSpec =
   | { kind: "identity"; identityKey: string }
+  // An archived agent's workspace — view-only; every write endpoint refuses it.
+  | { kind: "archived-identity"; identityKey: string }
   | { kind: "role"; roleSlug: string }
   | { kind: "project"; projectSlug: string };
 
@@ -96,15 +98,19 @@ export function extractTarget(body: Record<string, unknown>): ExtractTargetResul
     }
     return { ok: true, target: { kind: "project", projectSlug: body.projectSlug } };
   }
-  if (kind !== undefined && kind !== "identity") return { ok: false, error: "invalid_body" };
+  if (kind !== undefined && kind !== "identity" && kind !== "archived-identity") return { ok: false, error: "invalid_body" };
   if (typeof body.identityKey !== "string") return { ok: false, error: "invalid_body" };
   if (!IDENTITY_KEY_RE.test(body.identityKey)) return { ok: false, error: "invalid_identity_key" };
+  if (kind === "archived-identity") {
+    return { ok: true, target: { kind: "archived-identity", identityKey: body.identityKey } };
+  }
   return { ok: true, target: { kind: "identity", identityKey: body.identityKey } };
 }
 
 function buildTargetRoot(homeDir: string, target: TargetSpec): string {
   if (target.kind === "role") return `${homeDir}/fleet/roles/${target.roleSlug}`;
   if (target.kind === "project") return `${homeDir}/fleet/projects/${target.projectSlug}`;
+  if (target.kind === "archived-identity") return `${homeDir}/fleet/identities-archive/${target.identityKey}/workspace`;
   return `${homeDir}/fleet/identities/${target.identityKey}/workspace`;
 }
 
@@ -796,6 +802,11 @@ workspaceRoutes.put(
       return;
     }
 
+    // An archived agent is view-only: refuse every change before touching the host.
+    if (target.kind === "archived-identity") {
+      res.status(403).json({ error: "read_only" });
+      return;
+    }
     const accessInfo = await permissionManager.canAccessHost(userId, Number(hostId), "write");
     if (!accessInfo.hasAccess) {
       res.status(403).json({ error: "permission_denied" });
@@ -893,6 +904,11 @@ workspaceRoutes.delete(
       return;
     }
 
+    // An archived agent is view-only: refuse every change before touching the host.
+    if (target.kind === "archived-identity") {
+      res.status(403).json({ error: "read_only" });
+      return;
+    }
     const accessInfo = await permissionManager.canAccessHost(userId, Number(hostId), "write");
     if (!accessInfo.hasAccess) {
       res.status(403).json({ error: "permission_denied" });
@@ -993,6 +1009,11 @@ workspaceRoutes.post(
       return;
     }
 
+    // An archived agent is view-only: refuse every change before touching the host.
+    if (target.kind === "archived-identity") {
+      res.status(403).json({ error: "read_only" });
+      return;
+    }
     const accessInfo = await permissionManager.canAccessHost(userId, Number(hostId), "write");
     if (!accessInfo.hasAccess) {
       res.status(403).json({ error: "permission_denied" });
@@ -1096,6 +1117,11 @@ workspaceRoutes.post(
       return;
     }
 
+    // An archived agent is view-only: refuse every change before touching the host.
+    if (target.kind === "archived-identity") {
+      res.status(403).json({ error: "read_only" });
+      return;
+    }
     const accessInfo = await permissionManager.canAccessHost(userId, Number(hostId), "write");
     if (!accessInfo.hasAccess) {
       res.status(403).json({ error: "permission_denied" });
@@ -1187,6 +1213,11 @@ workspaceRoutes.post(
       return;
     }
 
+    // An archived agent is view-only: refuse every change before touching the host.
+    if (target.kind === "archived-identity") {
+      res.status(403).json({ error: "read_only" });
+      return;
+    }
     const accessInfo = await permissionManager.canAccessHost(userId, Number(hostId), "write");
     if (!accessInfo.hasAccess) {
       res.status(403).json({ error: "permission_denied" });
@@ -1288,6 +1319,11 @@ workspaceRoutes.post(
       return;
     }
 
+    // An archived agent is view-only: refuse every change before touching the host.
+    if (target.kind === "archived-identity") {
+      res.status(403).json({ error: "read_only" });
+      return;
+    }
     const accessInfo = await permissionManager.canAccessHost(userId, Number(hostId), "write");
     if (!accessInfo.hasAccess) {
       res.status(403).json({ error: "permission_denied" });
