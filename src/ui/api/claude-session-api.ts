@@ -497,6 +497,14 @@ export type PasteSendFailedEvent = {
 // exec throws — the message failed at ingress and no watchdog was armed.
 // `mqid` is null for non-split (adhoc keystroke) throws where the send
 // is not tied to a compose-send optimistic bubble.
+// A send marked as coming out of the compose box's text area started with a
+// blocked command (src/types/blocked-commands.ts); nothing was typed into the
+// agent. The composer drops the pending bubble and shows the refusal.
+export type CommandRefusedEvent = {
+  type: "command_refused";
+  mqid: string;
+};
+
 export type SendKeysErrorEvent = {
   type: "send_keys_error";
   mqid: string | null;
@@ -680,6 +688,7 @@ export type ClaudeSessionServerEvent =
   // Phase 50 Plan 02 (D-15 + D-21) — signal-driven send-path watchdog frames
   | PasteSendFailedEvent
   | SendKeysErrorEvent
+  | CommandRefusedEvent
   // WaitingBubble Allow / Deny
   | PermissionPromptStateEvent
   | PermissionAnswerResultEvent

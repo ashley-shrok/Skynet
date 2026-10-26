@@ -252,21 +252,6 @@ describe("PrettyView — compaction divider", () => {
     await waitFor(() => expect(countPendingBubbles(container)).toBe(0));
     expect(container.querySelectorAll('[data-testid="compaction-divider"]').length).toBe(1);
   });
-  it("a /compact typed in the composer settles when its condense lands", async () => {
-    const { container, ws } = mount();
-    await waitFor(() =>
-      expect(container.querySelector('textarea[placeholder="Write a message…"]')).not.toBeNull(),
-    );
-    const textarea = container.querySelector('textarea[placeholder="Write a message…"]') as HTMLTextAreaElement;
-    act(() => {
-      fireEvent.change(textarea, { target: { value: "/compact keep X" } });
-      fireEvent.keyDown(textarea, { key: "Enter" });
-    });
-    await waitFor(() => expect(countPendingBubbles(container)).toBe(1));
-    sendWsFrame(ws, { type: "compaction", summary: SUMMARY, eventId: "s-1", ts: Date.now(), line: 20 });
-    await waitFor(() => expect(countPendingBubbles(container)).toBe(0));
-  });
-
   it("guidance far below the divider (a later, failed compact) is not attached to it", async () => {
     const { container, ws } = mount();
     sendWsFrame(ws, { type: "compaction", summary: SUMMARY, eventId: "s-1", ts: Date.now(), line: 10 });

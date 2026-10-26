@@ -582,6 +582,29 @@ describe("SkillsEditorModal — Phase 44 SKILLED-05", () => {
     expect(validate("My Skill")).toBeFalsy();
   });
 
+  it("+ New skill: a blocked command name is refused in place, ignoring capitals", async () => {
+    const dialogs = autoAnswerKitDialogs({ prompt: null });
+    render(
+      <SkillsEditorModal
+        open={true}
+        onOpenChange={vi.fn()}
+        hostTree={HOST_TREE}
+        defaultHostId={1}
+        container={document.body}
+      />,
+    );
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: /^new skill$/i })).toBeTruthy(),
+    );
+    fireEvent.click(screen.getByRole("button", { name: /^new skill$/i }));
+    await waitFor(() => expect(dialogs.calls.length).toBe(1));
+    const validate = (dialogs.calls[0].opts as { validate?: (v: string) => string | null | undefined }).validate!;
+    for (const name of ["clear", "Compact", "id", "loop"]) {
+      expect(validate(name)).toBe("That name can't be used for a skill.");
+    }
+    expect(validate("clear-cache")).toBeFalsy();
+  });
+
   // ── Phase 113 D-28: + New file / single-host / SKILL.md no-delete tests ────
   //
   // Seven cases cover the tab-strip + picker-chrome + delete-affordance
@@ -887,6 +910,31 @@ describe("SkillsEditorModal — Phase 44 SKILLED-05", () => {
     expect(dialogs.calls[0].kind).toBe("prompt");
     await waitFor(() => expect(screen.getAllByRole("heading")[0]).toHaveTextContent("ship-it"));
     await waitFor(() => expect(skillsApi.enumerateSkillFiles).toHaveBeenLastCalledWith(1, "ship-it"));
+  });
+
+  it("Rename… refuses a blocked command name in place", async () => {
+    const dialogs = autoAnswerKitDialogs({ prompt: null });
+    renderOpen();
+    await selectSkill("build");
+    await openSkillMenu();
+    await userEvent.setup().click(screen.getByTestId("skills-editor-modal-rename-skill"));
+    await waitFor(() => expect(dialogs.calls.length).toBe(1));
+    const validate = (dialogs.calls[0].opts as { validate?: (v: string) => string | null | undefined }).validate!;
+    expect(validate("Resume")).toBe("That name can't be used for a skill.");
+    expect(validate("ship")).toBeFalsy();
+    expect(skillsApi.renameSkill).not.toHaveBeenCalled();
+  });
+
+  it("saving SKILL.md with its name changed to a blocked command explains and doesn't rename", async () => {
+    (skillsApi.readSkillFile as ReturnType<typeof vi.fn>).mockResolvedValueOnce(NAMED_SKILL_MD);
+    const dialogs = autoAnswerKitDialogs({ confirm: true });
+    renderOpen();
+    await selectSkill("build");
+    await editNameTo("compact");
+    await waitFor(() => expect(dialogs.calls.some((c) => c.kind === "alert")).toBe(true));
+    const alert = dialogs.calls.find((c) => c.kind === "alert")!;
+    expect(JSON.stringify(alert.opts)).toContain("That name can't be used for a skill.");
+    expect(skillsApi.renameSkill).not.toHaveBeenCalled();
   });
 
   it("Rename… to a name that's taken says so and stays on the skill", async () => {

@@ -58,4 +58,11 @@ describe("createInstanceSkill (new shared skill)", () => {
     expect(res.statusCode).toBe(409);
     expect(engine.createItem).not.toHaveBeenCalled();
   });
+
+  it("refuses a blocked command name — it would be refused when typed in the composer", async () => {
+    const res = await call({ hostId: 0, skill: "compact", description: "Squash it" });
+    expect(res.statusCode).toBe(400);
+    expect(res.body).toEqual({ error: "That name can't be used for a skill." });
+    expect(engine.createItem).not.toHaveBeenCalled();
+  });
 });

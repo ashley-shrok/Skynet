@@ -156,8 +156,12 @@ export interface UseVoiceModeArgs {
   messages: ReadonlyArray<VoiceModeMessage>;
   /** True while the manual tap-to-record mic is busy — listening pauses. */
   suspended: boolean;
-  /** Dispatch a transcript. Return false if it could not be sent. */
-  send: (text: string) => boolean;
+  /**
+   * Dispatch a transcript. Return false if it could not be sent, or
+   * "refused" if it was deliberately not sent (a blocked command): no cue
+   * plays, nothing is awaited and the words are dropped.
+   */
+  send: (text: string) => boolean | "refused";
   /** A transcript could not be sent — caller keeps it somewhere visible. */
   onUndelivered: (text: string) => void;
 }
@@ -831,6 +835,9 @@ export function useVoiceMode(args: UseVoiceModeArgs): UseVoiceModeReturn {
       setErrorMessage(null);
       const sent = argsRef.current.send(text);
       log(`draft-sent reason=${reason} pieces=${included.length} len=${text.length} dispatched=${sent}`);
+      if (sent === "refused") {
+        continue;
+      }
       if (sent) {
         playCue("sent");
         markAwaitingReply();

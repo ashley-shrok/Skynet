@@ -695,4 +695,24 @@ describe("ComposeBox — Phase 16 voice flow", () => {
     });
     await waitFor(() => expect(textarea.value).toBe("older words\n\ndraft hello world "));
   });
+
+  it("a dictated blocked command sent straight from the mic is dropped: nothing sent, the box goes back to its draft, the refusal line shows", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({ ok: true, status: 200, json: () => Promise.resolve({ text: "/clear" }) }),
+    );
+    const onSend = vi.fn(() => true);
+    render(<ComposeBox {...baseProps({ onSend })} />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Record voice" }));
+    const sendTranscriptBtn = await screen.findByRole("button", { name: "Send transcript" });
+    act(() => {
+      MockMediaRecorder.instances[0].emitData(new Blob(["audio"], { type: "audio/webm" }));
+    });
+    fireEvent.click(sendTranscriptBtn);
+
+    await screen.findByText("That command can't be used here.");
+    expect(onSend).not.toHaveBeenCalled();
+    expect((screen.getByRole("textbox") as HTMLTextAreaElement).value).toBe("");
+  });
 });

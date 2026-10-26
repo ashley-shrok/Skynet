@@ -101,6 +101,7 @@ import {
 import { ROLE_NAME_PATTERN } from "../database/routes/identity-birth-orchestrator.js";
 import { getHostSemaphore } from "../ssh/host-semaphore-registry.js";
 import { settleWithConcurrency } from "../utils/settle-with-concurrency.js";
+import { blockedCommandIn } from "../../types/blocked-commands.js";
 import {
   isCutOffPermissionPrompt,
   parsePermissionPromptScreen,
@@ -2824,6 +2825,8 @@ export async function probePaneForSend(
  * @param deps.execCommand          - injectable SSH exec helper
  * @param deps.data                 - the input data string (may contain trailing \r for split-send)
  * @param deps.messageQueueItemId   - optional mqid; non-empty triggers split-send gate
+ * @param deps.textArea             - the send came out of the compose box's text area;
+ *                                    refused if it starts with a blocked command
  */
 export async function __applyInputMessageForTests(deps: {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -2833,6 +2836,7 @@ export async function __applyInputMessageForTests(deps: {
   execCommand: (conn: unknown, cmd: string) => Promise<string>;
   data: string;
   messageQueueItemId?: string;
+  textArea?: boolean;
   // Phase 50 Plan 02 Task 2 — optional wire-up for the signal-driven send
   // watchdog. All four are optional to preserve backward compat with the
   // pre-Phase-50 test call sites (they omit these and get the log-and-swallow-
@@ -2888,6 +2892,24 @@ export async function __applyInputMessageForTests(deps: {
   }
   const data = String(deps.data ?? "");
   if (data.length === 0) return;
+  // The compose box's text area carries only Skynet's own commands. A marked
+  // send that starts with a blocked one is refused before anything else —
+  // no wake, nothing typed. Unmarked sends (buttons) are never checked.
+  if (deps.textArea === true) {
+    const blocked = blockedCommandIn(data.replace(/\r$/, ""));
+    if (blocked !== null) {
+      const mqid = String(deps.messageQueueItemId ?? "");
+      sshLogger.info(`[pv-input] command_refused command=${blocked} mqid=${mqid || "none"} hostId=${currentHostId} tmuxSession=${currentTmuxSession}`, {
+        operation: "pv_input_command_refused",
+        command: blocked,
+        mqid: mqid || "none",
+        hostId: currentHostId,
+        tmuxSession: currentTmuxSession,
+      });
+      if (mqid !== "") deps.wsSend?.({ type: "command_refused", mqid });
+      return;
+    }
+  }
   // Phase 56 Plan 01 — send-while-dormant branch. Read dormantLastEmitted at
   // entry (BEFORE the MAX_INPUT_BYTES cap so a rejected oversize send still
   // triggers the invisible wake — the send won't actually deliver, but the
@@ -6246,6 +6268,7 @@ wss.on("connection", async (ws: WebSocket, req) => {
             execCommand,
             data: capturedData,
             messageQueueItemId: capturedMqid,
+            textArea: (msg as { textArea?: unknown }).textArea === true,
             sessionId: sessionIdFromFile ?? undefined,
             wsSend: (frame: object) => {
               if (ws.readyState === WebSocket.OPEN) {

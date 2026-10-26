@@ -34,6 +34,8 @@ import { AskTray } from "./ask/AskTray";
 import { buildAnswerMessage, trayWrapReply, type QuestionAnswer } from "./ask/answer-format";
 import type { Ask } from "./ask/ask-format";
 import type { OpenAsk } from "./ask/open-ask";
+import { blockedCommandIn, COMMAND_REFUSED_MESSAGE } from "@/types/blocked-commands";
+import { markTextAreaSend, type TextAreaSendKind } from "./text-area-sends";
 
 // Compose-and-send box for the pretty view.
 //
@@ -306,7 +308,8 @@ export interface ComposeBoxProps {
   // once per id, into the primary box — above anything the user has typed
   // since (never overwriting it). onRestoreApplied then reports the box
   // ("primary") so the caller puts the cancelled message's attachments there.
-  restoreRequest?: { id: string; text: string } | null;
+  // `notice`, when set, is shown under the box (a send the server refused).
+  restoreRequest?: { id: string; text: string; notice?: string } | null;
   onRestoreApplied?: (id: string, target: string) => void;
   // When false, Enter is still accepted for typing (textarea not disabled)
   // but Send button is visually disabled. The send attempt will fail and
@@ -385,7 +388,9 @@ export interface ComposeBoxProps {
   // setErrorMessage(). Mirrors the non-attachment path's Phase 50 D-20 /
   // D-56 failure-preservation posture so user never loses a compose
   // draft to a silent-clear on WS drop / upload_failed / timeout again.
-  onSendWithAttachments?: (caption: string) => Promise<BatchOutcome>;
+  // `textArea` marks the caption as typed in the text area (so the server
+  // checks it for blocked commands); null for a button's own message.
+  onSendWithAttachments?: (caption: string, textArea: TextAreaSendKind | null) => Promise<BatchOutcome>;
   // Called when the user clicks the Retry button that appears when at
   // least one chip has status='error'. Parent hook re-issues the
   // batch. Empty batches or all-complete batches do not surface this
@@ -494,7 +499,7 @@ function useComposeSend(deps: {
   const send = useCallback(
     (
       payload: string,
-      options?: { bubbleTextOverride?: string; trigger?: string },
+      options?: { bubbleTextOverride?: string; trigger?: string; textArea?: TextAreaSendKind },
     ): boolean => {
       const trigger = options?.trigger ?? "unknown";
       const bubbleText = options?.bubbleTextOverride ?? payload;
@@ -549,6 +554,10 @@ function useComposeSend(deps: {
       // send dispatches. D-02: pass bubbleText (may be the override) to the
       // bubble; the raw payload goes to onSend unchanged.
       onOptimisticSend?.({ payload: bubbleText, mqid, immediateFailure: false });
+
+      // Sends out of the text area are marked so the server checks them for
+      // blocked commands; button sends never are.
+      if (options?.textArea) markTextAreaSend(mqid, options.textArea);
 
       // D-03: mqid ALWAYS passed regardless of bubbleTextOverride or render-blacklist.
       const dispatched = onSend(payload, mqid);
@@ -1040,6 +1049,7 @@ export function ComposeBox({
     setText(merged);
     latestBodyRef.current = merged;
     scheduleAutosave(merged);
+    if (restoreRequest.notice !== undefined) setErrorMessage(restoreRequest.notice);
     console.info(
       `[interrupt-restore] applied id=${restoreRequest.id} target=primary textLen=${words.length} draftLen=${current.length} hadAttachments=${hasAttachments}`,
     );
@@ -1410,6 +1420,8 @@ export function ComposeBox({
   function handleTextChange(next: string) {
     setText(next);
     scheduleAutosave(next);
+    // A refusal stays up until the words are changed or something is sent.
+    setErrorMessage((m) => (m === COMMAND_REFUSED_MESSAGE ? null : m));
   }
 
   function handleBlur() {
@@ -1456,13 +1468,33 @@ export function ComposeBox({
   function handleAskAnswer(ask: Ask, answers: QuestionAnswer[]) {
     const message = buildAnswerMessage(ask, answers, text, openAsk?.replaced ?? []);
     console.info(`[ask] answer hostId=${hostId} tmuxSession=${tmuxSession ?? "null"} ask=${ask.id} questions=${ask.questions.length} noteLen=${text.trim().length}`);
-    handleSend(message, "send-button");
+    handleSend(message, "send-button", null);
   }
 
-  function handleSend(overridePayload?: string, trigger: "enter-key" | "send-button" | "queue-item" | "unknown" = "unknown") {
+  // `textArea` says where the words came from: "typed" (the text area itself),
+  // "spoken" (dictation sent straight from the mic), or null — a button's own
+  // message (the answer tray, anything future), never checked for commands.
+  function handleSend(
+    overridePayload: string | undefined,
+    trigger: "enter-key" | "send-button" | "queue-item" | "unknown",
+    textArea: TextAreaSendKind | null,
+  ) {
     // D-16-05: use override payload if provided (voice send path), otherwise
     // derive from current text state (normal typed-send path).
     const trimmed = overridePayload !== undefined ? overridePayload.trim() : text.trim();
+
+    // The text area only carries Skynet's own commands; a refused message
+    // never leaves and the words stay in the box. (Dictation is checked before
+    // it lands in the box — see handleVoiceSend.) Relay rooms carry chat text
+    // to Matrix, never into a harness, so they aren't checked.
+    if (textArea !== null && mode !== "relay") {
+      const blocked = blockedCommandIn(trimmed);
+      if (blocked !== null) {
+        console.info(`[compose] command-refused hostId=${hostId} tmuxSession=${tmuxSession ?? "null"} command=${blocked} source=${textArea} trigger=${trigger} attachmentCount=${stagedAttachments?.length ?? 0}`);
+        setErrorMessage(COMMAND_REFUSED_MESSAGE);
+        return;
+      }
+    }
 
     // Phase 05 — attachment path: Send routes to onSendWithAttachments
     // whenever at least one attachment is staged. Empty caption is
@@ -1502,7 +1534,7 @@ export function ComposeBox({
       console.info(`[compose] submit-entry hostId=${hostId} tmuxSession=${tmuxSession ?? "null"} bodyLen=${trimmed.length} attachmentCount=${stagedAttachments?.length ?? 0} trigger=${trigger} path=attachment mqid=pending`);
       const runAttachmentSend = async (): Promise<void> => {
         // Definitely defined here — guarded by hasAttachments && onSendWithAttachments above.
-        const outcome = await onSendWithAttachments!(trayWrap(captionPayload));
+        const outcome = await onSendWithAttachments!(trayWrap(captionPayload), textArea);
         if (outcome.ok) {
           console.info(`[compose] submit-success hostId=${hostId} tmuxSession=${tmuxSession ?? "null"} bodyLen=${trimmed.length} path=attachment`);
           setText("");
@@ -1539,7 +1571,7 @@ export function ComposeBox({
     // only the per-trigger UI cleanup (setText, clearAfterSend, setErrorMessage
     // on failure per PATTERNS.md § Contract boundary). The trigger label flows
     // through so the submit-entry log line carries the correct trigger field.
-    const dispatched = funnelSend(payload, { trigger });
+    const dispatched = funnelSend(payload, { trigger, ...(textArea !== null ? { textArea } : {}) });
     // Clear the composebox on BOTH dispatched=true and dispatched=false.
     // The red-bordered failed bubble in the transcript is the record of
     // the send in either case — no need to also keep the text in the
@@ -1584,6 +1616,7 @@ export function ComposeBox({
       const appended = rebaseGluedOnPrimary(result.glued, baseText) + " ";
       setText(appended);
       scheduleAutosave(appended);
+      setErrorMessage((m) => (m === COMMAND_REFUSED_MESSAGE ? null : m));
     }
     // On null result: voice.errorMessage is set by the hook; no change.
   }
@@ -1599,6 +1632,13 @@ export function ComposeBox({
         return;
       }
       const glued = rebaseGluedOnPrimary(result.glued, baseText);
+      // A dictated blocked command is dropped: the box keeps what it holds
+      // now and the line says why.
+      if (!reconnectingActive && mode !== "relay" && blockedCommandIn(glued) !== null) {
+        console.info(`[compose] command-refused hostId=${hostId} tmuxSession=${tmuxSession ?? "null"} command=${blockedCommandIn(glued)} source=spoken trigger=queue-item`);
+        setErrorMessage(COMMAND_REFUSED_MESSAGE);
+        return;
+      }
       setText(glued);
       scheduleAutosave(glued);
       // Reconnect window: text lands, no auto-send while WS is between sockets.
@@ -1606,7 +1646,7 @@ export function ComposeBox({
         // D-16-05: route through the SAME handleSend — attachment branching,
         // newline normalization, Phase 50 D-18 optimistic-bubble seeding
         // all still apply.
-        handleSend(glued, "queue-item");
+        handleSend(glued, "queue-item", "spoken");
       }
     }
     // On null result: voice.errorMessage is set by the hook; no send.
@@ -1742,7 +1782,7 @@ export function ComposeBox({
 
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault(); // suppress default newline insertion on plain Enter
-      handleSend(undefined, "enter-key");
+      handleSend(undefined, "enter-key", "typed");
     }
     // Shift-Enter: do NOT preventDefault. Browser default inserts a newline,
     // which is exactly the COMPOSE-02 behavior.
@@ -1826,7 +1866,16 @@ export function ComposeBox({
       if (reconnectingActive) return false;
       const payload = normalizeNewlinesForSend(transcript.trim());
       if (!payload) return true;
-      return funnelSend(appendVoiceLabel(payload), { trigger: "voice-mode" });
+      // A refused command is dropped (no sound, voice mode carries on); the
+      // line under the box says why.
+      const blocked = mode === "relay" ? null : blockedCommandIn(payload);
+      if (blocked !== null) {
+        console.info(`[compose] command-refused hostId=${hostId} tmuxSession=${tmuxSession ?? "null"} command=${blocked} source=spoken trigger=voice-mode`);
+        setErrorMessage(COMMAND_REFUSED_MESSAGE);
+        return "refused";
+      }
+      setErrorMessage((m) => (m === COMMAND_REFUSED_MESSAGE ? null : m));
+      return funnelSend(appendVoiceLabel(payload), { trigger: "voice-mode", textArea: "spoken" });
     },
     onUndelivered: (transcript) => {
       // Only time voice mode writes to the compose box: a transcript that
@@ -1915,6 +1964,13 @@ export function ComposeBox({
   // Phase 16: merge voice.errorMessage into the existing displayError. The error
   // display block renders only one message at a time; voice errors are transient
   // (cleared when recording starts again), so they coexist safely with compose errors.
+  // A newer voice or voice-mode error replaces a standing command refusal
+  // rather than hiding behind it.
+  useEffect(() => {
+    if (voice.errorMessage != null || voiceMode.errorMessage != null) {
+      setErrorMessage((m) => (m === COMMAND_REFUSED_MESSAGE ? null : m));
+    }
+  }, [voice.errorMessage, voiceMode.errorMessage]);
   const displayError = errorMessage ?? voice.errorMessage ?? voiceMode.errorMessage;
 
   // B-3 (Phase 32): gate on !holdInitiatedRef so a hold-initiated recording
@@ -2196,7 +2252,7 @@ export function ComposeBox({
                 className="pv-cbtn"
                 data-main="true"
                 data-action={asideActive ? "resume" : "send"}
-                onClick={asideActive ? () => onAsideDismiss?.() : () => handleSend(undefined, "send-button")}
+                onClick={asideActive ? () => onAsideDismiss?.() : () => handleSend(undefined, "send-button", "typed")}
                 disabled={asideActive ? false : (sendDisabled || showTranscribingSend)}
                 aria-label={asideActive ? "Resume" : "Send"}
                 title={asideActive ? "Resume" : "Send"}

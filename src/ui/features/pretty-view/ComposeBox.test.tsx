@@ -319,7 +319,7 @@ describe("ComposeBox — Phase 05 upload wiring", () => {
       // Phase 32: short-tap-pointer sequence replaces fireEvent.click (see
       // shortTapSendButton helper comment above).
       await shortTapSendButton(screen.getByRole("button", { name: "Send" }) as HTMLButtonElement);
-      expect(onSendWithAttachments).toHaveBeenCalledWith("hey");
+      expect(onSendWithAttachments).toHaveBeenCalledWith("hey", "typed");
       expect(onSend).not.toHaveBeenCalled();
 
       // Rerender WITHOUT attachments — Send should use onSend.
@@ -526,7 +526,7 @@ describe("ComposeBox — Phase 05 upload wiring", () => {
         await Promise.resolve();
         await Promise.resolve();
       });
-      expect(onSendWithAttachments).toHaveBeenCalledWith("hey");
+      expect(onSendWithAttachments).toHaveBeenCalledWith("hey", "typed");
       expect(textarea.value).toBe(""); // cleared on ok
       // No error surface rendered.
       expect(screen.queryByText(/Upload failed/i)).toBeNull();
@@ -573,7 +573,7 @@ describe("ComposeBox — Phase 05 upload wiring", () => {
         await Promise.resolve();
         await Promise.resolve();
       });
-      expect(onSendWithAttachments).toHaveBeenCalledWith("hey");
+      expect(onSendWithAttachments).toHaveBeenCalledWith("hey", "typed");
       // Textarea PRESERVED — user may want to retry.
       expect(textarea.value).toBe("hey");
       // Chips PRESERVED — parent's onRemoveAttachment was NOT invoked.

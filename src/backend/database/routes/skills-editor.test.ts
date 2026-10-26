@@ -1127,6 +1127,17 @@ describe("POST /skills-editor/skill", () => {
     expect((connectOneShot as Mock).mock.calls).toHaveLength(0);
   });
 
+  it.each(["clear", "Compact", "id", "loop"])("400 on a blocked command name (%s); no SSH connect", async (skill) => {
+    const res = await httpRequest(server, {
+      method: "POST",
+      path: "/skills-editor/skill",
+      body: JSON.stringify({ hostId: 1, skill, description: "hi" }),
+    });
+    expect(res.status).toBe(400);
+    expect((res.body as { error: string }).error).toBe("That name can't be used for a skill.");
+    expect((connectOneShot as Mock).mock.calls).toHaveLength(0);
+  });
+
   it("400 on non-string description", async () => {
     const res = await httpRequest(server, {
       method: "POST",
@@ -1747,6 +1758,15 @@ describe("POST /skills-editor/rename", () => {
       { hostId: 0, skill: "build", newName: "ship" },
     ]) {
       expect((await rename(body)).status).toBe(400);
+    }
+    expect(connectOneShot).not.toHaveBeenCalled();
+  });
+
+  it("400s a rename to a blocked command name before any SSH connect", async () => {
+    for (const newName of ["clear", "Resume", "id"]) {
+      const res = await rename({ hostId: 1, skill: "build", newName });
+      expect(res.status).toBe(400);
+      expect((res.body as { error: string }).error).toBe("That name can't be used for a skill.");
     }
     expect(connectOneShot).not.toHaveBeenCalled();
   });

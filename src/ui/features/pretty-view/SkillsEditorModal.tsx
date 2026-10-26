@@ -62,6 +62,7 @@ import {
   type InstanceWideList,
 } from "@/api/instance-wide-api";
 import { InstanceWideSyncStatus } from "./InstanceWideStatus";
+import { isBlockedSkillName, SKILL_NAME_REFUSED_MESSAGE } from "@/types/blocked-commands";
 
 // SkillsEditorModal — the skills window (footer lightning bolt).
 // Shape: .planning/campaigns/apple-ux/shape-skills-modal.md
@@ -125,6 +126,15 @@ function collectAllHosts(children: (Host | HostFolder)[]): Host[] {
   return out;
 }
 
+
+// The New skill / Rename name field: empty after slugging, or a name the
+// composer would refuse as a command.
+function skillNameError(v: string): string | null {
+  const slug = slugifyRoleName(v.trim());
+  if (slug.length === 0) return "Pick a name with at least one letter or number.";
+  if (isBlockedSkillName(slug)) return SKILL_NAME_REFUSED_MESSAGE;
+  return null;
+}
 export interface SkillsEditorModalProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -550,8 +560,9 @@ export default function SkillsEditorModal({
       defaultValue: current,
       confirmLabel: "Rename",
       mono: true,
-      validate: (v) =>
-        slugifyRoleName(v.trim()).length === 0 ? "Pick a name with at least one letter or number." : null,
+      // Its current name may predate the rule (e.g. a fleet skill); keeping
+      // it is a no-op, not a refusal.
+      validate: (v) => (slugifyRoleName(v.trim()) === current ? null : skillNameError(v)),
     });
     if (raw == null) return;
     const slug = slugifyRoleName(raw.trim());
@@ -576,6 +587,10 @@ export default function SkillsEditorModal({
           title: `"${name}" can't be a skill name`,
           body: `Use lowercase letters, numbers and hyphens${slug ? ` (e.g. "${slug}")` : ""}.`,
         });
+        return true;
+      }
+      if (isBlockedSkillName(slug)) {
+        void kitAlert({ title: `"${name}" can't be a skill name`, body: SKILL_NAME_REFUSED_MESSAGE });
         return true;
       }
       if (selectedIsInstance) {
@@ -855,10 +870,7 @@ export default function SkillsEditorModal({
       label: "Name",
       placeholder: "My skill",
       confirmLabel: "Next",
-      validate: (v) =>
-        slugifyRoleName(v.trim()).length === 0
-          ? "Pick a name with at least one letter or number."
-          : null,
+      validate: skillNameError,
     });
     if (rawName == null) return;
     const displayName = rawName.trim();

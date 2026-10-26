@@ -8,6 +8,7 @@
  * and use); writes are admin-only and land in the master copy, which the
  * engine then pushes to every machine.
  */
+import { isBlockedSkillName, SKILL_NAME_REFUSED_MESSAGE } from "../../types/blocked-commands.js";
 import path from "path";
 import type { Request, Response } from "express";
 import yaml from "js-yaml";
@@ -214,6 +215,11 @@ export async function createInstanceSkill(req: Request, res: Response, seed: (sl
   const a = args(req);
   if (!isValidItemName(a.skill)) {
     res.status(400).json({ error: "invalid skill name" });
+    return;
+  }
+  // Blocked command names would be refused when typed in the composer.
+  if (isBlockedSkillName(a.skill)) {
+    res.status(400).json({ error: SKILL_NAME_REFUSED_MESSAGE });
     return;
   }
   if (typeof a.description !== "string" || a.description.trim() === "" || /[\r\n]/.test(a.description)) {

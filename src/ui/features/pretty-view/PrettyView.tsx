@@ -152,6 +152,8 @@ import { postFeedback } from "@/feedback/feedback-api";
 import { FeedbackModal } from "@/feedback/FeedbackModal";
 import { toast } from "sonner";
 import { hasNeutralLook, isMultiRole, NEUTRAL_HUE } from "@/lib/identity-roles";
+import { COMMAND_REFUSED_MESSAGE } from "@/types/blocked-commands";
+import { markTextAreaSend, textAreaSendKind, type TextAreaSendKind } from "./text-area-sends";
 
 // An OS file drag (upload) — not a FileChip drag, which split view owns even
 // if a browser ever tags it with Files.
@@ -782,8 +784,10 @@ export function PrettyView({
   const [hiddenEventIds, setHiddenEventIds] = useState<ReadonlySet<string>>(() => new Set());
   // shape-interrupt-button: a cancelled send's words (and attachments) to hand
   // back to ComposeBox — set only on the view that pressed interrupt.
+  // Also used to hand back a send the server refused as a blocked command
+  // (`notice` is then shown under the box).
   const [restoreRequest, setRestoreRequest] = useState<
-    { id: string; text: string; files: File[] } | null
+    { id: string; text: string; files: File[]; notice?: string } | null
   >(null);
   // What the Stop button shows: "stopping" from the press until the verdict
   // arrives (a cancel takes ~1.5s to decide), then the outcome for a moment.
@@ -1604,6 +1608,8 @@ export function PrettyView({
           type: "input",
           data,
           ...(mqid ? { messageQueueItemId: mqid } : {}),
+          // Out of the text area: the server checks it for blocked commands.
+          ...(textAreaSendKind(mqid) !== null ? { textArea: true } : {}),
         }),
       );
       // The Enter-only half of a two-frame send can't be resent on its own —
@@ -2528,9 +2534,13 @@ export function PrettyView({
   // so the hook's addEventListener attaches deterministically before any
   // server-initiated upload_* frame can arrive. On close/unmount the
   // ws.onclose + effect cleanup set uploadWs to null in tandem.
+  // Where the caption of the batch being uploaded came from — the injected
+  // turn is marked with it so the server checks a typed caption.
+  const batchTextAreaRef = useRef<TextAreaSendKind | null>(null);
   const uploads = usePrettyViewUploads({
     ws: uploadWs,
     onUploadReadyToInject: ({ messageQueueItemId, files, caption }) => {
+      if (batchTextAreaRef.current !== null) markTextAreaSend(messageQueueItemId, batchTextAreaRef.current);
       // Phase 81 D-02: seed pending bubble at upload_ready_to_inject time
       // (post-upload, pre-echo). mqid === messageQueueItemId === batchId
       // — RESEARCH.md Pitfall #2. Seed MUST precede formatInjectedUserTurn
@@ -3337,20 +3347,6 @@ export function PrettyView({
         case "compaction":
         case "compaction_guidance":
         case "malformed_line": {
-          // A condense divider (and its guidance) joins the stream like any
-          // other turn but is never a user message: no ordinary pending send
-          // settles on it. A /compact typed in the composer has no bubble of
-          // its own to land as, so the condense landing is what settles it.
-          if (parsed.type !== "malformed_line") {
-            const compactPending = pendingSendsRef.current.find(
-              (p) => p.state === "sending" && /^\/compact(\s|$)/.test(p.content.trim()),
-            );
-            if (compactPending !== undefined) {
-              console.info(`[diag-dormant-send] cleanup mqid=${compactPending.mqid} matched_by=compaction frame=${parsed.type} elapsedMs=${Date.now() - compactPending.sentAt} incoming_eventId=${parsed.eventId}`);
-              if (compactPending.timer !== null) window.clearTimeout(compactPending.timer);
-              setPendingSends((prev) => prev.filter((p) => p.mqid !== compactPending.mqid));
-            }
-          }
           // pv-malformed-jsonl-placeholder-bubble (2026-08-10): interleave a
           // compact placeholder so a dropped turn is visible instead of silent.
           // Phase 43 Plan 43-07b — drop-oldest cap enforcement on live-append.
@@ -3874,6 +3870,26 @@ export function PrettyView({
         case "permission_prompt_state":
         case "permission_answer_result": {
           permissionFrameRef.current(parsed);
+          break;
+        }
+        case "command_refused": {
+          // The server refused a text-area send as a blocked command; nothing
+          // reached the agent. Same end state as the composer refusing it
+          // itself: no bubble, typed words back in the box, the refusal line.
+          const refused = pendingSendsRef.current.find((p) => p.mqid === parsed.mqid);
+          const kind = textAreaSendKind(parsed.mqid);
+          console.info(`[compose] command-refused-by-server mqid=${parsed.mqid} source=${kind ?? "unknown"} hadPending=${refused !== undefined} hostId=${hostId} tmuxSession=${tmuxSession ?? "null"}`);
+          if (refused !== undefined) {
+            if (refused.timer !== null) window.clearTimeout(refused.timer);
+            setPendingSends((prev) => prev.filter((p) => p.mqid !== parsed.mqid));
+          }
+          clearOptimisticWipForMqid(parsed.mqid, "command-refused");
+          setRestoreRequest({
+            id: `refused-${parsed.mqid}`,
+            text: kind === "typed" && refused !== undefined ? refused.content : "",
+            files: [],
+            notice: COMMAND_REFUSED_MESSAGE,
+          });
           break;
         }
         case "send_keys_error": {
@@ -5302,7 +5318,8 @@ export function PrettyView({
             // cancels an in-flight /btw or clears a displayed aside.
             asideActive={asideText !== null || asidePending}
             onAsideDismiss={handleAsideDismiss}
-            onSendWithAttachments={async (caption) => {
+            onSendWithAttachments={async (caption, textArea) => {
+              batchTextAreaRef.current = textArea;
               // quick-260823-8ji: Promise-returning — ComposeBox awaits this
               // outcome to gate the textarea + attachment-chip clear on a
               // genuine success signal from the batch lifecycle

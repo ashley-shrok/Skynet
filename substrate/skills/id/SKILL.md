@@ -1221,7 +1221,9 @@ crown, then gear.
     turning off a skill's last switch is refused with a short note; a skill
     already set to neither on disk shows "Nobody can use this". **New
     skill** (top right) asks for a name and a description, then opens the
-    new skill.
+    new skill. A name the text box would refuse as a command (above, under
+    Composer) is refused under the field: "That name can't be used for a
+    skill." — for new skills and renames.
     Skills **shared to every host** (kept in step by an admin) have their
     own section at the top: everyone uses them like their own (Skills
     button, `/<name>`, agents), but only an admin can change them — for

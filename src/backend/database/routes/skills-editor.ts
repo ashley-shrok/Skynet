@@ -62,6 +62,7 @@
  * lesson — parity is load-bearing).
  */
 
+import { isBlockedSkillName, SKILL_NAME_REFUSED_MESSAGE } from "../../../types/blocked-commands.js";
 import type { AuthenticatedRequest } from "../../../types/index.js";
 import express from "express";
 import yaml from "js-yaml";
@@ -1308,6 +1309,11 @@ router.post(
       res.status(400).json({ error: "invalid skill name" });
       return;
     }
+    // Blocked command names would be refused when typed in the composer.
+    if (isBlockedSkillName(rawSkill)) {
+      res.status(400).json({ error: SKILL_NAME_REFUSED_MESSAGE });
+      return;
+    }
     if (typeof rawDescription !== "string") {
       res.status(400).json({ error: "description must be a string" });
       return;
@@ -1511,6 +1517,10 @@ router.post(
     }
     if (!isValidSkillName(rawNewName)) {
       res.status(400).json({ error: "invalid new skill name" });
+      return;
+    }
+    if (isBlockedSkillName(rawNewName)) {
+      res.status(400).json({ error: SKILL_NAME_REFUSED_MESSAGE });
       return;
     }
     if (

@@ -15,6 +15,7 @@ import type { ComposeBoxProps } from "./ComposeBox";
 import { PIECE_GAP_MS, TIMED_END_MS } from "./useVoiceMode";
 import { appendVoiceLabel } from "./voice-label";
 import { __resetVoiceModeRegistryForTests } from "./voice-mode-registry";
+import { textAreaSendKind } from "./text-area-sends";
 
 vi.mock("@/api/compose-drafts-api", () => ({
   getComposeDraft: vi.fn().mockResolvedValue({ body: "", queueSlots: [] }),
@@ -349,5 +350,51 @@ describe("ComposeBox — hands-free voice mode (aux-row button)", () => {
   it("without a voiceModeFeed (relay) there is no voice-mode button", () => {
     render(<ComposeBox {...props({ voiceModeFeed: undefined })} />);
     expect(screen.queryByTestId("voice-mode-button")).toBeNull();
+  });
+
+  it("a spoken blocked command is dropped: nothing sent, no waiting for a reply, the refusal line shows, voice mode carries on", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({ ok: true, status: 200, json: () => Promise.resolve({ text: "/clear" }) }),
+    );
+    const onSend = vi.fn((_text: string, _mqid?: string) => true);
+    render(<ComposeBox {...props({ onSend })} />);
+    await startVoiceMode();
+
+    level = 0.2;
+    await flush(500);
+    level = 0;
+    await flush(PIECE_GAP_MS + TIMED_END_MS + 200);
+
+    expect(onSend).not.toHaveBeenCalled();
+    expect(screen.getByText("That command can't be used here.")).toBeTruthy();
+    expect((screen.getByRole("textbox") as HTMLTextAreaElement).value).toBe("");
+    expect(chipPhase()).toBe("listening");
+  });
+
+  it("spoken words that aren't a command go out marked as text-area input", async () => {
+    const onSend = vi.fn((_text: string, _mqid?: string) => true);
+    render(<ComposeBox {...props({ onSend })} />);
+    await startVoiceMode();
+
+    level = 0.2;
+    await flush(500);
+    level = 0;
+    await flush(PIECE_GAP_MS + TIMED_END_MS + 200);
+
+    expect(onSend).toHaveBeenCalledTimes(1);
+    expect(textAreaSendKind(onSend.mock.calls[0][1])).toBe("spoken");
+  });
+
+  it("a relay room's composer isn't checked: its messages go to chat, not into a harness", async () => {
+    const onSend = vi.fn((_text: string, _mqid?: string) => true);
+    render(<ComposeBox {...props({ onSend, mode: "relay", voiceModeFeed: undefined })} />);
+    const textarea = screen.getByRole("textbox") as HTMLTextAreaElement;
+    fireEvent.change(textarea, { target: { value: "/plan for tomorrow" } });
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Send" }));
+    });
+    expect(onSend).toHaveBeenCalledTimes(1);
+    expect(screen.queryByText("That command can't be used here.")).toBeNull();
   });
 });
