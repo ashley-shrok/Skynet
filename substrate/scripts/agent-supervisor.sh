@@ -2205,14 +2205,30 @@ _unarchive_account_step() {
     return 2
   fi
 
-  # a. Already live with a working login?
+  # a. Already live with a working login? A working token alone doesn't prove it: a token the
+  #    fleet admin issued by logging in as this account survives archiving's deactivate, so
+  #    whoami answers 200 for a switched-off account. Deactivate-with-erase deletes the
+  #    account's profile, so the profile lookup (404) is what tells a switched-off account apart.
   if [ -n "$token" ]; then
-    local code
+    local code pcode
     code=$(curl -sS -o /dev/null -w '%{http_code}' --max-time 15 \
       -H "Authorization: Bearer $token" "$base/account/whoami" 2>/dev/null)
     if [ "$code" = "200" ]; then
-      log "'$name' un-archive: chat login already works — proceeding to folder move"
-      return 0
+      pcode=$(curl -sS -o /dev/null -w '%{http_code}' --max-time 15 \
+        -H "Authorization: Bearer $token" "$base/profile/$(jq -rn --arg u "$mxid" '$u|@uri')" 2>/dev/null)
+      case "$pcode" in
+        200)
+          log "'$name' un-archive: chat login already works — proceeding to folder move"
+          return 0
+          ;;
+        404)
+          log "'$name' un-archive: saved token answers but the account is switched off on the chat server (no profile) — reactivating"
+          ;;
+        *)
+          log "'$name' un-archive: account profile check failed http=$pcode (transient) — retrying next tick"
+          return 1
+          ;;
+      esac
     fi
   fi
 

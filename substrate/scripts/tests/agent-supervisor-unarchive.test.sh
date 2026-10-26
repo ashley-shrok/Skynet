@@ -261,12 +261,15 @@ fixture_live_role() {
 }
 
 # ---- stub homeserver ----
-# Two endpoints exercised:
+# Three endpoints exercised:
 #   GET  /_matrix/client/v3/account/whoami → canned status code (sequence)
+#   GET  /_matrix/client/v3/profile/<mxid> → canned status code (sequence)
 #   POST /_matrix/client/v3/login          → canned status code (sequence);
 #        on 200 the body carries access_token "fresh-tok"
 #
-# Usage: start_stub_admin <get_codes> [post_codes]
+# Usage: start_stub_admin <get_codes> [post_codes] [profile_codes]
+# profile_codes defaults to 200 — a live account has a profile; archiving's
+# erase deletes it (404).
 # post_codes defaults to 403 — what a deactivated account (or a stale
 # password) gets, so step d's pre-login falls through to filing a request.
 # Each is a comma-separated status-code sequence; once exhausted, the LAST
@@ -278,7 +281,7 @@ STUB_LOG=""
 STUB_REQ_LOG=""
 
 start_stub_admin() {
-  local get_codes="${1:-200}" post_codes="${2:-403}"
+  local get_codes="${1:-200}" post_codes="${2:-403}" profile_codes="${3:-200}"
   STUB_PID=""
   STUB_PORT=""
   STUB_LOG=$(mktemp)
@@ -291,18 +294,20 @@ get_codes  = [int(c) for c in sys.argv[1].split(',')]
 post_codes = [int(c) for c in sys.argv[2].split(',')]
 port_file  = sys.argv[3]
 req_log    = sys.argv[4]
-counters   = {'GET': 0, 'POST': 0}
+profile_codes = [int(c) for c in sys.argv[5].split(',')]
+counters   = {'GET': 0, 'POST': 0, 'PROFILE': 0}
 
 class Handler(http.server.BaseHTTPRequestHandler):
-    def _log_and_respond(self, method, codes):
+    def _log_and_respond(self, method, codes, counter=None):
         length = int(self.headers.get('Content-Length', 0))
         body = self.rfile.read(length) if length > 0 else b''
         with open(req_log, 'ab') as f:
             f.write(('%s %s %d ' % (method, self.path, length)).encode('utf-8'))
             f.write(body.replace(b'\n', b' '))
             f.write(b'\n')
-        idx = min(counters[method], len(codes) - 1)
-        counters[method] += 1
+        counter = counter or method
+        idx = min(counters[counter], len(codes) - 1)
+        counters[counter] += 1
         code = codes[idx]
         self.send_response(code)
         self.send_header('Content-Type', 'application/json')
@@ -314,7 +319,11 @@ class Handler(http.server.BaseHTTPRequestHandler):
         else:
             self.wfile.write(b'{\"errcode\":\"M_FORBIDDEN\"}')
 
-    def do_GET(self): self._log_and_respond('GET', get_codes)
+    def do_GET(self):
+        if self.path.startswith('/_matrix/client/v3/profile/'):
+            self._log_and_respond('GET', profile_codes, 'PROFILE')
+        else:
+            self._log_and_respond('GET', get_codes)
     def do_POST(self): self._log_and_respond('POST', post_codes)
     def log_message(self, fmt, *args): pass
 
@@ -323,7 +332,7 @@ with socketserver.TCPServer(('127.0.0.1', 0), Handler) as server:
     with open(port_file, 'w') as f:
         f.write(str(port))
     server.serve_forever()
-" "$get_codes" "$post_codes" "$STUB_LOG" "$STUB_REQ_LOG" &
+" "$get_codes" "$post_codes" "$STUB_LOG" "$STUB_REQ_LOG" "$profile_codes" &
   STUB_PID=$!
 
   local waited=0
@@ -571,6 +580,7 @@ test_identity_whoami_fast_path_completes() {
     "whoami fast path: working token left as-is"
   assert_eq "0" "$(_all_request_files_count "$scratch")" "whoami fast path: no reactivation requested"
   assert_grep "GET /_matrix/client/v3/account/whoami" "$reqs" "whoami fast path: whoami probed"
+  assert_grep "GET /_matrix/client/v3/profile/%40alpha%3Atest" "$reqs" "whoami fast path: profile checked"
   assert_nogrep "^POST" "$reqs" "whoami fast path: no login attempted"
   assert_grep "chat login already works" "$out" "whoami fast path: log line"
   assert_grep "un-archive step 4: .dormant written" "$out" "whoami fast path: step 4 wrote .dormant"
@@ -661,6 +671,46 @@ test_identity_old_refusal_note_removed_on_success() {
   stop_stub_admin
 
   _assert_completed "$scratch" omicron "old refusal note"
+  teardown_unarchive_scratch "$scratch"
+}
+
+# --- a working token on a switched-off account (admin-issued token survived the erase) ---
+
+test_identity_whoami_ok_but_no_profile_reactivates() {
+  local scratch; scratch=$(setup_unarchive_scratch)
+  fixture_live_role "$scratch" box-maintainer
+  fixture_archived_identity "$scratch" omicron "scalar:box-maintainer"
+  # whoami 200 (the token outlived the deactivate), profile 404 (erased), old password 403s.
+  start_stub_admin "200" "403" "404" || { teardown_unarchive_scratch "$scratch"; return; }
+  _point_relay "$scratch" omicron
+
+  local out; out=$(_tick "$scratch")
+  stop_stub_admin
+
+  assert_nogrep "chat login already works" "$out" "no-profile: fast path not taken"
+  assert_grep "account is switched off on the chat server" "$out" "no-profile: log line"
+  assert_eq "1" "$(_request_count "$scratch")" "no-profile: reactivation requested"
+  assert_nofile "$scratch/omicron" "no-profile: not moved yet"
+  assert_file "${scratch}-archive/omicron/.unarchive-requested" "no-profile: flag retained"
+  teardown_unarchive_scratch "$scratch"
+}
+
+test_identity_profile_check_transient_waits() {
+  local scratch; scratch=$(setup_unarchive_scratch)
+  fixture_live_role "$scratch" box-maintainer
+  fixture_archived_identity "$scratch" pi "scalar:box-maintainer"
+  start_stub_admin "200" "403" "502" || { teardown_unarchive_scratch "$scratch"; return; }
+  _point_relay "$scratch" pi
+
+  local out; out=$(_tick "$scratch")
+  local reqs; reqs=$(cat "$STUB_REQ_LOG")
+  stop_stub_admin
+
+  assert_grep "profile check failed http=502" "$out" "profile transient: log line"
+  assert_eq "0" "$(_all_request_files_count "$scratch")" "profile transient: no reactivation requested"
+  assert_nogrep "^POST" "$reqs" "profile transient: no login attempted"
+  assert_nofile "$scratch/pi" "profile transient: not moved"
+  assert_file "${scratch}-archive/pi/.unarchive-requested" "profile transient: flag retained"
   teardown_unarchive_scratch "$scratch"
 }
 
@@ -1462,6 +1512,8 @@ run_test test_identity_role_missing_multi_names_only_missing
 run_test test_identity_missing_relay_json_refuses
 run_test test_identity_relay_json_without_account_refuses
 run_test test_identity_whoami_fast_path_completes
+run_test test_identity_whoami_ok_but_no_profile_reactivates
+run_test test_identity_profile_check_transient_waits
 run_test test_identity_happy_path_flow_list_all_live
 run_test test_identity_happy_path_block_list_all_live
 run_test test_identity_no_roles_unarchives
