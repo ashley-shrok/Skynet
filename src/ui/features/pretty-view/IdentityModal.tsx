@@ -116,6 +116,7 @@ export function IdentityModal({
   desktopRunningHint = false,
   gitReposHint = false,
   archived,
+  onTabChange,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -136,6 +137,8 @@ export function IdentityModal({
   /** An archived agent: the window reads its archived folder and is
    *  view-only — nothing can be edited, switched, added or deleted. */
   archived?: { archivedRoles: string[] };
+  /** Told the tab shown, as it changes (an archived tab carries it over). */
+  onTabChange?: (tab: string) => void;
 }): JSX.Element {
   const isArchived = archived !== undefined;
   // A modal mounted already-open honors the requested tab too (the open
@@ -225,6 +228,9 @@ export function IdentityModal({
   // available right now (e.g. the desktop stopped as the button was pressed)
   // falls back to the agent file instead of leaving an empty body.
   const shownTab = NAV_SECTIONS.some((t) => t.value === activeTab) ? activeTab : "identity";
+  useEffect(() => {
+    onTabChange?.(shownTab);
+  }, [shownTab, onTabChange]);
 
   // ── Agent file editing ───────────────────────────────────────────────────
   const [draft, setDraft] = useState("");

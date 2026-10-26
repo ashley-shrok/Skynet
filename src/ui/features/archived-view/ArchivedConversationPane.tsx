@@ -21,8 +21,10 @@ import { StatusOverlay } from "@/features/pretty-view/StatusOverlay";
 import type { RowKebabMenuItem } from "@/features/pretty-conversations/RowKebabMenu";
 import {
   identityFromArchivedLook,
+  noteAgentWindowReopen,
   requestArchivedTabLive,
   seededArchivedLook,
+  type AgentWindowState,
 } from "./archived-identity";
 import { unarchiveFailureNotice } from "./unarchive-notice";
 
@@ -85,11 +87,14 @@ export function ArchivedConversationPane({
     (s) => s.hostId === hostId && s.sessionName.toLowerCase() === identityKey,
   );
   const flippedRef = useRef(false);
+  const windowState = useRef<AgentWindowState>({ open: false });
   useEffect(() => {
     if (flippedRef.current || !identityLive || !sessionLive) return;
     flippedRef.current = true;
     console.info(`[archived-view] agent back hostId=${hostId} identity=${identityKey} tabId=${tab.id}`);
     clearPendingArchive(hostId, identityKey);
+    // An open agent window stays open, on the same tab, once live.
+    if (windowState.current.open) noteAgentWindowReopen(tab.id, windowState.current.tab);
     requestArchivedTabLive(tab.id);
   }, [identityLive, sessionLive, hostId, identityKey, tab.id]);
 
@@ -229,7 +234,7 @@ export function ArchivedConversationPane({
         isVisible={isVisible}
         tabId={tab.id}
         identityBadgeContextMenuItems={menuItems}
-        archived={{ identity, archivedRoles: look.archivedRoles, onState, footer, overlay }}
+        archived={{ identity, archivedRoles: look.archivedRoles, onState, footer, overlay, windowState }}
       />
     </div>
   );

@@ -45,9 +45,10 @@ vi.mock("@/api/compose-drafts-api", () => ({
   flushComposeDraftKeepalive: vi.fn(),
 }));
 
+const { sessionIdentity } = vi.hoisted(() => ({ sessionIdentity: { value: null as unknown } }));
 vi.mock("@/features/terminal/session-hue", () => ({
   sessionMatchKey: vi.fn((s: string | null | undefined) => (s ? s.toLowerCase() : null)),
-  useSessionIdentity: () => ({ identity: null, identityHue: null }),
+  useSessionIdentity: () => ({ identity: sessionIdentity.value, identityHue: null }),
 }));
 
 const { unarchiveMock, identitiesState, fleetSessions, refreshOneMock } = vi.hoisted(() => ({
@@ -77,7 +78,9 @@ vi.mock("@/state/conversation-store", async (orig) => {
 });
 
 import { ArchivedConversationPane } from "./ArchivedConversationPane";
-import { ARCHIVED_TAB_LIVE_EVENT, seedArchivedLook } from "./archived-identity";
+import { ARCHIVED_TAB_LIVE_EVENT, noteAgentWindowReopen, seedArchivedLook, takeAgentWindowReopen } from "./archived-identity";
+import { PrettyView } from "@/features/pretty-view/PrettyView";
+import { identityFromArchivedLook } from "./archived-identity";
 import type { Tab, Host } from "@/types/ui-types";
 
 const host = { id: "7", name: "t1000", enableSsh: true } as unknown as Host;
@@ -134,6 +137,7 @@ describe("archived conversation tab", () => {
     refreshOneMock.mockClear();
     identitiesState.byHostKey = new Map();
     fleetSessions.list = [];
+    sessionIdentity.value = null;
   });
   afterEach(() => {
     vi.unstubAllGlobals();
@@ -191,6 +195,26 @@ describe("archived conversation tab", () => {
     await waitFor(() => expect(live).toHaveBeenCalledTimes(1));
     expect((live.mock.calls[0][0] as CustomEvent).detail).toEqual({ tabId: tab.id });
     window.removeEventListener(ARCHIVED_TAB_LIVE_EVENT, live);
+  });
+
+  it("an agent window open when the tab turns live is handed over to reopen on the same tab", async () => {
+    const { ws, rerender, onCloseTab } = mount();
+    frame(ws, { type: "archived_state", state: "archived", look });
+    fireEvent.click(screen.getByTestId("pv-task-pill-open"));
+    await waitFor(() => expect(screen.getByTestId("identity-modal")).toBeTruthy());
+    frame(ws, { type: "archived_state", state: "live" });
+    identitiesState.byHostKey = new Map([["7::olden", { identityKey: "olden" }]]);
+    fleetSessions.list = [{ hostId: 7, sessionName: "olden" }];
+    rerender(<ArchivedConversationPane tab={tab} host={host} isVisible={true} onCloseTab={onCloseTab} />);
+    await waitFor(() => expect(takeAgentWindowReopen(tab.id)).toEqual({ tab: "identity" }));
+  });
+
+  it("the live view reopens a handed-over agent window, now editable", async () => {
+    sessionIdentity.value = identityFromArchivedLook(look);
+    noteAgentWindowReopen("tab-x", "identity");
+    render(<PrettyView hostId={7} tmuxSession="olden" tabId="tab-x" isVisible={true} />);
+    await waitFor(() => expect(screen.getByTestId("identity-modal")).toBeTruthy());
+    expect(takeAgentWindowReopen("tab-x")).toBeNull();
   });
 
   it("the server says the agent is live again (un-archived elsewhere) → waits for it, then turns live", async () => {

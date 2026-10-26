@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
+import { takeAgentWindowReopen, type AgentWindowState } from "@/features/archived-view/archived-identity";
 import { ArrowDown } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { isIosPwa } from "@/lib/is-ios-pwa";
@@ -420,6 +421,8 @@ export interface ArchivedViewProps {
   footer: React.ReactNode;
   /** A notice over the messages (no history kept, no longer archived). */
   overlay?: React.ReactNode;
+  /** Kept current with the agent window's open state and tab. */
+  windowState?: { current: AgentWindowState };
 }
 
 type Status = "connecting" | "streaming" | "inactive" | "error";
@@ -1138,10 +1141,20 @@ export function PrettyView({
   // Patch #87: identity modal open state. Clicking the lg IdentityBadge sets
   // this to true; the IdentityModal handles close via onOpenChange (Esc,
   // backdrop, X button all route through shadcn Dialog's onOpenChange).
-  const [isIdentityModalOpen, setIsIdentityModalOpen] = useState(false);
+  // An archived tab that just turned live hands over its open agent window
+  // (taken once, on mount) so it stays open on the same tab.
+  const [windowReopen] = useState(() => (!archived && tabId ? takeAgentWindowReopen(tabId) : null));
+  const [isIdentityModalOpen, setIsIdentityModalOpen] = useState(windowReopen !== null);
   // Tab the task pill's round buttons asked the modal to land on (desktop /
-  // git); undefined for a plain pill click (the modal's remembered tab).
-  const [identityModalTab, setIdentityModalTab] = useState<TaskPillJumpTab | undefined>(undefined);
+  // git), or the carried-over window's tab; undefined for a plain pill click
+  // (the modal's remembered tab).
+  const [identityModalTab, setIdentityModalTab] = useState<TaskPillJumpTab | string | undefined>(windowReopen?.tab);
+  // The archived view keeps its pane told whether the window is open, and on
+  // which tab, for that hand-over.
+  const [shownModalTab, setShownModalTab] = useState<string | undefined>(undefined);
+  if (archived?.windowState) {
+    archived.windowState.current = { open: isIdentityModalOpen, tab: shownModalTab };
+  }
   const pvDesktopRunning = useSessionDesktopRunning(hostId, tmuxSession ?? null);
   // Publish modal-open to the app-wide store so AppShell's mobile back
   // button can hide itself while the modal is visible. See
@@ -4734,6 +4747,7 @@ export function PrettyView({
         <IdentityModal
           open={isIdentityModalOpen}
           initialTab={identityModalTab}
+          onTabChange={setShownModalTab}
           desktopRunningHint={pvDesktopRunning}
           gitReposHint={identityModalTab === "git"}
           onOpenChange={setIsIdentityModalOpen}

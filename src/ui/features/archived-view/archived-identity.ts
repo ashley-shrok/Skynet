@@ -90,3 +90,27 @@ export function announceAgentArchived(hostId: number, identityKey: string): void
     new CustomEvent<AgentArchivedDetail>(AGENT_ARCHIVED_EVENT, { detail: { hostId, identityKey } }),
   );
 }
+
+// ─── The agent window carries over when the tab turns live ──────────────────
+//
+// Turning live remounts the conversation view, so an agent window open on the
+// archived tab would close. The archived pane notes it here just before it
+// asks to turn live; the live view takes it on mount and reopens the window
+// on the same tab (now editable).
+
+/** What the archived view reports about its agent window, kept current. */
+export type AgentWindowState = { open: boolean; tab?: string };
+
+const windowReopens = new Map<string, string | undefined>();
+
+export function noteAgentWindowReopen(tabId: string, tab: string | undefined): void {
+  windowReopens.set(tabId, tab);
+}
+
+/** The window to reopen for this tab, once (null when none). */
+export function takeAgentWindowReopen(tabId: string): { tab: string | undefined } | null {
+  if (!windowReopens.has(tabId)) return null;
+  const tab = windowReopens.get(tabId);
+  windowReopens.delete(tabId);
+  return { tab };
+}
