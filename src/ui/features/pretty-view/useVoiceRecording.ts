@@ -172,6 +172,9 @@ export function useVoiceRecording(
   // grant window and would otherwise leave the mic hot indefinitely.
   const pendingCancelRef = useRef<boolean>(false);
 
+  // True while start()'s getUserMedia is in flight — see start().
+  const acquiringRef = useRef<boolean>(false);
+
   // Symmetric with pendingCancelRef — the cold-start commit race. commitStartVisibility()
   // may be called by useHoldToRecord's 250ms threshold-timer BEFORE getUserMedia's
   // .then() has resolved and set state to "starting". Without this ref the call
@@ -439,6 +442,18 @@ export function useVoiceRecording(
   function start(opts?: { autoCommit?: boolean }): void {
     const autoCommit = opts?.autoCommit ?? false;
 
+    // One tap reaches start() twice: the hold hook's pointerdown, then the mic
+    // button's click. stateRef stays "idle" until getUserMedia resolves, so
+    // without this the click asks for a second stream. A home-screen app on
+    // iOS refuses that second request ("No AVAudioSessionCaptureDevice
+    // device") and the mic stays refused after it. Ride on the request in
+    // flight instead; a click asking for autoCommit arms the pending commit.
+    if (acquiringRef.current) {
+      if (autoCommit) pendingCommitRef.current = true;
+      console.info(`[voice] start-joined-inflight autoCommit=${autoCommit} ${ctxSuffix}`);
+      return;
+    }
+
     // Clear stale pending-cancel flag so a prior cancel cannot kill this fresh start.
     pendingCancelRef.current = false;
 
@@ -451,12 +466,14 @@ export function useVoiceRecording(
     // iOS Safari requires getUserMedia to be called synchronously in the tap
     // handler. Any microtask (await) before this line kills the permission prompt.
     const streamPromise = navigator.mediaDevices.getUserMedia({ audio: true });
+    acquiringRef.current = true;
     // Level-meter context — created here, still inside the gesture, so iOS
     // lets it run (see mic-level-monitor.ts).
     const levelCtx = createLevelContext();
 
     streamPromise
       .then((stream) => {
+        acquiringRef.current = false;
         // Pre-construction pending-cancel check: if cancel() was called while
         // getUserMedia was resolving (i.e., state === "idle" → cancel armed
         // pendingCancelRef), tear down the just-arrived stream before building
@@ -571,6 +588,8 @@ export function useVoiceRecording(
         // user gesture on Safari, and the errorMessage signal alone is sufficient.
         const errName = err instanceof Error ? err.name : "unknown";
         const errMessage = err instanceof Error ? err.message : String(err);
+        acquiringRef.current = false;
+        pendingCommitRef.current = false;
         console.error(`[voice] mic-denied errName="${errName}" errMessage="${errMessage}" ${ctxSuffix}`);
         closeLevelContext(levelCtx);
         setErrorMessage(`mic denied: ${err.name || "error"}`);

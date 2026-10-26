@@ -135,6 +135,23 @@ describe("useVoiceRecording", () => {
     expect(typeof result.current.endSend).toBe("function");
   });
 
+  it("a tap's pointerdown start() then click start({ autoCommit }) asks for the mic once and records", async () => {
+    // iOS home-screen apps refuse a second getUserMedia while the first is in flight.
+    const { result } = renderHook(() => useVoiceRecording());
+
+    act(() => {
+      result.current.start();
+      result.current.start({ autoCommit: true });
+    });
+
+    expect(navigator.mediaDevices.getUserMedia).toHaveBeenCalledTimes(1);
+    await waitFor(() => {
+      expect(result.current.state).toBe("recording");
+    });
+    expect(MockMediaRecorder.instances).toHaveLength(1);
+    expect(result.current.errorMessage).toBeNull();
+  });
+
   it("Test 2: start({ autoCommit: true }) calls getUserMedia SYNCHRONOUSLY (before first await resolves), then transitions to recording", async () => {
     // Uses autoCommit:true to exercise the mic-tap path that skips the "starting"
     // grey zone and transitions directly to "recording" + plays start.mp3.

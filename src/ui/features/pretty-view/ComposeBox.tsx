@@ -2223,7 +2223,7 @@ export function ComposeBox({
             {showMicButton && (
               <MicButton
                 // Tap records (the hold hook's short tap keeps the recording
-                // too; its voice.state guard makes the second start a no-op).
+                // too; start() joins the request already in flight).
                 onClick={beginRecord}
                 onPointerDown={primaryHold.onPointerDown}
                 onPointerMove={primaryHold.onPointerMove}
