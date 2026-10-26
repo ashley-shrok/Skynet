@@ -46,6 +46,7 @@ import {
   classifyErrorToClass,
   classifyErrorToStatus,
   extractTarget,
+  archivedIdentityRootShellWord,
   runWithAbort,
   validateRelativePath,
   type TargetSpec,
@@ -105,12 +106,12 @@ type GitTargetSpec = Exclude<TargetSpec, { kind: "project" }>;
 
 /** Workspace root as a shell word, expanded by the remote shell. */
 function targetRootWord(target: GitTargetSpec): string {
+  // An archived agent: the host decides (live folder wins, else the archive).
+  if (target.kind === "archived-identity") return archivedIdentityRootShellWord(target.identityKey);
   const rel =
     target.kind === "role"
       ? `fleet/roles/${target.roleSlug}`
-      : target.kind === "archived-identity"
-        ? `fleet/identities-archive/${target.identityKey}/workspace`
-        : `fleet/identities/${target.identityKey}/workspace`;
+      : `fleet/identities/${target.identityKey}/workspace`;
   return `"$HOME"/${shellEscape(rel)}`;
 }
 

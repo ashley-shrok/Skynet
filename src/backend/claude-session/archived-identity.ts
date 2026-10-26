@@ -63,7 +63,10 @@ const APP_SEP = "---ARCHIVED-APP---";
 /** One round-trip: per app folder, `slug`, app.json, then the base64 icon. */
 export function buildArchivedAppsScript(identityKey: string): string {
   return (
-    `cd "$HOME/fleet/identities-archive/${identityKey}/apps" 2>/dev/null && { shopt -s nullglob; ` +
+    // Where to read is decided here: the live folder if the agent is back,
+    // else its archived one.
+    `D="$HOME/fleet/identities/${identityKey}"; [ -d "$D" ] || D="$HOME/fleet/identities-archive/${identityKey}"; ` +
+    `cd "$D/apps" 2>/dev/null && { shopt -s nullglob; ` +
     `for d in */; do s="\${d%/}"; [ -f "$s/app.json" ] || continue; ` +
     `printf '%s\\n' '${APP_SEP}' "$s"; head -c 65536 "$s/app.json"; printf '\\n%s\\n' '---ICON---'; ` +
     `if [ -f "$s/icon.webp" ] && [ "$(stat -c %s "$s/icon.webp" 2>/dev/null || echo 0)" -le ${ARCHIVED_APP_ICON_MAX_BYTES} ]; then base64 -w0 "$s/icon.webp"; fi; printf '\\n'; ` +
@@ -107,10 +110,18 @@ export function parseArchivedAppsStdout(stdout: string): ArchivedApp[] {
 }
 
 /** Local (bind-mount) variant: same rule via node fs. */
-export async function readArchivedAppsLocal(archiveRoot: string, identityKey: string): Promise<ArchivedApp[]> {
+export async function readArchivedAppsLocal(
+  archiveRoot: string,
+  identityKey: string,
+  liveRoot?: string,
+): Promise<ArchivedApp[]> {
   const { promises: fsp } = await import("node:fs");
   const path = await import("node:path");
-  const appsDir = path.join(archiveRoot, identityKey, "apps");
+  // The live folder wins when the agent is back.
+  const isLive =
+    liveRoot !== undefined &&
+    (await fsp.stat(path.join(liveRoot, identityKey)).then((st) => st.isDirectory(), () => false));
+  const appsDir = path.join(isLive ? liveRoot! : archiveRoot, identityKey, "apps");
   let names: string[];
   try {
     names = (await fsp.readdir(appsDir, { withFileTypes: true }))

@@ -10,6 +10,8 @@ import {
   readArchivedAppsLocal,
   buildIdentityFolderStateScript,
 } from "./archived-identity.js";
+import { archivedIdentityRootShellWord } from "../database/routes/workspace-routes.js";
+import { readIdentityFile, readIdentityWakeups } from "./identity-artifact-reader.js";
 
 function bash(script: string, home: string): Promise<string> {
   return new Promise((resolve, reject) =>
@@ -69,5 +71,48 @@ describe("archived-identity", () => {
   it("lists the same apps locally", async () => {
     expect(await readArchivedAppsLocal(path.join(home, "fleet/identities-archive"), "old")).toEqual(expected);
     expect(await readArchivedAppsLocal(path.join(home, "fleet/identities-archive"), "nobody")).toEqual([]);
+  });
+
+  it("the archived view's workspace root is decided by the host: live wins, else the archive", async () => {
+    expect((await bash(`printf '%s' ${archivedIdentityRootShellWord("old")}`, home)).trim()).toBe(
+      `${home}/fleet/identities-archive/old/workspace`,
+    );
+    expect((await bash(`printf '%s' ${archivedIdentityRootShellWord("both")}`, home)).trim()).toBe(
+      `${home}/fleet/identities/both/workspace`,
+    );
+    expect(() => archivedIdentityRootShellWord("a b")).toThrow();
+  });
+
+  it("the archived view's apps come from the live folder once the agent is back", async () => {
+    const liveApps = path.join(home, "fleet/identities/both/apps/fresh");
+    await fsp.mkdir(liveApps, { recursive: true });
+    await fsp.writeFile(path.join(liveApps, "app.json"), JSON.stringify({ title: "Fresh" }));
+    await fsp.mkdir(path.join(home, "fleet/identities-archive/both/apps/stale"), { recursive: true });
+    await fsp.writeFile(path.join(home, "fleet/identities-archive/both/apps/stale/app.json"), JSON.stringify({ title: "Stale" }));
+    const viaShell = parseArchivedAppsStdout(await bash(buildArchivedAppsScript("both"), home));
+    const local = await readArchivedAppsLocal(
+      path.join(home, "fleet/identities-archive"),
+      "both",
+      path.join(home, "fleet/identities"),
+    );
+    expect(viaShell.map((a) => a.title)).toEqual(["Fresh"]);
+    expect(local.map((a) => a.title)).toEqual(["Fresh"]);
+  });
+
+  it("the archived view's agent file and wake-ups: live wins, else the archive (local reads)", async () => {
+    await fsp.writeFile(path.join(home, "fleet/identities-archive/old/old.md"), "archived file");
+    await fsp.writeFile(path.join(home, "fleet/identities/both/both.md"), "live file");
+    await fsp.writeFile(path.join(home, "fleet/identities-archive/both/both.md"), "stale file");
+    const prev = process.env.IDENTITIES_HOST_DIR;
+    process.env.IDENTITIES_HOST_DIR = path.join(home, "fleet/identities");
+    try {
+      expect((await readIdentityFile(null, "old", { archived: true })).markdown).toBe("archived file");
+      expect((await readIdentityFile(null, "both", { archived: true })).markdown).toBe("live file");
+      expect((await readIdentityFile(null, "old")).markdown).toBe("");
+      expect((await readIdentityWakeups(null, "old", { archived: true })).wakeups).toEqual([]);
+    } finally {
+      if (prev === undefined) delete process.env.IDENTITIES_HOST_DIR;
+      else process.env.IDENTITIES_HOST_DIR = prev;
+    }
   });
 });

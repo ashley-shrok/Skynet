@@ -90,6 +90,7 @@ import {
 import {
   isLocalHostId,
   getLocalIdentitiesArchiveRoot,
+  getLocalIdentitiesRoot,
   IDENTITY_KEY_RE,
   IDENTITY_SLUG_RE,
   humanizeWakeupSchedule,
@@ -5813,7 +5814,7 @@ wss.on("connection", async (ws: WebSocket, req) => {
       try {
         let apps: ArchivedApp[] = [];
         if (isLocalHostId(hostIdNum)) {
-          apps = await readArchivedAppsLocal(getLocalIdentitiesArchiveRoot(), identityKey);
+          apps = await readArchivedAppsLocal(getLocalIdentitiesArchiveRoot(), identityKey, getLocalIdentitiesRoot());
         } else {
           const resolved = await resolveHostById(hostIdNum, userId!);
           if (!resolved) { reply([], "host not found"); return; }

@@ -24,7 +24,7 @@
  *   The caller may stop reading early (result cap); the trailer is then absent.
  */
 
-import type { TargetSpec } from "./workspace-routes.js";
+import { archivedIdentityRootShellWord, type TargetSpec } from "./workspace-routes.js";
 
 /** Folders never descended into. The folder itself is not reported either. */
 export const SEARCH_PRUNED_DIRS = ["node_modules", ".venv", "venv", ".git"] as const;
@@ -47,14 +47,14 @@ export function shellEscape(s: string): string {
 
 /** Target root as a shell word, expanded by the remote shell. */
 function targetRootWord(target: TargetSpec): string {
+  // An archived agent: the host decides (live folder wins, else the archive).
+  if (target.kind === "archived-identity") return archivedIdentityRootShellWord(target.identityKey);
   const rel =
     target.kind === "role"
       ? `fleet/roles/${target.roleSlug}`
       : target.kind === "project"
         ? `fleet/projects/${target.projectSlug}`
-        : target.kind === "archived-identity"
-          ? `fleet/identities-archive/${target.identityKey}/workspace`
-          : `fleet/identities/${target.identityKey}/workspace`;
+        : `fleet/identities/${target.identityKey}/workspace`;
   return `"$HOME"/${shellEscape(rel)}`;
 }
 

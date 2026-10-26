@@ -110,7 +110,9 @@ export function extractTarget(body: Record<string, unknown>): ExtractTargetResul
 function buildTargetRoot(homeDir: string, target: TargetSpec): string {
   if (target.kind === "role") return `${homeDir}/fleet/roles/${target.roleSlug}`;
   if (target.kind === "project") return `${homeDir}/fleet/projects/${target.projectSlug}`;
-  if (target.kind === "archived-identity") return `${homeDir}/fleet/identities-archive/${target.identityKey}/workspace`;
+  // An archived agent's root is decided on the host (settleTargetRoot) —
+  // never from the request alone.
+  if (target.kind === "archived-identity") throw new Error("path_forbidden");
   return `${homeDir}/fleet/identities/${target.identityKey}/workspace`;
 }
 
@@ -284,6 +286,34 @@ function sftpStat(
       resolve(stats);
     });
   });
+}
+
+/**
+ * Shell word for an archived agent's workspace root, decided by the remote
+ * shell the same way as settleTargetRoot: the live folder if it exists, else
+ * the archived one. The key is IDENTITY_KEY_RE-checked (no shell-special
+ * characters).
+ */
+export function archivedIdentityRootShellWord(identityKey: string): string {
+  if (!IDENTITY_KEY_RE.test(identityKey)) throw new Error("invalid identity key");
+  const live = `"$HOME/fleet/identities/${identityKey}"`;
+  return (
+    `"$(if [ -d ${live} ]; then printf '%s' ${live}/workspace; ` +
+    `else printf '%s' "$HOME/fleet/identities-archive/${identityKey}/workspace"; fi)"`
+  );
+}
+
+/**
+ * The target's root, decided on the host. For an archived agent's view-only
+ * window the server checks where the agent actually is: its live folder wins
+ * (an un-archive has moved it back), otherwise its archived folder. The
+ * request only says "the archived view"; it never picks the folder.
+ */
+async function settleTargetRoot(sftp: SftpLike, homeDir: string, target: TargetSpec): Promise<string> {
+  if (target.kind !== "archived-identity") return buildTargetRoot(homeDir, target);
+  const live = `${homeDir}/fleet/identities/${target.identityKey}`;
+  const isLive = await sftpStat(sftp, live).then((st) => st.isDirectory(), () => false);
+  return isLive ? `${live}/workspace` : `${homeDir}/fleet/identities-archive/${target.identityKey}/workspace`;
 }
 
 function sftpReadFile(sftp: SftpLike, p: string): Promise<Buffer> {
@@ -610,7 +640,7 @@ workspaceRoutes.post(
               // Step 6: tilde expansion — sftpRealpath(sftp, ".")
               const sftp = await openSftp(client);
               const homeDir = await sftpRealpath(sftp, ".");
-              const workspaceRoot = buildTargetRoot(homeDir, target);
+              const workspaceRoot = await settleTargetRoot(sftp, homeDir, target);
               const absolutePath = buildAbsolutePath(workspaceRoot, String(relativePath));
 
               // Step 8: Post-realpath re-check (symlink escape defense)
@@ -714,7 +744,7 @@ workspaceRoutes.post(
             return await runWithAbort(ctrl.signal, async () => {
               const sftp = await openSftp(client);
               const homeDir = await sftpRealpath(sftp, ".");
-              const workspaceRoot = buildTargetRoot(homeDir, target);
+              const workspaceRoot = await settleTargetRoot(sftp, homeDir, target);
               const absolutePath = buildAbsolutePath(workspaceRoot, relativePath);
 
               const resolved = await sftpRealpath(sftp, absolutePath);
@@ -825,7 +855,7 @@ workspaceRoutes.put(
             return await runWithAbort(ctrl.signal, async () => {
               const sftp = await openSftp(client);
               const homeDir = await sftpRealpath(sftp, ".");
-              const workspaceRoot = buildTargetRoot(homeDir, target);
+              const workspaceRoot = await settleTargetRoot(sftp, homeDir, target);
               const absolutePath = buildAbsolutePath(workspaceRoot, relativePath);
 
               // Realpath check on the parent directory (file may not exist yet)
@@ -927,7 +957,7 @@ workspaceRoutes.delete(
             return await runWithAbort(ctrl.signal, async () => {
               const sftp = await openSftp(client);
               const homeDir = await sftpRealpath(sftp, ".");
-              const workspaceRoot = buildTargetRoot(homeDir, target);
+              const workspaceRoot = await settleTargetRoot(sftp, homeDir, target);
               const absolutePath = buildAbsolutePath(workspaceRoot, relativePath);
 
               const resolved = await sftpRealpath(sftp, absolutePath);
@@ -1032,7 +1062,7 @@ workspaceRoutes.post(
             return await runWithAbort(ctrl.signal, async () => {
               const sftp = await openSftp(client);
               const homeDir = await sftpRealpath(sftp, ".");
-              const workspaceRoot = buildTargetRoot(homeDir, target);
+              const workspaceRoot = await settleTargetRoot(sftp, homeDir, target);
               const fromPath = buildAbsolutePath(workspaceRoot, from);
               const toPath = buildAbsolutePath(workspaceRoot, to);
 
@@ -1140,7 +1170,7 @@ workspaceRoutes.post(
             return await runWithAbort(ctrl.signal, async () => {
               const sftp = await openSftp(client);
               const homeDir = await sftpRealpath(sftp, ".");
-              const workspaceRoot = buildTargetRoot(homeDir, target);
+              const workspaceRoot = await settleTargetRoot(sftp, homeDir, target);
               const absolutePath = buildAbsolutePath(workspaceRoot, relativePath);
 
               // Realpath check on parent
@@ -1236,7 +1266,7 @@ workspaceRoutes.post(
             return await runWithAbort(ctrl.signal, async () => {
               const sftp = await openSftp(client);
               const homeDir = await sftpRealpath(sftp, ".");
-              const workspaceRoot = buildTargetRoot(homeDir, target);
+              const workspaceRoot = await settleTargetRoot(sftp, homeDir, target);
               const absolutePath = buildAbsolutePath(workspaceRoot, relativePath);
 
               // Realpath check on parent dir
@@ -1343,7 +1373,7 @@ workspaceRoutes.post(
             return await runWithAbort(ctrl.signal, async () => {
               const sftp = await openSftp(client);
               const homeDir = await sftpRealpath(sftp, ".");
-              const workspaceRoot = buildTargetRoot(homeDir, target);
+              const workspaceRoot = await settleTargetRoot(sftp, homeDir, target);
               const absolutePath = buildAbsolutePath(workspaceRoot, relativePath);
 
               // Realpath check on parent dir
@@ -1437,7 +1467,7 @@ workspaceRoutes.get(
             await runWithAbort(ctrl.signal, async () => {
               const sftp = await openSftp(client);
               const homeDir = await sftpRealpath(sftp, ".");
-              const workspaceRoot = buildTargetRoot(homeDir, target);
+              const workspaceRoot = await settleTargetRoot(sftp, homeDir, target);
               const absolutePath = buildAbsolutePath(workspaceRoot, relativePath);
 
               const resolved = await sftpRealpath(sftp, absolutePath);
