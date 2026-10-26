@@ -34,6 +34,9 @@ import { isOnceSensorSchedule, isSensorSchedule } from "./WakeupFormShared";
 export const WAKEUPS_NOTE =
   "Instructions that wake this agent on a clock, or when a sensor sees something happen. They go when the agent is archived.";
 
+/** An archived agent's wake-ups: kept on disk, never fired. */
+export const WAKEUPS_ARCHIVED_NOTE = "This agent is archived, so none of these fire. Un-archive it to use them again.";
+
 /** The unopened row's sensor line: "📡 Sensor [Healthy] · Last fired 3h ago · 2 waiting". */
 function WakeupSensorSummary({
   sensor,
@@ -99,6 +102,7 @@ export function WakeupsTab({
   onOpen,
   onNew,
   onDelete,
+  readOnly = false,
 }: {
   state: TabState<Wakeup[]>;
   /** Coordinators manage wake-ups from their roles: no button on an empty list. */
@@ -109,6 +113,8 @@ export function WakeupsTab({
   /** Swipe left on a row (touch) deletes it, after the same confirm as the
    *  wake-up's own "Delete wake-up…". */
   onDelete?: (slug: string) => Promise<void>;
+  /** An archived agent: listed only — no switches, nothing to open, add or delete. */
+  readOnly?: boolean;
 }) {
   // Rows with an on/off save in flight (several can be at once).
   const [busy, setBusy] = useState<ReadonlySet<string>>(new Set());
@@ -117,6 +123,34 @@ export function WakeupsTab({
   if (state.status === "loading") return <KitLoading lines={3} />;
   if (state.status === "error") {
     return <KitBanner tone="danger">Couldn&apos;t load wake-ups: {state.error}</KitBanner>;
+  }
+
+  if (readOnly) {
+    if (state.data.length === 0) {
+      return <KitEmpty icon={<AlarmClock />} title="No wake-ups" body={WAKEUPS_ARCHIVED_NOTE} />;
+    }
+    return (
+      <KitSettingsGroup note={WAKEUPS_ARCHIVED_NOTE} data-testid="wakeups-list">
+        {state.data.map((w) => (
+          <KitSettingsRow
+            key={w.slug}
+            data-testid={`wakeup-row-${w.slug}`}
+            leading={<WakeupKindTile wakeup={w} off />}
+            label={<span className="font-semibold text-[var(--k-t2)]">{w.name}</span>}
+            description={
+              <span>
+                {w.scheduleHuman}
+                <span data-testid="wakeup-last-fired">
+                  {" · "}
+                  {lastFiredLabel(w.lastFiredAt)}
+                </span>
+              </span>
+            }
+            chevron={false}
+          />
+        ))}
+      </KitSettingsGroup>
+    );
   }
 
   if (state.data.length === 0) {

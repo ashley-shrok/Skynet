@@ -357,6 +357,8 @@ function badgeRowDropPayload(
   badge: DraggedBadge,
   rows: readonly ConversationRowShape[],
 ): PrettyProjectDropPayload | null {
+  // An archived conversation has no row and can't be filed anywhere.
+  if (badge.sessionKind === "archived") return null;
   const key = sessionMatchKey(badge.targetTmuxSession ?? badge.identityKey);
   const row =
     rows.find((r) => r.id === badge.tabId) ??

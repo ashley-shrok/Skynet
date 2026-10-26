@@ -59,6 +59,9 @@ export type ReadFileResponse = {
  */
 export type WorkspaceTarget =
   | { kind: "identity"; identityKey: string }
+  // An archived agent's workspace (~/fleet/identities-archive/<key>/workspace)
+  // — the server refuses every change to it.
+  | { kind: "archived-identity"; identityKey: string }
   | { kind: "role"; roleSlug: string }
   | { kind: "project"; projectSlug: string };
 
@@ -70,6 +73,7 @@ export type WorkspaceTarget =
 function targetToWireFields(t: WorkspaceTarget): Record<string, string> {
   if (t.kind === "role") return { kind: "role", roleSlug: t.roleSlug };
   if (t.kind === "project") return { kind: "project", projectSlug: t.projectSlug };
+  if (t.kind === "archived-identity") return { kind: "archived-identity", identityKey: t.identityKey };
   return { identityKey: t.identityKey };
 }
 
@@ -80,6 +84,9 @@ function targetToQueryString(t: WorkspaceTarget): string {
   }
   if (t.kind === "project") {
     return `kind=project&projectSlug=${encodeURIComponent(t.projectSlug)}`;
+  }
+  if (t.kind === "archived-identity") {
+    return `kind=archived-identity&identityKey=${encodeURIComponent(t.identityKey)}`;
   }
   return `identityKey=${encodeURIComponent(t.identityKey)}`;
 }

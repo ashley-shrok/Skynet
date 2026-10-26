@@ -79,6 +79,8 @@ import {
   removeResultByIdentity,
 } from "@/state/search-store";
 import { unarchiveIdentity, UnarchiveError } from "@/api/identity-unarchive-api";
+import { unarchiveFailureNotice } from "@/features/archived-view/unarchive-notice";
+import { archivedLookFromSearchResult, seedArchivedLook } from "@/features/archived-view/archived-identity";
 import { clearPendingArchive } from "@/state/conversation-store";
 import { ConversationSearchRow } from "./ConversationSearchRow";
 
@@ -88,7 +90,8 @@ export interface ConversationSearchModalProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   /**
-   * Called when the user clicks an ACTIVE (isArchived === false) result.
+   * Called when the user clicks a result — live, or archived (which opens
+   * as a view-only conversation tab).
    * The parent (AppShell via PrettyConversationsPanel) resolves the hostId
    * to a Host object and calls openTab(host, "terminal", …). See
    * AppShell.tsx onSearchResultOpenActive.
@@ -180,15 +183,16 @@ export function ConversationSearchModal({
 
   function handleRowClick(result: ConversationSearchResult): void {
     if (result.isArchived) {
-      // phase-143 D-11: retired the blunt left-click alert. The kebab-menu Un-archive
-      // path is the sole visible action on archived rows. Left-click on the
-      // row is a no-op — the identity's conversation surface doesn't exist
-      // while archived. See .planning/campaigns/un-archiving/shape-unarchive-frontend-backend.md
+      // An archived result opens as a view-only conversation tab. Its look
+      // is handed over so the tab paints right before the server answers.
       console.info({
         operation: "conversation_search_archived_click",
         identityKey: result.identityKey,
         hostId: result.hostId,
       });
+      seedArchivedLook(archivedLookFromSearchResult(result));
+      onOpenActiveConversation(result);
+      onOpenChange(false);
       return;
     }
     console.info({
@@ -257,34 +261,7 @@ export function ConversationSearchModal({
         hostId: result.hostId,
         reason: err instanceof UnarchiveError ? err.reason : "error",
       });
-      if (err instanceof UnarchiveError && err.reason === "missing_roles") {
-        // D-17: names the still-archived role(s) inline.
-        await kitAlert({
-          title: `Un-archive role ${err.missingRoles?.join(", ") ?? "(unknown)"} first`,
-          body: "This conversation depends on it.",
-        });
-      } else if (err instanceof UnarchiveError && err.reason === "refused") {
-        await kitAlert({
-          title: `Couldn't un-archive ${result.identityKey}`,
-          body: err.message,
-        });
-      } else if (err instanceof UnarchiveError && err.reason === "name_collision") {
-        await kitAlert({
-          title: `Couldn't un-archive ${result.identityKey}`,
-          body: "A live conversation with the same key already exists.",
-        });
-      } else if (err instanceof UnarchiveError && err.reason === "archive_not_found") {
-        await kitAlert({
-          title: `Couldn't un-archive ${result.identityKey}`,
-          body: "The archive may have already been reactivated. Try again in a moment.",
-        });
-      } else {
-        // Generic fallback for non-UnarchiveError or unknown reason (D-17).
-        await kitAlert({
-          title: `Couldn't un-archive ${result.identityKey}`,
-          body: "Try again in a moment.",
-        });
-      }
+      await kitAlert(unarchiveFailureNotice(err, result.identityKey));
     } finally {
       setUnarchiving((prev) => {
         const next = new Set(prev);

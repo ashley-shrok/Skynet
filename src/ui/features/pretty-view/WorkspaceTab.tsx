@@ -82,6 +82,7 @@ import type {
  */
 function targetDepKey(t: WorkspaceTarget): string {
   if (t.kind === "identity") return `identity:${t.identityKey}`;
+  if (t.kind === "archived-identity") return `archived-identity:${t.identityKey}`;
   if (t.kind === "project") return `project:${t.projectSlug}`;
   return `role:${t.roleSlug}`;
 }

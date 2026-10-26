@@ -39,6 +39,9 @@ import {
   type IdentityGetIdentityFilePayload,
   type IdentityIdentityFileEvent,
   type IdentityListWakeupsPayload,
+  type IdentityListArchivedAppsPayload,
+  type IdentityArchivedAppsEvent,
+  type ArchivedConversationApp,
   type IdentityWakeupsEvent,
   type IdentityUpdateWakeupPayload,
   type IdentityWakeupUpdatedEvent,
@@ -71,6 +74,7 @@ import {
 } from "./AgentGit";
 import DesktopTab from "./DesktopTab";
 import { AppsTab, conversationAppsFor } from "./AppsTab";
+import { ArchivedAppsTab } from "@/features/archived-view/ArchivedAppsTab";
 import { useAppTiles } from "@/state/app-tiles-store";
 import { requestDesktopPane } from "@/shell/desktop-drag";
 import { useDesktopRunning } from "./use-desktop-running";
@@ -111,6 +115,7 @@ export function IdentityModal({
   initialTab,
   desktopRunningHint = false,
   gitReposHint = false,
+  archived,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -128,7 +133,11 @@ export function IdentityModal({
   /** True when the caller already knows the workspace holds a repo (the
    *  unpushed-work button), so the Git tab shows from the first frame. */
   gitReposHint?: boolean;
+  /** An archived agent: the window reads its archived folder and is
+   *  view-only — nothing can be edited, switched, added or deleted. */
+  archived?: { archivedRoles: string[] };
 }): JSX.Element {
+  const isArchived = archived !== undefined;
   // A modal mounted already-open honors the requested tab too (the open
   // transition below handles every later open).
   const [activeTab, setActiveTab] = useState<string>(() => (open && initialTab) || "identity");
@@ -160,7 +169,9 @@ export function IdentityModal({
   const wakeupsWriteGen = useRef(0);
 
   // Git tab only when the workspace actually holds a repo.
-  const gitTarget = { kind: "identity" as const, identityKey: identity.identityKey };
+  const gitTarget = isArchived
+    ? { kind: "archived-identity" as const, identityKey: identity.identityKey }
+    : { kind: "identity" as const, identityKey: identity.identityKey };
   // The hint covers only the wait for the probe; once it answers, it decides.
   const gitReposAnswer = useGitReposAnswer(gitTarget, hostId, open);
   const hasGitRepos = gitReposAnswer ?? (open && gitReposHint);
@@ -172,7 +183,8 @@ export function IdentityModal({
   const [desktopHintLatched, setDesktopHintLatched] = useState(false);
   if (open && desktopRunningHint && !desktopHintLatched) setDesktopHintLatched(true);
   if (!open && desktopHintLatched) setDesktopHintLatched(false);
-  const desktopRunning = desktopRunningPolled || (open && (desktopRunningHint || desktopHintLatched));
+  // Nothing runs for an archived agent — no Desktop tab.
+  const desktopRunning = !isArchived && (desktopRunningPolled || (open && (desktopRunningHint || desktopHintLatched)));
   // While the user drives the desktop, Esc belongs to it, not to the modal.
   const [desktopControl, setDesktopControl] = useState(false);
   // Each open starts on the agent itself. Reopening on a remembered Desktop
@@ -197,7 +209,10 @@ export function IdentityModal({
   // (same conditional shape as Git / Desktop).
   const allApps = useAppTiles();
   const conversationApps = conversationAppsFor(allApps, hostId, identity.identityKey);
-  const hasApps = conversationApps.length > 0;
+  // An archived agent's apps aren't served (no tiles) — they're read from
+  // its archived folder instead.
+  const [archivedApps, setArchivedApps] = useState<ArchivedConversationApp[]>([]);
+  const hasApps = isArchived ? archivedApps.length > 0 : conversationApps.length > 0;
   const NAV_SECTIONS = [
     { value: "identity", label: "Agent file", Icon: User },
     { value: "identity-wakeups", label: "Wake-ups", Icon: AlarmClock },
@@ -397,18 +412,27 @@ export function IdentityModal({
     }
 
     openOneShot<IdentityGetIdentityFilePayload, IdentityIdentityFileEvent>(
-      { type: "identity:get-identity-file", identityKey: identity.identityKey, hostId },
+      { type: "identity:get-identity-file", identityKey: identity.identityKey, hostId, ...(isArchived ? { archived: true } : {}) },
       "identity:identity-file",
       (ev) => setIdentityFileState(ev.error ? { status: "error", error: ev.error } : { status: "ready", data: ev.markdown }),
       (e) => setIdentityFileState({ status: "error", error: e }),
     );
 
     openOneShot<IdentityListWakeupsPayload, IdentityWakeupsEvent>(
-      { type: "identity:list-wakeups", identityKey: identity.identityKey, hostId },
+      { type: "identity:list-wakeups", identityKey: identity.identityKey, hostId, ...(isArchived ? { archived: true } : {}) },
       "identity:wakeups",
       (ev) => setIdentityWakeupsState(ev.error ? { status: "error", error: ev.error } : { status: "ready", data: ev.wakeups }),
       (e) => setIdentityWakeupsState({ status: "error", error: e }),
     );
+
+    if (isArchived) {
+      openOneShot<IdentityListArchivedAppsPayload, IdentityArchivedAppsEvent>(
+        { type: "identity:list-archived-apps", identityKey: identity.identityKey, hostId },
+        "identity:archived-apps",
+        (ev) => setArchivedApps(ev.error ? [] : ev.apps),
+        () => setArchivedApps([]),
+      );
+    }
 
     return () => {
       cancelled = true;
@@ -420,7 +444,7 @@ export function IdentityModal({
         }
       }
     };
-  }, [open, identity.identityKey, hostId]);
+  }, [open, identity.identityKey, hostId, isArchived]);
 
   // Sensors shape 2: while the Wake-ups tab (or a wake-up opened from it) is
   // showing, quietly re-read the list every 30s so sensor status and
@@ -428,7 +452,8 @@ export function IdentityModal({
   // rather than flipping the tab to an error, but its sensors turn Unknown —
   // a stale Healthy must never linger. An open wake-up's drafts never reset.
   useEffect(() => {
-    if (!open || activeTab !== "identity-wakeups" || !identity.identityKey) return;
+    // An archived agent's wake-ups don't fire — nothing to keep current.
+    if (!open || isArchived || activeTab !== "identity-wakeups" || !identity.identityKey) return;
     const identityKey = identity.identityKey;
     let cancelled = false;
     let inFlight = false;
@@ -472,7 +497,7 @@ export function IdentityModal({
     };
     // sendIdentityMutation is a stable-in-behaviour local helper.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, activeTab, identity.identityKey, hostId]);
+  }, [open, activeTab, identity.identityKey, hostId, isArchived]);
 
   // Reset per-field drafts on open.
   useEffect(() => {
@@ -707,6 +732,12 @@ export function IdentityModal({
           <div className="min-w-0 flex flex-wrap items-baseline gap-x-1" data-testid="identity-modal-role-links">
             {roleLinks.map(({ roleName, label }, i) => (
               <span key={roleName} className="inline-flex items-baseline">
+                {archived?.archivedRoles.includes(roleName) ? (
+                  // The role itself is archived — nothing to open.
+                  <span className="text-[13.5px] font-semibold text-[var(--k-t2)]" data-testid="identity-modal-role-archived">
+                    {label}
+                  </span>
+                ) : (
                 <button
                   type="button"
                   onClick={() => void openRole(roleName)}
@@ -719,12 +750,23 @@ export function IdentityModal({
                   {label}
                   {i === roleLinks.length - 1 ? <span className="ml-0.5" aria-hidden="true">›</span> : null}
                 </button>
+                )}
                 {i < roleLinks.length - 1 ? <span className="text-[13.5px] text-[var(--k-t3)]">,</span> : null}
               </span>
             ))}
           </div>
         )}
-        {editingTask ? (
+        {isArchived ? (
+          <span
+            className={cn(
+              "self-start max-w-full line-clamp-2 text-[13.5px] leading-[1.45]",
+              identity.task ? "text-[var(--k-t2)]" : "italic text-[var(--k-t3)]",
+            )}
+            data-testid="identity-modal-task-value"
+          >
+            {identity.task || "No task set"}
+          </span>
+        ) : editingTask ? (
           <KitInput
             size="sm"
             type="text"
@@ -782,6 +824,8 @@ export function IdentityModal({
           <KitButton
             size="sm"
             aria-expanded={voiceOpen}
+            // An archived agent's voice can't be changed.
+            disabled={isArchived}
             onClick={() => setVoiceOpen((v) => !v)}
             className="max-w-[220px]"
             title={identity.voice ? `Voice: ${voiceLabel}` : "Voice — uses the role's voice"}
@@ -890,6 +934,7 @@ export function IdentityModal({
         >
           <WakeupsTab
             state={identityWakeupsState}
+            readOnly={isArchived}
             isCoordinator={identity.coordinator}
             onToggle={(slug, enabled) => updateWakeup(slug, { enabled })}
             onOpen={(slug) => {
@@ -902,7 +947,12 @@ export function IdentityModal({
         </TabsContent>
 
         <TabsContent value="workspace" className="flex-1 min-h-0 overflow-hidden flex flex-col border-t border-[var(--k-hair)]">
-          <WorkspaceTab target={{ kind: "identity", identityKey: identity.identityKey }} hostId={hostId} hue={hue} />
+          <WorkspaceTab
+            target={{ kind: isArchived ? "archived-identity" : "identity", identityKey: identity.identityKey }}
+            hostId={hostId}
+            hue={hue}
+            readOnly={isArchived}
+          />
         </TabsContent>
 
         {hasApps && (
@@ -910,7 +960,11 @@ export function IdentityModal({
             value="apps"
             className="flex-1 min-h-0 overflow-y-auto px-6 max-sm:px-5 py-4 border-t border-[var(--k-hair)]"
           >
-            <AppsTab apps={conversationApps} onClose={() => onOpenChange(false)} />
+            {isArchived ? (
+              <ArchivedAppsTab apps={archivedApps} />
+            ) : (
+              <AppsTab apps={conversationApps} onClose={() => onOpenChange(false)} />
+            )}
           </TabsContent>
         )}
 
@@ -940,7 +994,7 @@ export function IdentityModal({
         )}
       </Tabs>
 
-      {shownTab === "identity" && fileReady && identityFileState.data ? (
+      {!isArchived && shownTab === "identity" && fileReady && identityFileState.data ? (
         <ModalFoot>
           {editing ? (
             <>

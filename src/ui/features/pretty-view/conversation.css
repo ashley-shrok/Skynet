@@ -92,6 +92,37 @@ button.pv-float:focus-visible { outline: 2px solid var(--k-acc); outline-offset:
   transition: border-color 0.15s;
   font-family: var(--font-sans);
 }
+/* An archived conversation's strip, in the composer's place: same card, one
+   quiet row — "Archived", what's happening, Un-archive. */
+.pv-archived-strip {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 52px;
+  padding: 8px 8px 8px 16px;
+  background: linear-gradient(180deg, #212329, #1b1d22);
+  border: 1px solid var(--k-hair2);
+  border-radius: 22px;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05), 0 6px 20px rgba(0, 0, 0, 0.35);
+  font-family: var(--font-sans);
+}
+.pv-archived-strip-mark {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+  font-size: 13.5px;
+  font-weight: 600;
+  color: var(--k-t1);
+}
+.pv-archived-strip-text {
+  flex: 1;
+  min-width: 0;
+  font-size: 13px;
+  line-height: 1.4;
+  color: var(--k-t2);
+}
+.pv-archived-strip-text[data-tone="danger"] { color: var(--k-danger-text); }
 .pv-composebox:focus-within { border-color: rgba(255, 255, 255, 0.22); }
 /* Nearly full: the card's edge picks up the warning too. */
 .pv-composebox[data-memory="red"] { border-color: rgba(255, 107, 94, 0.45); }

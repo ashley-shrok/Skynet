@@ -770,9 +770,32 @@ finishes — usually within a minute — and then a notice says the
 conversation is back (the row leaves the search view) or why it was refused
 (for example, a role that itself is still archived, which the notice names).
 If nothing has happened after two minutes the notice says it's still working,
-and it carries on in the background. Left-clicking an
-archived row itself does nothing — the identity's conversation surface
-doesn't exist while archived.
+and it carries on in the background.
+
+**Clicking an archived row opens it as an archived conversation tab**, and
+search closes (an archived conversation already open is brought forward
+instead). It looks like any conversation: the agent's picture, name, colour
+and task line on the pill, and its whole history with **Load older
+messages**. It splits, drags, moves to another window and comes back after
+a reload like any tab, and on a phone opens full screen. It is view-only:
+- no compose box — in its place a strip saying **Archived** with an
+  **Un-archive** button; no memory pie, working indicator, permission bubble
+  or unread dot, and no row in the sidebar;
+- the pill's menu holds **Move to new tab**, **Close** (desktop only) and
+  **Un-archive**;
+- clicking the pill opens the agent window view-only, read from its archived
+  folder: the agent file (no Edit), wake-ups listed (none fire; no switches,
+  nothing to add or delete), Files (browse, search, download — no upload,
+  create, rename or delete), Git when a repo is still there, and Apps listing
+  its conversation apps (they don't open — they run again after
+  Un-archive); no Desktop tab; the task line and voice can't be changed; a
+  role that is itself archived shows as plain text.
+
+While an un-archive runs the strip says so (still working after two
+minutes, it keeps waiting); once the agent is back the tab turns into the
+live conversation in place, with the agent window live and editable. A
+refusal stays in the strip, in the same words as search's notice. An agent
+whose history wasn't kept opens with a "No history was kept" notice.
 
 **Escape clears + blurs.** Escape empties the input, the everywhere link
 fades back out, and focus leaves.
@@ -882,8 +905,9 @@ not something agents drive.
     Add / change / remove that key to move in / between / out; adding one
     means also removing `.pinned`. UI reflects it within a few seconds.
     **User-gated.**
-  - **Archive** — retires the identity, after a confirm. See § On `/id
-    archive`.
+  - **Archive** — retires the identity, after a confirm, and closes every
+    open copy of its conversation (splits, other windows, other devices).
+    See § On `/id archive`.
 
   Much the same menu appears on the conversation's **task pill** in the
   open conversation view (top-center) — its own ⋯ button, or right-click —

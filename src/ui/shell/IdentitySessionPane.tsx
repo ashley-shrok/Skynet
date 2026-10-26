@@ -574,6 +574,12 @@ export const IdentitySessionPane = forwardRef<IdentityPaneHandle, IdentitySessio
             // terminal-mode surface badge would be a valid drag source.
             tabId={tabId}
             identityBadgeContextMenuItems={identityBadgeContextMenuItems}
+            // The server says this agent was archived: archiving closes every
+            // open copy of its conversation.
+            onAgentArchived={() => {
+              console.info(`[archived-view] live pane's agent archived — closing tabId=${tabId}`);
+              onCloseTab?.(tabId);
+            }}
             // Phase 137 Plan 03 (D-16): user's fallbackVoice preference for
             // the speak-flow voice candidates (identity → role → user fallback
             // → the TTS provider's default voice).

@@ -78,7 +78,7 @@ export function isSplittableActiveTab(
   identityKeys: { has(key: string): boolean },
 ): boolean {
   if (tab == null) return false;
-  if (tab.sessionKind === "relay-room") return true;
+  if (tab.sessionKind === "relay-room" || tab.sessionKind === "archived") return true;
   if (tab.type === "app" || tab.type === "file" || tab.type === "desktop") return true;
   return (
     tab.type === "terminal" &&

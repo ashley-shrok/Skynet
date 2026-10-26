@@ -23,6 +23,7 @@
 import type { DragEvent as ReactDragEvent } from "react";
 import { GitPullRequestDraft, Monitor } from "lucide-react";
 import { useIdentities } from "@/state/identities-store";
+import type { Identity } from "@/api/identities-api";
 import { useProjects } from "@/state/conversation-store";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { useTrappedWork } from "@/state/trapped-work-store";
@@ -58,6 +59,9 @@ export interface TaskPillProps {
   menuItems: RowKebabMenuItem[];
   /** Open the agent window, optionally on a specific tab. */
   onOpen: (tab?: TaskPillJumpTab) => void;
+  /** An archived agent (not in the identities registry): paint this look,
+   *  and show no round buttons — nothing is running. */
+  identity?: Identity;
 }
 
 // Each side keeps the pane margin plus room for both round buttons, so the
@@ -76,12 +80,15 @@ export function TaskPill({
   dragDescriptor,
   menuItems,
   onOpen,
+  identity: archivedIdentity,
 }: TaskPillProps) {
   const { byKey, byHostKey } = useIdentities();
   const nameLc = identityKey.toLowerCase();
-  const identity = Number.isFinite(hostId)
-    ? (byHostKey?.get(`${hostId}::${nameLc}`) ?? byKey.get(nameLc))
-    : byKey.get(nameLc);
+  const identity =
+    archivedIdentity ??
+    (Number.isFinite(hostId)
+      ? (byHostKey?.get(`${hostId}::${nameLc}`) ?? byKey.get(nameLc))
+      : byKey.get(nameLc));
   const isMobile = useIsMobile();
   // Touch screens drag nothing — a press-and-hold there opens the menu.
   const isDragSource = !!tabId && !isMobile && !isCoarsePointer();
@@ -225,7 +232,7 @@ export function TaskPill({
           </span>
         )}
       </div>
-      {(desktopRunning || hasUnpushed) && (
+      {!archivedIdentity && (desktopRunning || hasUnpushed) && (
         <div
           data-testid="pv-task-pill-side"
           className="absolute top-1/2 -translate-y-1/2 flex flex-row gap-2"

@@ -637,6 +637,7 @@ export type CompactionGuidanceEvent = {
 };
 
 export type ClaudeSessionServerEvent =
+  | ArchivedStateEvent
   | SessionMetaEvent
   | DormantSessionMetaEvent
   | MessageEvent
@@ -703,6 +704,39 @@ export type ConnectToPanePayload = {
   type: "connectToPane";
   hostId: number;
   tmuxSession: string;
+  /** Open an archived agent's conversation, view-only (`tmuxSession` = its name). */
+  archived?: boolean;
+};
+
+/** An archived agent's look, read by the server from its archived identity file. */
+export type ArchivedIdentityLook = {
+  identityKey: string;
+  hostId: number;
+  displayName: string;
+  title: string | null;
+  colorHue: number | null;
+  voice: string | null;
+  task: string | null;
+  role: string | null;
+  roles: string[];
+  /** Roles whose own folder is archived — shown as plain text, not links. */
+  archivedRoles: string[];
+  roleDisplayNames: Record<string, string | null>;
+  /** The single live role's picture, or "". */
+  avatarUrl: string;
+};
+
+/**
+ * Where an agent's folder is, as the server sees it: on an archived
+ * conversation (`connectToPane` with `archived: true`) it opens with this
+ * frame; a live conversation gets `state: "archived"` when its agent has been
+ * archived. `noHistory` = archived, but no history was kept.
+ */
+export type ArchivedStateEvent = {
+  type: "archived_state";
+  state: "live" | "archived" | "gone";
+  look?: ArchivedIdentityLook;
+  noHistory?: boolean;
 };
 
 // Phase 14 Wave 2 — client -> server payloads for the aside subsystem.
@@ -803,6 +837,8 @@ export type IdentityGetIdentityFilePayload = {
   identityKey: string;
   /** patch #92: pane's SSH host id — backend routes reads to the pane's box. */
   hostId: number;
+  /** Read the archived agent's file (~/fleet/identities-archive/<key>/). */
+  archived?: boolean;
 };
 export type IdentityIdentityFileEvent = { type: "identity:identity-file"; markdown: string; error?: string };
 
@@ -850,6 +886,28 @@ export type IdentityListWakeupsPayload = {
   identityKey: string;
   /** patch #92: pane's SSH host id — backend routes reads to the pane's box. */
   hostId: number;
+  /** Read the archived agent's wake-ups. */
+  archived?: boolean;
+};
+
+/** An archived agent's conversation apps (view-only window). */
+export type IdentityListArchivedAppsPayload = {
+  type: "identity:list-archived-apps";
+  identityKey: string;
+  hostId: number;
+};
+
+export type ArchivedConversationApp = {
+  slug: string;
+  title: string;
+  description: string | null;
+  iconDataUrl: string | null;
+};
+
+export type IdentityArchivedAppsEvent = {
+  type: "identity:archived-apps";
+  apps: ArchivedConversationApp[];
+  error?: string;
 };
 export type IdentityWakeupsEvent = { type: "identity:wakeups"; wakeups: Wakeup[]; error?: string };
 

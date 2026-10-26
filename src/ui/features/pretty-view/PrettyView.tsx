@@ -23,6 +23,7 @@ import {
   // consumed via ClaudeSessionServerEvent's discriminated union (Plan 01
   // widened the union) — no separate import needed.
   type FetchOlderRangePayload,
+  type ArchivedStateEvent,
 } from "@/api/claude-session-api";
 // Phase 47 (load-more button) — presentational component (Plan 02 output).
 // Mounted at the top of the message-list scroll container by Task 2b.
@@ -398,6 +399,27 @@ export interface PrettyViewProps {
   // Optional with a default of {} so existing call sites without the prop
   // keep working (no fallback candidate is sent).
   userPrefs?: UserPreferences;
+  /**
+   * An archived agent's conversation, view-only (opened from search). The
+   * pane connects with `archived: true`, paints the given identity, has no
+   * compose box (`footer` takes its place) and opens the agent window
+   * view-only.
+   */
+  archived?: ArchivedViewProps;
+  /** A live conversation whose agent the server says is archived — the
+   *  pane closes (archiving closes every open copy). */
+  onAgentArchived?: () => void;
+}
+
+export interface ArchivedViewProps {
+  identity: Identity;
+  /** Roles whose own folder is archived (plain text in the agent window). */
+  archivedRoles: string[];
+  onState: (event: ArchivedStateEvent) => void;
+  /** Shown where the compose box would be. */
+  footer: React.ReactNode;
+  /** A notice over the messages (no history kept, no longer archived). */
+  overlay?: React.ReactNode;
 }
 
 type Status = "connecting" | "streaming" | "inactive" | "error";
@@ -700,7 +722,14 @@ export function PrettyView({
   tabId,
   identityBadgeContextMenuItems,
   userPrefs = {},
+  archived,
+  onAgentArchived,
 }: PrettyViewProps) {
+  // Read inside the WS handler (a long-lived closure).
+  const archivedRef = useRef(archived);
+  archivedRef.current = archived;
+  const onAgentArchivedRef = useRef(onAgentArchived);
+  onAgentArchivedRef.current = onAgentArchived;
   // Phase 92 Slice 1 (D-07 fallback synthesis): during Slice 1 the `source`
   // prop is optional so existing PrettyView tests that predate Phase 92
   // mount byte-identically. When omitted, synthesize a harness-kind source
@@ -2631,7 +2660,11 @@ export function PrettyView({
   // identity for this pane's host. `hostId` is a prop of PrettyView (see the
   // Props declaration around L244) and is already threaded through the pane
   // for context-pct, waiting-key, paneKey, etc.
-  const { identity: pvIdentity, identityHue: pvIdentityHue } = useSessionIdentity(tmuxSession, hostId);
+  const { identity: storeIdentity, identityHue: storeIdentityHue } = useSessionIdentity(tmuxSession, hostId);
+  // An archived agent isn't in the identities registry — its look comes in
+  // with the archived conversation.
+  const pvIdentity = archived ? archived.identity : storeIdentity;
+  const pvIdentityHue = archived ? archived.identity.colorHue : storeIdentityHue;
   // 2026-10-06: hands-free voice mode feed for ComposeBox — same voice
   // resolution chain as the bubble speak buttons (identity → fallback).
   // Voice candidates in preference order (identity → role → user fallback);
@@ -2982,6 +3015,7 @@ export function PrettyView({
         type: "connectToPane",
         hostId,
         tmuxSession,
+        ...(archivedRef.current ? { archived: true } : {}),
       };
       try {
         ws.send(JSON.stringify(payload));
@@ -3067,6 +3101,20 @@ export function PrettyView({
         }
       };
       switch (parsed.type) {
+        case "archived_state": {
+          console.info(`[archived-view] state=${parsed.state} noHistory=${parsed.noHistory === true} archivedView=${archivedRef.current !== undefined} hostId=${hostId} identity=${tmuxSession ?? "null"}`);
+          if (archivedRef.current) {
+            if (parsed.state === "archived") {
+              // Settle like a sleeping pane: messages show, no overlays.
+              setStatus("streaming");
+              setPaneState("dormant");
+            }
+            archivedRef.current.onState(parsed);
+          } else if (parsed.state === "archived") {
+            onAgentArchivedRef.current?.();
+          }
+          break;
+        }
         case "pane_state": {
           // Phase 30 (PS30-01 + PS30-04): backend-authoritative pane-entry
           // verdict. Backend emits on WS attach (after connectToPane
@@ -4641,9 +4689,10 @@ export function PrettyView({
           hostId={hostId}
           tmuxSession={tmuxSession || null}
           tabId={tabId}
+          identity={archived ? archived.identity : undefined}
           dragDescriptor={{
             tabType: "terminal",
-            sessionKind: "harness",
+            sessionKind: archived ? "archived" : "harness",
             targetTmuxSession: tmuxSession || null,
           }}
           menuItems={identityBadgeContextMenuItems ?? []}
@@ -4691,6 +4740,7 @@ export function PrettyView({
           identity={pvIdentity}
           hue={pvHue}
           hostId={hostId}
+          archived={archived ? { archivedRoles: archived.archivedRoles } : undefined}
           // Phase 90 Plan 90-06 (D-04): title-line click handler — swap-not-stack
           // coordination. IdentityModal already fires onOpenChange(false) at the
           // same tick; this handler resolves the RoleSummary and opens the role
@@ -4760,6 +4810,7 @@ export function PrettyView({
           site (not the hook) exactly as PS30-06's own comment authorized
           if UAT surfaced the flash — which user's report did. */}
       {showResolvingSpinner && <PrettyViewLoadingOverlay />}
+      {archived?.overlay}
 
       {/* Inactive branch renders nothing — the label was noisy and sometimes
           flashed during the dormancy transition, per user 2026-08-31. */}
@@ -5185,6 +5236,9 @@ export function PrettyView({
             permanently uncomposable. Treating "inactive" the same as "dormant"
             for the mount decision is correct: both are "backend says no live
             claude for this pane"; on send, the invisible-wake path handles it. */}
+        {/* An archived conversation has no compose box: its strip
+            ("Archived" + Un-archive) sits where the composer would. */}
+        {archived && archived.footer}
         {(onSend || source.kind === "relay") && (status === "streaming" || status === "error" || renderedState === "error" || renderedState === "dormant" || renderedState === "active" || renderedState === "inactive" || source.kind === "relay") && (
           <ComposeBox
             // shape-interactive-responses: the agent's open question, shown in

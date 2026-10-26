@@ -20,6 +20,8 @@
 //                                path, the source conversation's spec)
 //   desktop:<hostId>:<identity>  an agent's virtual desktop pane (numeric
 //                                host id, identity name)
+//   archived:<host>:<identity>   an archived agent's conversation, view-only
+//                                (opened from search; same shape as tmux)
 //
 // active=<N> is the zero-based index (within the emitted `tab=` list) of the
 // tab that should be focused on restore. Omitted if the active tab isn't
@@ -66,7 +68,9 @@ const STORAGE_KEY = "skynet_pending_tab";
 // whichever discriminant is present.
 export type TabSpec =
   | {
-      protocol: "tmux" | "terminal" | "rdp" | "vnc" | "telnet";
+      // "archived" = an archived agent's conversation: host + identity name
+      // carried in `session`, the same shape as tmux.
+      protocol: "tmux" | "archived" | "terminal" | "rdp" | "vnc" | "telnet";
       host: string;
       session?: string;
       roomId?: never;
@@ -161,6 +165,7 @@ export interface WorkspaceSpec {
 
 const PROTOCOLS: TabSpec["protocol"][] = [
   "tmux",
+  "archived",
   "terminal",
   "rdp",
   "vnc",
@@ -241,7 +246,7 @@ export function parseTabParam(raw: string | null): TabSpec | null {
     if (roomId.length > 512) return null;
     return { protocol: "relay", roomId };
   }
-  if (protocol === "tmux") {
+  if (protocol === "tmux" || protocol === "archived") {
     const idx2 = rest.indexOf(":");
     if (idx2 === -1) return null;
     // Phase 97 code-review Fix 5 (extended via quick-260910-gqi): tmux mirror
@@ -263,6 +268,7 @@ export function parseTabParam(raw: string | null): TabSpec | null {
       return null;
     }
     if (!host || !session) return null;
+    if (protocol === "archived" && !DESKTOP_IDENTITY_RE.test(session)) return null;
     return { protocol, host, session };
   }
   // Phase 120 D-16: app variant — two-argument grammar `app:<hostId>:<slug>`.
@@ -399,7 +405,7 @@ export function encodeTabSpec(spec: TabSpec): string {
     return `file:${base64UrlEncode(JSON.stringify(parts))}`;
   }
   const parts = [spec.protocol, encodeURIComponent(spec.host)];
-  if (spec.protocol === "tmux" && spec.session) {
+  if ((spec.protocol === "tmux" || spec.protocol === "archived") && spec.session) {
     parts.push(encodeURIComponent(spec.session));
   }
   return parts.join(":");
@@ -445,7 +451,7 @@ export function specForTab(input: {
   type: TabType;
   host?: { name?: string; id?: string };
   targetTmuxSession?: string | null;
-  sessionKind?: "harness" | "relay-room";
+  sessionKind?: "harness" | "relay-room" | "archived";
   relayRoomId?: string;
   // Phase 120 D-16 — app-leaf tuple, mirrors `Tab.app` from ui-types.ts.
   // Present ONLY when input.type === "app". Plan 07's AppShell callsite
@@ -497,6 +503,9 @@ export function specForTab(input: {
   if (!input.host?.name) return null;
   const host = input.host.name;
   if (input.type === "terminal") {
+    if (input.sessionKind === "archived") {
+      return input.targetTmuxSession ? { protocol: "archived", host, session: input.targetTmuxSession } : null;
+    }
     if (input.targetTmuxSession) {
       return { protocol: "tmux", host, session: input.targetTmuxSession };
     }

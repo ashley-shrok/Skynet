@@ -85,6 +85,7 @@ export type GitDiffSpec = { diff: "working" } | { diff: "commit"; sha: string };
 
 function targetToWireFields(t: WorkspaceTarget): Record<string, string> {
   if (t.kind === "role") return { kind: "role", roleSlug: t.roleSlug };
+  if (t.kind === "archived-identity") return { kind: "archived-identity", identityKey: t.identityKey };
   return { identityKey: t.identityKey };
 }
 

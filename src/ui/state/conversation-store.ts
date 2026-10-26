@@ -47,6 +47,7 @@
 // functions. No dependency on zustand / jotai / redux / mobx — the fork
 // rolls its own stores (identities-store.ts is the reference).
 
+import { announceAgentArchived } from "@/features/archived-view/archived-identity";
 import { useSyncExternalStore } from "react";
 import type { Host, HostFolder, Tab, TabType } from "@/types/ui-types";
 import { setIdentityPinned } from "@/api/user-preferences-api";
@@ -404,6 +405,8 @@ function isConversationTab(tab: Tab): boolean {
   // tab.id — matches the selectedId set by selectConversationDeferred(tabId),
   // so the selection border renders.
   if (tab.sessionKind === "relay-room" && tab.relayRoomId) return true;
+  // An archived conversation opened from search has no sidebar row.
+  if (tab.sessionKind === "archived") return false;
   if (!tab.host) return false;
   return true;
 }
@@ -616,6 +619,8 @@ export function markPendingArchive(hostId: number, sessionName: string): void {
     pendingArchiveKey(hostId, sessionName),
     Date.now() + PENDING_ARCHIVE_TTL_MS,
   );
+  // Archiving closes every open copy of the conversation in this window.
+  announceAgentArchived(hostId, sessionName);
 }
 
 export function clearPendingArchive(hostId: number, sessionName: string): void {

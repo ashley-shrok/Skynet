@@ -35,6 +35,7 @@ import type {
 // mount site here doesn't materially move the cold-start chunk cost.
 import { PrettyView } from "@/features/pretty-view/PrettyView";
 import type { Tab, TabType, Host } from "@/types/ui-types";
+import { ArchivedConversationPane } from "@/features/archived-view/ArchivedConversationPane";
 import { isAppTab, isDesktopTab, isFileTab } from "@/types/ui-types";
 import type { SSHHost } from "@/types";
 // Phase 137 Plan 03 (D-16): UserPreferences threaded to PrettyView for the
@@ -271,6 +272,17 @@ function TerminalOrIdentitySessionPane({
   // matches renderDashboard's null pattern; the sidebar is the way back in.
   if (!host) {
     return null;
+  }
+
+  // An archived agent's conversation, opened from search: view-only, no
+  // terminal session. It turns itself into the live pane below once the
+  // agent is back (AppShell flips `sessionKind`).
+  if (tab.sessionKind === "archived" && tab.targetTmuxSession) {
+    return (
+      <Suspense fallback={null}>
+        <ArchivedConversationPane tab={tab} host={host} isVisible={isVisible} onCloseTab={onCloseTab} />
+      </Suspense>
+    );
   }
 
   const identityKey = tab.targetTmuxSession

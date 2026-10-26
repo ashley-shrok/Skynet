@@ -17,7 +17,7 @@ export function useGitReposAnswer(
   hostId: number,
   enabled: boolean,
 ): boolean | null {
-  const key = `${hostId}:${target.kind === "identity" ? `identity:${target.identityKey}` : `role:${target.roleSlug}`}`;
+  const key = `${hostId}:${target.kind === "role" ? `role:${target.roleSlug}` : `${target.kind}:${target.identityKey}`}`;
   // Keyed so a stale answer for another workspace never shows, while closing
   // and reopening the same modal keeps the tab instead of flickering it.
   const [answer, setAnswer] = useState<{ key: string; has: boolean } | null>(null);

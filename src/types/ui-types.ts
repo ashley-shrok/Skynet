@@ -231,7 +231,10 @@ export type Tab = {
   // non-relay tab (terminal / rdp / vnc / telnet / dashboard) simply omit
   // them. Backward-compat rule: dispatcher treats `sessionKind === undefined`
   // as harness/legacy (existing pane path).
-  sessionKind?: "harness" | "relay-room";
+  // "archived": an archived agent's conversation, opened from search —
+  // view-only, needs no terminal session; `targetTmuxSession` is the
+  // agent's name.
+  sessionKind?: "harness" | "relay-room" | "archived";
   relayRoomId?: string;
   relayRoomTitle?: string | null;
 

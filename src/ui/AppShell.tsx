@@ -91,6 +91,12 @@ import {
 // (mirrors the onDetachedRowClick handler shape at line ~3068).
 import type { ConversationSearchResult } from "@/api/conversation-search-api";
 import {
+  AGENT_ARCHIVED_EVENT,
+  ARCHIVED_TAB_LIVE_EVENT,
+  type AgentArchivedDetail,
+  type ArchivedTabLiveDetail,
+} from "@/features/archived-view/archived-identity";
+import {
   updateHostTree,
   updateOpenTabs,
   updateFleetSessions,
@@ -1344,7 +1350,8 @@ export function AppShell({
     const out: SeenTarget[] = [];
     for (const t of tabs) {
       if (!ids.has(t.id)) continue;
-      if (t.sessionKind === "relay-room" || !t.host || !t.targetTmuxSession) continue;
+      // Archived conversations are never unread.
+      if (t.sessionKind === "relay-room" || t.sessionKind === "archived" || !t.host || !t.targetTmuxSession) continue;
       out.push({ id: t.id, hostId: String(t.host.id), identityName: t.targetTmuxSession });
     }
     return out;
@@ -1929,11 +1936,12 @@ export function AppShell({
               continue; // skip the host-required logic below
             }
             const wantType: TabType =
-              spec.protocol === "tmux"
+              spec.protocol === "tmux" || spec.protocol === "archived"
                 ? "terminal"
                 : (spec.protocol as TabType);
             const wantSession =
-              spec.protocol === "tmux" ? (spec.session ?? null) : null;
+              spec.protocol === "tmux" || spec.protocol === "archived" ? (spec.session ?? null) : null;
+            const wantArchived = spec.protocol === "archived";
             // Look up host by name (case-insensitive) OR id as a rename-fallback.
             const needle = spec.host.toLowerCase();
             const host =
@@ -1950,7 +1958,8 @@ export function AppShell({
               (t) =>
                 t.host?.id === host.id &&
                 t.type === wantType &&
-                (t.targetTmuxSession ?? null) === wantSession,
+                (t.targetTmuxSession ?? null) === wantSession &&
+                (t.sessionKind === "archived") === wantArchived,
             );
             if (match) {
               openedIds.push(match.id);
@@ -1960,7 +1969,11 @@ export function AppShell({
                 wantType,
                 undefined,
                 wantSession
-                  ? { targetTmuxSession: wantSession, label: wantSession }
+                  ? {
+                      targetTmuxSession: wantSession,
+                      label: wantSession,
+                      ...(wantArchived ? { sessionKind: "archived" as const } : {}),
+                    }
                   : undefined,
               );
               if (newId) openedIds.push(newId);
@@ -2051,11 +2064,11 @@ export function AppShell({
                 continue;
               }
               const wantType: TabType =
-                spec.protocol === "tmux"
+                spec.protocol === "tmux" || spec.protocol === "archived"
                   ? "terminal"
                   : (spec.protocol as TabType);
               const wantSession =
-                spec.protocol === "tmux" ? (spec.session ?? null) : null;
+                spec.protocol === "tmux" || spec.protocol === "archived" ? (spec.session ?? null) : null;
               const needle = spec.host.toLowerCase();
               const host =
                 allHosts.find((h) => h.name.toLowerCase() === needle) ??
@@ -2169,14 +2182,15 @@ export function AppShell({
             if (hit) return hit;
             // Fallback: walk restoredTabs + closure tabs.
             const wantSession =
-              spec.protocol === "tmux" ? (spec.session ?? null) : null;
+              spec.protocol === "tmux" || spec.protocol === "archived" ? (spec.session ?? null) : null;
             const wantHostNeedle = spec.host.toLowerCase();
             for (const t of [...restoredTabs, ...tabs]) {
               const hostNameMatch =
                 (t.host?.name ?? "").toLowerCase() === wantHostNeedle;
               const hostIdMatch = t.host?.id === spec.host;
               const sessionMatch =
-                (t.targetTmuxSession ?? null) === wantSession;
+                (t.targetTmuxSession ?? null) === wantSession &&
+                (t.sessionKind === "archived") === (spec.protocol === "archived");
               if ((hostNameMatch || hostIdMatch) && sessionMatch) return t.id;
             }
             return null;
@@ -2247,7 +2261,7 @@ export function AppShell({
       // (PrettyView with source.kind === "relay" per Phase 93 Slice 4).
       // Plan 01 widened Tab with these three fields; here we accept them
       // as options and pass them onto the Tab object below.
-      sessionKind?: "harness" | "relay-room";
+      sessionKind?: "harness" | "relay-room" | "archived";
       relayRoomId?: string;
       relayRoomTitle?: string | null;
       // Phase 120 D-02 — app tuple. Present only when type === "app";
@@ -2380,7 +2394,8 @@ export function AppShell({
     });
     setActiveTabId(tabId);
 
-    if (PERSISTENT_TAB_TYPES.includes(type)) {
+    // Archived conversations aren't kept as background tab records.
+    if (PERSISTENT_TAB_TYPES.includes(type) && sessionKind !== "archived") {
       addOpenTab({
         id: instanceId,
         tabType: type,
@@ -2889,7 +2904,7 @@ export function AppShell({
       hostId?: number | null;
       descriptor?: {
         tabType?: TabType;
-        sessionKind?: "harness" | "relay-room";
+        sessionKind?: "harness" | "relay-room" | "archived";
         relayRoomId?: string;
         relayRoomTitle?: string | null;
         targetTmuxSession?: string | null;
@@ -2970,6 +2985,8 @@ export function AppShell({
           targetTmuxSession: descriptor.targetTmuxSession ?? null,
           label: descriptor.targetTmuxSession ?? undefined,
           allowCreateTmux: false,
+          // An archived conversation moves to the other window as archived.
+          ...(descriptor.sessionKind === "archived" ? { sessionKind: "archived" as const } : {}),
         });
       }
       return openTab(host, type);
@@ -2990,7 +3007,7 @@ export function AppShell({
         hostId?: number | null;
         descriptor?: {
           tabType?: TabType;
-          sessionKind?: "harness" | "relay-room";
+          sessionKind?: "harness" | "relay-room" | "archived";
           relayRoomId?: string;
           relayRoomTitle?: string | null;
           targetTmuxSession?: string | null;
@@ -3035,7 +3052,7 @@ export function AppShell({
         hostId?: number | null;
         descriptor?: {
           tabType?: TabType;
-          sessionKind?: "harness" | "relay-room";
+          sessionKind?: "harness" | "relay-room" | "archived";
           relayRoomId?: string;
           relayRoomTitle?: string | null;
           targetTmuxSession?: string | null;
@@ -3099,7 +3116,8 @@ export function AppShell({
     if (!tabsReady) return;
     const inTree = new Set(collectTabIds(splitTree));
     for (const t of tabs) {
-      if (t.type !== "file" && t.type !== "desktop") continue;
+      // Archived conversations have no sidebar row either (search opens them).
+      if (t.type !== "file" && t.type !== "desktop" && t.sessionKind !== "archived") continue;
       if (inTree.has(t.id) || t.id === activeTabId || t.id === selectedConversationId) continue;
       systemLogger.info(`[${t.type}-pane] closing unreachable ${t.type} pane`, {
         operation: `${t.type}_pane_close_unreachable`,
@@ -3120,6 +3138,46 @@ export function AppShell({
   useEffect(() => {
     tabsRef.current = tabs;
   });
+
+  // An archived conversation whose agent is back turns into the live
+  // conversation in place: same tab, same spot in the split, same window.
+  useEffect(() => {
+    const onLive = (e: Event) => {
+      const { tabId } = (e as CustomEvent<ArchivedTabLiveDetail>).detail;
+      setTabs((prev) =>
+        prev.map((t) => {
+          if (t.id !== tabId || t.sessionKind !== "archived") return t;
+          const { sessionKind: _archived, ...live } = t;
+          return live;
+        }),
+      );
+      systemLogger.info(`[archived-view] tab turned live tabId=${tabId}`, { operation: "archived_tab_live", tabId });
+    };
+    window.addEventListener(ARCHIVED_TAB_LIVE_EVENT, onLive);
+    return () => window.removeEventListener(ARCHIVED_TAB_LIVE_EVENT, onLive);
+  }, []);
+
+  // Archiving an agent closes every open copy of its conversation in this
+  // window (other windows and devices are told by the server).
+  useEffect(() => {
+    const onArchived = (e: Event) => {
+      const { hostId, identityKey } = (e as CustomEvent<AgentArchivedDetail>).detail;
+      const key = identityKey.toLowerCase();
+      for (const t of tabsRef.current) {
+        if (t.type !== "terminal" || t.sessionKind === "relay-room" || t.sessionKind === "archived") continue;
+        if (t.host?.id !== String(hostId) || (t.targetTmuxSession ?? "").toLowerCase() !== key) continue;
+        systemLogger.info(`[archived-view] closing copy of archived conversation tabId=${t.id}`, {
+          operation: "archived_conversation_copy_closed",
+          tabId: t.id,
+          hostId,
+          identityKey: key,
+        });
+        doCloseTabRef.current(t.id);
+      }
+    };
+    window.addEventListener(AGENT_ARCHIVED_EVENT, onArchived);
+    return () => window.removeEventListener(AGENT_ARCHIVED_EVENT, onArchived);
+  }, []);
   useEffect(() => {
     const unsub = subscribeToDragAccepts((tabId) => {
       // eslint-disable-next-line no-console
@@ -3859,6 +3917,32 @@ export function AppShell({
             // commit cf4ced1b).
             const host = hostsById.get(result.hostId);
             if (!host) return;
+            if (result.isArchived) {
+              // A view-only archived conversation tab; an open copy is
+              // brought forward instead of opening a second.
+              const key = result.identityKey.toLowerCase();
+              const existing = tabsRef.current.find(
+                (t) =>
+                  t.sessionKind === "archived" &&
+                  t.host?.id === host.id &&
+                  (t.targetTmuxSession ?? "").toLowerCase() === key,
+              );
+              const tabId =
+                existing?.id ??
+                openTab(host, "terminal", undefined, {
+                  targetTmuxSession: key,
+                  label: result.displayName || key,
+                  sessionKind: "archived",
+                  allowCreateTmux: false,
+                });
+              console.info(`[archived-view] open hostId=${result.hostId} identity=${key} tabId=${tabId} existing=${!!existing}`);
+              setActiveTabId(tabId);
+              selectConversationDeferred(tabId);
+              if (isTouchDevice) navigateToView();
+              if (isMobile) setSidebarOpen(false);
+              sidebarPeek.close("item-opened");
+              return;
+            }
             const sessionName = result.tmuxSessionName;
             if (!sessionName) return;
             const newTabId = openTab(host, "terminal", undefined, {
@@ -4890,7 +4974,7 @@ export function AppShell({
                           hostId?: number | null;
                           descriptor?: {
                             tabType?: TabType;
-                            sessionKind?: "harness" | "relay-room";
+                            sessionKind?: "harness" | "relay-room" | "archived";
                             relayRoomId?: string;
                             relayRoomTitle?: string | null;
                             targetTmuxSession?: string | null;
@@ -4909,7 +4993,7 @@ export function AppShell({
                           hostId?: number | null;
                           descriptor?: {
                             tabType?: TabType;
-                            sessionKind?: "harness" | "relay-room";
+                            sessionKind?: "harness" | "relay-room" | "archived";
                             relayRoomId?: string;
                             relayRoomTitle?: string | null;
                             targetTmuxSession?: string | null;

@@ -222,7 +222,7 @@ export function useLoad<T>(fetcher: () => Promise<T>, deps: unknown[]): Load<T> 
 }
 
 export function targetDepKey(t: WorkspaceTarget): string {
-  return t.kind === "identity" ? `identity:${t.identityKey}` : `role:${t.roleSlug}`;
+  return t.kind === "role" ? `role:${t.roleSlug}` : `${t.kind}:${t.identityKey}`;
 }
 
 // ---------------------------------------------------------------------------

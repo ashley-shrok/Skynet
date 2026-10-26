@@ -35,6 +35,7 @@
 
 // ─── Global mocks BEFORE imports ─────────────────────────────────────────────
 
+import { seededArchivedLook } from "@/features/archived-view/archived-identity";
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { useState } from "react";
 import {
@@ -1116,12 +1117,14 @@ describe("Phase 143 — kebab-menu Un-archive on archived-identity rows (D-11, D
     expect(alertMsg).toMatch(/try again in a moment/i);
   });
 
-  it("12: left-click on archived row is a no-op (D-11 explicit — no drill-in, no alert, no modal close)", async () => {
+  it("12: left-click on an archived row opens it (view-only tab) and closes search, handing its look over", async () => {
     const archivedRow = makeRow({
       transcriptPath: "/archived10.jsonl",
       identityKey: "leo",
       hostId: 1,
       isArchived: true,
+      displayName: "Leo",
+      colorHue: 140,
     });
     const onOpenChange = vi.fn();
     const onOpenActive = vi.fn();
@@ -1140,13 +1143,12 @@ describe("Phase 143 — kebab-menu Un-archive on archived-identity rows (D-11, D
     const row = screen.getByTestId("conversation-search-row-/archived10.jsonl");
     await user.click(row);
 
-    // D-11: left-click on archived row is a no-op
-    // - onOpenActiveConversation NEVER called (no drill-in)
-    // - onOpenChange NEVER called with false (modal stays open)
-    // - kit notice NEVER called (no blunt left-click alert leaks back — D-27 retired)
-    expect(onOpenActive).not.toHaveBeenCalled();
-    expect(onOpenChange).not.toHaveBeenCalledWith(false);
+    expect(onOpenActive).toHaveBeenCalledTimes(1);
+    expect(onOpenActive.mock.calls[0][0]).toMatchObject({ identityKey: "leo", isArchived: true });
+    expect(onOpenChange).toHaveBeenCalledWith(false);
     expect(alertSpy.calls).toHaveLength(0);
+    // The tab paints with the result's name and colour before the server answers.
+    expect(seededArchivedLook(1, "leo")).toMatchObject({ displayName: "Leo", colorHue: 140 });
   });
 });
 

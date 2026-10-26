@@ -24,7 +24,7 @@ export interface DraggedBadge {
   hostId: number | null;
   /** The badge's identity name (for a relay-room agent cell, that agent). */
   identityKey: string | null;
-  sessionKind: "harness" | "relay-room" | null;
+  sessionKind: "harness" | "relay-room" | "archived" | null;
   targetTmuxSession: string | null;
   relayRoomId: string | null;
 }
@@ -36,7 +36,7 @@ export interface BadgeDragSource {
   hostId: number | null;
   descriptor: {
     tabType: string;
-    sessionKind?: "harness" | "relay-room";
+    sessionKind?: "harness" | "relay-room" | "archived";
     relayRoomId?: string;
     relayRoomTitle?: string | null;
     targetTmuxSession?: string | null;
@@ -96,7 +96,9 @@ export function parseBadgePayload(raw: string): DraggedBadge | null {
     hostId: typeof p.hostId === "number" && Number.isFinite(p.hostId) ? p.hostId : null,
     identityKey: str(p.identityKey),
     sessionKind:
-      d.sessionKind === "harness" || d.sessionKind === "relay-room" ? d.sessionKind : null,
+      d.sessionKind === "harness" || d.sessionKind === "relay-room" || d.sessionKind === "archived"
+        ? d.sessionKind
+        : null,
     targetTmuxSession: str(d.targetTmuxSession),
     relayRoomId: str(d.relayRoomId),
   };
