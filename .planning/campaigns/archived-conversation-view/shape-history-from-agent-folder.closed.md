@@ -112,3 +112,40 @@ anything the user sees.
 - Paths handed to remote readers must be the host's view of the path, not
   the container's.
 - The id skill doesn't need an edit unless something user-visible changes.
+
+---
+
+## Close-Out
+
+**Closed:** 2026-10-26
+**Overall verdict:** closed-hit
+
+### Shape features (conformance)
+
+- **What this is** — present · All five places that find an agent's history now go to the agent's own history folder and take the newest file that starts with the agent's load: the conversation view (running and sleeping), the sidebar status reading, the memory pie, search, and the newborn check. The folder name is worked out from the agent's name alone.
+- **Shape: The one lookup** — present · It looks only inside the agent's own folder. A file counts only if its first real user message is the agent's own load, so harness records written earlier are skipped. Bare test sessions never match, and the newest matching file wins. There is no fallback. The same rule is used in the server and both host-side sweeps, and a shared test checks all three agree.
+- **Shape: Who uses it** — present · Conversation view (both branches), sidebar (server adapter and host sweep), memory pie sweep, search (newest only, one result per agent), and the newborn check (birth orchestrator and spawn worker). The view's shared cache is filled from the lookup too.
+- **Shape: The conversation view** — present · On open, both running and sleeping agents get their file from the lookup. Once a file is found, later checks only ask whether Claude is running. A view with no file yet keeps looking until one appears. There is no ongoing check for a newer file.
+- **Shape: Running, sleeping, restarting** — present · The terminal still answers "is it running?" and the sleep-marker check is unchanged. Waking keeps the sleeping view's stream when the file is the same.
+- **Shape: Gone** — present · Removed: the terminal route to a process's own record of its history file, the sleeping loader's machine-wide scan, search's machine-wide scan, and the whole-machine walks in both sweeps.
+- **Philosophy** — present · One lookup everywhere. No new access check. Running and sleeping detection is unchanged. Nothing visible changed on purpose.
+- **Prior context** — present · "One file for life" is built in. The agents that drop out do so as the shape accepted.
+- **What would make it wrong: The view showing another agent's messages, or a bare test session started in the agent's folder** — present · A file must sit in the agent's own folder and start with its own load. Partial names are refused, and bare sessions never match.
+- **What would make it wrong: A sleeping agent's conversation looking different, slower or emptier; waking making history flicker or reload** — present · The display pipeline is the same, and waking keeps the existing stream. Speed is a testing question and out of scope here.
+- **What would make it wrong: Sending, Stop, permission prompts, working indicator or new messages behaving differently for a running agent** — present · Only history finding and the wake handoff were edited.
+- **What would make it wrong: Any remaining place still finding history through the terminal or by scanning the whole machine** — present · None remain. The restarter keeps its own per-folder lookup, which is the model.
+- **What would make it wrong: Two parts of the app disagreeing about which file is an agent's history** — present · Every part uses the same rule, and the real-path naming is checked by the shared test.
+- **Scope edges** — drifted · The other-machines confirmation is partly done: ashley-beelink and ashley-laptop were offline, and that check is handed to Domino. Nothing out of scope or "tempting but no" was built.
+
+### Additions (in the result, not in the shape)
+
+None.
+
+### Follow-ups
+
+- Confirm the history-folder naming and first-message shape on ashley-beelink and ashley-laptop (offline at the check; assigned to Domino) — deferred
+- After the deploy, Domino moves the five live legacy agents into their own folders. Those conversations are blank until then, which Ashley accepted — accepted-as-drift
+
+### Notes
+
+One comment in the sidebar orchestrator still describes the old machine-wide scan; it is not a conformance issue. Keeping the sleeping view's stream on wake is how the "no swap, no flicker" item was met, not a new feature.

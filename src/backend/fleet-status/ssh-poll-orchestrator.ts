@@ -926,10 +926,10 @@ function isRealUserTurn(rawLine: string): { ok: true; ts: number } | { ok: false
 // Claude Code sessionId rotation on resume (a live session
 // could silently point at a stale JSONL that had stopped growing). The
 // orchestrator now derives the JSONL path via
-// `discoverIdentityJsonlPathViaChannel` (Phase 32 byte-pattern
-// mechanism) — mtime-newest JSONL under `~/.claude/projects/*​/` whose
-// first user-role line matches `/id <identityName>`. Stable across
-// resume. See 44-CONTEXT.md § ssh-poll-orchestrator.ts swap.
+// `discoverIdentityJsonlPathViaChannel` — the agent-history lookup
+// (agent-history-file.ts): newest JSONL in the agent's OWN history folder
+// whose first user-role line matches `/id <identityName>`. Stable across
+// resume.
 
 /**
  * Parse a JSONL blob (the raw stdout of a `tail -c 262144 <jsonl-path>` exec)
