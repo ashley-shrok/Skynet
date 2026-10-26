@@ -54,13 +54,14 @@ archived, with Un-archive on it.
 
 - Role file learned-preference: start work with `/build`, not `/open` —
   done (2026-10-25, Ashley approved)
-- Legacy agents outside their own history folder (5 live: workstation aqua,
-  becky, whitney, willa; zoeybattlestation commander-zoey; ~25 archived on
-  workstation/thenasty plus t1000 "tina") — handed to domino-box-maintainer-2
-  (spawned 2026-10-25 at Ashley's ask) to move into their own folders without
-  losing context. GATE: shape 1 resumes (/close, review, UAT) only once
-  Domino reports done — Ashley: "consider it finishing the gate to continue
-  with this" — open
+- Legacy agents outside their own history folder — domino-box-maintainer-2
+  (spawned 2026-10-25 at Ashley's ask). Archived ones DONE (25: t1000 tina;
+  workstation 22; thenasty george, nelly — re-verified: all resolve from their
+  own folder). The 5 LIVE ones (workstation aqua, willa, becky, whitney;
+  zoeybattlestation commander-zoey) move right after this campaign's deploy
+  (Ashley: "Carry on, deploy at the end", 2026-10-26). AT CAMPAIGN CLOSE: once
+  the deploy is live, DM Domino to start; those 5 conversations are blank for
+  the minutes in between — open
 - Slash-command audit — which Claude Code commands (e.g. `/clear`) break
   Skynet's assumptions and should be blocked; rigel-box-maintainer-4
   (Ashley: "Spawn it", 2026-10-26), report delivered to Ashley in its
