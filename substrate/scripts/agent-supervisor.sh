@@ -3568,7 +3568,13 @@ launch() {
   if disc="$(resolve_session "$name")"; then
     cwd="${disc%%$'\t'*}"; resume="${disc#*$'\t'}"
     log "'$name' launch: resolve_session picked token=${resume:0:8} cwd='$cwd'"
-    if [ ! -d "$cwd" ]; then log "'$name' recorded workdir '$cwd' missing — fresh /id in \$HOME"; cwd="$HOME"; resume=""; fi
+    if [ ! -d "$cwd" ]; then
+      # Keep the resume: `claude --resume <id>` finds the session from any directory, and a fresh
+      # start would lose the agent's whole context. Only the starting directory changes.
+      local _missing="$cwd"
+      if [ -d "$IDENTITIES_DIR/$name/workspace" ]; then cwd="$IDENTITIES_DIR/$name/workspace"; else cwd="$HOME"; fi
+      log "'$name' recorded workdir '$_missing' missing — resuming in '$cwd' instead"
+    fi
   elif [ -d "$IDENTITIES_DIR/$name/workspace" ]; then
     cwd="$IDENTITIES_DIR/$name/workspace"
     log "'$name' launch: resolve_session found no prior session — using convention workdir '$cwd'"
