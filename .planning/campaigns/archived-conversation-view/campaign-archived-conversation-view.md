@@ -44,7 +44,12 @@ archived, with Un-archive on it.
 - **[declared] shape-history-from-agent-folder** — one lookup (agent's own
   history folder, newest file starting with its `/id`) used by the
   conversation view, search, and the memory pie; drop the terminal route and
-  the sleeping-agent loader; no visible change for live/sleeping conversations — in_progress
+  the sleeping-agent loader; no visible change for live/sleeping conversations — closed
+  (2026-10-26, closed-hit; review fixes in 1136dc15). Agent UAT so far is
+  real-data checks of every lookup: the shell inside the live container,
+  and both sweeps on t1000, workstation, thenasty and zoey. The end-to-end
+  walk of live, sleeping and waking conversations in the app happens at
+  campaign close, after deploy
 - **[declared] shape-archived-conversation-tab** — archived search result
   opens as a normal read-only conversation tab (new tab kind that needs no
   terminal session, survives reload/split/drag), archived marking,
