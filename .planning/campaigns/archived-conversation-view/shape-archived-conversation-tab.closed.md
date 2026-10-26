@@ -110,3 +110,47 @@ parallel set of archive screens.
 - Tabs restore from the page address, so the new kind needs its own entry
   there; cross-window drag rebuilds tabs from a description of the pane, so it
   needs one too.
+
+---
+
+## Close-Out
+
+**Closed:** 2026-10-26
+**Overall verdict:** closed-hit (reviewer's provisional closed-partial; both open divergences settled with Ashley — one fixed, one dropped by her)
+
+### Shape features (conformance)
+
+- **What this is** — present · Clicking an archived result opens a view-only conversation tab with the agent's look and full history, marked Archived with Un-archive; the pill opens the agent window view-only; Un-archive turns it live in place.
+- **Shape: the archived conversation tab** — present · Search closes; an open copy is brought forward; look from search then the server; history with Load older messages; Archived strip in the composer's place; never unread; no memory pie, working indicator or permission bubble; own page-address and drag entries (reload, split, other windows, Move to new tab); full screen on a phone.
+- **Shape: the pill's menu** — present · Move to new tab, Close, Un-archive only (the first two desktop-only, as for live conversations).
+- **Shape: the agent's window, view-only** — present · Agent file without Edit; wake-ups listed, none fire, no switches/new/delete; Files read-only, server refuses every write; Git when a repo exists; Apps listed, not openable, with the "run again after Un-archive" line; no Desktop; task and voice fixed; archived roles plain text.
+- **Shape: Un-archive** — present · Strip and pill menu; working → coming back; past two minutes it keeps waiting and turns live without a reload; an open agent window carries over live on the same tab; refusals in search's words.
+- **Shape: archiving closes every open copy** — present · This window at once; other windows and devices when the server tells a live pane its agent is archived.
+- **Shape: reload and other edge states** — present · A reloaded tab whose agent is live again waits, then turns live; no-history notice.
+- **Shape: where the server looks** — present (after fix) · Reviewer found the agent window's reads let the browser pick the archive folder. Ashley: "Yes, fix it." Fixed in f7f00f28: the host decides (live folder wins, else the archive) for every window read.
+- **Philosophy** — present · Same views with view-only switches; one server rule.
+- **Prior context** — present · Shape 1's lookup; search's Un-archive outcomes and wording (now shared).
+- **What would make it wrong: anything that can change the agent, its files, or send it a message** — present · No composer; server drops input for the view; workspace writes refused.
+- **What would make it wrong: looks like a broken live conversation** — present · Settles like a sleeping pane; explicit notices.
+- **What would make it wrong: server reading a location chosen by the browser** — present (after fix) · See "where the server looks".
+- **What would make it wrong: access decided by anything other than machine access** — present · Existing per-machine checks only.
+- **What would make it wrong: Un-archive leaving the user to re-find the conversation** — present · Turns live in place, window carried over.
+- **What would make it wrong: a tab for a just-archived agent lingering** — present · Same-window close plus the server's signal.
+- **Scope edges: IN — id skill description** — present · Search click, the tab, pill menu, view-only window, Un-archive flow, no-history notice; Archive closes every copy.
+- **Scope edges: IN — What's-new note** — dropped · Ashley: "No note."
+- **Scope edges: OUT items** — present · No editing, apps never run, no sidebar row or filing, search changed only in the click.
+
+### Additions (in the result, not in the shape)
+
+- A "Not in the archive" notice (no Un-archive offered) when the agent is in neither the live list nor the archive — endorsed-as-drift (Ashley: "Keep it.")
+- Archived wake-up rows can't be opened for detail — endorsed-as-drift (reviewer: within the view-only spirit)
+
+### Follow-ups
+
+- None.
+
+### Notes
+
+Material reviewed: the change from 3b33a436 to HEAD (4 commits, 38 files) before the window-reads fix. Behaviour not tested by the reviewer, per the brief; end-to-end walk is at campaign close, after deploy.
+
+Code review (after close-out) found and fixed, in f0d27188: copies of a sleeping or running agent open elsewhere now close when it's archived (the server tells them); gone / live-again tabs no longer sit under the loading spinner; a tab turns live only once it's coming back; "live" means the live folder holds the agent's file, and creating a wake-up never makes a folder for an agent that isn't live; copies close only after the archive succeeds; symlinks never read for archived apps. All within the shape. Agent UAT (pre-deploy): the server pieces run against real archived agents on t1000 (folder state, history, workspace root, apps) and the container sees the archive through its mount. The in-app walk is at campaign close, after deploy. One behaviour to know: like file and desktop panes, an archived tab that is neither on screen nor in a split is closed (it has no sidebar row to come back to).

@@ -53,7 +53,10 @@ archived, with Un-archive on it.
 - **[declared] shape-archived-conversation-tab** — archived search result
   opens as a normal read-only conversation tab (new tab kind that needs no
   terminal session, survives reload/split/drag), archived marking,
-  Un-archive, search click wired to it; depends on shape 1 — in_progress
+  Un-archive, search click wired to it; depends on shape 1 — closed
+  (2026-10-26, closed-hit; window reads fixed to host-decided at Ashley's
+  "Yes, fix it"; What's-new note dropped — Ashley: "No note"; "Not in the
+  archive" notice kept; review fixes in f0d27188)
 
 ## Other work
 
