@@ -1140,6 +1140,14 @@ export type SendMessageAsUserOk = AdminOk<{ eventId: string }>;
 
 const TOKEN_CACHE_TTL_MS = 60 * 60 * 1000; // 1 hour
 
+/**
+ * Lifetime for a token minted for a single call (invite / create a room as a
+ * user). Without one, every call left a token behind that never expired — and
+ * because the admin account owns those tokens, deactivating the user doesn't
+ * revoke them either.
+ */
+export const ONE_CALL_TOKEN_TTL_MS = 10 * 60 * 1000;
+
 interface CachedUserToken {
   token: string;
   expiresAt: number;
@@ -1317,7 +1325,7 @@ export async function inviteToRoom(
 
   let accessToken: string;
   if (senderMxid !== undefined) {
-    const login = await loginAsUser(senderMxid);
+    const login = await loginAsUser(senderMxid, Date.now() + ONE_CALL_TOKEN_TTL_MS);
     if (!login.ok) return login;
     accessToken = login.accessToken;
   } else {
@@ -1395,7 +1403,7 @@ export async function createRoomAsUser(
     return { ok: false, status: 500, error: ERR_CREDS_MISSING };
   }
 
-  const login = await loginAsUser(senderMxid);
+  const login = await loginAsUser(senderMxid, Date.now() + ONE_CALL_TOKEN_TTL_MS);
   if (!login.ok) {
     assertAdminErr(login);
     return login;

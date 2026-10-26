@@ -7,7 +7,8 @@
  * The chat admin credentials never leave the backend; this is the one narrow
  * thing a host may ask of them.
  *
- * The request names the account only. Archiving erases the account's
+ * The request names the account and, optionally, the display name to give it
+ * back (archiving's erase deletes it). Archiving also erases the account's
  * password on the chat server, so reactivating always sets a new one: the
  * backend generates it and it travels back only in the response to the host
  * that asked. Refused unless the account:
@@ -45,6 +46,13 @@ const ACCOUNT_RE = /^@([a-z0-9._=\-/]{1,200}):([A-Za-z0-9.\-:[\]]{1,255})$/;
 export const identityReactivateInput = z.strictObject({
   /** Full chat account id from the archived identity's relay.json, e.g. "@ace:server". */
   account: z.string().regex(ACCOUNT_RE, "must be a full chat account id like @name:server"),
+  /** The identity's displayName from its identity file; set on the reactivated account. */
+  display_name: z
+    .string()
+    .min(1)
+    .max(100)
+    .regex(/^[^\u0000-\u001f\u007f]+$/, "must not contain control characters")
+    .optional(),
 });
 
 export interface IdentityReactivateResult {
@@ -136,7 +144,7 @@ export function createIdentityReactivateService(
       }
 
       const password = deps.generatePassword();
-      const reactivated = await deps.createOrUpdateUser(account, password);
+      const reactivated = await deps.createOrUpdateUser(account, password, input.display_name);
       if (reactivated.ok === false) {
         ctx.log.warn("identity-reactivate: reactivate failed", { ...logCtx, status: reactivated.status, error: reactivated.error });
         return fail(UNAVAILABLE, "the chat server refused to reactivate the account; try again shortly");

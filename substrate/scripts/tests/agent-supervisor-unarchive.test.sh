@@ -714,6 +714,22 @@ test_identity_profile_check_transient_waits() {
   teardown_unarchive_scratch "$scratch"
 }
 
+test_identity_reactivation_request_without_display_name() {
+  local scratch; scratch=$(setup_unarchive_scratch)
+  fixture_live_role "$scratch" box-maintainer
+  fixture_archived_identity "$scratch" rho "scalar:box-maintainer"
+  sed -i '/^displayName:/d' "${scratch}-archive/rho/rho.md"
+  start_stub_admin "401" "403" || { teardown_unarchive_scratch "$scratch"; return; }
+  _point_relay "$scratch" rho
+
+  _tick "$scratch" >/dev/null
+  stop_stub_admin
+
+  local req; req=$(_request_files "$scratch" | head -1)
+  assert_eq '{"account":"@rho:test"}' "$(jq -c '.input' "$req" 2>/dev/null)" "no displayName: input carries only the account"
+  teardown_unarchive_scratch "$scratch"
+}
+
 # --- reactivation via the identity-reactivate service (multi-tick) ---
 
 test_identity_full_reactivation_happy_path() {
@@ -734,7 +750,7 @@ test_identity_full_reactivation_happy_path() {
   uuid=$(basename "$req" .json)
   assert_eq "$uuid" "$(_state "$scratch" nu)" "tick 1: state holds the request uuid"
   assert_eq "identity-reactivate" "$(jq -r '.service' "$req" 2>/dev/null)" "tick 1: request names the service"
-  assert_eq '{"account":"@nu:test"}' "$(jq -c '.input' "$req" 2>/dev/null)" "tick 1: input carries only the account"
+  assert_eq '{"account":"@nu:test","display_name":"test"}' "$(jq -c '.input' "$req" 2>/dev/null)" "tick 1: input carries the account and its display name"
   assert_grep '^20[0-9]{2}-[0-9]{2}-[0-9]{2}T' "$(jq -r '.requested_at' "$req" 2>/dev/null)" "tick 1: requested_at stamped"
   assert_nogrep 'password|pw-nu|stale-tok' "$(cat "$req" 2>/dev/null)" "tick 1: request carries no secret"
   assert_file   "$d/.unarchive-requested" "tick 1: flag retained"
@@ -1514,6 +1530,7 @@ run_test test_identity_relay_json_without_account_refuses
 run_test test_identity_whoami_fast_path_completes
 run_test test_identity_whoami_ok_but_no_profile_reactivates
 run_test test_identity_profile_check_transient_waits
+run_test test_identity_reactivation_request_without_display_name
 run_test test_identity_happy_path_flow_list_all_live
 run_test test_identity_happy_path_block_list_all_live
 run_test test_identity_no_roles_unarchives

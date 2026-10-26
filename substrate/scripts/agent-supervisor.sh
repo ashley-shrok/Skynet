@@ -1403,6 +1403,17 @@ retire_identity() {
     log "ERROR: '$name' retire step 1 (matrix deactivate) FAILED after 3 attempts (last http=$http_code) for $mxid at $base — sentinel retained"
     return 1
   fi
+  # STEP 1b: the saved token is usually one the backend minted by logging in as the agent.
+  # Those belong to the admin account, so the deactivate above leaves them working; log this
+  # one out so it can't keep acting as a switched-off account. Best effort — never blocks.
+  local _logout_code
+  _logout_code=$(curl -sS -o /dev/null -w '%{http_code}' --max-time 15 \
+    -X POST "$base/logout" -H "Authorization: Bearer $access_token" 2>/dev/null)
+  case "$_logout_code" in
+    200) log "'$name' retire step 1b: saved chat token logged out" ;;
+    401) log "'$name' retire step 1b: saved chat token was already invalid" ;;
+    *)   log "WARNING: '$name' retire step 1b: logging out the saved chat token failed (http=$_logout_code) — it may keep working" ;;
+  esac
 
   # =============================================================================================
   # STEP 2 (Phase 115 D-13/D-14 NEW): Graceful harness exit.
@@ -1902,6 +1913,34 @@ scan_app_archive_requested_sentinels() {
 # artifact. Endpoints + frontend live in shape-unarchive-frontend-backend.
 
 # ---- extract frontmatter roles from an identity file ----
+# _extract_frontmatter_display_name <identity_file_path>
+# Prints the identity's `displayName:` frontmatter value (quotes and trailing comment removed,
+# control characters dropped, at most 100 characters), or nothing when absent or unreadable.
+# Used to give a reactivated chat account its name back — archiving's erase deletes it.
+_extract_frontmatter_display_name() {
+  [ -f "$1" ] || return 0
+  python3 - "$1" <<'PYEOF' 2>/dev/null || true
+import re, sys
+lines = open(sys.argv[1], encoding="utf-8", errors="replace").read().lstrip("\ufeff").replace("\r\n", "\n").split("\n")
+if lines and lines[0].strip() == "---":
+    for line in lines[1:]:
+        if line.strip() == "---":
+            break
+        m = re.match(r"^displayName:\s*(.*)$", line)
+        if not m:
+            continue
+        v = m.group(1).strip()
+        q = re.match(r"^([\"'])(.*?)\1", v)
+        if q:
+            v = q.group(2)
+        else:
+            v = re.sub(r"\s+#.*$", "", v)
+        v = re.sub(r"[\x00-\x1f\x7f]", "", v).strip()[:100]
+        sys.stdout.write(v)
+        break
+PYEOF
+}
+
 # _extract_frontmatter_roles <identity_file_path>
 # Prints a JSON array of role names on stdout (never with a trailing newline).
 # Reads ONLY the `roles:` key (the singular `role:` is not read). The embedded
@@ -2311,7 +2350,9 @@ _unarchive_account_step() {
     1) return 1 ;;
   esac
 
-  # File a reactivation request (names the account only — never a password).
+  # File a reactivation request (names the account and its display name — never a password).
+  local display_name
+  display_name=$(_extract_frontmatter_display_name "$d/$name.md")
   mkdir -p "$SERVICE_REQUESTS_DIR" 2>/dev/null || true
   local uuid
   uuid=$(cat /proc/sys/kernel/random/uuid 2>/dev/null || uuidgen 2>/dev/null)
@@ -2319,8 +2360,9 @@ _unarchive_account_step() {
     log "ERROR: '$name' un-archive: could not generate a request id — retrying next tick"
     return 1
   fi
-  if jq -cn --arg a "$mxid" --arg t "$(date -u +%FT%TZ)" \
-      '{service:"identity-reactivate", requested_at:$t, input:{account:$a}}' \
+  if jq -cn --arg a "$mxid" --arg n "$display_name" --arg t "$(date -u +%FT%TZ)" \
+      '{service:"identity-reactivate", requested_at:$t,
+        input:({account:$a} + (if $n == "" then {} else {display_name:$n} end))}' \
       > "$SERVICE_REQUESTS_DIR/$uuid.json.tmp.$$" \
     && mv -f "$SERVICE_REQUESTS_DIR/$uuid.json.tmp.$$" "$SERVICE_REQUESTS_DIR/$uuid.json"; then
     printf '%s\n' "$uuid" > "$d/.unarchive-reactivate"

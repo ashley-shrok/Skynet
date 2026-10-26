@@ -78,6 +78,9 @@ describe("identity-reactivate input", () => {
   it("accepts a full chat account id", () => {
     expect(identityReactivateInput.safeParse(input).success).toBe(true);
   });
+  it("accepts a display name", () => {
+    expect(identityReactivateInput.safeParse({ account: ACCOUNT, display_name: "Ace Two" }).success).toBe(true);
+  });
   it.each([
     ["a password field", { account: ACCOUNT, password: "chosen-by-host" }],
     ["a bare localpart", { account: "ace" }],
@@ -85,6 +88,9 @@ describe("identity-reactivate input", () => {
     ["no server part", { account: "@ace" }],
     ["an uppercase localpart", { account: `@Ace:${SERVER}` }],
     ["missing account", {}],
+    ["an empty display name", { account: ACCOUNT, display_name: "" }],
+    ["a display name with a newline", { account: ACCOUNT, display_name: "Ace\nTwo" }],
+    ["a display name over 100 characters", { account: ACCOUNT, display_name: "a".repeat(101) }],
   ])("rejects %s", (_n, value) => {
     expect(identityReactivateInput.safeParse(value).success).toBe(false);
   });
@@ -103,7 +109,7 @@ describe("identity-reactivate service", () => {
     const r = await run(d);
     expect(r).toEqual({ ok: true, result: { user_id: ACCOUNT, password: "generated-pw" } });
     expect(d.generatePassword).toHaveBeenCalledTimes(1);
-    expect(d.createOrUpdateUser).toHaveBeenCalledWith(ACCOUNT, "generated-pw");
+    expect(d.createOrUpdateUser).toHaveBeenCalledWith(ACCOUNT, "generated-pw", undefined);
     expect(d.joinAgentToAgentsRegistry).toHaveBeenCalledWith(ACCOUNT);
     // Reactivate happens before the re-join.
     const reactivateOrder = vi.mocked(d.createOrUpdateUser).mock.invocationCallOrder[0];
@@ -111,6 +117,13 @@ describe("identity-reactivate service", () => {
     expect(reactivateOrder).toBeLessThan(joinOrder);
     expect(d.getRoomMembershipOf).toHaveBeenCalledWith(HUMANS_ROOM, ACCOUNT);
     expect(d.getRoomMembershipOf).toHaveBeenCalledWith(AGENTS_ROOM, ACCOUNT);
+  });
+
+  it("success: gives the reactivated account its display name back", async () => {
+    const d = deps();
+    const r = await createIdentityReactivateService(d).handle({ account: ACCOUNT, display_name: "Ace" }, makeCtx());
+    expect(r.ok).toBe(true);
+    expect(d.createOrUpdateUser).toHaveBeenCalledWith(ACCOUNT, "generated-pw", "Ace");
   });
 
   it("success even when the agents-directory re-join fails (best-effort, logged)", async () => {

@@ -50,6 +50,7 @@ import {
   __resetUserTokenCacheForTests,
   inviteToRoom,
   createRoomAsUser,
+  ONE_CALL_TOKEN_TTL_MS,
 } from "./matrix-admin-client.js";
 import { getMatrixAdminCreds } from "./matrix-admin-creds-store.js";
 import { databaseLogger } from "../utils/logger.js";
@@ -1890,6 +1891,10 @@ describe("inviteToRoom", () => {
     // loginAsUser was called with '@ashley:s'
     const loginUrl = fetchMock.mock.calls[0][0] as string;
     expect(loginUrl).toContain(encodeURIComponent("@ashley:s"));
+    // The one-call token expires (deactivating the user can't revoke admin-owned tokens).
+    const loginBody = JSON.parse(fetchMock.mock.calls[0][1].body as string) as { valid_until_ms?: number };
+    expect(loginBody.valid_until_ms).toBeGreaterThan(Date.now());
+    expect(loginBody.valid_until_ms).toBeLessThanOrEqual(Date.now() + ONE_CALL_TOKEN_TTL_MS);
   });
 
   it("Test 3: non-2xx 403 → { ok: false, status: 403, error: 'admin_api_non_2xx' }", async () => {
@@ -1992,6 +1997,9 @@ describe("createRoomAsUser", () => {
     expect(body.name).toBe("Chat");
     expect(body.preset).toBe("private_chat");
     expect(body.visibility).toBe("private");
+    const loginBody = JSON.parse(fetchMock.mock.calls[0][1].body as string) as { valid_until_ms?: number };
+    expect(loginBody.valid_until_ms).toBeGreaterThan(Date.now());
+    expect(loginBody.valid_until_ms).toBeLessThanOrEqual(Date.now() + ONE_CALL_TOKEN_TTL_MS);
   });
 
   it("Test 2: loginAsUser failure → AdminErr returned without calling fetch for createRoom", async () => {

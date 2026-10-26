@@ -547,8 +547,15 @@ test_retire_happy_path_200() {
   local rc=0
   ( _source_supervisor "$scratch"
     retire_identity "tina" ) || rc=$?
+  local reqs; reqs=$(cat "$STUB_REQ_LOG" 2>/dev/null)
   stop_stub_homeserver
   assert_eq "0" "$rc" "retire happy path (200): must return 0"
+  # Step 1b: the saved token (usually admin-issued, so the deactivate leaves it working) is
+  # logged out right after the deactivate.
+  assert_eq "/_matrix/client/v3/account/deactivate" "$(printf '%s\n' "$reqs" | sed -n 1p | cut -d' ' -f1)" \
+    "retire happy path: deactivate first"
+  assert_eq "/_matrix/client/v3/logout" "$(printf '%s\n' "$reqs" | sed -n 2p | cut -d' ' -f1)" \
+    "retire happy path: saved token logged out after the deactivate"
   assert_nofile "$scratch/tina" \
     "retire happy path: active folder must be gone"
   assert_file "${scratch}-archive/tina" \
@@ -569,6 +576,24 @@ test_retire_401_treated_as_success() {
     retire_identity "tina" ) || rc=$?
   stop_stub_homeserver
   assert_eq "0" "$rc" "retire 401 path: must return 0 (A4 idempotent success)"
+  teardown_scratch "$scratch"
+}
+
+test_retire_logout_failure_does_not_block() {
+  # Step 1b is best effort: a failed logout is logged, the archive still completes.
+  _retire_test_preamble || { PASS=$((PASS + 1)); return; }
+  local scratch; scratch=$(setup_scratch)
+  fixture_identity "$scratch" tina --cursor-age-days 200
+  fixture_relay_json "$scratch/tina" "http://127.0.0.1:STUB_PORT/_matrix/client/v3" "@tina:test" "pw" "tok"
+  start_stub_homeserver "200,400" || { teardown_scratch "$scratch"; return; }
+  sed -i "s|STUB_PORT|$STUB_PORT|" "$scratch/tina/relay.json"
+  local rc=0 out
+  out=$( ( _source_supervisor "$scratch"
+    retire_identity "tina" ) 2>&1 ) || rc=$?
+  stop_stub_homeserver
+  assert_eq "0" "$rc" "retire logout failure: must still return 0"
+  assert_file "${scratch}-archive/tina" "retire logout failure: archive folder must exist"
+  assert_grep "logging out the saved chat token failed" "$out" "retire logout failure: warning logged"
   teardown_scratch "$scratch"
 }
 
@@ -2078,6 +2103,7 @@ run_test test_freshness_both_absent_zero
 # --- retire_identity ---
 run_test test_retire_happy_path_200
 run_test test_retire_401_treated_as_success
+run_test test_retire_logout_failure_does_not_block
 run_test test_retire_5xx_aborts_with_1
 run_test test_retire_network_fail_aborts_with_1
 run_test test_retire_retry_from_partial
