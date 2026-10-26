@@ -1369,12 +1369,26 @@ retire_identity() {
         break
         ;;
       401)
-        # Token already revoked by a prior deactivation — account is already deactivated.
-        # Treat as idempotent success (D-13 / Assumption A4): the prior run completed Step 1;
-        # this retry run simply confirms it.
-        log "'$name' retire step 1 (matrix deactivate) success (http=$http_code — token already revoked / A4 idempotent)"
-        _step1_ok=1
-        break
+        # A 401 is either a dead token (a prior run already deactivated the account) or a
+        # rejected password (the account is still on). Deactivate-with-erase deletes the
+        # account's profile, so a 404 profile is what confirms the account is off.
+        local _pcode
+        _pcode=$(_account_profile_code "$base" "$mxid" "$access_token")
+        case "$_pcode" in
+          404)
+            log "'$name' retire step 1 (matrix deactivate) success (http=$http_code — account confirmed off: no profile)"
+            _step1_ok=1
+            break
+            ;;
+          200)
+            log "ERROR: '$name' retire step 1 (matrix deactivate) FAILED: the chat server rejected the saved login (http=$http_code) and $mxid is still on — sentinel retained"
+            return 1
+            ;;
+          *)
+            log "ERROR: '$name' retire step 1 (matrix deactivate) FAILED: got http=$http_code and couldn't confirm $mxid is off (profile http=$_pcode) — sentinel retained, retrying next pass"
+            return 1
+            ;;
+        esac
         ;;
       4*)
         # Non-401 4xx: a client-side error we cannot recover from automatically (bad endpoint,
@@ -1913,6 +1927,21 @@ scan_app_archive_requested_sentinels() {
 # artifact. Endpoints + frontend live in shape-unarchive-frontend-backend.
 
 # ---- extract frontmatter roles from an identity file ----
+# _account_profile_code <base> <mxid> [token]
+# Prints the HTTP status of the account's profile lookup: 200 = the account is on, 404 = it has
+# no profile (deactivate-with-erase deletes it). Asks without a token first; a server that
+# requires a login for profile lookups (401/403) is asked again with the token, if given.
+_account_profile_code() {
+  local base="$1" mxid="$2" token="${3:-}" url code
+  url="$base/profile/$(jq -rn --arg u "$mxid" '$u|@uri')"
+  code=$(curl -sS -o /dev/null -w '%{http_code}' --max-time 15 "$url" 2>/dev/null)
+  if { [ "$code" = 401 ] || [ "$code" = 403 ]; } && [ -n "$token" ]; then
+    code=$(curl -sS -o /dev/null -w '%{http_code}' --max-time 15 \
+      -H "Authorization: Bearer $token" "$url" 2>/dev/null)
+  fi
+  printf '%s' "$code"
+}
+
 # _extract_frontmatter_display_name <identity_file_path>
 # Prints the identity's `displayName:` frontmatter value (quotes and trailing comment removed,
 # control characters dropped, at most 100 characters), or nothing when absent or unreadable.
@@ -2253,8 +2282,7 @@ _unarchive_account_step() {
     code=$(curl -sS -o /dev/null -w '%{http_code}' --max-time 15 \
       -H "Authorization: Bearer $token" "$base/account/whoami" 2>/dev/null)
     if [ "$code" = "200" ]; then
-      pcode=$(curl -sS -o /dev/null -w '%{http_code}' --max-time 15 \
-        -H "Authorization: Bearer $token" "$base/profile/$(jq -rn --arg u "$mxid" '$u|@uri')" 2>/dev/null)
+      pcode=$(_account_profile_code "$base" "$mxid" "$token")
       case "$pcode" in
         200)
           log "'$name' un-archive: chat login already works — proceeding to folder move"

@@ -247,7 +247,9 @@ start_stub_homeserver() {
   #                                          additional requests. Used by Test A to exercise
   #                                          the inline retire step 1 exponential-backoff
   #                                          recovery path (transient 5xx → success on retry).
-  local http_code="$1"
+  # Optional 2nd arg: status for GET /profile/<mxid> (default 404 — archiving's erase deletes the
+  # profile, so a 404 is what confirms an account is off). Every profile GET is logged too.
+  local http_code="$1" profile_code="${2:-404}"
   STUB_PID=""
   STUB_PORT=""
   STUB_LOG=$(mktemp)
@@ -268,7 +270,17 @@ port_file = sys.argv[2]
 req_log = sys.argv[3]
 counter = {'i': 0}
 
+profile_code = int(sys.argv[4])
+
 class Handler(http.server.BaseHTTPRequestHandler):
+    def do_GET(self):
+        with open(req_log, 'ab') as f:
+            f.write(('GET %s\n' % self.path).encode('utf-8'))
+        code = profile_code if self.path.startswith('/_matrix/client/v3/profile/') else 404
+        self.send_response(code)
+        self.send_header('Content-Type', 'application/json')
+        self.end_headers()
+        self.wfile.write(b'{}\n')
     def do_POST(self):
         length = int(self.headers.get('Content-Length', 0))
         body = self.rfile.read(length) if length > 0 else b''
@@ -291,7 +303,7 @@ with socketserver.TCPServer(('127.0.0.1', 0), Handler) as server:
     with open(port_file, 'w') as f:
         f.write(str(port))
     server.serve_forever()
-" "$http_code" "$STUB_LOG" "$STUB_REQ_LOG" &
+" "$http_code" "$STUB_LOG" "$STUB_REQ_LOG" "$profile_code" &
     STUB_PID=$!
 
     # Wait for server to write its port (up to 5 seconds)
@@ -564,7 +576,7 @@ test_retire_happy_path_200() {
 }
 
 test_retire_401_treated_as_success() {
-  # A4: 401 = account already deactivated → idempotent success
+  # A4: 401 + no profile (404) = account already deactivated → idempotent success
   _retire_test_preamble || { PASS=$((PASS + 1)); return; }
   local scratch; scratch=$(setup_scratch)
   fixture_identity "$scratch" tina --cursor-age-days 200
@@ -576,6 +588,46 @@ test_retire_401_treated_as_success() {
     retire_identity "tina" ) || rc=$?
   stop_stub_homeserver
   assert_eq "0" "$rc" "retire 401 path: must return 0 (A4 idempotent success)"
+  teardown_scratch "$scratch"
+}
+
+test_retire_401_but_account_still_on_aborts() {
+  # 401 from a rejected password while the account still has a profile: the account is on,
+  # so the archive must not go ahead.
+  _retire_test_preamble || { PASS=$((PASS + 1)); return; }
+  local scratch; scratch=$(setup_scratch)
+  fixture_identity "$scratch" tina --cursor-age-days 200
+  fixture_relay_json "$scratch/tina" "http://127.0.0.1:STUB_PORT/_matrix/client/v3" "@tina:test" "pw" "tok"
+  start_stub_homeserver 401 200 || { teardown_scratch "$scratch"; return; }
+  sed -i "s|STUB_PORT|$STUB_PORT|" "$scratch/tina/relay.json"
+  local rc=0 out
+  out=$( ( _source_supervisor "$scratch"
+    retire_identity "tina" ) 2>&1 ) || rc=$?
+  local reqs; reqs=$(cat "$STUB_REQ_LOG" 2>/dev/null)
+  stop_stub_homeserver
+  assert_eq "1" "$rc" "retire 401 + live profile: must return 1"
+  assert_file "$scratch/tina" "retire 401 + live profile: active folder must stay"
+  assert_nofile "${scratch}-archive/tina" "retire 401 + live profile: nothing archived"
+  assert_grep "is still on" "$out" "retire 401 + live profile: error logged"
+  assert_grep "GET /_matrix/client/v3/profile/%40tina%3Atest" "$reqs" "retire 401 + live profile: profile checked"
+  teardown_scratch "$scratch"
+}
+
+test_retire_401_unconfirmed_aborts() {
+  # 401 and the profile lookup itself fails: can't confirm the account is off → retry later.
+  _retire_test_preamble || { PASS=$((PASS + 1)); return; }
+  local scratch; scratch=$(setup_scratch)
+  fixture_identity "$scratch" tina --cursor-age-days 200
+  fixture_relay_json "$scratch/tina" "http://127.0.0.1:STUB_PORT/_matrix/client/v3" "@tina:test" "pw" "tok"
+  start_stub_homeserver 401 502 || { teardown_scratch "$scratch"; return; }
+  sed -i "s|STUB_PORT|$STUB_PORT|" "$scratch/tina/relay.json"
+  local rc=0 out
+  out=$( ( _source_supervisor "$scratch"
+    retire_identity "tina" ) 2>&1 ) || rc=$?
+  stop_stub_homeserver
+  assert_eq "1" "$rc" "retire 401 + profile 502: must return 1"
+  assert_file "$scratch/tina" "retire 401 + profile 502: active folder must stay"
+  assert_grep "couldn't confirm" "$out" "retire 401 + profile 502: error logged"
   teardown_scratch "$scratch"
 }
 
@@ -2103,6 +2155,8 @@ run_test test_freshness_both_absent_zero
 # --- retire_identity ---
 run_test test_retire_happy_path_200
 run_test test_retire_401_treated_as_success
+run_test test_retire_401_but_account_still_on_aborts
+run_test test_retire_401_unconfirmed_aborts
 run_test test_retire_logout_failure_does_not_block
 run_test test_retire_5xx_aborts_with_1
 run_test test_retire_network_fail_aborts_with_1
