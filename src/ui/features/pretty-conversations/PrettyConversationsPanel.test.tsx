@@ -201,6 +201,8 @@ type MockRow = {
   fleetOnly?: boolean;
   rdpHostRow?: boolean;
   rdpTabOpen?: boolean;
+  kind?: string;
+  roomId?: string;
 };
 
 type MockGroup = {
@@ -706,7 +708,7 @@ describe("PrettyConversationsPanel: load-in-flight affordance", () => {
     // beforeEach leaves mockFleetSessionsLoaded=false and all tiers empty.
     setSnapshot({ pinned: [], grouped: [] });
     const { container, queryByTestId, queryByText, queryAllByTestId } = render(
-      <PrettyConversationsPanel variant="desktop" onDeactivateRow={() => {}} />,
+      <PrettyConversationsPanel isAdmin variant="desktop" onDeactivateRow={() => {}} />,
     );
 
     // Loading strip is present with the expected label + spinner.
@@ -722,7 +724,7 @@ describe("PrettyConversationsPanel: load-in-flight affordance", () => {
     mockFleetSessionsLoaded = true;
     setSnapshot({ pinned: [], grouped: [] });
     const { queryByTestId } = render(
-      <PrettyConversationsPanel variant="desktop" onDeactivateRow={() => {}} />,
+      <PrettyConversationsPanel isAdmin variant="desktop" onDeactivateRow={() => {}} />,
     );
     expect(queryByTestId("pretty-conversations-loading")).toBeNull();
   });
@@ -750,7 +752,7 @@ describe("PrettyConversationsPanel: load-in-flight affordance", () => {
       ],
     });
     const { container, queryByTestId } = render(
-      <PrettyConversationsPanel variant="desktop" onDeactivateRow={() => {}} />,
+      <PrettyConversationsPanel isAdmin variant="desktop" onDeactivateRow={() => {}} />,
     );
     const loading = container.querySelector(
       '[data-testid="pretty-conversations-loading"]',
@@ -789,7 +791,7 @@ describe("PrettyConversationsPanel: active-set top zone RETIRED (Phase 42 UAT am
       middle: [],
     });
 
-    const { container } = render(<PrettyConversationsPanel variant="desktop" onDeactivateRow={() => {}} />);
+    const { container } = render(<PrettyConversationsPanel isAdmin variant="desktop" onDeactivateRow={() => {}} />);
 
     // Retired: no active-set wrapper renders.
     expect(container.querySelector('[data-active-set-group="true"]')).toBeNull();
@@ -819,7 +821,7 @@ describe("PrettyConversationsPanel: active-set top zone RETIRED (Phase 42 UAT am
       middle: [],
     });
 
-    const { container } = render(<PrettyConversationsPanel variant="desktop" onDeactivateRow={() => {}} />);
+    const { container } = render(<PrettyConversationsPanel isAdmin variant="desktop" onDeactivateRow={() => {}} />);
     expect(container.querySelector('[data-active-set-group="true"]')).toBeNull();
     // Also: the (hypothetically) active-set row does NOT appear anywhere in the
     // rendered DOM, because the tier that used to render it is gone.
@@ -853,7 +855,7 @@ describe("PrettyConversationsPanel: pinned-first ordering", () => {
       pinnedIds: new Set(["a", "b"]),
     });
 
-    const { container } = render(<PrettyConversationsPanel variant="desktop" onDeactivateRow={() => {}} />);
+    const { container } = render(<PrettyConversationsPanel isAdmin variant="desktop" onDeactivateRow={() => {}} />);
     const rowNodes = Array.from(
       container.querySelectorAll("[data-conversation-id]"),
     ) as HTMLElement[];
@@ -881,7 +883,7 @@ describe("PrettyConversationsPanel: 'Pinned' divider chip RETIRED (Phase 42 UAT 
       pinnedIds: new Set(["a"]),
     });
 
-    const { container } = render(<PrettyConversationsPanel variant="desktop" onDeactivateRow={() => {}} />);
+    const { container } = render(<PrettyConversationsPanel isAdmin variant="desktop" onDeactivateRow={() => {}} />);
 
     // Phase 42 UAT amendment 2026-08-17: "Pinned" divider chip retired.
     const pinnedChip = container.querySelector(
@@ -921,7 +923,7 @@ describe("PrettyConversationsPanel: 'Pinned' divider chip RETIRED (Phase 42 UAT 
       pinnedIds: new Set(),
     });
 
-    const { container } = render(<PrettyConversationsPanel variant="desktop" onDeactivateRow={() => {}} />);
+    const { container } = render(<PrettyConversationsPanel isAdmin variant="desktop" onDeactivateRow={() => {}} />);
 
     const pinnedChip = container.querySelector('[data-testid="pinned-divider"]');
     expect(pinnedChip).toBeNull();
@@ -956,7 +958,7 @@ describe("PrettyConversationsPanel: middle zone is FLAT (Phase 41 Plan 01)", () 
       ],
     });
 
-    const { container } = render(<PrettyConversationsPanel variant="desktop" onDeactivateRow={() => {}} />);
+    const { container } = render(<PrettyConversationsPanel isAdmin variant="desktop" onDeactivateRow={() => {}} />);
 
     // user lock: NO host-divider chips render inside the middle zone.
     // The retired `[data-testid="host-divider"]` element MUST NOT be
@@ -1000,7 +1002,7 @@ describe("PrettyConversationsPanel: middle zone is FLAT (Phase 41 Plan 01)", () 
       pinnedIds: new Set(["pinned-1"]),
     });
 
-    const { container } = render(<PrettyConversationsPanel variant="desktop" onDeactivateRow={() => {}} />);
+    const { container } = render(<PrettyConversationsPanel isAdmin variant="desktop" onDeactivateRow={() => {}} />);
 
     // user lock: zero host-divider chips anywhere in the panel.
     const chips = Array.from(
@@ -1043,7 +1045,7 @@ describe("PrettyConversationsPanel: middle zone is FLAT (Phase 41 Plan 01)", () 
       },
     });
 
-    const { container } = render(<PrettyConversationsPanel variant="desktop" onDeactivateRow={() => {}} />);
+    const { container } = render(<PrettyConversationsPanel isAdmin variant="desktop" onDeactivateRow={() => {}} />);
 
     // user lock: no host-divider chip. The rdp-divider IS present.
     const hostChips = container.querySelectorAll('[data-testid="host-divider"]');
@@ -1064,7 +1066,7 @@ describe("PrettyConversationsPanel: middle zone is FLAT (Phase 41 Plan 01)", () 
     });
 
     const { container } = render(
-      <PrettyConversationsPanel variant="desktop" onDeactivateRow={() => {}} />,
+      <PrettyConversationsPanel isAdmin variant="desktop" onDeactivateRow={() => {}} />,
     );
 
     expect(container.querySelector('[data-testid="rdp-divider"]')).toBeNull();
@@ -1091,7 +1093,7 @@ describe("PrettyConversationsPanel: middle zone is FLAT (Phase 41 Plan 01)", () 
     });
 
     const { container } = render(
-      <PrettyConversationsPanel variant="desktop" onDeactivateRow={() => {}} />,
+      <PrettyConversationsPanel isAdmin variant="desktop" onDeactivateRow={() => {}} />,
     );
 
     const m1 = container.querySelector('[data-conversation-id="m1"]');
@@ -1158,7 +1160,7 @@ describe("PrettyConversationsPanel: deactivate action (quick-260727-gm3)", () =>
     mockActiveSet = new Set<string>(["active-1"]);
 
     const { container } = render(
-      <PrettyConversationsPanel variant="desktop" onDeactivateRow={() => {}} />,
+      <PrettyConversationsPanel isAdmin variant="desktop" onDeactivateRow={() => {}} />,
     );
 
     const rowEl = container.querySelector(
@@ -1211,7 +1213,7 @@ describe("PrettyConversationsPanel: deactivate action (quick-260727-gm3)", () =>
     mockIdentitiesByKey = new Map([["someone-else", { identityKey: "someone-else" }]]);
 
     const { container } = render(
-      <PrettyConversationsPanel variant="desktop" onDeactivateRow={() => {}} />,
+      <PrettyConversationsPanel isAdmin variant="desktop" onDeactivateRow={() => {}} />,
     );
     const rowEl = container.querySelector('[data-conversation-id="plain-1"]');
     const body = rowEl!.querySelector('[role="button"]') as HTMLElement;
@@ -1224,6 +1226,77 @@ describe("PrettyConversationsPanel: deactivate action (quick-260727-gm3)", () =>
     const moveTo = within(menu).queryByTestId("pv-row-kebab-item-move-to");
     if (moveTo) await userEvent.setup().click(moveTo);
     expect(screen.queryByTestId("pv-row-kebab-item-move-to-pinned")).toBeNull();
+  });
+
+  describe("plain terminal rows are admin-only", () => {
+    function seedRows(): void {
+      const hostA = makeHost("h1", "hostA");
+      setSnapshot({
+        activeSet: [],
+        pinned: [
+          makeConversationRow({
+            id: "plain-pinned",
+            label: "old-pin-shell",
+            host: hostA,
+            targetTmuxSession: "old-pin-shell",
+          }),
+        ],
+        middle: [
+          makeConversationRow({
+            id: "agent-1",
+            label: "agent-one",
+            host: hostA,
+            targetTmuxSession: "agent-one",
+          }),
+          makeConversationRow({
+            id: "plain-1",
+            label: "plain-shell",
+            host: hostA,
+            targetTmuxSession: "plain-shell",
+          }),
+          makeConversationRow({ id: "bare-ssh", label: "bare-ssh", host: hostA }),
+          makeConversationRow({
+            id: "room-1",
+            label: "a room",
+            host: undefined,
+            kind: "relay-room",
+            roomId: "!room:example",
+          }),
+        ],
+      });
+      mockIdentitiesByKey = new Map([["agent-one", { identityKey: "agent-one" }]]);
+    }
+
+    it("a non-admin sees agent and relay-room rows but no plain terminal rows", () => {
+      seedRows();
+      const { container } = render(
+        <PrettyConversationsPanel variant="desktop" onDeactivateRow={() => {}} />,
+      );
+      expect(container.querySelector('[data-conversation-id="agent-1"]')).not.toBeNull();
+      expect(container.querySelector('[data-conversation-id="room-1"]')).not.toBeNull();
+      expect(container.querySelector('[data-conversation-id="plain-1"]')).toBeNull();
+      expect(container.querySelector('[data-conversation-id="bare-ssh"]')).toBeNull();
+      expect(container.querySelector('[data-conversation-id="plain-pinned"]')).toBeNull();
+    });
+
+    it("an agent whose identity isn't loaded (host unreachable) is hidden from a non-admin", () => {
+      seedRows();
+      mockIdentitiesByKey = new Map([["someone-else", { identityKey: "someone-else" }]]);
+      const { container } = render(
+        <PrettyConversationsPanel variant="desktop" onDeactivateRow={() => {}} />,
+      );
+      expect(container.querySelector('[data-conversation-id="agent-1"]')).toBeNull();
+    });
+
+    it("an admin still sees every row", () => {
+      seedRows();
+      const { container } = render(
+        <PrettyConversationsPanel isAdmin variant="desktop" onDeactivateRow={() => {}} />,
+      );
+      for (const id of ["agent-1", "room-1", "plain-1", "bare-ssh", "plain-pinned"]) {
+        expect(container.querySelector(`[data-conversation-id="${id}"]`)).not.toBeNull();
+      }
+    });
   });
 
   it("Test 20B: desktop ambient (non-active-set) row renders NO deactivate-action", () => {
@@ -1245,7 +1318,7 @@ describe("PrettyConversationsPanel: deactivate action (quick-260727-gm3)", () =>
     // mockActiveSet reset to empty in beforeEach.
 
     const { container } = render(
-      <PrettyConversationsPanel variant="desktop" onDeactivateRow={() => {}} />,
+      <PrettyConversationsPanel isAdmin variant="desktop" onDeactivateRow={() => {}} />,
     );
 
     const rowEl = container.querySelector(
@@ -1285,7 +1358,7 @@ describe("PrettyConversationsPanel: deactivate action (quick-260727-gm3)", () =>
     mockActiveSet = new Set<string>(["rdp-host::h2"]);
 
     const { container } = render(
-      <PrettyConversationsPanel variant="desktop" onDeactivateRow={() => {}} />,
+      <PrettyConversationsPanel isAdmin variant="desktop" onDeactivateRow={() => {}} />,
     );
 
     const rowEl = container.querySelector(
@@ -1337,7 +1410,7 @@ describe("PrettyConversationsPanel: active-set fleet-shadow-id pinned recognitio
     mockActiveSet = new Set<string>(["active-alpha"]);
 
     const { container } = render(
-      <PrettyConversationsPanel variant="desktop" onDeactivateRow={() => {}} />,
+      <PrettyConversationsPanel isAdmin variant="desktop" onDeactivateRow={() => {}} />,
     );
 
     const rowEl = container.querySelector(
@@ -1381,7 +1454,7 @@ describe("PrettyConversationsPanel: active-set fleet-shadow-id pinned recognitio
     mockActiveSet = new Set<string>(["active-alpha"]);
 
     const { container } = render(
-      <PrettyConversationsPanel variant="desktop" onDeactivateRow={() => {}} />,
+      <PrettyConversationsPanel isAdmin variant="desktop" onDeactivateRow={() => {}} />,
     );
 
     const rowEl = container.querySelector(
@@ -1428,7 +1501,7 @@ describe("PrettyConversationsPanel: active-set fleet-shadow-id pinned recognitio
     mockActiveSet = new Set<string>(["active-alpha"]);
 
     const { container } = render(
-      <PrettyConversationsPanel variant="desktop" onDeactivateRow={() => {}} />,
+      <PrettyConversationsPanel isAdmin variant="desktop" onDeactivateRow={() => {}} />,
     );
 
     const rowEl = container.querySelector(
@@ -1483,7 +1556,7 @@ describe("PrettyConversationsPanel: RDP sentinel at bottom", () => {
     });
 
     const { container, queryByText } = render(
-      <PrettyConversationsPanel variant="desktop" onDeactivateRow={() => {}} />,
+      <PrettyConversationsPanel isAdmin variant="desktop" onDeactivateRow={() => {}} />,
     );
 
     // Divider chip present
@@ -1517,7 +1590,7 @@ describe("PrettyConversationsPanel: header New agent button opens NewSessionDial
     // quick-260914-liu: New agent is now a dedicated header icon button.
     // The flow is one step: click pv-header-new-agent-button → NewSessionDialog opens.
     const { getByTestId } = render(
-      <PrettyConversationsPanel
+      <PrettyConversationsPanel isAdmin
         variant="desktop"
         hostTree={ONE_HOST_TREE}
         onCreateSession={vi.fn()}
@@ -1559,7 +1632,7 @@ describe("PrettyConversationsPanel: create + manage buttons gated on onCreateSes
     // The header pencil and the footer manage buttons share one
     // showPencilButton guard. The gear is NOT gated — it renders regardless.
     const { container } = render(
-      <PrettyConversationsPanel variant="desktop" onDeactivateRow={() => {}} />,
+      <PrettyConversationsPanel isAdmin variant="desktop" onDeactivateRow={() => {}} />,
     );
     expect(container.querySelector('[data-testid="pv-header-new-agent-button"]')).toBeNull();
     expect(container.querySelector('[data-testid="pv-footer-scheduled-agents-button"]')).toBeNull();
@@ -1577,7 +1650,7 @@ describe("PrettyConversationsPanel: create + manage buttons gated on onCreateSes
 describe("PrettyConversationsPanel: desktop header title", () => {
   it("Test 7: desktop variant renders icon-only brand lockup in .pv-title with .pv-panel-header treatment (wordmark removed)", () => {
     const { container, queryByAltText } = render(
-      <PrettyConversationsPanel variant="desktop" onDeactivateRow={() => {}} />,
+      <PrettyConversationsPanel isAdmin variant="desktop" onDeactivateRow={() => {}} />,
     );
     // Wordmark removed — only the icon <img> renders in the header lockup.
     expect(queryByAltText("SKYNET")).toBeNull();
@@ -1607,7 +1680,7 @@ describe("PrettyConversationsPanel: desktop header title", () => {
 describe("PrettyConversationsPanel: mobile header title (patch #144)", () => {
   it("Test 8: mobile variant renders icon-only brand lockup (same shape as desktop, wordmark removed)", () => {
     const { container, queryByAltText, queryByRole } = render(
-      <PrettyConversationsPanel
+      <PrettyConversationsPanel isAdmin
         variant="mobile"
         hostTree={ONE_HOST_TREE}
         onCreateSession={vi.fn()}
@@ -1641,7 +1714,7 @@ describe("PrettyConversationsPanel: mobile header title (patch #144)", () => {
 describe("PrettyConversationsPanel: desktop gear removed (patch #133)", () => {
   it("Test 9: desktop variant does NOT render the gear button (patch #133 removed shadcn DropdownMenu gear entirely)", () => {
     const { queryByRole } = render(
-      <PrettyConversationsPanel variant="desktop" onDeactivateRow={() => {}} />,
+      <PrettyConversationsPanel isAdmin variant="desktop" onDeactivateRow={() => {}} />,
     );
     // Post-patch-#133: gear DropdownMenu removed entirely; no button with a
     // settings-matching aria-label should exist in either variant.
@@ -1656,7 +1729,7 @@ describe("PrettyConversationsPanel: desktop gear removed (patch #133)", () => {
 describe("PrettyConversationsPanel: mobile gear removed (patch #133)", () => {
   it("Test 10: mobile variant does NOT render the gear button (patch #133 removed shadcn DropdownMenu gear entirely)", () => {
     const { queryByRole } = render(
-      <PrettyConversationsPanel variant="mobile" onDeactivateRow={() => {}} />,
+      <PrettyConversationsPanel isAdmin variant="mobile" onDeactivateRow={() => {}} />,
     );
     expect(queryByRole("button", { name: /settings/i })).toBeNull();
   });
@@ -1689,7 +1762,7 @@ describe("PrettyConversationsPanel: row-click routing (RDP)", () => {
     const onDetachedRowClick = vi.fn();
 
     const { container } = render(
-      <PrettyConversationsPanel
+      <PrettyConversationsPanel isAdmin
         variant="desktop"
         onRdpRowClick={onRdpRowClick}
         onDetachedRowClick={onDetachedRowClick}
@@ -1729,7 +1802,7 @@ describe("PrettyConversationsPanel: row-click routing (RDP)", () => {
     const onRdpRowClick = vi.fn();
 
     const { container } = render(
-      <PrettyConversationsPanel
+      <PrettyConversationsPanel isAdmin
         variant="desktop"
         onRdpRowClick={onRdpRowClick}
         onDeactivateRow={() => {}}
@@ -1770,7 +1843,7 @@ describe("PrettyConversationsPanel: row-click routing (fleet-only)", () => {
     const onRdpRowClick = vi.fn();
 
     const { container } = render(
-      <PrettyConversationsPanel
+      <PrettyConversationsPanel isAdmin
         variant="desktop"
         onDetachedRowClick={onDetachedRowClick}
         onRdpRowClick={onRdpRowClick}
@@ -1809,7 +1882,7 @@ describe("PrettyConversationsPanel: row-click routing (plain)", () => {
     });
 
     const { container } = render(
-      <PrettyConversationsPanel variant="desktop" onDeactivateRow={() => {}} />,
+      <PrettyConversationsPanel isAdmin variant="desktop" onDeactivateRow={() => {}} />,
     );
 
     const wrapper = container.querySelector(
@@ -1873,7 +1946,7 @@ describe("PrettyConversationsPanel: onConversationSelected after every branch", 
     const onRdpRowClick = vi.fn();
 
     const { container } = render(
-      <PrettyConversationsPanel
+      <PrettyConversationsPanel isAdmin
         variant="desktop"
         onConversationSelected={onConversationSelected}
         onDetachedRowClick={onDetachedRowClick}
@@ -1934,14 +2007,14 @@ describe("PrettyConversationsPanel: patch #144 activeSet on selectedId", () => {
       ],
       selectedId: "row-restored",
     });
-    render(<PrettyConversationsPanel variant="desktop" onDeactivateRow={() => {}} />);
+    render(<PrettyConversationsPanel isAdmin variant="desktop" onDeactivateRow={() => {}} />);
     // The useEffect fires on mount because selectedId is non-null.
     expect(addToActiveSetSpy).toHaveBeenCalledWith("row-restored");
   });
 
   it("Test 17 (patch #144 d): null selectedId does NOT call addToActiveSet", () => {
     setSnapshot({ pinned: [], grouped: [], selectedId: null });
-    render(<PrettyConversationsPanel variant="desktop" onDeactivateRow={() => {}} />);
+    render(<PrettyConversationsPanel isAdmin variant="desktop" onDeactivateRow={() => {}} />);
     expect(addToActiveSetSpy).not.toHaveBeenCalled();
   });
 });
@@ -1988,7 +2061,7 @@ describe("PrettyConversationsPanel (Phase 92 Plan 04): server-hydration on mount
     });
 
     render(
-      <PrettyConversationsPanel variant="desktop" onDeactivateRow={() => {}} />,
+      <PrettyConversationsPanel isAdmin variant="desktop" onDeactivateRow={() => {}} />,
     );
 
     // buildIdentityHostsFromFleet fires with the seeded fleet snapshot.
@@ -2046,7 +2119,7 @@ describe("PrettyConversationsPanel (quick-260727-kbw, Phase 92 rewire): mount hy
 
     // beforeEach sets mockFleetSessionsLoaded = false. Render — gate closed.
     const { rerender } = render(
-      <PrettyConversationsPanel variant="desktop" onDeactivateRow={() => {}} />,
+      <PrettyConversationsPanel isAdmin variant="desktop" onDeactivateRow={() => {}} />,
     );
 
     // Pre-flip assertion: projection NOT called.
@@ -2057,7 +2130,7 @@ describe("PrettyConversationsPanel (quick-260727-kbw, Phase 92 rewire): mount hy
     // Flip the gate open, rerender.
     mockFleetSessionsLoaded = true;
     rerender(
-      <PrettyConversationsPanel variant="desktop" onDeactivateRow={() => {}} />,
+      <PrettyConversationsPanel isAdmin variant="desktop" onDeactivateRow={() => {}} />,
     );
 
     // Post-flip: projection called exactly once + hydrate lands.
@@ -2073,7 +2146,7 @@ describe("PrettyConversationsPanel (quick-260727-kbw, Phase 92 rewire): mount hy
     // TEST_DEFAULT_BY_KEY means the effect deps don't change → effect
     // doesn't re-fire → both spies stay at 1.
     rerender(
-      <PrettyConversationsPanel variant="desktop" onDeactivateRow={() => {}} />,
+      <PrettyConversationsPanel isAdmin variant="desktop" onDeactivateRow={() => {}} />,
     );
     await Promise.resolve();
     expect(deriveDiskPinnedIdsSpy).toHaveBeenCalledTimes(1);
@@ -2117,7 +2190,7 @@ describe("PrettyConversationsPanel (quick-260912-5q2 rework): mount hydration ga
 
     // ── Phase 1: render with identities-store NOT yet loaded ─────────────────
     const { rerender } = render(
-      <PrettyConversationsPanel variant="desktop" onDeactivateRow={() => {}} />,
+      <PrettyConversationsPanel isAdmin variant="desktop" onDeactivateRow={() => {}} />,
     );
 
     // Await a microtask — if the gate is absent, the effect would fire here.
@@ -2134,7 +2207,7 @@ describe("PrettyConversationsPanel (quick-260912-5q2 rework): mount hydration ga
     // TEST_DEFAULT_BY_KEY (stable ref, size=1). Gate opens.
     mockIdentitiesLoaded = true;
     rerender(
-      <PrettyConversationsPanel variant="desktop" onDeactivateRow={() => {}} />,
+      <PrettyConversationsPanel isAdmin variant="desktop" onDeactivateRow={() => {}} />,
     );
 
     // POST-FLIP ASSERTION: gate now open — hydrate fires exactly once.
@@ -2148,7 +2221,7 @@ describe("PrettyConversationsPanel (quick-260912-5q2 rework): mount hydration ga
     // identitiesByKey] deps compare ref-equal across the rerender and the
     // effect body does not re-execute.
     rerender(
-      <PrettyConversationsPanel variant="desktop" onDeactivateRow={() => {}} />,
+      <PrettyConversationsPanel isAdmin variant="desktop" onDeactivateRow={() => {}} />,
     );
     await Promise.resolve();
     expect(deriveDiskPinnedIdsSpy).toHaveBeenCalledTimes(1);
@@ -2185,7 +2258,7 @@ describe("PrettyConversationsPanel (Phase 92 Plan 04): PANEL-92-* hydrate regres
     setSnapshot({ activeSet: [], pinned: [], grouped: [] });
 
     render(
-      <PrettyConversationsPanel variant="desktop" onDeactivateRow={() => {}} />,
+      <PrettyConversationsPanel isAdmin variant="desktop" onDeactivateRow={() => {}} />,
     );
 
     await waitFor(() => {
@@ -2257,7 +2330,7 @@ describe("PrettyConversationsPanel: Phase 48 Plan 05 pinned row v14 shape (was p
     });
 
     const { container } = render(
-      <PrettyConversationsPanel variant="desktop" onDeactivateRow={() => {}} />,
+      <PrettyConversationsPanel isAdmin variant="desktop" onDeactivateRow={() => {}} />,
     );
 
     const pinnedGroup = container.querySelector(
@@ -2367,7 +2440,7 @@ describe("PrettyConversationsPanel: handleRowKill (quick-260810-n3a)", () => {
     const dialogs = autoAnswerKitDialogs({ confirm: false });
 
     const { container } = render(
-      <PrettyConversationsPanel
+      <PrettyConversationsPanel isAdmin
         variant="desktop"
         onDeactivateRow={() => {}}
         onKillRow={onKillRow}
@@ -2417,7 +2490,7 @@ describe("PrettyConversationsPanel: handleRowKill (quick-260810-n3a)", () => {
     const dialogs = autoAnswerKitDialogs({ confirm: false });
 
     const { container } = render(
-      <PrettyConversationsPanel
+      <PrettyConversationsPanel isAdmin
         variant="desktop"
         onDeactivateRow={() => {}}
         onKillRow={onKillRow}
@@ -2465,7 +2538,7 @@ describe("PrettyConversationsPanel: handleRowKill (quick-260810-n3a)", () => {
     const dialogs = autoAnswerKitDialogs({ confirm: true });
 
     const { container } = render(
-      <PrettyConversationsPanel
+      <PrettyConversationsPanel isAdmin
         variant="desktop"
         onDeactivateRow={() => {}}
         onKillRow={onKillRow}
@@ -2529,7 +2602,7 @@ describe("PrettyConversationsPanel: Phase 115 Plan 115-06 handleArchive", () => 
     const dialogs = autoAnswerKitDialogs({ confirm: false });
 
     const { container } = render(
-      <PrettyConversationsPanel
+      <PrettyConversationsPanel isAdmin
         variant="desktop"
         onDeactivateRow={() => {}}
       />,
@@ -2583,7 +2656,7 @@ describe("PrettyConversationsPanel: Phase 115 Plan 115-06 handleArchive", () => 
     const dialogs = autoAnswerKitDialogs({ confirm: false });
 
     const { container } = render(
-      <PrettyConversationsPanel
+      <PrettyConversationsPanel isAdmin
         variant="desktop"
         onDeactivateRow={() => {}}
       />,
@@ -2627,7 +2700,7 @@ describe("PrettyConversationsPanel: Phase 115 Plan 115-06 handleArchive", () => 
     const onDeactivateRow = vi.fn();
 
     const { container } = render(
-      <PrettyConversationsPanel
+      <PrettyConversationsPanel isAdmin
         variant="desktop"
         onDeactivateRow={onDeactivateRow}
       />,
@@ -2671,7 +2744,7 @@ describe("PrettyConversationsPanel: Phase 115 Plan 115-06 handleArchive", () => 
     const dialogs = autoAnswerKitDialogs({ confirm: true });
 
     const { container } = render(
-      <PrettyConversationsPanel
+      <PrettyConversationsPanel isAdmin
         variant="desktop"
         onDeactivateRow={() => {}}
       />,
@@ -2714,7 +2787,7 @@ describe("PrettyConversationsPanel: Phase 115 Plan 115-06 handleArchive", () => 
     const dialogs = autoAnswerKitDialogs({ confirm: false });
 
     const { container } = render(
-      <PrettyConversationsPanel
+      <PrettyConversationsPanel isAdmin
         variant="desktop"
         onDeactivateRow={() => {}}
       />,
@@ -2757,7 +2830,7 @@ describe("PrettyConversationsPanel: Phase 115 Plan 115-06 handleArchive", () => 
     });
 
     const { container } = render(
-      <PrettyConversationsPanel
+      <PrettyConversationsPanel isAdmin
         variant="desktop"
         onDeactivateRow={() => {}}
       />,
@@ -2802,7 +2875,7 @@ describe("PrettyConversationsPanel: Phase 115 Plan 115-06 handleArchive", () => 
     const dialogs = autoAnswerKitDialogs({ confirm: true });
 
     const { container } = render(
-      <PrettyConversationsPanel
+      <PrettyConversationsPanel isAdmin
         variant="desktop"
         onDeactivateRow={() => {}}
       />,
@@ -2864,7 +2937,7 @@ describe("PrettyConversationsPanel: Phase 115 Plan 115-06 handleArchive", () => 
     });
 
     const { container } = render(
-      <PrettyConversationsPanel
+      <PrettyConversationsPanel isAdmin
         variant="desktop"
         onDeactivateRow={() => {}}
       />,
@@ -2916,7 +2989,7 @@ describe("PrettyConversationsPanel: Phase 115 Plan 115-06 handleArchive", () => 
     const dialogs = autoAnswerKitDialogs({ confirm: false });
 
     const { container } = render(
-      <PrettyConversationsPanel
+      <PrettyConversationsPanel isAdmin
         variant="desktop"
         onDeactivateRow={() => {}}
       />,
@@ -2956,7 +3029,7 @@ describe("PrettyConversationsPanel: retired inline-filter selectors stay absent"
     // Empty snapshot — mirrors the smallest render surface the panel accepts.
     setSnapshot({ activeSet: [], pinned: [], middle: [], rdpGroup: null });
     const { container } = render(
-      <PrettyConversationsPanel variant="desktop" onDeactivateRow={() => {}} />,
+      <PrettyConversationsPanel isAdmin variant="desktop" onDeactivateRow={() => {}} />,
     );
 
     // The three retired testids MUST NOT resolve any node.
@@ -3034,7 +3107,7 @@ describe("PrettyConversationsPanel (quick-260818-q73): idle sweep", () => {
 
     const onDeactivateRow = vi.fn();
     const { rerender } = render(
-      <PrettyConversationsPanel variant="desktop" onDeactivateRow={onDeactivateRow} />,
+      <PrettyConversationsPanel isAdmin variant="desktop" onDeactivateRow={onDeactivateRow} />,
     );
 
     // Clear mount-time spy calls — we care only about sweep-driven calls.
@@ -3048,7 +3121,7 @@ describe("PrettyConversationsPanel (quick-260818-q73): idle sweep", () => {
     });
     mockActiveSet = new Set<string>(["t1", "t2"]);
     rerender(
-      <PrettyConversationsPanel variant="desktop" onDeactivateRow={onDeactivateRow} />,
+      <PrettyConversationsPanel isAdmin variant="desktop" onDeactivateRow={onDeactivateRow} />,
     );
 
     // Advance past the threshold PLUS a sweep tick so a sweep would fire and
@@ -3068,7 +3141,7 @@ describe("PrettyConversationsPanel (quick-260818-q73): idle sweep", () => {
     });
     mockActiveSet = new Set<string>(["t1", "t2"]);
     rerender(
-      <PrettyConversationsPanel variant="desktop" onDeactivateRow={onDeactivateRow} />,
+      <PrettyConversationsPanel isAdmin variant="desktop" onDeactivateRow={onDeactivateRow} />,
     );
 
     // Clear any calls that landed during the pre-switch-back window (e.g.,
@@ -3108,7 +3181,7 @@ describe("PrettyConversationsPanel (quick-260818-q73): idle sweep", () => {
 
     const onDeactivateRow = vi.fn();
     const { rerender } = render(
-      <PrettyConversationsPanel variant="desktop" onDeactivateRow={onDeactivateRow} />,
+      <PrettyConversationsPanel isAdmin variant="desktop" onDeactivateRow={onDeactivateRow} />,
     );
 
     // Clear mount-time spy calls.
@@ -3123,7 +3196,7 @@ describe("PrettyConversationsPanel (quick-260818-q73): idle sweep", () => {
     });
     mockActiveSet = new Set<string>(["t1", "t2"]);
     rerender(
-      <PrettyConversationsPanel variant="desktop" onDeactivateRow={onDeactivateRow} />,
+      <PrettyConversationsPanel isAdmin variant="desktop" onDeactivateRow={onDeactivateRow} />,
     );
 
     // Advance past threshold + one sweep tick — the sweep MUST fire and MUST
@@ -3162,7 +3235,7 @@ describe("PrettyConversationsPanel (quick-260818-q73): idle sweep", () => {
 
     const onDeactivateRow = vi.fn();
     const { rerender } = render(
-      <PrettyConversationsPanel variant="desktop" onDeactivateRow={onDeactivateRow} />,
+      <PrettyConversationsPanel isAdmin variant="desktop" onDeactivateRow={onDeactivateRow} />,
     );
 
     removeFromActiveSetSpy.mockClear();
@@ -3175,7 +3248,7 @@ describe("PrettyConversationsPanel (quick-260818-q73): idle sweep", () => {
     });
     mockActiveSet = new Set<string>(["t1", "t2"]);
     rerender(
-      <PrettyConversationsPanel variant="desktop" onDeactivateRow={onDeactivateRow} />,
+      <PrettyConversationsPanel isAdmin variant="desktop" onDeactivateRow={onDeactivateRow} />,
     );
 
     // Advance ONE sweep tick — well below the threshold. Sweep runs but
@@ -3255,7 +3328,7 @@ describe("PrettyConversationsPanel (Phase 47 Plan 04): PrettyConversationRowLive
       pinnedIds: new Set(["pinned-with-ai-title"]),
     });
     render(
-      <PrettyConversationsPanel variant="desktop" onDeactivateRow={() => {}} />,
+      <PrettyConversationsPanel isAdmin variant="desktop" onDeactivateRow={() => {}} />,
     );
     // Hook was called with the expected sessionKey (proves the pinned
     // render site's PrettyConversationRowLive subscribed).
@@ -3286,7 +3359,7 @@ describe("PrettyConversationsPanel (Phase 47 Plan 04): PrettyConversationRowLive
       rdpGroup: null,
     });
     render(
-      <PrettyConversationsPanel variant="desktop" onDeactivateRow={() => {}} />,
+      <PrettyConversationsPanel isAdmin variant="desktop" onDeactivateRow={() => {}} />,
     );
     // Hook called with the middle row's key (proves middle site subscribed).
     const calls = useSessionAiTitleSpy.mock.calls.map((c) => c[0]);
@@ -3316,7 +3389,7 @@ describe("PrettyConversationsPanel (Phase 47 Plan 04): PrettyConversationRowLive
       rdpGroup: null,
     });
     render(
-      <PrettyConversationsPanel variant="desktop" onDeactivateRow={() => {}} />,
+      <PrettyConversationsPanel isAdmin variant="desktop" onDeactivateRow={() => {}} />,
     );
     // Hook called with null (proves the null-key branch is exercised).
     const calls = useSessionAiTitleSpy.mock.calls.map((c) => c[0]);
@@ -3349,7 +3422,7 @@ describe("PrettyConversationsPanel (Phase 47 Plan 04): PrettyConversationRowLive
       pinnedIds: new Set(["p-tina"]),
     });
     render(
-      <PrettyConversationsPanel variant="desktop" onDeactivateRow={() => {}} />,
+      <PrettyConversationsPanel isAdmin variant="desktop" onDeactivateRow={() => {}} />,
     );
     const calls = useSessionAiTitleSpy.mock.calls.map((c) => c[0]);
     // Both render sites (pinned + middle) subscribed with the correct
@@ -3576,7 +3649,7 @@ describe("PrettyConversationsPanel: Phase 119 Apps section", () => {
     setSnapshot({ activeSet: [], pinned: [], middle: [], rdpGroup: null });
 
     render(
-      <PrettyConversationsPanel variant="desktop" onDeactivateRow={() => {}} />,
+      <PrettyConversationsPanel isAdmin variant="desktop" onDeactivateRow={() => {}} />,
     );
 
     const header = screen.getByTestId("pretty-conversations-apps-header");
@@ -3597,7 +3670,7 @@ describe("PrettyConversationsPanel: Phase 119 Apps section", () => {
     setSnapshot({ activeSet: [], pinned: [], middle: [], rdpGroup: null });
 
     render(
-      <PrettyConversationsPanel variant="desktop" onDeactivateRow={() => {}} />,
+      <PrettyConversationsPanel isAdmin variant="desktop" onDeactivateRow={() => {}} />,
     );
 
     // Collapsed by default (appsExpanded=false) → the entire section body is
@@ -3619,7 +3692,7 @@ describe("PrettyConversationsPanel: Phase 119 Apps section", () => {
       { ...makeAppTile({ hostId: "1", slug: "tally", title: "Tally" }), owner: "alpha" },
     ];
     setSnapshot({ activeSet: [], pinned: [], middle: [], rdpGroup: null });
-    render(<PrettyConversationsPanel variant="desktop" onDeactivateRow={() => {}} />);
+    render(<PrettyConversationsPanel isAdmin variant="desktop" onDeactivateRow={() => {}} />);
     fireEvent.click(screen.getByTestId("pretty-conversations-apps-header"));
     const tiles = screen.queryAllByRole("button", { name: /App tile:/ });
     expect(tiles.map((t) => t.getAttribute("aria-label"))).toEqual(["App tile: Groceries"]);
@@ -3628,7 +3701,7 @@ describe("PrettyConversationsPanel: Phase 119 Apps section", () => {
   it("convo-apps: only conversation apps → the empty-state prompt", () => {
     mockAppTiles = [{ ...makeAppTile({ hostId: "1", slug: "tally", title: "Tally" }), owner: "alpha" }];
     setSnapshot({ activeSet: [], pinned: [], middle: [], rdpGroup: null });
-    render(<PrettyConversationsPanel variant="desktop" onDeactivateRow={() => {}} />);
+    render(<PrettyConversationsPanel isAdmin variant="desktop" onDeactivateRow={() => {}} />);
     fireEvent.click(screen.getByTestId("pretty-conversations-apps-header"));
     expect(screen.getByText("Ask an agent to make an app for you.")).toBeTruthy();
   });
@@ -3639,7 +3712,7 @@ describe("PrettyConversationsPanel: Phase 119 Apps section", () => {
     setSnapshot({ activeSet: [], pinned: [], middle: [], rdpGroup: null });
 
     render(
-      <PrettyConversationsPanel variant="desktop" onDeactivateRow={() => {}} />,
+      <PrettyConversationsPanel isAdmin variant="desktop" onDeactivateRow={() => {}} />,
     );
 
     // Pre-click: empty-state prompt is not in the DOM (D-03 lazy).
@@ -3670,7 +3743,7 @@ describe("PrettyConversationsPanel: Phase 119 Apps section", () => {
     setSnapshot({ activeSet: [], pinned: [], middle: [], rdpGroup: null });
 
     render(
-      <PrettyConversationsPanel variant="desktop" onDeactivateRow={() => {}} />,
+      <PrettyConversationsPanel isAdmin variant="desktop" onDeactivateRow={() => {}} />,
     );
 
     // Expand the section.
@@ -3703,7 +3776,7 @@ describe("PrettyConversationsPanel: Phase 119 Apps section", () => {
     setSnapshot({ activeSet: [], pinned: [], middle: [], rdpGroup: null });
 
     render(
-      <PrettyConversationsPanel variant="desktop" onDeactivateRow={() => {}} />,
+      <PrettyConversationsPanel isAdmin variant="desktop" onDeactivateRow={() => {}} />,
     );
 
     expect(
@@ -3735,7 +3808,7 @@ describe("PrettyConversationsPanel: Phase 119 Apps section", () => {
     });
 
     const { container } = render(
-      <PrettyConversationsPanel variant="desktop" onDeactivateRow={() => {}} />,
+      <PrettyConversationsPanel isAdmin variant="desktop" onDeactivateRow={() => {}} />,
     );
 
     const appsHeader = screen.getByTestId("pretty-conversations-apps-header");
@@ -3785,7 +3858,7 @@ describe("PrettyConversationsPanel (shape-sidebar-search-inline): sidebar-search
   it("S1: search input row renders with 'Search' placeholder", () => {
     setSnapshot({ activeSet: [], pinned: [], middle: [], rdpGroup: null });
     render(
-      <PrettyConversationsPanel variant="desktop" onDeactivateRow={() => {}} />,
+      <PrettyConversationsPanel isAdmin variant="desktop" onDeactivateRow={() => {}} />,
     );
     const input = screen.getByTestId("pv-sidebar-search-input") as HTMLInputElement;
     expect(input).toBeTruthy();
@@ -3806,7 +3879,7 @@ describe("PrettyConversationsPanel (shape-sidebar-search-inline): sidebar-search
       rdpGroup: null,
     });
     const { container } = render(
-      <PrettyConversationsPanel variant="desktop" onDeactivateRow={() => {}} />,
+      <PrettyConversationsPanel isAdmin variant="desktop" onDeactivateRow={() => {}} />,
     );
 
     // Both rows visible before any typing.
@@ -3852,7 +3925,7 @@ describe("PrettyConversationsPanel (shape-sidebar-search-inline): sidebar-search
       rdpGroup: null,
     });
     const { container } = render(
-      <PrettyConversationsPanel variant="desktop" onDeactivateRow={() => {}} />,
+      <PrettyConversationsPanel isAdmin variant="desktop" onDeactivateRow={() => {}} />,
     );
 
     const input = screen.getByTestId("pv-sidebar-search-input") as HTMLInputElement;
@@ -3877,7 +3950,7 @@ describe("PrettyConversationsPanel (shape-sidebar-search-inline): sidebar-search
       rdpGroup: null,
     });
     const { container } = render(
-      <PrettyConversationsPanel variant="desktop" onDeactivateRow={() => {}} />,
+      <PrettyConversationsPanel isAdmin variant="desktop" onDeactivateRow={() => {}} />,
     );
 
     // Conversations section header visible before typing.
@@ -3904,7 +3977,7 @@ describe("PrettyConversationsPanel (shape-sidebar-search-inline): sidebar-search
       rdpGroup: null,
     });
     render(
-      <PrettyConversationsPanel variant="desktop" onDeactivateRow={() => {}} />,
+      <PrettyConversationsPanel isAdmin variant="desktop" onDeactivateRow={() => {}} />,
     );
 
     // Before typing — fallback absent.
@@ -3926,7 +3999,7 @@ describe("PrettyConversationsPanel (shape-sidebar-search-inline): sidebar-search
   it("S6: everywhere-link inside the input has .visible ONLY when input has content", () => {
     setSnapshot({ activeSet: [], pinned: [], middle: [], rdpGroup: null });
     render(
-      <PrettyConversationsPanel variant="desktop" onDeactivateRow={() => {}} />,
+      <PrettyConversationsPanel isAdmin variant="desktop" onDeactivateRow={() => {}} />,
     );
 
     const link = screen.getByTestId("pv-sidebar-search-everywhere-link");
@@ -3950,7 +4023,7 @@ describe("PrettyConversationsPanel (shape-sidebar-search-inline): sidebar-search
   it("S7: clicking the everywhere-link opens ConversationSearchModal pre-populated with the current query", async () => {
     setSnapshot({ activeSet: [], pinned: [], middle: [], rdpGroup: null });
     render(
-      <PrettyConversationsPanel
+      <PrettyConversationsPanel isAdmin
         variant="desktop"
         onDeactivateRow={() => {}}
         onCreateSession={vi.fn()}
@@ -3985,7 +4058,7 @@ describe("PrettyConversationsPanel (shape-sidebar-search-inline): sidebar-search
   it("S7b: clicking the all-empty 'search everywhere' CTA clears the sidebar search input", async () => {
     setSnapshot({ activeSet: [], pinned: [], middle: [], rdpGroup: null });
     render(
-      <PrettyConversationsPanel
+      <PrettyConversationsPanel isAdmin
         variant="desktop"
         onDeactivateRow={() => {}}
         onCreateSession={vi.fn()}
@@ -4007,7 +4080,7 @@ describe("PrettyConversationsPanel (shape-sidebar-search-inline): sidebar-search
   it("S8: pressing Enter in the input escalates to ConversationSearchModal with pre-populated query", async () => {
     setSnapshot({ activeSet: [], pinned: [], middle: [], rdpGroup: null });
     render(
-      <PrettyConversationsPanel
+      <PrettyConversationsPanel isAdmin
         variant="desktop"
         onDeactivateRow={() => {}}
         onCreateSession={vi.fn()}
@@ -4037,7 +4110,7 @@ describe("PrettyConversationsPanel (shape-sidebar-search-inline): sidebar-search
     // no-op — the modal does not mount.
     setSnapshot({ activeSet: [], pinned: [], middle: [], rdpGroup: null });
     render(
-      <PrettyConversationsPanel
+      <PrettyConversationsPanel isAdmin
         variant="desktop"
         onDeactivateRow={() => {}}
         onCreateSession={vi.fn()}
@@ -4058,7 +4131,7 @@ describe("PrettyConversationsPanel (shape-sidebar-search-inline): sidebar-search
   it("S9: pressing Escape clears the input value and hides the everywhere-link", () => {
     setSnapshot({ activeSet: [], pinned: [], middle: [], rdpGroup: null });
     render(
-      <PrettyConversationsPanel variant="desktop" onDeactivateRow={() => {}} />,
+      <PrettyConversationsPanel isAdmin variant="desktop" onDeactivateRow={() => {}} />,
     );
 
     const input = screen.getByTestId("pv-sidebar-search-input") as HTMLInputElement;
@@ -4104,7 +4177,7 @@ describe("PrettyConversationsPanel: rows re-render only when their own data chan
     setSnapshot({ middle: [rowA, rowB], selectedId: null });
     const onDeactivateRow = () => {};
     const { rerender } = render(
-      <PrettyConversationsPanel variant="desktop" onDeactivateRow={onDeactivateRow} />,
+      <PrettyConversationsPanel isAdmin variant="desktop" onDeactivateRow={onDeactivateRow} />,
     );
     const rendersFor = (key: string) =>
       useSessionAiTitleSpy.mock.calls.filter((c) => c[0] === key).length;
@@ -4115,7 +4188,7 @@ describe("PrettyConversationsPanel: rows re-render only when their own data chan
     // Same row objects, new selection → panel re-renders.
     setSnapshot({ middle: [rowA, rowB], selectedId: "row-a" });
     rerender(
-      <PrettyConversationsPanel variant="desktop" onDeactivateRow={onDeactivateRow} />,
+      <PrettyConversationsPanel isAdmin variant="desktop" onDeactivateRow={onDeactivateRow} />,
     );
     expect(rendersFor("1:alpha")).toBeGreaterThan(0);
     expect(rendersFor("1:bravo")).toBe(0);
@@ -4126,11 +4199,11 @@ describe("PrettyConversationsPanel: rows re-render only when their own data chan
     const rowA = makeConversationRow({ id: "row-a", label: "a", host, targetTmuxSession: "alpha" });
     setSnapshot({ middle: [rowA] });
     const { rerender } = render(
-      <PrettyConversationsPanel variant="desktop" onDeactivateRow={() => {}} />,
+      <PrettyConversationsPanel isAdmin variant="desktop" onDeactivateRow={() => {}} />,
     );
     useSessionAiTitleSpy.mockClear();
     rerender(
-      <PrettyConversationsPanel variant="desktop" onDeactivateRow={() => {}} />,
+      <PrettyConversationsPanel isAdmin variant="desktop" onDeactivateRow={() => {}} />,
     );
     expect(
       useSessionAiTitleSpy.mock.calls.filter((c) => c[0] === "1:alpha").length,
@@ -4144,10 +4217,10 @@ describe("PrettyConversationsPanel: rows re-render only when their own data chan
     const first = vi.fn();
     const second = vi.fn();
     const { rerender, container } = render(
-      <PrettyConversationsPanel variant="desktop" onDeactivateRow={() => {}} onConversationSelected={first} />,
+      <PrettyConversationsPanel isAdmin variant="desktop" onDeactivateRow={() => {}} onConversationSelected={first} />,
     );
     rerender(
-      <PrettyConversationsPanel variant="desktop" onDeactivateRow={() => {}} onConversationSelected={second} />,
+      <PrettyConversationsPanel isAdmin variant="desktop" onDeactivateRow={() => {}} onConversationSelected={second} />,
     );
     const body = container.querySelector('[data-conversation-id="row-a"] [role="button"]') as HTMLElement | null;
     expect(body).not.toBeNull();
@@ -4238,7 +4311,7 @@ describe("PrettyConversationsPanel (shape-sidebar): swipe to archive with Undo",
     seedWren();
     const dialogs = autoAnswerKitDialogs({ confirm: true });
     const { container } = render(
-      <PrettyConversationsPanel variant="mobile" onDeactivateRow={() => {}} />,
+      <PrettyConversationsPanel isAdmin variant="mobile" onDeactivateRow={() => {}} />,
     );
     const opts = await swipe(container);
 
@@ -4261,7 +4334,7 @@ describe("PrettyConversationsPanel (shape-sidebar): swipe to archive with Undo",
   it("toast label prefers the identity's task", async () => {
     seedWren("Fixing the auth bug");
     const { container } = render(
-      <PrettyConversationsPanel variant="mobile" onDeactivateRow={() => {}} />,
+      <PrettyConversationsPanel isAdmin variant="mobile" onDeactivateRow={() => {}} />,
     );
     await swipe(container);
     expect((toastSpy as unknown as ReturnType<typeof vi.fn>).mock.calls[0][0]).toBe(
@@ -4272,7 +4345,7 @@ describe("PrettyConversationsPanel (shape-sidebar): swipe to archive with Undo",
   it("Undo restores the row and never archives (even if the toast is dismissed afterwards)", async () => {
     seedWren();
     const { container } = render(
-      <PrettyConversationsPanel variant="mobile" onDeactivateRow={() => {}} />,
+      <PrettyConversationsPanel isAdmin variant="mobile" onDeactivateRow={() => {}} />,
     );
     const opts = await swipe(container);
     upsertFleetSessionSpy.mockClear();
@@ -4293,7 +4366,7 @@ describe("PrettyConversationsPanel (shape-sidebar): swipe to archive with Undo",
   it("auto-close archives exactly once (a later dismiss is ignored)", async () => {
     seedWren();
     const { container } = render(
-      <PrettyConversationsPanel variant="mobile" onDeactivateRow={() => {}} />,
+      <PrettyConversationsPanel isAdmin variant="mobile" onDeactivateRow={() => {}} />,
     );
     const opts = await swipe(container);
     act(() => opts.onAutoClose());
@@ -4312,7 +4385,7 @@ describe("PrettyConversationsPanel (shape-sidebar): swipe to archive with Undo",
   it("dismissing the toast archives exactly once", async () => {
     seedWren();
     const { container } = render(
-      <PrettyConversationsPanel variant="mobile" onDeactivateRow={() => {}} />,
+      <PrettyConversationsPanel isAdmin variant="mobile" onDeactivateRow={() => {}} />,
     );
     const opts = await swipe(container);
     act(() => {
@@ -4332,7 +4405,7 @@ describe("PrettyConversationsPanel (shape-sidebar): swipe to archive with Undo",
       throw new Error("boom");
     });
     const { container } = render(
-      <PrettyConversationsPanel variant="mobile" onDeactivateRow={() => {}} />,
+      <PrettyConversationsPanel isAdmin variant="mobile" onDeactivateRow={() => {}} />,
     );
     const opts = await swipe(container);
     upsertFleetSessionSpy.mockClear();
@@ -4349,7 +4422,7 @@ describe("PrettyConversationsPanel (shape-sidebar): swipe to archive with Undo",
     mockActiveSet = new Set(["swipe-row"]);
     const onDeactivateRow = vi.fn();
     const { container } = render(
-      <PrettyConversationsPanel variant="mobile" onDeactivateRow={onDeactivateRow} />,
+      <PrettyConversationsPanel isAdmin variant="mobile" onDeactivateRow={onDeactivateRow} />,
     );
     const opts = await swipe(container);
     expect(onDeactivateRow).not.toHaveBeenCalled();
@@ -4362,7 +4435,7 @@ describe("PrettyConversationsPanel (shape-sidebar): swipe to archive with Undo",
     mockActiveSet = new Set(["swipe-row"]);
     const onDeactivateRow = vi.fn();
     const { container } = render(
-      <PrettyConversationsPanel variant="mobile" onDeactivateRow={onDeactivateRow} />,
+      <PrettyConversationsPanel isAdmin variant="mobile" onDeactivateRow={onDeactivateRow} />,
     );
     const opts = await swipe(container);
     act(() => {
@@ -4394,7 +4467,7 @@ describe("PrettyConversationsPanel (shape-sidebar): swipe to archive with Undo",
       },
     });
     const { container } = render(
-      <PrettyConversationsPanel variant="mobile" onDeactivateRow={() => {}} />,
+      <PrettyConversationsPanel isAdmin variant="mobile" onDeactivateRow={() => {}} />,
     );
     const body = bodyOf(container, "rdp-row");
     panelTouch(body, "touchStart", [{ x: 290, y: 20 }], 0);
@@ -4411,7 +4484,7 @@ describe("PrettyConversationsPanel (shape-sidebar): swipe to archive with Undo",
   it("archivable rows show the swipe Archive backdrop while swiping", () => {
     seedWren();
     const { container } = render(
-      <PrettyConversationsPanel variant="mobile" onDeactivateRow={() => {}} />,
+      <PrettyConversationsPanel isAdmin variant="mobile" onDeactivateRow={() => {}} />,
     );
     const body = bodyOf(container);
     panelTouch(body, "touchStart", [{ x: 290, y: 20 }], 0);
@@ -4427,7 +4500,7 @@ describe("PrettyConversationsPanel (shape-sidebar): swipe to archive with Undo",
     seedWren();
     const dialogs = autoAnswerKitDialogs({ confirm: true });
     const { container } = render(
-      <PrettyConversationsPanel variant="desktop" onDeactivateRow={() => {}} />,
+      <PrettyConversationsPanel isAdmin variant="desktop" onDeactivateRow={() => {}} />,
     );
     const body = bodyOf(container);
     const menu = await openRowKebabInBody(body);
@@ -4452,7 +4525,7 @@ describe("PrettyConversationsPanel (shape-sidebar): kit-scoped menus + Apps head
       ],
     });
     const { container } = render(
-      <PrettyConversationsPanel variant="desktop" onDeactivateRow={() => {}} />,
+      <PrettyConversationsPanel isAdmin variant="desktop" onDeactivateRow={() => {}} />,
     );
     const rowEl = container.querySelector('[data-conversation-id="kit-row"]') as HTMLElement;
     const menu = await openRowKebabInBody(rowEl.querySelector('[role="button"]') as HTMLElement);
@@ -4461,7 +4534,7 @@ describe("PrettyConversationsPanel (shape-sidebar): kit-scoped menus + Apps head
   });
 
   it("Apps heading is pv-section-head and its chevron data-open toggles with the section", () => {
-    render(<PrettyConversationsPanel variant="desktop" onDeactivateRow={() => {}} />);
+    render(<PrettyConversationsPanel isAdmin variant="desktop" onDeactivateRow={() => {}} />);
     const header = screen.getByTestId("pretty-conversations-apps-header");
     expect(header.classList.contains("pv-section-head")).toBe(true);
     const chevron = () => header.querySelector(".pv-section-chevron") as Element;
@@ -4478,7 +4551,7 @@ describe("PrettyConversationsPanel (shape-sidebar): kit-scoped menus + Apps head
   it("Pinned and Conversations headings are pv-section-head", () => {
     setSnapshot({ pinned: [makeConversationRow({ id: "p1" })] });
     const { container } = render(
-      <PrettyConversationsPanel variant="desktop" onDeactivateRow={() => {}} />,
+      <PrettyConversationsPanel isAdmin variant="desktop" onDeactivateRow={() => {}} />,
     );
     const pinned = container.querySelector('[data-testid="pretty-conversations-pinned-header"]');
     expect(pinned).not.toBeNull();

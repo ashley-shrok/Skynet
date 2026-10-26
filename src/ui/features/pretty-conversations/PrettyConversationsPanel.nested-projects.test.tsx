@@ -610,7 +610,7 @@ function seedTree(): void {
 
 function renderPanel(variant: "desktop" | "mobile" = "desktop") {
   return render(
-    <PrettyConversationsPanel
+    <PrettyConversationsPanel isAdmin
       variant={variant}
       hostTree={HOST_TREE}
       onCreateSession={() => {}}

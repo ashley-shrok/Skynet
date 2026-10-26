@@ -1445,12 +1445,23 @@ export function PrettyConversationsPanel({
   const notSwipePending = (row: ConversationRowShape): boolean =>
     swipePending.size === 0 || !row.host || !row.targetTmuxSession ||
     !swipePending.has(`${parseInt(row.host.id, 10)}::${row.targetTmuxSession}`);
+  // Non-admins never see a plain terminal row: a terminal row that doesn't
+  // resolve to a known identity (a bare tmux shell, or an agent whose host
+  // sweep is unreachable so its identity isn't loaded) is left out entirely.
+  const hideTerminalRows = !isAdmin;
+  const isPlainTerminalRow = (row: ConversationRowShape): boolean =>
+    row.type === "terminal" &&
+    row.kind !== "relay-room" &&
+    resolveIdentityForRow(row, identitiesByHostKey, identitiesByKey) === null;
   const keepRow = (row: ConversationRowShape): boolean =>
-    notSwipePending(row) && (!anyFilterOn || matchesFilterForRow(row));
-  const displayedPinned = anyFilterOn || swipePending.size > 0
+    notSwipePending(row) &&
+    (!hideTerminalRows || !isPlainTerminalRow(row)) &&
+    (!anyFilterOn || matchesFilterForRow(row));
+  const filterRows = anyFilterOn || swipePending.size > 0 || hideTerminalRows;
+  const displayedPinned = filterRows
     ? pinnedUnassigned.filter(keepRow)
     : pinnedUnassigned;
-  const displayedMiddle = anyFilterOn || swipePending.size > 0
+  const displayedMiddle = filterRows
     ? middle.filter(keepRow)
     : middle;
   const displayedRdpGroup = rdpGroup;
@@ -1458,7 +1469,7 @@ export function PrettyConversationsPanel({
   // bounty-count filter when active. Sections stay in the derived selector's
   // alphabetical order (D-15) regardless of filter state — empty sections
   // continue to render as header-only per D-11.
-  const displayedProjectSections = anyFilterOn || swipePending.size > 0
+  const displayedProjectSections = filterRows
     ? projectSections.map((s) => ({
         ...s,
         rows: s.rows.filter(keepRow),

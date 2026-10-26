@@ -611,7 +611,7 @@ describe("PrettyConversationsPanel: projects zone position (D-09)", () => {
     ];
 
     const { container } = render(
-      <PrettyConversationsPanel
+      <PrettyConversationsPanel isAdmin
         variant="desktop"
         hostTree={HOST_TREE}
         onCreateSession={() => {}}
@@ -664,7 +664,7 @@ describe("PrettyConversationsPanel: 'Projects' super-header", () => {
     ];
 
     const { container } = render(
-      <PrettyConversationsPanel
+      <PrettyConversationsPanel isAdmin
         variant="desktop"
         hostTree={HOST_TREE}
         onCreateSession={() => {}}
@@ -691,7 +691,7 @@ describe("PrettyConversationsPanel: 'Projects' super-header new-project button",
     setSnapshot({ projectSections: [] });
     mockProjects = [];
     const { container } = render(
-      <PrettyConversationsPanel
+      <PrettyConversationsPanel isAdmin
         variant="desktop"
         hostTree={HOST_TREE}
         onCreateSession={() => {}}
@@ -718,7 +718,7 @@ describe("PrettyConversationsPanel: 'Projects' super-header collapse", () => {
   }
   function renderPanel() {
     return render(
-      <PrettyConversationsPanel
+      <PrettyConversationsPanel isAdmin
         variant="desktop"
         hostTree={HOST_TREE}
         onCreateSession={() => {}}
@@ -785,7 +785,7 @@ describe("PrettyConversationsPanel: empty projects visible (D-11)", () => {
     ];
 
     const { container } = render(
-      <PrettyConversationsPanel
+      <PrettyConversationsPanel isAdmin
         variant="desktop"
         hostTree={HOST_TREE}
         onCreateSession={() => {}}
@@ -825,7 +825,7 @@ describe("PrettyConversationsPanel: collapse state (D-13)", () => {
     mockCollapsed = new Set(["alpha"]);
 
     const { container } = render(
-      <PrettyConversationsPanel
+      <PrettyConversationsPanel isAdmin
         variant="desktop"
         hostTree={HOST_TREE}
         onCreateSession={() => {}}
@@ -858,7 +858,7 @@ describe("PrettyConversationsPanel: collapse state (D-13)", () => {
     mockCollapsed = new Set(["alpha"]);
 
     const { container } = render(
-      <PrettyConversationsPanel
+      <PrettyConversationsPanel isAdmin
         variant="desktop"
         hostTree={HOST_TREE}
         onCreateSession={() => {}}
@@ -897,7 +897,7 @@ describe("PrettyConversationsPanel: collapse state (D-13)", () => {
 describe("PrettyConversationsPanel: create-project header button", () => {
   it("Test 5: 'Create project' button in header cluster; click toggles modal state (placeholder visible)", () => {
     const { getByLabelText, queryByTestId } = render(
-      <PrettyConversationsPanel
+      <PrettyConversationsPanel isAdmin
         variant="desktop"
         hostTree={HOST_TREE}
         onCreateSession={() => {}}
@@ -930,7 +930,7 @@ describe("PrettyConversationsPanel: project drop (identity row)", () => {
     ];
 
     const { container } = render(
-      <PrettyConversationsPanel
+      <PrettyConversationsPanel isAdmin
         variant="desktop"
         hostTree={HOST_TREE}
         onCreateSession={() => {}}
@@ -976,7 +976,7 @@ describe("PrettyConversationsPanel: project drop (relay-room row)", () => {
     ];
 
     const { container } = render(
-      <PrettyConversationsPanel
+      <PrettyConversationsPanel isAdmin
         variant="desktop"
         hostTree={HOST_TREE}
         onCreateSession={() => {}}
@@ -1034,7 +1034,7 @@ describe("PrettyConversationsPanel: flat-middle clear-project (D-22 gesture #2)"
     ];
 
     const { container } = render(
-      <PrettyConversationsPanel
+      <PrettyConversationsPanel isAdmin
         variant="desktop"
         hostTree={HOST_TREE}
         onCreateSession={() => {}}
@@ -1082,7 +1082,7 @@ describe("PrettyConversationsPanel: flat-middle no-op on unassigned", () => {
     });
 
     const { container } = render(
-      <PrettyConversationsPanel
+      <PrettyConversationsPanel isAdmin
         variant="desktop"
         hostTree={HOST_TREE}
         onCreateSession={() => {}}
@@ -1128,7 +1128,7 @@ describe("PrettyConversationsPanel: RDP drop refused (D-08)", () => {
     ];
 
     const { container } = render(
-      <PrettyConversationsPanel
+      <PrettyConversationsPanel isAdmin
         variant="desktop"
         hostTree={HOST_TREE}
         onCreateSession={() => {}}
@@ -1159,7 +1159,7 @@ describe("PrettyConversationsPanel: RDP drop refused (D-08)", () => {
 describe("PrettyConversationsPanel: CreateProjectModal wire (117-09 Task 1)", () => {
   it("Test 11: clicking Create project button renders the real CreateProjectModal (data-testid='create-project-modal')", () => {
     const { getByLabelText, queryByTestId } = render(
-      <PrettyConversationsPanel
+      <PrettyConversationsPanel isAdmin
         variant="desktop"
         hostTree={HOST_TREE}
         onCreateSession={() => {}}
@@ -1195,7 +1195,7 @@ describe("PrettyConversationsPanel: pin-drop on Pinned zone", () => {
     });
 
     const { container } = render(
-      <PrettyConversationsPanel
+      <PrettyConversationsPanel isAdmin
         variant="desktop"
         hostTree={HOST_TREE}
         onCreateSession={() => {}}
@@ -1233,7 +1233,7 @@ describe("PrettyConversationsPanel: pin-drop on Pinned zone", () => {
       pinnedIds: new Set(),
     });
     const { container } = render(
-      <PrettyConversationsPanel
+      <PrettyConversationsPanel isAdmin
         variant="desktop"
         hostTree={HOST_TREE}
         onCreateSession={() => {}}
@@ -1268,7 +1268,7 @@ describe("PrettyConversationsPanel: pin-drop on Pinned zone", () => {
     });
 
     const { container } = render(
-      <PrettyConversationsPanel
+      <PrettyConversationsPanel isAdmin
         variant="desktop"
         hostTree={HOST_TREE}
         onCreateSession={() => {}}
@@ -1297,7 +1297,7 @@ describe("PrettyConversationsPanel: pin-drop on Pinned zone", () => {
   it("PinDrop-3: drop of RDP row (rdpHostRow=true) on Pinned zone is refused (D-08)", () => {
     setSnapshot({});
     const { container } = render(
-      <PrettyConversationsPanel
+      <PrettyConversationsPanel isAdmin
         variant="desktop"
         hostTree={HOST_TREE}
         onCreateSession={() => {}}
@@ -1319,7 +1319,7 @@ describe("PrettyConversationsPanel: pin-drop on Pinned zone", () => {
   it("PinDrop-4: Pinned zone renders empty-state placeholder when nothing is pinned", () => {
     setSnapshot({});
     const { container, getByTestId } = render(
-      <PrettyConversationsPanel
+      <PrettyConversationsPanel isAdmin
         variant="desktop"
         hostTree={HOST_TREE}
         onCreateSession={() => {}}
@@ -1355,7 +1355,7 @@ describe("PrettyConversationsPanel: unpin-drop on flat middle", () => {
     });
 
     const { container } = render(
-      <PrettyConversationsPanel
+      <PrettyConversationsPanel isAdmin
         variant="desktop"
         hostTree={HOST_TREE}
         onCreateSession={() => {}}
@@ -1405,7 +1405,7 @@ describe("PrettyConversationsPanel: unpin-drop on flat middle", () => {
     });
 
     const { container } = render(
-      <PrettyConversationsPanel
+      <PrettyConversationsPanel isAdmin
         variant="desktop"
         hostTree={HOST_TREE}
         onCreateSession={() => {}}
@@ -1449,7 +1449,7 @@ describe("PrettyConversationsPanel: unpin-drop on flat middle", () => {
     ];
 
     const { container } = render(
-      <PrettyConversationsPanel
+      <PrettyConversationsPanel isAdmin
         variant="desktop"
         hostTree={HOST_TREE}
         onCreateSession={() => {}}
@@ -1488,7 +1488,7 @@ describe("PrettyConversationsPanel: unpin-drop on flat middle", () => {
     });
 
     const { container } = render(
-      <PrettyConversationsPanel
+      <PrettyConversationsPanel isAdmin
         variant="desktop"
         hostTree={HOST_TREE}
         onCreateSession={() => {}}
@@ -1552,7 +1552,7 @@ describe("PrettyConversationsPanel: archive-project cascade (117-09 Task 2)", ()
     confirmAnswer = false;
 
     const { container, getByText } = render(
-      <PrettyConversationsPanel
+      <PrettyConversationsPanel isAdmin
         variant="desktop"
         hostTree={HOST_TREE}
         onCreateSession={() => {}}
@@ -1586,7 +1586,7 @@ describe("PrettyConversationsPanel: archive-project cascade (117-09 Task 2)", ()
     confirmAnswer = true;
 
     const { container, getByText } = render(
-      <PrettyConversationsPanel
+      <PrettyConversationsPanel isAdmin
         variant="desktop"
         hostTree={HOST_TREE}
         onCreateSession={() => {}}
@@ -1624,7 +1624,7 @@ describe("PrettyConversationsPanel: archive-project cascade (117-09 Task 2)", ()
     const onDeactivateRow = vi.fn();
 
     const { container } = render(
-      <PrettyConversationsPanel
+      <PrettyConversationsPanel isAdmin
         variant="desktop"
         hostTree={HOST_TREE}
         onCreateSession={() => {}}
@@ -1655,7 +1655,7 @@ describe("PrettyConversationsPanel: archive-project cascade (117-09 Task 2)", ()
     const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
 
     const { container } = render(
-      <PrettyConversationsPanel
+      <PrettyConversationsPanel isAdmin
         variant="desktop"
         hostTree={HOST_TREE}
         onCreateSession={() => {}}
@@ -1697,7 +1697,7 @@ describe("PrettyConversationsPanel: archive-project cascade (117-09 Task 2)", ()
     const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
 
     const { container, getByText } = render(
-      <PrettyConversationsPanel
+      <PrettyConversationsPanel isAdmin
         variant="desktop"
         hostTree={HOST_TREE}
         onCreateSession={() => {}}
@@ -1743,7 +1743,7 @@ describe("PrettyConversationsPanel: archive-project cascade (117-09 Task 2)", ()
     const { archiveIdentity } = await import("@/api/identity-archive-api");
 
     const { container, getByText } = render(
-      <PrettyConversationsPanel
+      <PrettyConversationsPanel isAdmin
         variant="desktop"
         hostTree={HOST_TREE}
         onCreateSession={() => {}}
@@ -1786,7 +1786,7 @@ describe("PrettyConversationsPanel: archive-project cascade (117-09 Task 2)", ()
     ];
     confirmAnswer = true;
     const { container } = render(
-      <PrettyConversationsPanel
+      <PrettyConversationsPanel isAdmin
         variant="desktop"
         hostTree={HOST_TREE}
         onCreateSession={() => {}}
@@ -1820,7 +1820,7 @@ describe("PrettyConversationsPanel: archive-project cascade (117-09 Task 2)", ()
     confirmAnswer = false;
 
     const { container, getByText } = render(
-      <PrettyConversationsPanel
+      <PrettyConversationsPanel isAdmin
         variant="desktop"
         hostTree={HOST_TREE}
         onCreateSession={() => {}}
@@ -1847,7 +1847,7 @@ describe("PrettyConversationsPanel: archive-project cascade (117-09 Task 2)", ()
     confirmAnswer = true;
 
     const { container, getByText } = render(
-      <PrettyConversationsPanel
+      <PrettyConversationsPanel isAdmin
         variant="desktop"
         hostTree={HOST_TREE}
         onCreateSession={() => {}}
@@ -1888,7 +1888,7 @@ describe("PrettyConversationsPanel: archive-project cascade (117-09 Task 2)", ()
       .mockImplementation(() => {});
 
     const { container, getByText } = render(
-      <PrettyConversationsPanel
+      <PrettyConversationsPanel isAdmin
         variant="desktop"
         hostTree={HOST_TREE}
         onCreateSession={() => {}}
@@ -1924,7 +1924,7 @@ describe("PrettyConversationsPanel: archive-project cascade (117-09 Task 2)", ()
 
     const user = userEvent.setup();
     const { container } = render(
-      <PrettyConversationsPanel
+      <PrettyConversationsPanel isAdmin
         variant="desktop"
         hostTree={HOST_TREE}
         onCreateSession={() => {}}
@@ -1954,7 +1954,7 @@ describe("PrettyConversationsPanel: archive-project cascade (117-09 Task 2)", ()
 
     const user = userEvent.setup();
     const { container } = render(
-      <PrettyConversationsPanel
+      <PrettyConversationsPanel isAdmin
         variant="desktop"
         hostTree={HOST_TREE}
         onCreateSession={() => {}}
@@ -1983,7 +1983,7 @@ describe("PrettyConversationsPanel: archive-project cascade (117-09 Task 2)", ()
     promptAnswer = "Bravo";
 
     const { container, getByText } = render(
-      <PrettyConversationsPanel
+      <PrettyConversationsPanel isAdmin
         variant="desktop"
         hostTree={HOST_TREE}
         onCreateSession={() => {}}
@@ -2023,7 +2023,7 @@ describe("PrettyConversationsPanel: archive-project cascade (117-09 Task 2)", ()
     promptAnswer = null;
 
     const { container, getByText } = render(
-      <PrettyConversationsPanel
+      <PrettyConversationsPanel isAdmin
         variant="desktop"
         hostTree={HOST_TREE}
         onCreateSession={() => {}}
@@ -2049,7 +2049,7 @@ describe("PrettyConversationsPanel: archive-project cascade (117-09 Task 2)", ()
     promptAnswer = "   ";
 
     const { container, getByText } = render(
-      <PrettyConversationsPanel
+      <PrettyConversationsPanel isAdmin
         variant="desktop"
         hostTree={HOST_TREE}
         onCreateSession={() => {}}
@@ -2126,7 +2126,7 @@ describe("PrettyConversationsPanel: new-conversation-in-project wire (M-F rewire
     ];
 
     const { container } = render(
-      <PrettyConversationsPanel
+      <PrettyConversationsPanel isAdmin
         variant="desktop"
         hostTree={HOST_TREE}
         onCreateSession={() => {}}
@@ -2153,7 +2153,7 @@ describe("PrettyConversationsPanel: new-conversation-in-project wire (M-F rewire
     ];
 
     const { container } = render(
-      <PrettyConversationsPanel
+      <PrettyConversationsPanel isAdmin
         variant="desktop"
         hostTree={HOST_TREE}
         onCreateSession={() => {}}
@@ -2187,7 +2187,7 @@ describe("PrettyConversationsPanel: new-conversation-in-project wire (M-F rewire
     ];
 
     const { container } = render(
-      <PrettyConversationsPanel
+      <PrettyConversationsPanel isAdmin
         variant="desktop"
         hostTree={HOST_TREE}
         onCreateSession={() => {}}
@@ -2211,7 +2211,7 @@ describe("PrettyConversationsPanel: new-conversation-in-project wire (M-F rewire
     ];
 
     const { container } = render(
-      <PrettyConversationsPanel
+      <PrettyConversationsPanel isAdmin
         variant="desktop"
         hostTree={HOST_TREE}
         onCreateSession={() => {}}
@@ -2241,7 +2241,7 @@ describe("PrettyConversationsPanel: new-conversation-in-project wire (M-F rewire
     ];
 
     const { container } = render(
-      <PrettyConversationsPanel
+      <PrettyConversationsPanel isAdmin
         variant="desktop"
         hostTree={HOST_TREE}
         onCreateSession={() => {}}
@@ -2273,7 +2273,7 @@ describe("PrettyConversationsPanel: new-conversation-in-project wire (M-F rewire
     };
 
     const { container } = render(
-      <PrettyConversationsPanel
+      <PrettyConversationsPanel isAdmin
         variant="desktop"
         hostTree={multiHostTree}
         onCreateSession={() => {}}
@@ -2310,7 +2310,7 @@ describe("PrettyConversationsPanel: project sections preserve selector order", (
     ];
 
     const { container } = render(
-      <PrettyConversationsPanel
+      <PrettyConversationsPanel isAdmin
         variant="desktop"
         hostTree={HOST_TREE}
         onCreateSession={() => {}}
@@ -2344,7 +2344,7 @@ describe("PrettyConversationsPanel: flat-middle section header (M-J)", () => {
     });
 
     const { container } = render(
-      <PrettyConversationsPanel
+      <PrettyConversationsPanel isAdmin
         variant="desktop"
         hostTree={HOST_TREE}
         onCreateSession={() => {}}
@@ -2370,7 +2370,7 @@ describe("PrettyConversationsPanel: flat-middle section header (M-J)", () => {
     });
 
     const { container } = render(
-      <PrettyConversationsPanel
+      <PrettyConversationsPanel isAdmin
         variant="desktop"
         hostTree={HOST_TREE}
         onCreateSession={() => {}}
@@ -2434,7 +2434,7 @@ describe("PrettyConversationsPanel: Move-to host filtering", () => {
     };
 
     const { container } = render(
-      <PrettyConversationsPanel
+      <PrettyConversationsPanel isAdmin
         variant="desktop"
         hostTree={HOST_TREE_MULTI}
         onCreateSession={() => {}}
@@ -2490,7 +2490,7 @@ describe("PrettyConversationsPanel: Move-to host filtering", () => {
     };
 
     const { container } = render(
-      <PrettyConversationsPanel
+      <PrettyConversationsPanel isAdmin
         variant="desktop"
         hostTree={HOST_TREE_MULTI}
         onCreateSession={() => {}}
@@ -2540,7 +2540,7 @@ describe("PrettyConversationsPanel: Move-to host filtering", () => {
     };
 
     const { container } = render(
-      <PrettyConversationsPanel
+      <PrettyConversationsPanel isAdmin
         variant="desktop"
         hostTree={HOST_TREE_MULTI}
         onCreateSession={() => {}}
@@ -2597,7 +2597,7 @@ describe("PrettyConversationsPanel: Move-to host filtering", () => {
     };
 
     const { container } = render(
-      <PrettyConversationsPanel
+      <PrettyConversationsPanel isAdmin
         variant="desktop"
         hostTree={HOST_TREE_MULTI}
         onCreateSession={() => {}}
@@ -2647,7 +2647,7 @@ describe("PrettyConversationsPanel: Move to → New project…", () => {
     };
 
     const { container } = render(
-      <PrettyConversationsPanel
+      <PrettyConversationsPanel isAdmin
         variant="desktop"
         hostTree={HOST_TREE_MULTI}
         onCreateSession={() => {}}
@@ -2703,7 +2703,7 @@ describe("PrettyConversationsPanel: Move to → New project…", () => {
     };
 
     const { container } = render(
-      <PrettyConversationsPanel
+      <PrettyConversationsPanel isAdmin
         variant="desktop"
         hostTree={HOST_TREE_MULTI}
         onCreateSession={() => {}}
@@ -2766,7 +2766,7 @@ describe("PrettyConversationsPanel: pinned and in-a-project are exclusive (Move-
     });
     mockProjects = [{ slug: "alpha", displayName: "Alpha", hostId: "1", hostname: "hostA", archived: false }];
     const { container } = render(
-      <PrettyConversationsPanel variant="desktop" hostTree={HOST_TREE_ONE} onCreateSession={() => {}} onDeactivateRow={() => {}} />,
+      <PrettyConversationsPanel isAdmin variant="desktop" hostTree={HOST_TREE_ONE} onCreateSession={() => {}} onDeactivateRow={() => {}} />,
     );
     await openMoveTo(container, "id-row-a");
     await userEvent.setup().click(screen.getByRole("menuitem", { name: /^Remove from project$/ }));
@@ -2787,7 +2787,7 @@ describe("PrettyConversationsPanel: pinned and in-a-project are exclusive (Move-
     mockProjects = [{ slug: "alpha", displayName: "Alpha", hostId: "1", hostname: "hostA", archived: false }];
     setSessionProjectSpy.mockRejectedValueOnce(new Error("500"));
     const { container } = render(
-      <PrettyConversationsPanel variant="desktop" hostTree={HOST_TREE_ONE} onCreateSession={() => {}} onDeactivateRow={() => {}} />,
+      <PrettyConversationsPanel isAdmin variant="desktop" hostTree={HOST_TREE_ONE} onCreateSession={() => {}} onDeactivateRow={() => {}} />,
     );
     await openMoveTo(container, "id-row-a");
     await userEvent.setup().click(screen.getByRole("menuitem", { name: /^Alpha$/ }));
@@ -2848,7 +2848,7 @@ describe("PrettyConversationsPanel: badge drops file the conversation", () => {
       { slug: "alpha", displayName: "Alpha", hostId: "1", hostname: "hostA", archived: false },
     ];
     return render(
-      <PrettyConversationsPanel
+      <PrettyConversationsPanel isAdmin
         variant="desktop"
         hostTree={HOST_TREE}
         onCreateSession={() => {}}
@@ -2928,7 +2928,7 @@ describe("PrettyConversationsPanel: unread marks show through collapsed headers"
   }
   function renderPanel() {
     return render(
-      <PrettyConversationsPanel
+      <PrettyConversationsPanel isAdmin
         variant="desktop"
         hostTree={HOST_TREE}
         onCreateSession={() => {}}
@@ -2996,7 +2996,7 @@ describe("PrettyConversationsPanel: DM marks", () => {
   }
   function renderPanel() {
     return render(
-      <PrettyConversationsPanel
+      <PrettyConversationsPanel isAdmin
         variant="desktop"
         hostTree={HOST_TREE}
         onCreateSession={() => {}}
@@ -3056,7 +3056,7 @@ describe("PrettyConversationsPanel (shape-sidebar): section headings", () => {
   }
   function renderPanel() {
     return render(
-      <PrettyConversationsPanel
+      <PrettyConversationsPanel isAdmin
         variant="desktop"
         hostTree={HOST_TREE}
         onCreateSession={() => {}}

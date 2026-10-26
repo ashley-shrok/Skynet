@@ -291,7 +291,7 @@ describe("PrettyConversationsPanel: row-click routing (harness regression)", () 
     const onConversationSelected = vi.fn();
     const onRelayRoomRowClick = vi.fn();
     const { container } = render(
-      <PrettyConversationsPanel
+      <PrettyConversationsPanel isAdmin
         variant="desktop"
         hostTree={ONE_HOST_TREE}
         onConversationSelected={onConversationSelected}
@@ -321,7 +321,7 @@ describe("PrettyConversationsPanel: row-click routing (harness regression)", () 
     setSnapshot({ middle: [legacyRow] });
     const onRelayRoomRowClick = vi.fn();
     const { container } = render(
-      <PrettyConversationsPanel
+      <PrettyConversationsPanel isAdmin
         variant="desktop"
         hostTree={ONE_HOST_TREE}
         onRelayRoomRowClick={onRelayRoomRowClick}
@@ -358,7 +358,7 @@ describe("PrettyConversationsPanel: row-click routing (relay-room)", () => {
     const onRelayRoomRowClick = vi.fn();
     const onConversationSelected = vi.fn();
     const { container } = render(
-      <PrettyConversationsPanel
+      <PrettyConversationsPanel isAdmin
         variant="desktop"
         hostTree={ONE_HOST_TREE}
         onRelayRoomRowClick={onRelayRoomRowClick}
@@ -394,7 +394,7 @@ describe("PrettyConversationsPanel: row-click routing (relay-room)", () => {
     });
     setSnapshot({ middle: [relayRow] });
     const { container } = render(
-      <PrettyConversationsPanel
+      <PrettyConversationsPanel isAdmin
         variant="desktop"
         hostTree={ONE_HOST_TREE}
         // onRelayRoomRowClick omitted
@@ -433,7 +433,7 @@ describe("PrettyConversationsPanel: row-click routing (relay-room defensive)", (
     setSnapshot({ middle: [relayNoRoomId] });
     const onRelayRoomRowClick = vi.fn();
     const { container } = render(
-      <PrettyConversationsPanel
+      <PrettyConversationsPanel isAdmin
         variant="desktop"
         hostTree={ONE_HOST_TREE}
         onRelayRoomRowClick={onRelayRoomRowClick}
@@ -490,7 +490,7 @@ describe("PrettyConversationsPanel: mixed harness + relay-room row list", () => 
     const onRelayRoomRowClick = vi.fn();
     const onConversationSelected = vi.fn();
     const { container } = render(
-      <PrettyConversationsPanel
+      <PrettyConversationsPanel isAdmin
         variant="desktop"
         hostTree={ONE_HOST_TREE}
         onRelayRoomRowClick={onRelayRoomRowClick}

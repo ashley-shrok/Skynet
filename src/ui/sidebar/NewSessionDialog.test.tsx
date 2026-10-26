@@ -583,6 +583,7 @@ describe("PrettyConversationsPanel: header pencil renders before rows", () => {
 
     const { container } = render(
       <PrettyConversationsPanel
+        isAdmin
         variant="desktop"
         hostTree={hostTree}
         onCreateSession={vi.fn()}
