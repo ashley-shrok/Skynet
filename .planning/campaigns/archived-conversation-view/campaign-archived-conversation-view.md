@@ -62,9 +62,16 @@ archived, with Un-archive on it.
   Domino reports done — Ashley: "consider it finishing the gate to continue
   with this" — open
 - Slash-command audit — which Claude Code commands (e.g. `/clear`) break
-  Skynet's assumptions and should be blocked; spawned
-  rigel-box-maintainer-4 (Ashley: "Spawn it", 2026-10-26), report only; it
-  DMs a summary to file here — open
+  Skynet's assumptions and should be blocked; rigel-box-maintainer-4
+  (Ashley: "Spawn it", 2026-10-26), report delivered to Ashley in its
+  conversation (full table there). Summary: 17 of ~110 built-ins break
+  Skynet's assumptions — session-switching (/clear, /resume, /branch, /fork,
+  /rewind, /cd), taking the process from the supervisor (/background, /stop,
+  /teleport, /desktop, /remote-control, /restart, /install, /exit), bypassing
+  Condense (/compact, /autocompact), and /plan (plan mode is denied). Hooks
+  can't block built-ins; the real block is Skynet's send path refusing them
+  server-side (the supervisor itself types /exit and /compact into panes).
+  Acting on it is Ashley's call, outside this campaign — done
 
 ## Lingerers (explicitly approved)
 
