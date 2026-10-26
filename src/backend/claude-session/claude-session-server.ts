@@ -3689,6 +3689,9 @@ export async function __applyDormantPollWithRediscoveryForTests(
     // escapedName, pct). Absence keeps existing tests running unchanged
     // (test seam contract preserved).
     hostId?: number;
+    /** The agent was archived while its conversation was open: the client
+     *  has been told (`archived_state`); the caller stops polling. */
+    onArchived?: () => void;
   },
   state: {
     dormantLastEmitted: () => boolean | null;
@@ -3696,7 +3699,7 @@ export async function __applyDormantPollWithRediscoveryForTests(
     wakeTriggerTs: () => number | null;
   },
 ): Promise<void> {
-  const { connSnapshot, escapedName, execCommand: exec, discoverSession, wsSend, startActiveFlow, markerCommand, now, readJsonlPct, dormantSessionFile, hostId } = deps;
+  const { connSnapshot, escapedName, execCommand: exec, discoverSession, wsSend, startActiveFlow, markerCommand, now, readJsonlPct, dormantSessionFile, hostId, onArchived } = deps;
   try {
     // Poll the .dormant sentinel (reuse exact command from seam line 956-961)
     const statOut = await exec(
@@ -3763,6 +3766,22 @@ export async function __applyDormantPollWithRediscoveryForTests(
         }
       }
       return; // keep polling
+    }
+    // The sentinel is gone: either the agent is waking, or it was archived
+    // (its folder moved). Archived → tell the client (every open copy of an
+    // archived conversation closes) and stop.
+    if (onArchived) {
+      const folder = await probeIdentityFolderState((c) => exec(connSnapshot, c), escapedName).catch(() => null);
+      if (folder === "archived") {
+        sshLogger.info("Dormant conversation's agent is archived", {
+          operation: "claude_session_dormant_agent_archived",
+          escapedName,
+          hostId,
+        });
+        wsSend(JSON.stringify({ type: "archived_state", state: "archived" }));
+        onArchived();
+        return;
+      }
     }
     // Sentinel disappeared. Apply Nelly's freshness contract when this was a
     // user-initiated wake (wakeTriggerTs non-null). Natural resumes (wakeTriggerTs
@@ -5492,7 +5511,23 @@ wss.on("connection", async (ws: WebSocket, req) => {
             holdingTicks++;
             if (holdingTicks >= HOLDING_TIMEOUT_TICKS) {
               transitionToDead("holding_timeout");
+              return;
             }
+            // No agent running: was it archived (folder moved)? Then tell the
+            // client — every open copy of an archived conversation closes.
+            return probeIdentityFolderState((c) => execCommand(connSnapshot, c), activeTmuxSession).then((folder) => {
+              if (folder !== "archived" || stopped || sshConn !== connSnapshot || changeoverState === "dead") return;
+              sshLogger.info("Open conversation's agent is archived", {
+                operation: "claude_session_agent_archived",
+                userId,
+                sessionId,
+                hostId: currentHostId,
+                tmuxSession: activeTmuxSession,
+                via: "holding",
+              });
+              try { ws.send(JSON.stringify({ type: "archived_state", state: "archived" })); } catch { /* mid-close */ }
+              transitionToDead("holding_timeout");
+            });
           }
         })
         .catch(() => {
@@ -7394,10 +7429,13 @@ wss.on("connection", async (ws: WebSocket, req) => {
       try {
         folderState = await probeIdentityFolderState((c) => execCommand(conn, c), tmuxSession);
       } catch (err) {
-        ws.send(JSON.stringify({ type: "error", message: "Couldn't check the archive: " + (err instanceof Error ? err.message : String(err)) }));
+        if (stopped || sshConn !== conn) return;
+        try { ws.send(JSON.stringify({ type: "error", message: "Couldn't check the archive: " + (err instanceof Error ? err.message : String(err)) })); } catch { /* mid-close */ }
         teardownPane();
         return;
       }
+      // The socket closed or moved to another pane while we waited.
+      if (stopped || sshConn !== conn) return;
       sshLogger.info("Archived conversation open", {
         operation: "claude_session_archived_open",
         userId,
@@ -7419,14 +7457,17 @@ wss.on("connection", async (ws: WebSocket, req) => {
           });
         }
       }
-      ws.send(JSON.stringify({ type: "archived_state", state: folderState, ...(look ? { look } : {}) }));
+      if (stopped || sshConn !== conn) return;
+      try { ws.send(JSON.stringify({ type: "archived_state", state: folderState, ...(look ? { look } : {}) })); } catch { /* mid-close */ }
       if (folderState !== "archived") {
         // live → the client turns the tab into the live conversation;
         // gone → it says so. Either way nothing is served here.
         teardownPane();
         return;
       }
+      if (stopped || sshConn !== conn) return;
       currentHostId = hostId;
+      let openedTail: { stop: () => void } | null = null;
       const archivedTailSlot = acquireTailSlot(hostId);
       await __applyDormantBranchTailOpenForTests(
         {
@@ -7456,14 +7497,25 @@ wss.on("connection", async (ws: WebSocket, req) => {
           probeTotalLines: async (sessionFile) => (await readSessionFileRange(conn, sessionFile, 1, 1)).totalLines,
         },
         {
-          setTailHandle: (h) => { tailHandle = h; },
-          setDormantSessionFile: (f) => { dormantSessionFile = f; },
+          setTailHandle: (h) => {
+            openedTail = h;
+            if (!stopped && sshConn === conn) tailHandle = h;
+          },
+          setDormantSessionFile: (f) => {
+            if (!stopped && sshConn === conn) dormantSessionFile = f;
+          },
         },
       );
+      if (stopped || sshConn !== conn) {
+        // Torn down while opening: don't leave this pane's tail running.
+        (openedTail as { stop: () => void } | null)?.stop();
+        if (!openedTail) archivedTailSlot.release();
+        return;
+      }
       if (!tailHandle) {
         archivedTailSlot.release();
         // No history kept for this agent: say so, keep nothing open.
-        ws.send(JSON.stringify({ type: "archived_state", state: "archived", noHistory: true }));
+        try { ws.send(JSON.stringify({ type: "archived_state", state: "archived", noHistory: true })); } catch { /* mid-close */ }
         try { conn.end(); } catch { /* already closed */ }
         sshConn = null;
       }
@@ -7774,6 +7826,9 @@ wss.on("connection", async (ws: WebSocket, req) => {
                         // Dormant-branch context-pct plumbing (piggyback on this tick).
                         readJsonlPct: readContextPctFromJsonl,
                         dormantSessionFile: () => dormantSessionFile,
+                        onArchived: () => {
+                          if (dormantPollTimer) { clearInterval(dormantPollTimer); dormantPollTimer = null; }
+                        },
                       },
                       {
                         dormantLastEmitted: () => dormantLastEmitted,

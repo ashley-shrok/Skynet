@@ -39,6 +39,12 @@ vi.mock("@/api/claude-session-api", () => ({
   }),
 }));
 
+vi.mock("@/api/voice-api", () => ({
+  postSpeak: vi.fn(async () => new Blob([], { type: "audio/wav" })),
+  SAMPLE_PHRASE: "Hi",
+  fetchVoiceCatalog: vi.fn(async () => ({ voices: [], defaultVoice: "", listError: false })),
+}));
+
 vi.mock("@/api/compose-drafts-api", () => ({
   getComposeDraft: vi.fn().mockResolvedValue({ body: "", queueSlots: [] }),
   putComposeDraft: vi.fn().mockResolvedValue(undefined),
@@ -215,6 +221,27 @@ describe("archived conversation tab", () => {
     render(<PrettyView hostId={7} tmuxSession="olden" tabId="tab-x" isVisible={true} />);
     await waitFor(() => expect(screen.getByTestId("identity-modal")).toBeTruthy());
     expect(takeAgentWindowReopen("tab-x")).toBeNull();
+  });
+
+  it("not in the archive → its notice, and the loading spinner never sits on top", async () => {
+    const { ws } = mount();
+    frame(ws, { type: "archived_state", state: "gone" });
+    await waitFor(() => expect(screen.getByTestId("archived-gone")).toBeTruthy());
+    await new Promise((r) => setTimeout(r, 600));
+    expect(screen.queryByLabelText("Loading conversation…")).toBeNull();
+    expect(screen.queryByTestId("archived-unarchive")).toBeNull();
+  });
+
+  it("stale lists alone never turn the tab live — the server said archived", async () => {
+    identitiesState.byHostKey = new Map([["7::olden", { identityKey: "olden" }]]);
+    fleetSessions.list = [{ hostId: 7, sessionName: "olden" }];
+    const live = vi.fn();
+    window.addEventListener(ARCHIVED_TAB_LIVE_EVENT, live);
+    const { ws } = mount();
+    frame(ws, { type: "archived_state", state: "archived", look });
+    await new Promise((r) => setTimeout(r, 50));
+    expect(live).not.toHaveBeenCalled();
+    window.removeEventListener(ARCHIVED_TAB_LIVE_EVENT, live);
   });
 
   it("the server says the agent is live again (un-archived elsewhere) → waits for it, then turns live", async () => {

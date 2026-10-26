@@ -4,6 +4,7 @@
 // identity badge's menu Archive item and the badge drop lane's archive zone
 // so both read the same confirmation and roll back the same way.
 
+import { announceAgentArchived } from "@/features/archived-view/archived-identity";
 import { applyIdentityChange } from "@/state/identities-store";
 import {
   markPendingArchive,
@@ -49,6 +50,8 @@ async function confirmThenArchive(args: {
   void (async () => {
     try {
       await archiveIdentity(hostId, identityKey);
+      // Archived: every other open copy in this window closes too.
+      announceAgentArchived(hostId, identityKey);
     } catch (err) {
       clearPendingArchive(hostId, identityKey);
       console.warn({

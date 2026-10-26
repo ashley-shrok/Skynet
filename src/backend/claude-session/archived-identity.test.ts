@@ -11,7 +11,7 @@ import {
   buildIdentityFolderStateScript,
 } from "./archived-identity.js";
 import { archivedIdentityRootShellWord } from "../database/routes/workspace-routes.js";
-import { readIdentityFile, readIdentityWakeups } from "./identity-artifact-reader.js";
+import { readIdentityFile, readIdentityWakeups, writeIdentityWakeupCreate } from "./identity-artifact-reader.js";
 
 function bash(script: string, home: string): Promise<string> {
   return new Promise((resolve, reject) =>
@@ -30,6 +30,11 @@ describe("archived-identity", () => {
     await fsp.mkdir(path.join(home, "fleet/identities/livey"), { recursive: true });
     await fsp.mkdir(path.join(home, "fleet/identities-archive/both"), { recursive: true });
     await fsp.mkdir(path.join(home, "fleet/identities/both"), { recursive: true });
+    await fsp.writeFile(path.join(home, "fleet/identities/livey/livey.md"), "---\n---\n");
+    await fsp.writeFile(path.join(home, "fleet/identities/both/both.md"), "live file");
+    // A bare live folder (no identity file) never counts as live.
+    await fsp.mkdir(path.join(home, "fleet/identities/stray/wakeups"), { recursive: true });
+    await fsp.mkdir(path.join(home, "fleet/identities-archive/stray"), { recursive: true });
     const apps = path.join(home, "fleet/identities-archive/old/apps");
     await fsp.mkdir(path.join(apps, "tracker"), { recursive: true });
     await fsp.writeFile(path.join(apps, "tracker/app.json"), JSON.stringify({ title: "Tracker", description: "Counts things" }));
@@ -49,6 +54,7 @@ describe("archived-identity", () => {
     expect(await probeIdentityFolderState(exec, "old")).toBe("archived");
     expect(await probeIdentityFolderState(exec, "both")).toBe("live");
     expect(await probeIdentityFolderState(exec, "nobody")).toBe("gone");
+    expect(await probeIdentityFolderState(exec, "stray")).toBe("archived");
   });
 
   it("never runs the probe for an unsafe name", async () => {
@@ -101,7 +107,6 @@ describe("archived-identity", () => {
 
   it("the archived view's agent file and wake-ups: live wins, else the archive (local reads)", async () => {
     await fsp.writeFile(path.join(home, "fleet/identities-archive/old/old.md"), "archived file");
-    await fsp.writeFile(path.join(home, "fleet/identities/both/both.md"), "live file");
     await fsp.writeFile(path.join(home, "fleet/identities-archive/both/both.md"), "stale file");
     const prev = process.env.IDENTITIES_HOST_DIR;
     process.env.IDENTITIES_HOST_DIR = path.join(home, "fleet/identities");
@@ -110,6 +115,42 @@ describe("archived-identity", () => {
       expect((await readIdentityFile(null, "both", { archived: true })).markdown).toBe("live file");
       expect((await readIdentityFile(null, "old")).markdown).toBe("");
       expect((await readIdentityWakeups(null, "old", { archived: true })).wakeups).toEqual([]);
+    } finally {
+      if (prev === undefined) delete process.env.IDENTITIES_HOST_DIR;
+      else process.env.IDENTITIES_HOST_DIR = prev;
+    }
+  });
+
+  it("symlinked app pictures and manifests are never read", async () => {
+    const apps = path.join(home, "fleet/identities-archive/old/apps");
+    const secret = path.join(home, "secret.txt");
+    await fsp.writeFile(secret, "TOP SECRET");
+    await fsp.mkdir(path.join(apps, "sneaky"), { recursive: true });
+    await fsp.writeFile(path.join(apps, "sneaky/app.json"), JSON.stringify({ title: "Sneaky" }));
+    await fsp.symlink(secret, path.join(apps, "sneaky/icon.webp"));
+    await fsp.mkdir(path.join(apps, "linkedjson"), { recursive: true });
+    await fsp.symlink(secret, path.join(apps, "linkedjson/app.json"));
+    const viaShell = parseArchivedAppsStdout(await bash(buildArchivedAppsScript("old"), home));
+    const local = await readArchivedAppsLocal(path.join(home, "fleet/identities-archive"), "old");
+    for (const list of [viaShell, local]) {
+      expect(list.find((a) => a.slug === "sneaky")?.iconDataUrl).toBeNull();
+      expect(list.find((a) => a.slug === "linkedjson")).toBeUndefined();
+    }
+  });
+
+  it("a wake-up is never created for an agent that isn't live (no stray folder)", async () => {
+    const prev = process.env.IDENTITIES_HOST_DIR;
+    process.env.IDENTITIES_HOST_DIR = path.join(home, "fleet/identities");
+    try {
+      await expect(
+        writeIdentityWakeupCreate(null, "old", {
+          name: "x",
+          enabled: true,
+          schedule: { type: "interval", every: "1h" },
+          instruction: "hi",
+        }),
+      ).rejects.toThrow("agent not found");
+      await expect(fsp.stat(path.join(home, "fleet/identities/old"))).rejects.toThrow();
     } finally {
       if (prev === undefined) delete process.env.IDENTITIES_HOST_DIR;
       else process.env.IDENTITIES_HOST_DIR = prev;

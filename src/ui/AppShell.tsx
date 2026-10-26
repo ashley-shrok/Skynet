@@ -3152,6 +3152,20 @@ export function AppShell({
         }),
       );
       systemLogger.info(`[archived-view] tab turned live tabId=${tabId}`, { operation: "archived_tab_live", tabId });
+      // Now a live conversation: it gets the background tab record an
+      // archived tab skipped (see openTab).
+      const t = tabsRef.current.find((x) => x.id === tabId);
+      if (t?.host) {
+        addOpenTab({
+          id: t.instanceId,
+          tabType: t.type,
+          hostId: parseInt(t.host.id),
+          label: t.label,
+          tabOrder: 0,
+          targetTmuxSession: t.targetTmuxSession ?? null,
+          appSlug: null,
+        }).catch(() => {});
+      }
     };
     window.addEventListener(ARCHIVED_TAB_LIVE_EVENT, onLive);
     return () => window.removeEventListener(ARCHIVED_TAB_LIVE_EVENT, onLive);

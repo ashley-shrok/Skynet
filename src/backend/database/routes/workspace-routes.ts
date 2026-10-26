@@ -45,6 +45,7 @@ import { connectOneShot } from "../../ssh/ssh-one-shot.js";
 import { acquireHostSlot, getHostSemaphore } from "../../ssh/host-semaphore-registry.js";
 import { resolveHostById } from "../../ssh/host-resolver.js";
 import { IDENTITY_KEY_RE, PROJECT_SLUG_RE } from "../../claude-session/identity-artifact-reader.js";
+import { liveIdentityShellTest } from "../../claude-session/archived-identity.js";
 import { sendSftpFile } from "../../utils/sftp-file-response.js";
 import type { Readable } from "node:stream";
 import { posix } from "node:path";
@@ -296,9 +297,8 @@ function sftpStat(
  */
 export function archivedIdentityRootShellWord(identityKey: string): string {
   if (!IDENTITY_KEY_RE.test(identityKey)) throw new Error("invalid identity key");
-  const live = `"$HOME/fleet/identities/${identityKey}"`;
   return (
-    `"$(if [ -d ${live} ]; then printf '%s' ${live}/workspace; ` +
+    `"$(if ${liveIdentityShellTest(identityKey)}; then printf '%s' "$HOME/fleet/identities/${identityKey}/workspace"; ` +
     `else printf '%s' "$HOME/fleet/identities-archive/${identityKey}/workspace"; fi)"`
   );
 }
@@ -311,8 +311,11 @@ export function archivedIdentityRootShellWord(identityKey: string): string {
  */
 async function settleTargetRoot(sftp: SftpLike, homeDir: string, target: TargetSpec): Promise<string> {
   if (target.kind !== "archived-identity") return buildTargetRoot(homeDir, target);
+  // Live = the live folder holds the agent's identity file (a bare folder
+  // never counts).
   const live = `${homeDir}/fleet/identities/${target.identityKey}`;
-  const isLive = await sftpStat(sftp, live).then((st) => st.isDirectory(), () => false);
+  const isFile = (p: string) => sftpStat(sftp, p).then((st) => st.isFile(), () => false);
+  const isLive = (await isFile(`${live}/${target.identityKey}.md`)) || (await isFile(`${live}/identity.md`));
   return isLive ? `${live}/workspace` : `${homeDir}/fleet/identities-archive/${target.identityKey}/workspace`;
 }
 

@@ -1200,3 +1200,45 @@ describe("Phase 56: send-while-dormant path (invisible wake trigger)", () => {
     expect(bodySecond).toBeLessThan(enterSecond);
   });
 });
+
+// ─── Archived while open ─────────────────────────────────────────────────────
+
+describe("dormant poll — the agent is archived while its conversation is open", () => {
+  const run = async (folderProbe: string) => {
+    const wsSend = vi.fn();
+    const onArchived = vi.fn();
+    const discoverSession = vi.fn().mockResolvedValue({ status: "inactive", reason: "not_claude" });
+    // stat .dormant → "no"; the folder probe → folderProbe.
+    const exec = vi.fn(async (_c: unknown, cmd: string) => (cmd.includes("identities-archive") ? `${folderProbe}\n` : "no\n"));
+    const state = makeDormantState(true);
+    await __applyDormantPollWithRediscoveryForTests(
+      {
+        connSnapshot: fakeConn,
+        escapedName: "olden",
+        execCommand: exec,
+        discoverSession,
+        wsSend,
+        startActiveFlow: vi.fn(),
+        markerCommand: vi.fn().mockResolvedValue(null),
+        now: () => 0,
+        onArchived,
+      },
+      state,
+    );
+    return { wsSend, onArchived, discoverSession };
+  };
+
+  it("archived → tells the client and stops, without rediscovery", async () => {
+    const { wsSend, onArchived, discoverSession } = await run("archived");
+    expect(wsSend.mock.calls.map((c) => JSON.parse(c[0] as string))).toEqual([{ type: "archived_state", state: "archived" }]);
+    expect(onArchived).toHaveBeenCalledTimes(1);
+    expect(discoverSession).not.toHaveBeenCalled();
+  });
+
+  it("still live (waking) → carries on as before", async () => {
+    const { wsSend, onArchived, discoverSession } = await run("live");
+    expect(onArchived).not.toHaveBeenCalled();
+    expect(JSON.parse(wsSend.mock.calls[0][0] as string)).toEqual({ type: "dormant", dormant: false });
+    expect(discoverSession).toHaveBeenCalledTimes(1);
+  });
+});

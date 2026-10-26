@@ -1152,9 +1152,10 @@ export function PrettyView({
   // The archived view keeps its pane told whether the window is open, and on
   // which tab, for that hand-over.
   const [shownModalTab, setShownModalTab] = useState<string | undefined>(undefined);
-  if (archived?.windowState) {
-    archived.windowState.current = { open: isIdentityModalOpen, tab: shownModalTab };
-  }
+  const archivedWindowState = archived?.windowState;
+  useEffect(() => {
+    if (archivedWindowState) archivedWindowState.current = { open: isIdentityModalOpen, tab: shownModalTab };
+  }, [archivedWindowState, isIdentityModalOpen, shownModalTab]);
   const pvDesktopRunning = useSessionDesktopRunning(hostId, tmuxSession ?? null);
   // Publish modal-open to the app-wide store so AppShell's mobile back
   // button can hide itself while the modal is visible. See
@@ -3117,11 +3118,11 @@ export function PrettyView({
         case "archived_state": {
           console.info(`[archived-view] state=${parsed.state} noHistory=${parsed.noHistory === true} archivedView=${archivedRef.current !== undefined} hostId=${hostId} identity=${tmuxSession ?? "null"}`);
           if (archivedRef.current) {
-            if (parsed.state === "archived") {
-              // Settle like a sleeping pane: messages show, no overlays.
-              setStatus("streaming");
-              setPaneState("dormant");
-            }
+            // Settle — never leave the loading spinner up. Archived: like a
+            // sleeping pane (messages, no overlays); gone / live again: the
+            // pane's own notice and strip say what's happening.
+            setStatus("streaming");
+            setPaneState(parsed.state === "archived" ? "dormant" : "inactive");
             archivedRef.current.onState(parsed);
           } else if (parsed.state === "archived") {
             onAgentArchivedRef.current?.();

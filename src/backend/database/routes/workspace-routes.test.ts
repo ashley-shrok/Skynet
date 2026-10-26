@@ -1305,13 +1305,13 @@ describe("project target and reserved root file", () => {
 
   const archived = { kind: "archived-identity", identityKey: "olden", hostId: 42 };
 
-  /** Which agent folders exist on the stub host (stat answers for those only). */
+  /** Which files exist on the stub host (stat answers for those only). */
   function stubFolders(existing: string[]) {
     stubSftp.stat.mockImplementation(
       (p: string, cb: (err: Error | null, st?: { size: number; isFile: () => boolean; isDirectory: () => boolean }) => void) => {
         queueMicrotask(() =>
           existing.includes(p)
-            ? cb(null, { size: 0, isFile: () => false, isDirectory: () => true })
+            ? cb(null, { size: 0, isFile: () => true, isDirectory: () => false })
             : cb(new Error("No such file")),
         );
       },
@@ -1326,9 +1326,17 @@ describe("project target and reserved root file", () => {
     expect(stubSftp.readdir.mock.calls[0][0]).toBe("/home/ubuntu/fleet/identities-archive/olden/workspace");
   });
 
-  it("an archived view of an agent that's live again reads its live folder", async () => {
+  it("a bare live folder doesn't count — only one holding the agent's file", async () => {
     stubHome();
     stubFolders(["/home/ubuntu/fleet/identities/olden"]);
+    const res = await postJson("POST", "/workspace/list", { ...archived, relativePath: "" });
+    expect(res.status).toBe(200);
+    expect(stubSftp.readdir.mock.calls[0][0]).toBe("/home/ubuntu/fleet/identities-archive/olden/workspace");
+  });
+
+  it("an archived view of an agent that's live again reads its live folder", async () => {
+    stubHome();
+    stubFolders(["/home/ubuntu/fleet/identities/olden/olden.md"]);
     const res = await postJson("POST", "/workspace/list", { ...archived, relativePath: "" });
     expect(res.status).toBe(200);
     expect(stubSftp.readdir.mock.calls[0][0]).toBe("/home/ubuntu/fleet/identities/olden/workspace");

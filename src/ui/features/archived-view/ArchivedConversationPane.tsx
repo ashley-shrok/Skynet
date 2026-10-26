@@ -88,15 +88,19 @@ export function ArchivedConversationPane({
   );
   const flippedRef = useRef(false);
   const windowState = useRef<AgentWindowState>({ open: false });
+  // Only once the agent is coming back — this tab's own un-archive, or the
+  // server saying it's live again. The browser's lists alone can be stale
+  // (an agent archived elsewhere moments ago is still in them).
+  const comingBack = unarchive.phase === "returning";
   useEffect(() => {
-    if (flippedRef.current || !identityLive || !sessionLive) return;
+    if (flippedRef.current || !comingBack || !identityLive || !sessionLive) return;
     flippedRef.current = true;
     console.info(`[archived-view] agent back hostId=${hostId} identity=${identityKey} tabId=${tab.id}`);
     clearPendingArchive(hostId, identityKey);
     // An open agent window stays open, on the same tab, once live.
     if (windowState.current.open) noteAgentWindowReopen(tab.id, windowState.current.tab);
     requestArchivedTabLive(tab.id);
-  }, [identityLive, sessionLive, hostId, identityKey, tab.id]);
+  }, [comingBack, identityLive, sessionLive, hostId, identityKey, tab.id]);
 
   // While returning, keep asking for the identity (the fleet list refreshes
   // on its own; the identity registry doesn't learn of it by itself).

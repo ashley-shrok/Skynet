@@ -51,6 +51,7 @@
 // NO diagnostic spew — Patch #111e F3-diag scoped to the old panel is being
 // retired in Wave 4 and NOT ported forward here.
 
+import { announceAgentArchived } from "@/features/archived-view/archived-identity";
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 // Phase 41 Plan 01: `Server` icon retired alongside the per-host divider chips.
 // Phase 41 Plan 02: `Search` and `X` icons added for the always-in-DOM search
@@ -1971,6 +1972,8 @@ export function PrettyConversationsPanel({
   const commitArchive = async (hostIdNum: number, identityKey: string, undoRemove: () => void) => {
     try {
       await archiveIdentity(hostIdNum, identityKey);
+      // Archived: every open copy of the conversation in this window closes.
+      announceAgentArchived(hostIdNum, identityKey);
     } catch (err) {
       // Rollback: put the row back now (see optimisticArchiveRemove).
       undoRemove();

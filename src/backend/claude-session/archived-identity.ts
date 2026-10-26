@@ -17,13 +17,24 @@ export function identityFolderParent(archived: boolean): string {
   return archived ? "fleet/identities-archive" : "fleet/identities";
 }
 
-/** One-line shell probe: prints `live`, `archived` or `gone`. */
+/**
+ * One-line shell probe: prints `live`, `archived` or `gone`. An agent counts
+ * as live only when its live folder holds its identity file — a bare folder
+ * (say a stray write) never makes an archived agent look live.
+ */
 export function buildIdentityFolderStateScript(identityKey: string): string {
   return (
-    `if [ -d "$HOME/fleet/identities/${identityKey}" ]; then echo live; ` +
+    `L="$HOME/fleet/identities/${identityKey}"; ` +
+    `if [ -f "$L/${identityKey}.md" ] || [ -f "$L/identity.md" ]; then echo live; ` +
     `elif [ -d "$HOME/fleet/identities-archive/${identityKey}" ]; then echo archived; ` +
     `else echo gone; fi`
   );
+}
+
+/** Shell test (exit 0) for "this agent's live folder holds its identity file". */
+export function liveIdentityShellTest(identityKey: string): string {
+  const l = `"$HOME/fleet/identities/${identityKey}`;
+  return `{ [ -f ${l}/${identityKey}.md" ] || [ -f ${l}/identity.md" ]; }`;
 }
 
 /**
@@ -38,6 +49,16 @@ export async function probeIdentityFolderState(
   const out = (await exec(buildIdentityFolderStateScript(identityKey))).trim();
   if (out === "live" || out === "archived") return out;
   return "gone";
+}
+
+/** Local: does this agent folder hold its identity file (i.e. is it live)? */
+export async function hasLocalIdentityFile(dir: string, identityKey: string): Promise<boolean> {
+  const { promises: fsp } = await import("node:fs");
+  const path = await import("node:path");
+  for (const f of [`${identityKey}.md`, "identity.md"]) {
+    if (await fsp.stat(path.join(dir, f)).then((st) => st.isFile(), () => false)) return true;
+  }
+  return false;
 }
 
 // ---------------------------------------------------------------------------
@@ -65,11 +86,12 @@ export function buildArchivedAppsScript(identityKey: string): string {
   return (
     // Where to read is decided here: the live folder if the agent is back,
     // else its archived one.
-    `D="$HOME/fleet/identities/${identityKey}"; [ -d "$D" ] || D="$HOME/fleet/identities-archive/${identityKey}"; ` +
+    `D="$HOME/fleet/identities/${identityKey}"; ${liveIdentityShellTest(identityKey)} || D="$HOME/fleet/identities-archive/${identityKey}"; ` +
     `cd "$D/apps" 2>/dev/null && { shopt -s nullglob; ` +
-    `for d in */; do s="\${d%/}"; [ -f "$s/app.json" ] || continue; ` +
+    // Symlinked app folders, manifests and pictures are never read.
+    `for d in */; do s="\${d%/}"; [ -L "$s" ] && continue; [ -f "$s/app.json" ] && [ ! -L "$s/app.json" ] || continue; ` +
     `printf '%s\\n' '${APP_SEP}' "$s"; head -c 65536 "$s/app.json"; printf '\\n%s\\n' '---ICON---'; ` +
-    `if [ -f "$s/icon.webp" ] && [ "$(stat -c %s "$s/icon.webp" 2>/dev/null || echo 0)" -le ${ARCHIVED_APP_ICON_MAX_BYTES} ]; then base64 -w0 "$s/icon.webp"; fi; printf '\\n'; ` +
+    `if [ -f "$s/icon.webp" ] && [ ! -L "$s/icon.webp" ] && [ "$(stat -c %s "$s/icon.webp" 2>/dev/null || echo 0)" -le ${ARCHIVED_APP_ICON_MAX_BYTES} ]; then base64 -w0 "$s/icon.webp"; fi; printf '\\n'; ` +
     `done; }; true`
   );
 }
@@ -118,12 +140,11 @@ export async function readArchivedAppsLocal(
   const { promises: fsp } = await import("node:fs");
   const path = await import("node:path");
   // The live folder wins when the agent is back.
-  const isLive =
-    liveRoot !== undefined &&
-    (await fsp.stat(path.join(liveRoot, identityKey)).then((st) => st.isDirectory(), () => false));
+  const isLive = liveRoot !== undefined && (await hasLocalIdentityFile(path.join(liveRoot, identityKey), identityKey));
   const appsDir = path.join(isLive ? liveRoot! : archiveRoot, identityKey, "apps");
   let names: string[];
   try {
+    // Real folders only — symlinks are skipped, as below.
     names = (await fsp.readdir(appsDir, { withFileTypes: true }))
       .filter((e) => e.isDirectory() && !e.name.startsWith("."))
       .map((e) => e.name);
@@ -134,14 +155,17 @@ export async function readArchivedAppsLocal(
   for (const slug of names) {
     let manifest: string;
     try {
-      manifest = (await fsp.readFile(path.join(appsDir, slug, "app.json"), "utf8")).slice(0, 65536);
+      const manifestPath = path.join(appsDir, slug, "app.json");
+      if (!(await fsp.lstat(manifestPath)).isFile()) continue;
+      manifest = (await fsp.readFile(manifestPath, "utf8")).slice(0, 65536);
     } catch {
       continue;
     }
     let icon = "";
     try {
       const iconPath = path.join(appsDir, slug, "icon.webp");
-      if ((await fsp.stat(iconPath)).size <= ARCHIVED_APP_ICON_MAX_BYTES) {
+      const st = await fsp.lstat(iconPath);
+      if (st.isFile() && st.size <= ARCHIVED_APP_ICON_MAX_BYTES) {
         icon = (await fsp.readFile(iconPath)).toString("base64");
       }
     } catch {

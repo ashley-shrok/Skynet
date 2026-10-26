@@ -415,15 +415,15 @@ export type IdentityFolderOpts = { archived?: boolean };
 async function localIdentityRootFor(identityKey: string, opts: IdentityFolderOpts): Promise<string> {
   const live = getLocalIdentitiesRoot();
   if (!opts.archived) return live;
-  const isLive = await fs.stat(path.join(live, identityKey)).then((st) => st.isDirectory(), () => false);
-  return isLive ? live : getLocalIdentitiesArchiveRoot();
+  const { hasLocalIdentityFile } = await import("./archived-identity.js");
+  return (await hasLocalIdentityFile(path.join(live, identityKey), identityKey)) ? live : getLocalIdentitiesArchiveRoot();
 }
 
 /** Shell snippet setting $D to the agent's folder: live wins, else the archive. */
 function remoteArchivedViewDirShell(identityKey: string): string {
   return (
     `D="$HOME/fleet/identities/${identityKey}"; ` +
-    `[ -d "$D" ] || D="$HOME/fleet/identities-archive/${identityKey}"; `
+    `{ [ -f "$D/${identityKey}.md" ] || [ -f "$D/identity.md" ]; } || D="$HOME/fleet/identities-archive/${identityKey}"; `
   );
 }
 
@@ -2339,6 +2339,11 @@ export async function writeIdentityWakeupCreate(
 
   if (conn === null) {
     const root = getLocalIdentitiesRoot();
+    // Only a live agent gets a wake-up — never create its folder from here
+    // (an archived agent's stray folder would make it look live).
+    if (!(await fs.stat(path.join(root, identityKey)).then((st) => st.isDirectory(), () => false))) {
+      throw new Error("agent not found");
+    }
     const wakeupsDir = path.join(root, identityKey, "wakeups");
     await fs.mkdir(wakeupsDir, { recursive: true });
     const wakeupDir = path.join(wakeupsDir, slug);
@@ -2396,12 +2401,15 @@ export async function writeIdentityWakeupCreate(
   // tmp+rename write lands wakeup.json inside it.
   const wakeupDir = `$HOME/fleet/identities/${identityKey}/wakeups/${slug}`;
   const targetPath = `${wakeupDir}/wakeup.json`;
+  // Only a live agent gets a wake-up — its folder is never created here.
   const preCheckCmd =
+    `if [ ! -d "$HOME/fleet/identities/${identityKey}" ]; then echo NOAGENT; else ` +
     `mkdir -p "$HOME/fleet/identities/${identityKey}/wakeups" && ` +
     `if [ -e "${targetPath}" ] || { [ -e "${wakeupDir}" ] && [ ! -d "${wakeupDir}" ]; }; then echo EXISTS; ` +
     `elif [ -d "${wakeupDir}" ]; then rm -f "${wakeupDir}/.state/${slug}.fired" && echo REUSED; ` +
-    `else mkdir "${wakeupDir}" && echo OK; fi`;
+    `else mkdir "${wakeupDir}" && echo OK; fi; fi`;
   const preCheck = (await execWithTimeout(conn, preCheckCmd)).trim();
+  if (preCheck.endsWith("NOAGENT")) throw new Error("agent not found");
   const created = preCheck.endsWith("OK");
   if (preCheck.endsWith("EXISTS")) {
     sshLogger.info("identity-artifact-reader: wakeup create collision", {

@@ -47,7 +47,6 @@
 // functions. No dependency on zustand / jotai / redux / mobx — the fork
 // rolls its own stores (identities-store.ts is the reference).
 
-import { announceAgentArchived } from "@/features/archived-view/archived-identity";
 import { useSyncExternalStore } from "react";
 import type { Host, HostFolder, Tab, TabType } from "@/types/ui-types";
 import { setIdentityPinned } from "@/api/user-preferences-api";
@@ -619,8 +618,6 @@ export function markPendingArchive(hostId: number, sessionName: string): void {
     pendingArchiveKey(hostId, sessionName),
     Date.now() + PENDING_ARCHIVE_TTL_MS,
   );
-  // Archiving closes every open copy of the conversation in this window.
-  announceAgentArchived(hostId, sessionName);
 }
 
 export function clearPendingArchive(hostId: number, sessionName: string): void {
