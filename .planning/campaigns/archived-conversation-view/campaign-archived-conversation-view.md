@@ -62,8 +62,9 @@ archived, with Un-archive on it.
   Domino reports done — Ashley: "consider it finishing the gate to continue
   with this" — open
 - Slash-command audit — which Claude Code commands (e.g. `/clear`) break
-  Skynet's assumptions and should be blocked; separate research agent,
-  awaiting Ashley's yes to spawn — open
+  Skynet's assumptions and should be blocked; spawned
+  rigel-box-maintainer-4 (Ashley: "Spawn it", 2026-10-26), report only; it
+  DMs a summary to file here — open
 
 ## Lingerers (explicitly approved)
 
