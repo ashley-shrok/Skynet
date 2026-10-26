@@ -96,7 +96,7 @@ anything the user sees.
 - **Out:** how running/sleeping is detected (stays on the terminal for now);
   opening archived conversations (next shape); any access check.
 - **Outside this campaign:** the restarter starting a known agent fresh
-  (Ashley: that should never happen) — handled separately.
+  (the user: that should never happen) — handled separately.
 - **Tempting but no:** a periodic check for a newer history file; a
   machine-wide fallback for agents with no folder; searching an agent's
   older files.
@@ -135,7 +135,7 @@ anything the user sees.
 - **What would make it wrong: Sending, Stop, permission prompts, working indicator or new messages behaving differently for a running agent** — present · Only history finding and the wake handoff were edited.
 - **What would make it wrong: Any remaining place still finding history through the terminal or by scanning the whole machine** — present · None remain. The restarter keeps its own per-folder lookup, which is the model.
 - **What would make it wrong: Two parts of the app disagreeing about which file is an agent's history** — present · Every part uses the same rule, and the real-path naming is checked by the shared test.
-- **Scope edges** — drifted · The other-machines confirmation is partly done: ashley-beelink and ashley-laptop were offline, and that check is handed to Domino. Nothing out of scope or "tempting but no" was built.
+- **Scope edges** — drifted · The other-machines confirmation is partly done: the Beelink box and the laptop box were offline, and that check is handed to Domino. Nothing out of scope or "tempting but no" was built.
 
 ### Additions (in the result, not in the shape)
 
@@ -143,8 +143,8 @@ None.
 
 ### Follow-ups
 
-- Confirm the history-folder naming and first-message shape on ashley-beelink and ashley-laptop (offline at the check; assigned to Domino) — deferred
-- After the deploy, Domino moves the five live legacy agents into their own folders. Those conversations are blank until then, which Ashley accepted — accepted-as-drift
+- Confirm the history-folder naming and first-message shape on the Beelink box and the laptop box (offline at the check; assigned to Domino) — deferred
+- After the deploy, Domino moves the five live legacy agents into their own folders. Those conversations are blank until then, which the user accepted — accepted-as-drift
 
 ### Notes
 

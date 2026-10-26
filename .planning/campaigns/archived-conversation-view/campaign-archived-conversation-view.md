@@ -54,25 +54,25 @@ archived, with Un-archive on it.
   opens as a normal read-only conversation tab (new tab kind that needs no
   terminal session, survives reload/split/drag), archived marking,
   Un-archive, search click wired to it; depends on shape 1 — closed
-  (2026-10-26, closed-hit; window reads fixed to host-decided at Ashley's
-  "Yes, fix it"; What's-new note dropped — Ashley: "No note"; "Not in the
+  (2026-10-26, closed-hit; window reads fixed to host-decided at the user's
+  "Yes, fix it"; What's-new note dropped — the user: "No note"; "Not in the
   archive" notice kept; review fixes in f0d27188)
 
 ## Other work
 
 - Role file learned-preference: start work with `/build`, not `/open` —
-  done (2026-10-25, Ashley approved)
+  done (2026-10-25, the user approved)
 - Legacy agents outside their own history folder — domino-box-maintainer-2
-  (spawned 2026-10-25 at Ashley's ask). Archived ones DONE (25: t1000 tina;
+  (spawned 2026-10-25 at the user's ask). Archived ones DONE (25: t1000 tina;
   workstation 22; thenasty george, nelly — re-verified: all resolve from their
   own folder). The 5 LIVE ones (workstation aqua, willa, becky, whitney;
   zoeybattlestation commander-zoey) move right after this campaign's deploy
-  (Ashley: "Carry on, deploy at the end", 2026-10-26). AT CAMPAIGN CLOSE: once
+  (the user: "Carry on, deploy at the end", 2026-10-26). AT CAMPAIGN CLOSE: once
   the deploy is live, DM Domino to start; those 5 conversations are blank for
   the minutes in between — open
 - Slash-command audit — which Claude Code commands (e.g. `/clear`) break
   Skynet's assumptions and should be blocked; rigel-box-maintainer-4
-  (Ashley: "Spawn it", 2026-10-26), report delivered to Ashley in its
+  (the user: "Spawn it", 2026-10-26), report delivered to the user in its
   conversation (full table there). Summary: 17 of ~110 built-ins break
   Skynet's assumptions — session-switching (/clear, /resume, /branch, /fork,
   /rewind, /cd), taking the process from the supervisor (/background, /stop,
@@ -80,7 +80,7 @@ archived, with Un-archive on it.
   Condense (/compact, /autocompact), and /plan (plan mode is denied). Hooks
   can't block built-ins; the real block is Skynet's send path refusing them
   server-side (the supervisor itself types /exit and /compact into panes).
-  Acting on it is Ashley's call, outside this campaign — done
+  Acting on it is the user's call, outside this campaign — done
 
 ## Lingerers (explicitly approved)
 
@@ -93,7 +93,7 @@ archived, with Un-archive on it.
   the first real user turn; the supervisor's session-owner check is the
   precedent. Condense has since shipped — confirm the reset/recycle detection
   removal is on the branch before starting shape 1.
-- ashley-beelink and ashley-laptop were offline at the other-machines
+- the Beelink box and the laptop box were offline at the other-machines
   check (2026-10-25); Domino checks them too. Zoey's machine has a symlinked
   home (/home → /var/home) — the lookup now names folders from the real path.
 - Agents sometimes start a bare Claude in their own workspace while testing

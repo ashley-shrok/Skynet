@@ -96,7 +96,7 @@ parallel set of archive screens.
 ## Scope edges
 
 - In: everything above, plus the id skill's description of search, the
-  conversation view and the agent's window, and a What's-new note (Ashley
+  conversation view and the agent's window, and a What's-new note (the user
   approves the text).
 - Out: editing anything in an archived agent; running its apps; an archived
   section in the sidebar; changing search itself beyond the click.
@@ -116,7 +116,7 @@ parallel set of archive screens.
 ## Close-Out
 
 **Closed:** 2026-10-26
-**Overall verdict:** closed-hit (reviewer's provisional closed-partial; both open divergences settled with Ashley — one fixed, one dropped by her)
+**Overall verdict:** closed-hit (reviewer's provisional closed-partial; both open divergences settled with the user — one fixed, one dropped by her)
 
 ### Shape features (conformance)
 
@@ -127,7 +127,7 @@ parallel set of archive screens.
 - **Shape: Un-archive** — present · Strip and pill menu; working → coming back; past two minutes it keeps waiting and turns live without a reload; an open agent window carries over live on the same tab; refusals in search's words.
 - **Shape: archiving closes every open copy** — present · This window at once; other windows and devices when the server tells a live pane its agent is archived.
 - **Shape: reload and other edge states** — present · A reloaded tab whose agent is live again waits, then turns live; no-history notice.
-- **Shape: where the server looks** — present (after fix) · Reviewer found the agent window's reads let the browser pick the archive folder. Ashley: "Yes, fix it." Fixed in f7f00f28: the host decides (live folder wins, else the archive) for every window read.
+- **Shape: where the server looks** — present (after fix) · Reviewer found the agent window's reads let the browser pick the archive folder. the user: "Yes, fix it." Fixed in f7f00f28: the host decides (live folder wins, else the archive) for every window read.
 - **Philosophy** — present · Same views with view-only switches; one server rule.
 - **Prior context** — present · Shape 1's lookup; search's Un-archive outcomes and wording (now shared).
 - **What would make it wrong: anything that can change the agent, its files, or send it a message** — present · No composer; server drops input for the view; workspace writes refused.
@@ -137,12 +137,12 @@ parallel set of archive screens.
 - **What would make it wrong: Un-archive leaving the user to re-find the conversation** — present · Turns live in place, window carried over.
 - **What would make it wrong: a tab for a just-archived agent lingering** — present · Same-window close plus the server's signal.
 - **Scope edges: IN — id skill description** — present · Search click, the tab, pill menu, view-only window, Un-archive flow, no-history notice; Archive closes every copy.
-- **Scope edges: IN — What's-new note** — dropped · Ashley: "No note."
+- **Scope edges: IN — What's-new note** — dropped · the user: "No note."
 - **Scope edges: OUT items** — present · No editing, apps never run, no sidebar row or filing, search changed only in the click.
 
 ### Additions (in the result, not in the shape)
 
-- A "Not in the archive" notice (no Un-archive offered) when the agent is in neither the live list nor the archive — endorsed-as-drift (Ashley: "Keep it.")
+- A "Not in the archive" notice (no Un-archive offered) when the agent is in neither the live list nor the archive — endorsed-as-drift (the user: "Keep it.")
 - Archived wake-up rows can't be opened for detail — endorsed-as-drift (reviewer: within the view-only spirit)
 
 ### Follow-ups
