@@ -72,7 +72,10 @@ export type CreateOrUpdateUserOk = AdminOk<{
  *
  * PUT /_synapse/admin/v2/users/{mxid} — treats both 200 (updated existing)
  * and 201 (created new) as success (RESEARCH.md Pitfall 5). Optional
- * `displayname` is only sent when supplied.
+ * `displayname` is only sent when supplied, in a second PUT after the
+ * first succeeds: Synapse sets the display name before it reactivates, and
+ * an erased account has no profile row until reactivation recreates it, so
+ * sending both in one request 500s on every un-archive of an erased account.
  *
  * Idempotent per the Synapse admin API contract; safe to retry.
  */
@@ -87,42 +90,54 @@ export async function createOrUpdateUser(
   }
 
   const url = `${creds.homeserverBase}/_synapse/admin/v2/users/${encodeURIComponent(mxid)}`;
-  const body: Record<string, unknown> = {
-    password,
-    admin: false,
-    deactivated: false,
+  const put = async (body: Record<string, unknown>): Promise<{ response: Response } | AdminErr> => {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+    try {
+      const response = await fetch(url, {
+        method: "PUT",
+        headers: {
+          Authorization: `Bearer ${creds.accessToken}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(body),
+        signal: controller.signal,
+      });
+      clearTimeout(timeoutId);
+      return { response };
+    } catch (err: unknown) {
+      clearTimeout(timeoutId);
+      if (err instanceof DOMException && err.name === "AbortError") {
+        return { ok: false, status: 504, error: ERR_TIMEOUT };
+      }
+      databaseLogger.error("matrix admin proxy error", err, {
+        operation: "matrix_admin_create_or_update_user",
+      });
+      return { ok: false, status: 502, error: ERR_PROXY };
+    }
   };
-  if (displayname !== undefined) {
-    body.displayname = displayname;
+
+  const accountPut = await put({ password, admin: false, deactivated: false });
+  if (!("response" in accountPut)) return accountPut;
+  const account = accountPut.response;
+  if (!account.ok) {
+    return { ok: false, status: account.status, error: ERR_NON_2XX };
   }
 
-  const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
-  try {
-    const response = await fetch(url, {
-      method: "PUT",
-      headers: {
-        Authorization: `Bearer ${creds.accessToken}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify(body),
-      signal: controller.signal,
-    });
-    clearTimeout(timeoutId);
-    if (!response.ok) {
-      return { ok: false, status: response.status, error: ERR_NON_2XX };
+  if (displayname !== undefined) {
+    const namedPut = await put({ displayname });
+    if (!("response" in namedPut)) return namedPut;
+    const named = namedPut.response;
+    if (!named.ok) {
+      databaseLogger.warn("matrix admin: account active but display name not set", {
+        operation: "matrix_admin_set_displayname",
+        mxid,
+        status: named.status,
+      });
+      return { ok: false, status: named.status, error: ERR_NON_2XX };
     }
-    return { ok: true, mxid, password, status: response.status };
-  } catch (err: unknown) {
-    clearTimeout(timeoutId);
-    if (err instanceof DOMException && err.name === "AbortError") {
-      return { ok: false, status: 504, error: ERR_TIMEOUT };
-    }
-    databaseLogger.error("matrix admin proxy error", err, {
-      operation: "matrix_admin_create_or_update_user",
-    });
-    return { ok: false, status: 502, error: ERR_PROXY };
   }
+  return { ok: true, mxid, password, status: account.status };
 }
 
 // ---------------------------------------------------------------------------

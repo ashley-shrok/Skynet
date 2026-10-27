@@ -189,18 +189,38 @@ describe("createOrUpdateUser", () => {
     }
   });
 
-  it("passes displayname through when caller supplies it", async () => {
-    const fetchMock = vi.fn(async () => mockFetchResponse(201, {}));
+  it("sets displayname in a second PUT after the account is active (erased accounts have no profile row until reactivated)", async () => {
+    const fetchMock = vi.fn(async () => mockFetchResponse(200, {}));
     vi.stubGlobal("fetch", fetchMock);
-    await createOrUpdateUser("@bob:host", "pw", "Bob The Human");
+    const result = await createOrUpdateUser("@bob:host", "pw", "Bob The Human");
+    expect(result.ok).toBe(true);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    const first = JSON.parse((fetchMock.mock.calls[0][1] as RequestInit).body as string);
+    expect(first).toEqual({ password: "pw", admin: false, deactivated: false });
+    const second = JSON.parse((fetchMock.mock.calls[1][1] as RequestInit).body as string);
+    expect(second).toEqual({ displayname: "Bob The Human" });
+  });
+
+  it("reports failure when the display-name PUT fails", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(mockFetchResponse(200, {}))
+      .mockResolvedValueOnce(mockFetchResponse(500, {}));
+    vi.stubGlobal("fetch", fetchMock);
+    const result = await createOrUpdateUser("@bob:host", "pw", "Bob");
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.status).toBe(500);
+      expect(result.error).toBe("admin_api_non_2xx");
+    }
+  });
+
+  it("does not send the display name when the account PUT fails", async () => {
+    const fetchMock = vi.fn(async () => mockFetchResponse(403, {}));
+    vi.stubGlobal("fetch", fetchMock);
+    const result = await createOrUpdateUser("@bob:host", "pw", "Bob");
+    expect(result.ok).toBe(false);
     expect(fetchMock).toHaveBeenCalledTimes(1);
-    const call = fetchMock.mock.calls[0];
-    const opts = call[1] as RequestInit;
-    const body = JSON.parse(opts.body as string);
-    expect(body.displayname).toBe("Bob The Human");
-    expect(body.password).toBe("pw");
-    expect(body.admin).toBe(false);
-    expect(body.deactivated).toBe(false);
   });
 
   it("does NOT include displayname in body when caller omits it", async () => {
