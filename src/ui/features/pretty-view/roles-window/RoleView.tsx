@@ -604,7 +604,7 @@ export function RoleView({
             disabled={lookLocked}
             title="Change picture"
             aria-label="Change picture"
-            className="relative block rounded-full cursor-pointer disabled:cursor-default focus-visible:outline-2 focus-visible:outline-[var(--k-acc)] focus-visible:outline-offset-2"
+            className="relative block rounded-full cursor-pointer disabled:cursor-default focus-visible:outline-2 focus-visible:outline-solid focus-visible:outline-[var(--k-acc)] focus-visible:outline-offset-2"
             data-testid="role-view-avatar-button"
           >
             <KitAvatar

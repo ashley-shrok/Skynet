@@ -74,7 +74,7 @@ export const PANE_BAR_BUTTON_CLASS = "pane-bar-btn";
 /** Utilities that bring the read-aloud button (its own component, styled with
  *  utilities) into line with the bar's quiet buttons. */
 export const PANE_BAR_SPEAK_CLASS =
-  "size-[30px] rounded-lg border-0 bg-transparent hover:bg-[var(--k-s2)] text-[var(--k-t2)] hover:text-[var(--k-t1)] focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[var(--k-acc)]";
+  "size-[30px] rounded-lg border-0 bg-transparent hover:bg-[var(--k-s2)] text-[var(--k-t2)] hover:text-[var(--k-t1)] focus-visible:outline-2 focus-visible:outline-solid focus-visible:outline-offset-1 focus-visible:outline-[var(--k-acc)]";
 
 export interface PaneBarProps {
   tabId: string;

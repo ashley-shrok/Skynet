@@ -249,7 +249,7 @@ export function NewRoleView({
               data-candidate-id={c.id}
               disabled={submitting}
               onClick={() => setPickedId(c.id)}
-              className={`size-[76px] rounded-full overflow-hidden bg-[var(--k-s2)] outline-2 outline-offset-[3px] cursor-pointer disabled:opacity-50 focus-visible:outline-[var(--k-acc)] ${
+              className={`size-[76px] rounded-full overflow-hidden bg-[var(--k-s2)] outline-2 outline-solid outline-offset-[3px] cursor-pointer disabled:opacity-50 focus-visible:outline-[var(--k-acc)] ${
                 picked ? "outline-[var(--k-acc)]" : "outline-transparent hover:outline-[var(--k-hair2)]"
               }`}
             >

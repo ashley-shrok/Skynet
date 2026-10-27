@@ -647,7 +647,7 @@ function ModalDrillBack({
         onClick={onBack}
         data-testid={testId}
         data-modal-back=""
-        className="shrink-0 flex items-center gap-0.5 pr-1.5 py-1 text-[15px] cursor-pointer text-[var(--k-acc-text)] rounded-lg focus-visible:outline-2 focus-visible:outline-[var(--k-acc)]"
+        className="shrink-0 flex items-center gap-0.5 pr-1.5 py-1 text-[15px] cursor-pointer text-[var(--k-acc-text)] rounded-lg focus-visible:outline-2 focus-visible:outline-solid focus-visible:outline-[var(--k-acc)]"
       >
         <ChevronLeft size={18} aria-hidden="true" />
         {backLabel}
