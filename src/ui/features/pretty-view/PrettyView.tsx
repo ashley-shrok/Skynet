@@ -208,6 +208,22 @@ const HIDDEN_PANE_WS_CLOSE_DEBOUNCE_MS = 60_000;
 // .planning/phases/45-fix-forward-on-phase-43-restore-correct-architecture-for-win/45-CONTEXT.md § "Client architecture" for rationale.
 const WORKING_SET_CAP = 20;
 
+// Transcript frames held while the opening batch arrives (see historyHoldRef).
+const HISTORY_HELD_TYPES = new Set<string>([
+  "message",
+  "image",
+  "relay_outbound",
+  "relay_send_result",
+  "relay_inbound",
+  "malformed_line",
+  "compaction",
+  "compaction_guidance",
+  "messages_hidden",
+  "messages_unhidden",
+]);
+// Safety valve: if history_ready never comes, show what arrived anyway.
+const HISTORY_HOLD_TIMEOUT_MS = 15_000;
+
 /**
  * Client-side pending-send timeout constants.
  *
@@ -1025,6 +1041,16 @@ export function PrettyView({
   // effect run — the same rationale as isVisibleRef). The
   // useEffect mirror below keeps it synchronized with state.
   const capOffRef = useRef<boolean>(false);
+  // Opening-batch hold: from the start of a hydration (wire_boot, session
+  // rotation, session_changed) until the server's history_ready, transcript
+  // frames are queued and then applied in one go, so the opening messages
+  // appear at once instead of trickling in. Null when not holding.
+  const historyHoldRef = useRef<{
+    held: MessageEvent<string>[];
+    timer: ReturnType<typeof setTimeout> | null;
+    startedAt: number;
+    trigger: string;
+  } | null>(null);
   // loadOlderInFlightRef: SYNCHRONOUS single-request-in-flight guard for
   // handleLoadOlder. React's setLoadOlderState('in-flight') doesn't reach
   // the DOM's disabled attribute within the same event-loop tick, so a
@@ -3048,6 +3074,34 @@ export function PrettyView({
       setUploadWs(ws);
     };
 
+    const dropHistoryHold = () => {
+      const hold = historyHoldRef.current;
+      if (!hold) return;
+      historyHoldRef.current = null;
+      if (hold.timer !== null) clearTimeout(hold.timer);
+    };
+    // Apply the held frames in order, synchronously, inside one task so
+    // React renders the opening batch once.
+    const releaseHistoryHold = (reason: "ready" | "timeout") => {
+      const hold = historyHoldRef.current;
+      if (!hold) return;
+      dropHistoryHold();
+      console.info(
+        `[history-hold] release reason=${reason} trigger=${hold.trigger} frames=${hold.held.length} ` +
+          `held_ms=${Math.round(performance.now() - hold.startedAt)} sessionId=${tmuxSession ?? 'null'} hostId=${hostId}`,
+      );
+      for (const ev of hold.held) ws.onmessage?.call(ws, ev);
+    };
+    const beginHistoryHold = (trigger: string) => {
+      dropHistoryHold();
+      historyHoldRef.current = {
+        held: [],
+        timer: setTimeout(() => releaseHistoryHold("timeout"), HISTORY_HOLD_TIMEOUT_MS),
+        startedAt: performance.now(),
+        trigger,
+      };
+    };
+
     ws.onmessage = (event: MessageEvent<string>) => {
       if (cancelled) return;
       // Bounty pretty-view-per-pane-cost-diag: count every landed frame
@@ -3057,6 +3111,10 @@ export function PrettyView({
       try {
         parsed = JSON.parse(event.data) as ClaudeSessionServerEvent;
       } catch {
+        return;
+      }
+      if (historyHoldRef.current && HISTORY_HELD_TYPES.has(parsed.type)) {
+        historyHoldRef.current.held.push(event);
         return;
       }
       // quick 260808-cd6: live-frame auto-dismiss. When the dormant overlay is
@@ -3258,6 +3316,7 @@ export function PrettyView({
             setMessages([]);
             resetInterruptViewState();
             resetLoadOlderState();
+            beginHistoryHold("rotation");
             setHarnessTasks([]);
             setWorkNarration(null);
             // Phase 90 Plan 00 Wave 0 (D-10 delivery mechanism) — contextPct
@@ -3842,6 +3901,7 @@ export function PrettyView({
           setMessages([]);
           resetInterruptViewState();
           resetLoadOlderState({ sameSocket: true });
+          beginHistoryHold("session_changed");
           setHarnessTasks([]);
           setWorkNarration(null);
           // Phase 90 Plan 00 Wave 0 (D-10 delivery mechanism) — contextPct
@@ -3904,6 +3964,11 @@ export function PrettyView({
           resetInterruptViewState();
           resetLoadOlderState();
           setErrorMessage(null);
+          beginHistoryHold("wire_boot");
+          break;
+        }
+        case "history_ready": {
+          releaseHistoryHold("ready");
           break;
         }
         case "error": {
@@ -3971,6 +4036,7 @@ export function PrettyView({
     };
 
     ws.onclose = () => {
+      dropHistoryHold();
       if (cancelled) return;
       // Phase 41 code-review H1 fix: null the reactive WS mirror so the
       // upload hook detaches its message listener from this dead WS.
@@ -4066,6 +4132,7 @@ export function PrettyView({
       // by its own handlers, and container-recreate storms compound the count
       // against nginx worker_connections (T800 saturated at ~8k with 2 pretty
       // views after 3 recreates = 13x baseline).
+      dropHistoryHold();
       ws.onopen = null;
       ws.onmessage = null;
       ws.onerror = null;

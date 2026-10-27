@@ -1151,6 +1151,14 @@ describe("PrettyView load-more button + cap-off + prepend behavior", () => {
       eventId: `evt-replay-${i}`,
       ts: 2_000_000 + i,
     }));
+    // The server marks the opening batch complete; the client shows it then.
+    act(() => {
+      ws.onmessage?.(
+        new MessageEvent("message", {
+          data: JSON.stringify({ type: "history_ready", startLine: 1, totalLines: null }),
+        }),
+      );
+    });
 
     // Cap back in force (not 100 bubbles), button back to idle.
     await waitFor(() => {
@@ -1206,6 +1214,14 @@ describe("PrettyView load-more button + cap-off + prepend behavior", () => {
       eventId: `evt-newsess-${i}`,
       ts: 3_000_000 + i,
     }));
+    // The server marks the opening batch complete; the client shows it then.
+    act(() => {
+      ws.onmessage?.(
+        new MessageEvent("message", {
+          data: JSON.stringify({ type: "history_ready", startLine: 1, totalLines: null }),
+        }),
+      );
+    });
     await waitFor(() => {
       expect(getBubbles().length).toBe(5);
     });

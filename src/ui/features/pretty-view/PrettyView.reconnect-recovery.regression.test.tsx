@@ -367,6 +367,8 @@ describe("PrettyView — reconnect recovery regression (commit 4a28b005)", () =>
         line: 1 + i,
       });
     }
+    // The server marks the opening batch complete; the client shows it then.
+    sendFrame(ws, { type: "history_ready", startLine: 1, totalLines: 3 });
 
     // Without the wire_boot reset, the post-restart frames (line=1..3)
     // would sort ABOVE the pre-restart frames (line=500..502) and hit

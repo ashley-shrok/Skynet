@@ -23,6 +23,7 @@ import {
   extractText,
 } from "./session-file-parser.js";
 import { tailSessionFile, type TailHandle } from "./session-file-tail.js";
+import { tailSessionFileWindowed, searchBackgroundWorkHistory, type RunExec } from "./session-file-window.js";
 import { isRepeatComposeMqid } from "./seen-input-mqids.js";
 import {
   InterruptCancelTracker,
@@ -945,6 +946,103 @@ export function __applyTaskNotificationForTests(
   if (taskIdMatch) removeBackgroundedTask(state, taskIdMatch[1]);
 }
 
+// Patch #66 completion signal for backgrounded Agents. Claude Code /
+// its harness lands the task-notification payload in the JSONL in
+// AT LEAST three observed shapes across versions and states:
+//   (1) type:"attachment" with attachment.commandMode:"task-
+//       notification" and attachment.prompt carrying the XML.
+//   (2) type:"queue-operation" with a top-level `content` string
+//       carrying the XML (harness enqueue bookkeeping).
+//   (3) type:"user" with message.content being a raw STRING that
+//       starts with "<task-notification>" (the user-turn form
+//       observed on this box's Claude Code v2.1.143).
+// Detect any of the three by picking whichever field carries the
+// payload; require the STRING to START with "<task-notification>"
+// (not merely contain it) so a normal user message or tool_result
+// that happens to quote the phrase does NOT false-positive — same
+// discipline as patch #65's anchored /exit scan.
+function taskNotificationPayload(
+  obj: { type?: string; message?: { content?: unknown } },
+): string | null {
+  const content = obj?.message?.content;
+  // Shape 1: type:"attachment" + attachment.prompt
+  const attachmentAny = obj as {
+    type?: string;
+    attachment?: { commandMode?: string; prompt?: unknown };
+  };
+  if (
+    attachmentAny?.type === "attachment" &&
+    attachmentAny?.attachment?.commandMode === "task-notification" &&
+    typeof attachmentAny?.attachment?.prompt === "string" &&
+    attachmentAny.attachment.prompt.startsWith("<task-notification>")
+  ) {
+    return attachmentAny.attachment.prompt;
+  }
+  // Shape 2: type:"queue-operation" + top-level content string
+  const qopAny = obj as { type?: string; content?: unknown };
+  if (
+    qopAny?.type === "queue-operation" &&
+    typeof qopAny?.content === "string" &&
+    qopAny.content.startsWith("<task-notification>")
+  ) {
+    return qopAny.content;
+  }
+  // Shape 3: type:"user" + message.content as raw XML string
+  if (
+    obj?.type === "user" &&
+    typeof content === "string" &&
+    content.startsWith("<task-notification>")
+  ) {
+    return content;
+  }
+  return null;
+}
+
+/**
+ * Feed one raw JSONL line to the background-work correlator: admission of
+ * backgrounded Agents / shells, stops, and task-notification completions.
+ * Shared by the live tail and the windowed open's whole-history search.
+ */
+function applyBackgroundWorkLine(
+  line: string,
+  state: __BackgroundedAgentsCorrelatorStateForTests,
+): void {
+  let obj: { type?: string; timestamp?: string; message?: { content?: unknown } };
+  try {
+    obj = JSON.parse(line);
+  } catch {
+    return; /* malformed line — silently ignore, same posture as parser */
+  }
+  if (!obj || typeof obj !== "object") return;
+  // New-harness pasted_content envelopes → legacy bare-wrapper shape
+  // before the patch #66 startsWith("<task-notification>") checks.
+  normalizePastedHarnessEnvelopes(obj as Record<string, unknown>);
+  __admitBackgroundedAgentsLineForTests(line, state);
+  const notifPayload = taskNotificationPayload(obj);
+  if (notifPayload) __applyTaskNotificationForTests(notifPayload, state);
+}
+
+/** Tool-use ids the history search must look up results for: still-open background work and pending stops. */
+function openBackgroundWorkIds(lines: string[]): string[] {
+  const state: __BackgroundedAgentsCorrelatorStateForTests = {
+    backgroundedAgents: new Map(),
+    pendingAgentAdmission: new Map(),
+    backgroundedShells: new Map(),
+    taskIdToToolUseId: new Map(),
+    pendingStops: new Map(),
+  };
+  for (const l of lines) applyBackgroundWorkLine(l, state);
+  // Pending admissions too: their result decides whether they were
+  // backgrounded, and without it they'd sit in the pending map for good.
+  return [
+    ...state.backgroundedAgents.keys(),
+    ...state.pendingAgentAdmission.keys(),
+    ...state.backgroundedShells.keys(),
+    ...state.pendingStops.keys(),
+  ];
+}
+export const __openBackgroundWorkIdsForTests = openBackgroundWorkIds;
+
 // Phase 3 session-changeover tuning constants. Holding timeout: 200 * 3s = 600s (10min).
 // Per D-31 and CONTEXT.md § holding timeout — Nelly's original timing note said "new .jsonl
 // appears within ~5s; fully-loaded identity ~30-70s later" but a relaunch under load
@@ -956,6 +1054,9 @@ export function __applyTaskNotificationForTests(
 // the two agree; the client watchdog covers the WS-drop case where the backend can't
 // deliver the frame. Keep the two constants in lockstep on any future retune.
 const HOLDING_TIMEOUT_TICKS = 200;
+// Items replayed on open: the client's twenty-item window plus a margin for
+// lines the client collapses as duplicates.
+const OPEN_WINDOW_ITEMS = 25;
 const DISCOVERY_REPOLL_INTERVAL_MS = 3000;
 // Harness-tasks poller tuning — moved to module scope from the pre-refactor
 // inline block so the setupHarnessTasksPoller helper (per BLOCKER fix from
@@ -4721,89 +4822,13 @@ wss.on("connection", async (ws: WebSocket, req) => {
     // within a few lines, and the initial `lastSerialized = "[]"` matches
     // the empty-list stringification so no spurious empty emit fires.
     try {
-      const obj = JSON.parse(line) as {
-        type?: string;
-        timestamp?: string;
-        message?: { content?: unknown };
-      };
-      // New-harness pasted_content envelopes → legacy bare-wrapper shape
-      // before the patch #66 startsWith("<task-notification>") checks below.
-      normalizePastedHarnessEnvelopes(obj as Record<string, unknown>);
-      const content = obj?.message?.content;
-      // Phase 51 Plan 01 refactor-extract: the assistant/user branches that
-      // maintain `backgroundedAgents` + `backgroundedShells` (and, after
-      // Task 2, the `pendingAgentAdmission` scratch map) now live in a
-      // module-scope helper so they can be unit-tested without spinning up
-      // a full WS server + SSH pair. Behavior is identical to the pre-
-      // refactor inline block (see the helper docblock at
-      // __admitBackgroundedAgentsLineForTests ~L352 for details). The
-      // helper re-parses `line` internally — a second JSON.parse is
-      // trivially cheap at these volumes (same rationale as the parallel
-      // parse note above).
-      __admitBackgroundedAgentsLineForTests(line, {
+      applyBackgroundWorkLine(line, {
         backgroundedAgents,
         pendingAgentAdmission,
         backgroundedShells,
         taskIdToToolUseId,
         pendingStops,
       });
-      // Patch #66 completion signal for backgrounded Agents. Claude Code /
-      // its harness lands the task-notification payload in the JSONL in
-      // AT LEAST three observed shapes across versions and states:
-      //   (1) type:"attachment" with attachment.commandMode:"task-
-      //       notification" and attachment.prompt carrying the XML.
-      //   (2) type:"queue-operation" with a top-level `content` string
-      //       carrying the XML (harness enqueue bookkeeping).
-      //   (3) type:"user" with message.content being a raw STRING that
-      //       starts with "<task-notification>" (the user-turn form
-      //       observed on this box's Claude Code v2.1.143).
-      // Detect any of the three by picking whichever field carries the
-      // payload; require the STRING to START with "<task-notification>"
-      // (not merely contain it) so a normal user message or tool_result
-      // that happens to quote the phrase does NOT false-positive — same
-      // discipline as patch #65's anchored /exit scan.
-      const notifPayload = ((): string | null => {
-        // Shape 1: type:"attachment" + attachment.prompt
-        const attachmentAny = obj as {
-          type?: string;
-          attachment?: { commandMode?: string; prompt?: unknown };
-        };
-        if (
-          attachmentAny?.type === "attachment" &&
-          attachmentAny?.attachment?.commandMode === "task-notification" &&
-          typeof attachmentAny?.attachment?.prompt === "string" &&
-          attachmentAny.attachment.prompt.startsWith("<task-notification>")
-        ) {
-          return attachmentAny.attachment.prompt;
-        }
-        // Shape 2: type:"queue-operation" + top-level content string
-        const qopAny = obj as { type?: string; content?: unknown };
-        if (
-          qopAny?.type === "queue-operation" &&
-          typeof qopAny?.content === "string" &&
-          qopAny.content.startsWith("<task-notification>")
-        ) {
-          return qopAny.content;
-        }
-        // Shape 3: type:"user" + message.content as raw XML string
-        if (
-          obj?.type === "user" &&
-          typeof content === "string" &&
-          content.startsWith("<task-notification>")
-        ) {
-          return content;
-        }
-        return null;
-      })();
-      if (notifPayload) {
-        __applyTaskNotificationForTests(notifPayload, {
-          backgroundedAgents,
-          pendingAgentAdmission,
-          backgroundedShells,
-          taskIdToToolUseId,
-          pendingStops,
-        });
-      }
       const agents = Array.from(backgroundedAgents.values()).sort(
         (a, b) => a.startedAt - b.startedAt,
       );
@@ -5045,6 +5070,47 @@ wss.on("connection", async (ws: WebSocket, req) => {
     if (!stopped && ws.readyState === WebSocket.OPEN && sshConn && currentHostId != null && currentTmuxSession != null) {
       workNarrationHub.observeLine(ws, { key: sessionKey(currentHostId, currentTmuxSession), hostId: currentHostId, tmuxSession: currentTmuxSession, conn: sshConn }, line);
     }
+  };
+
+  // Fast conversation open: replay only the recent window (the client's
+  // twenty items plus a margin for lines the client drops as duplicates),
+  // search the host for whole-history background-work facts, then follow
+  // live from the snapshot. `history_ready` tells the client the opening
+  // batch is complete so it can show it all at once. Every tail start —
+  // fresh attach, session-file change, dormant, archived — goes through here.
+  const openSessionTail = (
+    conn: import("ssh2").Client,
+    file: string,
+    errCb: (err: Error) => void,
+  ): TailHandle => {
+    // The open's short execs share the host's channel limiter with every
+    // other SSH producer (the live tail holds its own long-lived slot).
+    const hostId = currentHostId;
+    const runExec: RunExec = (fn) => (hostId == null ? fn() : getHostSemaphore(hostId).run(fn));
+    return tailSessionFileWindowed(conn, file, onLineTracked, errCb, {
+      targetItems: OPEN_WINDOW_ITEMS,
+      runExec,
+      onWindowStart: (startLine) => {
+        lineNum = startLine - 1;
+      },
+      loadHistory: () => searchBackgroundWorkHistory(conn, file, openBackgroundWorkIds, runExec),
+      onHistoryLine: (line) =>
+        applyBackgroundWorkLine(line, {
+          backgroundedAgents,
+          pendingAgentAdmission,
+          backgroundedShells,
+          taskIdToToolUseId,
+          pendingStops,
+        }),
+      onWindowDone: (stats) => {
+        if (stopped || ws.readyState !== WebSocket.OPEN) return;
+        try {
+          ws.send(JSON.stringify({ type: "history_ready", startLine: stats.startLine, totalLines: stats.totalLines }));
+        } catch {
+          /* ws may be mid-close */
+        }
+      },
+    });
   };
 
   // Tail's onError handler — byte-for-byte preserved from the pre-refactor
@@ -5359,11 +5425,10 @@ wss.on("connection", async (ws: WebSocket, req) => {
       // Phase 101 D-03: acquire long-lived slot before opening the tail.
       // Released on stop() or onError — both paths are idempotent (D-06-adjacent).
       const tailSlot1 = acquireTailSlot(currentHostId!);
-      cancelTracker = newCancelTracker(); // the new tail replays from line 1
-      tailHandle = tailSessionFile(
+      cancelTracker = newCancelTracker(); // the new tail replays its window
+      tailHandle = openSessionTail(
         sshConn,
         newSessionFile,
-        onLineTracked,
         (err) => { tailSlot1.release(); onError(err); },
       );
       const origStop1 = tailHandle.stop;
@@ -7407,11 +7472,10 @@ wss.on("connection", async (ws: WebSocket, req) => {
       return;
     }
     const tailSlot2 = acquireTailSlot(currentHostId!);
-    cancelTracker = newCancelTracker(); // the new tail replays from line 1
-    tailHandle = tailSessionFile(
+    cancelTracker = newCancelTracker(); // the new tail replays its window
+    tailHandle = openSessionTail(
       sshConn,
       sessionFile,
-      onLineTracked,
       (err) => { tailSlot2.release(); onError(err); },
     );
     const origStop2 = tailHandle.stop;
@@ -7475,9 +7539,9 @@ wss.on("connection", async (ws: WebSocket, req) => {
           sshConn: conn,
           tmuxSession,
           discoverIdentitySessionFile,
-          tailSessionFile: (c, file, line, errCb) => {
+          tailSessionFile: (c, file, _line, errCb) => {
             cancelTracker = newCancelTracker();
-            const handle = tailSessionFile(c as import("ssh2").Client, file, line, (err) => {
+            const handle = openSessionTail(c as import("ssh2").Client, file, (err) => {
               archivedTailSlot.release();
               errCb(err);
             });
@@ -7922,9 +7986,9 @@ wss.on("connection", async (ws: WebSocket, req) => {
                   sshConn: sshConn!,
                   tmuxSession,
                   discoverIdentitySessionFile,
-                  tailSessionFile: (c, file, line, errCb) => {
-                    cancelTracker = newCancelTracker(); // the new tail replays from line 1
-                    const handle = tailSessionFile(c as import("ssh2").Client, file, line, (err) => {
+                  tailSessionFile: (c, file, _line, errCb) => {
+                    cancelTracker = newCancelTracker(); // the new tail replays its window
+                    const handle = openSessionTail(c as import("ssh2").Client, file, (err) => {
                       dormantTailSlot.release();
                       errCb(err);
                     });

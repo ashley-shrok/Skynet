@@ -97,6 +97,14 @@ function makeConnStub(opts?: {
 }
 
 describe("tailSessionFile — command shape", () => {
+  it("starts at the given line when fromLine is set (windowed open follows from past its snapshot)", () => {
+    const { conn, execSpy } = makeConnStub();
+    tailSessionFile(conn, "/tmp/session.jsonl", vi.fn(), vi.fn(), { fromLine: 3611 });
+    const cmd = execSpy.mock.calls[0][0] as string;
+    expect(cmd).toContain("tail -F -n +3611 ");
+    expect(cmd).not.toContain("tail -F -n +1 ");
+  });
+
   // ── Test A (COMMAND SHAPE — trap-wrapper + stdin blocker) ────────────
   // The 4-arg call MUST invoke a POSIX `sh -c` wrapper around `tail -F`
   // that:

@@ -11,10 +11,10 @@ import { sshLogger } from "../utils/logger.js";
  *    the JSONL as the conversation progresses, and rotates the file on
  *    session boundaries. Polling the whole file wastes bandwidth on backfill
  *    and racy against rotation. `tail -F` (capital) follows across
- *    truncation/renaming; `-n +1` starts the read at line 1 so we deliver
- *    the current conversation from the top before switching to live-follow.
- *    Together these satisfy BACKEND-03 ("read from the beginning, then keep
- *    emitting").
+ *    truncation/renaming; `-n +<fromLine>` (default 1) picks where the
+ *    read starts. Conversation opens go through session-file-window.ts,
+ *    which replays the recent window itself and follows from just past its
+ *    snapshot; `fromLine` 1 is its full-read fallback.
  *
  * 2. Newline-buffered. JSONL frames can span multiple TCP data chunks; we
  *    accumulate the partial tail in a closure buffer and only surface a line
@@ -73,7 +73,12 @@ export function tailSessionFile(
   absolutePath: string,
   onLine: (line: string) => void,
   onError: (err: Error) => void,
+  opts: { fromLine?: number } = {},
 ): TailHandle {
+  // 1-indexed line to start from. The windowed open (session-file-window.ts)
+  // replays the recent lines itself and follows from just past its snapshot.
+  const fromLine =
+    Number.isInteger(opts.fromLine) && (opts.fromLine as number) >= 1 ? (opts.fromLine as number) : 1;
   let stopped = false;
   // Bubble-load diagnostic (2026-09-25): track TTFB + streaming progress so
   // slow bubble-loads are attributable to SSH-side transport vs downstream
@@ -137,12 +142,12 @@ export function tailSessionFile(
   //
   // Command shape:
   //   sh -c 'trap "kill $t 2>/dev/null" EXIT INT HUP TERM;
-  //          tail -F -n +1 <escaped-path> & t=$!;
+  //          tail -F -n +<fromLine> <escaped-path> & t=$!;
   //          read -r _;                    <-- Prong C: block on stdin
   //          kill $t 2>/dev/null;          <-- explicit teardown on EOF
   //          wait $t 2>/dev/null'          <-- reap the killed tail
   const command =
-    "sh -c 'trap \"kill $t 2>/dev/null\" EXIT INT HUP TERM; tail -F -n +1 " +
+    "sh -c 'trap \"kill $t 2>/dev/null\" EXIT INT HUP TERM; tail -F -n +" + fromLine + " " +
     shellEscape(absolutePath) +
     " & t=$!; read -r _; kill $t 2>/dev/null; wait $t 2>/dev/null'";
 

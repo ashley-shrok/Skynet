@@ -473,6 +473,19 @@ export type WireBootEvent = {
   type: "wire_boot";
 };
 
+// Emitted once per tail start (after wire_boot, session_changed or a
+// session-file rotation) when the opening batch — the recent window the
+// server replays on open — has been sent in full. The client holds
+// transcript frames from the start of a hydration until this arrives, then
+// shows them at once. `startLine` is the first replayed line; `totalLines`
+// the file's line count at the snapshot (null on the full-read fallback
+// when it couldn't be taken).
+export type HistoryReadyEvent = {
+  type: "history_ready";
+  startLine: number;
+  totalLines: number | null;
+};
+
 // Phase 50 Plan 02 D-15 — signal-driven send-path watchdog escalation.
 // Fired by src/backend/claude-session/pv-send-watchdog.ts at T+20000ms
 // silence after a split-send arm, indicating the harness never accepted
@@ -655,6 +668,7 @@ export type ClaudeSessionServerEvent =
   | AsideDismissedEvent
   | TailErrorEvent
   | WireBootEvent
+  | HistoryReadyEvent
   | ErrorEvent
   // Phase 56 (2026-08-23) — dormancy is invisible; DormantEvent still emitted
   // for internal state tracking. The former wake-result response arm was

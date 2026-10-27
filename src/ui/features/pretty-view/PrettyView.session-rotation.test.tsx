@@ -280,6 +280,14 @@ describe("PrettyView — session-file rotation detection at fresh-WS attach", ()
       ts: 2_000_000 + i,
       line: 1 + i,
     }));
+    // The server marks the opening batch complete; the client shows it then.
+    act(() => {
+      ws.onmessage?.(
+        new MessageEvent("message", {
+          data: JSON.stringify({ type: "history_ready", startLine: 1, totalLines: null }),
+        }),
+      );
+    });
 
     await waitFor(() => {
       const bubbles = container.querySelectorAll("[data-pv-bubble]");
@@ -366,6 +374,14 @@ describe("PrettyView — session-file rotation detection at fresh-WS attach", ()
       ts: 3_000_000,
       line: 1,
     }));
+    // The server marks the opening batch complete; the client shows it then.
+    act(() => {
+      ws.onmessage?.(
+        new MessageEvent("message", {
+          data: JSON.stringify({ type: "history_ready", startLine: 1, totalLines: null }),
+        }),
+      );
+    });
 
     await waitFor(() => {
       expect(container.querySelectorAll("[data-pv-bubble]").length).toBe(1);
