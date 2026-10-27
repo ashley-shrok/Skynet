@@ -12,9 +12,11 @@
  * Anatomy (apple-ux: the kit's KitListRow, passages in its subtitle):
  *   Avatar (avatarUrl → initial-letter fallback, hue = result.colorHue,
  *   gold sheen for multi-role via .pv-multi-role's --pv-mr-sheen) + title
- *   (task ?? displayName ?? identityKey); trailing = relative time +
- *   archived chip + three-dot menu; subtitle = "Name · Role[, Role]" then
- *   the passages.
+ *   (task ?? displayName ?? identityKey) with the relative time + archived
+ *   chip on the title line; trailing = the three-dot menu only, floated
+ *   over the title line's end, so the passages get the row's full width
+ *   on a phone; subtitle = "Name ·
+ *   Role[, Role]" then the passages. The avatar sits at the row's top.
  *   Body: up to 3 passages, each labelled as the conversation labels that
  *   bubble ("You", the agent's name, or a relay message's "Sender → To" as
  *   its card reads). Every case-insensitive occurrence of the
@@ -310,7 +312,12 @@ export function ConversationSearchRow({
       data-archived={result.isArchived ? "true" : "false"}
       data-hue={hue}
       dim={result.isArchived}
-      className={cn("!items-start", isMultiRole && "pv-multi-role", neutralLook && "pv-neutral")}
+      className={cn(
+        "!items-start [&_.k-item-main]:!items-start",
+        // The menu floats over the title line's end instead of taking a
+        // column of its own beside the passages.
+        showKebab && "[&_.k-item-trail]:absolute [&_.k-item-trail]:top-[5px] [&_.k-item-trail]:right-[10px]",
+        isMultiRole && "pv-multi-role", neutralLook && "pv-neutral")}
       style={isMultiRole ? ({ "--pv-mr-h": String(hue) } as CSSProperties) : undefined}
       avatarColor={
         isMultiRole
@@ -322,7 +329,22 @@ export function ConversationSearchRow({
           <AvatarImage src={result.avatarUrl} name={name} />
         </span>
       }
-      title={<span data-part="name">{title}</span>}
+      title={
+        <span className={cn("flex items-center gap-2 min-w-0", showKebab && "pr-9")}>
+          <span data-part="name" className="truncate min-w-0 flex-1">{title}</span>
+          <span className="text-[12px] font-normal text-[var(--k-t3)] whitespace-nowrap">{when}</span>
+          {result.isArchived && (
+            <KitChip>{unarchiving ? "un-archiving…" : "archived"}</KitChip>
+          )}
+          {unarchiving && (
+            <Loader2
+              className="size-4 animate-spin shrink-0 text-[var(--k-t3)]"
+              aria-label="Un-archiving"
+              data-testid={`conversation-search-unarchiving-${result.identityKey}-${result.hostId}`}
+            />
+          )}
+        </span>
+      }
       wrapSubtitle
       subtitle={
         <>
@@ -340,22 +362,7 @@ export function ConversationSearchRow({
           {body}
         </>
       }
-      trailing={
-        <>
-          <span className="text-[12px] text-[var(--k-t3)] whitespace-nowrap">{when}</span>
-          {result.isArchived && (
-            <KitChip>{unarchiving ? "un-archiving…" : "archived"}</KitChip>
-          )}
-          {unarchiving && (
-            <Loader2
-              className="size-4 animate-spin shrink-0 text-[var(--k-t3)]"
-              aria-label="Un-archiving"
-              data-testid={`conversation-search-unarchiving-${result.identityKey}-${result.hostId}`}
-            />
-          )}
-          {kebabContextMenu.menu}
-        </>
-      }
+      trailing={kebabContextMenu.menu}
       menu={
         showKebab ? (
           <RowKebabMenu
