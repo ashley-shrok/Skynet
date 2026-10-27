@@ -42,18 +42,29 @@ if [ -z "$BASE" ]; then
   echo "recv.sh FATAL: BASE could not be resolved. STATE_DIR=$STATE_DIR — recv.sh derives creds from \$(dirname \$STATE_DIR)/relay.json (looked at '$(dirname "$STATE_DIR")/relay.json'). For a DURABLE identity, STATE_DIR must point at ~/fleet/identities/<name>/relay-state so dirname lands on the identity dir where relay.json lives. Exiting so this failure is visible instead of silent."
   exit 2
 fi
-# relogin(): mint a fresh token from the stored password, persist it, rebuild H. Returns 1 if it
-# can't (no parseable password) — caller decides whether to back off. Self-heals so a token
-# death recovers instead of wedging.
+# relogin(): mint a fresh token from the stored password, persist it, rebuild H. Returns 1 if the
+# login was REJECTED (no parseable password, or the server said 401/403 — a real account problem)
+# and 2 if it FAILED FOR NOW (no answer, timeout, 429, 5xx, a proxy error page — the server's
+# trouble, not the account's; LOGIN_ERR says which). Callers must never call a 2 a dead account.
+# Self-heals so a token death recovers instead of wedging.
+LOGIN_ERR=""
 relogin(){
-  local pw lp r t
+  local pw lp r t code
   pw=$(cred password)
   [ -z "$pw" ] && { echo "recv.sh: no password in '${CREDS:-<none>}' — cannot re-login; stuck until creds are fixed" >&2; return 1; }
   lp=${ME#@}; lp=${lp%%:*}
-  r=$(curl -s -X POST "$BASE/login" -H 'Content-Type: application/json' \
+  r=$(curl -s -m 30 -w '\n%{http_code}' -X POST "$BASE/login" -H 'Content-Type: application/json' \
       -d "$(jq -n --arg u "$lp" --arg p "$pw" '{type:"m.login.password",identifier:{type:"m.id.user",user:$u},password:$p}')")
-  t=$(jq -r '.access_token // empty' <<<"$r")
-  [ -z "$t" ] && { echo "recv.sh: re-login FAILED: $(jq -c '{errcode,error}' <<<"$r" 2>/dev/null)" >&2; return 1; }
+  code=${r##*$'\n'}; r=${r%$'\n'*}
+  t=$(jq -r '.access_token // empty' <<<"$r" 2>/dev/null)
+  if [ -z "$t" ]; then
+    case "$code" in
+      401|403|200) echo "recv.sh: re-login REJECTED (HTTP $code): $(jq -c '{errcode,error}' <<<"$r" 2>/dev/null)" >&2; return 1 ;;
+      000) LOGIN_ERR="no answer" ;;
+      *)   LOGIN_ERR="HTTP $code" ;;
+    esac
+    echo "recv.sh: re-login failed for now ($LOGIN_ERR) — will retry" >&2; return 2
+  fi
   printf '%s' "$t" > "$STATE_DIR/token"; H="Authorization: Bearer $t"
   echo "recv.sh: re-logged in as ${ME:-?}, token refreshed" >&2; return 0
 }
@@ -77,12 +88,97 @@ auth_alert(){
   fi
   printf 'recv.sh AUTH DEAD: %s\n' "$msg" >&2   # always log to stderr for debug
 }
+# Single-instance guard: exactly ONE poller per CURSOR. Two receivers sharing a `since` cursor
+# race — the second advances it past messages the first hasn't surfaced, silently eating them.
+# ⚠️ The pidfile is keyed on the CURSOR's dir (dirname SINCE_FILE), NOT STATE_DIR. This is the
+# fix for the cross-session dup bug (diagnosed 2026-07-17): a durable identity's SINCE_FILE is a
+# STABLE path (~/fleet/identities/<name>/relay-state/since), so its pidfile is stable too and a
+# NEW session's receiver sees + kills the PRIOR session's receiver even though that one lives in a
+# DIFFERENT ephemeral STATE_DIR. Keying on STATE_DIR (the old bug) made each session's guard blind
+# to the others, so a stale receiver from an earlier session kept polling and ate messages into a
+# dead session. For a throwaway (SINCE_FILE=$STATE_DIR/since) this resolves right back to STATE_DIR
+# — same per-session behavior as before. Kill only a live recv.sh (so a recycled PID can't hit an
+# unrelated process), then claim. Guarantees one poller per identity across recycles/relaunches.
+RPIDF="$(dirname "$SINCE_FILE")/recv.pid"; OLD=$(cat "$RPIDF" 2>/dev/null)
+if [ -n "$OLD" ] && [ "$OLD" != "$$" ] && ps -p "$OLD" -o args= 2>/dev/null | grep -qF "recv.sh"; then kill "$OLD" 2>/dev/null; fi
+printf '%s' "$$" > "$RPIDF"   # no EXIT-trap cleanup on purpose: the file just holds the last
+# receiver's PID. A relaunch overwrites it; if the PID it names is dead (normal after a
+# wake-exit) the check above simply skips the kill. Trapping rm here would race a freshly
+# superseded instance's trap against the new instance's write and blank the file.
+# --- Orphan-monitor guard (added 2026-09-05 after Noelle ate a Nelly dispatch;
+# env-override added 2026-09-13 for the ambient-monitor launcher) ---
+# Capture the harness (Claude Code) PID at startup. Two code paths:
+#   1) If AMBIENT_MONITOR_HARNESS_PID is exported by our parent (the ambient-monitor
+#      launcher), honor it — the launcher walked past its own parent chain to find
+#      Claude, which we can't do ourselves because our grandparent under the launcher
+#      is the bash-c wrapper, not Claude.
+#   2) Otherwise, fall back to the pre-launcher grandparent walk — our direct parent
+#      is the bash-c wrapper the Monitor tool spawns; the wrapper stays alive as a
+#      waiter even after Claude dies, so checking $PPID would always succeed. The
+#      GRANDPARENT is the Claude process — that's what we need to track.
+# In the main loop below, kill -0 the grandparent each iteration; if it's gone, exit(0)
+# BEFORE any sync/state changes. This closes the orphan bug where recv.sh kept polling for
+# days after Claude was killed, silently advancing SINCE past messages nobody ever saw
+# (the SIGPIPE never fired because a socket stdout only EPIPEs on actual write failure, and
+# the poll loop rarely writes). If we can't resolve the grandparent (unusual launch shape),
+# fall back to skipping the check — better to keep polling than to accidentally self-exit.
+HARNESS_PID=""
+if [ -n "$AMBIENT_MONITOR_HARNESS_PID" ] && [ "$AMBIENT_MONITOR_HARNESS_PID" -gt 1 ] 2>/dev/null; then
+  HARNESS_PID="$AMBIENT_MONITOR_HARNESS_PID"
+fi
+if [ -z "$HARNESS_PID" ]; then
+  HARNESS_PID=$(awk '/^PPid:/{print $2}' "/proc/$PPID/status" 2>/dev/null)
+  if [ -z "$HARNESS_PID" ] || [ "$HARNESS_PID" = "0" ] || [ "$HARNESS_PID" = "1" ]; then
+    echo "recv.sh: orphan-check disabled (couldn't resolve grandparent from /proc/$PPID/status)" >&2
+    HARNESS_PID=""
+  fi
+fi
+# WAIT FOR THE SERVER before judging the token. After a reboot the network (or the tailnet) can
+# take many minutes to come up; checking the token then fails for want of a server, and the old
+# code reported that as AUTH DEAD — sending agents to chase a password that was fine. So: hold
+# until the homeserver answers at all, and treat a login that fails for now (relogin rc 2) the
+# same way. trouble() keeps it quiet for UNREACHABLE_ALERT_AFTER seconds, then wakes the agent
+# ONCE without blaming the account; trouble_over() wakes it once more when the server is back so
+# it can stand down. (The single-instance guard and harness PID above run first so a long wait
+# can't let two receivers through, or outlive its agent.)
+SROOT="${BASE%/_matrix/*}"
+server_up(){ [ "$(curl -s -o /dev/null -m 10 -w '%{http_code}' "$SROOT/_matrix/client/versions")" != "000" ]; }
+UNREACHABLE_ALERT_AFTER="${UNREACHABLE_ALERT_AFTER:-900}"
+UNREACHABLE_POLL="${UNREACHABLE_POLL:-10}"
+_trouble_since=""; _trouble_warned=0
+trouble(){  # $1 = what's wrong right now
+  local now; now=$(date +%s)
+  [ -z "$_trouble_since" ] && _trouble_since=$now
+  if [ "$_trouble_warned" = 0 ] && [ "$(( now - _trouble_since ))" -ge "$UNREACHABLE_ALERT_AFTER" ]; then
+    _trouble_warned=1
+    printf '⚠️ [recv.sh RELAY SERVER TROUBLE, %s] %s for %d min — network, tailnet or relay server down, or a wrong base in %s. Relay messages will arrive once it recovers.\n' \
+      "${ME:-?}" "$1" "$(( (now - _trouble_since) / 60 ))" "${CREDS:-the relay creds}"
+  fi
+  echo "recv.sh: $1 — retrying" >&2
+}
+trouble_over(){
+  [ "$_trouble_warned" = 1 ] && printf '✅ [recv.sh, %s] relay server at %s is answering again — relay messages are flowing\n' "${ME:-?}" "$SROOT"
+  _trouble_since=""; _trouble_warned=0
+}
+orphaned(){ [ -n "$HARNESS_PID" ] && ! kill -0 "$HARNESS_PID" 2>/dev/null; }
+until server_up; do
+  orphaned && exit 0
+  trouble "can't reach the relay server at $SROOT"
+  sleep "$UNREACHABLE_POLL"
+done
 # Token: STATE_DIR file, else the creds file's token; VALIDATE via whoami; if dead/missing, relogin.
 TOK=$(cat "$STATE_DIR/token" 2>/dev/null); [ -z "$TOK" ] && TOK=$(cred token)
 H="Authorization: Bearer $TOK"
 if [ -z "$TOK" ] || ! curl -s -H "$H" "$BASE/account/whoami" | jq -e '.user_id' >/dev/null 2>&1; then
-  relogin || auth_alert "startup relogin failed — will keep retrying but sync will 401 until password/account is fixed"
+  while relogin; _rc=$?; [ "$_rc" = 2 ]; do
+    orphaned && exit 0
+    trouble "the relay server at $SROOT isn't answering logins ($LOGIN_ERR)"
+    sleep "$UNREACHABLE_POLL"
+  done
+  trouble_over
+  [ "$_rc" = 1 ] && auth_alert "startup relogin rejected by $BASE — sync will 401 until password/account is fixed"
 else
+  trouble_over
   printf '%s' "$TOK" > "$STATE_DIR/token"    # persist the resolved-good token into STATE_DIR
 fi
 # Backfill ME from whoami if the creds/state didn't carry it (needed for the self-message filter).
@@ -115,23 +211,6 @@ SINCE=$(cat "$SINCE_FILE" 2>/dev/null)   # pre-seeded at REGISTER time; SINCE_FI
 # the pending invite, then polled forever with an empty invite section — receiver "healthy",
 # nadia permanently uninvited-and-deaf to nelly's dispatch. Handling initial-sync in the main
 # loop below reuses the same auto-join+backfill code and closes the whole class.
-# Single-instance guard: exactly ONE poller per CURSOR. Two receivers sharing a `since` cursor
-# race — the second advances it past messages the first hasn't surfaced, silently eating them.
-# ⚠️ The pidfile is keyed on the CURSOR's dir (dirname SINCE_FILE), NOT STATE_DIR. This is the
-# fix for the cross-session dup bug (diagnosed 2026-07-17): a durable identity's SINCE_FILE is a
-# STABLE path (~/fleet/identities/<name>/relay-state/since), so its pidfile is stable too and a
-# NEW session's receiver sees + kills the PRIOR session's receiver even though that one lives in a
-# DIFFERENT ephemeral STATE_DIR. Keying on STATE_DIR (the old bug) made each session's guard blind
-# to the others, so a stale receiver from an earlier session kept polling and ate messages into a
-# dead session. For a throwaway (SINCE_FILE=$STATE_DIR/since) this resolves right back to STATE_DIR
-# — same per-session behavior as before. Kill only a live recv.sh (so a recycled PID can't hit an
-# unrelated process), then claim. Guarantees one poller per identity across recycles/relaunches.
-RPIDF="$(dirname "$SINCE_FILE")/recv.pid"; OLD=$(cat "$RPIDF" 2>/dev/null)
-if [ -n "$OLD" ] && [ "$OLD" != "$$" ] && ps -p "$OLD" -o args= 2>/dev/null | grep -qF "recv.sh"; then kill "$OLD" 2>/dev/null; fi
-printf '%s' "$$" > "$RPIDF"   # no EXIT-trap cleanup on purpose: the file just holds the last
-# receiver's PID. A relaunch overwrites it; if the PID it names is dead (normal after a
-# wake-exit) the check above simply skips the kill. Trapping rm here would race a freshly
-# superseded instance's trap against the new instance's write and blank the file.
 # --- Long-message spill (added 2026-07-21) -------------------------------------------------
 # The harness truncates any single wake event at ~500 chars (prefix INCLUDED), so a long message
 # surfaced inline is silently cut mid-word. Instead: a message whose formatted line would exceed
@@ -162,34 +241,6 @@ emit_body(){  # room sender event_id body -> echo the line to surface (spilling 
   # PATH first (survives any truncation), a bounded preview LAST (harmless if it gets cut)
   printf '%s' "${prefix}[long message, ${#body} chars — full text at ${path} — Read it] «${body:0:160}…»"
 }
-# --- Orphan-monitor guard (added 2026-09-05 after Noelle ate a Nelly dispatch;
-# env-override added 2026-09-13 for the ambient-monitor launcher) ---
-# Capture the harness (Claude Code) PID at startup. Two code paths:
-#   1) If AMBIENT_MONITOR_HARNESS_PID is exported by our parent (the ambient-monitor
-#      launcher), honor it — the launcher walked past its own parent chain to find
-#      Claude, which we can't do ourselves because our grandparent under the launcher
-#      is the bash-c wrapper, not Claude.
-#   2) Otherwise, fall back to the pre-launcher grandparent walk — our direct parent
-#      is the bash-c wrapper the Monitor tool spawns; the wrapper stays alive as a
-#      waiter even after Claude dies, so checking $PPID would always succeed. The
-#      GRANDPARENT is the Claude process — that's what we need to track.
-# In the main loop below, kill -0 the grandparent each iteration; if it's gone, exit(0)
-# BEFORE any sync/state changes. This closes the orphan bug where recv.sh kept polling for
-# days after Claude was killed, silently advancing SINCE past messages nobody ever saw
-# (the SIGPIPE never fired because a socket stdout only EPIPEs on actual write failure, and
-# the poll loop rarely writes). If we can't resolve the grandparent (unusual launch shape),
-# fall back to skipping the check — better to keep polling than to accidentally self-exit.
-HARNESS_PID=""
-if [ -n "$AMBIENT_MONITOR_HARNESS_PID" ] && [ "$AMBIENT_MONITOR_HARNESS_PID" -gt 1 ] 2>/dev/null; then
-  HARNESS_PID="$AMBIENT_MONITOR_HARNESS_PID"
-fi
-if [ -z "$HARNESS_PID" ]; then
-  HARNESS_PID=$(awk '/^PPid:/{print $2}' "/proc/$PPID/status" 2>/dev/null)
-  if [ -z "$HARNESS_PID" ] || [ "$HARNESS_PID" = "0" ] || [ "$HARNESS_PID" = "1" ]; then
-    echo "recv.sh: orphan-check disabled (couldn't resolve grandparent from /proc/$PPID/status)" >&2
-    HARNESS_PID=""
-  fi
-fi
 # -------------------------------------------------------------------------------------------
 # Event ids already surfaced by the post-join backfill below. The first sync that shows a newly
 # joined room usually carries its recent timeline too (an opener posted after the join, and often
@@ -216,10 +267,18 @@ while :; do
   # AUTH GUARD (added 2026-07-21): if the token died mid-run the server returns M_UNKNOWN_TOKEN.
   # Re-login from the stored password and retry the SAME cursor rather than spinning silently
   # forever (the old failure mode: a dead token => permanent deafness the supervisor can't see).
-  if jq -e '.errcode=="M_UNKNOWN_TOKEN"' <<<"$R" >/dev/null 2>&1; then
-    if ! relogin; then
-      auth_alert "M_UNKNOWN_TOKEN from sync, relogin failed (check password/account on $BASE)"
+  # M_MISSING_TOKEN too: an empty token (never minted) is just as dead and must re-login as well.
+  if jq -e '.errcode=="M_UNKNOWN_TOKEN" or .errcode=="M_MISSING_TOKEN"' <<<"$R" >/dev/null 2>&1; then
+    relogin; _rc=$?
+    if [ "$_rc" = 0 ]; then
+      trouble_over
+    elif [ "$_rc" = 1 ]; then
+      _trouble_since=""; _trouble_warned=0
+      auth_alert "$(jq -r .errcode <<<"$R") from sync, relogin rejected (check password/account on $BASE)"
       sleep 30
+    else
+      trouble "the relay server at $SROOT isn't answering logins ($LOGIN_ERR)"
+      sleep "$UNREACHABLE_POLL"
     fi
     continue
   fi
