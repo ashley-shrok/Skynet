@@ -280,15 +280,17 @@ interface TmuxSessionRow {
  * agent was archived); execCommand rejects any non-zero exit with empty output,
  * which would mark the host unreachable and make the client keep its stale rows
  * forever. So "no server" exits 0 with no output (zero sessions); every other
- * failure keeps its error and exit code (still unreachable).
+ * failure keeps its error and exit code (still unreachable). stderr stays out of
+ * the listing: on a failure, tmux runs once more just to read its message.
  */
 export const LIST_TMUX_SESSIONS_COMMAND = [
-  `out=$(tmux list-sessions -F '#{session_name}|#{session_created}' 2>&1); rc=$?`,
+  `out=$(tmux list-sessions -F '#{session_name}|#{session_created}' 2>/dev/null); rc=$?`,
   `if [ "$rc" -ne 0 ]; then`,
-  `  case "$out" in "no server running"*|"error connecting to"*"(No such file or directory)"*) exit 0 ;; esac`,
-  `  printf '%s\n' "$out" >&2; exit "$rc"`,
+  `  err=$(tmux list-sessions 2>&1 >/dev/null)`,
+  `  case "$err" in "no server running"*|"error connecting to"*"(No such file or directory)"*) exit 0 ;; esac`,
+  `  printf '%s\\n' "$err" >&2; exit "$rc"`,
   `fi`,
-  `printf '%s\n' "$out"`,
+  `printf '%s\\n' "$out"`,
 ].join("\n");
 
 router.get("/list", authenticateJWT, async (req: Request, res: Response) => {

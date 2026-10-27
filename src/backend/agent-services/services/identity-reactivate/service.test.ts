@@ -4,6 +4,7 @@ import { describe, it, expect, vi } from "vitest";
 // from reaching the DB or the chat server.
 vi.mock("../../../matrix/matrix-admin-client.js", () => ({
   createOrUpdateUser: vi.fn(),
+  setUserDisplayName: vi.fn(),
   getRoomMembershipOf: vi.fn(),
   getUserAccountStatus: vi.fn(),
 }));
@@ -63,6 +64,7 @@ function deps(overrides: Partial<IdentityReactivateDeps> = {}): IdentityReactiva
       password,
       status: 200,
     })),
+    setUserDisplayName: vi.fn(async () => ({ ok: true as const })),
     joinAgentToAgentsRegistry: vi.fn(async () => ({ ok: true as const, roomId: AGENTS_ROOM })),
     generatePassword: vi.fn(() => "generated-pw"),
     ...overrides,
@@ -109,7 +111,8 @@ describe("identity-reactivate service", () => {
     const r = await run(d);
     expect(r).toEqual({ ok: true, result: { user_id: ACCOUNT, password: "generated-pw" } });
     expect(d.generatePassword).toHaveBeenCalledTimes(1);
-    expect(d.createOrUpdateUser).toHaveBeenCalledWith(ACCOUNT, "generated-pw", undefined);
+    expect(d.createOrUpdateUser).toHaveBeenCalledWith(ACCOUNT, "generated-pw");
+    expect(d.setUserDisplayName).not.toHaveBeenCalled();
     expect(d.joinAgentToAgentsRegistry).toHaveBeenCalledWith(ACCOUNT);
     // Reactivate happens before the re-join.
     const reactivateOrder = vi.mocked(d.createOrUpdateUser).mock.invocationCallOrder[0];
@@ -123,7 +126,22 @@ describe("identity-reactivate service", () => {
     const d = deps();
     const r = await createIdentityReactivateService(d).handle({ account: ACCOUNT, display_name: "Ace" }, makeCtx());
     expect(r.ok).toBe(true);
-    expect(d.createOrUpdateUser).toHaveBeenCalledWith(ACCOUNT, "generated-pw", "Ace");
+    expect(d.createOrUpdateUser).toHaveBeenCalledWith(ACCOUNT, "generated-pw");
+    expect(d.setUserDisplayName).toHaveBeenCalledWith(ACCOUNT, "Ace");
+  });
+
+  it("success even when setting the display name fails: the password still goes back (best-effort, logged)", async () => {
+    const d = deps({
+      setUserDisplayName: vi.fn(async () => ({ ok: false as const, status: 500, error: "ERR_NON_2XX" })),
+    });
+    const ctx = makeCtx();
+    const r = await createIdentityReactivateService(d).handle({ account: ACCOUNT, display_name: "Ace" }, ctx);
+    expect(r).toEqual({ ok: true, result: { user_id: ACCOUNT, password: "generated-pw" } });
+    expect(ctx.log.warn).toHaveBeenCalledWith(
+      "identity-reactivate: display name not set (best-effort)",
+      expect.objectContaining({ account: ACCOUNT, status: 500 }),
+    );
+    expect(d.joinAgentToAgentsRegistry).toHaveBeenCalledWith(ACCOUNT);
   });
 
   it("success even when the agents-directory re-join fails (best-effort, logged)", async () => {

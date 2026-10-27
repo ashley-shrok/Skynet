@@ -1381,7 +1381,7 @@ retire_identity() {
             break
             ;;
           200)
-            log "ERROR: '$name' retire step 1 (matrix deactivate) FAILED: the chat server rejected the saved login (http=$http_code) and $mxid is still on — sentinel retained"
+            log "ERROR: '$name' retire step 1 (matrix deactivate) FAILED: the chat server rejected the saved token or password (http=$http_code) and $mxid is still on — check relay.json's token and password; sentinel retained"
             return 1
             ;;
           *)
@@ -1944,7 +1944,8 @@ _account_profile_code() {
 
 # _extract_frontmatter_display_name <identity_file_path>
 # Prints the identity's `displayName:` frontmatter value (quotes and trailing comment removed,
-# control characters dropped, at most 100 characters), or nothing when absent or unreadable.
+# control characters dropped, at most 100 UTF-16 units like the backend's check), or nothing when
+# absent or unreadable.
 # Used to give a reactivated chat account its name back — archiving's erase deletes it.
 _extract_frontmatter_display_name() {
   [ -f "$1" ] || return 0
@@ -1964,7 +1965,9 @@ if lines and lines[0].strip() == "---":
             v = q.group(2)
         else:
             v = re.sub(r"\s+#.*$", "", v)
-        v = re.sub(r"[\x00-\x1f\x7f]", "", v).strip()[:100]
+        v = re.sub(r"[\x00-\x1f\x7f]", "", v).strip()
+        while len(v.encode("utf-16-le")) > 200:  # the backend caps at 100 UTF-16 units
+            v = v[:-1]
         sys.stdout.write(v)
         break
 PYEOF

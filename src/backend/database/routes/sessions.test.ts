@@ -2098,6 +2098,10 @@ describe("LIST_TMUX_SESSIONS_COMMAND", () => {
     const r = await runListCommand(null);
     expect(r.code).not.toBe(0);
   });
+  it("stderr from a successful listing doesn't become a session row", async () => {
+    const r = await runListCommand(`echo "some warning" >&2; printf 'alpha|100\\n'`);
+    expect(r).toEqual({ code: 0, stdout: "alpha|100\n", stderr: "" });
+  });
   it("sessions are listed one per line", async () => {
     const r = await runListCommand(`printf 'alpha|100\\nbeta|200\\n'`);
     expect(r).toEqual({ code: 0, stdout: "alpha|100\nbeta|200\n", stderr: "" });

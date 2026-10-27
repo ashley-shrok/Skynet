@@ -33,6 +33,7 @@ vi.mock("../utils/logger.js", () => ({
 
 import {
   createOrUpdateUser,
+  setUserDisplayName,
   loginAsUser,
   joinRoom,
   makeRoomAdmin,
@@ -107,6 +108,27 @@ beforeEach(() => {
 // ---------------------------------------------------------------------------
 // createOrUpdateUser
 // ---------------------------------------------------------------------------
+
+describe("setUserDisplayName", () => {
+  it("sends only the display name to the account's admin endpoint", async () => {
+    const fetchMock = vi.fn(async () => mockFetchResponse(200, {}));
+    vi.stubGlobal("fetch", fetchMock);
+    const result = await setUserDisplayName("@bob:thenasty.taild9b663.ts.net", "Bob");
+    expect(result).toEqual({ ok: true });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const [url, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
+    expect(url).toContain(encodeURIComponent("@bob:thenasty.taild9b663.ts.net"));
+    expect(init.method).toBe("PUT");
+    expect(JSON.parse(init.body as string)).toEqual({ displayname: "Bob" });
+  });
+
+  it("non-2xx → AdminErr carrying the status", async () => {
+    stubFetchOk(500, {});
+    const result = await setUserDisplayName("@bob:thenasty.taild9b663.ts.net", "Bob");
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.status).toBe(500);
+  });
+});
 
 describe("createOrUpdateUser", () => {
   it("happy path 201 → {ok:true, mxid, password, status:201}", async () => {

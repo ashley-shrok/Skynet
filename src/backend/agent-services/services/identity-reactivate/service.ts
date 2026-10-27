@@ -31,6 +31,7 @@ import {
   createOrUpdateUser,
   getRoomMembershipOf,
   getUserAccountStatus,
+  setUserDisplayName,
 } from "../../../matrix/matrix-admin-client.js";
 import { getMatrixAdminCreds } from "../../../matrix/matrix-admin-creds-store.js";
 import { extractServerName } from "../../../matrix/username-to-mxid.js";
@@ -67,6 +68,7 @@ export interface IdentityReactivateDeps {
   getAgentsRegistryRoomId: typeof getAgentsRegistryRoomId;
   getHumansRegistryRoomId: typeof getHumansRegistryRoomId;
   createOrUpdateUser: typeof createOrUpdateUser;
+  setUserDisplayName: typeof setUserDisplayName;
   joinAgentToAgentsRegistry: typeof joinAgentToAgentsRegistry;
   generatePassword(): string;
 }
@@ -82,6 +84,7 @@ const productionDeps: IdentityReactivateDeps = {
   getAgentsRegistryRoomId,
   getHumansRegistryRoomId,
   createOrUpdateUser,
+  setUserDisplayName,
   joinAgentToAgentsRegistry,
   generatePassword: () => randomBytes(32).toString("base64url"),
 };
@@ -144,10 +147,20 @@ export function createIdentityReactivateService(
       }
 
       const password = deps.generatePassword();
-      const reactivated = await deps.createOrUpdateUser(account, password, input.display_name);
+      const reactivated = await deps.createOrUpdateUser(account, password);
       if (reactivated.ok === false) {
         ctx.log.warn("identity-reactivate: reactivate failed", { ...logCtx, status: reactivated.status, error: reactivated.error });
         return fail(UNAVAILABLE, "the chat server refused to reactivate the account; try again shortly");
+      }
+
+      // Best-effort: the account is already back on with the new password, so a
+      // failed name write must not fail the request — the box would never get the
+      // password, and every retry would then see an active account and be refused.
+      if (input.display_name !== undefined) {
+        const named = await deps.setUserDisplayName(account, input.display_name);
+        if (named.ok === false) {
+          ctx.log.warn("identity-reactivate: display name not set (best-effort)", { ...logCtx, status: named.status, error: named.error });
+        }
       }
 
       const joined = await deps.joinAgentToAgentsRegistry(account);

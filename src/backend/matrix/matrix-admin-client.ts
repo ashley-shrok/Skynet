@@ -141,6 +141,53 @@ export async function createOrUpdateUser(
 }
 
 // ---------------------------------------------------------------------------
+// setUserDisplayName — PUT /_synapse/admin/v2/users/{mxid} { displayname }
+// ---------------------------------------------------------------------------
+
+/**
+ * Set an existing account's display name, on its own. For callers that must
+ * not treat a failed name write as a failed account change (e.g. reactivation,
+ * where the account is already back on with a new password by then).
+ */
+export async function setUserDisplayName(
+  mxid: string,
+  displayname: string,
+): Promise<{ ok: true } | AdminErr> {
+  const creds = await getMatrixAdminCreds();
+  if (!creds) {
+    return { ok: false, status: 500, error: ERR_CREDS_MISSING };
+  }
+  const url = `${creds.homeserverBase}/_synapse/admin/v2/users/${encodeURIComponent(mxid)}`;
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+  try {
+    const response = await fetch(url, {
+      method: "PUT",
+      headers: {
+        Authorization: `Bearer ${creds.accessToken}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ displayname }),
+      signal: controller.signal,
+    });
+    clearTimeout(timeoutId);
+    if (!response.ok) {
+      return { ok: false, status: response.status, error: ERR_NON_2XX };
+    }
+    return { ok: true };
+  } catch (err: unknown) {
+    clearTimeout(timeoutId);
+    if (err instanceof DOMException && err.name === "AbortError") {
+      return { ok: false, status: 504, error: ERR_TIMEOUT };
+    }
+    databaseLogger.error("matrix admin proxy error", err, {
+      operation: "matrix_admin_set_displayname",
+    });
+    return { ok: false, status: 502, error: ERR_PROXY };
+  }
+}
+
+// ---------------------------------------------------------------------------
 // loginAsUser — POST /_synapse/admin/v1/users/{mxid}/login
 // ---------------------------------------------------------------------------
 
