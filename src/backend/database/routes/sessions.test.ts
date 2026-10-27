@@ -20,6 +20,10 @@ import { describe, it, expect, beforeEach, afterEach, vi, type Mock } from "vite
 import express from "express";
 import http from "node:http";
 import type { AddressInfo } from "node:net";
+import { execFile } from "node:child_process";
+import { mkdtempSync, writeFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import path from "node:path";
 
 // ---------------------------------------------------------------------------
 // Auth manager mock — passes through with canned userId "1"
@@ -183,7 +187,7 @@ const mockedListActiveRelayRoomSessions = vi.mocked(listActiveRelayRoomSessions)
 function httpRequest(
   server: http.Server,
   opts: { method: string; path: string; headers?: Record<string, string> },
-): Promise<{ status: number; body: unknown }> {
+): Promise<{ status: number; body: unknown; headers: http.IncomingHttpHeaders }> {
   return new Promise((resolve, reject) => {
     const { port } = server.address() as AddressInfo;
     const req = http.request(
@@ -200,7 +204,7 @@ function httpRequest(
         res.on("end", () => {
           let body: unknown;
           try { body = JSON.parse(data); } catch { body = data; }
-          resolve({ status: res.statusCode ?? 0, body });
+          resolve({ status: res.statusCode ?? 0, body, headers: res.headers });
         });
       },
     );
@@ -301,7 +305,7 @@ function jsonlAiTitleLine(sessionId: string, aiTitle: string): string {
 // Import router under test
 // ---------------------------------------------------------------------------
 
-import router, { __scanTailForNewestMessageAtForTests } from "./sessions.js";
+import router, { __scanTailForNewestMessageAtForTests, LIST_TMUX_SESSIONS_COMMAND } from "./sessions.js";
 
 let server: http.Server;
 
@@ -2053,5 +2057,71 @@ describe("Phase 129: per-user visibility gate on GET /sessions/list", () => {
     // this count would be 2. GREEN implementation must fuse the two into
     // a single readIdentityFile + extractRoleFromMarkdown + extractCosmeticsFromFrontmatter.
     expect(identityReads).toHaveLength(1);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// A host with no tmux sessions at all (no tmux server running) is reachable
+// with zero sessions — not unreachable. Unreachable makes the client keep the
+// host's last rows forever (a retired agent's row stayed in the sidebar).
+// ---------------------------------------------------------------------------
+
+/** Runs LIST_TMUX_SESSIONS_COMMAND under /bin/sh with a stand-in `tmux` script. */
+function runListCommand(tmuxScript: string | null): Promise<{ code: number; stdout: string; stderr: string }> {
+  const dir = mkdtempSync(path.join(tmpdir(), "list-tmux-"));
+  if (tmuxScript !== null) writeFileSync(path.join(dir, "tmux"), `#!/bin/sh\n${tmuxScript}\n`, { mode: 0o755 });
+  return new Promise((resolve) => {
+    execFile("/bin/sh", ["-c", LIST_TMUX_SESSIONS_COMMAND], { env: { PATH: dir } }, (err, stdout, stderr) => {
+      rmSync(dir, { recursive: true, force: true });
+      const code = err ? (typeof err.code === "number" ? err.code : 1) : 0;
+      resolve({ code, stdout, stderr });
+    });
+  });
+}
+
+describe("LIST_TMUX_SESSIONS_COMMAND", () => {
+  it("no tmux server running → exit 0, no output (zero sessions)", async () => {
+    const r = await runListCommand(`echo "no server running on /tmp/tmux-1000/default" >&2; exit 1`);
+    expect(r).toEqual({ code: 0, stdout: "", stderr: "" });
+  });
+  it("tmux socket dir missing → exit 0, no output (zero sessions)", async () => {
+    const r = await runListCommand(`echo "error connecting to /tmp/tmux-1000/default (No such file or directory)" >&2; exit 1`);
+    expect(r).toEqual({ code: 0, stdout: "", stderr: "" });
+  });
+  it("any other tmux error keeps its exit code and message", async () => {
+    const r = await runListCommand(`echo "error connecting to /tmp/tmux-1000/default (Permission denied)" >&2; exit 1`);
+    expect(r.code).toBe(1);
+    expect(r.stdout).toBe("");
+    expect(r.stderr).toContain("Permission denied");
+  });
+  it("tmux not installed still fails", async () => {
+    const r = await runListCommand(null);
+    expect(r.code).not.toBe(0);
+  });
+  it("sessions are listed one per line", async () => {
+    const r = await runListCommand(`printf 'alpha|100\\nbeta|200\\n'`);
+    expect(r).toEqual({ code: 0, stdout: "alpha|100\nbeta|200\n", stderr: "" });
+  });
+});
+
+describe("GET /sessions/list — empty vs unreachable hosts", () => {
+  it("a host whose list command returns nothing is reachable with zero sessions (no unreachable header)", async () => {
+    (connectOneShot as Mock).mockResolvedValue({ end: vi.fn() });
+    (execCommand as Mock).mockResolvedValue("");
+    makeApp();
+    const res = await httpRequest(server, { method: "GET", path: "/sessions/list" });
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual([]);
+    expect(res.headers["x-skynet-unreachable-hosts"]).toBeUndefined();
+    expect(execCommand).toHaveBeenCalledWith(expect.anything(), LIST_TMUX_SESSIONS_COMMAND);
+  });
+  it("a host whose list command fails is still reported unreachable", async () => {
+    (connectOneShot as Mock).mockResolvedValue({ end: vi.fn() });
+    (execCommand as Mock).mockRejectedValue(new Error("Command exited with code 1"));
+    makeApp();
+    const res = await httpRequest(server, { method: "GET", path: "/sessions/list" });
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual([]);
+    expect(res.headers["x-skynet-unreachable-hosts"]).toBe(String((stubHostRecord as { id: number }).id));
   });
 });

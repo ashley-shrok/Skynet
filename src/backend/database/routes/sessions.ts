@@ -274,6 +274,23 @@ interface TmuxSessionRow {
  *       200:
  *         description: Flat list of sessions. Hosts that error or time out are silently dropped.
  */
+/**
+ * Lists a host's tmux sessions as `name|created` lines. tmux exits 1 when no
+ * server is running, i.e. the host has no sessions at all (e.g. after its last
+ * agent was archived); execCommand rejects any non-zero exit with empty output,
+ * which would mark the host unreachable and make the client keep its stale rows
+ * forever. So "no server" exits 0 with no output (zero sessions); every other
+ * failure keeps its error and exit code (still unreachable).
+ */
+export const LIST_TMUX_SESSIONS_COMMAND = [
+  `out=$(tmux list-sessions -F '#{session_name}|#{session_created}' 2>&1); rc=$?`,
+  `if [ "$rc" -ne 0 ]; then`,
+  `  case "$out" in "no server running"*|"error connecting to"*"(No such file or directory)"*) exit 0 ;; esac`,
+  `  printf '%s\n' "$out" >&2; exit "$rc"`,
+  `fi`,
+  `printf '%s\n' "$out"`,
+].join("\n");
+
 router.get("/list", authenticateJWT, async (req: Request, res: Response) => {
   const userId = (req as AuthenticatedRequest).userId;
   try {
@@ -345,10 +362,7 @@ router.get("/list", authenticateJWT, async (req: Request, res: Response) => {
           );
           try {
             const output = await Promise.race([
-              execCommand(
-                conn,
-                "tmux list-sessions -F '#{session_name}|#{session_created}' 2>/dev/null",
-              ),
+              execCommand(conn, LIST_TMUX_SESSIONS_COMMAND),
               new Promise<string>((_, reject) =>
                 setTimeout(
                   () => reject(new Error("list-sessions timeout")),
