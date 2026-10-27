@@ -113,6 +113,10 @@ describe("RelayOutboundBubble", () => {
   function expectToYouBubble() {
     const bubble = screen.getByTestId("relay-outbound-bubble");
     expect(bubble).toHaveAttribute("data-to-you", "true");
+    // Painted in the sidebar's notified red, not the sender's colour (and
+    // never the multi-role / roleless hue surface).
+    expect(bubble).toHaveClass("pv-bubble-notified");
+    expect(bubble).not.toHaveClass("pv-hue-surface");
     expect(screen.getByTestId("relay-envelope")).toBeTruthy();
     expect(screen.getByTestId("relay-outbound-body").textContent).toContain("Hey Tina, is the fix deployed yet?");
     // No who-line / header / preview / "notified" label.
@@ -164,6 +168,9 @@ describe("RelayOutboundBubble", () => {
     expect(screen.queryByTestId("relay-who-line")).toBeNull();
     // It never reached the phone: no envelope, no data-to-you.
     expect(bubble).not.toHaveAttribute("data-to-you");
+    // Never notified, so not red: the sender's colour.
+    expect(bubble).not.toHaveClass("pv-bubble-notified");
+    expect(bubble).toHaveClass("pv-hue-surface");
     expect(screen.queryByTestId("relay-envelope")).toBeNull();
     expect(bubble.textContent ?? "").not.toContain("notified");
     // "⚠ not sent" — tap to read why.

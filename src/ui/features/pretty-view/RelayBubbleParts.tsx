@@ -272,9 +272,11 @@ export interface RelayToYouBubbleProps {
 }
 
 /**
- * The agent notified YOU (a one-on-one relay DM): just an
- * agent bubble in the sender's colour, always open, with the sidebar's red
- * envelope on its corner. Never folded — even a failed send stays readable.
+ * The agent notified YOU (a one-on-one relay DM): an agent bubble in the
+ * sidebar's notified red (not the sender's colour), always open, with the
+ * sidebar's red envelope on its corner. Never folded — even a failed send
+ * stays readable; a failed one keeps the sender's colour, since the user was
+ * never notified.
  */
 export function RelayToYouBubble({ testIdPrefix, sender, ts, children, speak, failed = null }: RelayToYouBubbleProps) {
   const hue = sender.hue ?? FALLBACK_HUE;
@@ -285,7 +287,9 @@ export function RelayToYouBubble({ testIdPrefix, sender, ts, children, speak, fa
         data-testid={`${testIdPrefix}-bubble`}
         data-bubble-hue={hue}
         data-to-you={failed ? undefined : "true"}
-        className="pv-bubble-agent pv-hue-surface whitespace-pre-wrap [overflow-wrap:anywhere]"
+        // Notified: no pv-hue-surface, so the gold / neutral looks of
+        // multi-role and roleless panes can't paint over the red.
+        className={`pv-bubble-agent ${failed ? "pv-hue-surface" : "pv-bubble-notified"} whitespace-pre-wrap [overflow-wrap:anywhere]`}
         style={{ ["--pv-b-hue" as string]: String(hue) }}
       >
         {failed ? null : (
