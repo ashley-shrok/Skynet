@@ -429,11 +429,11 @@ button.pv-float:focus-visible { outline: 2px solid var(--k-acc); outline-offset:
 [data-pv-narrow="true"] .pv-bubble-agent:has(> .pv-speak-btn) { padding-right: 38px; }
 [data-pv-narrow="true"] .pv-speak-btn { right: 5px; bottom: 5px; color: #f1ede4; opacity: 0.6; }
 
-/* A message that notified YOU over the relay: the sidebar's notified-row red
-   (pretty-conversations.css .pv-row--dm), accents on the envelope's hue. */
+/* A message that notified YOU over the relay: a vivid red fill (the rim's own
+   red), so it can't be missed; accents on the envelope's hue. */
 .pv-bubble-agent.pv-bubble-notified {
   --pv-b-hue: 358;
-  background: rgba(229, 72, 77, 0.16);
+  background: rgba(229, 72, 77, 0.4);
   border-color: rgba(229, 72, 77, 0.4);
   box-shadow: inset 0 1px 0 rgba(229, 72, 77, 0.18), 0 1px 2px rgba(0, 0, 0, 0.4);
 }
