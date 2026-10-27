@@ -2700,6 +2700,16 @@ export function __applyRepollResultForTests(
   }
 }
 
+// Which attach-time inactive reasons can be a sleeping agent: no claude on
+// the pane (`not_claude`), or no pane at all yet (`no_tmux_session`) — a
+// sleeping agent's conversation is read from its own history folder, so it
+// doesn't need a terminal session. The supervisor creates a sleeping agent's
+// session a moment after it lands (e.g. just after an un-archive); a tab that
+// connects in that gap still opens on the conversation.
+export function isDormancyCandidateReason(reason: string): boolean {
+  return reason === "not_claude" || reason === "no_tmux_session";
+}
+
 // ─── Test seam: attach-path inactive classifier (quick 260813-0qx) ───────────
 //
 // The initial-attach `if (result.status === "inactive") { ... }` block has to
@@ -7708,10 +7718,10 @@ wss.on("connection", async (ws: WebSocket, req) => {
       // the active-flow discovery at L~4634 UNCHANGED — the helper is called
       // from this one dormant site only.
       let enteredDormantPoll = false;
-      if (result.reason === "not_claude") {
-        // Only probe for dormancy on not_claude (the signal that no claude process is
-        // running); exec_error / no_tmux_session / no_pid_session_file / etc. are
-        // not dormancy candidates — treat them as plain inactive.
+      if (isDormancyCandidateReason(result.reason)) {
+        // Only probe for dormancy when no claude process is running (see
+        // isDormancyCandidateReason); exec_error / no_pid_session_file / etc.
+        // are not dormancy candidates — treat them as plain inactive.
         try {
           const escapedName = tmuxSession; // validated to safe subset by frontend
           // Tier 1: is this an identity-shaped pane? (reuse exact command from seam line 946-950)

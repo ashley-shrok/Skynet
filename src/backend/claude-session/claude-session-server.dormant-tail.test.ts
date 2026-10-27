@@ -580,3 +580,23 @@ describe("CASE-DT7: WS-close cleanup path stops the dormant tail via teardownPan
     expect(wsCloseWindow).toMatch(/teardownPane\s*\(/);
   });
 });
+
+describe("a sleeping agent with no terminal session yet still opens on its conversation", () => {
+  it("no pane at all is a dormancy candidate, like no claude on the pane", async () => {
+    const { isDormancyCandidateReason } = await import("./claude-session-server.js");
+    expect(isDormancyCandidateReason("not_claude")).toBe(true);
+    // Just after an un-archive the supervisor creates the session a moment
+    // after the folder lands; a tab connecting in that gap must not go blank.
+    expect(isDormancyCandidateReason("no_tmux_session")).toBe(true);
+    for (const r of ["exec_error", "no_pid_session_file", "no_open_session_file"]) {
+      expect(isDormancyCandidateReason(r)).toBe(false);
+    }
+  });
+
+  it("the attach path gates its dormancy probe on that rule", () => {
+    const here = dirname(fileURLToPath(import.meta.url));
+    const src = readFileSync(join(here, "claude-session-server.ts"), "utf8");
+    expect(src).toContain("if (isDormancyCandidateReason(result.reason)) {");
+    expect(src).not.toContain('if (result.reason === "not_claude") {');
+  });
+});
