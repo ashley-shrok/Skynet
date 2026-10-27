@@ -1584,8 +1584,8 @@ crown, then gear.
   checklist while it works through steps) sits as a slim card just above
   the composer; background sub-agents and shells are not shown.
   Messages the agent used to **notify the user** (§ Notifying the user)
-  appear as agent bubbles tinted red (the same red as a notified row in
-  the sidebar) instead of the agent's colour, always open, with a small red
+  appear as bright red bubbles instead of the agent's colour, always open,
+  with a small red
   **envelope** on the top-left corner ("Notified you") — the same envelope
   the sidebar puts on the conversation until the user opens it. One that
   failed to send shows open too, in the agent's colour, with a "⚠ not
@@ -1972,7 +1972,7 @@ message in a room with three or more participants does not, and neither
 does an ordinary reply in your own conversation.
 
 **What she experiences.** In the app a notification always stands out from
-an ordinary reply: the message shows as a red-tinted bubble with a
+an ordinary reply: the message shows as a bright red bubble with a
 small red envelope on it ("Notified you"), and the sidebar puts the same
 envelope on your conversation and sorts it to the top of its section until
 she opens it (§ Conversation view → Messages). If she has set up Telegram
