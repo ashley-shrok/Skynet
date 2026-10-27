@@ -598,6 +598,12 @@
   .k-menu [role="menuitem"][data-variant="destructive"][data-highlighted],
   .k-menu [role="menuitem"][data-danger="true"][data-highlighted] { background: var(--k-danger) !important; color: #fff !important; }
   .k-menu [role="separator"] { background: var(--k-hair) !important; margin: 5px 4px !important; }
+  /* Touch screens: every menu item is at least a 44px finger target. */
+  @media (max-width: 767.98px), (pointer: coarse) {
+    .k-menu [role="menuitem"],
+    .k-menu [role="menuitemcheckbox"],
+    .k-menu [role="menuitemradio"] { min-height: 44px; }
+  }
 
   /* ── Toolbar ─────────────────────────────────────────────────────────── */
 
