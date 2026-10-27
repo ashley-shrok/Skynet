@@ -53,13 +53,20 @@ FAIL=0
 FAILURES=()
 
 # ---- tmpdir registry for cleanup ----
-# All mktemp dirs are registered here; cleanup removes them all on EXIT.
+# Every mktemp lands under one private root, removed on EXIT. make_tmpdir runs
+# in a $(...) subshell, so its ALL_TMPDIRS registrations never reach this
+# shell — the root is what actually gets cleaned. It also isolates the
+# scheduler's fan-out scan, which counts sibling identity folders: test
+# identities sitting directly in a crowded /tmp scanned every entry there.
+TEST_TMP_ROOT=$(mktemp -d)
+export TMPDIR="$TEST_TMP_ROOT"
 declare -a ALL_TMPDIRS=()
 
 cleanup() {
   for _d in "${ALL_TMPDIRS[@]+"${ALL_TMPDIRS[@]}"}"; do
     [ -n "$_d" ] && [ -d "$_d" ] && rm -rf "$_d"
   done
+  [ -n "$TEST_TMP_ROOT" ] && [ -d "$TEST_TMP_ROOT" ] && rm -rf "$TEST_TMP_ROOT"
 }
 trap cleanup EXIT
 
