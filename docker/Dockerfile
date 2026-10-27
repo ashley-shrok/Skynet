@@ -13,7 +13,9 @@ COPY scripts/patch-better-sqlite3.cjs ./scripts/
 COPY scripts/patch-nan.cjs ./scripts/
 COPY scripts/patch-online-3d-viewer.cjs ./scripts/
 
-RUN --mount=type=cache,target=/root/.npm npm ci && \
+# sharing=locked: both stages share this cache and each ends with `npm cache
+# clean --force`; run concurrently (cold cache) they delete each other's files.
+RUN --mount=type=cache,target=/root/.npm,sharing=locked npm ci && \
     node scripts/patch-guacamole-lite.cjs && \
     npm cache clean --force
 
@@ -72,7 +74,7 @@ COPY scripts/patch-better-sqlite3.cjs ./scripts/
 COPY scripts/patch-nan.cjs ./scripts/
 COPY scripts/patch-online-3d-viewer.cjs ./scripts/
 
-RUN --mount=type=cache,target=/root/.npm npm ci --omit=dev && \
+RUN --mount=type=cache,target=/root/.npm,sharing=locked npm ci --omit=dev && \
     node scripts/patch-guacamole-lite.cjs && \
     (cd node_modules/better-sqlite3 && npx --yes node-gyp rebuild --release) && \
     npm cache clean --force
