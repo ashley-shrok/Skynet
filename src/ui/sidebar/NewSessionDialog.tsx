@@ -389,6 +389,12 @@ export function NewSessionDialog({
 
   // Debounce ref for collision precheck (cancel on remount/name change)
   const collisionTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(
+    () => () => {
+      if (collisionTimerRef.current) clearTimeout(collisionTimerRef.current);
+    },
+    [],
+  );
 
   // Latched true the moment Create fires a birth; gates the collision precheck
   // so it can never report on the identity folder birth itself creates. See
