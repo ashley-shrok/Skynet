@@ -11,7 +11,7 @@
  *   - PROBING refuses concurrent additional attempts.
  *   - PROBING success closes and resets backoff step.
  *   - PROBING failure re-opens with escalated backoff step.
- *   - Backoff schedule saturates at the cap (15min).
+ *   - Backoff schedule saturates at the cap (1min).
  *   - Peers are independent — one peer's state doesn't affect another.
  */
 
@@ -261,6 +261,20 @@ describe("host-circuit-breaker — defensive edge cases", () => {
     });
   });
 
+  it("a host that stays down is re-checked at least once a minute", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-10-27T17:00:00Z").getTime());
+    const peer = "10.0.0.16:22";
+    for (let i = 0; i < FAILURE_THRESHOLD; i++) recordFailure(peer);
+    for (let cycle = 0; cycle < 10; cycle++) {
+      const snap = getBreakerSnapshot(peer)!;
+      expect(snap.nextAttemptAt! - Date.now()).toBeLessThanOrEqual(60_000);
+      vi.advanceTimersByTime(snap.nextAttemptAt! - Date.now() + 1);
+      expect(checkBreaker(peer).allowed).toBe(true);
+      recordFailure(peer);
+    }
+  });
+
   it("recovered breaker resets backoffStep for the NEXT open cycle", () => {
     // OPEN → escalate → PROBING → success → CLOSED. The next threshold
     // failure must start over from step 0 (30s), not carry the escalated
@@ -280,14 +294,16 @@ describe("host-circuit-breaker — defensive edge cases", () => {
     recordFailure(peer); // → step 2
     expect(getBreakerSnapshot(peer)?.backoffStep).toBe(2);
 
-    // Recovery — successful probe.
-    vi.advanceTimersByTime(BACKOFF_SCHEDULE_MS[2]! + 500);
+    // Recovery — successful probe (step 2 saturates at the cap).
+    vi.advanceTimersByTime(
+      BACKOFF_SCHEDULE_MS[BACKOFF_SCHEDULE_MS.length - 1]! + 500,
+    );
     checkBreaker(peer);
     recordSuccess(peer);
     expect(getBreakerSnapshot(peer)?.state).toBe("CLOSED");
     expect(getBreakerSnapshot(peer)?.backoffStep).toBe(0);
 
-    // Next threshold failure must open at step 0 (30s), NOT step 3 (300s).
+    // Next threshold failure must open at step 0 (30s), NOT the escalated cap.
     const openAt = Date.now();
     for (let i = 0; i < FAILURE_THRESHOLD; i++) recordFailure(peer);
     const snap = getBreakerSnapshot(peer)!;

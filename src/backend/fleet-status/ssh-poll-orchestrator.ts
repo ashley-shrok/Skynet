@@ -1666,7 +1666,7 @@ export function createSshPollOrchestrator(
   // that had enableSsh=true misconfigured (fixed at the DB layer separately).
   const SSH_BACKOFF_FAILURE_THRESHOLD = 3;
   const SSH_BACKOFF_INITIAL_MS = 30_000;
-  const SSH_BACKOFF_MAX_MS = 300_000;
+  const SSH_BACKOFF_MAX_MS = 60_000;
   type HostSshBackoffState = {
     consecutiveFailures: number;
     skipUntilMs: number;

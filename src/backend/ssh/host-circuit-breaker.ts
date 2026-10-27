@@ -89,10 +89,9 @@
  *
  * Backoff schedule (shared between breakers):
  *   step 0 →  30s
- *   step 1 →  60s
- *   step 2 → 120s
- *   step 3 → 300s
- *   step 4+ → 900s (15min cap; never grows past this)
+ *   step 1+ → 60s (cap; never grows past this — a probe against a down host
+ *             is one cheap connect attempt, and a returning host must
+ *             reappear within about a minute)
  *
  * Failure threshold = 3 consecutive. Single transient failure shouldn't trip
  * either breaker; three in a row is a clear signal something is genuinely
@@ -122,14 +121,11 @@ export const FAILURE_THRESHOLD = 3;
 
 /**
  * Exponential backoff windows in milliseconds, indexed by backoffStep.
- * Steps past the end saturate at the last value (15min cap).
+ * Steps past the end saturate at the last value (1min cap).
  */
 export const BACKOFF_SCHEDULE_MS: readonly number[] = [
-  30_000, // step 0 —  30s
-  60_000, // step 1 —  1min
-  120_000, // step 2 —  2min
-  300_000, // step 3 —  5min
-  900_000, // step 4+ — 15min (cap)
+  30_000, // step 0 — 30s
+  60_000, // step 1+ — 1min (cap)
 ];
 
 // ---------------------------------------------------------------------------
