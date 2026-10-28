@@ -87,11 +87,13 @@
  *              On probe success → CLOSED (reset counters + backoff step).
  *              On probe failure → OPEN with escalated backoff.
  *
- * Backoff schedule (shared between breakers):
- *   step 0 →  30s
- *   step 1+ → 60s (cap; never grows past this — a probe against a down host
- *             is one cheap connect attempt, and a returning host must
- *             reappear within about a minute)
+ * Backoff schedules:
+ *   CONNECT: step 0 → 30s, step 1+ → 60s (cap). A probe against a down host
+ *            is one cheap connect attempt, and a returning host must
+ *            reappear within about a minute.
+ *   EXEC:    step 0 → 30s, 1 → 60s, 2 → 120s, 3 → 300s, 4+ → 900s (cap).
+ *            Here the host is up but overloaded and each probe is a full
+ *            sweep on it, so the long ladder stays.
  *
  * Failure threshold = 3 consecutive. Single transient failure shouldn't trip
  * either breaker; three in a row is a clear signal something is genuinely
@@ -120,12 +122,24 @@ import { sshLogger } from "../utils/logger.js";
 export const FAILURE_THRESHOLD = 3;
 
 /**
- * Exponential backoff windows in milliseconds, indexed by backoffStep.
+ * CONNECT breaker backoff windows in milliseconds, indexed by backoffStep.
  * Steps past the end saturate at the last value (1min cap).
  */
 export const BACKOFF_SCHEDULE_MS: readonly number[] = [
   30_000, // step 0 — 30s
   60_000, // step 1+ — 1min (cap)
+];
+
+/**
+ * EXEC breaker backoff windows in milliseconds, indexed by backoffStep.
+ * Steps past the end saturate at the last value (15min cap).
+ */
+export const EXEC_BACKOFF_SCHEDULE_MS: readonly number[] = [
+  30_000, // step 0 —  30s
+  60_000, // step 1 —  1min
+  120_000, // step 2 —  2min
+  300_000, // step 3 —  5min
+  900_000, // step 4+ — 15min (cap)
 ];
 
 // ---------------------------------------------------------------------------
@@ -164,7 +178,7 @@ export class CircuitBreakerOpenError extends Error {
 type BreakerEntry = {
   state: BreakerState;
   consecutiveFailures: number;
-  backoffStep: number; // index into BACKOFF_SCHEDULE_MS for the NEXT open cycle
+  backoffStep: number; // index into the breaker's schedule for the NEXT open cycle
   nextAttemptAt: number; // epoch ms; meaningful only when state === OPEN
 };
 
@@ -188,9 +202,9 @@ function getEntry(
   return entry;
 }
 
-function backoffForStep(step: number): number {
-  const clamped = Math.min(step, BACKOFF_SCHEDULE_MS.length - 1);
-  return BACKOFF_SCHEDULE_MS[clamped]!;
+function backoffForStep(kind: "connect" | "exec", step: number): number {
+  const schedule = kind === "exec" ? EXEC_BACKOFF_SCHEDULE_MS : BACKOFF_SCHEDULE_MS;
+  return schedule[Math.min(step, schedule.length - 1)]!;
 }
 
 function logTransition(
@@ -283,7 +297,7 @@ function recordFailureImpl(
   if (from === "PROBING") {
     // Probe failed → escalate backoff and re-open.
     entry.backoffStep += 1;
-    const window = backoffForStep(entry.backoffStep);
+    const window = backoffForStep(kind, entry.backoffStep);
     entry.nextAttemptAt = Date.now() + window;
     entry.state = "OPEN";
     logTransition(kind, peer, from, "OPEN", entry);
@@ -295,7 +309,7 @@ function recordFailureImpl(
   if (entry.consecutiveFailures >= FAILURE_THRESHOLD) {
     // Fresh open cycle — start at backoffStep 0.
     entry.backoffStep = 0;
-    entry.nextAttemptAt = Date.now() + backoffForStep(0);
+    entry.nextAttemptAt = Date.now() + backoffForStep(kind, 0);
     entry.state = "OPEN";
     logTransition(kind, peer, from, "OPEN", entry);
   }

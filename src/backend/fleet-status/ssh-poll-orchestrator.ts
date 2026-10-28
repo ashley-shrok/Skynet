@@ -1674,12 +1674,15 @@ export function createSshPollOrchestrator(
   // (channel.exec returning null in the legacy path, acquire returning
   // null / throwing). Reset on any successful poll (batch ok OR legacy ls
   // returning non-null). At >= THRESHOLD consecutive failures, skip poll ticks
-  // for an exponentially-growing window capped at MAX_MS. Triggered by the
+  // for an exponentially-growing window capped at MAX_MS. The cap stays at
+  // 30s: while the connect breaker is OPEN every refused acquire lands here
+  // too, so this window stacks on top of the breaker's — together they bound
+  // how long a host that came back stays bare in sidebars. Triggered by the
   // 2026-09-23 fleet_status_host_ssh_unreachable log flood on RDP-only hosts
   // that had enableSsh=true misconfigured (fixed at the DB layer separately).
   const SSH_BACKOFF_FAILURE_THRESHOLD = 3;
   const SSH_BACKOFF_INITIAL_MS = 30_000;
-  const SSH_BACKOFF_MAX_MS = 60_000;
+  const SSH_BACKOFF_MAX_MS = 30_000;
   type HostSshBackoffState = {
     consecutiveFailures: number;
     skipUntilMs: number;

@@ -142,6 +142,9 @@ const buildIdentityHostsFromFleetSpy = vi.fn<
   (fleetSessions: unknown[]) => Record<string, number>
 >(() => ({}));
 
+const applyIdentityChangeSpy = vi.fn<(...args: unknown[]) => void>();
+const refreshIdentitiesSpy = vi.fn<(...args: unknown[]) => Promise<boolean>>(async () => true);
+
 vi.mock("@/state/identities-store", () => ({
   useIdentities: () => ({
     // Panel gate (2026-09-17) reads `identitiesByKey.size > 0`. When
@@ -172,8 +175,8 @@ vi.mock("@/state/identities-store", () => ({
   // return; the real fn is a store mutator that notifies useIdentities
   // subscribers — mocked as a no-op here (subscribers aren't wired in these
   // renders anyway).
-  applyIdentityChange: () => {},
-  refreshIdentities: async () => true,
+  applyIdentityChange: (...args: unknown[]) => applyIdentityChangeSpy(...args),
+  refreshIdentities: (...args: unknown[]) => refreshIdentitiesSpy(...args),
 }));
 
 // Phase 104 Plan 03: patch #167 mock retired alongside its wire deletion.
@@ -4415,6 +4418,27 @@ describe("PrettyConversationsPanel (shape-sidebar): swipe to archive with Undo",
     await waitFor(() => expect(kitAlerts(dialogs)).toHaveLength(1));
     expect(String(kitAlerts(dialogs)[0].title)).toMatch(/couldn't archive/i);
     expect(kitText(kitAlerts(dialogs)[0])).toContain("boom");
+  });
+
+  it("a failed archive puts the identity back at once, without waiting on a refresh", async () => {
+    seedWren();
+    autoAnswerKitDialogs({});
+    archiveIdentitySpy.mockImplementationOnce(async () => {
+      throw new Error("boom");
+    });
+    refreshIdentitiesSpy.mockImplementationOnce(async () => {
+      throw new Error("offline");
+    });
+    const { container } = render(
+      <PrettyConversationsPanel variant="mobile" onDeactivateRow={() => {}} />,
+    );
+    const opts = await swipe(container);
+    applyIdentityChangeSpy.mockClear();
+    act(() => opts.onAutoClose());
+    await waitFor(() => expect(clearPendingArchiveSpy).toHaveBeenCalledWith(42, "wren"));
+    expect(applyIdentityChangeSpy).toHaveBeenCalledWith(
+      expect.objectContaining({ identityKey: "wren" }),
+    );
   });
 
   it("an open (active-set) conversation's pane closes only when the archive happens", async () => {

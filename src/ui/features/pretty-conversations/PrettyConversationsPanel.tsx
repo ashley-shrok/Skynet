@@ -1953,11 +1953,20 @@ export function PrettyConversationsPanel({
     const removed = getFleetSessionsSnapshot().find(
       (fs) => fs.hostId === hostId && fs.sessionName === sessionName,
     );
+    // Kept so a rollback can put the identity back at once: a non-admin's
+    // sidebar hides a terminal row with no identity behind it, so waiting on
+    // the refresh below would leave the restored row invisible.
+    const matchKey = sessionMatchKey(identityKey);
+    const removedIdentity =
+      matchKey === null
+        ? undefined
+        : (identitiesByHostKey?.get(`${hostId}::${matchKey}`) ?? identitiesByKey.get(matchKey));
     markPendingArchive(hostId, sessionName);
     removeFleetSession(hostId, sessionName);
     applyIdentityChange(null, identityKey, hostId);
     return () => {
       clearPendingArchive(hostId, sessionName);
+      if (removedIdentity) applyIdentityChange(removedIdentity);
       if (removed) upsertFleetSession(removed);
       refreshIdentities({ [identityKey]: hostId }).catch(() => {});
     };

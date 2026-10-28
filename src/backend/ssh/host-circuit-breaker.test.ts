@@ -21,6 +21,7 @@ import {
   __resetBreakerRegistryForTests,
   __resetExecBreakerRegistryForTests,
   BACKOFF_SCHEDULE_MS,
+  EXEC_BACKOFF_SCHEDULE_MS,
   CircuitBreakerOpenError,
   FAILURE_THRESHOLD,
   checkBreaker,
@@ -353,7 +354,7 @@ describe("host-circuit-breaker EXEC — CLOSED failure counting", () => {
     const snap = getExecBreakerSnapshot(peer);
     expect(snap?.state).toBe("OPEN");
     expect(snap?.backoffStep).toBe(0);
-    expect(snap?.nextAttemptAt).toBe(t0 + BACKOFF_SCHEDULE_MS[0]!);
+    expect(snap?.nextAttemptAt).toBe(t0 + EXEC_BACKOFF_SCHEDULE_MS[0]!);
   });
 
   it("recordExecSuccess resets consecutive failure count", () => {
@@ -383,7 +384,7 @@ describe("host-circuit-breaker EXEC — OPEN refusal + PROBING resolution", () =
     vi.setSystemTime(new Date("2026-09-29T17:00:00Z"));
     const peer = "10.1.0.5:22";
     for (let i = 0; i < FAILURE_THRESHOLD; i++) recordExecFailure(peer);
-    vi.advanceTimersByTime(BACKOFF_SCHEDULE_MS[0]! + 500);
+    vi.advanceTimersByTime(EXEC_BACKOFF_SCHEDULE_MS[0]! + 500);
     checkExecBreaker(peer); // → PROBING
 
     recordExecSuccess(peer);
@@ -402,7 +403,7 @@ describe("host-circuit-breaker EXEC — OPEN refusal + PROBING resolution", () =
     const peer = "10.1.0.6:22";
     for (let i = 0; i < FAILURE_THRESHOLD; i++) recordExecFailure(peer);
 
-    vi.advanceTimersByTime(BACKOFF_SCHEDULE_MS[0]! + 500);
+    vi.advanceTimersByTime(EXEC_BACKOFF_SCHEDULE_MS[0]! + 500);
     checkExecBreaker(peer); // → PROBING
 
     const probeFailTime = Date.now();
@@ -411,7 +412,7 @@ describe("host-circuit-breaker EXEC — OPEN refusal + PROBING resolution", () =
     const snap = getExecBreakerSnapshot(peer);
     expect(snap?.state).toBe("OPEN");
     expect(snap?.backoffStep).toBe(1);
-    expect(snap?.nextAttemptAt).toBe(probeFailTime + BACKOFF_SCHEDULE_MS[1]!);
+    expect(snap?.nextAttemptAt).toBe(probeFailTime + EXEC_BACKOFF_SCHEDULE_MS[1]!);
   });
 });
 
@@ -466,5 +467,22 @@ describe("host-circuit-breaker — connect and exec breakers are independent", (
     // the connect success above.
     recordExecFailure(peer);
     expect(getExecBreakerSnapshot(peer)?.state).toBe("OPEN");
+  });
+});
+
+describe("host-circuit-breaker EXEC — keeps the long backoff ladder", () => {
+  it("an overloaded host's exec probes back off to 15 minutes, not 1", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-10-28T04:00:00Z").getTime());
+    const peer = "10.0.0.17:22";
+    for (let i = 0; i < FAILURE_THRESHOLD; i++) recordExecFailure(peer);
+    for (let cycle = 0; cycle < EXEC_BACKOFF_SCHEDULE_MS.length; cycle++) {
+      const snap = getExecBreakerSnapshot(peer)!;
+      vi.advanceTimersByTime(snap.nextAttemptAt - Date.now() + 1);
+      expect(checkExecBreaker(peer).allowed).toBe(true);
+      recordExecFailure(peer);
+    }
+    const snap = getExecBreakerSnapshot(peer)!;
+    expect(snap.nextAttemptAt - Date.now()).toBe(900_000);
   });
 });
