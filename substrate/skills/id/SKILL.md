@@ -1613,9 +1613,7 @@ crown, then gear.
   the **mic** (dictation), and one round off-white **main button** that does
   the likely next thing — **Send** while there's something typed or
   attached, **Resume** while an aside is up, otherwise a **thumbs-up**
-  (sends "thumbs up" — mid-turn too, read once the turn ends). With text
-  typed, the thumbs-up sits as a small grey button just left of Send, so a
-  thumbs-up never needs the draft cleared. There is no Stop in the
+  (sends "thumbs up" — mid-turn too, read once the turn ends). There is no Stop in the
   composer — the working orb is the Stop (§ Stop below). In a relay room
   only the mic and Send show.
 

@@ -41,12 +41,12 @@ describe("ComposeBox — no Stop", () => {
     expect(screen.getByRole("button", { name: "Send 'thumbs up'" }).getAttribute("data-main")).toBe("true");
   });
 
-  it("typing: Send is the main button with a quiet thumbs-up beside it", () => {
+  it("typing: Send is the main button, alone", () => {
     render(<ComposeBox {...baseProps()} />);
     fireEvent.change(primary(), { target: { value: "more" } });
     noStop();
     expect(screen.getByRole("button", { name: "Send" }).getAttribute("data-main")).toBe("true");
-    expect(screen.getByRole("button", { name: "Send 'thumbs up'" }).getAttribute("data-main")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Send 'thumbs up'" })).toBeNull();
   });
 
   it("an aside up: Resume is the main button, alone", () => {

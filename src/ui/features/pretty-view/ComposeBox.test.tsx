@@ -794,7 +794,7 @@ describe("ComposeBox — Phase 9 layout", () => {
     );
   });
 
-  it("Layout: one card — text field on top, one control row underneath with thumbs-up stepping aside next to Send while typing", () => {
+  it("Layout: one card — text field on top, one control row underneath and Send replacing the thumbs-up while typing", () => {
     render(<ComposeBox {...baseProps()} />);
     const field = screen.getByTestId("compose-primary-wrapper");
     const row = screen.getByTestId("compose-row");
@@ -806,17 +806,12 @@ describe("ComposeBox — Phase 9 layout", () => {
     expect(thumbsMain.getAttribute("data-main")).toBe("true");
     expect(screen.queryByRole("button", { name: "Send" })).toBeNull();
 
-    // Text typed: Send becomes the main button; the thumbs-up steps aside as
-    // a quiet button just before it, in the same row.
+    // Text typed: Send becomes the main button and the thumbs-up goes away.
     fireEvent.change(screen.getByPlaceholderText(/message/i), { target: { value: "hi" } });
     const send = screen.getByRole("button", { name: "Send" });
-    const thumbsAside = screen.getByRole("button", { name: "Send 'thumbs up'" });
     expect(send.getAttribute("data-main")).toBe("true");
-    expect(thumbsAside.getAttribute("data-main")).toBeNull();
     expect(row.contains(send)).toBe(true);
-    expect(row.contains(thumbsAside)).toBe(true);
-    // eslint-disable-next-line no-bitwise
-    expect(thumbsAside.compareDocumentPosition(send) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Send 'thumbs up'" })).toBeNull();
   });
 
   it("Layout: agent memory is the MemoryGauge pie (a button that reads its level) in the control row", () => {

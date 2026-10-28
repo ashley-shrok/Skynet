@@ -1594,7 +1594,8 @@ describe("quick 260808-ho2 loading overlay integration", () => {
     expect(container.querySelector('[role="status"]')).toBeNull();
     const textarea = container.querySelector('textarea[placeholder="Write a message…"]') as HTMLTextAreaElement;
     expect(textarea.disabled).toBe(false);
-    expect((screen.getByLabelText("Send 'thumbs up'") as HTMLButtonElement).disabled).toBe(false);
+    // The main button (thumbs-up, or Send if a draft is in the box) stays live.
+    expect((container.querySelector('[data-testid="compose-row"] button[data-main="true"]') as HTMLButtonElement).disabled).toBe(false);
 
     // Condense finished → the pie returns to its reading.
     await act(async () => {

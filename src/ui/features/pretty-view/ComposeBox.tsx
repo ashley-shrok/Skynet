@@ -2052,9 +2052,7 @@ export function ComposeBox({
   // recording chip while dictating. Right: agent memory, voice mode, the mic,
   // and the round main button, which does the likely next thing — Send while
   // there's something to send, otherwise 👍 (Resume while an aside is up).
-  // With text typed, 👍 steps aside as a quiet button next to Send so a
-  // thumbs-up never needs the draft cleared. Relay rooms get only the mic and
-  // Send. No Stop here (shape-stop-on-orb): the working orb is the Stop.
+  // Relay rooms get only the mic and Send. No Stop here (shape-stop-on-orb): the working orb is the Stop.
   const harness = mode !== "relay";
   const hasDraft = text.trim() !== "" || hasAttachments || showTranscribingSend;
   const quickDisabled = asideActive === true || reconnectingActive === true;
@@ -2063,7 +2061,6 @@ export function ComposeBox({
     : hasDraft || !harness
       ? "send"
       : "thumbs";
-  const showQuietThumbs = harness && mainAction === "send";
   // Mic open on this composer (a transcript round-trip is not "recording":
   // Send shows its spinner then).
   const recordingHere = voice.state === "starting" || voice.state === "recording";
@@ -2075,12 +2072,12 @@ export function ComposeBox({
     onGoodToGo?.();
     handleQuickSend("thumbs up");
   };
-  const renderThumbs = (main: boolean) => (
+  const renderThumbs = () => (
     <button
       key="thumbs"
       type="button"
       className="pv-cbtn"
-      data-main={main ? "true" : undefined}
+      data-main="true"
       data-action="thumbs"
       onClick={fireThumbs}
       disabled={quickDisabled}
@@ -2280,8 +2277,7 @@ export function ComposeBox({
                 removing them would slide the mic out from under the finger
                 and turn the release into a cancel. */}
             <span className="contents" style={recordingHere ? { visibility: "hidden" } : undefined} aria-hidden={recordingHere || undefined}>
-            {showQuietThumbs && renderThumbs(false)}
-            {mainAction === "thumbs" && renderThumbs(true)}
+            {mainAction === "thumbs" && renderThumbs()}
             {(mainAction === "send" || mainAction === "resume") && (
               // Phase 14: SAME button morphs to Resume while an aside is up
               // (DOM identity preserved across the morph). Phase 16: disabled
