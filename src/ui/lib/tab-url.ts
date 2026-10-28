@@ -46,7 +46,8 @@
 import type { TabType } from "@/types/ui-types";
 import { isValidFileAddress } from "@/features/pretty-view/file-url";
 
-const STORAGE_KEY = "skynet_pending_tab";
+export const PENDING_TAB_STORAGE_KEY = "skynet_pending_tab";
+const STORAGE_KEY = PENDING_TAB_STORAGE_KEY;
 
 // Phase 97 Plan 05 (Finding 7): TabSpec is a discriminated union — the harness
 // variant carries `host: string` (unchanged from the original interface); the

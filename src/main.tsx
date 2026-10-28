@@ -10,7 +10,11 @@ import { Toaster } from "@/components/sonner";
 import { SkewLockModal } from "@/features/skew-lock/SkewLockModal";
 import { Auth, getStoredAuth, clearStoredAuth } from "@/auth/Auth";
 import { validateReturnUrl, parseReturnFromSearch } from "@/auth/return-url";
-import { reloadToSignIn } from "@/auth/reload-to-sign-in";
+import {
+  reloadToSignIn,
+  readSignOutBroadcast,
+  type SignOutReason,
+} from "@/auth/reload-to-sign-in";
 import { getUserInfo, appReadyPromise } from "@/main-axios";
 import { applyAccentColor, applyFontSize } from "@/lib/theme";
 import type { FontSizeId } from "@/types/ui-types";
@@ -166,11 +170,24 @@ function App() {
     timerRef.current = setTimeout(() => setPhase("idle-app"), 450);
   }
 
-  function handleLogout() {
+  function handleLogout(reason: SignOutReason) {
     clearStoredAuth();
     setPhase("fading-out");
-    timerRef.current = setTimeout(() => reloadToSignIn("logout"), 450);
+    timerRef.current = setTimeout(() => reloadToSignIn(reason), 450);
   }
+
+  // A sign-out in another tab of this browser: reload this one too, or it
+  // would keep showing the old account while the shared cookie moves on to
+  // whoever signs in next.
+  useEffect(() => {
+    if (phase !== "idle-app" && phase !== "fading-in") return;
+    const onStorage = (e: StorageEvent) => {
+      const reason = readSignOutBroadcast(e);
+      if (reason) reloadToSignIn(reason, { broadcast: false });
+    };
+    window.addEventListener("storage", onStorage);
+    return () => window.removeEventListener("storage", onStorage);
+  }, [phase]);
 
   const showApp =
     phase === "idle-app" || phase === "fading-in" || phase === "fading-out";

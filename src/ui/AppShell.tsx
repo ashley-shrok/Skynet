@@ -254,6 +254,7 @@ import { kitAlert } from "@/components/kit";
 import "@/features/pretty-view/conversation.css";
 import { NEW_CONVERSATION_REQUEST_EVENT } from "@/lib/new-conversation-request";
 import { RequestedSkillsEditor } from "@/features/pretty-view/RequestedSkillsEditor";
+import type { SignOutReason } from "@/auth/reload-to-sign-in";
 // Phase 11 Plan 03 (user "no settings" lock): SettingsRow import RETIRED
 // alongside AppRail — the entire settings-surface tree dies here.
 
@@ -311,7 +312,7 @@ export function AppShell({
   onLogout,
 }: {
   username: string;
-  onLogout: () => void;
+  onLogout: (reason: SignOutReason) => void;
 }) {
   const { t, i18n } = useTranslation();
   const { setTheme } = useTheme();
@@ -701,13 +702,13 @@ export function AppShell({
   // sidebar header now hardcodes "Conversations" since that's the only surface.
 
   useEffect(() => {
-    const handle = () => onLogout();
+    const handle = () => onLogout("logout");
     window.addEventListener("skynet:logout", handle);
     return () => window.removeEventListener("skynet:logout", handle);
   }, [onLogout]);
 
   useEffect(() => {
-    const handleSessionExpired = () => onLogout();
+    const handleSessionExpired = () => onLogout("session-expired");
     dbHealthMonitor.on("session-expired", handleSessionExpired);
     return () => dbHealthMonitor.off("session-expired", handleSessionExpired);
   }, [onLogout]);
