@@ -623,6 +623,7 @@ function classifyErrorToStatus(err: unknown): number {
   const name = err instanceof Error ? err.name : "unknown";
   const msg = err instanceof Error ? err.message : "";
   if (name === "AbortError") return 504;
+  if (name === "SshPoolBusyError") return 503;
   if (msg === "invalid_hostname") return 400;
   if (msg === "path_must_be_absolute") return 400;
   if (msg === "path_traversal") return 400;
@@ -641,6 +642,7 @@ function classifyErrorToClass(err: unknown): string {
   const name = err instanceof Error ? err.name : "unknown";
   const msg = err instanceof Error ? err.message : "";
   if (name === "AbortError") return "ssh_timeout";
+  if (name === "SshPoolBusyError") return "host_busy";
   if (
     msg === "invalid_hostname" ||
     msg === "path_must_be_absolute" ||
@@ -690,6 +692,8 @@ function errorTextBody(errorClass: string): string {
       return "not_found: no such file at that path";
     case "ssh_timeout":
       return "ssh_timeout: the host is slow or unreachable — try again in a moment";
+    case "host_busy":
+      return "host_busy: every connection to this host is in use — try again in a moment";
     case "host_unreachable":
     default:
       return "host_unreachable: the box may be offline or the SSH channel is down";

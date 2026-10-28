@@ -6,6 +6,33 @@ interface PooledConnection {
   lastUsed: number;
   inUse: boolean;
   hostKey: string;
+  /** Who took it (caller's file:line) and when — logged when a waiter gives
+   *  up, so a slot that is never handed back can be traced to its caller. */
+  holder?: string;
+  acquiredAt?: number;
+}
+
+/** How long a caller waits for a free connection when all of a host's are
+ *  in use before failing with SshPoolBusyError. Without a bound, a host
+ *  whose slots are never released hangs every later request silently. */
+export const POOL_WAIT_TIMEOUT_MS = 10_000;
+
+export class SshPoolBusyError extends Error {
+  constructor(readonly waitedMs: number) {
+    super(`no pooled SSH connection freed within ${waitedMs}ms`);
+    this.name = "SshPoolBusyError";
+  }
+}
+
+/** First stack frame outside this file, as `file.js:line`. */
+function callerLabel(): string {
+  const frames = (new Error().stack ?? "").split("\n").slice(1);
+  for (const f of frames) {
+    if (/ssh-connection-pool\.[jt]s:/.test(f)) continue;
+    const m = f.match(/([^/\\(\s]+):(\d+):\d+\)?\s*$/);
+    if (m) return `${m[1]}:${m[2]}`;
+  }
+  return "unknown";
 }
 
 // Client-birth-time table for diagnostic logging. Keyed weakly so a
@@ -48,83 +75,87 @@ class SSHConnectionPool {
     }
   }
 
+  private take(pooled: PooledConnection, holder: string): Client {
+    const now = Date.now();
+    pooled.inUse = true;
+    pooled.lastUsed = now;
+    pooled.acquiredAt = now;
+    pooled.holder = holder;
+    return pooled.client;
+  }
+
+  private dropUnhealthy(key: string, pooled: PooledConnection): void {
+    sshLogger.warn("Removing unhealthy connection from pool", {
+      operation: "pool_remove_dead",
+      hostKey: key,
+    });
+    try {
+      pooled.client.end();
+    } catch {
+      // expected
+    }
+    this.removeConnection(key, pooled.client);
+  }
+
+  private async addNew(
+    key: string,
+    factory: () => Promise<Client>,
+    holder: string,
+  ): Promise<Client> {
+    const client = await factory();
+    const pooled: PooledConnection = {
+      client,
+      lastUsed: Date.now(),
+      inUse: false,
+      hostKey: key,
+    };
+    const connections = this.connections.get(key) || [];
+    connections.push(pooled);
+    this.connections.set(key, connections);
+    this.wireClientDiagnostics(client, pooled);
+    return this.take(pooled, holder);
+  }
+
   async getConnection(
     key: string,
     factory: () => Promise<Client>,
+    waitTimeoutMs: number = POOL_WAIT_TIMEOUT_MS,
   ): Promise<Client> {
-    let connections = this.connections.get(key) || [];
-
-    const available = connections.find((conn) => !conn.inUse);
-    if (available) {
-      if (!this.isConnectionHealthy(available.client)) {
-        sshLogger.warn("Removing unhealthy connection from pool", {
-          operation: "pool_remove_dead",
-          hostKey: key,
-        });
-        try {
-          available.client.end();
-        } catch {
-          // expected
+    const holder = callerLabel();
+    const startedAt = Date.now();
+    for (;;) {
+      const connections = this.connections.get(key) || [];
+      const available = connections.find((conn) => !conn.inUse);
+      if (available) {
+        if (this.isConnectionHealthy(available.client)) {
+          return this.take(available, holder);
         }
-        connections = connections.filter((c) => c !== available);
-        this.connections.set(key, connections);
-      } else {
-        available.inUse = true;
-        available.lastUsed = Date.now();
-        return available.client;
+        // Dead free slot: drop it and open a fresh one in its place. A
+        // failed connect rejects to the caller rather than leaving it
+        // waiting.
+        this.dropUnhealthy(key, available);
+        return this.addNew(key, factory, holder);
       }
+      if (connections.length < this.maxConnectionsPerHost) {
+        return this.addNew(key, factory, holder);
+      }
+      const waitedMs = Date.now() - startedAt;
+      if (waitedMs >= waitTimeoutMs) {
+        const now = Date.now();
+        sshLogger.warn("ssh pool: wait for a free connection timed out", {
+          operation: "ssh_pool_wait_timeout",
+          hostKey: key,
+          caller: holder,
+          waitedMs,
+          holders: connections.map((c) => ({
+            holder: c.holder ?? "unknown",
+            heldMs: c.acquiredAt !== undefined ? now - c.acquiredAt : -1,
+          })),
+        });
+        throw new SshPoolBusyError(waitedMs);
+      }
+      await new Promise((r) => setTimeout(r, 100));
     }
-
-    if (connections.length < this.maxConnectionsPerHost) {
-      const client = await factory();
-      const pooled: PooledConnection = {
-        client,
-        lastUsed: Date.now(),
-        inUse: true,
-        hostKey: key,
-      };
-      connections.push(pooled);
-      this.connections.set(key, connections);
-      this.wireClientDiagnostics(client, pooled);
-      return client;
-    }
-
-    return new Promise((resolve) => {
-      const checkAvailable = () => {
-        const conns = this.connections.get(key) || [];
-        const avail = conns.find((conn) => !conn.inUse);
-        if (avail) {
-          if (!this.isConnectionHealthy(avail.client)) {
-            try {
-              avail.client.end();
-            } catch {
-              // expected
-            }
-            const filtered = conns.filter((c) => c !== avail);
-            this.connections.set(key, filtered);
-            factory().then((client) => {
-              const pooled: PooledConnection = {
-                client,
-                lastUsed: Date.now(),
-                inUse: true,
-                hostKey: key,
-              };
-              filtered.push(pooled);
-              this.connections.set(key, filtered);
-              this.wireClientDiagnostics(client, pooled);
-              resolve(client);
-            });
-          } else {
-            avail.inUse = true;
-            avail.lastUsed = Date.now();
-            resolve(avail.client);
-          }
-        } else {
-          setTimeout(checkAvailable, 100);
-        }
-      };
-      checkAvailable();
-    });
   }
 
   releaseConnection(key: string, client: Client): void {
@@ -133,6 +164,8 @@ class SSHConnectionPool {
     if (pooled) {
       pooled.inUse = false;
       pooled.lastUsed = Date.now();
+      pooled.holder = undefined;
+      pooled.acquiredAt = undefined;
     }
   }
 

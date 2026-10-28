@@ -79,6 +79,10 @@ export const FILE_URL_ERROR_COPY: Record<string, FileErrorCopy> = {
     heading: "SSH timeout",
     body: "The host is slow or unreachable. Try again in a moment.",
   },
+  host_busy: {
+    heading: "Host busy",
+    body: "Every connection to that machine is in use right now. Try again in a moment.",
+  },
   invalid_hostname: {
     heading: "Invalid hostname",
     body: "The hostname in the URL contains unsupported characters.",
