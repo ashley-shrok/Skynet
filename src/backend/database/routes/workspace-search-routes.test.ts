@@ -47,7 +47,7 @@ vi.mock("../../utils/logger.js", () => {
 
 vi.mock("../../ssh/host-resolver.js", () => ({ resolveHostById: vi.fn() }));
 
-/** ssh2-shaped client whose exec runs the command in a local shell; close() kills it. */
+/** ssh2-shaped client whose exec runs the command in a local shell; TERM or close() kills it. */
 const stubClient = {
   exec(command: string, cb: (err: Error | null, stream: EventEmitter) => void) {
     execCommands.push(command);
@@ -57,6 +57,11 @@ const stubClient = {
     let closed = false;
     const stream = Object.assign(new EventEmitter(), {
       stderr: child.stderr,
+      // Like Tailscale SSH: TERM stops the command (the route hangs up with
+      // TERM first, see channel-hangup.ts).
+      signal(name: string) {
+        if (name === "TERM") stream.close();
+      },
       close() {
         if (closed) return;
         closed = true;

@@ -48,11 +48,13 @@ function makeHost(lines: string[], opts: { noTac?: boolean; missing?: boolean; c
   const execs: string[] = [];
   let backwardsSent = 0;
   const tailStreams: Stream[] = [];
+  let backwardsStream: Stream | null = null;
   const exec = vi.fn((cmd: string, cb: (err: Error | null, s: Stream) => void) => {
     execs.push(cmd);
     const s = makeStream();
     cb(null, s);
     if (cmd.includes("| tac")) {
+      backwardsStream = s;
       setImmediate(async () => {
         if (opts.missing) {
           s.stderr.emit("data", Buffer.from("No such file"));
@@ -64,9 +66,13 @@ function makeHost(lines: string[], opts: { noTac?: boolean; missing?: boolean; c
           s.emit("close", 4);
           return;
         }
+        // Like Tailscale SSH: TERM ends the command and the server closes
+        // the channel; a client-side close also stops it.
         let closed = false;
+        let termed = false;
         s.close = vi.fn(() => { closed = true; });
-        for (let i = lines.length - 1; i >= 0 && !closed; i--) {
+        s.signal = vi.fn((name: string) => { if (name === "TERM") termed = true; });
+        for (let i = lines.length - 1; i >= 0 && !closed && !termed; i--) {
           if (opts.cutAfter !== undefined && backwardsSent >= opts.cutAfter) {
             s.emit("close", undefined);
             return;
@@ -75,7 +81,7 @@ function makeHost(lines: string[], opts: { noTac?: boolean; missing?: boolean; c
           s.emit("data", Buffer.from(lines[i] + "\n"));
           await new Promise((r) => setImmediate(r));
         }
-        if (!closed) s.emit("close", 0);
+        if (!closed) s.emit("close", termed ? null : 0);
       });
     } else if (cmd.includes("tail -F")) {
       tailStreams.push(s);
@@ -91,6 +97,7 @@ function makeHost(lines: string[], opts: { noTac?: boolean; missing?: boolean; c
     execs,
     tailStreams,
     get backwardsSent() { return backwardsSent; },
+    get backwardsStream() { return backwardsStream; },
   };
 }
 
@@ -127,8 +134,12 @@ describe("tailSessionFileWindowed", () => {
     expect(o.startLine).toBe(106);
     const replayed = o.events.slice(o.events.indexOf("START 106") + 1, o.events.indexOf("DONE"));
     expect(replayed).toEqual(lines.slice(105));
-    // Hung up after the 15th line from the end — never read the rest.
+    // Hung up after the 15th line from the end — never read the rest. The
+    // hang-up is a TERM, not a mid-stream close (which drops the whole
+    // connection on Tailscale SSH).
     expect(host.backwardsSent).toBe(15);
+    expect(host.backwardsStream?.signal).toHaveBeenCalledWith("TERM");
+    expect(host.backwardsStream?.close).not.toHaveBeenCalled();
     expect(o.done).toMatchObject({ totalLines: 120, startLine: 106, windowLines: 15, items: 5, fallback: null });
     // Live follow starts just past the snapshot.
     expect(host.execs.some((c) => c.includes("tail -F -n +121 "))).toBe(true);

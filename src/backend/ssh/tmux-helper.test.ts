@@ -154,8 +154,14 @@ describe("execCommandWithStdin — unhandled-rejection guard", () => {
 });
 
 describe("exec timeout", () => {
+  // Hang-ups are TERM first, close only after a grace period
+  // (channel-hangup.ts) — `signaled` records the immediate part.
   class ClosableStream extends FakeStream {
     closed = 0;
+    signaled: string[] = [];
+    signal(name: string) {
+      this.signaled.push(name);
+    }
     close() {
       this.closed++;
       queueMicrotask(() => this.emit("close", undefined as unknown as number));
@@ -186,21 +192,21 @@ describe("exec timeout", () => {
     expect(err.phase).toBe("open");
   });
 
-  it("rejects with phase=run and closes the channel when the command never exits", async () => {
+  it("rejects with phase=run and hangs up the channel when the command never exits", async () => {
     const { client, streams } = makeStuckClient(0);
     const err = await execCommand(client, "sleep 999", { timeoutMs: 30 }).catch((e) => e);
     expect(err).toBeInstanceOf(ExecTimeoutError);
     expect(err.phase).toBe("run");
-    expect(streams[0].closed).toBe(1);
+    expect(streams[0].signaled).toEqual(["TERM"]);
   });
 
-  it("closes a channel that opens after the timeout already fired", async () => {
+  it("hangs up a channel that opens after the timeout already fired", async () => {
     const { client, streams } = makeStuckClient(40);
     const err = await execCommand(client, "true", { timeoutMs: 10 }).catch((e) => e);
     expect(err.phase).toBe("open");
     await new Promise((r) => setTimeout(r, 60));
     expect(streams).toHaveLength(1);
-    expect(streams[0].closed).toBe(1);
+    expect(streams[0].signaled).toEqual(["TERM"]);
   });
 
   it("does not fire once the command has finished", async () => {
@@ -217,7 +223,7 @@ describe("exec timeout", () => {
     const err = await execCommandWithStdin(client, "cat", Buffer.from("x"), { timeoutMs: 30 }).catch((e) => e);
     expect(err).toBeInstanceOf(ExecTimeoutError);
     expect(err.phase).toBe("run");
-    expect(streams[0].closed).toBe(1);
+    expect(streams[0].signaled).toEqual(["TERM"]);
   });
 
   it("defaults to a ceiling above the harness attempt deadline", () => {

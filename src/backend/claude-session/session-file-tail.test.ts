@@ -24,6 +24,7 @@
 import { describe, it, expect, vi } from "vitest";
 import type { Client } from "ssh2";
 import { tailSessionFile } from "./session-file-tail.js";
+import { HANGUP_GRACE_MS } from "../ssh/channel-hangup.js";
 
 // Minimal ssh2 ClientChannel stub — the exec callback receives an object
 // that must expose `on(event, cb)`, `stderr.on(event, cb)`, and optional
@@ -177,6 +178,7 @@ describe("tailSessionFile — teardown", () => {
   // supported. Ordering is asserted via a shared invocation-order array
   // and via vitest's `mock.invocationCallOrder`.
   it("Test C: stop() calls signal(\"TERM\") before close()", () => {
+    vi.useFakeTimers();
     const order: string[] = [];
     const stream = makeStreamStub({ order });
     const { conn } = makeConnStub({ stream });
@@ -186,6 +188,10 @@ describe("tailSessionFile — teardown", () => {
 
     expect(stream.signal).toHaveBeenCalledTimes(1);
     expect(stream.signal).toHaveBeenCalledWith("TERM");
+    // The close waits out the grace period (channel-hangup.ts).
+    expect(stream.close).not.toHaveBeenCalled();
+    vi.advanceTimersByTime(HANGUP_GRACE_MS);
+    vi.useRealTimers();
     expect(stream.close).toHaveBeenCalledTimes(1);
     // Order-array assertion.
     expect(order).toEqual(["signal:TERM", "close"]);
@@ -201,6 +207,7 @@ describe("tailSessionFile — teardown", () => {
   // the throw, log it, and still call `close()` — otherwise a broken
   // signal path leaves the channel open and defeats the whole fix.
   it("Test D: stop() catches a throw from signal() and still calls close()", () => {
+    vi.useFakeTimers();
     const stream = makeStreamStub({
       signalImpl: () => {
         throw new Error("channel signal unsupported");
@@ -211,6 +218,8 @@ describe("tailSessionFile — teardown", () => {
     const handle = tailSessionFile(conn, "/tmp/session.jsonl", vi.fn(), vi.fn());
     expect(() => handle.stop()).not.toThrow();
     expect(stream.signal).toHaveBeenCalledTimes(1);
+    vi.advanceTimersByTime(HANGUP_GRACE_MS);
+    vi.useRealTimers();
     expect(stream.close).toHaveBeenCalledTimes(1);
   });
 
@@ -234,6 +243,7 @@ describe("tailSessionFile — teardown", () => {
   // callback: if the caller stops before the ssh2 exec callback fires,
   // the fresh stream must be closed and NO data listener may be wired.
   it("Test F: stopped before exec callback — fresh stream still torn down, no data listener wired", () => {
+    vi.useFakeTimers();
     const stream = makeStreamStub();
     const { conn, pendingCallback } = makeConnStub({
       stream,
@@ -246,8 +256,11 @@ describe("tailSessionFile — teardown", () => {
     // Now the ssh2 exec callback finally fires with the fresh stream.
     pendingCallback.invoke(null, stream);
 
-    // The exec-callback guard must have run: close on the fresh stream,
-    // no `on("data", ...)` wired.
+    // The exec-callback guard must have run: the fresh stream is hung up
+    // (TERM now, close after the grace period), no `on("data", ...)` wired.
+    expect(stream.signal).toHaveBeenCalledWith("TERM");
+    vi.advanceTimersByTime(HANGUP_GRACE_MS);
+    vi.useRealTimers();
     expect(stream.close).toHaveBeenCalledTimes(1);
     expect(stream.on).not.toHaveBeenCalled();
     expect(stream.stderr.on).not.toHaveBeenCalled();

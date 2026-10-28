@@ -1,5 +1,6 @@
 import type { Client } from "ssh2";
 import { sshLogger } from "../utils/logger.js";
+import { hangUpChannel, type HangUpChannel } from "../ssh/channel-hangup.js";
 
 /**
  * Follow a remote JSONL session file forward over an SSH exec channel, invoking
@@ -28,7 +29,7 @@ import { sshLogger } from "../utils/logger.js";
  *    `EPIPE` and it keeps running as a PPID=1 orphan across every WS
  *    reconnect. Three-prong fix, all three carrying weight:
  *      - Prong A: stop() calls `stream.signal("TERM")` BEFORE
- *        `stream.close()`. OpenSSH ignores channel-signal requests but
+ *        `stream.close()` (via hangUpChannel, which waits briefly between). OpenSSH ignores channel-signal requests but
  *        Tailscale SSH and others honor them — free fast-teardown where
  *        supported, no cost where ignored. A synchronous throw from
  *        signal() is caught and logged; close() still runs.
@@ -90,10 +91,7 @@ export function tailSessionFile(
   // The ssh2 ClientChannel type is not re-exported at this level; we retain
   // the loose reference so the stop() helper can call close/signal
   // without pulling ClientChannel into this file's public surface.
-  let stream: {
-    close?: () => void;
-    signal?: (signal: string) => void;
-  } | null = null;
+  let stream: HangUpChannel | null = null;
   let buffer = "";
   let stderrBuf = "";
   let anyStdout = false;
@@ -112,25 +110,12 @@ export function tailSessionFile(
       { operation: "session_file_tail_stop", lineCount, totalMs, ttfbMs },
     );
     if (!stream) return;
-    try {
-      // Prong A: try channel-signal TERM first. OpenSSH ignores this;
-      // Tailscale SSH and other servers honor it. Free fast teardown
-      // where supported, harmless where not. A synchronous throw here
-      // MUST NOT skip close() — the trap wrapper (Prong B) still needs
-      // the channel to actually close so the remote shell exits and
-      // fires its EXIT trap.
-      try {
-        stream.signal?.("TERM");
-      } catch (sigErr) {
-        sshLogger.info(
-          `[session-file-tail] signal TERM threw (server may not support signal channel requests): ${sigErr instanceof Error ? sigErr.message : String(sigErr)}`,
-          { operation: "session_file_tail_signal_threw" },
-        );
-      }
-      stream.close?.();
-    } catch {
-      /* ignore */
-    }
+    // Prong A: signal TERM, then close once the server has had a moment to
+    // end the channel itself (channel-hangup.ts) — a plain close while tail
+    // is still writing drops the whole connection on Tailscale SSH. On
+    // OpenSSH the signal is ignored and the timed close still reaches the
+    // trap wrapper (Prong B) and the stdin blocker (Prong C).
+    hangUpChannel(stream);
   };
 
   // Prong B (trap wrapper) + Prong C (stdin blocker). Outer arg is single-
@@ -158,11 +143,7 @@ export function tailSessionFile(
     }
     if (stopped) {
       // Caller stopped before the exec channel opened. Tear down immediately.
-      try {
-        s.close?.();
-      } catch {
-        /* ignore */
-      }
+      hangUpChannel(s);
       return;
     }
     stream = s;

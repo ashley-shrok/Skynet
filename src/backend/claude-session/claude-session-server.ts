@@ -6765,6 +6765,23 @@ wss.on("connection", async (ws: WebSocket, req) => {
     // Long-lived for the pane's lifetime: route its pollers' commands through
     // one skynet-hostd channel instead of a login per command.
     enableHostd(conn);
+    // The connection dying under a live pane (network drop, host sshd
+    // restart) would otherwise leave the pane bound to a dead conn: the tail
+    // is gone and every send fails "Not connected". Close the WS with the
+    // reconnect code so the client re-attaches on a fresh connection. Our own
+    // teardowns null sshConn before the close event lands, so they skip this.
+    conn.once("close", () => {
+      if (stopped || sshConn !== conn) return;
+      sshLogger.warn("Claude session SSH connection lost", {
+        operation: "claude_session_ssh_conn_lost",
+        userId,
+        sessionId,
+        hostId: currentHostId ?? hostId,
+        tmuxSession: currentTmuxSession ?? tmuxSession,
+      });
+      closeForTornDownSession();
+      teardownPane();
+    });
     if (stopped) {
       teardownPane();
       return;

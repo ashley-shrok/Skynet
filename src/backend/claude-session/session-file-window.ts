@@ -4,6 +4,7 @@ import { sshLogger } from "../utils/logger.js";
 import { execCommand } from "../ssh/tmux-helper.js";
 import { parseSessionLineQuietly } from "./session-file-parser.js";
 import { tailSessionFile, type TailHandle } from "./session-file-tail.js";
+import { hangUpChannel, type HangUpChannel } from "../ssh/channel-hangup.js";
 
 /**
  * Open a conversation's session file the fast way: only the recent window
@@ -137,11 +138,10 @@ function readBackwards(
         BACKWARDS_STALL_MS,
       );
     };
-    let stream: { close?: () => void; signal?: (s: string) => void } | null = null;
-    const hangUp = () => {
-      try { stream?.signal?.("TERM"); } catch { /* not supported */ }
-      try { stream?.close?.(); } catch { /* already closed */ }
-    };
+    let stream: HangUpChannel | null = null;
+    // The read is usually hung up mid-stream (overshoot past the window);
+    // a plain close there drops the whole connection on Tailscale SSH.
+    const hangUp = () => hangUpChannel(stream);
     const finish = (r: BackwardsResult) => {
       if (settled) return;
       settled = true;

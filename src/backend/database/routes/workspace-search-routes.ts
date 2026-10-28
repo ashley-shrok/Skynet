@@ -39,6 +39,7 @@ import { withConnection, hostPoolKey } from "../../ssh/ssh-connection-pool.js";
 import { connectOneShot } from "../../ssh/ssh-one-shot.js";
 import { resolveHostById } from "../../ssh/host-resolver.js";
 import { getHostSemaphore } from "../../ssh/host-semaphore-registry.js";
+import { hangUpChannel } from "../../ssh/channel-hangup.js";
 import {
   classifyErrorToClass,
   classifyErrorToStatus,
@@ -101,13 +102,9 @@ function execSearch(
       let buf = Buffer.alloc(0);
       let stoppedEarly = false;
       let done = false;
-      const stop = () => {
-        try {
-          stream.close();
-        } catch {
-          /* already closed */
-        }
-      };
+      // Usually called while the search is still writing; a plain close
+      // there drops the whole connection on Tailscale SSH.
+      const stop = () => hangUpChannel(stream);
       const onAbort = () => stop();
       signal.addEventListener("abort", onAbort, { once: true });
       // Aborted while exec was opening the channel — stop it now.
@@ -120,6 +117,10 @@ function execSearch(
           if (cut !== -1) buf = buf.subarray(0, cut);
           stoppedEarly = true;
           stop();
+          // Answer now; the channel winds down in the background.
+          done = true;
+          signal.removeEventListener("abort", onAbort);
+          resolve({ stdout: buf.toString("utf-8"), stoppedEarly });
         }
       });
       stream.stderr.on("data", () => {

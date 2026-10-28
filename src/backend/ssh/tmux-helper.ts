@@ -1,5 +1,6 @@
 import type { Client, ClientChannel } from "ssh2";
 import { sshLogger } from "../utils/logger.js";
+import { hangUpChannel } from "./channel-hangup.js";
 import {
   HostdDeadlineError,
   HostdUnavailableError,
@@ -54,7 +55,7 @@ export class ExecTimeoutError extends Error {
  * calls first: it clears the timer and reports whether the caller still owns
  * the promise (false once the timer has fired). `adopt` hands over the stream
  * once the channel opens — if the timer already fired, the late stream is
- * closed straight away so sshd frees the session.
+ * hung up straight away so sshd frees the session.
  */
 function armExecTimeout(
   timeoutMs: number,
@@ -66,11 +67,8 @@ function armExecTimeout(
     if (settled) return;
     settled = true;
     const phase = stream ? "run" : "open";
-    try {
-      stream?.close();
-    } catch {
-      /* channel already gone */
-    }
+    // The command may still be writing; see channel-hangup.ts.
+    hangUpChannel(stream);
     onTimeout(phase);
   }, timeoutMs);
   timer.unref?.();
@@ -83,11 +81,7 @@ function armExecTimeout(
     },
     adopt: (s) => {
       if (settled) {
-        try {
-          s.close();
-        } catch {
-          /* ignore */
-        }
+        hangUpChannel(s);
         return false;
       }
       stream = s;
