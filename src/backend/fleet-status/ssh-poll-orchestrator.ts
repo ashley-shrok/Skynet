@@ -229,6 +229,14 @@ export interface SshChannel {
    * consultation (graceful degradation).
    */
   peer?: string;
+  /**
+   * True once the connection this channel execs on is gone for good (the
+   * peer rebooted, the socket closed, the client was released). The poller
+   * caches one channel per host, so without this a host whose connection
+   * died would keep timing out on the dead one until Skynet restarts.
+   * Optional: channels that can't die (local-host, test mocks) omit it.
+   */
+  isClosed?(): boolean;
 }
 
 export interface OrchestratorDeps {
@@ -3555,6 +3563,37 @@ export function createSshPollOrchestrator(
           error: err instanceof Error ? err.message : "unknown",
         });
       }
+    }
+
+    // Replace dead channels. A host that rebooted leaves its cached channel
+    // bound to a closed connection; every exec on it times out and the
+    // add-branch above never re-acquires (the host is still tracked). Drop
+    // the dead entry and acquire fresh — on failure the host stays untracked
+    // and the next refresh's add-branch retries it. Collected first so the
+    // re-insert doesn't land back in this tick's iteration twice.
+    const deadChannelHosts = [...perHostState.values()].filter(
+      (s) => !inFlight.has(s.host.id) && s.channel.isClosed?.() === true,
+    );
+    for (const hostState of deadChannelHosts) {
+      const hostId = hostState.host.id;
+      systemLogger.warn("Fleet-status: SSH connection for host is closed — reconnecting", {
+        operation: "fleet_status_channel_dead_reacquire",
+        fleetHostId: hostId,
+        hostName: hostState.host.name,
+        peer: hostState.channel.peer,
+        tick: pollTickCount,
+      });
+      // No releaseSshChannel: the connection is already gone, and release
+      // closes whatever client is now cached for the host.
+      perHostState.delete(hostId);
+      skipCount.delete(hostId);
+      await tryAcquireHostChannel(hostState.host);
+      systemLogger.info("Fleet-status: SSH reconnect for host finished", {
+        operation: "fleet_status_channel_reacquire_result",
+        fleetHostId: hostId,
+        hostName: hostState.host.name,
+        reacquired: perHostState.has(hostId),
+      });
     }
 
     // Poll each known host (quick-260820-tm0: per-host in-flight guard —

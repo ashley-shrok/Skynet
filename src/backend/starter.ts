@@ -1091,6 +1091,7 @@ if (process.env.VITEST !== "true") {
                   execCommand,
                   execCommandWithStdin,
                 });
+                channel.isClosed = () => hostClients.get(host.id) !== existing;
                 // Quick health probe — routed through the SAME semaphore so
                 // it cannot bypass the cap on a saturated connection. Bounded
                 // so a wedged probe frees its slot; a timeout keeps the
@@ -1155,6 +1156,10 @@ if (process.env.VITEST !== "true") {
               execCommand,
               execCommandWithStdin,
             });
+            // The end/close/error handlers above drop the client from
+            // hostClients, so a channel whose client is no longer cached is
+            // dead — the poller replaces it (fleet_status_channel_dead_reacquire).
+            channelAdapter.isClosed = () => hostClients.get(host.id) !== client;
 
             // Phase 39 D-05 (GATE2-05): fire-and-forget blind Stop-hook
             // install on FIRST successful new-client acquire per host per

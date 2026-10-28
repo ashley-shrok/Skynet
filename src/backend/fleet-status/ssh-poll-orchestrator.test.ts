@@ -4040,6 +4040,146 @@ describe("quick-260820-tm0 — perHostState pruning on refresh", () => {
   });
 });
 
+// ---------------------------------------------------------------------------
+// Dead channel after a host reboot (2026-10-28, ashley-beelink)
+//
+// The poller caches one channel per host. When the host rebooted, the
+// connection under that channel closed, but the host stayed tracked, so the
+// refresh add-branch never re-acquired and every exec timed out on the dead
+// connection until Skynet restarted. A channel that reports isClosed() is
+// now dropped and re-acquired at the start of the next tick.
+// ---------------------------------------------------------------------------
+
+describe("dead channel after a host reboot — re-acquire", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  class ClosableChannel extends MockSshChannel {
+    closed = false;
+    isClosed(): boolean {
+      return this.closed;
+    }
+  }
+
+  function buildClosableChannel(pid: number, sessionId: string): ClosableChannel {
+    const channel = new ClosableChannel();
+    channel.setResponse("ls -1", `/home/ubuntu/.claude/sessions/${pid}.json\n`);
+    channel.setResponse(`cat ~/.claude/sessions/${pid}.json`, makeSessionJson({ pid, sessionId }));
+    channel.setResponse(`cat /proc/${pid}/stat`, makeStatContents("12345"));
+    channel.setResponse(`cat /proc/${pid}/environ`, "TMUX_PANE=%2\0");
+    channel.setResponse("tmux display-message", "tina");
+    channel.setResponse("fleet-status/last-stop-payload.json", makeValidPayload());
+    return channel;
+  }
+
+  function countOps(level: "info" | "warn", operation: string): number {
+    const calls = (systemLogger[level] as unknown as MockInstance).mock.calls;
+    return calls.filter(
+      (c: unknown[]) =>
+        typeof c[1] === "object" &&
+        c[1] !== null &&
+        (c[1] as Record<string, unknown>).operation === operation,
+    ).length;
+  }
+
+  function startWith(acquire: (host: HostRecord) => Promise<SshChannel | null>) {
+    const host: HostRecord = { id: "host-R", name: "rebooter" };
+    const setIntervalFns: Array<{ fn: () => Promise<void> | void; ms: number }> = [];
+    const acquireMock = vi.fn(acquire);
+    const releaseMock = vi.fn();
+    const deps = buildDeps({
+      listIdentityHostingHosts: vi.fn().mockResolvedValue([host]),
+      acquireSshChannel: acquireMock,
+      releaseSshChannel: releaseMock,
+      setInterval: vi.fn((fn: () => Promise<void> | void, ms: number) => {
+        setIntervalFns.push({ fn, ms });
+        return setIntervalFns.length as unknown as ReturnType<typeof setInterval>;
+      }),
+    });
+    const orchestrator = createSshPollOrchestrator(deps);
+    const tick = async () => {
+      const pollFn = setIntervalFns.find((f) => f.ms === 2000);
+      if (!pollFn) throw new Error("no 2s pollFn captured");
+      await pollFn.fn();
+    };
+    return { host, orchestrator, tick, acquireMock, releaseMock };
+  }
+
+  it("a closed channel is replaced on the next tick and polling moves to the fresh one", async () => {
+    const before = buildClosableChannel(11111, "sess-before");
+    const after = buildClosableChannel(11111, "sess-after");
+    const channels = [before, after];
+    const { host, orchestrator, tick, acquireMock, releaseMock } = startWith(
+      async () => channels.shift() ?? null,
+    );
+
+    await orchestrator.start();
+    expect(acquireMock).toHaveBeenCalledTimes(1);
+    expect(before.getCalls().length).toBeGreaterThan(0);
+
+    // The host reboots: its connection closes under the cached channel.
+    before.closed = true;
+    before.clearCallLog();
+
+    await tick();
+
+    expect(acquireMock).toHaveBeenCalledTimes(2);
+    expect(acquireMock.mock.calls[1][0]).toEqual(host);
+    expect(before.getCalls()).toHaveLength(0);
+    expect(after.getCalls().length).toBeGreaterThan(0);
+    expect(countOps("warn", "fleet_status_channel_dead_reacquire")).toBe(1);
+    expect(countOps("info", "fleet_status_channel_reacquire_result")).toBe(1);
+    // The dead connection is not released — release would close whatever
+    // client is now cached for the host.
+    expect(releaseMock).not.toHaveBeenCalled();
+
+    // Steady state on the fresh channel: no further re-acquires.
+    await tick();
+    await tick();
+    expect(acquireMock).toHaveBeenCalledTimes(2);
+    expect(countOps("warn", "fleet_status_channel_dead_reacquire")).toBe(1);
+  });
+
+  it("a failed reconnect leaves the host untracked until the refresh tick retries it", async () => {
+    const before = buildClosableChannel(22222, "sess-before");
+    const after = buildClosableChannel(22222, "sess-after");
+    // Initial acquire, then the host is still booting (null), then it's up.
+    const results: Array<SshChannel | null> = [before, null, after];
+    const { orchestrator, tick, acquireMock } = startWith(async () => results.shift() ?? null);
+
+    await orchestrator.start(); // tick 1
+    before.closed = true;
+    before.clearCallLog();
+
+    await tick(); // tick 2 — re-acquire fails
+    expect(acquireMock).toHaveBeenCalledTimes(2);
+    expect(before.getCalls()).toHaveLength(0);
+    expect(after.getCalls()).toHaveLength(0);
+
+    // Ticks 3..14: untracked, so neither polled nor re-acquired.
+    for (let i = 0; i < 12; i++) await tick();
+    expect(acquireMock).toHaveBeenCalledTimes(2);
+    expect(before.getCalls()).toHaveLength(0);
+
+    // Tick 15 — host-list refresh; the add-branch acquires the fresh channel.
+    await tick();
+    expect(acquireMock).toHaveBeenCalledTimes(3);
+    expect(after.getCalls().length).toBeGreaterThan(0);
+  });
+
+  it("a channel that is still open is never re-acquired", async () => {
+    const channel = buildClosableChannel(33333, "sess-open");
+    const { orchestrator, tick, acquireMock } = startWith(async () => channel);
+
+    await orchestrator.start();
+    for (let i = 0; i < 20; i++) await tick();
+
+    expect(acquireMock).toHaveBeenCalledTimes(1);
+    expect(countOps("warn", "fleet_status_channel_dead_reacquire")).toBe(0);
+  });
+});
+
 // ==============================================================================
 // Condense — source B `condensing` axis (per-identity, PID-independent)
 //
