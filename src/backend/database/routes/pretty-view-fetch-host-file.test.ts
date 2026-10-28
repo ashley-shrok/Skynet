@@ -155,6 +155,7 @@ interface StubSftp {
   stat: Mock;
   readFile: Mock;
   createReadStream: Mock;
+  end: Mock;
 }
 
 interface StubClient {
@@ -222,6 +223,7 @@ function resetStubClient() {
         return readable;
       },
     ),
+    end: vi.fn(),
   };
   stubClient = {
     sftp: vi.fn((cb: (err: Error | null, sftp: StubSftp) => void) => {
@@ -539,6 +541,7 @@ describe("POST /pretty-view/fetch-host-file — modal JSON path", () => {
     expect(body.filename).toBe("note.md");
     expect(body.isTextByExt).toBe(true);
     expect(body.isTextByBytes).toBeUndefined();
+    expect(stubSftp.end).toHaveBeenCalledTimes(1);
   });
 
   it("Test 11: success (extension miss, text bytes) → 200 with isTextByExt=false and isTextByBytes=true", async () => {
@@ -816,6 +819,8 @@ describe("GET /file/:host/* — verbatim URL path", () => {
     expect(res.headers["content-disposition"]).toBeUndefined();
     expect(res.headers["accept-ranges"]).toBe("bytes");
     expect(res.headers["x-content-type-options"]).toBe("nosniff");
+    // The SFTP session is closed once the file has been sent.
+    expect(stubSftp.end).toHaveBeenCalledTimes(1);
   });
 
   it("Test 26 (XSS defense): .html file → attachment disposition, real content-type on the wire", async () => {

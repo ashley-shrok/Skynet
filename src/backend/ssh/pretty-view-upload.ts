@@ -68,6 +68,7 @@ type SftpLike = {
   ): WriteStreamLike;
   rename(from: string, to: string, cb: (err: Error | null) => void): void;
   unlink(p: string, cb: (err: Error | null) => void): void;
+  end?(): void;
 };
 
 interface FileWriteState {
@@ -195,6 +196,23 @@ function openSftp(sshConn: SSHClientType): Promise<SftpLike> {
       resolve(sftp);
     });
   });
+}
+
+/** Close an SFTP session. Each one is a channel on the conversation's own
+ * SSH connection, and sshd caps channels per connection (MaxSessions), so a
+ * session left open per upload eventually makes the next one fail. */
+function closeSftp(sftp: SftpLike): void {
+  try {
+    sftp.end?.();
+  } catch {
+    // best-effort
+  }
+}
+
+function closeBatchSftp(batch: BatchState): void {
+  if (!batch.sftp) return;
+  closeSftp(batch.sftp);
+  batch.sftp = null;
 }
 
 function sftpRealpath(sftp: SftpLike, p: string): Promise<string> {
@@ -427,6 +445,7 @@ export async function handleUploadStart(
       "sftp_error",
       `realpath failed: ${err instanceof Error ? err.message : String(err)}`,
     );
+    closeSftp(sftp);
     return;
   }
 
@@ -441,6 +460,7 @@ export async function handleUploadStart(
       "sftp_error",
       `landing dir setup failed: ${err instanceof Error ? err.message : String(err)}`,
     );
+    closeSftp(sftp);
     return;
   }
 
@@ -755,6 +775,7 @@ async function finalizeFile(
       },
     );
     activeBatches.delete(batch.messageQueueItemId);
+    closeBatchSftp(batch);
   }
 }
 
@@ -765,13 +786,15 @@ function cleanupFile(batch: BatchState, fileState: FileWriteState): void {
   } catch {
     // ignore — destroy is best-effort
   }
-  if (batch.sftp) {
-    sftpUnlink(batch.sftp, fileState.tempPath).catch(() => {});
-  }
+  const unlinked = batch.sftp
+    ? sftpUnlink(batch.sftp, fileState.tempPath).catch(() => {})
+    : Promise.resolve();
   batch.files.delete(fileState.tempId);
-  // If this cleanup empties an aborted or exhausted batch, drop it.
+  // If this cleanup empties an aborted or exhausted batch, drop it — and
+  // close its session once the temp file is gone.
   if (batch.files.size === 0) {
     activeBatches.delete(batch.messageQueueItemId);
+    void unlinked.then(() => closeBatchSftp(batch));
   }
 }
 
@@ -789,6 +812,7 @@ async function teardownBatch(batch: BatchState): Promise<void> {
   }
   batch.files.clear();
   activeBatches.delete(batch.messageQueueItemId);
+  closeBatchSftp(batch);
 }
 
 /* --------------------------- handleUploadAbort ------------------------- */

@@ -151,6 +151,7 @@ const permissionManager = PermissionManager.getInstance();
  * four methods we call. Kept local so mocks in the test file only need to
  * implement these four functions. */
 type SftpLike = {
+  end?(): void;
   realpath(
     p: string,
     cb: (err: Error | null, resolved: string) => void,
@@ -186,6 +187,26 @@ function openSftp(sshConn: SSHClientType): Promise<SftpLike> {
       resolve(sftp);
     });
   });
+}
+
+/** Open an SFTP session for `fn` and close it afterwards. Each session is a
+ * channel on a pooled SSH connection; sshd caps channels per connection
+ * (MaxSessions), so sessions left open make later requests on that
+ * connection fail. */
+async function withSftp<T>(
+  sshConn: SSHClientType,
+  fn: (sftp: SftpLike) => Promise<T>,
+): Promise<T> {
+  const sftp = await openSftp(sshConn);
+  try {
+    return await fn(sftp);
+  } finally {
+    try {
+      sftp.end?.();
+    } catch {
+      // best-effort
+    }
+  }
 }
 
 function sftpRealpath(sftp: SftpLike, p: string): Promise<string> {
@@ -287,8 +308,7 @@ async function fetchHostFileBytes(
       poolKey,
       () => connectOneShot(host, SSH_CONNECT_TIMEOUT_MS),
       async (client) => {
-        return await runWithAbort(ctrl.signal, async () => {
-          const sftp = await openSftp(client);
+        return await runWithAbort(ctrl.signal, () => withSftp(client, async (sftp) => {
           // W-2 symlink defense: resolve FIRST, re-check the resolved
           // target against FORBIDDEN_PATH_RE, THEN stat + read. Using the
           // resolved path for stat + read ensures size/isFile checks are
@@ -306,7 +326,7 @@ async function fetchHostFileBytes(
             throw new Error("too_large");
           }
           return await sftpReadFile(sftp, resolvedPath);
-        });
+        }));
       },
       POOL_WAIT_MS,
     );
@@ -547,9 +567,7 @@ async function getHandler(req: Request, res: Response): Promise<void> {
       poolKey,
       () => connectOneShot(host, SSH_CONNECT_TIMEOUT_MS),
       async (client) => {
-        await runWithAbort(ctrl.signal, async () => {
-          const sftp = await openSftp(client);
-
+        await runWithAbort(ctrl.signal, () => withSftp(client, async (sftp) => {
           // Symlink defense (T-78-07): resolve FIRST, re-check the resolved
           // target against FORBIDDEN_PATH_RE, THEN stat and stream. Using
           // the resolved path for stat + stream ensures the size/isFile
@@ -580,7 +598,7 @@ async function getHandler(req: Request, res: Response): Promise<void> {
             disposition: "auto",
             onStreamStart: () => clearTimeout(setupTimer),
           });
-        });
+        }));
       },
       POOL_WAIT_MS,
     );

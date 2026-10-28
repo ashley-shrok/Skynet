@@ -210,6 +210,7 @@ const workspaceUpload = multer({
 /* ------------------------------------------------------------------------ */
 
 type SftpLike = {
+  end?(): void;
   realpath(p: string, cb: (err: Error | null, resolved: string) => void): void;
   stat(
     p: string,
@@ -266,6 +267,26 @@ function openSftp(sshConn: SSHClientType): Promise<SftpLike> {
       resolve(sftp);
     });
   });
+}
+
+/** Open an SFTP session for `fn` and close it afterwards. Each session is a
+ * channel on a pooled SSH connection; sshd caps channels per connection
+ * (MaxSessions), so sessions left open make later requests on that
+ * connection fail. */
+async function withSftp<T>(
+  sshConn: SSHClientType,
+  fn: (sftp: SftpLike) => Promise<T>,
+): Promise<T> {
+  const sftp = await openSftp(sshConn);
+  try {
+    return await fn(sftp);
+  } finally {
+    try {
+      sftp.end?.();
+    } catch {
+      // best-effort
+    }
+  }
 }
 
 function sftpRealpath(sftp: SftpLike, p: string): Promise<string> {
@@ -641,9 +662,8 @@ workspaceRoutes.post(
           poolKey,
           () => connectOneShot(host, SSH_CONNECT_TIMEOUT_MS),
           async (client) => {
-            return await runWithAbort(ctrl.signal, async () => {
+            return await runWithAbort(ctrl.signal, () => withSftp(client, async (sftp) => {
               // Step 6: tilde expansion — sftpRealpath(sftp, ".")
-              const sftp = await openSftp(client);
               const homeDir = await sftpRealpath(sftp, ".");
               const workspaceRoot = await settleTargetRoot(sftp, homeDir, target);
               const absolutePath = buildAbsolutePath(workspaceRoot, String(relativePath));
@@ -669,7 +689,7 @@ workspaceRoutes.post(
                   : e.filename,
               }));
               return { entries, path: String(relativePath) };
-            });
+            }));
           },
         ),
       );
@@ -746,8 +766,7 @@ workspaceRoutes.post(
           poolKey,
           () => connectOneShot(host, SSH_CONNECT_TIMEOUT_MS),
           async (client) => {
-            return await runWithAbort(ctrl.signal, async () => {
-              const sftp = await openSftp(client);
+            return await runWithAbort(ctrl.signal, () => withSftp(client, async (sftp) => {
               const homeDir = await sftpRealpath(sftp, ".");
               const workspaceRoot = await settleTargetRoot(sftp, homeDir, target);
               const absolutePath = buildAbsolutePath(workspaceRoot, relativePath);
@@ -773,7 +792,7 @@ workspaceRoutes.post(
                 filename,
                 extension,
               };
-            });
+            }));
           },
         ),
       );
@@ -857,8 +876,7 @@ workspaceRoutes.put(
           poolKey,
           () => connectOneShot(host, SSH_CONNECT_TIMEOUT_MS),
           async (client) => {
-            return await runWithAbort(ctrl.signal, async () => {
-              const sftp = await openSftp(client);
+            return await runWithAbort(ctrl.signal, () => withSftp(client, async (sftp) => {
               const homeDir = await sftpRealpath(sftp, ".");
               const workspaceRoot = await settleTargetRoot(sftp, homeDir, target);
               const absolutePath = buildAbsolutePath(workspaceRoot, relativePath);
@@ -875,7 +893,7 @@ workspaceRoutes.put(
               );
 
               await sftpWriteBuffer(sftp, absolutePath, Buffer.from(content, "utf8"));
-            });
+            }));
           },
         ),
       );
@@ -959,8 +977,7 @@ workspaceRoutes.delete(
           poolKey,
           () => connectOneShot(host, SSH_CONNECT_TIMEOUT_MS),
           async (client) => {
-            return await runWithAbort(ctrl.signal, async () => {
-              const sftp = await openSftp(client);
+            return await runWithAbort(ctrl.signal, () => withSftp(client, async (sftp) => {
               const homeDir = await sftpRealpath(sftp, ".");
               const workspaceRoot = await settleTargetRoot(sftp, homeDir, target);
               const absolutePath = buildAbsolutePath(workspaceRoot, relativePath);
@@ -978,7 +995,7 @@ workspaceRoutes.delete(
               } else {
                 await sftpUnlink(sftp, resolved);
               }
-            });
+            }));
           },
         ),
       );
@@ -1064,8 +1081,7 @@ workspaceRoutes.post(
           poolKey,
           () => connectOneShot(host, SSH_CONNECT_TIMEOUT_MS),
           async (client) => {
-            return await runWithAbort(ctrl.signal, async () => {
-              const sftp = await openSftp(client);
+            return await runWithAbort(ctrl.signal, () => withSftp(client, async (sftp) => {
               const homeDir = await sftpRealpath(sftp, ".");
               const workspaceRoot = await settleTargetRoot(sftp, homeDir, target);
               const fromPath = buildAbsolutePath(workspaceRoot, from);
@@ -1090,7 +1106,7 @@ workspaceRoutes.post(
               );
 
               await sftpRename(sftp, resolvedFrom, toPath);
-            });
+            }));
           },
         ),
       );
@@ -1172,8 +1188,7 @@ workspaceRoutes.post(
           poolKey,
           () => connectOneShot(host, SSH_CONNECT_TIMEOUT_MS),
           async (client) => {
-            return await runWithAbort(ctrl.signal, async () => {
-              const sftp = await openSftp(client);
+            return await runWithAbort(ctrl.signal, () => withSftp(client, async (sftp) => {
               const homeDir = await sftpRealpath(sftp, ".");
               const workspaceRoot = await settleTargetRoot(sftp, homeDir, target);
               const absolutePath = buildAbsolutePath(workspaceRoot, relativePath);
@@ -1186,7 +1201,7 @@ workspaceRoutes.post(
               assertNotReserved([absolutePath, underResolvedParent(resolvedParent, absolutePath)], workspaceRoot, target);
 
               await sftpMkdir(sftp, absolutePath);
-            });
+            }));
           },
         ),
       );
@@ -1268,8 +1283,7 @@ workspaceRoutes.post(
           poolKey,
           () => connectOneShot(host, SSH_CONNECT_TIMEOUT_MS),
           async (client) => {
-            return await runWithAbort(ctrl.signal, async () => {
-              const sftp = await openSftp(client);
+            return await runWithAbort(ctrl.signal, () => withSftp(client, async (sftp) => {
               const homeDir = await sftpRealpath(sftp, ".");
               const workspaceRoot = await settleTargetRoot(sftp, homeDir, target);
               const absolutePath = buildAbsolutePath(workspaceRoot, relativePath);
@@ -1282,7 +1296,7 @@ workspaceRoutes.post(
               assertNotReserved([absolutePath, underResolvedParent(resolvedParent, absolutePath)], workspaceRoot, target);
 
               await sftpCreateEmpty(sftp, absolutePath);
-            });
+            }));
           },
         ),
       );
@@ -1375,8 +1389,7 @@ workspaceRoutes.post(
           poolKey,
           () => connectOneShot(host, SSH_CONNECT_TIMEOUT_MS),
           async (client) => {
-            return await runWithAbort(ctrl.signal, async () => {
-              const sftp = await openSftp(client);
+            return await runWithAbort(ctrl.signal, () => withSftp(client, async (sftp) => {
               const homeDir = await sftpRealpath(sftp, ".");
               const workspaceRoot = await settleTargetRoot(sftp, homeDir, target);
               const absolutePath = buildAbsolutePath(workspaceRoot, relativePath);
@@ -1393,7 +1406,7 @@ workspaceRoutes.post(
               );
 
               await sftpWriteBuffer(sftp, absolutePath, fileBuffer);
-            });
+            }));
           },
         ),
       );
@@ -1469,8 +1482,7 @@ workspaceRoutes.get(
           poolKey,
           () => connectOneShot(host, SSH_CONNECT_TIMEOUT_MS),
           async (client) => {
-            await runWithAbort(ctrl.signal, async () => {
-              const sftp = await openSftp(client);
+            await runWithAbort(ctrl.signal, () => withSftp(client, async (sftp) => {
               const homeDir = await sftpRealpath(sftp, ".");
               const workspaceRoot = await settleTargetRoot(sftp, homeDir, target);
               const absolutePath = buildAbsolutePath(workspaceRoot, relativePath);
@@ -1500,7 +1512,7 @@ workspaceRoutes.get(
                   releaseSlot();
                 },
               });
-            });
+            }));
           },
         );
     } catch (err) {

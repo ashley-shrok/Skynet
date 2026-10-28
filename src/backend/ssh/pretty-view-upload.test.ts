@@ -353,8 +353,9 @@ describe("Test 4 + Test 5: happy path — single file, atomic rename", () => {
       "/home/ash/pretty-view-uploads/2026-07-20/143211-log.txt",
     );
 
-    // Batch cleared on ready_to_inject
+    // Batch cleared on ready_to_inject, and its SFTP session closed
     await waitForNoBatch("mqid-test");
+    expect(sftp.end).toHaveBeenCalledTimes(1);
   });
 });
 
@@ -385,6 +386,9 @@ describe("Test 6: chunk out of order rejected + temp unlinked", () => {
         (e as { reason?: string }).reason === "chunk_out_of_order",
     );
     expect(sftp.unlink).toHaveBeenCalled();
+    // The emptied batch closes its SFTP session once the temp file is gone.
+    await new Promise((r) => setTimeout(r, 20));
+    expect(sftp.end).toHaveBeenCalledTimes(1);
   });
 });
 

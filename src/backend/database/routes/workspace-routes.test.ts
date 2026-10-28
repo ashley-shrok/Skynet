@@ -147,6 +147,7 @@ interface StubSftp {
   rename: Mock;
   ext_openssh_rename: Mock;
   createWriteStream: Mock;
+  end: Mock;
 }
 
 interface StubClient {
@@ -183,6 +184,7 @@ function makeDefaultWriteStream() {
 function resetStubClient() {
   const fakeWriteStream = makeDefaultWriteStream();
   stubSftp = {
+    end: vi.fn(),
     realpath: vi.fn(
       (p: string, cb: (err: Error | null, resolved: string) => void) => {
         queueMicrotask(() => cb(null, p));
@@ -440,6 +442,8 @@ describe("POST /workspace/list", () => {
     expect(body.entries).toHaveLength(1);
     expect(body.path).toBe("");
     expect((body.entries[0] as { name: string }).name).toBe("test.txt");
+    // The SFTP session is closed once the listing is read.
+    expect(stubSftp.end).toHaveBeenCalledTimes(1);
   });
 
   it("Test 2: no auth (mockUserId = null) → 401 Unauthorized", async () => {
