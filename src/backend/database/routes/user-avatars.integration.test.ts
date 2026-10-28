@@ -365,6 +365,8 @@ vi.mock("../../matrix/matrix-admin-client.js", () => ({
   // via the agent-services registry); unused by these tests.
   getUserAccountStatus: vi.fn(),
   getRoomMembershipOf: vi.fn(),
+  // Imported by the identity un-archive path; unused by these tests.
+  setUserDisplayName: vi.fn(async () => ({ ok: true })),
 }));
 
 vi.mock("../../matrix/username-to-mxid.js", () => ({
