@@ -4178,6 +4178,39 @@ describe("dead channel after a host reboot — re-acquire", () => {
     expect(acquireMock).toHaveBeenCalledTimes(1);
     expect(countOps("warn", "fleet_status_channel_dead_reacquire")).toBe(0);
   });
+
+  it("an overlapping tick does not open a second connection while a reconnect is in progress", async () => {
+    const before = buildClosableChannel(44444, "sess-before");
+    const after = buildClosableChannel(44444, "sess-after");
+    let resolveSlow: (c: SshChannel | null) => void = () => {};
+    const slowConnect = new Promise<SshChannel | null>((r) => (resolveSlow = r));
+    let calls = 0;
+    const { orchestrator, tick, acquireMock } = startWith(async () => {
+      calls++;
+      return calls === 1 ? before : slowConnect;
+    });
+
+    await orchestrator.start(); // tick 1
+    before.closed = true;
+
+    // Tick 2 starts the reconnect and blocks on the slow connect.
+    const tickA = tick();
+    await Promise.resolve();
+    expect(acquireMock).toHaveBeenCalledTimes(2);
+
+    // Ticks 3..15 run while it's still connecting — including the tick-15
+    // refresh, whose add-branch sees the host untracked.
+    for (let i = 0; i < 13; i++) await tick();
+    expect(acquireMock).toHaveBeenCalledTimes(2);
+
+    resolveSlow(after);
+    await tickA;
+    expect(acquireMock).toHaveBeenCalledTimes(2);
+    expect(countOps("warn", "fleet_status_channel_dead_reacquire")).toBe(1);
+
+    await tick();
+    expect(after.getCalls().length).toBeGreaterThan(0);
+  });
 });
 
 // ==============================================================================

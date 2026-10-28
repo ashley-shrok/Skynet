@@ -1139,9 +1139,15 @@ if (process.env.VITEST !== "true") {
             enableHostd(client);
 
             // Auto-remove on disconnect
-            client.on("end", () => hostClients.delete(host.id));
-            client.on("close", () => hostClients.delete(host.id));
-            client.on("error", () => hostClients.delete(host.id));
+            // Only drop the entry if it is still THIS client — a late close
+            // from an older client would otherwise evict the live one, and
+            // its channel's isClosed() would trigger a needless reconnect.
+            const dropIfCurrent = () => {
+              if (hostClients.get(host.id) === client) hostClients.delete(host.id);
+            };
+            client.on("end", dropIfCurrent);
+            client.on("close", dropIfCurrent);
+            client.on("error", dropIfCurrent);
 
             // Bounty b31a5c8e (Phase 101): per-host semaphore now shared via
             // registry — fleet-status + substrate + route producers running on

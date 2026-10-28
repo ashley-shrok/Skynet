@@ -1653,6 +1653,11 @@ export function createSshPollOrchestrator(
   // -----------------------------------------------------------------------
   const inFlight = new Set<string>();
   const skipCount = new Map<string, number>();
+  // Hosts whose dead channel is being replaced. Ticks can overlap (a slow
+  // reconnect outlasts the 2s interval), so a second tick must neither
+  // re-collect these as dead nor acquire them via the add-branch — two
+  // concurrent acquires would open two connections and leak one.
+  const reconnecting = new Set<string>();
   let pollTimer: ReturnType<typeof setInterval> | null = null;
   let sweepTimer: ReturnType<typeof setInterval> | null = null;
   let pollTickCount = 0;
@@ -3519,7 +3524,7 @@ export function createSshPollOrchestrator(
         // Add-branch: acquire channels for hosts that appeared in the fresh
         // list but aren't tracked yet.
         for (const host of freshHosts) {
-          if (!perHostState.has(host.id)) {
+          if (!perHostState.has(host.id) && !reconnecting.has(host.id)) {
             await tryAcquireHostChannel(host);
           }
         }
@@ -3570,12 +3575,22 @@ export function createSshPollOrchestrator(
     // add-branch above never re-acquires (the host is still tracked). Drop
     // the dead entry and acquire fresh — on failure the host stays untracked
     // and the next refresh's add-branch retries it. Collected first so the
-    // re-insert doesn't land back in this tick's iteration twice.
+    // re-insert doesn't land back in this tick's iteration twice; all of
+    // them are claimed in `reconnecting` up front so an overlapping tick
+    // leaves them alone.
     const deadChannelHosts = [...perHostState.values()].filter(
-      (s) => !inFlight.has(s.host.id) && s.channel.isClosed?.() === true,
+      (s) =>
+        !inFlight.has(s.host.id) &&
+        !reconnecting.has(s.host.id) &&
+        s.channel.isClosed?.() === true,
     );
+    for (const hostState of deadChannelHosts) reconnecting.add(hostState.host.id);
     for (const hostState of deadChannelHosts) {
       const hostId = hostState.host.id;
+      if (stopped) {
+        reconnecting.delete(hostId);
+        continue;
+      }
       systemLogger.warn("Fleet-status: SSH connection for host is closed — reconnecting", {
         operation: "fleet_status_channel_dead_reacquire",
         fleetHostId: hostId,
@@ -3587,7 +3602,11 @@ export function createSshPollOrchestrator(
       // closes whatever client is now cached for the host.
       perHostState.delete(hostId);
       skipCount.delete(hostId);
-      await tryAcquireHostChannel(hostState.host);
+      try {
+        await tryAcquireHostChannel(hostState.host);
+      } finally {
+        reconnecting.delete(hostId);
+      }
       systemLogger.info("Fleet-status: SSH reconnect for host finished", {
         operation: "fleet_status_channel_reacquire_result",
         fleetHostId: hostId,
