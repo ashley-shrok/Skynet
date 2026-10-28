@@ -1,8 +1,9 @@
 /**
- * shape-interrupt-button — PrettyView end of the interrupt button: hiding
- * cancelled prompts, giving their words back, the agent-side "Interrupted"
- * bubble, the work indicator after a stop, and the greyed-out button while a
- * send is being delivered. Scaffolding mirrors PrettyView.optimistic-bubbles.
+ * shape-interrupt-button — PrettyView end of Stop: hiding cancelled prompts,
+ * giving their words back, the agent-side "Interrupted" bubble, the work
+ * indicator after a stop, and Stop being unavailable while a send is being
+ * delivered. Since shape-stop-on-orb the Stop is the working orb (no Stop in
+ * the compose box). Scaffolding mirrors PrettyView.optimistic-bubbles.
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
@@ -64,7 +65,7 @@ vi.mock("@/features/terminal/IdentityBadge", () => ({
   IdentityBadge: () => null,
 }));
 
-// shape-conversation-view: Stop only renders while the agent is working, so
+// The Stop orb only renders while the agent is working, so
 // these tests hold the session's working signal on (tests that need it off
 // flip workingRef.value).
 const { workingRef } = vi.hoisted(() => ({ workingRef: { value: true } }));
@@ -226,7 +227,7 @@ describe("PrettyView — interrupt button (shape-interrupt-button)", () => {
 
   const bubble = (c: HTMLElement, id: string) => c.querySelector(`[data-event-id="${id}"]`);
   const interruptBtn = (c: HTMLElement) =>
-    c.querySelector('button[aria-label="Interrupt"]') as HTMLButtonElement;
+    c.querySelector('[data-testid="pv-wip-stop"]') as HTMLButtonElement;
   const press = (c: HTMLElement) =>
     act(() => {
       fireEvent.click(interruptBtn(c));
@@ -341,28 +342,29 @@ describe("PrettyView — interrupt button (shape-interrupt-button)", () => {
     expect(container.querySelector(WIP_SELECTOR)).toBeNull();
   });
 
-  it("the button is greyed out while a send is still being delivered, and comes back when it lands", async () => {
+  it("the orb can't stop while a send is still being delivered, and can again when it lands", async () => {
     const { container, ws } = await mount();
-    expect(interruptBtn(container).disabled).toBe(false);
+    expect(interruptBtn(container)).not.toBeNull();
     act(() => {
       fireEvent.change(container.querySelector(PRIMARY)!, { target: { value: "hello" } });
       fireEvent.keyDown(container.querySelector(PRIMARY)!, { key: "Enter" });
     });
-    await waitFor(() => expect(interruptBtn(container).disabled).toBe(true));
+    await waitFor(() => expect(interruptBtn(container)).toBeNull());
     sendWsFrame(ws, { type: "message", role: "user", content: "hello", eventId: "u5", ts: 1 });
-    await waitFor(() => expect(interruptBtn(container).disabled).toBe(false));
+    await waitFor(() => expect(interruptBtn(container)).not.toBeNull());
   });
 
   const feedback = (c: HTMLElement) =>
     c.querySelector('[data-testid="interrupt-feedback"]')?.getAttribute("data-feedback") ?? null;
 
-  it("pressing shows 'Stopping' at once, then the verdict, then the Stop button again", async () => {
+  it("pressing shows 'Stopping' at once, then the verdict, then the Stop orb again", async () => {
     const { container, ws, onInterrupt } = await mount();
     press(container);
     expect(onInterrupt).toHaveBeenCalledTimes(1);
     expect(feedback(container)).toBe("stopping");
     expect(container.textContent).toContain("Stopping");
     expect(interruptBtn(container)).toBeNull();
+    expect(container.querySelector('[data-testid="pv-wip"]')!.getAttribute("data-stop")).toBe("pressed");
 
     vi.useFakeTimers();
     sendWsFrame(ws, { type: "interrupt_result", verdict: "cancelled", eventId: "u8", content: null });
@@ -378,7 +380,7 @@ describe("PrettyView — interrupt button (shape-interrupt-button)", () => {
   it.each([
     ["stopped", { verdict: "stopped" }, "Stopped"],
     ["nothing", { verdict: "none", reason: "agent_output" }, "Nothing to stop"],
-  ] as const)("a %s verdict is shown on the button", async (state, frame, label) => {
+  ] as const)("a %s verdict is shown on the working line", async (state, frame, label) => {
     const { container, ws } = await mount();
     act(() => {
       fireEvent.click(interruptBtn(container));
@@ -473,8 +475,85 @@ describe("PrettyView — interrupt button (shape-interrupt-button)", () => {
     await waitFor(() => expect(container.querySelectorAll('[data-event-id^="pending-"]')).toHaveLength(1));
     sendWsFrame(ws, { type: "message", role: "assistant", content: "Interrupted", eventId: "m6", ts: 1, interrupted: true });
     expect(container.querySelectorAll('[data-event-id^="pending-"]')).toHaveLength(1);
-    expect(interruptBtn(container).disabled).toBe(true);
+    expect(interruptBtn(container)).toBeNull();
   });
+  describe("the orb is the Stop (shape-stop-on-orb)", () => {
+    const composeRow = (c: HTMLElement) => c.querySelector('[data-testid="compose-row"]')!;
+
+    it("the compose box has no Stop while the agent works — the round button is the thumbs-up", async () => {
+      const { container } = await mount();
+      expect(composeRow(container).querySelector('[data-action="stop"]')).toBeNull();
+      expect(composeRow(container).querySelector('button[aria-label="Interrupt"]')).toBeNull();
+      const thumbs = composeRow(container).querySelector('button[aria-label="Send \'thumbs up\'"]')!;
+      expect(thumbs.getAttribute("data-main")).toBe("true");
+      // Typing: Send is the main button and the quiet button beside it is the thumbs-up, not Stop.
+      act(() => {
+        fireEvent.change(container.querySelector(PRIMARY)!, { target: { value: "more" } });
+      });
+      expect(composeRow(container).querySelector('[data-action="stop"]')).toBeNull();
+      expect(composeRow(container).querySelector('[data-action="thumbs"]')!.getAttribute("data-main")).toBeNull();
+    });
+
+    it("while the turn runs the orb is a Stop button with the square look", async () => {
+      const { container, onInterrupt } = await mount();
+      const btn = interruptBtn(container);
+      expect(btn).not.toBeNull();
+      expect(btn.tagName).toBe("BUTTON");
+      expect(btn.getAttribute("aria-label")).toBe("Stop");
+      expect(btn.getAttribute("title")).toBe("Stop");
+      expect(container.querySelector('[data-testid="pv-wip"]')!.getAttribute("data-stop")).toBe("ready");
+      press(container);
+      expect(onInterrupt).toHaveBeenCalledTimes(1);
+    });
+
+    it("the indicator stays up past the turn's end until the outcome has shown", async () => {
+      const { container, ws } = await mount();
+      vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "Date"] });
+      press(container);
+      sendWsFrame(ws, { type: "message", role: "assistant", content: "Interrupted", eventId: "m9", ts: 2, interrupted: true });
+      sendWsFrame(ws, { type: "interrupt_result", verdict: "stopped" });
+      expect(container.querySelector(WIP_SELECTOR)).not.toBeNull();
+      expect(feedback(container)).toBe("stopped");
+      act(() => {
+        vi.advanceTimersByTime(2600);
+      });
+      expect(feedback(container)).toBeNull();
+      expect(container.querySelector(WIP_SELECTOR)).toBeNull();
+    });
+
+    it("a press that never went out (no connection) doesn't block the next one", async () => {
+      const { container, ws, onInterrupt } = await mount();
+      vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "Date"] });
+      ws.readyState = 3; // CLOSED
+      press(container);
+      expect(feedback(container)).toBe("failed");
+      act(() => {
+        vi.advanceTimersByTime(2100);
+      });
+      ws.readyState = 1;
+      // The orb offers Stop again — and a tap on it does go out.
+      expect(interruptBtn(container)).not.toBeNull();
+      press(container);
+      expect(onInterrupt).toHaveBeenCalledTimes(1);
+      expect(feedback(container)).toBe("stopping");
+    });
+
+    it("after a sent press the orb doesn't offer Stop again until the repeat-press window has passed", async () => {
+      const { container, ws } = await mount();
+      vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "Date"] });
+      press(container);
+      sendWsFrame(ws, { type: "interrupt_result", verdict: "none", reason: "agent_output" });
+      act(() => {
+        vi.advanceTimersByTime(2400);
+      });
+      expect(interruptBtn(container)).toBeNull();
+      act(() => {
+        vi.advanceTimersByTime(300);
+      });
+      expect(interruptBtn(container)).not.toBeNull();
+    });
+  });
+
   describe("turn-ending message turns the work indicator off at once", () => {
     const working = (activityMtime: number, stoppedMtime: number) =>
       act(() => {

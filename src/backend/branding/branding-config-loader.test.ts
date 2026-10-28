@@ -47,7 +47,6 @@ const bundledDefaultJson = {
   iconPath: "/branding/icon.png",
   wordmarkPath: "/branding/wordmark.png",
   faviconPath: "/branding/favicon.svg",
-  wipIndicatorPath: "/branding/wip-cube.webp",
   pwaIcons: [
     { src: "/branding/pwa-icon-192.png", sizes: "192x192", type: "image/png" },
     { src: "/branding/pwa-icon-512.png", sizes: "512x512", type: "image/png" },
@@ -110,7 +109,6 @@ function validFixture() {
     iconPath: "/branding/icon.png",
     wordmarkPath: "/branding/wordmark.png",
     faviconPath: "/branding/favicon.svg",
-    wipIndicatorPath: "/branding/wip-cube.webp",
     pwaIcons: [
       {
         src: "/branding/pwa-icon-192.png",
@@ -256,36 +254,30 @@ describe("branding-config-loader — Phase 74 shape guard (avatarDirectorSpec + 
     expect(cfg.pwaIcons.length).toBe(1);
   });
 
-  // ─── Phase 82 shape-guard tests (wipIndicatorPath) ────────────────────────
+  // ─── shape-stop-on-orb: wipIndicatorPath is retired ──────────────────────
 
-  it("Test 8: rejects when wipIndicatorPath is missing → bundled defaults", async () => {
+  it("Test 8: a config without wipIndicatorPath is valid — the operator's config comes back", async () => {
     const { loadBrandingConfig } = await freshLoader();
-    const bad = validFixture() as Partial<ReturnType<typeof validFixture>>;
-    delete bad.wipIndicatorPath;
     state.configError = null;
-    state.configJson = bad;
+    state.configJson = validFixture();
 
     const cfg = await loadBrandingConfig();
 
-    // Shape guard rejected → bundled defaults returned (which carry the
-    // canonical wipIndicatorPath: "/branding/wip-cube.webp" per Phase 82).
-    expect(cfg.wipIndicatorPath).toBe("/branding/wip-cube.webp");
+    // validFixture has 1 icon, bundled default 2 — proves the operator config.
+    expect(cfg.pwaIcons.length).toBe(1);
+    expect("wipIndicatorPath" in cfg).toBe(false);
   });
 
-  it("Test 9: rejects when wipIndicatorPath is a number → bundled defaults", async () => {
+  it("Test 9: an older config still naming a working image loads, with the key dropped", async () => {
     const { loadBrandingConfig } = await freshLoader();
-    const bad = { ...validFixture(), wipIndicatorPath: 42 };
     state.configError = null;
-    state.configJson = bad;
+    state.configJson = { ...validFixture(), wipIndicatorPath: "/branding/custom.webp" };
 
     const cfg = await loadBrandingConfig();
 
-    // Shape guard rejected at the typeof branch → bundled defaults returned.
-    // Assert BOTH the wipIndicatorPath value AND the 2-icon bundled shape
-    // (validFixture has 1 icon) to distinguish "got bundled default" from
-    // "got operator config unchanged".
-    expect(cfg.wipIndicatorPath).toBe("/branding/wip-cube.webp");
-    expect(cfg.pwaIcons.length).toBe(2);
+    expect(cfg.pwaIcons.length).toBe(1);
+    expect(cfg.appName).toBe("Skynet");
+    expect("wipIndicatorPath" in cfg).toBe(false);
   });
 
 });

@@ -4,43 +4,42 @@
 // rotating on two axes with a radial pulse. Selected by user from a
 // gallery ("Dense 4³" at 2.5× base speed, 1.5× original 50px footprint).
 //
-// 2026-09-05: swapped the canvas rAF render for a pre-rendered animated
-// WebP (public/wip-cube.webp). Diagnosis: the rAF loop repainted the canvas
-// texture every frame, forcing GPU re-upload + Layerize/Commit/PrePaint
-// pipeline every rAF cycle — the pipeline cost is invariant to canvas size,
-// so a 52×52 indicator burned 40–50% idle CPU on the Skynet tab. Replacing
-// with an <img> loads the animation once and lets the browser's image
-// decoder path play it back at near-zero cost.
+// 2026-09-05: a pre-rendered animated image replaced the canvas (the rAF
+// repaint burned 40–50% idle CPU); retired with the image on 2026-10-28.
 //
-// Rates nudged to make the loop seamless at T = 2π s (variant B):
-//   ROT_X_RATE 0.7 → 0.75, PULSE_RATE 5.5 → 6.0. Y unchanged at 1.0.
-// Renderer source: scripts/render-wip-cube.py — Pillow-based, runs the same
-// rot3d + pulse math the canvas used, dumps 180 frames at 35ms/frame (30fps
-// effective, 6300ms total = 0.27% slow vs exact 2π, imperceptible).
-// Regenerate with `python3 scripts/render-wip-cube.py docker/branding-defaults/wip-cube.webp`.
-// 2026-09-07 (Phase 82): image src is now branding-configurable via useBrandingConfig().wipIndicatorPath; asset moved from public/ to docker/branding-defaults/ so it flows through the branding router's per-file fallback (override → bundled default). Operators drop /opt/skynet/branding/wip-cube.webp for a custom animation — no restart needed.
+// 2026-10-24 (shape-conversation-view): an orb in the agent's colour — an
+// arc spinning around a breathing core, beside the word "Working"
+// (conversation.css .pv-wip*). Only transform / opacity animate, so it costs
+// nothing per frame.
 //
-// 2026-10-24 (shape-conversation-view): the default is now an orb in the
-// agent's colour — an arc spinning around a breathing core, beside the word
-// "Working" (conversation.css .pv-wip*). Only transform / opacity animate, so
-// it costs nothing per frame. An installation that supplies its own working
-// image (branding wipIndicatorCustom) keeps its image.
+// 2026-10-28 (shape-stop-on-orb): the orb is the Stop — the compose box has
+// none. While the agent's own turn can be stopped, the core is a still small
+// square and a button lies over the orb. When it can't (only background
+// helpers running, a message still being delivered) there is no button —
+// nothing says "Stop", to the eye or to a screen reader. The button is laid
+// over the orb rather than wrapped around it, so the orb itself never
+// remounts and its spin never restarts. After a press the ring pauses and the
+// line shows the outcome (Stopping → Stopped / Cancelled / …); PrettyView
+// keeps the indicator mounted until that outcome has shown. The same orb on
+// every installation — the branding custom-image option is gone.
 //
 // Mount condition: PrettyView's agentWorking (main turn working, or a
-// background sub-agent running).
+// background sub-agent running), or a Stop outcome still showing.
 //
 // Deliberately NOT a bubble, so at-a-glance parsing distinguishes "session is
 // busy" from "assistant said something." role="status" + aria-label carry
-// semantics for AT.
+// semantics for AT (on the orb, so the Stop button sits outside the live
+// region).
 //
 // Work narration (2026-10-25): an optional one-line "where the agent is in
 // the job" from the backend, in a short and a long version. Once the turn's
-// first line arrives it takes the place of "Working" (beside the custom image
-// on installations that have one); the long version shows when it fits on one
+// first line arrives it takes the place of "Working"; the long version shows
+// when it fits on one
 // line, else the short one. Never wraps. A new line fades in over the old one.
+// A Stop outcome takes the line's place while it shows.
 
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
-import { useBrandingConfig } from "@/branding/branding-store";
+import { useEffect, useLayoutEffect, useRef, useState, type MouseEvent } from "react";
+import { INTERRUPT_FEEDBACK_LABEL, type InterruptFeedback } from "./interrupt-feedback";
 
 const FADE_MS = 200;
 
@@ -100,40 +99,74 @@ function NarrationLine({ line, className }: { line: Narration; className: string
   );
 }
 
-export function WipBubble({ narration = null }: { narration?: Narration | null }) {
-  const { wipIndicatorPath, wipIndicatorCustom } = useBrandingConfig();
-  if (wipIndicatorCustom) {
-    return (
-      <div className="flex justify-start items-center mt-3">
-        <img
-          src={wipIndicatorPath}
-          alt=""
-          role="status"
-          aria-label="Claude is working"
-          className="h-[52px] w-[52px] flex-none"
-        />
-        {narration && (
-          <span className="ml-2.5 flex min-w-0 flex-1">
-            <NarrationLine line={narration} className="text-sm text-muted-foreground" />
-          </span>
-        )}
-      </div>
-    );
-  }
+/** The orb as Stop. Omitted where nothing can be stopped (read-only views). */
+export type WipStop = {
+  /** A press would stop something right now: the orb shows the square. */
+  canStop: boolean;
+  onStop: () => void;
+  /** What the last press is doing / did; null when there is none to show. */
+  feedback: InterruptFeedback | null;
+};
+
+export function WipBubble({ narration = null, stop }: { narration?: Narration | null; stop?: WipStop }) {
+  const feedback = stop?.feedback ?? null;
+  const ready = stop !== undefined && stop.canStop && feedback === null;
+  const state = feedback ? "pressed" : ready ? "ready" : "working";
+  const showLine = narration !== null && feedback === null;
+  // A keyboard press takes the button away (the outcome shows instead), so
+  // focus moves to the indicator, where the outcome is announced; when the
+  // indicator goes away still holding focus, focus goes on to the compose box
+  // rather than dropping to the top of the page.
+  const wipRef = useRef<HTMLDivElement>(null);
+  useLayoutEffect(() => {
+    const wip = wipRef.current;
+    // Layout-effect cleanup runs before the node leaves the document.
+    return () => {
+      if (!wip || !wip.contains(document.activeElement)) return;
+      wip.closest("[data-pv-root]")?.querySelector<HTMLTextAreaElement>("textarea")?.focus({ preventScroll: true });
+    };
+  }, []);
+  const onPress = (e: MouseEvent<HTMLButtonElement>) => {
+    let keyboard = false;
+    try {
+      keyboard = e.currentTarget.matches(":focus-visible");
+    } catch {
+      /* selector unsupported — leave focus alone */
+    }
+    stop?.onStop();
+    if (keyboard) wipRef.current?.focus();
+  };
   return (
     <div className="flex justify-start">
       <div
+        ref={wipRef}
+        tabIndex={-1}
         className="pv-wip"
-        role="status"
-        aria-label="Claude is working"
         data-testid="pv-wip"
+        data-stop={state}
         // With a line, the indicator spans the row so the line can use the room.
-        style={narration ? { display: "flex", flex: "1 1 auto", minWidth: 0 } : undefined}
+        style={showLine ? { display: "flex", flex: "1 1 auto", minWidth: 0 } : undefined}
       >
-        <span className="pv-wip-orb" aria-hidden="true">
-          <i />
+        <span className="pv-wip-orbwrap">
+          {ready && (
+            <button
+              type="button"
+              className="pv-wip-stop"
+              data-testid="pv-wip-stop"
+              onClick={onPress}
+              aria-label="Stop"
+              title="Stop"
+            />
+          )}
+          <span className="pv-wip-orb" role="status" aria-label="Claude is working">
+            <i aria-hidden="true" />
+          </span>
         </span>
-        {narration ? (
+        {feedback ? (
+          <span className="pv-wip-word" data-testid="interrupt-feedback" data-feedback={feedback} aria-hidden="true">
+            {INTERRUPT_FEEDBACK_LABEL[feedback]}
+          </span>
+        ) : showLine ? (
           <NarrationLine line={narration} className="pv-wip-word" />
         ) : (
           <span className="pv-wip-word" aria-hidden="true">
@@ -141,6 +174,14 @@ export function WipBubble({ narration = null }: { narration?: Narration | null }
           </span>
         )}
       </div>
+      {/* Mounted whenever Stop is wired, before any press, so screen readers
+          hear "Stopping" too — a live region created along with its text is
+          often not announced. */}
+      {stop && (
+        <span role="status" aria-live="polite" className="sr-only">
+          {feedback ? INTERRUPT_FEEDBACK_LABEL[feedback] : ""}
+        </span>
+      )}
     </div>
   );
 }

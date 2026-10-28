@@ -52,7 +52,6 @@ describe("WhatsNewModal", () => {
       iconPath: "/branding/icon.png",
       wordmarkPath: "/branding/wordmark.png",
       faviconPath: "/branding/favicon.svg",
-      wipIndicatorPath: "/branding/wip-cube.webp",
       pwaIcons: [],
       avatarDirectorSpec: "",
       avatarGammaDefault: 0.7,

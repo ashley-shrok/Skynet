@@ -164,6 +164,24 @@ describe("PrettyView — WIP bubble while a background sub-agent runs", () => {
     await waitFor(() => expect(container.querySelector(WIP_SELECTOR)).toBeNull());
   });
 
+  // shape-stop-on-orb: Stop is for the main turn — background agents run on
+  // through it, so the orb doesn't offer Stop for them.
+  it("with only a background agent running, the orb shows but offers no Stop", async () => {
+    const { container } = render(
+      <PrettyView hostId={1} tmuxSession="s1" isVisible={true} onSend={vi.fn((_text: string) => true)} onInterrupt={vi.fn()} />,
+    );
+    const ws = getCurrentWs();
+    act(() => ws.onopen?.());
+    sendWsFrame(ws, { type: "session", sessionFile: "/tmp/x.jsonl" });
+    sendWsFrame(ws, {
+      type: "backgrounded_agents",
+      agents: [{ toolUseId: "toolu_b", subagentType: "general-purpose", description: "Audit", startedAt: 1 }],
+    });
+    await waitFor(() => expect(container.querySelector(WIP_SELECTOR)).not.toBeNull());
+    expect(container.querySelector('[data-testid="pv-wip"]')!.getAttribute("data-stop")).toBe("working");
+    expect(container.querySelector('[data-testid="pv-wip-stop"]')).toBeNull();
+  });
+
   it("does not show the bubble for background shells alone", async () => {
     const { container, ws } = mountStreaming();
     sendWsFrame(ws, {

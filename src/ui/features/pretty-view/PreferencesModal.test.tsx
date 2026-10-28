@@ -400,7 +400,6 @@ describe("PreferencesModal", () => {
       iconPath: "/branding/acme.png",
       wordmarkPath: "/branding/acme-wordmark.png",
       faviconPath: "/branding/acme.svg",
-      wipIndicatorPath: "/branding/wip.webp",
       pwaIcons: [],
       avatarDirectorSpec: "x",
       avatarGammaDefault: 0.7,

@@ -1577,8 +1577,7 @@ crown, then gear.
   neutral grey bubble on the right. A faint **speak** button sits just
   outside each agent bubble's bottom-right corner (inside it on narrow
   panes). While the agent works, an **orb** in its colour spins beside the
-  word "Working" (an installation with its own working image in its branding
-  shows that instead). **Load older messages** is a small pill at the top
+  word "Working"; it is also the Stop (§ Stop below). **Load older messages** is a small pill at the top
   of the list; **Jump to latest** (↓) floats centred just above the
   composer once the user has scrolled up. The agent's **task list** (its
   checklist while it works through steps) sits as a slim card just above
@@ -1613,14 +1612,12 @@ crown, then gear.
   menu. Right: the **agent memory** pie, the **sound-wave** (voice mode),
   the **mic** (dictation), and one round off-white **main button** that does
   the likely next thing — **Send** while there's something typed or
-  attached, **Stop** (square) while the agent is working, otherwise a
-  **thumbs-up** (sends "thumbs up"). With text typed, the thumbs-up — or
-  Stop, while the agent works — sits as a small grey button just left of
-  Send, so a thumbs-up never needs the draft cleared. With nothing typed,
-  a small grey Stop always sits beside the thumbs-up (and beside Resume
-  while an aside is up), so Stop is never out of reach. Background sub-agents don't count as working here
-  (they run on through a Stop). In a relay room only
-  the mic and Send show.
+  attached, **Resume** while an aside is up, otherwise a **thumbs-up**
+  (sends "thumbs up" — mid-turn too, read once the turn ends). With text
+  typed, the thumbs-up sits as a small grey button just left of Send, so a
+  thumbs-up never needs the draft cleared. There is no Stop in the
+  composer — the working orb is the Stop (§ Stop below). In a relay room
+  only the mic and Send show.
 
 - **Agent memory (the pie in the composer's row).** Shows how full the
   agent's context window is. Grey with no number while there's room;
@@ -1642,8 +1639,9 @@ crown, then gear.
   (§ Compacting yourself); you're compacted, then woken with the
   supervisor's `Compaction done` event.
 
-- **Work indicator (in the conversation, below the last message).** A
-  spinning cube while the agent is working. Beside it, a short line says
+- **Work indicator (in the conversation, below the last message).** The
+  orb in the agent's colour while the agent is working — the same on every
+  installation — and the Stop (below). Beside it, a short line says
   where the agent is in the job — what's behind it, what it's doing now,
   what's next — written every minute or so by a small model that reads the
   agent's recent steps, and only while someone has the conversation open.
@@ -1683,28 +1681,27 @@ crown, then gear.
   Each recording starts unmuted.
   *Agent-side: none.*
 
-- **Stop (square) button — interrupt** (agent conversations). The
-  composer's round main button while the agent's main turn is working and
-  nothing is typed; with text typed, a small grey square just left of Send;
-  otherwise a small grey square beside the thumbs-up (or beside Resume). One
-  press does whichever of
+- **Stop — tap the working orb** (agent conversations). While the agent's
+  own turn is running, the work indicator's orb has a small still square in
+  its middle and tapping it (or Tab to it, then Enter) stops the agent. When
+  a tap couldn't stop anything — only background sub-agents running (they
+  run on through a Stop), or the user's message still being delivered — the
+  orb shows its plain breathing dot and does nothing. There is no Stop
+  anywhere else; when the app hasn't noticed the agent working, or the
+  user has scrolled up, the orb isn't in view. One press does whichever of
   these fits the moment:
-  - **Still being delivered** (the message hasn't reached the agent yet):
-    the button is greyed out — there is nothing to stop.
   - **Cancel** (pressed before the agent has done anything with the latest
     message): the message is withdrawn — its bubble disappears and the
     user's words (and attachments) come back into the compose box — above
     anything they had already started typing, with a blank line between.
   - **Stop** (the agent had started): the agent stops, the user's message
-    stays, and an agent-side bubble reading **Interrupted** confirms it;
-    the work indicator goes off.
+    stays, and an agent-side bubble reading **Interrupted** confirms it.
   - Pressed when there turns out to be nothing running, it does nothing.
-  On a press the button at once turns into a small chip with a spinner and
-  **Stopping** (deciding on a cancel takes about a second and a half),
-  then shows what happened for two seconds — **Stopped**, **Cancelled** or
-  **Nothing to stop** (**Failed** if the press didn't go through). The chip
-  holds Stop's place until then — the round button doesn't turn into the
-  thumbs-up under a second tap.
+  On a press the orb holds still and the working line reads **Stopping**
+  (deciding on a cancel takes about a second and a half), then what
+  happened for two seconds — **Stopped**, **Cancelled** or **Nothing to
+  stop** (**Failed** if the press didn't go through) — and the indicator
+  stays up until then, even though the agent has already stopped.
   The same conversation open elsewhere drops a cancelled bubble too; only
   the device that pressed gets the words back.
   *Agent-side:* a cancelled message never reaches you. A stop arrives as

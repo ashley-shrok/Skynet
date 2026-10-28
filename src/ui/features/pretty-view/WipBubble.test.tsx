@@ -1,44 +1,123 @@
-// WipBubble — the working indicator (shape-conversation-view): an orb in the
-// agent's colour beside "Working" by default; an installation that set its
-// own working image in branding (wipIndicatorCustom) keeps its image.
+// WipBubble — the working indicator: an orb in the agent's colour beside
+// "Working", the same on every installation. Since shape-stop-on-orb the orb
+// is also the Stop.
 
-import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { render, screen, waitFor } from "@testing-library/react";
+import { describe, it, expect, vi, afterEach } from "vitest";
+import { render, screen, waitFor, fireEvent } from "@testing-library/react";
 
-const brandingMock = vi.fn(() => ({
-  wipIndicatorPath: "/branding/wip-cube.webp",
-  wipIndicatorCustom: false as boolean | undefined,
-}));
-vi.mock("@/branding/branding-store", () => ({
-  useBrandingConfig: () => brandingMock(),
-}));
-
-import { WipBubble } from "./WipBubble";
+import { WipBubble, type WipStop } from "./WipBubble";
 
 describe("WipBubble", () => {
-  beforeEach(() => {
-    brandingMock.mockReset();
-  });
-
-  it("default: the orb with the word 'Working', no image", () => {
-    brandingMock.mockReturnValue({ wipIndicatorPath: "/branding/wip-cube.webp", wipIndicatorCustom: false });
+  it("the orb with the word 'Working', no image", () => {
     const { container } = render(<WipBubble />);
     const wip = screen.getByTestId("pv-wip");
-    expect(wip.getAttribute("role")).toBe("status");
-    expect(wip.getAttribute("aria-label")).toBe("Claude is working");
-    expect(wip.querySelector(".pv-wip-orb")).not.toBeNull();
+    const orb = wip.querySelector(".pv-wip-orb")!;
+    expect(orb.getAttribute("role")).toBe("status");
+    expect(orb.getAttribute("aria-label")).toBe("Claude is working");
     expect(wip.textContent).toContain("Working");
     expect(container.querySelector("img")).toBeNull();
   });
 
-  it("an installation's own working image still wins", () => {
-    brandingMock.mockReturnValue({ wipIndicatorPath: "/branding/custom.webp", wipIndicatorCustom: true });
-    const { container } = render(<WipBubble />);
-    expect(screen.queryByTestId("pv-wip")).toBeNull();
-    const img = container.querySelector("img")!;
-    expect(img.getAttribute("src")).toBe("/branding/custom.webp");
-    expect(img.getAttribute("role")).toBe("status");
-    expect(img.getAttribute("aria-label")).toBe("Claude is working");
+  describe("the orb as Stop", () => {
+    const stop = (over: Partial<WipStop> = {}): WipStop => ({ canStop: true, onStop: vi.fn(), feedback: null, ...over });
+    const btn = () => screen.getByTestId("pv-wip-stop") as HTMLButtonElement;
+    const noStop = () => {
+      expect(screen.queryByTestId("pv-wip-stop")).toBeNull();
+      expect(screen.queryByRole("button")).toBeNull();
+      expect(screen.queryByLabelText("Stop")).toBeNull();
+    };
+    const state = () => screen.getByTestId("pv-wip").getAttribute("data-stop");
+
+    it("without a stop it is a plain orb — no button", () => {
+      render(<WipBubble />);
+      noStop();
+      expect(state()).toBe("working");
+    });
+
+    it("can stop: a button named Stop, square look, a press calls onStop", () => {
+      const s = stop();
+      render(<WipBubble stop={s} />);
+      expect(screen.getByRole("button", { name: "Stop" })).toBe(btn());
+      expect(btn().getAttribute("title")).toBe("Stop");
+      // Laid over the orb, outside the "working" live region.
+      expect(btn().closest('[role="status"]')).toBeNull();
+      expect(state()).toBe("ready");
+      fireEvent.click(btn());
+      expect(s.onStop).toHaveBeenCalledTimes(1);
+    });
+
+    it("can't stop: the plain working look — no button, nothing saying Stop, a tap does nothing", () => {
+      const s = stop({ canStop: false });
+      render(<WipBubble stop={s} />);
+      noStop();
+      expect(state()).toBe("working");
+      fireEvent.click(screen.getByTestId("pv-wip").querySelector(".pv-wip-orb")!);
+      expect(s.onStop).not.toHaveBeenCalled();
+    });
+
+    it.each([
+      ["stopping", "Stopping"],
+      ["stopped", "Stopped"],
+      ["cancelled", "Cancelled"],
+      ["nothing", "Nothing to stop"],
+      ["failed", "Failed"],
+    ] as const)("after a press (%s): the outcome takes the line, the orb holds still and can't be pressed", (fb, label) => {
+      const s = stop({ feedback: fb });
+      render(<WipBubble narration={{ short: "x", long: "y" }} stop={s} />);
+      expect(state()).toBe("pressed");
+      noStop();
+      expect(screen.getByTestId("interrupt-feedback").textContent).toBe(label);
+      expect(screen.queryByTestId("wip-narration")).toBeNull();
+      // Announced through the live region mounted with the button.
+      expect(screen.getByText(label, { selector: ".sr-only" })).not.toBeNull();
+    });
+
+    it("a keyboard press moves focus to the indicator, where the outcome is announced", () => {
+      const s = stop();
+      const { rerender } = render(<WipBubble stop={s} />);
+      const b = btn();
+      vi.spyOn(b, "matches").mockImplementation((sel: string) => sel === ":focus-visible");
+      b.focus();
+      fireEvent.click(b);
+      expect(s.onStop).toHaveBeenCalledTimes(1);
+      rerender(<WipBubble stop={{ ...s, feedback: "stopping" }} />);
+      expect(document.activeElement).toBe(screen.getByTestId("pv-wip"));
+    });
+
+    it("the orb isn't remounted when Stop comes and goes (its spin doesn't restart)", () => {
+      const { rerender } = render(<WipBubble stop={stop({ canStop: false })} />);
+      const orb = screen.getByTestId("pv-wip").querySelector(".pv-wip-orb");
+      rerender(<WipBubble stop={stop()} />);
+      expect(screen.getByTestId("pv-wip").querySelector(".pv-wip-orb")).toBe(orb);
+      rerender(<WipBubble stop={stop({ feedback: "stopping" })} />);
+      expect(screen.getByTestId("pv-wip").querySelector(".pv-wip-orb")).toBe(orb);
+    });
+
+    it("when the indicator goes away holding focus, focus goes on to the compose box", () => {
+      const s = stop();
+      const Pane = ({ show, st }: { show: boolean; st: WipStop }) => (
+        <div data-pv-root>
+          {show && <WipBubble stop={st} />}
+          <textarea aria-label="compose" />
+        </div>
+      );
+      const { rerender } = render(<Pane show st={s} />);
+      vi.spyOn(btn(), "matches").mockImplementation((sel: string) => sel === ":focus-visible");
+      fireEvent.click(btn());
+      rerender(<Pane show st={{ ...s, feedback: "stopped" }} />);
+      expect(document.activeElement).toBe(screen.getByTestId("pv-wip"));
+      rerender(<Pane show={false} st={s} />);
+      expect(document.activeElement).toBe(screen.getByLabelText("compose"));
+    });
+
+    it("a pointer press leaves focus alone", () => {
+      const s = stop();
+      render(<WipBubble stop={s} />);
+      vi.spyOn(btn(), "matches").mockReturnValue(false);
+      fireEvent.click(btn());
+      expect(s.onStop).toHaveBeenCalledTimes(1);
+      expect(document.activeElement).not.toBe(screen.getByTestId("pv-wip"));
+    });
   });
 
   describe("work narration", () => {
@@ -49,10 +128,6 @@ describe("WipBubble", () => {
     }
     const line = { short: "Fixing it, then tests", long: "Found the cause, fixing it now, then running the tests" };
     const text = (c: HTMLElement) => c.querySelector('[data-testid="wip-narration"]')?.textContent ?? null;
-
-    beforeEach(() => {
-      brandingMock.mockReturnValue({ wipIndicatorPath: "/branding/wip-cube.webp", wipIndicatorCustom: false });
-    });
     afterEach(() => vi.restoreAllMocks());
 
     it("shows 'Working' until the turn's first line arrives", () => {
@@ -82,14 +157,6 @@ describe("WipBubble", () => {
       expect(el.style.opacity).toBe("0");
       await waitFor(() => expect(text(container)).toBe("Fix is in, running the tests now"));
       expect(el.style.opacity).toBe("1");
-    });
-
-    it("sits beside an installation's own working image", () => {
-      brandingMock.mockReturnValue({ wipIndicatorPath: "/branding/custom.webp", wipIndicatorCustom: true });
-      stubWidths(400, 300);
-      const { container } = render(<WipBubble narration={line} />);
-      expect(container.querySelector("img")).not.toBeNull();
-      expect(text(container)).toBe(line.long);
     });
   });
 });

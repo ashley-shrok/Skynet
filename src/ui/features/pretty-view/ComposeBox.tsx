@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 import { createLogDedup } from "@/lib/log-dedup";
-import { AudioLines, Ban, Check, LoaderCircle, Mic, MicOff, Paperclip, Pause, Plus, RefreshCw, Square, ThumbsUp, Volume2, X } from "lucide-react";
+import { AudioLines, LoaderCircle, Mic, MicOff, Paperclip, Pause, Plus, RefreshCw, ThumbsUp, Volume2, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import {
   flushComposeDraftKeepalive,
@@ -201,16 +201,6 @@ export function condenseFailureMessage(err: unknown, hostName?: string): string 
   return "Couldn't condense — something went wrong on Skynet's side";
 }
 
-// Interrupt-button fast-path throttle window. Matches the server-side
-// INTERRUPT_THROTTLE_MS (2500ms) so this client guard never lets through a
-// tap the server would only drop anyway — measured basis: Claude Code's
-// exit-confirm window is ~0.8s (v2.1.150, 2026-09-16); two Ctrl-C presses
-// inside it terminate the harness; 2500ms is ~3× that for margin. Note: this
-// client ref is only a cheap fast-path. The AUTHORITATIVE guard is the
-// server-side per-pane throttle in claude-session-server.ts — see
-// interruptLastFireRef below for why the client ref cannot be the guarantee.
-export const INTERRUPT_THROTTLE_MS = 2500;
-
 export interface ComposeBoxProps {
   // Called when the user presses Enter (no shift) with non-empty text.
   // The caller normalizes newlines before calling onSend (CR eliminated, LF
@@ -275,38 +265,6 @@ export interface ComposeBoxProps {
   // so the reply comes in stuck to the tail without waiting for the JSONL echo.
   // Optional: omitted when PrettyView is read-only (no onSend prop supplied).
   onGoodToGo?: () => void;
-  // Patch #120: optional interrupt callback. When provided, renders a
-  // Square-icon "stop" button to the left of the ThumbsUp button. On
-  // click it sends a WS `interrupt` message; the backend fires
-  // `tmux send-keys ... C-c` into the attached tmux session. Ctrl-C is
-  // used because it is the only keystroke that both interrupts mid-turn
-  // work AND clears the entire multi-line draft in ONE press (measured:
-  // 1x Ctrl-C cleared a 3-line draft; Escape needs a fast double-press
-  // and the throttle blocks that, so it was never reachable). The
-  // hazard Ctrl-C carries — two presses inside Claude Code's ~0.8s
-  // exit-confirm window terminate the harness — is handled by the
-  // server-side per-pane throttle in claude-session-server.ts, not by
-  // this client ref. The button throttles onClick to at most one fire
-  // per INTERRUPT_THROTTLE_MS as a cheap fast-path (see
-  // interruptLastFireRef), but that is NOT the authoritative guard.
-  // When omitted the button does not render — read-only PrettyView
-  // callers stay clean.
-  onInterrupt?: () => void;
-  // The agent's main turn is working (background sub-agents don't count —
-  // they run on through a Stop). The composer's main button is Stop then,
-  // while nothing is typed.
-  agentWorking?: boolean;
-  // Claude Code is waiting on a dialog (permission prompt etc.): a quiet Stop
-  // sits beside the thumbs-up so an interrupt is always reachable.
-  agentWaiting?: boolean;
-  // shape-interrupt-button: true while a send is still being delivered (its
-  // message has not landed in the transcript yet) — there is nothing in the
-  // harness to stop or cancel, so the button is greyed out. Static look only:
-  // no label or tooltip changes.
-  interruptDisabled?: boolean;
-  // What the last press is doing: "stopping" until the server's verdict comes
-  // back, then the outcome for a moment. Null = the plain Stop button.
-  interruptFeedback?: InterruptFeedback | null;
   // shape-interrupt-button: words handed back by a cancelled send. Applied
   // once per id, into the primary box — above anything the user has typed
   // since (never overwriting it). onRestoreApplied then reports the box
@@ -590,7 +548,7 @@ function useComposeSend(deps: {
 const EMPTY_VOICE_MODE_MESSAGES: ReadonlyArray<VoiceModeMessage> = [];
 const EMPTY_VOICE_MODE_VOICES: readonly string[] = [];
 
-// Single words so the chip fits beside the meter, Stop and 👍 on a phone.
+// Single words so the chip fits beside the meter and 👍 on a phone.
 const VOICE_MODE_LABEL: Record<VoiceModePhase, string> = {
   off: "",
   starting: "Starting",
@@ -616,18 +574,6 @@ const VOICE_MODE_COLOR: Record<VoiceModePhase, string> = {
 const MUTED_COLOR = "#8a93a6";
 /** A mute toggle that is on — the cancel button's red tint. */
 const MUTE_ON_COLOR = "hsla(0,72%,72%,0.95)";
-
-/** What the Stop button shows after a press (see PrettyView). */
-export type InterruptFeedback = "stopping" | "stopped" | "cancelled" | "nothing" | "failed";
-
-// Single words / short phrases so the chip fits in the aux row on a phone.
-const INTERRUPT_FEEDBACK_LABEL: Record<InterruptFeedback, string> = {
-  stopping: "Stopping",
-  stopped: "Stopped",
-  cancelled: "Cancelled",
-  nothing: "Nothing to stop",
-  failed: "Failed",
-};
 
 /**
  * Voice-mode toggle in the aux-button row (2026-10-09, replaced the mic
@@ -739,24 +685,6 @@ function VoiceModeButton({
   );
 }
 
-/**
- * Stands in for the Stop button from the press until a moment after the
- * outcome: a spinner while the verdict is pending, then what happened.
- */
-function InterruptFeedbackChip({ feedback }: { feedback: InterruptFeedback }) {
-  const Glyph = feedback === "stopping" ? LoaderCircle : feedback === "nothing" || feedback === "failed" ? Ban : Check;
-  return (
-    <div
-      data-testid="interrupt-feedback"
-      data-feedback={feedback}
-      className="pv-cchip"
-    >
-      <Glyph aria-hidden="true" className={cn(feedback === "stopping" && "animate-spin")} />
-      <span aria-hidden="true">{INTERRUPT_FEEDBACK_LABEL[feedback]}</span>
-    </div>
-  );
-}
-
 export function ComposeBox({
   onSend,
   onOptimisticSend,
@@ -771,11 +699,6 @@ export function ComposeBox({
   identityKey,
   identityName,
   onGoodToGo,
-  onInterrupt,
-  agentWorking,
-  agentWaiting,
-  interruptDisabled,
-  interruptFeedback,
   restoreRequest,
   onRestoreApplied,
   stagedAttachments,
@@ -802,30 +725,6 @@ export function ComposeBox({
   // file to be re-picked later — some browsers otherwise no-op a repeat
   // selection because the "value hasn't changed."
   const fileInputRef = useRef<HTMLInputElement>(null);
-  // Interrupt-button fast-path double-tap guard. Holds the last-fire
-  // timestamp; onClick silently no-ops any tap within
-  // INTERRUPT_THROTTLE_MS of the previous fire. Button stays visually
-  // clickable so it still feels responsive to a panic tap.
-  //
-  // WHY THIS REF CANNOT BE THE AUTHORITATIVE GUARD:
-  //   1. Per-view, not per-pane: each ComposeBox instance holds its own
-  //      ref. Phone + desktop on the same conversation are two independent
-  //      refs; each can individually respect the window while still
-  //      landing two Ctrl-Cs ~200ms apart at the same pane.
-  //   2. It times the click, not the arrival: execCommand has no timeout
-  //      and unbounded latency, so jitter can compress a compliant pair
-  //      below the ~0.8s harness-death threshold in flight.
-  //   3. A stale bundle enforces whatever constant it shipped with.
-  // The AUTHORITATIVE guard is the server-side per-pane throttle in
-  // claude-session-server.ts, keyed by (hostId, tmuxSession).
-  //
-  // Historical note: the original comment claimed a double-Escape would
-  // open Claude Code's rewind menu "which pretty-view users have no way
-  // to dismiss." Measured: the menu renders `Esc to cancel` and a single
-  // Escape dismisses it — self-healing from the bubble surface. That
-  // rationale was false. Post-change it is moot: the hazard is now
-  // harness death via double Ctrl-C.
-  const interruptLastFireRef = useRef<number>(0);
   // Guards async setState from firing after unmount. Load-bearing for
   // requestCondense's .then/.catch — under JSDOM
   // teardown a stale promise resolving after the component unmounts
@@ -2152,37 +2051,19 @@ export function ComposeBox({
   // control on one row under it. Left: attach, skills (harness only), and the
   // recording chip while dictating. Right: agent memory, voice mode, the mic,
   // and the round main button, which does the likely next thing — Send while
-  // there's something to send, Stop while the agent works, otherwise 👍
-  // (Resume while an aside is up). With text typed, 👍 (or Stop) steps aside
-  // as a quiet button next to Send so a thumbs-up never needs the draft
-  // cleared. Relay rooms get only the mic and Send.
+  // there's something to send, otherwise 👍 (Resume while an aside is up).
+  // With text typed, 👍 steps aside as a quiet button next to Send so a
+  // thumbs-up never needs the draft cleared. Relay rooms get only the mic and
+  // Send. No Stop here (shape-stop-on-orb): the working orb is the Stop.
   const harness = mode !== "relay";
   const hasDraft = text.trim() !== "" || hasAttachments || showTranscribingSend;
-  // Stop stays where it is while its press is being answered (Stopping →
-  // Stopped / Cancelled / …): working drops within milliseconds of a Stop,
-  // and the same round button turning into 👍 under a second tap would
-  // restart the agent that was just stopped.
-  const working = agentWorking === true || interruptFeedback != null;
   const quickDisabled = asideActive === true || reconnectingActive === true;
-  const mainAction: "resume" | "send" | "stop" | "thumbs" = asideActive
+  const mainAction: "resume" | "send" | "thumbs" = asideActive
     ? "resume"
     : hasDraft || !harness
       ? "send"
-      : working && onInterrupt
-        ? "stop"
-        : "thumbs";
-  // Stop is never out of reach: beside 👍 and beside Resume it shows whenever
-  // the agent can be interrupted, since "working" can lag or miss a turn
-  // (one started by a relay message, an aside over a running turn).
-  const asideAction: "stop" | "thumbs" | null = !harness
-    ? null
-    : mainAction === "send"
-      ? working && onInterrupt
-        ? "stop"
-        : "thumbs"
-      : (mainAction === "thumbs" || mainAction === "resume") && onInterrupt
-        ? "stop"
-        : null;
+      : "thumbs";
+  const showQuietThumbs = harness && mainAction === "send";
   // Mic open on this composer (a transcript round-trip is not "recording":
   // Send shows its spinner then).
   const recordingHere = voice.state === "starting" || voice.state === "recording";
@@ -2190,53 +2071,25 @@ export function ComposeBox({
   // through brief dropouts — hold it here the same way.
   if (contextPct != null) heldPctRef.current = contextPct;
 
-  const fireInterrupt = () => {
-    const now = Date.now();
-    if (now - interruptLastFireRef.current < INTERRUPT_THROTTLE_MS) {
-      // Silent no-op — double-tap guard.
-      return;
-    }
-    interruptLastFireRef.current = now;
-    onInterrupt?.();
-  };
   const fireThumbs = () => {
     onGoodToGo?.();
     handleQuickSend("thumbs up");
   };
-  const renderAction = (action: "stop" | "thumbs", main: boolean) =>
-    action === "stop" ? (
-      interruptFeedback ? (
-        <InterruptFeedbackChip key="stop" feedback={interruptFeedback} />
-      ) : (
-        <button
-          key="stop"
-          type="button"
-          className="pv-cbtn"
-          data-main={main ? "true" : undefined}
-          data-action="stop"
-          disabled={interruptDisabled === true}
-          onClick={fireInterrupt}
-          aria-label="Interrupt"
-          title="Stop"
-        >
-          <Square aria-hidden="true" />
-        </button>
-      )
-    ) : (
-      <button
-        key="thumbs"
-        type="button"
-        className="pv-cbtn"
-        data-main={main ? "true" : undefined}
-        data-action="thumbs"
-        onClick={fireThumbs}
-        disabled={quickDisabled}
-        aria-label="Send 'thumbs up'"
-        title="Send 'thumbs up'"
-      >
-        <ThumbsUp aria-hidden="true" />
-      </button>
-    );
+  const renderThumbs = (main: boolean) => (
+    <button
+      key="thumbs"
+      type="button"
+      className="pv-cbtn"
+      data-main={main ? "true" : undefined}
+      data-action="thumbs"
+      onClick={fireThumbs}
+      disabled={quickDisabled}
+      aria-label="Send 'thumbs up'"
+      title="Send 'thumbs up'"
+    >
+      <ThumbsUp aria-hidden="true" />
+    </button>
+  );
 
   return (
     <>
@@ -2427,8 +2280,8 @@ export function ComposeBox({
                 removing them would slide the mic out from under the finger
                 and turn the release into a cancel. */}
             <span className="contents" style={recordingHere ? { visibility: "hidden" } : undefined} aria-hidden={recordingHere || undefined}>
-            {asideAction && renderAction(asideAction, false)}
-            {(mainAction === "stop" || mainAction === "thumbs") && renderAction(mainAction, true)}
+            {showQuietThumbs && renderThumbs(false)}
+            {mainAction === "thumbs" && renderThumbs(true)}
             {(mainAction === "send" || mainAction === "resume") && (
               // Phase 14: SAME button morphs to Resume while an aside is up
               // (DOM identity preserved across the morph). Phase 16: disabled
@@ -2470,14 +2323,6 @@ export function ComposeBox({
             )}
             </span>
           </>
-        )}
-        {/* Mounted for as long as Stop can be, so screen readers hear
-            "Stopping" too — a live region created along with its text is
-            often not announced. */}
-        {onInterrupt && (
-          <span role="status" aria-live="polite" className="sr-only">
-            {interruptFeedback ? INTERRUPT_FEEDBACK_LABEL[interruptFeedback] : ""}
-          </span>
         )}
       </div>
       {/* Phase 16: displayError merges compose errors and voice errors. */}

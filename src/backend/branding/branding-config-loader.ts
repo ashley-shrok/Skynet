@@ -44,8 +44,6 @@ export type BrandingConfig = {
   iconPath: string;
   wordmarkPath: string;
   faviconPath: string;
-  // Phase 82: operator-overridable WIP indicator image; bundled default IS the fallback (unlike Phase 74's intentionally-empty avatarDirectorSpec — no boot gate needed).
-  wipIndicatorPath: string;
   pwaIcons: Array<{ src: string; sizes: string; type: string }>;
   // Phase 74 (avatar-style-through-branding-config) — required extended fields.
   // avatarDirectorSpec is the operator-authored aesthetic director prompt fed
@@ -81,9 +79,6 @@ const HARDCODED_FALLBACK: BrandingConfig = {
   iconPath: "/branding/icon.png",
   wordmarkPath: "/branding/wordmark.png",
   faviconPath: "/branding/favicon.svg",
-  // Phase 82: routes through the branding router's /branding/* handler which
-  // falls back to /app/branding-defaults/wip-cube.webp (relocated by Plan 82-02).
-  wipIndicatorPath: "/branding/wip-cube.webp",
   pwaIcons: [
     { src: "/branding/pwa-icon-192.png", sizes: "192x192", type: "image/png" },
     { src: "/branding/pwa-icon-512.png", sizes: "512x512", type: "image/png" },
@@ -179,9 +174,6 @@ function isValidBrandingShape(v: unknown): boolean {
     if (typeof e.sizes !== "string") return false;
     if (typeof e.type !== "string") return false;
   }
-  // Phase 82: wipIndicatorPath is required. Bundled default is the fallback
-  // (no boot gate needed) — but the field must exist and be a string.
-  if (typeof o.wipIndicatorPath !== "string") return false;
   // Phase 74: avatarDirectorSpec must be a string (empty allowed at loader
   // level — boot gate in assert-boot.ts enforces non-empty). avatarGammaDefault
   // must be a finite number — Number.isFinite() rejects NaN and Infinity too.
@@ -252,7 +244,31 @@ export async function loadBrandingConfig(): Promise<BrandingConfig> {
     return getBundledDefaults();
   }
 
-  return parsed as BrandingConfig;
+  return withoutRetiredKeys(parsed as Record<string, unknown>) as BrandingConfig;
+}
+
+/**
+ * Keys an older branding.json may still carry that no longer mean anything.
+ * wipIndicatorPath: the working indicator is the same orb on every
+ * installation now — an old custom image setting is dropped, not an error.
+ */
+const RETIRED_KEYS = ["wipIndicatorPath"] as const;
+/** Retired keys already logged — the config is read per request. */
+const loggedRetiredKeys = new Set<string>();
+
+function withoutRetiredKeys(o: Record<string, unknown>): Record<string, unknown> {
+  if (!RETIRED_KEYS.some((k) => k in o)) return o;
+  const rest = { ...o };
+  for (const k of RETIRED_KEYS) {
+    if (k in rest) {
+      if (!loggedRetiredKeys.has(k)) {
+        loggedRetiredKeys.add(k);
+        sshLogger.info("branding-config-loader: ignoring retired key", { operation: "branding_config_retired_key", key: k });
+      }
+      delete rest[k];
+    }
+  }
+  return rest;
 }
 
 // ---------------------------------------------------------------------------

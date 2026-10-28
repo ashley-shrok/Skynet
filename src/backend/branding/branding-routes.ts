@@ -44,22 +44,6 @@ import { sshLogger } from "../utils/logger.js";
 
 const router = express.Router();
 
-const BUNDLED_WIP_PATH = "/branding/wip-cube.webp";
-
-/**
- * Whether this installation supplies its own working indicator — a different
- * path in its branding config, or its own file dropped in place of the
- * bundled one. The chat shows the built-in orb unless it does.
- */
-async function isWipIndicatorCustom(wipIndicatorPath: string): Promise<boolean> {
-  if (wipIndicatorPath !== BUNDLED_WIP_PATH) return true;
-  try {
-    return (await resolveAssetPath(BUNDLED_WIP_PATH.replace(/^\/branding\//, ""))).source === "override";
-  } catch {
-    return false;
-  }
-}
-
 const NO_STORE_CACHE =
   "no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0";
 const ASSET_CACHE = "public, max-age=300";
@@ -72,7 +56,7 @@ router.get("/api/branding", async (_req: Request, res: Response) => {
   try {
     const config = await loadBrandingConfig();
     res.setHeader("Cache-Control", NO_STORE_CACHE);
-    return res.status(200).json({ ...config, wipIndicatorCustom: await isWipIndicatorCustom(config.wipIndicatorPath) });
+    return res.status(200).json(config);
   } catch (err) {
     sshLogger.error("branding-routes: /api/branding unexpected error", {
       operation: "branding_route_config",

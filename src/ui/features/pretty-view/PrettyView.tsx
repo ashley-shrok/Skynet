@@ -92,7 +92,8 @@ import {
   type RoleSummary,
 } from "@/api/identities-api";
 import { useAutoScroll } from "./use-auto-scroll";
-import { ComposeBox, INTERRUPT_THROTTLE_MS, type InterruptFeedback } from "./ComposeBox";
+import { ComposeBox } from "./ComposeBox";
+import { INTERRUPT_THROTTLE_MS, type InterruptFeedback } from "./interrupt-feedback";
 import { DropOverlay } from "./DropOverlay";
 import { HarnessTasksPanel } from "./HarnessTasksPanel";
 import { deriveOpenAsk } from "./ask/open-ask";
@@ -838,7 +839,7 @@ export function PrettyView({
   const [restoreRequest, setRestoreRequest] = useState<
     { id: string; text: string; files: File[]; notice?: string } | null
   >(null);
-  // What the Stop button shows: "stopping" from the press until the verdict
+  // What the Stop orb shows: "stopping" from the press until the verdict
   // arrives (a cancel takes ~1.5s to decide), then the outcome for a moment.
   const [interruptFeedback, setInterruptFeedback] = useState<InterruptFeedback | null>(null);
   const interruptFeedbackTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -1729,15 +1730,25 @@ export function PrettyView({
     }
   }, []);
 
-  // The Stop button's press: show "Stopping" at once — the verdict can take
+  // Client fast-path double-tap guard (see INTERRUPT_THROTTLE_MS — the
+  // server-side per-pane throttle is the real one).
+  const interruptLastFireRef = useRef(0);
+  // The Stop orb's press: show "Stopping" at once — the verdict can take
   // ~1.5s — or say so when there is no connection to send it on.
   const handleInterrupt = useCallback((): void => {
+    const now = Date.now();
+    if (now - interruptLastFireRef.current < INTERRUPT_THROTTLE_MS) {
+      console.info(`[interrupt] press-throttled hostId=${hostId} tmuxSession=${tmuxSession ?? "null"}`);
+      return;
+    }
     const ws = wsRef.current;
     if (!ws || ws.readyState !== WebSocket.OPEN) {
+      // Nothing reached the pane, so nothing to guard against a repeat of.
       console.warn(`[interrupt] press-not-sent reason=ws_not_open hostId=${hostId} tmuxSession=${tmuxSession ?? "null"}`);
       showInterruptFeedback("failed", INTERRUPT_OUTCOME_HOLD_MS);
       return;
     }
+    interruptLastFireRef.current = now;
     console.info(`[interrupt] press hostId=${hostId} tmuxSession=${tmuxSession ?? "null"}`);
     interruptPressedAtRef.current = Date.now();
     showInterruptFeedback("stopping", INTERRUPT_RESULT_TIMEOUT_MS);
@@ -4638,7 +4649,8 @@ export function PrettyView({
     oldestLoadedLine > 1 &&
     (capOff || capDroppedRef.current);
 
-  // The agent is working: drives the working orb and the composer's Stop.
+  // The agent is working: drives the working orb (whose Stop is for the main
+  // turn only — see the WipBubble mount).
   // A background sub-agent keeps working after the main turn's Stop hook
   // darkens isWorking, so a running background agent counts too. Shells are
   // excluded — servers run for hours. The turn-over gate applies to the
@@ -5169,7 +5181,24 @@ export function PrettyView({
               agents keep running after the turn ends or is interrupted. Not while dormant (no
               live process, so nothing is running) or while waiting on the
               user (WaitingBubble owns that state). */}
-          {agentWorking && <WipBubble narration={workNarration} />}
+          {/* The orb is the Stop (shape-stop-on-orb): it can stop only the
+              main turn (background agents run on through it) and not while
+              a send is still being delivered. It stays up past the turn's
+              end until a press's outcome has shown. */}
+          {(agentWorking || interruptFeedback !== null) && (
+            <WipBubble
+              narration={workNarration}
+              stop={
+                onInterrupt && source.kind !== "relay"
+                  ? {
+                      canStop: mainTurnWorking && !pendingSends.some((p) => p.state === "sending"),
+                      onStop: handleInterrupt,
+                      feedback: interruptFeedback,
+                    }
+                  : undefined
+              }
+            />
+          )}
           {/* Phase 34 Plan 06: WaitingBubble — harness permission/dialog waiting state.
               Mounts when the fleet-status channel reports status='waiting' for this
               session's (hostId, tmuxSession) key. Sibling of WipBubble in the
@@ -5425,12 +5454,6 @@ export function PrettyView({
             // non-empty-gated the same way an identity displayName does.
             identityName={source.kind === "relay" ? "room" : pvIdentity?.displayName}
             onGoodToGo={jumpToBottom}
-            onInterrupt={onInterrupt ? handleInterrupt : undefined}
-            // Stop is for the main turn — background agents run on through it.
-            agentWorking={mainTurnWorking}
-            agentWaiting={waitingFor !== null}
-            interruptFeedback={interruptFeedback}
-            interruptDisabled={pendingSends.some((p) => p.state === "sending")}
             restoreRequest={restoreRequest}
             onRestoreApplied={handleRestoreApplied}
             // Phase 05 upload wiring — all sourced from the local
