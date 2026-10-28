@@ -1394,6 +1394,16 @@ export function ComposeBox({
   useEffect(() => {
     const el = textareaRef.current;
     if (!el) return;
+    // Post-tap snapshots are cancelled on unmount — one firing after the
+    // textarea is gone reads layout off a torn-down document.
+    const timers = new Set<ReturnType<typeof setTimeout>>();
+    const later = (fn: () => void, ms: number) => {
+      const t = setTimeout(() => {
+        timers.delete(t);
+        fn();
+      }, ms);
+      timers.add(t);
+    };
     const snap = () => {
       const r = el.getBoundingClientRect();
       const cs = getComputedStyle(el);
@@ -1425,7 +1435,7 @@ export function ComposeBox({
       if (tapDedup.shouldEmit(pdKey, () => `[tap] pointerdown x=${Math.round(e.clientX)} y=${Math.round(e.clientY)} pointerType=${e.pointerType} targetTag=${targetTag} selfTarget=${e.target === el} rectT=${s.rect.t} rectL=${s.rect.l} rectW=${s.rect.w} rectH=${s.rect.h} textLen=${s.textLen} scrollY=${s.scrollY}`).emit) {
         console.log(`[tap] pointerdown x=${Math.round(e.clientX)} y=${Math.round(e.clientY)} pointerType=${e.pointerType} targetTag=${targetTag} selfTarget=${e.target === el} rectT=${s.rect.t} rectL=${s.rect.l} rectW=${s.rect.w} rectH=${s.rect.h} textLen=${s.textLen} scrollY=${s.scrollY}`);
       }
-      setTimeout(() => {
+      later(() => {
         const s30 = snap();
         const p30Key = `tap:post-30ms:${e.pointerType}`;
         // eslint-disable-next-line no-console
@@ -1433,7 +1443,7 @@ export function ComposeBox({
           console.log(`[tap] post-30ms pointerType=${e.pointerType} rectT=${s30.rect.t} rectH=${s30.rect.h} scrollH=${s30.scrollH} sel=${s30.sel[0]},${s30.sel[1]} docFocus=${s30.docFocus}`);
         }
       }, 30);
-      setTimeout(() => {
+      later(() => {
         const s300 = snap();
         const p300Key = `tap:post-300ms:${e.pointerType}`;
         // eslint-disable-next-line no-console
@@ -1471,6 +1481,8 @@ export function ComposeBox({
     el.addEventListener("blur", onBlur);
     document.addEventListener("selectionchange", onSelChange);
     return () => {
+      for (const t of timers) clearTimeout(t);
+      timers.clear();
       el.removeEventListener("pointerdown", onPointerDown);
       el.removeEventListener("focus", onFocus);
       el.removeEventListener("blur", onBlur);
