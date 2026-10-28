@@ -85,6 +85,14 @@ export async function unarchiveApp(
     const response = await authApi.post(url);
     return response.data as { ok: true };
   } catch (error) {
+    // No response at all: the connection dropped and the server may already
+    // have acted — not a refusal (see identity-unarchive-api.ts).
+    if (axios.isAxiosError(error) && !error.response) {
+      throw new UnarchiveError(
+        `connection lost during un-archive (${error.code ?? "no response"})`,
+        "connection_lost",
+      );
+    }
     try {
       parseUnarchive409OrRethrow(error);
     } catch (typed) {

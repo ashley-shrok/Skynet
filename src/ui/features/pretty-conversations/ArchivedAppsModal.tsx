@@ -124,6 +124,13 @@ export function ArchivedAppsModal({
       });
     } catch (err: unknown) {
       // STEP 3: failure — do NOT touch state. Row stays present by construction.
+      if (err instanceof UnarchiveError && err.reason === "connection_lost") {
+        await kitAlert({
+          title: `Lost the connection while un-archiving ${label}`,
+          body: "It may still be coming back. If it isn't back in a minute, try again.",
+        });
+        return;
+      }
       const body =
         err instanceof UnarchiveError && err.reason === "name_collision"
           ? // D-17 name_collision: distinct wording so the user knows what's blocking.

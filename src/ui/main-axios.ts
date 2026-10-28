@@ -217,9 +217,10 @@ export function isRetryable(
   if (isConnectionLevel) {
     if (isIdempotent) return true;
     // POST, PUT, PATCH, DELETE: only a refused connection proves the request
-    // never left. A browser reports every other drop as ERR_NETWORK —
-    // including a phone suspending the app mid-request after the server
-    // already acted — so re-sending could do the action twice.
+    // never left. A browser can't tell us that — it reports every drop as
+    // ERR_NETWORK, including a phone suspending the app after the server
+    // already acted — so in the browser these are never re-sent; re-sending
+    // could do the action twice. (ECONNREFUSED only appears outside a browser.)
     return code === "ECONNREFUSED";
   }
 

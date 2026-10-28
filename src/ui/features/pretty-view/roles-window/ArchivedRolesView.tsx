@@ -62,6 +62,13 @@ export function ArchivedRolesView({
           roleName: entry.name,
           errMessage: err instanceof Error ? err.message : String(err),
         });
+        if (err instanceof UnarchiveError && err.reason === "connection_lost") {
+          void kitAlert({
+            title: `Lost the connection while un-archiving ${roleDisplayName(entry.name)}`,
+            body: "It may still be coming back. If it isn't back in a minute, try again.",
+          });
+          return;
+        }
         void kitAlert({
           title: `Couldn't un-archive ${roleDisplayName(entry.name)}`,
           body:
