@@ -330,16 +330,19 @@ describe("SkillsEditorModal — shared to every host", () => {
     expect(text).toMatch(/beta/);
   });
 
-  it("admin: Remove from every host confirms with the host count", async () => {
+  it("admin: a shared skill's Delete skill… says it deletes it from every host, with the host count", async () => {
     vi.mocked(iwApi.listInstanceWide).mockResolvedValue({ isAdmin: true, items: [IW_ITEM] });
     const dialogs = autoAnswerKitDialogs({ confirm: true });
     renderModal();
     await selectSkill("shared-skill");
     await openSkillMenu();
     expect(screen.queryByTestId("skills-editor-modal-delete-skill")).toBeNull();
+    expect(screen.getByTestId("skills-editor-modal-remove-instance-skill").textContent).toContain("Delete skill…");
     await userEvent.setup().click(screen.getByTestId("skills-editor-modal-remove-instance-skill"));
     await waitFor(() => expect(iwApi.removeInstanceWide).toHaveBeenCalledWith("skill", "shared-skill"));
-    expect(String(dialogs.calls[0].opts.body)).toMatch(/3 hosts/);
+    expect(dialogs.calls[0].opts.title).toBe('Delete "shared-skill" from every host?');
+    expect(String(dialogs.calls[0].opts.body)).toMatch(/all 3 hosts/);
+    expect((dialogs.calls[0].opts as { confirmLabel?: string }).confirmLabel).toBe("Delete everywhere");
   });
 
   it("non-admin: sees the shared section, read-only (marks, not switches)", async () => {

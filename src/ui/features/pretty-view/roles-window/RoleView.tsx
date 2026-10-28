@@ -507,9 +507,9 @@ export function RoleView({
     const count = instanceWideItem?.hostCount ?? 0;
     if (
       !(await kitConfirm({
-        title: `Stop sharing ${label}?`,
-        body: `Its folder will be deleted from ${plural(count, "host")}, along with anything agents saved in it there. This can't be undone.`,
-        confirmLabel: "Remove from every host",
+        title: `Delete ${label} from every host?`,
+        body: `It will be deleted from ${count === 1 ? "the 1 host" : `all ${count} hosts`} it's on, along with anything agents saved in it there. Nobody will have it afterwards. This can't be undone.`,
+        confirmLabel: "Delete everywhere",
         destructive: true,
       }))
     )
@@ -520,7 +520,7 @@ export function RoleView({
       onSharingChanged();
       onBack();
     } catch (err) {
-      void kitAlert({ title: "Couldn't stop sharing it", body: err instanceof Error ? err.message : undefined });
+      void kitAlert({ title: "Couldn't delete it", body: err instanceof Error ? err.message : undefined });
     }
   };
 
@@ -539,8 +539,8 @@ export function RoleView({
       ? [
           shared
             ? {
-                label: "Stop sharing…",
-                hint: "Remove it from every host",
+                label: "Delete from every host…",
+                hint: "Nobody will have it afterwards",
                 danger: true,
                 separatorBefore: true,
                 onClick: () => void handleStopSharing(),
@@ -558,7 +558,7 @@ export function RoleView({
     shared
       ? {
           label: "Archive role…",
-          hint: isAdmin ? "Stop sharing it first" : "Only an admin can change a shared role",
+          hint: isAdmin ? "A shared role is deleted from every host instead" : "Only an admin can change a shared role",
           disabled: true,
           separatorBefore: true,
           testId: "role-view-archive",

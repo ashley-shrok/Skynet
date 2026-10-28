@@ -415,16 +415,18 @@ describe("role view — ⋯ menu", () => {
     expect(m.promote).not.toHaveBeenCalled();
   });
 
-  it("admin: Stop sharing… names how many hosts, removes it everywhere and goes back to the library", async () => {
+  it("admin: Delete from every host… names how many hosts, removes it everywhere and goes back to the library", async () => {
     m.listInstanceWide.mockResolvedValue({ isAdmin: true, items: [SUPPORT_ITEM] });
     const dialogs = autoAnswerKitDialogs({ confirm: true });
     await openRole("support-bot");
     const menu = await openMenu("role-view-menu");
     expect(within(menu).queryByTestId("role-view-promote")).toBeNull();
+    expect(within(menu).getByTestId("role-view-stop-sharing").textContent).toContain("Delete from every host…");
     fireEvent.click(within(menu).getByTestId("role-view-stop-sharing"));
     await waitFor(() => expect(m.removeInstanceWide).toHaveBeenCalledWith("role", "support-bot"));
-    expect(dialogs.calls[0].opts.title).toBe("Stop sharing Support Bot?");
-    expect(String(dialogs.calls[0].opts.body)).toMatch(/4 hosts/);
+    expect(dialogs.calls[0].opts.title).toBe("Delete Support Bot from every host?");
+    expect(String(dialogs.calls[0].opts.body)).toMatch(/all 4 hosts/);
+    expect((dialogs.calls[0].opts as { confirmLabel?: string }).confirmLabel).toBe("Delete everywhere");
     await expectLibrary();
   });
 
@@ -469,14 +471,14 @@ describe("role view — ⋯ menu", () => {
     expect(screen.getByTestId("role-view-facts")).toBeTruthy();
   });
 
-  it("a shared role's Archive is greyed out with 'Stop sharing it first' (admin)", async () => {
+  it("a shared role's Archive is greyed out, pointing at deleting it from every host (admin)", async () => {
     m.listInstanceWide.mockResolvedValue({ isAdmin: true, items: [SUPPORT_ITEM] });
     const dialogs = autoAnswerKitDialogs({ confirm: true });
     await openRole("support-bot");
     const menu = await openMenu("role-view-menu");
     const archive = within(menu).getByTestId("role-view-archive");
     expect(archive.getAttribute("aria-disabled")).toBe("true");
-    expect(archive.textContent).toContain("Stop sharing it first");
+    expect(archive.textContent).toContain("A shared role is deleted from every host instead");
     fireEvent.click(archive);
     expect(dialogs.calls).toHaveLength(0);
     expect(m.archiveRole).not.toHaveBeenCalled();

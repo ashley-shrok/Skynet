@@ -1029,16 +1029,16 @@ export default function SkillsEditorModal({
     }
   }, [selectedHostId, selectedSkillName, selectedIsInstance, refreshInstanceWide, clearSkillSelection]);
 
-  // "Remove from every host…" (admins, instance-wide skills).
+  // "Delete skill…" on a shared skill (admins): deletes it from every host.
   const handleRemoveInstance = useCallback(async (): Promise<void> => {
     if (!selectedIsInstance || selectedSkillName == null) return;
     const name = selectedSkillName;
     const count = selectedIwItem?.hostCount ?? 0;
     if (
       !(await kitConfirm({
-        title: `Remove the instance-wide skill "${name}"?`,
-        body: `Its folder will be deleted from ${count} host${count === 1 ? "" : "s"}. This can't be undone.`,
-        confirmLabel: "Remove",
+        title: `Delete "${name}" from every host?`,
+        body: `It will be deleted from ${count === 1 ? "the 1 host" : `all ${count} hosts`} it's on, along with any changes agents made there. Nobody will have it afterwards. This can't be undone.`,
+        confirmLabel: "Delete everywhere",
         destructive: true,
       }))
     )
@@ -1052,7 +1052,7 @@ export default function SkillsEditorModal({
         setSkills({ status: "ready", data: await listSkills(selectedHostId, { includeDistributed: true }) });
       }
     } catch (err) {
-      void kitAlert({ title: "Couldn't remove it", body: err instanceof Error ? err.message : undefined });
+      void kitAlert({ title: "Couldn't delete it", body: err instanceof Error ? err.message : undefined });
     } finally {
       savingRef.current = false;
     }
@@ -1599,7 +1599,8 @@ export default function SkillsEditorModal({
           ? isAdmin
             ? [
                 {
-                  label: "Remove from every host…",
+                  label: "Delete skill…",
+                  hint: "Deletes it from every host",
                   danger: true,
                   testId: "skills-editor-modal-remove-instance-skill",
                   onClick: () => {

@@ -35,7 +35,7 @@
  */
 
 import type { AuthenticatedRequest } from "../../../types/index.js";
-import { getInstanceWide } from "../../instance-wide/production.js";
+import { getInstanceWide, machineForHostRow } from "../../instance-wide/production.js";
 import express from "express";
 import type { Request, Response } from "express";
 import { AuthManager } from "../../utils/auth-manager.js";
@@ -67,6 +67,23 @@ import { isIdentityVisibleToUser } from "../../fleet-status/identity-visibility-
 import { getUsernameForUserId } from "../../utils/host-user-counter.js";
 
 const router = express.Router();
+
+/** Shared roles removed everywhere whose copy on this host's machine is still being deleted. */
+async function removingRoleNames(hostId: number): Promise<string[]> {
+  try {
+    const engine = getInstanceWide();
+    const machine = engine ? await machineForHostRow(hostId) : null;
+    if (!engine || !machine) return [];
+    return await engine.pendingRemovalNames("role", machine.machineId);
+  } catch (err) {
+    systemLogger.warn("roles list: couldn't read pending shared-role removals", {
+      operation: "roles_list_pending_removals",
+      hostId,
+      error: err instanceof Error ? err.message : "Unknown",
+    });
+    return [];
+  }
+}
 const authManager = AuthManager.getInstance();
 const authenticateJWT = authManager.createAuthMiddleware();
 
@@ -336,7 +353,10 @@ router.get(
       const instanceWideRoles = new Set(
         (await getInstanceWide()?.listNames("role")) ?? [],
       );
-      const result = gatedRoles.map((name) => ({
+      // A shared role just removed everywhere is still on disk here until the
+      // sync deletes it — leave it out meanwhile.
+      const removingRoles = new Set(await removingRoleNames(hostId));
+      const result = gatedRoles.filter((name) => !removingRoles.has(name)).map((name) => ({
         name,
         description: descByName.get(name) ?? "",
         ...(instanceWideRoles.has(name) ? { instanceWide: true } : {}),

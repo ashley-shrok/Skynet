@@ -110,6 +110,23 @@ async function sharedSkillNames(): Promise<string[]> {
   }
 }
 
+/** Shared skills removed everywhere whose copy on this host's machine is still being deleted. */
+async function removingSkillNames(hostId: number): Promise<string[]> {
+  try {
+    const engine = getInstanceWide();
+    const machine = engine ? await machineForHostRow(hostId) : null;
+    if (!engine || !machine) return [];
+    return await engine.pendingRemovalNames("skill", machine.machineId);
+  } catch (err) {
+    sshLogger.warn("skills-editor skills: couldn't read pending shared-skill removals", {
+      operation: "skills_editor_pending_removals",
+      hostId,
+      error: err instanceof Error ? err.message : "Unknown",
+    });
+    return [];
+  }
+}
+
 /**
  * True when this host row reaches the home folder instance-wide sync keeps in
  * step — the synced row itself, or another row logging into the same account
@@ -566,10 +583,13 @@ router.get(
         req.query.includeDistributed === "1" ? await callerIsAdmin(userId).catch(() => false) : false;
       // A skill counts as the shared one only where this host receives
       // shared skills; elsewhere a same-named skill is the user's own.
-      const shared = (await hostReceivesShared(hostId, userId).catch(() => false))
-        ? new Set(await sharedSkillNames())
-        : new Set<string>();
+      const receivesShared = await hostReceivesShared(hostId, userId).catch(() => false);
+      const shared = receivesShared ? new Set(await sharedSkillNames()) : new Set<string>();
+      // A shared skill just removed everywhere is still on disk here until the
+      // sync deletes it — don't list it as the host's own meanwhile.
+      const removing = receivesShared ? new Set(await removingSkillNames(hostId)) : new Set<string>();
       const skills = parsed
+        .filter((s) => !removing.has(s.name))
         .filter((s) => isAdmin || !s.distributed)
         .map((s) => (shared.has(s.name) ? { ...s, shared: true as const } : s));
 

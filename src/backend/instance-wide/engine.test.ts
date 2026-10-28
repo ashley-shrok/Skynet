@@ -164,7 +164,12 @@ describe("InstanceWideEngine", () => {
     offline.add("3");
     const { hostCount } = await engine.removeItem("skill", "demo");
     expect(hostCount).toBe(3);
+    // Until the sync reaches a machine, its copy is still on the way out.
+    expect(await engine.pendingRemovalNames("skill", "1")).toEqual(["demo"]);
+    expect(await engine.pendingRemovalNames("role", "1")).toEqual([]);
     await engine.syncNow();
+    expect(await engine.pendingRemovalNames("skill", "1")).toEqual([]);
+    expect(await engine.pendingRemovalNames("skill", "3")).toEqual(["demo"]);
     expect(existsSync(skillDir("a"))).toBe(false);
     expect(existsSync(skillDir("b"))).toBe(false);
     expect(existsSync(skillDir("c"))).toBe(true);

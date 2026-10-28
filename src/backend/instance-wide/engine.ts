@@ -592,6 +592,21 @@ export class InstanceWideEngine {
     return (await this.store.listItems()).filter((i) => i.kind === kind).map((i) => i.name);
   }
 
+  /**
+   * Items removed everywhere whose copy on this machine hasn't been deleted
+   * yet. Lists hide them so a removed item doesn't reappear as the host's own
+   * in the moments before the sync reaches it.
+   */
+  async pendingRemovalNames(kind: ItemKind, machineId: string): Promise<string[]> {
+    const state = await this.store.loadState();
+    const names: string[] = [];
+    for (const [key, t] of Object.entries(state.tombstones)) {
+      const parsed = parseItemKey(key);
+      if (parsed && parsed.kind === kind && t.pending.includes(machineId)) names.push(parsed.name);
+    }
+    return names;
+  }
+
   // -------------------------------------------------------------------------
   // App-side mutations
   // -------------------------------------------------------------------------

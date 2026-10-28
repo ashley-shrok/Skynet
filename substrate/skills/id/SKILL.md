@@ -1201,10 +1201,10 @@ crown, then gear.
     `~/fleet/roles/<slug>/` except the role file itself, which has its own
     tab) and **Git** when the folder holds a repo. The **⋯** menu has
     **Start a conversation** (opens the new-conversation dialog with this
-    role picked), for admins **Make instance-wide…** / **Stop sharing…**,
+    role picked), for admins **Make instance-wide…** / **Delete from every host…**,
     and **Archive role…** — one confirm naming the agents that hold it,
-    which are archived with it; greyed out on a shared role ("Stop sharing
-    it first").
+    which are archived with it; greyed out on a shared role, which is
+    deleted from every host instead.
   - **A role skill** (click one under Skills): one level deeper; back
     reads the role's name; its name heads it with its description under
     it, as a skill does in the Skills window. It opens on its `SKILL.md`,

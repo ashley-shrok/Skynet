@@ -115,6 +115,18 @@ vi.mock("../../utils/host-user-counter.js", () => ({
   getUsernameForUserId: (userId: string) => getUsernameForUserIdMock(userId),
 }));
 
+// Shared-role sync: off by default (no engine); a test can install one.
+const instanceWideMock = vi.hoisted(() => ({
+  engine: null as null | {
+    listNames: (kind: string) => Promise<string[]>;
+    pendingRemovalNames: (kind: string, machineId: string) => Promise<string[]>;
+  },
+}));
+vi.mock("../../instance-wide/production.js", () => ({
+  getInstanceWide: () => instanceWideMock.engine,
+  machineForHostRow: async (hostId: number) => (hostId === 7 ? { machineId: "m7" } : null),
+}));
+
 // ---------------------------------------------------------------------------
 // Import mocked modules AFTER vi.mock() declarations
 // ---------------------------------------------------------------------------
@@ -194,6 +206,7 @@ let server: http.Server;
 beforeEach(() => {
   vi.clearAllMocks();
   stubConn.end.mockClear();
+  instanceWideMock.engine = null;
 
   // Default: user owns host 7; anything else → null
   (resolveHostById as Mock).mockImplementation((hostId: number) => {
@@ -1007,5 +1020,23 @@ describe("Phase 129: role-picker gate on GET /roles?hostId=<n>", () => {
     // visible. Broken doesn't equal "tagged for someone else".
     expect(user.body).toHaveLength(1);
     expect(user.body[0].name).toBe("broken-role");
+  });
+});
+
+describe("shared roles being deleted", () => {
+  it("leaves out a shared role whose copy on this machine is still being deleted", async () => {
+    instanceWideMock.engine = {
+      listNames: async () => ["tina"],
+      pendingRemovalNames: async (kind, machineId) => (kind === "role" && machineId === "m7" ? ["nelly"] : []),
+    };
+    (execCommand as Mock).mockImplementation(async (_conn: unknown, cmd: string) => {
+      if (cmd.includes("ls ")) return "tina\nnelly";
+      return ["===ROLE:tina===", "# tina", "===ROLE:nelly===", "# nelly"].join("\n");
+    });
+    const res = await httpRequest(server, { method: "GET", path: "/roles?hostId=7" });
+    expect(res.status).toBe(200);
+    const names = (res.body as Array<{ name: string; instanceWide?: boolean }>).map((r) => r.name);
+    expect(names).toEqual(["tina"]);
+    expect((res.body as Array<{ instanceWide?: boolean }>)[0].instanceWide).toBe(true);
   });
 });
