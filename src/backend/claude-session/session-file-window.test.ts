@@ -13,6 +13,7 @@ import {
   type WindowStats,
 } from "./session-file-window.js";
 import { __openBackgroundWorkIdsForTests as openBackgroundWorkIds } from "./claude-session-server.js";
+import { HIDDEN_IMAGE_FILTER } from "./hidden-image-filter.js";
 
 const TS = "2026-10-27T00:00:00Z";
 const user = (id: string, text = id) =>
@@ -304,6 +305,13 @@ describe("tailSessionFileWindowed", () => {
     open(host, 5);
     const cmd = host.execs.find((c) => c.includes("| tac"))!;
     expect(cmd).toContain("read -r _ <&3");
+  });
+
+  it("the backwards read blanks hidden image data on the host, before tac", () => {
+    const host = makeHost([user("m1")]);
+    open(host, 5);
+    const cmd = host.execs.find((c) => c.includes("| tac"))!;
+    expect(cmd).toContain(`head -n "$n" "$f" | ${HIDDEN_IMAGE_FILTER} | tac`);
   });
 });
 

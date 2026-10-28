@@ -5,6 +5,7 @@ import { execCommand } from "../ssh/tmux-helper.js";
 import { parseSessionLineQuietly } from "./session-file-parser.js";
 import { tailSessionFile, type TailHandle } from "./session-file-tail.js";
 import { hangUpChannel, stopOnInputEof, type HangUpChannel } from "../ssh/channel-hangup.js";
+import { HIDDEN_IMAGE_FILTER } from "./hidden-image-filter.js";
 
 /**
  * Open a conversation's session file the fast way: only the recent window
@@ -18,7 +19,8 @@ import { hangUpChannel, stopOnInputEof, type HangUpChannel } from "../ssh/channe
  * Flow:
  *   1. Snapshot: the host counts the file's complete lines (N). Lines 1..N are
  *      the past; N+1 onward is live.
- *   2. Backwards read: the host streams lines N..1 newest-first (`tac`). We
+ *   2. Backwards read: the host streams lines N..1 newest-first (`tac`),
+ *      tool-result image data blanked (hidden-image-filter.ts). We
  *      count the lines that become client-visible items and hang up once we
  *      have `targetItems`. The window is lines S..N.
  *   3. Whole-history search: facts that need lines before S (background work
@@ -122,7 +124,9 @@ function readBackwards(
     `f=${shellEscape(path)}; n=$(wc -l < "$f") || exit 3; echo "$n"; ` +
     `command -v tac >/dev/null 2>&1 || exit 4; ` +
     // Stoppable mid-read without a channel close (see channel-hangup.ts).
-    stopOnInputEof(`head -n "$n" "$f" | tac`);
+    // The agent's own looks at images are blanked on the host — they are
+    // never shown and are most of an image-heavy window's bytes.
+    stopOnInputEof(`head -n "$n" "$f" | ${HIDDEN_IMAGE_FILTER} | tac`);
   return new Promise((resolve) => {
     let settled = false;
     let totalLines: number | null = null;

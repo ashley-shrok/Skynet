@@ -16,8 +16,10 @@
  *   returns `{ lines: [], totalLines: 0 }` — mirrors readIdentityFile's
  *   L332 posture of "empty response, not thrown error, on missing file".
  * - REMOTE (conn !== null): one SSH exec pipeline
- *   `sed -n 'A,Bp' <path> && printf '\n---TOTAL---\n' && wc -l < <path>`
- *   with `shellEscape` on the path (defense-in-depth). Stdout split on the
+ *   `[ -r <path> ] && sed -n 'A,Bp' <path> | <hidden-image filter> &&
+ *   printf '\n---TOTAL---\n' && wc -l < <path>`
+ *   with `shellEscape` on the path (defense-in-depth). Both branches blank
+ *   tool-result image data (hidden-image-filter.ts). Stdout split on the
  *   `---TOTAL---` sentinel: first part = sed output, second part = wc -l
  *   output. Missing sentinel = file didn't exist / sed errored → return
  *   `{ lines: [], totalLines: 0 }`.
@@ -65,6 +67,7 @@ import { promises as fs } from "node:fs";
 import type { Client } from "ssh2";
 import { execCommand } from "../ssh/tmux-helper.js";
 import { sshLogger } from "../utils/logger.js";
+import { blankHiddenImages, HIDDEN_IMAGE_FILTER } from "./hidden-image-filter.js";
 
 // ---------------------------------------------------------------------------
 // File-local helpers (COPY-NOT-SHARE convention — see module JSDoc)
@@ -176,7 +179,7 @@ export async function readSessionFileRange(
       // ends in "\n".
       const totalLines =
         allLines.length - (raw.endsWith("\n") ? 1 : 0);
-      const lines = allLines.slice(startLine - 1, startLine - 1 + count);
+      const lines = allLines.slice(startLine - 1, startLine - 1 + count).map(blankHiddenImages);
       return { lines, totalLines };
     } catch (err: unknown) {
       if (
@@ -201,6 +204,12 @@ export async function readSessionFileRange(
   // acceptance criterion counts call sites, and the redundancy documents
   // the T-47-01 defense-in-depth at every point of use.
   const cmd =
+    // A missing file must not reach the sentinel (empty-response posture
+    // below); the filter at the end of the pipe would otherwise mask sed's
+    // failure.
+    "[ -r " +
+    shellEscape(sessionFilePath) +
+    " ] && " +
     // `;<end>q` stops sed at the last wanted line instead of scanning the
     // rest of the file — load-more reads walk toward the START of large
     // JSONLs, so this is most of the file on most calls.
@@ -212,6 +221,9 @@ export async function readSessionFileRange(
     endLine +
     "q' " +
     shellEscape(sessionFilePath) +
+    // Tool-result image data blanked on the host (hidden-image-filter.ts).
+    " | " +
+    HIDDEN_IMAGE_FILTER +
     " && printf '\\n---TOTAL---\\n' && wc -l < " +
     shellEscape(sessionFilePath);
   // Time the SSH exec — bubble-load bottleneck diagnostic (2026-09-25).
