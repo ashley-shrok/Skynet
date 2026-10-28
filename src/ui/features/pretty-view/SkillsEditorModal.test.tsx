@@ -113,6 +113,9 @@ vi.mock("@mdxeditor/editor", () => ({
 
 // ── Late imports (after mocks are registered) ────────────────────────────────
 import SkillsEditorModal from "./SkillsEditorModal";
+import { RequestedSkillsEditor } from "./RequestedSkillsEditor";
+import { requestOpenSkillsEditor } from "@/features/pretty-conversations/open-skills-editor";
+import { act } from "@testing-library/react";
 import { autoAnswerKitDialogs, __resetKitDialogsForTests } from "@/components/kit";
 import * as skillsApi from "@/api/skills-api";
 
@@ -439,6 +442,59 @@ describe("SkillsEditorModal — Phase 44 SKILLED-05", () => {
       expect(screen.getByRole("heading", { name: "my-cool-skill" })).toBeInTheDocument(),
     );
     expect(screen.getByTestId("skills-editor-modal-back")).toBeInTheDocument();
+  });
+
+  it("opens straight on initialSkillName once the host's list loads (composer New skill… landing)", async () => {
+    (skillsApi.listSkills as ReturnType<typeof vi.fn>).mockResolvedValueOnce([
+      { name: "build" },
+      { name: "deploy" },
+    ]);
+    render(
+      <SkillsEditorModal
+        open={true}
+        onOpenChange={vi.fn()}
+        hostTree={HOST_TREE}
+        defaultHostId={1}
+        initialSkillName="deploy"
+        container={document.body}
+      />,
+    );
+    await waitFor(() =>
+      expect(screen.getByRole("heading", { name: "deploy" })).toBeInTheDocument(),
+    );
+    expect(screen.getByTestId("skills-editor-modal-back")).toBeInTheDocument();
+  });
+
+  it("a requested open (composer New skill…) opens the window on that host with the skill", async () => {
+    (skillsApi.listSkills as ReturnType<typeof vi.fn>).mockResolvedValueOnce([
+      { name: "build" },
+      { name: "deploy" },
+    ]);
+    render(<RequestedSkillsEditor hostTree={HOST_TREE} />);
+    expect(screen.queryByRole("heading", { name: "deploy" })).toBeNull();
+    act(() => requestOpenSkillsEditor({ hostId: 1, skill: "deploy" }));
+    await waitFor(() =>
+      expect(screen.getByRole("heading", { name: "deploy" })).toBeInTheDocument(),
+    );
+    expect(skillsApi.listSkills).toHaveBeenCalledWith(1, { includeDistributed: true });
+  });
+
+  it("an initialSkillName the host doesn't have leaves the window on its list", async () => {
+    (skillsApi.listSkills as ReturnType<typeof vi.fn>).mockResolvedValueOnce([{ name: "build" }]);
+    render(
+      <SkillsEditorModal
+        open={true}
+        onOpenChange={vi.fn()}
+        hostTree={HOST_TREE}
+        defaultHostId={1}
+        initialSkillName="gone"
+        container={document.body}
+      />,
+    );
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: /^new skill$/i })).toBeTruthy(),
+    );
+    expect(screen.queryByTestId("skills-editor-modal-back")).toBeNull();
   });
 
   it("+ New skill button is disabled when defaultHostId is null (host not auto-picked)", async () => {

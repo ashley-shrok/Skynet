@@ -1,13 +1,16 @@
 import { useEffect, useRef, useState } from "react";
-import { Search, Zap } from "lucide-react";
+import { Plus, Search, Zap } from "lucide-react";
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/dropdown-menu";
 import { cn } from "@/lib/utils";
 import { refreshSkillActions, useSkillActions, type SkillActionEntry } from "./skill-actions-store";
+import { promptNewSkill } from "./new-skill-flow";
+import { requestOpenSkillsEditor } from "@/features/pretty-conversations/open-skills-editor";
 
 // Skill-actions menu (campaign skill-actions, shape skill-action-menu): the
 // lightning-bolt aux button left of ThumbsUp. Opens a flat alphabetical list
@@ -16,6 +19,11 @@ import { refreshSkillActions, useSkillActions, type SkillActionEntry } from "./s
 // once as `/<name>` through the same quick-send path ThumbsUp uses. Hidden
 // until the host is known to have at least one skill. No curation,
 // grouping, or arguments.
+//
+// The last row, "New skill…", is for when the skill you want isn't there:
+// the menu closes, the Skills window's own name → description questions run
+// (the search text, if any, starts as the name), and the Skills window opens
+// on this host with the new skill. Backing out leaves you in the conversation.
 
 // Kit pop-over (shape-conversation-view): a search field on top, a lettered
 // tile in each skill's own steady colour, two-line descriptions.
@@ -58,6 +66,10 @@ export function SkillActionsButton({
   const [query, setQuery] = useState("");
   const searchRef = useRef<HTMLInputElement | null>(null);
   const contentRef = useRef<HTMLDivElement | null>(null);
+  const triggerRef = useRef<HTMLButtonElement | null>(null);
+  // Set while "New skill…" closes the menu, so the menu's close doesn't pull
+  // focus back to the button out from under the name question.
+  const newSkillPendingRef = useRef(false);
   const open = openList !== null;
 
   useEffect(() => {
@@ -83,6 +95,20 @@ export function SkillActionsButton({
       })
     : all;
 
+  const newSkill = (initialName: string) => {
+    console.info(`[skill-actions] new-skill hostId=${hostId} fromSearch=${initialName !== ""}`);
+    // Focus goes back to the button first so the dialog returns it there on
+    // cancel (the menu row is about to unmount); the questions start inside
+    // the tap so a phone raises its keyboard for the name field.
+    newSkillPendingRef.current = true;
+    triggerRef.current?.focus();
+    void promptNewSkill(hostId, { initialName, source: "composer-menu" }).then((slug) => {
+      if (slug == null) return;
+      void refreshSkillActions(hostId, "new-skill");
+      requestOpenSkillsEditor({ hostId, skill: slug });
+    });
+  };
+
   const fire = (name: string) => {
     console.info(`[skill-actions] fire hostId=${hostId} skill=${name}`);
     onFire(name);
@@ -106,6 +132,7 @@ export function SkillActionsButton({
     >
       <DropdownMenuTrigger asChild disabled={disabled}>
         <button
+          ref={triggerRef}
           type="button"
           disabled={disabled}
           aria-label="Skills"
@@ -124,6 +151,11 @@ export function SkillActionsButton({
         collisionPadding={12}
         className={CONTENT_CLASS}
         data-testid="skill-actions-menu"
+        onCloseAutoFocus={(e) => {
+          if (!newSkillPendingRef.current) return;
+          newSkillPendingRef.current = false;
+          e.preventDefault();
+        }}
       >
         <div className="sticky top-0 z-[2] px-2.5 pt-2.5 pb-2 mb-1 bg-[color:var(--k-menu)] border-b border-[color:var(--k-hair)]">
           <label className="flex items-center gap-2 h-[34px] px-2.5 rounded-[10px] bg-[#2a2c33] text-[color:var(--k-t3)] focus-within:shadow-[0_0_0_2px_hsla(220,62%,52%,0.6)]">
@@ -200,6 +232,24 @@ export function SkillActionsButton({
             </DropdownMenuItem>
           );
         })}
+        <DropdownMenuSeparator className="mx-3 my-1.5 bg-[color:var(--k-hair)]" />
+        <DropdownMenuItem
+          textValue="New skill"
+          className={ITEM_CLASS}
+          data-testid="skill-actions-new-skill"
+          onSelect={() => newSkill(query.trim())}
+        >
+          <span
+            aria-hidden="true"
+            className="row-span-2 grid place-items-center size-[30px] rounded-[8px] text-[color:var(--k-t2)] border border-dashed border-[color:var(--k-hair2)] group-focus/dropdown-menu-item:text-white! group-focus/dropdown-menu-item:border-white/60!"
+          >
+            <Plus className="size-[16px]" />
+          </span>
+          <span className="text-[13.5px] font-semibold truncate group-focus/dropdown-menu-item:text-white!">New skill…</span>
+          <span className="text-[12px] leading-snug text-[color:var(--k-t2)] group-focus/dropdown-menu-item:text-white/85!">
+            Make a skill that isn't here
+          </span>
+        </DropdownMenuItem>
       </DropdownMenuContent>
     </DropdownMenu>
   );

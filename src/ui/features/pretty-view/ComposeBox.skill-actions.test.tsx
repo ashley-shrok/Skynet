@@ -12,12 +12,18 @@ vi.mock("@/api/compose-drafts-api", () => ({
 }));
 
 const listSkillsMock = vi.fn();
+const createSkillMock = vi.fn();
 vi.mock("@/api/skills-api", () => ({
   listSkills: (hostId: number) => listSkillsMock(hostId),
+  createSkill: (hostId: number, name: string, description: string) =>
+    createSkillMock(hostId, name, description),
+  SkillAlreadyExistsError: class SkillAlreadyExistsError extends Error {},
 }));
 
 import { ComposeBox, type ComposeBoxProps } from "./ComposeBox";
 import { __resetSkillActionsStoreForTests } from "./skill-actions-store";
+import { autoAnswerKitDialogs, __resetKitDialogsForTests } from "@/components/kit";
+import { OPEN_SKILLS_EDITOR_EVENT } from "@/features/pretty-conversations/open-skills-editor";
 
 const SKILLS = [
   { name: "recap", description: "Gives a concise recap of the session." },
@@ -53,6 +59,8 @@ describe("ComposeBox — skill-actions menu", () => {
     localStorage.clear();
     listSkillsMock.mockReset();
     listSkillsMock.mockResolvedValue(SKILLS);
+    createSkillMock.mockReset();
+    __resetKitDialogsForTests();
   });
 
   it("button appears on the left of the control row (before the spacer and the thumbs-up) once the host's skills are known", async () => {
@@ -204,5 +212,114 @@ describe("ComposeBox — skill-actions menu", () => {
     expect(btn.disabled).toBe(true);
     expect(screen.queryByLabelText("Send 'thumbs up'")).toBeNull();
     expect(screen.getByRole("button", { name: "Resume" })).toBeTruthy();
+  });
+
+  describe("New skill… row", () => {
+    function listenForOpen(): { targets: unknown[]; stop: () => void } {
+      const targets: unknown[] = [];
+      const listen = (e: Event) => targets.push((e as CustomEvent).detail);
+      window.addEventListener(OPEN_SKILLS_EDITOR_EVENT, listen);
+      return { targets, stop: () => window.removeEventListener(OPEN_SKILLS_EDITOR_EVENT, listen) };
+    }
+
+    it("is the last row of the menu, after every skill", async () => {
+      render(<ComposeBox {...baseProps()} />);
+      openMenu(await findButton());
+      const menu = await screen.findByTestId("skill-actions-menu");
+      const items = Array.from(menu.querySelectorAll('[role="menuitem"]'));
+      expect(items[items.length - 1].getAttribute("data-testid")).toBe("skill-actions-new-skill");
+      expect(items[items.length - 1].textContent).toContain("New skill…");
+    });
+
+    it("stays at the bottom while a search matches nothing", async () => {
+      render(<ComposeBox {...baseProps()} />);
+      openMenu(await findButton());
+      fireEvent.change(await screen.findByTestId("skill-actions-search"), { target: { value: "deploy" } });
+      expect(screen.getByText("No skills match")).toBeTruthy();
+      expect(screen.getByTestId("skill-actions-new-skill")).toBeTruthy();
+    });
+
+    it("asks name (starting from the search text) then description, creates on this host, opens the Skills window on it — and sends nothing", async () => {
+      const onSend = vi.fn(() => true);
+      const answers = ["deploy", "Deploys the thing."];
+      const dialogs = autoAnswerKitDialogs({ prompt: () => answers.shift() ?? null });
+      createSkillMock.mockResolvedValue({ slug: "deploy", mtime: 1 });
+      const opened = listenForOpen();
+      try {
+        render(<ComposeBox {...baseProps({ onSend, hostId: 7 })} />);
+        const textarea = screen.getByPlaceholderText("Write a message…") as HTMLTextAreaElement;
+        fireEvent.change(textarea, { target: { value: "draft stays" } });
+        openMenu(await findButton());
+        fireEvent.change(await screen.findByTestId("skill-actions-search"), { target: { value: "  deploy " } });
+        fireEvent.click(screen.getByTestId("skill-actions-new-skill"));
+
+        await waitFor(() => expect(opened.targets).toEqual([{ hostId: 7, skill: "deploy" }]));
+        expect(createSkillMock).toHaveBeenCalledWith(7, "deploy", "Deploys the thing.");
+        // The composer's own list refreshes so the new skill is there next open.
+        await waitFor(() => expect(listSkillsMock.mock.calls.filter((c) => c[0] === 7).length).toBeGreaterThanOrEqual(3));
+        expect(dialogs.calls[0].opts).toMatchObject({ title: "New skill", defaultValue: "deploy" });
+        expect(onSend).not.toHaveBeenCalled();
+        expect(textarea.value).toBe("draft stays");
+        await waitFor(() => expect(screen.queryByTestId("skill-actions-menu")).toBeNull());
+      } finally {
+        opened.stop();
+      }
+    });
+
+    it("with no search typed, the name starts blank", async () => {
+      const dialogs = autoAnswerKitDialogs({ prompt: null });
+      render(<ComposeBox {...baseProps()} />);
+      openMenu(await findButton());
+      fireEvent.click(await screen.findByTestId("skill-actions-new-skill"));
+      await waitFor(() => expect(dialogs.calls.length).toBe(1));
+      expect((dialogs.calls[0].opts as { defaultValue?: string }).defaultValue).toBeUndefined();
+    });
+
+    it.each([
+      ["name", [null]],
+      ["description", ["deploy", null]],
+    ])("backing out at the %s question creates nothing and opens no window", async (_step, seq) => {
+      const answers = [...seq];
+      const dialogs = autoAnswerKitDialogs({ prompt: () => answers.shift() ?? null });
+      const opened = listenForOpen();
+      try {
+        render(<ComposeBox {...baseProps()} />);
+        openMenu(await findButton());
+        fireEvent.click(await screen.findByTestId("skill-actions-new-skill"));
+        await waitFor(() => expect(dialogs.calls.length).toBe(seq.length));
+        await new Promise((r) => setTimeout(r, 20));
+        expect(createSkillMock).not.toHaveBeenCalled();
+        expect(opened.targets).toEqual([]);
+      } finally {
+        opened.stop();
+      }
+    });
+
+    it("a failed create says so and opens no window", async () => {
+      const answers = ["deploy", "Deploys the thing."];
+      const dialogs = autoAnswerKitDialogs({ prompt: () => answers.shift() ?? null });
+      createSkillMock.mockRejectedValue(new Error("host unreachable"));
+      const opened = listenForOpen();
+      try {
+        render(<ComposeBox {...baseProps()} />);
+        openMenu(await findButton());
+        fireEvent.click(await screen.findByTestId("skill-actions-new-skill"));
+        await waitFor(() => expect(dialogs.calls.some((c) => c.kind === "alert")).toBe(true));
+        expect(opened.targets).toEqual([]);
+      } finally {
+        opened.stop();
+      }
+    });
+
+    it("Enter in a search with no matches does not start a new skill", async () => {
+      const dialogs = autoAnswerKitDialogs({ prompt: null });
+      render(<ComposeBox {...baseProps()} />);
+      openMenu(await findButton());
+      const search = await screen.findByTestId("skill-actions-search");
+      fireEvent.change(search, { target: { value: "deploy" } });
+      fireEvent.keyDown(search, { key: "Enter" });
+      await new Promise((r) => setTimeout(r, 20));
+      expect(dialogs.calls).toEqual([]);
+    });
   });
 });

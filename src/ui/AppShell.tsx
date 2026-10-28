@@ -253,6 +253,7 @@ import { OPEN_APP_EVENT, type OpenAppDetail } from "./features/apps/app-link";
 import { kitAlert } from "@/components/kit";
 import "@/features/pretty-view/conversation.css";
 import { NEW_CONVERSATION_REQUEST_EVENT } from "@/lib/new-conversation-request";
+import { RequestedSkillsEditor } from "@/features/pretty-view/RequestedSkillsEditor";
 // Phase 11 Plan 03 (user "no settings" lock): SettingsRow import RETIRED
 // alongside AppRail — the entire settings-surface tree dies here.
 
@@ -5170,6 +5171,7 @@ export function AppShell({
         }}
       />
       <WhatsNewModal username={username} />
+      <RequestedSkillsEditor hostTree={realHostTree} />
     </>
   );
 }

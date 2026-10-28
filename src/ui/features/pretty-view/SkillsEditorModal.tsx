@@ -27,7 +27,6 @@ import {
   writeSkillFile,
   writeSkillFileBinary,
   createSkillFile,
-  createSkill,
   deleteSkillFile,
   deleteSkill,
   SkillFileMtimeConflictError,
@@ -63,6 +62,7 @@ import {
 } from "@/api/instance-wide-api";
 import { InstanceWideSyncStatus } from "./InstanceWideStatus";
 import { isBlockedSkillName, SKILL_NAME_REFUSED_MESSAGE } from "@/types/blocked-commands";
+import { promptNewSkill, skillNameError } from "./new-skill-flow";
 
 // SkillsEditorModal — the skills window (footer lightning bolt).
 // Shape: .planning/campaigns/apple-ux/shape-skills-modal.md
@@ -135,19 +135,13 @@ function collectAllHosts(children: (Host | HostFolder)[]): Host[] {
 }
 
 
-// The New skill / Rename name field: empty after slugging, or a name the
-// composer would refuse as a command.
-function skillNameError(v: string): string | null {
-  const slug = slugifyRoleName(v.trim());
-  if (slug.length === 0) return "Pick a name with at least one letter or number.";
-  if (isBlockedSkillName(slug)) return SKILL_NAME_REFUSED_MESSAGE;
-  return null;
-}
 export interface SkillsEditorModalProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   hostTree: HostFolder | null;
   defaultHostId: number | null;
+  /** A skill on `defaultHostId` to open once the list loads. */
+  initialSkillName?: string | null;
   container?: HTMLElement | null;
 }
 
@@ -156,6 +150,7 @@ export default function SkillsEditorModal({
   onOpenChange,
   hostTree,
   defaultHostId,
+  initialSkillName = null,
   container,
 }: SkillsEditorModalProps): JSX.Element {
   const [selectedHostId, setSelectedHostId] = useState<number | null>(null);
@@ -240,6 +235,15 @@ export default function SkillsEditorModal({
     if (open) bumpModalOpen("skills");
   }, [open]);
 
+  // The skill to open once the host's list arrives — consumed by that load.
+  const pendingSkillRef = useRef<{ hostId: number; skill: string } | null>(null);
+  useEffect(() => {
+    pendingSkillRef.current =
+      open && initialSkillName != null && defaultHostId != null
+        ? { hostId: defaultHostId, skill: initialSkillName }
+        : null;
+  }, [open, initialSkillName, defaultHostId]);
+
   // Auto-select host on open; reset state on close.
   useEffect(() => {
     if (!open) {
@@ -284,8 +288,17 @@ export default function SkillsEditorModal({
       .then((entries) => {
         if (cancelled) return;
         setSkills({ status: "ready", data: entries });
+        // Only on the host it was asked for — the picker may have landed elsewhere.
+        const pending = pendingSkillRef.current;
+        pendingSkillRef.current = null;
+        const want = pending?.hostId === selectedHostId ? pending.skill : null;
+        if (want != null && entries.some((e) => e.name === want)) {
+          console.info(`[skills-editor] open-initial-skill hostId=${selectedHostId} skill=${want}`);
+          setSelectedSkillName(want);
+        }
       })
       .catch((err: unknown) => {
+        pendingSkillRef.current = null;
         if (!cancelled)
           setSkills({
             status: "error",
@@ -866,48 +879,19 @@ export default function SkillsEditorModal({
     }
   }, [apiHostId, selectedSkillName, leaveActiveFile]);
 
-  // New-skill handler — chained kitPrompt (name → description); slugify
-  // client-side; an empty slug or empty description is refused in place by
-  // the dialog's validate (name retained across the description step). See
-  // prior comment history for D-01..D-05 rationale.
+  // New-skill handler — the shared name → description questions (also behind
+  // the composer Skills menu's "New skill…"), then the new skill opens.
   const handleNewSkill = useCallback(async (): Promise<void> => {
     if (selectedHostId == null) return;
-
-    const rawName = await kitPrompt({
-      title: "New skill",
-      label: "Name",
-      placeholder: "My skill",
-      confirmLabel: "Next",
-      validate: skillNameError,
-    });
-    if (rawName == null) return;
-    const displayName = rawName.trim();
-    const slug = slugifyRoleName(displayName);
-
-    const rawDesc = await kitPrompt({
-      title: `Describe "${displayName}"`,
-      body: "Agents read this to decide when to use the skill.",
-      label: "Description",
-      confirmLabel: "Create skill",
-      validate: (v) => (v.trim().length === 0 ? "A description is required." : null),
-    });
-    if (rawDesc == null) return;
-    const description = rawDesc.trim();
-
+    const slug = await promptNewSkill(selectedHostId, { source: "skills-editor" });
+    if (slug == null) return;
     try {
-      const result = await createSkill(selectedHostId, slug, description);
       const entries = await listSkills(selectedHostId, { includeDistributed: true });
       setSkills({ status: "ready", data: entries });
-      setSelectedSkillName(result.slug);
     } catch (err) {
-      const msg =
-        err instanceof SkillAlreadyExistsError
-          ? `A skill named "${displayName}" already exists on this host.`
-          : err instanceof Error
-          ? `Couldn't create "${displayName}": ${err.message}`
-          : `Couldn't create "${displayName}".`;
-      void kitAlert({ title: "Couldn't create the skill", body: msg });
+      console.warn(`[skills-editor] list-after-create failed hostId=${selectedHostId}`, err instanceof Error ? err.message : err);
     }
+    setSelectedSkillName(slug);
   }, [selectedHostId]);
 
   const handleDeleteFile = useCallback(

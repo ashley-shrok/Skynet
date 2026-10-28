@@ -1762,8 +1762,13 @@ crown, then gear.
   (focused on open, except on touch screens) filters by name and
   description; after typing a search, Enter runs the top match. Tapping a skill sends `/<skill-name>` at once,
   exactly like thumbs-up sends its reply: no arguments, anything the user
-  had typed stays in the compose box. The button is hidden until the app
-  knows the box has at least one such skill. To give the user a new
+  had typed stays in the compose box. The last row, **New skill…** (a plus
+  tile, there even mid-search), sends nothing: it asks for a new skill's
+  name (starting from whatever was typed in the search) and description,
+  makes it on this agent's box, and opens the Skills window on it;
+  cancelling either question leaves the user in the conversation. The
+  button is hidden until the app knows the box has at least one such
+  skill. To give the user a new
   one-tap action, write an argument-free skill (via the Skills editor,
   user-gated as usual) — it appears in this menu.
   *Agent-side: none* — it arrives as an ordinary slash command.
