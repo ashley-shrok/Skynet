@@ -429,24 +429,45 @@ router.post(
       try {
         // 5a. archive-exists precondition (D-02 §1):
         // Refuse if the archived folder does not exist at the expected path.
+        // Exception: archive gone but the live folder present means the
+        // un-archive already happened (a repeated or late request — e.g. a
+        // phone resuming after the first request finished) → report success.
+        let archiveExists: boolean;
         if (conn === null) {
           // LOCAL branch
-          try {
-            await fs.access(
-              path.join(getLocalArchivedIdentitiesRoot(), key),
-            );
-          } catch {
-            return res.status(409).json({ reason: "archive_not_found" });
-          }
+          archiveExists = await fs
+            .access(path.join(getLocalArchivedIdentitiesRoot(), key))
+            .then(() => true, () => false);
         } else {
-          // REMOTE branch — all IDENTITY_KEY_RE-validated values, no shell-metachar risk.
+          // REMOTE branch — validated key, no shell-metachar risk.
           const out = await execCommand(
             conn,
             `test -d "$HOME/fleet/identities-archive/${key}" && echo yes || echo no`,
           );
-          if (out.trim() !== "yes") {
-            return res.status(409).json({ reason: "archive_not_found" });
+          archiveExists = out.trim() === "yes";
+        }
+        if (!archiveExists) {
+          let liveExists: boolean;
+          if (conn === null) {
+            liveExists = await fs
+              .access(path.join(getLocalIdentitiesRoot(), key))
+              .then(() => true, () => false);
+          } else {
+            const out = await execCommand(
+              conn,
+              `test -d "$HOME/fleet/identities/${key}" && echo yes || echo no`,
+            );
+            liveExists = out.trim() === "yes";
           }
+          if (liveExists) {
+            databaseLogger.info("identity unarchive: already back, reporting success", {
+              operation: "identity_unarchive_already_restored",
+              identityKey: key,
+              hostId,
+            });
+            return res.json({ ok: true, outcome: "restored" });
+          }
+          return res.status(409).json({ reason: "archive_not_found" });
         }
 
         // 5b. name-collision precondition (D-02 §2):

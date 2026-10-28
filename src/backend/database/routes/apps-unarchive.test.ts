@@ -283,9 +283,9 @@ describe("POST /apps/:hostId/:slug/unarchive", () => {
   // Test 2: archive_not_found
   // -------------------------------------------------------------------------
 
-  it("Test 2: archive folder absent → 409 { reason: 'archive_not_found' }; writer NOT called", async () => {
+  it("Test 2: archive folder absent (and not live) → 409 { reason: 'archive_not_found' }; writer NOT called", async () => {
     mockFsAccess.mockImplementation((p: string) => {
-      if (p.startsWith(FAKE_APPS_ARCHIVE_ROOT)) {
+      if (p.startsWith(FAKE_APPS_ARCHIVE_ROOT) || p.startsWith(FAKE_APPS_LIVE_ROOT)) {
         const err = Object.assign(new Error("ENOENT"), { code: "ENOENT" });
         return Promise.reject(err);
       }
@@ -299,6 +299,25 @@ describe("POST /apps/:hostId/:slug/unarchive", () => {
 
     expect(res.status).toBe(409);
     expect(res.body).toEqual({ reason: "archive_not_found" });
+    expect(writeAppArchiveFile).not.toHaveBeenCalled();
+  });
+
+  it("Test 2b: archive gone + live folder present (already un-archived) → 200; writer NOT called", async () => {
+    mockFsAccess.mockImplementation((p: string) => {
+      if (p.startsWith(FAKE_APPS_ARCHIVE_ROOT)) {
+        const err = Object.assign(new Error("ENOENT"), { code: "ENOENT" });
+        return Promise.reject(err);
+      }
+      return Promise.resolve();
+    });
+
+    const res = await httpRequest(server, {
+      method: "POST",
+      path: "/apps/5/my-app/unarchive",
+    });
+
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ ok: true });
     expect(writeAppArchiveFile).not.toHaveBeenCalled();
   });
 

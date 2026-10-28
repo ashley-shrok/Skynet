@@ -212,20 +212,21 @@ export function isRetryable(
     (status === undefined || status === 0) &&
     (NETWORK_CODES.includes(code ?? "") || error.response === undefined || status === 0);
 
+  const isIdempotent = method === "GET" || method === "HEAD" || method === "OPTIONS";
+
   if (isConnectionLevel) {
-    // Safe to retry for ALL methods — connection was never established,
-    // so the server never processed the request.
-    return true;
+    if (isIdempotent) return true;
+    // POST, PUT, PATCH, DELETE: only a refused connection proves the request
+    // never left. A browser reports every other drop as ERR_NETWORK —
+    // including a phone suspending the app mid-request after the server
+    // already acted — so re-sending could do the action twice.
+    return code === "ECONNREFUSED";
   }
 
   // 5xx gateway errors: only retry on idempotent methods.
   if (status === 502 || status === 503 || status === 504) {
-    // GET, HEAD, OPTIONS are idempotent — safe to retry on 5xx.
-    if (method === "GET" || method === "HEAD" || method === "OPTIONS") {
-      return true;
-    }
     // POST, PUT, PATCH, DELETE — server may have processed; do NOT retry on 5xx.
-    return false;
+    return isIdempotent;
   }
 
   // 4xx and anything else (including 500, 501) — never retry.

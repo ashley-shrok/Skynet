@@ -147,22 +147,45 @@ router.post(
       try {
         // 5a. archive-exists precondition (D-02 §1):
         // Refuse if the archived app folder does not exist.
+        // Exception: archive gone but the live folder present means the
+        // un-archive already happened (a repeated or late request — e.g. a
+        // phone resuming after the first request finished) → report success.
+        let archiveExists: boolean;
         if (conn === null) {
           // LOCAL branch
-          try {
-            await fs.access(path.join(getLocalArchivedAppsRoot(), slug));
-          } catch {
-            return res.status(409).json({ reason: "archive_not_found" });
-          }
+          archiveExists = await fs
+            .access(path.join(getLocalArchivedAppsRoot(), slug))
+            .then(() => true, () => false);
         } else {
-          // REMOTE branch — APP_SLUG_RE-validated slug, no shell-metachar risk.
+          // REMOTE branch — validated slug, no shell-metachar risk.
           const out = await execCommand(
             conn,
             `test -d "$HOME/fleet/apps-archive/${slug}" && echo yes || echo no`,
           );
-          if (out.trim() !== "yes") {
-            return res.status(409).json({ reason: "archive_not_found" });
+          archiveExists = out.trim() === "yes";
+        }
+        if (!archiveExists) {
+          let liveExists: boolean;
+          if (conn === null) {
+            liveExists = await fs
+              .access(path.join(getLocalAppsRoot(), slug))
+              .then(() => true, () => false);
+          } else {
+            const out = await execCommand(
+              conn,
+              `test -d "$HOME/fleet/apps/${slug}" && echo yes || echo no`,
+            );
+            liveExists = out.trim() === "yes";
           }
+          if (liveExists) {
+            databaseLogger.info("app unarchive: already back, reporting success", {
+              operation: "app_unarchive_already_restored",
+              slug,
+              hostId,
+            });
+            return res.json({ ok: true });
+          }
+          return res.status(409).json({ reason: "archive_not_found" });
         }
 
         // 5b. name-collision precondition (D-02 §2):

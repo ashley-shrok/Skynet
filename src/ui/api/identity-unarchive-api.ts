@@ -24,6 +24,10 @@ import { authApi, handleApiError } from "@/main-axios";
 //   archive_not_found — the archived folder for this key doesn't exist.
 //   refused           — the supervisor refused; `message` carries its reason.
 //
+// connection_lost (client-side, not a 409): the connection dropped while the
+// backend was waiting — typically a phone suspending the app. The request may
+// already have reached the server, so this isn't reported as a refusal.
+//
 // Non-409 errors flow through handleApiError (main-axios.ts) so callers see
 // the same ApiError / message shape the rest of the codebase produces.
 //
@@ -38,6 +42,7 @@ export type UnarchiveFailureReason =
   | "name_collision"
   | "archive_not_found"
   | "refused"
+  | "connection_lost"
   | "unknown";
 
 export class UnarchiveError extends Error {
@@ -131,6 +136,12 @@ export async function unarchiveIdentity(
     const data = response.data as { ok: true; outcome?: UnarchiveOutcome };
     return { ok: true, outcome: data.outcome === "restored" ? "restored" : "pending" };
   } catch (error) {
+    if (axios.isAxiosError(error) && !error.response) {
+      throw new UnarchiveError(
+        `connection lost during un-archive (${error.code ?? "no response"})`,
+        "connection_lost",
+      );
+    }
     try {
       parseUnarchive409OrRethrow(error);
     } catch (typed) {

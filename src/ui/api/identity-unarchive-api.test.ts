@@ -170,4 +170,25 @@ describe("Phase 143 Plan 143-05 Task 1 — unarchiveIdentity", () => {
     // handleApiError mock formats as "operation: msg"
     expect((caught as Error).message).toMatch(/un-archive identity/i);
   });
+
+  // Test 5 (connection lost): no response at all (phone suspended the app
+  //   mid-wait) → UnarchiveError "connection_lost", not a refusal.
+  it("Test 5 (connection lost): an axios error with no response throws UnarchiveError reason 'connection_lost'", async () => {
+    const dropped = Object.assign(new Error("Network Error"), {
+      isAxiosError: true,
+      code: "ERR_NETWORK",
+      response: undefined,
+    });
+    vi.mocked(authApi.post).mockRejectedValueOnce(dropped);
+
+    let caught: unknown;
+    try {
+      await unarchiveIdentity(1, "wren");
+    } catch (e) {
+      caught = e;
+    }
+
+    expect(caught).toBeInstanceOf(UnarchiveError);
+    expect((caught as UnarchiveError).reason).toBe("connection_lost");
+  });
 });

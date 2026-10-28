@@ -307,7 +307,7 @@ describe("isRetryable (classification tree)", () => {
     expect(isRetryable(error, config)).toBe(false);
   });
 
-  // ─── POST + connection-never-established — safe to retry ─────────────────
+  // ─── POST + connection drops — only a refused connection is safe ─────────
 
   it("POST + ECONNREFUSED → true", () => {
     // connection never established, safe to retry
@@ -316,11 +316,24 @@ describe("isRetryable (classification tree)", () => {
     expect(isRetryable(error, config)).toBe(true);
   });
 
-  it("POST + ERR_NETWORK with response=undefined → true", () => {
+  it("POST + ERR_NETWORK with response=undefined → false (server may have acted)", () => {
     const error = makeError({ code: "ERR_NETWORK" });
     expect(error.response).toBeUndefined();
     const config = makeConfig({ method: "POST" });
-    expect(isRetryable(error, config)).toBe(true);
+    expect(isRetryable(error, config)).toBe(false);
+  });
+
+  it("POST + ECONNABORTED (timeout) → false", () => {
+    const error = makeError({ code: "ECONNABORTED" });
+    const config = makeConfig({ method: "POST" });
+    expect(isRetryable(error, config)).toBe(false);
+  });
+
+  it("PUT / PATCH / DELETE + ERR_NETWORK → false", () => {
+    for (const method of ["PUT", "PATCH", "DELETE"]) {
+      const error = makeError({ code: "ERR_NETWORK" });
+      expect(isRetryable(error, makeConfig({ method }))).toBe(false);
+    }
   });
 
   // ─── Other non-idempotent methods ─────────────────────────────────────────
@@ -513,13 +526,13 @@ describe("retry interceptor integration", () => {
     expect(callCount).toBe(1);
   });
 
-  it("POST that fails ECONNREFUSED retries up to cap (connection never established)", async () => {
+  it("POST whose connection drops is NOT re-sent (server may already have acted)", async () => {
     vi.useFakeTimers();
 
     let callCount = 0;
     mock.onPost("/action").reply(() => {
       callCount++;
-      return [0, null]; // network error (connection never established)
+      return [0, null]; // browser-style drop: no response, ERR_NETWORK
     });
 
     await expect(
@@ -528,8 +541,7 @@ describe("retry interceptor integration", () => {
         vi.runAllTimersAsync(),
       ]),
     ).rejects.toBeDefined();
-    // POST + ECONNREFUSED → retries up to 3 attempts
-    expect(callCount).toBe(3);
+    expect(callCount).toBe(1);
   });
 
   it("config.__noRetry: true suppresses retry even on ECONNREFUSED GET", async () => {

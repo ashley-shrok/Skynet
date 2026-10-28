@@ -523,6 +523,29 @@ describe("POST /identities/:key/unarchive", () => {
     expect(pollCount).toBe(0);
   });
 
+  it("Test 2b: archive gone + live folder present LOCAL (already un-archived) → 200 restored; writer NOT called", async () => {
+    disk.archive = false;
+    disk.live = true;
+    const res = await post(42);
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ ok: true, outcome: "restored" });
+    expect(writeIdentityArchiveFile).not.toHaveBeenCalled();
+    expect(pollCount).toBe(0);
+  });
+
+  it("Test 2c: archive gone + live folder present REMOTE → 200 restored; writer NOT called", async () => {
+    const base = (execCommand as Mock).getMockImplementation()!;
+    (execCommand as Mock).mockImplementation((conn: unknown, cmd: string) => {
+      if (cmd.includes("identities-archive/wren")) return Promise.resolve("no\n");
+      if (cmd.includes("identities/wren")) return Promise.resolve("yes\n");
+      return base(conn, cmd);
+    });
+    const res = await post(43);
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ ok: true, outcome: "restored" });
+    expect(writeIdentityArchiveFile).not.toHaveBeenCalled();
+  });
+
   it("Test 3: live folder exists LOCAL → 409 { reason: 'name_collision' }; writer NOT called", async () => {
     disk.live = true;
     const res = await post(42);

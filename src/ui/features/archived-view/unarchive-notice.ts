@@ -22,5 +22,11 @@ export function unarchiveFailureNotice(err: unknown, identityKey: string): { tit
       body: "The archive may have already been reactivated. Try again in a moment.",
     };
   }
+  if (err instanceof UnarchiveError && err.reason === "connection_lost") {
+    return {
+      title: `Lost the connection while un-archiving ${identityKey}`,
+      body: "It may still be coming back. If it isn't back in a minute, try again.",
+    };
+  }
   return { title: `Couldn't un-archive ${identityKey}`, body: "Try again in a moment." };
 }
