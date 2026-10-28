@@ -20,7 +20,7 @@ vi.mock("../ssh/tmux-helper.js", () => ({
   }),
 }));
 
-import { HIDDEN_IMAGE_FILTER, HIDDEN_IMAGE_FILTER_SED, blankHiddenImages } from "./hidden-image-filter.js";
+import { HIDDEN_IMAGE_FILTER, HIDDEN_IMAGE_FILTER_SED, HIDDEN_IMAGE_MIN_BASE64, blankHiddenImages } from "./hidden-image-filter.js";
 import { parseSessionLineQuietly } from "./session-file-parser.js";
 import { readSessionFileRange } from "./session-file-range-reader.js";
 
@@ -86,6 +86,18 @@ describe("hidden-image filter", () => {
     const js = fixtures.map(blankHiddenImages);
     expect(viaSed(fixtures)).toEqual(js);
     expect(viaSed(fixtures, HIDDEN_IMAGE_FILTER_SED)).toEqual(js);
+  });
+
+  it("the threshold stays inside every regex engine's repeat limit, and is exact", () => {
+    // POSIX RE_DUP_MAX: musl, BSD and macOS reject repeat counts above 255.
+    expect(HIDDEN_IMAGE_MIN_BASE64).toBeLessThanOrEqual(255);
+    const at = (n: number) =>
+      JSON.stringify({ type: "user", message: { content: [{ tool_use_id: "toolu_t", type: "tool_result" }] }, toolUseResult: { data: "A".repeat(n) } });
+    const lines = [at(HIDDEN_IMAGE_MIN_BASE64), at(HIDDEN_IMAGE_MIN_BASE64 - 1)];
+    const expected = [lines[0]!.replace(/"data":"A+"/, '"data":""'), lines[1]!];
+    expect(lines.map(blankHiddenImages)).toEqual(expected);
+    expect(viaSed(lines)).toEqual(expected);
+    expect(viaSed(lines, HIDDEN_IMAGE_FILTER_SED)).toEqual(expected);
   });
 
   it("falls back to sed on a host without perl", () => {

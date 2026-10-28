@@ -28,8 +28,10 @@
  */
 
 /** Shortest base64 run treated as picture data. Real images are far longer;
- *  ids, hashes and short tokens are far shorter. */
-export const HIDDEN_IMAGE_MIN_BASE64 = 512;
+ *  ids, hashes and short tokens are far shorter. Must stay ≤ 255: that is
+ *  POSIX's guaranteed repeat limit (RE_DUP_MAX), and musl, BSD and macOS
+ *  regex reject anything larger, which would break the sed fallback. */
+export const HIDDEN_IMAGE_MIN_BASE64 = 255;
 
 const PERL_SCRIPT =
   `if (index($_, q{"tool_use_id":"}) >= 0) { s/"(data|base64)":"[A-Za-z0-9+\\/=]{${HIDDEN_IMAGE_MIN_BASE64},}"/"$1":""/g }`;
