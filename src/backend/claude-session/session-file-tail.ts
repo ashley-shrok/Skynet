@@ -28,11 +28,13 @@ import { hangUpChannel, type HangUpChannel } from "../ssh/channel-hangup.js";
  *    remote child (see mindrot #1424); `tail -F`'s stdout writes silently
  *    `EPIPE` and it keeps running as a PPID=1 orphan across every WS
  *    reconnect. Three-prong fix, all three carrying weight:
- *      - Prong A: stop() calls `stream.signal("TERM")` BEFORE
- *        `stream.close()` (via hangUpChannel, which waits briefly between). OpenSSH ignores channel-signal requests but
- *        Tailscale SSH and others honor them — free fast-teardown where
- *        supported, no cost where ignored. A synchronous throw from
- *        signal() is caught and logged; close() still runs.
+ *      - Prong A: stop() hangs the channel up through hangUpChannel
+ *        (channel-hangup.ts): it ends stdin — which Prong C turns into
+ *        an immediate kill of the tail — and sends TERM, then closes
+ *        from our side only if the server hasn't closed the channel
+ *        after a grace period. A plain close while tail is writing
+ *        drops the whole connection on Tailscale SSH. A synchronous
+ *        throw from signal() is caught and logged; close() still runs.
  *      - Prong B: the remote command wraps `tail -F` in a `sh -c 'trap
  *        "kill $t 2>/dev/null" EXIT INT HUP TERM; ... & t=$!; ...'` so a
  *        SIGHUP or SIGTERM to the wrapper shell fires the trap and kills
@@ -110,11 +112,10 @@ export function tailSessionFile(
       { operation: "session_file_tail_stop", lineCount, totalMs, ttfbMs },
     );
     if (!stream) return;
-    // Prong A: signal TERM, then close once the server has had a moment to
-    // end the channel itself (channel-hangup.ts) — a plain close while tail
-    // is still writing drops the whole connection on Tailscale SSH. On
-    // OpenSSH the signal is ignored and the timed close still reaches the
-    // trap wrapper (Prong B) and the stdin blocker (Prong C).
+    // Prong A: end stdin (Prong C kills the tail on EOF) and send TERM, and
+    // close only if the server hasn't ended the channel after a grace
+    // period — a plain close while tail is still writing drops the whole
+    // connection on Tailscale SSH (channel-hangup.ts).
     hangUpChannel(stream);
   };
 

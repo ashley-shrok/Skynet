@@ -87,7 +87,7 @@ function offsetAfterNthNul(buf: Buffer, n: number): number {
 
 /**
  * Run the search script and buffer stdout until it ends, the record cap is
- * reached (then the channel is closed — find dies on its next write), the
+ * reached (then the channel is hung up — find is stopped through its stdin), the
  * byte backstop is hit, or `signal` aborts.
  */
 function execSearch(
@@ -103,7 +103,8 @@ function execSearch(
       let stoppedEarly = false;
       let done = false;
       // Usually called while the search is still writing; a plain close
-      // there drops the whole connection on Tailscale SSH.
+      // there drops the whole connection on Tailscale SSH, so find is
+      // stopped through its stdin (stopOnInputEof in the script).
       const stop = () => hangUpChannel(stream);
       const onAbort = () => stop();
       signal.addEventListener("abort", onAbort, { once: true });

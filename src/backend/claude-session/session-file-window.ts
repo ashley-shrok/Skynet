@@ -4,7 +4,7 @@ import { sshLogger } from "../utils/logger.js";
 import { execCommand } from "../ssh/tmux-helper.js";
 import { parseSessionLineQuietly } from "./session-file-parser.js";
 import { tailSessionFile, type TailHandle } from "./session-file-tail.js";
-import { hangUpChannel, type HangUpChannel } from "../ssh/channel-hangup.js";
+import { hangUpChannel, stopOnInputEof, type HangUpChannel } from "../ssh/channel-hangup.js";
 
 /**
  * Open a conversation's session file the fast way: only the recent window
@@ -120,7 +120,9 @@ function readBackwards(
 ): Promise<BackwardsResult> {
   const command =
     `f=${shellEscape(path)}; n=$(wc -l < "$f") || exit 3; echo "$n"; ` +
-    `command -v tac >/dev/null 2>&1 || exit 4; head -n "$n" "$f" | tac`;
+    `command -v tac >/dev/null 2>&1 || exit 4; ` +
+    // Stoppable mid-read without a channel close (see channel-hangup.ts).
+    stopOnInputEof(`head -n "$n" "$f" | tac`);
   return new Promise((resolve) => {
     let settled = false;
     let totalLines: number | null = null;
@@ -140,7 +142,8 @@ function readBackwards(
     };
     let stream: HangUpChannel | null = null;
     // The read is usually hung up mid-stream (overshoot past the window);
-    // a plain close there drops the whole connection on Tailscale SSH.
+    // a plain close there drops the whole connection on Tailscale SSH, so
+    // the read is stopped through its stdin instead.
     const hangUp = () => hangUpChannel(stream);
     const finish = (r: BackwardsResult) => {
       if (settled) return;
@@ -159,9 +162,11 @@ function readBackwards(
         return;
       }
       stream = s;
-      if (isStopped()) return finish({ ok: false, reason: "stopped", totalLines });
-      if (settled) {
+      // Stopped or settled while the channel was opening: finish() already
+      // ran with no stream to hang up, so hang this one up here.
+      if (settled || isStopped()) {
         hangUp();
+        finish({ ok: false, reason: "stopped", totalLines });
         return;
       }
       const takeLine = (line: string) => {

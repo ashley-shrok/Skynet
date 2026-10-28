@@ -281,6 +281,30 @@ describe("tailSessionFileWindowed", () => {
     expect(host.execs.some((c) => c.includes("tail -F"))).toBe(false);
     expect(o.events).toEqual([]);
   });
+
+  it("stop() while the read's channel is still opening hangs that channel up once it opens", async () => {
+    let pending: ((err: Error | null, s: Stream) => void) | null = null;
+    const conn = { exec: vi.fn((_cmd: string, cb: (err: Error | null, s: Stream) => void) => { pending = cb; }) } as unknown as Client;
+    const handle = tailSessionFileWindowed(conn, "/tmp/s.jsonl", () => {}, () => {}, {
+      targetItems: 5,
+      onWindowStart: () => {},
+      onWindowDone: () => {},
+    });
+    await settle();
+    expect(pending).not.toBeNull();
+    handle.stop();
+    const s = makeStream();
+    pending!(null, s);
+    expect(s.end).toHaveBeenCalled();
+    expect(s.signal).toHaveBeenCalledWith("TERM");
+  });
+
+  it("the backwards read is stoppable through stdin", () => {
+    const host = makeHost([user("m1")]);
+    open(host, 5);
+    const cmd = host.execs.find((c) => c.includes("| tac"))!;
+    expect(cmd).toContain("read -r _ <&3");
+  });
 });
 
 describe("visibleItemKey", () => {

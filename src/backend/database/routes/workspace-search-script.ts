@@ -24,6 +24,7 @@
  *   The caller may stop reading early (result cap); the trailer is then absent.
  */
 
+import { stopOnInputEof } from "../../ssh/channel-hangup.js";
 import { archivedIdentityRootShellWord, type TargetSpec } from "./workspace-routes.js";
 
 /** Folders never descended into. The folder itself is not reported either. */
@@ -111,7 +112,8 @@ export function buildSearchScript(
     // A UTF-8 locale so -iname folds case beyond ASCII (Ü matches ü); if the
     // host lacks it, find falls back to ASCII-only folding.
     // Only folders are pruned by name — a file called "venv" is still found.
-    `LC_ALL=C.UTF-8 $run find . -mindepth 1 \\( -type d \\( ${prune} \\) \\) -prune -o -ipath "$hide" -prune -o \\( ${match} \\) -printf '%y\\037%s\\037%T@\\037%P\\000' 2>/dev/null`,
+    // Stoppable through stdin once the result cap is reached (channel-hangup.ts).
+    stopOnInputEof(`LC_ALL=C.UTF-8 $run find . -mindepth 1 \\( -type d \\( ${prune} \\) \\) -prune -o -ipath "$hide" -prune -o \\( ${match} \\) -printf '%y\\037%s\\037%T@\\037%P\\000' 2>/dev/null`),
     `printf '\\036E\\037%s' "$?"`,
   ]
     .filter((line) => line !== "")

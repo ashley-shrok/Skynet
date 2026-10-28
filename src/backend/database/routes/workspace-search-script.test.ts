@@ -30,8 +30,11 @@ function touch(rel: string, content = ""): void {
   fs.writeFileSync(p, content);
 }
 
+// Over SSH the script's stdin stays open until Skynet hangs up, and EOF on
+// it stops the find (stopOnInputEof). spawnSync closes stdin at once, so feed
+// the script from a process that holds the pipe open for longer than a run.
 function run(script: string, extraPath = "", replacePath = false): string {
-  const r = spawnSync("/bin/sh", ["-c", script], {
+  const r = spawnSync("/bin/bash", ["-c", 'exec /bin/sh -c "$0" < <(exec /bin/sleep 20 2>/dev/null)', script], {
     encoding: "utf-8",
     env: { PATH: replacePath ? extraPath : `${extraPath}${process.env.PATH ?? ""}`, HOME: home },
   });
