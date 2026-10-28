@@ -51,7 +51,7 @@ import {
   setModelInvocationDisabled,
   setUserInvocationDisabled,
 } from "./skill-frontmatter";
-import { refreshSkillActions } from "./skill-actions-store";
+import { refreshSkillActions, settleSkillActions } from "./skill-actions-store";
 import {
   INSTANCE_HOST_ID,
   listInstanceWide,
@@ -113,6 +113,14 @@ interface LibraryRow {
   flags: InvocationFlags;
 }
 type LibraryFilter = "all" | "you" | "agents";
+
+// The compose Skills menu lists only skills the user can run. A "You" flip
+// changes that list — re-check until the host shows it (a shared skill gets
+// there a moment after the save); an "Agents" flip only needs one refresh.
+function refreshMenuAfterSwitch(hostId: number, skill: string, which: InvocationSwitch, on: boolean): void {
+  if (which === "you") void settleSkillActions(hostId, skill, on);
+  else void refreshSkillActions(hostId, "invocation-toggle");
+}
 
 function isFolder(item: Host | HostFolder): item is HostFolder {
   return "children" in item;
@@ -724,7 +732,7 @@ export default function SkillsEditorModal({
         );
         // The compose Skills menu shows only skills the user can run —
         // refresh its remembered list so the next open isn't stale.
-        if (selectedHostId != null) void refreshSkillActions(selectedHostId, "invocation-toggle");
+        if (selectedHostId != null) refreshMenuAfterSwitch(selectedHostId, row.name, which, on);
       } catch (err) {
         patchListedFlags(row.name, row.instance, row.flags);
         console.warn(
@@ -771,7 +779,7 @@ export default function SkillsEditorModal({
         // what's on disk.
         if (wrote) {
           patchListedFlags(selectedSkillName, selectedIsInstance, flags);
-          if (selectedHostId != null) void refreshSkillActions(selectedHostId, "invocation-toggle");
+          if (selectedHostId != null) refreshMenuAfterSwitch(selectedHostId, selectedSkillName, which, on);
         }
       } catch (err) {
         void kitAlert({ title: "Save failed", body: err instanceof Error ? err.message : undefined });

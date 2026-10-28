@@ -15,6 +15,7 @@ import {
   __resetSkillActionsStoreForTests,
   getSkillActions,
   refreshSkillActions,
+  settleSkillActions,
   useSkillActions,
 } from "./skill-actions-store";
 
@@ -111,5 +112,56 @@ describe("skill-actions-store", () => {
     ]);
     await refreshSkillActions(3, "prefetch");
     expect(getSkillActions(3)).toEqual([{ name: "build", description: "Builds" }]);
+  });
+
+  it("settle re-checks until a switched-off shared skill leaves the host's list", async () => {
+    // The host still has the old copy on the first two looks (sync pass not done).
+    listSkillsMock
+      .mockResolvedValueOnce([{ name: "close" }, { name: "open" }])
+      .mockResolvedValueOnce([{ name: "close" }, { name: "open" }])
+      .mockResolvedValue([{ name: "close", userInvocable: false }, { name: "open" }]);
+    await expect(settleSkillActions(6, "close", false, [0, 0, 0])).resolves.toBe(true);
+    expect(getSkillActions(6)?.map((s) => s.name)).toEqual(["open"]);
+    expect(listSkillsMock).toHaveBeenCalledTimes(3);
+  });
+
+  it("settle stops at once when the first look already shows the change", async () => {
+    listSkillsMock.mockResolvedValue([{ name: "open" }]);
+    await expect(settleSkillActions(6, "open", true, [0, 0])).resolves.toBe(true);
+    expect(listSkillsMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("settle gives up after its retries, keeping the last list", async () => {
+    listSkillsMock.mockResolvedValue([{ name: "close" }]);
+    await expect(settleSkillActions(6, "close", false, [0, 0])).resolves.toBe(false);
+    expect(listSkillsMock).toHaveBeenCalledTimes(3);
+    expect(getSkillActions(6)?.map((s) => s.name)).toEqual(["close"]);
+  });
+
+  it("coming back to the page refreshes a list last fetched over a minute ago", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      listSkillsMock.mockResolvedValue([{ name: "build" }, { name: "close" }]);
+      const { result } = renderHook(() => useSkillActions(4, true));
+      await waitFor(() => expect(result.current?.length).toBe(2));
+      expect(listSkillsMock).toHaveBeenCalledTimes(1);
+
+      // Back within the minute: no refetch.
+      act(() => {
+        document.dispatchEvent(new Event("visibilitychange"));
+      });
+      expect(listSkillsMock).toHaveBeenCalledTimes(1);
+
+      // Changed elsewhere; back after more than a minute: refetched.
+      listSkillsMock.mockResolvedValue([{ name: "build" }]);
+      vi.advanceTimersByTime(61_000);
+      act(() => {
+        document.dispatchEvent(new Event("visibilitychange"));
+      });
+      await waitFor(() => expect(result.current?.map((s) => s.name)).toEqual(["build"]));
+      expect(listSkillsMock).toHaveBeenCalledTimes(2);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

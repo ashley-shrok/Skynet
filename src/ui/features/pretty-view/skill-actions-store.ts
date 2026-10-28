@@ -9,7 +9,9 @@ import { getCurrentUser } from "@/state/user-scoped-cache";
 // menu render instantly across reloads — no loading state in normal use.
 // Freshness: the first time a host's compose box mounts in an app load the
 // list is fetched in the background; every menu open refreshes it again in
-// the background. A failed fetch keeps whatever was remembered, silently.
+// the background, and so does coming back to the page after a while away
+// (another tab or device may have changed the list). A failed fetch keeps
+// whatever was remembered, silently.
 //
 // Snapshot semantics: `null` = never known for this host (button hidden),
 // `[]` = known to have no skills (button hidden), non-empty = show.
@@ -18,6 +20,11 @@ export type SkillActionEntry = { name: string; description?: string };
 
 const LS_PREFIX = "skynet:skill-actions:v1";
 const PREFETCH_RETRY_MS = 30_000;
+// Coming back to the page refreshes only if the last good fetch is older.
+const VISIBLE_REFRESH_AFTER_MS = 60_000;
+// A shared skill's switch lands in the master copy first and reaches the host
+// on the next sync pass (~1–3 s later), so a settle re-checks on these delays.
+const SETTLE_RETRY_MS = [2_000, 5_000, 10_000, 20_000];
 
 // Keyed by the localStorage key (user + host), so a different login in the
 // same app load never sees the previous user's list. A `null` value caches
@@ -25,6 +32,7 @@ const PREFETCH_RETRY_MS = 30_000;
 const memory = new Map<string, SkillActionEntry[] | null>();
 const inFlight = new Map<string, Promise<boolean>>();
 const prefetched = new Set<string>();
+const lastOkAt = new Map<string, number>();
 const listeners = new Set<() => void>();
 
 function lsKey(hostId: number): string {
@@ -93,7 +101,7 @@ function getByKey(key: string): SkillActionEntry[] | null {
  */
 export function refreshSkillActions(
   hostId: number,
-  reason: "prefetch" | "menu-open" | "invocation-toggle" | "rename",
+  reason: "prefetch" | "menu-open" | "page-visible" | "invocation-toggle" | "invocation-settle" | "rename",
 ): Promise<boolean> {
   const key = lsKey(hostId);
   const existing = inFlight.get(key);
@@ -106,6 +114,7 @@ export function refreshSkillActions(
       const changed = prev === null || !sameList(prev, next);
       memory.set(key, next);
       writePersisted(key, next);
+      lastOkAt.set(key, Date.now());
       console.info(
         `[skill-actions] refresh-ok hostId=${hostId} reason=${reason} count=${next.length} changed=${changed} ms=${Date.now() - startedAt}`,
       );
@@ -123,6 +132,39 @@ export function refreshSkillActions(
     });
   inFlight.set(key, p);
   return p;
+}
+
+/**
+ * After the "You" switch of `skillName` flips: refresh until the host's list
+ * shows the skill (`shown`) or leaves it out, re-checking on a short backoff.
+ * Needed because a shared skill's change reaches the host only after the
+ * sync pass, and a refresh already in flight may predate the write.
+ * Resolves true once settled, false if it never did.
+ */
+export async function settleSkillActions(
+  hostId: number,
+  skillName: string,
+  shown: boolean,
+  delaysMs: readonly number[] = SETTLE_RETRY_MS,
+): Promise<boolean> {
+  const startedAt = Date.now();
+  const settled = (): boolean =>
+    (getSkillActions(hostId) ?? []).some((s) => s.name === skillName) === shown;
+  for (let attempt = 0; ; attempt++) {
+    await refreshSkillActions(hostId, attempt === 0 ? "invocation-toggle" : "invocation-settle");
+    if (settled()) {
+      console.info(
+        `[skill-actions] settle-ok hostId=${hostId} skill=${skillName} shown=${shown} attempts=${attempt + 1} ms=${Date.now() - startedAt}`,
+      );
+      return true;
+    }
+    if (attempt >= delaysMs.length) break;
+    await new Promise((r) => setTimeout(r, delaysMs[attempt]));
+  }
+  console.warn(
+    `[skill-actions] settle-gave-up hostId=${hostId} skill=${skillName} shown=${shown} attempts=${delaysMs.length + 1} ms=${Date.now() - startedAt}`,
+  );
+  return false;
 }
 
 function subscribe(listener: () => void): () => void {
@@ -168,6 +210,18 @@ export function useSkillActions(hostId: number, enabled: boolean): SkillActionEn
       }
     };
   }, [hostId, enabled]);
+  // Back on the page after a while: the list may have changed elsewhere.
+  useEffect(() => {
+    if (!enabled || typeof document === "undefined") return;
+    const onVisible = (): void => {
+      if (document.visibilityState !== "visible") return;
+      const last = lastOkAt.get(lsKey(hostId));
+      if (last !== undefined && Date.now() - last < VISIBLE_REFRESH_AFTER_MS) return;
+      void refreshSkillActions(hostId, "page-visible");
+    };
+    document.addEventListener("visibilitychange", onVisible);
+    return () => document.removeEventListener("visibilitychange", onVisible);
+  }, [hostId, enabled]);
   return list;
 }
 
@@ -176,5 +230,6 @@ export function __resetSkillActionsStoreForTests(): void {
   memory.clear();
   inFlight.clear();
   prefetched.clear();
+  lastOkAt.clear();
   listeners.clear();
 }
