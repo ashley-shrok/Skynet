@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 import { createLogDedup } from "@/lib/log-dedup";
 import { AudioLines, Ban, Check, LoaderCircle, Mic, MicOff, Paperclip, Pause, Plus, RefreshCw, Square, ThumbsUp, Volume2, X } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -26,6 +26,9 @@ import {
 } from "./voice-mode-registry";
 import { MicButton } from "./MicButton";
 import { SkillActionsButton } from "./SkillActionsButton";
+import { SlashSkillMenu } from "./SlashSkillMenu";
+import { useSkillActions } from "./skill-actions-store";
+import { rankSkills } from "./skill-match";
 import { RecordingControls } from "./RecordingControls";
 import { HoldFeedbackPill, type HoldFeedback } from "./HoldFeedbackPill";
 import { MemoryGauge, condenseConfirm, memoryBand } from "./MemoryGauge";
@@ -34,7 +37,7 @@ import { AskTray } from "./ask/AskTray";
 import { buildAnswerMessage, trayWrapReply, type QuestionAnswer } from "./ask/answer-format";
 import type { Ask } from "./ask/ask-format";
 import type { OpenAsk } from "./ask/open-ask";
-import { blockedCommandIn, COMMAND_REFUSED_MESSAGE } from "@/types/blocked-commands";
+import { blockedCommandIn, COMMAND_REFUSED_MESSAGE, isBlockedSkillName } from "@/types/blocked-commands";
 import { markTextAreaSend, type TextAreaSendKind } from "./text-area-sends";
 
 // Compose-and-send box for the pretty view.
@@ -882,12 +885,161 @@ export function ComposeBox({
   // string; null / undefined / "" no-op.
   useEffect(() => {
     if (typeof overrideText === "string" && overrideText.length > 0) {
-      setText(overrideText);
+      setTextProgrammatic(overrideText);
       onOverrideTextConsumed?.();
     }
   }, [overrideText, onOverrideTextConsumed]);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+  // Slash skill list (shape slash-skill-menu). Open while the text starts
+  // with a slash, the caret sits inside that first word, and the user typed
+  // the text themselves (a restored draft, a dictation or an override never
+  // pops it open). Escape, a click away, or the caret leaving the word
+  // dismisses it until the text changes. Only where the lightning-bolt menu
+  // lives (never relay) and only while the box can send.
+  const slashSkills = useSkillActions(hostId, mode !== "relay");
+  const [slashCaret, setSlashCaret] = useState<{ start: number; end: number } | null>(null);
+  const [slashTypedText, setSlashTypedText] = useState<string | null>(null);
+  const [slashDismissedText, setSlashDismissedText] = useState<string | null>(null);
+  // The highlight belongs to one query; a new query starts back at the top.
+  const [slashHighlight, setSlashHighlight] = useState<{ query: string; index: number }>({ query: "", index: 0 });
+  const slashMenuId = useId();
+  const slashPendingCaretRef = useRef<number | null>(null);
+  const slashToken = text.startsWith("/") ? text.slice(0, /\s/.exec(text)?.index ?? text.length) : null;
+  const slashQuery = slashToken?.slice(1) ?? "";
+  const slashEligible =
+    mode !== "relay" &&
+    canSend !== false &&
+    asideActive !== true &&
+    reconnectingActive !== true &&
+    slashToken !== null &&
+    slashTypedText === text &&
+    slashDismissedText !== text &&
+    slashCaret !== null &&
+    slashCaret.start === slashCaret.end &&
+    slashCaret.start >= 1 &&
+    slashCaret.start <= slashToken.length;
+  // Names the text area refuses to send (Claude Code's own commands, the
+  // identity loader) are left out: filling one in would only end in a refusal.
+  const slashMatches = slashEligible
+    ? rankSkills((slashSkills ?? []).filter((s) => !isBlockedSkillName(s.name)), slashQuery)
+    : [];
+  const slashOpen = slashMatches.length > 0;
+  const slashIndex = slashOpen
+    ? Math.min(slashHighlight.query === slashQuery ? slashHighlight.index : 0, slashMatches.length - 1)
+    : 0;
+
+  const slashOpenLoggedRef = useRef(false);
+  useEffect(() => {
+    if (slashOpen === slashOpenLoggedRef.current) return;
+    slashOpenLoggedRef.current = slashOpen;
+    console.info(`[slash-skills] ${slashOpen ? "open" : "close"} hostId=${hostId} tmuxSession=${tmuxSession ?? "null"} count=${slashMatches.length}`);
+  }, [slashOpen, slashMatches.length, hostId, tmuxSession]);
+
+  // A pick rewrites the text; put the caret after the filled-in name once
+  // the new value is in the box.
+  useLayoutEffect(() => {
+    const pos = slashPendingCaretRef.current;
+    const el = textareaRef.current;
+    if (pos === null || !el) return;
+    slashPendingCaretRef.current = null;
+    if (document.activeElement !== el) el.focus();
+    el.setSelectionRange(pos, pos);
+  }, [text]);
+
+  // Text set by code — a send clearing the box, a restored draft or
+  // interrupted message, dictation — is not typing: the slash list stays shut
+  // and any earlier dismissal is forgotten.
+  function setTextProgrammatic(next: string) {
+    setText(next);
+    setSlashTypedText(null);
+    setSlashDismissedText(null);
+  }
+
+  function noteSlashCaret(el: HTMLTextAreaElement) {
+    const start = el.selectionStart ?? 0;
+    const end = el.selectionEnd ?? start;
+    // Only slash-led text needs the caret; skip the re-render otherwise.
+    if (el.value.startsWith("/")) {
+      setSlashCaret((c) => (c && c.start === start && c.end === end ? c : { start, end }));
+    }
+    // The caret leaving the name (typing the space after it, clicking or
+    // arrowing past it) closes the list like Escape does.
+    if (slashOpen) {
+      const value = el.value;
+      const tokenLen = value.startsWith("/") ? (/\s/.exec(value)?.index ?? value.length) : 0;
+      if (start !== end || start < 1 || start > tokenLen) {
+        console.info(`[slash-skills] dismiss hostId=${hostId} reason=caret`);
+        setSlashDismissedText(value);
+      }
+    }
+  }
+
+  function dismissSlash(reason: "escape" | "blur") {
+    console.info(`[slash-skills] dismiss hostId=${hostId} reason=${reason}`);
+    setSlashDismissedText(text);
+  }
+
+  function pickSlashSkill(name: string, via: "enter" | "tab" | "click") {
+    if (slashToken === null) return;
+    const head = `/${name}`;
+    const rest = text.slice(slashToken.length);
+    const next = /^\s/.test(rest) ? head + rest : `${head} ${rest}`;
+    const caret = head.length + 1;
+    console.info(`[slash-skills] pick hostId=${hostId} tmuxSession=${tmuxSession ?? "null"} skill=${name} via=${via} query="${slashQuery}"`);
+    setSlashCaret({ start: caret, end: caret });
+    if (next === text) {
+      // Same text (the name was already complete): no re-render will place
+      // the caret, so place it now.
+      textareaRef.current?.setSelectionRange(caret, caret);
+      return;
+    }
+    slashPendingCaretRef.current = caret;
+    handleTextChange(next);
+  }
+
+  /** Keys the slash list takes while it shows. True when the key was used. */
+  function handleSlashKey(e: React.KeyboardEvent<HTMLTextAreaElement>): boolean {
+    if (!slashOpen) return false;
+    if (e.nativeEvent.isComposing || e.keyCode === 229) return false;
+    if (e.ctrlKey || e.metaKey || e.altKey) return false;
+    const n = slashMatches.length;
+    switch (e.key) {
+      case "ArrowDown":
+      case "ArrowUp": {
+        if (e.shiftKey) return false;
+        e.preventDefault();
+        const step = e.key === "ArrowDown" ? 1 : -1;
+        setSlashHighlight({ query: slashQuery, index: (slashIndex + step + n) % n });
+        return true;
+      }
+      case "Tab":
+        if (e.shiftKey) return false;
+        e.preventDefault();
+        pickSlashSkill(slashMatches[slashIndex].name, "tab");
+        return true;
+      case "Escape":
+        e.preventDefault();
+        dismissSlash("escape");
+        return true;
+      case "Enter": {
+        if (e.shiftKey) return false;
+        const top = slashMatches[slashIndex];
+        // Already the full name: Enter sends (the normal Enter path), rather
+        // than only adding a space. Phones never send on Enter.
+        if (isTouchDevice !== true && top.name === slashQuery) {
+          console.info(`[slash-skills] exact-send hostId=${hostId} skill=${top.name}`);
+          return false;
+        }
+        e.preventDefault();
+        pickSlashSkill(top.name, "enter");
+        return true;
+      }
+      default:
+        return false;
+    }
+  }
   const composeRootRef = useRef<HTMLDivElement>(null);
   // Quick 260802-wxy: refs + state for the overlaid chip strip inside the
   // primary textarea wrapper. The strip is absolutely positioned at top-0
@@ -1046,7 +1198,7 @@ export function ComposeBox({
     const words = restoreRequest.text.trimEnd();
     // A files-only send has no words to give back; the draft stays as typed.
     const merged = words.trim() === "" ? current : current.trim() === "" ? words : `${words}\n\n${current}`;
-    setText(merged);
+    setTextProgrammatic(merged);
     latestBodyRef.current = merged;
     scheduleAutosave(merged);
     if (restoreRequest.notice !== undefined) setErrorMessage(restoreRequest.notice);
@@ -1071,7 +1223,7 @@ export function ComposeBox({
     let cancelled = false;
 
     // Reset per-key local state.
-    setText("");
+    setTextProgrammatic("");
     clearDebounce();
     dirtyBodyRef.current = null;
     latestBodyRef.current = "";
@@ -1140,7 +1292,7 @@ export function ComposeBox({
           );
         }
 
-        setText(hydratedBody);
+        setTextProgrammatic(hydratedBody);
         latestBodyRef.current = hydratedBody;
 
         // Restored from LS, or folded queued messages in: save so the server
@@ -1419,12 +1571,16 @@ export function ComposeBox({
 
   function handleTextChange(next: string) {
     setText(next);
+    setSlashTypedText(next);
+    // A dismissal lasts until the next edit.
+    setSlashDismissedText((d) => (d === next ? d : null));
     scheduleAutosave(next);
     // A refusal stays up until the words are changed or something is sent.
     setErrorMessage((m) => (m === COMMAND_REFUSED_MESSAGE ? null : m));
   }
 
   function handleBlur() {
+    if (slashOpen) dismissSlash("blur");
     clearDebounce();
     void flushDirty();
   }
@@ -1537,7 +1693,7 @@ export function ComposeBox({
         const outcome = await onSendWithAttachments!(trayWrap(captionPayload), textArea);
         if (outcome.ok) {
           console.info(`[compose] submit-success hostId=${hostId} tmuxSession=${tmuxSession ?? "null"} bodyLen=${trimmed.length} path=attachment`);
-          setText("");
+          setTextProgrammatic("");
           clearAfterSend();
           return;
         }
@@ -1577,7 +1733,7 @@ export function ComposeBox({
     // the send in either case — no need to also keep the text in the
     // textarea (user 2026-09-02, reversing Phase 50 D-20 / D-56 which
     // preserved the draft on WS-not-open for edit-and-resend).
-    setText("");
+    setTextProgrammatic("");
     clearAfterSend();
     if (!dispatched) {
       setErrorMessage("Not connected — try again in a moment");
@@ -1614,7 +1770,7 @@ export function ComposeBox({
       }
       // Trailing space so the next dictation chunk joins without needing a manual space.
       const appended = rebaseGluedOnPrimary(result.glued, baseText) + " ";
-      setText(appended);
+      setTextProgrammatic(appended);
       scheduleAutosave(appended);
       setErrorMessage((m) => (m === COMMAND_REFUSED_MESSAGE ? null : m));
     }
@@ -1639,7 +1795,7 @@ export function ComposeBox({
         setErrorMessage(COMMAND_REFUSED_MESSAGE);
         return;
       }
-      setText(glued);
+      setTextProgrammatic(glued);
       scheduleAutosave(glued);
       // Reconnect window: text lands, no auto-send while WS is between sockets.
       if (!reconnectingActive) {
@@ -1690,7 +1846,7 @@ export function ComposeBox({
           // Clear only what went along as guidance — anything typed while
           // the request was in flight stays.
           if (latestBodyRef.current === boxText) {
-            setText("");
+            setTextProgrammatic("");
             clearAfterSend();
           }
         } else {
@@ -1777,6 +1933,7 @@ export function ComposeBox({
     // Reconnect window: Send is disabled (via sendDisabled below) but the
     // textarea stays typeable; swallow Enter so it can't slip past.
     if (reconnectingActive) return;
+    if (handleSlashKey(e)) return;
     // Touch devices: Enter inserts a newline (browser default); Send button sends.
     if (isTouchDevice === true) return;
 
@@ -1883,7 +2040,7 @@ export function ComposeBox({
       const cur = latestBodyRef.current;
       const next = cur && !/\s$/.test(cur) ? `${cur} ${transcript}` : `${cur}${transcript}`;
       latestBodyRef.current = next;
-      setText(next);
+      setTextProgrammatic(next);
       scheduleAutosave(next);
       setErrorMessage("Voice mode couldn't send — your words are in the compose box");
     },
@@ -2137,7 +2294,11 @@ export function ComposeBox({
         <textarea
           ref={textareaRef}
           value={text}
-          onChange={(e) => handleTextChange(e.target.value)}
+          onChange={(e) => {
+            handleTextChange(e.target.value);
+            noteSlashCaret(e.target);
+          }}
+          onSelect={(e) => noteSlashCaret(e.currentTarget)}
           onBlur={handleBlur}
           onKeyDown={handleKeyDown}
           onPaste={handlePaste}
@@ -2146,9 +2307,22 @@ export function ComposeBox({
           rows={1}
           style={chipStripHeight > 0 ? { paddingTop: `${chipStripHeight + 12}px` } : undefined}
           className="pv-compose-text"
+          aria-autocomplete="list"
+          aria-controls={slashOpen ? slashMenuId : undefined}
+          aria-activedescendant={slashOpen ? `${slashMenuId}-${slashIndex}` : undefined}
           // Not disabled when canSend===false — the user can compose during a
           // transient disconnect and send when the socket reconnects.
         />
+        {slashOpen && (
+          <SlashSkillMenu
+            id={slashMenuId}
+            skills={slashMatches}
+            highlighted={slashIndex}
+            touch={isTouchDevice === true}
+            onHighlight={(index) => setSlashHighlight({ query: slashQuery, index })}
+            onPick={(name) => pickSlashSkill(name, "click")}
+          />
+        )}
       </div>
       <div className="pv-compose-row" data-testid="compose-row">
         {harness && showPaperclip && (

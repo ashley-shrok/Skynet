@@ -107,6 +107,23 @@ describe("ComposeBox — skill-actions menu", () => {
     await waitFor(() => expect(screen.queryByTestId("skill-actions-menu")).toBeNull());
   });
 
+  it("search ranks name matches first, the same order as the slash list", async () => {
+    const onSend = vi.fn(() => true);
+    render(<ComposeBox {...baseProps({ onSend })} />);
+    openMenu(await findButton());
+    const search = (await screen.findByTestId("skill-actions-search")) as HTMLInputElement;
+    fireEvent.change(search, { target: { value: "re" } });
+    const menu = screen.getByTestId("skill-actions-menu");
+    const names = Array.from(menu.querySelectorAll("[data-testid^='skill-actions-item-']")).map(
+      (el) => el.getAttribute("data-testid")!.replace("skill-actions-item-", ""),
+    );
+    // "recap" starts with it; "light-review" only contains it.
+    expect(names).toEqual(["recap", "light-review"]);
+    fireEvent.keyDown(search, { key: "Enter" });
+    await waitFor(() => expect(onSend).toHaveBeenCalledTimes(1));
+    expect((onSend.mock.calls[0] as unknown[])[0]).toBe("/recap");
+  });
+
   it("opening the menu refreshes the list in the background", async () => {
     render(<ComposeBox {...baseProps()} />);
     const btn = await findButton();

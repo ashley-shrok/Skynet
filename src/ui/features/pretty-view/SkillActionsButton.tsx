@@ -11,6 +11,7 @@ import { cn } from "@/lib/utils";
 import { refreshSkillActions, useSkillActions, type SkillActionEntry } from "./skill-actions-store";
 import { promptNewSkill } from "./new-skill-flow";
 import { requestOpenSkillsEditor } from "@/features/pretty-conversations/open-skills-editor";
+import { rankSkills, skillHue } from "./skill-match";
 
 // Skill-actions menu (campaign skill-actions, shape skill-action-menu): the
 // lightning-bolt aux button left of ThumbsUp. Opens a flat alphabetical list
@@ -39,13 +40,6 @@ const ITEM_CLASS = cn(
   "mx-1.5 px-2 py-[7px] max-md:py-[9px] rounded-[10px] cursor-pointer",
   "focus:bg-[hsl(220,62%,52%)] focus:text-white data-[highlighted]:bg-[hsl(220,62%,52%)]",
 );
-
-/** A skill's steady tile colour, from its name. */
-function hueOf(name: string): number {
-  let h = 0;
-  for (const c of name) h = (h * 31 + c.charCodeAt(0)) % 360;
-  return h;
-}
 
 export function SkillActionsButton({
   hostId,
@@ -87,13 +81,8 @@ export function SkillActionsButton({
 
   if (!enabled || skills === null || skills.length === 0) return null;
   const all = openList ?? skills;
-  const words = query.toLowerCase().split(/\s+/).filter(Boolean);
-  const shown = words.length
-    ? all.filter((s) => {
-        const hay = `${s.name} ${s.description ?? ""}`.toLowerCase();
-        return words.every((w) => hay.includes(w));
-      })
-    : all;
+  // Same ranking as the compose box's slash list (shape slash-skill-menu).
+  const shown = rankSkills(all, query);
 
   const newSkill = (initialName: string) => {
     console.info(`[skill-actions] new-skill hostId=${hostId} fromSearch=${initialName !== ""}`);
@@ -197,7 +186,7 @@ export function SkillActionsButton({
           <div className="px-3.5 py-4 text-center text-[13px] text-[color:var(--k-t3)]">No skills match</div>
         )}
         {shown.map((skill) => {
-          const hue = hueOf(skill.name);
+          const hue = skillHue(skill.name);
           return (
             <DropdownMenuItem
               key={skill.name}

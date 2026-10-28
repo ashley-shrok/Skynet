@@ -1770,7 +1770,9 @@ crown, then gear.
   button is hidden until the app knows the box has at least one such
   skill. To give the user a new one-tap action, write an argument-free
   skill (via the Skills editor, user-gated as usual) — it appears in this
-  menu.
+  menu. Typing a slash at the start of the compose box also brings up the
+  same skills to pick from as the user types; picking one fills it in
+  rather than sending it.
   *Agent-side: none* — it arrives as an ordinary slash command.
 
 ### What replies can show and ask
