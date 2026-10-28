@@ -1,7 +1,7 @@
 # Campaign: a New skill option at the bottom of the composer's quick Skills menu
 
 **Opened:** 2026-10-28
-**Status:** in_progress
+**Status:** closed (2026-10-28 — pushed, not deployed)
 **Workspace:** ~/fleet/identities/cedar-box-maintainer-6/workspace/skynet/.planning
 
 ## Concept
@@ -16,7 +16,7 @@ When you scroll the composer's Skills menu and realize none of the skills there 
 
 ## Shapes
 
-- **[declared] shape-composer-new-skill** — the New skill… row and the hand-off into skill creation — in_progress
+- **[declared] shape-composer-new-skill** — the New skill… row and the hand-off into skill creation — closed
 
 ## Other work
 
