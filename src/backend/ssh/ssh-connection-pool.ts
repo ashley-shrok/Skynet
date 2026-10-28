@@ -336,8 +336,9 @@ export async function withConnection<T>(
   key: string,
   factory: () => Promise<Client>,
   fn: (client: Client) => Promise<T>,
+  waitTimeoutMs?: number,
 ): Promise<T> {
-  const client = await connectionPool.getConnection(key, factory);
+  const client = await connectionPool.getConnection(key, factory, waitTimeoutMs);
   try {
     return await fn(client);
   } finally {

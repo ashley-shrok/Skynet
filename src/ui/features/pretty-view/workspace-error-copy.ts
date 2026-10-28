@@ -58,6 +58,11 @@ export const WORKSPACE_ERROR_COPY: Record<string, WorkspaceErrorCopy> = {
     body: "The box is slow or unreachable. Try again in a moment.",
   },
 
+  "host_busy": {
+    heading: "Host busy",
+    body: "Every connection to that machine is in use right now. Try again in a moment.",
+  },
+
   "unknown_host": {
     heading: "Unknown host",
     body: "That box isn't registered, or you don't have access to it.",

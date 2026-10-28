@@ -113,6 +113,10 @@ const SSH_CONNECT_TIMEOUT_MS = 5_000;
  * progressing multi-GB transfer must not trip an 8-second abort. */
 const SFTP_SETUP_TIMEOUT_MS = 8_000;
 
+/** Wait for a free pooled connection — inside SFTP_SETUP_TIMEOUT_MS, so a
+ * busy host answers host_busy rather than a slot arriving too late to use. */
+const POOL_WAIT_MS = 5_000;
+
 /**
  * Single source of truth for the forbidden-path regex. Applied at BOTH the
  * pre-SSH boundary (against the user-supplied `absolutePath`) AND inside the
@@ -304,6 +308,7 @@ async function fetchHostFileBytes(
           return await sftpReadFile(sftp, resolvedPath);
         });
       },
+      POOL_WAIT_MS,
     );
     return { bytes, host };
   } finally {
@@ -577,6 +582,7 @@ async function getHandler(req: Request, res: Response): Promise<void> {
           });
         });
       },
+      POOL_WAIT_MS,
     );
 
     sshLogger.info("pretty-view proxy: ok (GET)", {

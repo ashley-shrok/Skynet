@@ -17,10 +17,18 @@
 import type { Request, Response } from "express";
 import type { Readable } from "node:stream";
 import { sniffTextBytes } from "./editable-file-byte-sniff.js";
+import { sshLogger } from "./logger.js";
 
 /** Bytes read for unknown-extension sniff. Matches `sniffTextBytes`'s
  * internal 8 KiB sample size — reading more would be wasted work. */
 export const SNIFF_BYTES = 8_192;
+
+/** A transfer that moves no bytes for this long is torn down. The caller
+ * holds a pooled SSH connection until the transfer settles, so a viewer
+ * that stops reading (a paused video, a stalled download) would otherwise
+ * pin it for as long as the tab stays open. Media clients re-request with
+ * Range when they resume. */
+export const STREAM_STALL_MS = 60_000;
 
 /** The one SFTP method streaming needs (ssh2's SFTPWrapper satisfies it). */
 export type SftpStreamLike = {
@@ -241,6 +249,8 @@ export interface SendSftpFileOptions {
   /** Called once headers are decided, right before bytes start flowing —
    * callers clear their setup timeouts here. */
   onStreamStart?: () => void;
+  /** Override STREAM_STALL_MS (tests). */
+  stallMs?: number;
 }
 
 /**
@@ -302,9 +312,11 @@ export async function sendSftpFile(opts: SendSftpFileOptions): Promise<void> {
   const stream = sftp.createReadStream(path, { start: streamStart, end: streamEnd });
   await new Promise<void>((resolve, reject) => {
     let settled = false;
+    let stallTimer: NodeJS.Timeout | undefined;
     const finish = (err?: Error) => {
       if (settled) return;
       settled = true;
+      clearTimeout(stallTimer);
       if (err) reject(err);
       else resolve();
     };
@@ -324,6 +336,26 @@ export async function sendSftpFile(opts: SendSftpFileOptions): Promise<void> {
       finish();
     });
     stream.on("end", () => finish());
+    // No bytes for STREAM_STALL_MS: the reader has stopped pulling.
+    const armStall = () => {
+      clearTimeout(stallTimer);
+      if (settled) return;
+      stallTimer = setTimeout(() => {
+        sshLogger.info("sftp stream stalled — tearing down", {
+          operation: "sftp_stream_stall",
+          stallMs: opts.stallMs ?? STREAM_STALL_MS,
+        });
+        stream.destroy();
+        try {
+          res.destroy();
+        } catch {
+          /* ignore */
+        }
+        finish();
+      }, opts.stallMs ?? STREAM_STALL_MS);
+    };
+    stream.on("data", armStall);
+    armStall();
     stream.pipe(res);
   });
 }

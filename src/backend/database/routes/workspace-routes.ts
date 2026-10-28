@@ -516,6 +516,7 @@ export function classifyErrorToStatus(err: unknown): number {
   const name = err instanceof Error ? err.name : "unknown";
   const msg = err instanceof Error ? err.message : "";
   if (name === "AbortError") return 504;
+  if (name === "SshPoolBusyError") return 503;
   if (msg === "invalid_body") return 400;
   if (msg === "invalid_identity_key") return 400;
   if (msg === "path_traversal") return 400;
@@ -545,6 +546,7 @@ export function classifyErrorToClass(err: unknown): string {
   const name = err instanceof Error ? err.name : "unknown";
   const msg = err instanceof Error ? err.message : "";
   if (name === "AbortError") return "ssh_timeout";
+  if (name === "SshPoolBusyError") return "host_busy";
   if (
     msg === "invalid_body" ||
     msg === "invalid_identity_key" ||
