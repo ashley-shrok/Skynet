@@ -1768,9 +1768,9 @@ crown, then gear.
   makes it on this agent's box, and opens the Skills window on it;
   cancelling either question leaves the user in the conversation. The
   button is hidden until the app knows the box has at least one such
-  skill. To give the user a new
-  one-tap action, write an argument-free skill (via the Skills editor,
-  user-gated as usual) — it appears in this menu.
+  skill. To give the user a new one-tap action, write an argument-free
+  skill (via the Skills editor, user-gated as usual) — it appears in this
+  menu.
   *Agent-side: none* — it arrives as an ordinary slash command.
 
 ### What replies can show and ask

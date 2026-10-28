@@ -7,6 +7,7 @@ import { kitAlert, kitPrompt } from "@/components/kit";
 import { createSkill, SkillAlreadyExistsError } from "@/api/skills-api";
 import { slugifyRoleName } from "@/lib/slugify-role-name";
 import { isBlockedSkillName, SKILL_NAME_REFUSED_MESSAGE } from "@/types/blocked-commands";
+import { refreshSkillActions } from "./skill-actions-store";
 
 // The New skill / Rename name field: empty after slugging, or a name the
 // composer would refuse as a command.
@@ -56,6 +57,8 @@ export async function promptNewSkill(
   try {
     const result = await createSkill(hostId, slug, rawDesc.trim());
     console.info(`[new-skill] created source=${opts.source} hostId=${hostId} skill=${result.slug}`);
+    // The composer's ⚡ list picks it up for its next open.
+    void refreshSkillActions(hostId, "new-skill", { fresh: true });
     return result.slug;
   } catch (err) {
     console.warn(`[new-skill] create-failed source=${opts.source} hostId=${hostId} skill=${slug}`, err instanceof Error ? err.message : err);

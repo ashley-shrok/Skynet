@@ -255,7 +255,8 @@ describe("ComposeBox — skill-actions menu", () => {
 
         await waitFor(() => expect(opened.targets).toEqual([{ hostId: 7, skill: "deploy" }]));
         expect(createSkillMock).toHaveBeenCalledWith(7, "deploy", "Deploys the thing.");
-        // The composer's own list refreshes so the new skill is there next open.
+        // The composer's own list refreshes (after the menu-open one) so the
+        // new skill is there next open.
         await waitFor(() => expect(listSkillsMock.mock.calls.filter((c) => c[0] === 7).length).toBeGreaterThanOrEqual(3));
         expect(dialogs.calls[0].opts).toMatchObject({ title: "New skill", defaultValue: "deploy" });
         expect(onSend).not.toHaveBeenCalled();
@@ -293,6 +294,24 @@ describe("ComposeBox — skill-actions menu", () => {
       } finally {
         opened.stop();
       }
+    });
+
+    it("with the real dialog: the name field takes focus with the search text, and Cancel puts focus back on the ⚡ button", async () => {
+      render(<ComposeBox {...baseProps()} />);
+      const btn = await findButton();
+      openMenu(btn);
+      fireEvent.change(await screen.findByTestId("skill-actions-search"), { target: { value: "deploy" } });
+      fireEvent.click(screen.getByTestId("skill-actions-new-skill"));
+      await waitFor(() => {
+        const field = document.activeElement as HTMLInputElement | null;
+        expect(field?.tagName).toBe("INPUT");
+        expect(field?.value).toBe("deploy");
+        expect(field?.getAttribute("data-testid")).not.toBe("skill-actions-search");
+        expect(field?.closest('[role="dialog"], [role="alertdialog"]')?.textContent).toContain("New skill");
+      });
+      fireEvent.click(screen.getByTestId("kit-dialog-cancel"));
+      await waitFor(() => expect(document.activeElement).toBe(btn));
+      expect(createSkillMock).not.toHaveBeenCalled();
     });
 
     it("a failed create says so and opens no window", async () => {

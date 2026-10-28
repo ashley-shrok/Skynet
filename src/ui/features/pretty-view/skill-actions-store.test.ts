@@ -87,6 +87,22 @@ describe("skill-actions-store", () => {
     expect(listSkillsMock).toHaveBeenCalledTimes(1);
   });
 
+  it("a fresh refresh (after a skill change) waits out a request already running and asks again", async () => {
+    let releaseFirst!: (v: unknown) => void;
+    listSkillsMock
+      .mockImplementationOnce(() => new Promise((r) => (releaseFirst = r)))
+      .mockResolvedValueOnce([{ name: "deploy" }, { name: "recap" }]);
+    const first = refreshSkillActions(4, "menu-open");
+    const fresh = refreshSkillActions(4, "new-skill", { fresh: true });
+    expect(listSkillsMock).toHaveBeenCalledTimes(1);
+    // The early request answers with the list from before the skill existed.
+    releaseFirst([{ name: "recap" }]);
+    await first;
+    await fresh;
+    expect(listSkillsMock).toHaveBeenCalledTimes(2);
+    expect(getSkillActions(4)?.map((s) => s.name)).toEqual(["deploy", "recap"]);
+  });
+
   it("a background refresh that adds a skill updates subscribers", async () => {
     listSkillsMock.mockResolvedValueOnce([{ name: "build" }]);
     const { result } = renderHook(() => useSkillActions(8, true));

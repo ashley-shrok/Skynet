@@ -405,9 +405,11 @@ describe("SkillsEditorModal — Phase 44 SKILLED-05", () => {
     // listSkills fires TWICE: once on host-pick, again after createSkill success.
     // Second resolution includes the newly-created skill so the picker can
     // auto-select it once setSelectedSkillName(result.slug) fires (D-05).
+    // (The composer's ⚡ list also refreshes after a create, so every list
+    // after the first includes the new skill.)
     (skillsApi.listSkills as ReturnType<typeof vi.fn>)
       .mockResolvedValueOnce([{ name: "build" }, { name: "explain" }])
-      .mockResolvedValueOnce([
+      .mockResolvedValue([
         { name: "build" },
         { name: "explain" },
         { name: "my-cool-skill" },
@@ -434,8 +436,9 @@ describe("SkillsEditorModal — Phase 44 SKILLED-05", () => {
 
     // Auto-select verification (D-05, WARN 3 fix):
     // listSkills fires twice — once on host-pick, once on post-create refetch.
+    // listSkills fires for the post-create refetch and the ⚡ list refresh too.
     await waitFor(() =>
-      expect(skillsApi.listSkills).toHaveBeenCalledTimes(2),
+      expect((skillsApi.listSkills as ReturnType<typeof vi.fn>).mock.calls.length).toBeGreaterThanOrEqual(3),
     );
     // …and the modal moves into the new skill's own view.
     await waitFor(() =>

@@ -265,6 +265,9 @@ export default function SkillsEditorModal({
       setSelectedHostId(defaultHostId);
       return;
     }
+    if (defaultHostId != null) {
+      console.warn(`[skills-editor] requested host not in picker hostId=${defaultHostId} skill=${pendingSkillRef.current?.skill ?? "-"}`);
+    }
     if (flatHosts.length === 1) setSelectedHostId(Number(flatHosts[0].id));
   }, [open, defaultHostId, flatHosts]);
 
@@ -298,12 +301,12 @@ export default function SkillsEditorModal({
         }
       })
       .catch((err: unknown) => {
+        if (cancelled) return;
         pendingSkillRef.current = null;
-        if (!cancelled)
-          setSkills({
-            status: "error",
-            error: err instanceof Error ? err.message : "Failed to load skills",
-          });
+        setSkills({
+          status: "error",
+          error: err instanceof Error ? err.message : "Failed to load skills",
+        });
       });
     return () => {
       cancelled = true;

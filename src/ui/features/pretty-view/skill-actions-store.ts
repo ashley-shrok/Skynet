@@ -96,16 +96,21 @@ function getByKey(key: string): SkillActionEntry[] | null {
 
 /**
  * Fetch the host's list in the background. Concurrent calls for the same host
- * share one request. Never throws; a failure keeps the remembered list.
+ * share one request — except `fresh`, which follows a skill change: a request
+ * already running may have started before it, so it waits that one out and
+ * asks again. Never throws; a failure keeps the remembered list.
  * Resolves true on success, false on failure.
  */
 export function refreshSkillActions(
   hostId: number,
   reason: "prefetch" | "menu-open" | "page-visible" | "invocation-toggle" | "invocation-settle" | "rename" | "new-skill",
+  opts: { fresh?: boolean } = {},
 ): Promise<boolean> {
   const key = lsKey(hostId);
   const existing = inFlight.get(key);
-  if (existing) return existing;
+  if (existing) {
+    return opts.fresh ? existing.then(() => refreshSkillActions(hostId, reason, opts)) : existing;
+  }
   const startedAt = Date.now();
   const p = listSkills(hostId)
     .then((entries) => {

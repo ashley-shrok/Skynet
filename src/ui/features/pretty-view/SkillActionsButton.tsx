@@ -104,7 +104,6 @@ export function SkillActionsButton({
     triggerRef.current?.focus();
     void promptNewSkill(hostId, { initialName, source: "composer-menu" }).then((slug) => {
       if (slug == null) return;
-      void refreshSkillActions(hostId, "new-skill");
       requestOpenSkillsEditor({ hostId, skill: slug });
     });
   };
