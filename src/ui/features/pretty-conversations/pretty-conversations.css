@@ -326,14 +326,33 @@
   border-radius: 50%;
   background: hsl(220, 75%, 66%);
 }
+/* DM'd inside: the row's red envelope disc after the label, and the row's
+   red tint across the whole header. */
 .pv-section-dm-mark {
   display: inline-flex;
   flex-shrink: 0;
-  color: #ff6b6f;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  border-radius: 999px;
+  background: #e5484d;
+  color: #fff;
 }
 .pv-section-dm-mark svg {
-  width: 12px;
-  height: 12px;
+  width: 11px;
+  height: 11px;
+  transform: translate(-0.5px, 0.5px);
+}
+:is(.pv-section-head, .pv-project-head):has(.pv-section-dm-mark) {
+  border-radius: 8px;
+  background: rgba(229, 72, 77, 0.16);
+}
+:is(.pv-section-head, .pv-project-head):has(.pv-section-dm-mark):hover {
+  background: rgba(229, 72, 77, 0.2);
+}
+:is(.pv-section-head, .pv-project-head):has(.pv-section-dm-mark) .pv-section-label {
+  color: var(--k-t1);
 }
 
 /* ═══ Projects — folders ═════════════════════════════════════════════════ */
@@ -585,6 +604,7 @@
   width: 11px;
   height: 11px;
   color: #fff;
+  transform: translate(-0.5px, -0.25px);
 }
 .pv-row--dm .pv-body {
   padding-right: 22px;
@@ -791,6 +811,19 @@
   }
   .pv-project-head:hover {
     background: transparent;
+  }
+  :is(.pv-section-head, .pv-project-head):has(.pv-section-dm-mark) {
+    padding-left: 10px;
+    padding-right: 10px;
+    border-radius: 12px;
+  }
+  .pv-section-dm-mark {
+    width: 22px;
+    height: 22px;
+  }
+  .pv-section-dm-mark svg {
+    width: 13px;
+    height: 13px;
   }
   .pv-project-head .pv-section-chevron {
     width: 16px;
