@@ -87,12 +87,16 @@ let mockSharedNames: string[] = [];
 // Host rows that receive shared skills (the synced row of a sync machine);
 // tests set `mockSyncedHostIds`.
 let mockSyncedHostIds: number[] = [];
+// Shared skills removed everywhere, still pending on a machine (by machine id).
+let mockPendingRemovals: Record<string, string[]> = {};
 vi.mock("../../instance-wide/production.js", () => ({
   getInstanceWide: () => ({
     listNames: async () => mockSharedNames,
     isInstanceWide: async (_kind: string, name: string) => mockSharedNames.includes(name),
+    pendingRemovalNames: async (kind: string, machineId: string) =>
+      kind === "skill" ? (mockPendingRemovals[machineId] ?? []) : [],
   }),
-  machineForHostRow: async (hostId: number) =>
+  syncedMachineForHostRow: async (hostId: number) =>
     mockSyncedHostIds.includes(hostId)
       ? { machineId: String(hostId), hostName: "box", record: { id: String(hostId), _connDetails: {} } }
       : null,
@@ -423,6 +427,24 @@ describe("GET /skills-editor/skills", () => {
     afterEach(() => {
       mockSharedNames = [];
       mockSyncedHostIds = [];
+      mockPendingRemovals = {};
+    });
+
+    it("a shared skill just deleted everywhere isn't listed while its copy here is still being deleted", async () => {
+      (callerIsAdmin as Mock).mockResolvedValue(true);
+      mockSharedNames = [];
+      mockPendingRemovals = { "1": ["house-style"] };
+      const res = await httpRequest(server, { method: "GET", path: "/skills-editor/skills?hostId=1" });
+      expect(res.status).toBe(200);
+      expect((res.body as { skills: unknown[] }).skills).toEqual([{ name: "build" }]);
+    });
+
+    it("on a host outside sync a pending removal doesn't hide the user's own same-named skill", async () => {
+      (callerIsAdmin as Mock).mockResolvedValue(false);
+      mockSyncedHostIds = [];
+      mockPendingRemovals = { "1": ["house-style"] };
+      const res = await httpRequest(server, { method: "GET", path: "/skills-editor/skills?hostId=1" });
+      expect((res.body as { skills: unknown[] }).skills).toEqual([{ name: "build" }, { name: "house-style" }]);
     });
 
     it("are listed for everyone, marked shared on a host that receives them", async () => {

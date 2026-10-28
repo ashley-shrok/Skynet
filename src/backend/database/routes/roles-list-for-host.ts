@@ -35,7 +35,7 @@
  */
 
 import type { AuthenticatedRequest } from "../../../types/index.js";
-import { getInstanceWide, machineForHostRow } from "../../instance-wide/production.js";
+import { getInstanceWide, syncedMachineForHostRow } from "../../instance-wide/production.js";
 import express from "express";
 import type { Request, Response } from "express";
 import { AuthManager } from "../../utils/auth-manager.js";
@@ -68,11 +68,15 @@ import { getUsernameForUserId } from "../../utils/host-user-counter.js";
 
 const router = express.Router();
 
-/** Shared roles removed everywhere whose copy on this host's machine is still being deleted. */
-async function removingRoleNames(hostId: number): Promise<string[]> {
+/**
+ * Shared roles removed everywhere whose copy is still being deleted from the
+ * home folder this host row reaches. Rows into other accounts on the box hold
+ * only their own roles and are left alone.
+ */
+async function removingRoleNames(hostId: number, rowUsername: unknown): Promise<string[]> {
   try {
     const engine = getInstanceWide();
-    const machine = engine ? await machineForHostRow(hostId) : null;
+    const machine = engine ? await syncedMachineForHostRow(hostId, async () => rowUsername) : null;
     if (!engine || !machine) return [];
     return await engine.pendingRemovalNames("role", machine.machineId);
   } catch (err) {
@@ -84,6 +88,7 @@ async function removingRoleNames(hostId: number): Promise<string[]> {
     return [];
   }
 }
+
 const authManager = AuthManager.getInstance();
 const authenticateJWT = authManager.createAuthMiddleware();
 
@@ -246,7 +251,8 @@ router.get(
         });
         // Same graceful path — return names with empty descriptions so
         // user can still pick a role even if descriptions failed to load.
-        return res.json(validRoles.map((name) => ({ name, description: "" })));
+        const removing = new Set(await removingRoleNames(hostId, (host as { username?: unknown }).username));
+        return res.json(validRoles.filter((name) => !removing.has(name)).map((name) => ({ name, description: "" })));
       }
 
       // 7. Split on ===ROLE:<n>=== delimiters and extract per-role description
@@ -355,7 +361,7 @@ router.get(
       );
       // A shared role just removed everywhere is still on disk here until the
       // sync deletes it — leave it out meanwhile.
-      const removingRoles = new Set(await removingRoleNames(hostId));
+      const removingRoles = new Set(await removingRoleNames(hostId, (host as { username?: unknown }).username));
       const result = gatedRoles.filter((name) => !removingRoles.has(name)).map((name) => ({
         name,
         description: descByName.get(name) ?? "",

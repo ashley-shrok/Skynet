@@ -503,12 +503,12 @@ export function RoleView({
     }
   };
 
-  const handleStopSharing = async (): Promise<void> => {
+  const handleDeleteEverywhere = async (): Promise<void> => {
     const count = instanceWideItem?.hostCount ?? 0;
     if (
       !(await kitConfirm({
         title: `Delete ${label} from every host?`,
-        body: `It will be deleted from ${count === 1 ? "the 1 host" : `all ${count} hosts`} it's on, along with anything agents saved in it there. Nobody will have it afterwards. This can't be undone.`,
+        body: `It will be deleted from ${count === 0 ? "every host" : count === 1 ? "the 1 host it's on" : `all ${count} hosts it's on`}, along with anything agents saved in it there. Nobody will have it afterwards. This can't be undone.`,
         confirmLabel: "Delete everywhere",
         destructive: true,
       }))
@@ -543,8 +543,8 @@ export function RoleView({
                 hint: "Nobody will have it afterwards",
                 danger: true,
                 separatorBefore: true,
-                onClick: () => void handleStopSharing(),
-                testId: "role-view-stop-sharing",
+                onClick: () => void handleDeleteEverywhere(),
+                testId: "role-view-delete-everywhere",
               }
             : {
                 label: "Make instance-wide…",

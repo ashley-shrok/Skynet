@@ -1037,7 +1037,7 @@ export default function SkillsEditorModal({
     if (
       !(await kitConfirm({
         title: `Delete "${name}" from every host?`,
-        body: `It will be deleted from ${count === 1 ? "the 1 host" : `all ${count} hosts`} it's on, along with any changes agents made there. Nobody will have it afterwards. This can't be undone.`,
+        body: `It will be deleted from ${count === 0 ? "every host" : count === 1 ? "the 1 host it's on" : `all ${count} hosts it's on`}, along with any changes agents made there. Nobody will have it afterwards. This can't be undone.`,
         confirmLabel: "Delete everywhere",
         destructive: true,
       }))

@@ -124,6 +124,23 @@ export async function machineForHostRow(hostId: number): Promise<ProductionMachi
 }
 
 /**
+ * The machine whose synced home folder this host row reaches — the synced row
+ * itself, or another row logging into the same account on that box — else
+ * null. Other accounts on the box hold only their users' own skills and roles.
+ */
+export async function syncedMachineForHostRow(
+  hostId: number,
+  rowUsername: () => Promise<unknown>,
+): Promise<ProductionMachine | null> {
+  const machine = await machineForHostRow(hostId);
+  if (!machine) return null;
+  if (machine.record.id === String(hostId)) return machine;
+  const syncedUser = (machine.record._connDetails as { username?: unknown }).username;
+  const username = await rowUsername();
+  return typeof syncedUser === "string" && username === syncedUser ? machine : null;
+}
+
+/**
  * Skill/role names the app's own standard files use (built-in skills it
  * distributes, plus retired ones it actively deletes). Making one of these
  * instance-wide would have two mechanisms fighting over one folder.

@@ -117,6 +117,7 @@ vi.mock("../../utils/host-user-counter.js", () => ({
 
 // Shared-role sync: off by default (no engine); a test can install one.
 const instanceWideMock = vi.hoisted(() => ({
+  syncedUser: "ubuntu" as string,
   engine: null as null | {
     listNames: (kind: string) => Promise<string[]>;
     pendingRemovalNames: (kind: string, machineId: string) => Promise<string[]>;
@@ -124,7 +125,8 @@ const instanceWideMock = vi.hoisted(() => ({
 }));
 vi.mock("../../instance-wide/production.js", () => ({
   getInstanceWide: () => instanceWideMock.engine,
-  machineForHostRow: async (hostId: number) => (hostId === 7 ? { machineId: "m7" } : null),
+  syncedMachineForHostRow: async (hostId: number, rowUsername: () => Promise<unknown>) =>
+    hostId === 7 && (await rowUsername()) === instanceWideMock.syncedUser ? { machineId: "m7" } : null,
 }));
 
 // ---------------------------------------------------------------------------
@@ -207,6 +209,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   stubConn.end.mockClear();
   instanceWideMock.engine = null;
+  instanceWideMock.syncedUser = "ubuntu";
 
   // Default: user owns host 7; anything else → null
   (resolveHostById as Mock).mockImplementation((hostId: number) => {
@@ -1038,5 +1041,19 @@ describe("shared roles being deleted", () => {
     const names = (res.body as Array<{ name: string; instanceWide?: boolean }>).map((r) => r.name);
     expect(names).toEqual(["tina"]);
     expect((res.body as Array<{ instanceWide?: boolean }>)[0].instanceWide).toBe(true);
+  });
+
+  it("leaves another account's own same-named role alone", async () => {
+    instanceWideMock.syncedUser = "someone-else";
+    instanceWideMock.engine = {
+      listNames: async () => [],
+      pendingRemovalNames: async () => ["nelly"],
+    };
+    (execCommand as Mock).mockImplementation(async (_conn: unknown, cmd: string) => {
+      if (cmd.includes("ls ")) return "tina\nnelly";
+      return ["===ROLE:tina===", "# tina", "===ROLE:nelly===", "# nelly"].join("\n");
+    });
+    const res = await httpRequest(server, { method: "GET", path: "/roles?hostId=7" });
+    expect((res.body as Array<{ name: string }>).map((r) => r.name).sort()).toEqual(["nelly", "tina"]);
   });
 });

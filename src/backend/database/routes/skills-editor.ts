@@ -69,7 +69,7 @@ import yaml from "js-yaml";
 import type { Request, Response } from "express";
 import { AuthManager } from "../../utils/auth-manager.js";
 import { callerIsAdmin } from "../../instance-wide/admin.js";
-import { getInstanceWide, machineForHostRow } from "../../instance-wide/production.js";
+import { getInstanceWide, syncedMachineForHostRow } from "../../instance-wide/production.js";
 import { invocationFlagsOf, type InvocationFlags } from "../../utils/skill-invocation.js";
 import { resolveHostById } from "../../ssh/host-resolver.js";
 import { connectOneShot } from "../../ssh/ssh-one-shot.js";
@@ -110,13 +110,10 @@ async function sharedSkillNames(): Promise<string[]> {
   }
 }
 
-/** Shared skills removed everywhere whose copy on this host's machine is still being deleted. */
-async function removingSkillNames(hostId: number): Promise<string[]> {
+/** Shared skills removed everywhere whose copy on this machine is still being deleted. */
+async function removingSkillNames(machineId: string, hostId: number): Promise<string[]> {
   try {
-    const engine = getInstanceWide();
-    const machine = engine ? await machineForHostRow(hostId) : null;
-    if (!engine || !machine) return [];
-    return await engine.pendingRemovalNames("skill", machine.machineId);
+    return (await getInstanceWide()?.pendingRemovalNames("skill", machineId)) ?? [];
   } catch (err) {
     sshLogger.warn("skills-editor skills: couldn't read pending shared-skill removals", {
       operation: "skills_editor_pending_removals",
@@ -134,12 +131,14 @@ async function removingSkillNames(hostId: number): Promise<string[]> {
  * their users' own skills, whatever their names.
  */
 async function hostReceivesShared(hostId: number, userId: string): Promise<boolean> {
-  const machine = await machineForHostRow(hostId);
-  if (!machine) return false;
-  if (machine.record.id === String(hostId)) return true;
-  const row = await resolveHostById(hostId, userId);
-  const syncedUser = (machine.record._connDetails as { username?: unknown }).username;
-  return !!row && typeof syncedUser === "string" && (row as { username?: unknown }).username === syncedUser;
+  return (await syncedMachineFor(hostId, userId)) !== null;
+}
+
+function syncedMachineFor(hostId: number, userId: string) {
+  return syncedMachineForHostRow(hostId, async () => {
+    const row = await resolveHostById(hostId, userId);
+    return row ? (row as { username?: unknown }).username : undefined;
+  });
 }
 
 export const SHARED_SKILL_REFUSAL = "this skill is shared to every machine — only an admin can change it";
@@ -583,11 +582,13 @@ router.get(
         req.query.includeDistributed === "1" ? await callerIsAdmin(userId).catch(() => false) : false;
       // A skill counts as the shared one only where this host receives
       // shared skills; elsewhere a same-named skill is the user's own.
-      const receivesShared = await hostReceivesShared(hostId, userId).catch(() => false);
-      const shared = receivesShared ? new Set(await sharedSkillNames()) : new Set<string>();
+      const syncedMachine = await syncedMachineFor(hostId, userId).catch(() => null);
+      const shared = syncedMachine ? new Set(await sharedSkillNames()) : new Set<string>();
       // A shared skill just removed everywhere is still on disk here until the
       // sync deletes it — don't list it as the host's own meanwhile.
-      const removing = receivesShared ? new Set(await removingSkillNames(hostId)) : new Set<string>();
+      const removing = syncedMachine
+        ? new Set(await removingSkillNames(syncedMachine.machineId, hostId))
+        : new Set<string>();
       const skills = parsed
         .filter((s) => !removing.has(s.name))
         .filter((s) => isAdmin || !s.distributed)

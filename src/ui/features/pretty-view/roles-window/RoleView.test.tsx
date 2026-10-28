@@ -376,7 +376,7 @@ describe("role view — ⋯ menu", () => {
     await openRole();
     const menu = await openMenu("role-view-menu");
     expect(within(menu).queryByTestId("role-view-promote")).toBeNull();
-    expect(within(menu).queryByTestId("role-view-stop-sharing")).toBeNull();
+    expect(within(menu).queryByTestId("role-view-delete-everywhere")).toBeNull();
     expect(within(menu).getByTestId("role-view-archive")).toBeTruthy();
   });
 
@@ -421,8 +421,8 @@ describe("role view — ⋯ menu", () => {
     await openRole("support-bot");
     const menu = await openMenu("role-view-menu");
     expect(within(menu).queryByTestId("role-view-promote")).toBeNull();
-    expect(within(menu).getByTestId("role-view-stop-sharing").textContent).toContain("Delete from every host…");
-    fireEvent.click(within(menu).getByTestId("role-view-stop-sharing"));
+    expect(within(menu).getByTestId("role-view-delete-everywhere").textContent).toContain("Delete from every host…");
+    fireEvent.click(within(menu).getByTestId("role-view-delete-everywhere"));
     await waitFor(() => expect(m.removeInstanceWide).toHaveBeenCalledWith("role", "support-bot"));
     expect(dialogs.calls[0].opts.title).toBe("Delete Support Bot from every host?");
     expect(String(dialogs.calls[0].opts.body)).toMatch(/all 4 hosts/);
