@@ -40,7 +40,7 @@ Today you make a skill only from the Skills window, reached from the lightning b
 
 ## Handoff notes
 
-cedar-box-maintainer-6 implements. The composer menu and the Skills window live in different parts of the app (the window belongs to the sidebar), so the menu has to ask the sidebar to open the window on a given machine with a given skill selected. This needs an id skill edit (§ Composer → Skills menu). A What's-new note needs Ashley's approval of the exact text.
+cedar-box-maintainer-6 implements. The composer menu and the Skills window live in different parts of the app (the window belongs to the sidebar), so the menu has to ask the sidebar to open the window on a given machine with a given skill selected. This needs an id skill edit (§ Composer → Skills menu). A What's-new note needs the user's approval of the exact text.
 
 ---
 
@@ -74,7 +74,7 @@ None.
 
 ### Follow-ups
 
-- What's-new note: no note, per Ashley's decision of 2026-10-28 (accepted-as-drift).
+- What's-new note: no note, per the user's decision of 2026-10-28 (accepted-as-drift).
 
 ### Notes
 

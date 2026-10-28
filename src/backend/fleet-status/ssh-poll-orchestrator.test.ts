@@ -4041,7 +4041,7 @@ describe("quick-260820-tm0 — perHostState pruning on refresh", () => {
 });
 
 // ---------------------------------------------------------------------------
-// Dead channel after a host reboot (2026-10-28, ashley-beelink)
+// Dead channel after a host reboot (2026-10-28, a fleet desktop)
 //
 // The poller caches one channel per host. When the host rebooted, the
 // connection under that channel closed, but the host stayed tracked, so the
