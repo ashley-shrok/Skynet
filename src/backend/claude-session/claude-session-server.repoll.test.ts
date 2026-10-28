@@ -370,15 +370,17 @@ describe("attach-path launch-window classifier — Group A truth table (quick 26
     expect(__classifyAttachInactiveForTests(inactive("not_claude"), null)).toBe("fallback_01");
   });
 
-  // no_tmux_session → always fallback_01 (no pane to poll).
+  // no_tmux_session → fallback_01 unless it's an agent's folder: an agent with
+  // no session yet (always-on agent just un-archived, or woken before the
+  // supervisor made its session) is starting up — each repoll tick looks again.
   it("no_tmux_session + isIdentityShapedCached:null → fallback_01", () => {
     expect(__classifyAttachInactiveForTests(inactive("no_tmux_session"), null)).toBe("fallback_01");
   });
   it("no_tmux_session + isIdentityShapedCached:false → fallback_01", () => {
     expect(__classifyAttachInactiveForTests(inactive("no_tmux_session"), false)).toBe("fallback_01");
   });
-  it("no_tmux_session + isIdentityShapedCached:true → fallback_01", () => {
-    expect(__classifyAttachInactiveForTests(inactive("no_tmux_session"), true)).toBe("fallback_01");
+  it("no_tmux_session + isIdentityShapedCached:true → launch_window", () => {
+    expect(__classifyAttachInactiveForTests(inactive("no_tmux_session"), true)).toBe("launch_window");
   });
 
   // exec_error → always fallback_01 (SSH-side failure, attach-time can't

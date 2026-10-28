@@ -2717,9 +2717,9 @@ export function isDormancyCandidateReason(reason: string): boolean {
 // discovery result signals a launch window on THIS pane (claude starting up
 // after a crash-relaunch, fresh spawn, or dormant wake)
 // — in which case we enter holding + start the discovery-repoll timer instead
-// of tearing down. Terminal reasons (no_tmux_session, exec_error) fall through
-// unchanged to FALLBACK-01; not_claude on a non-identity pane (bare shell)
-// also falls through.
+// of tearing down. exec_error falls through unchanged to FALLBACK-01;
+// not_claude / no_tmux_session on a non-identity pane (bare shell, no such
+// agent) also falls through.
 //
 // This pure classifier is the SINGLE SOURCE OF TRUTH for the "launch_window vs
 // fallback_01" decision — the production branch calls it directly (so the
@@ -2731,11 +2731,13 @@ export function isDormancyCandidateReason(reason: string): boolean {
 //   • no_pid_session_file
 //   • no_open_session_file
 //   • not_claude AND isIdentityShapedCached === true
+//   • no_tmux_session AND isIdentityShapedCached === true (agent folder,
+//     no session yet)
 //
 // Terminal reasons (map to "fallback_01"):
-//   • no_tmux_session, exec_error
-//   • not_claude AND isIdentityShapedCached !== true (bare shell OR probe
-//     never ran / threw → conservative fallback)
+//   • exec_error
+//   • not_claude / no_tmux_session AND isIdentityShapedCached !== true (bare
+//     shell, no such agent, OR probe never ran / threw → conservative fallback)
 //   • defensive: status === "active" (attach path only calls this on inactive)
 export function __classifyAttachInactiveForTests(
   result: import("./session-file-discovery.js").ClaudeSessionDiscoveryResult,
@@ -2746,7 +2748,10 @@ export function __classifyAttachInactiveForTests(
   if (reason === "no_pid_session_file" || reason === "no_open_session_file") {
     return "launch_window";
   }
-  if (reason === "not_claude" && isIdentityShapedCached === true) {
+  // An agent's pane with no claude yet — or no pane yet (an always-on agent
+  // just un-archived, or one whose wake removed `.dormant` before the
+  // supervisor created its session) — is starting up, not gone.
+  if ((reason === "not_claude" || reason === "no_tmux_session") && isIdentityShapedCached === true) {
     return "launch_window";
   }
   return "fallback_01";
@@ -8103,7 +8108,12 @@ wss.on("connection", async (ws: WebSocket, req) => {
       //                            dormant-identity probe block above; we do
       //                            NOT re-run the SSH probe.
       //
-      // Terminal reasons (no_tmux_session, exec_error, and not_claude on a
+      //   * no_tmux_session AND identity-shape pane WITHOUT .dormant — the
+      //                            agent has no session yet (always-on agent
+      //                            just un-archived, or woken before the
+      //                            supervisor made its session).
+      //
+      // Terminal reasons (exec_error, and not_claude / no_tmux_session on a
       // non-identity pane) fall through unchanged to FALLBACK-01 below.
       //
       // WIRING CHOICE — reuse transitionToHolding("discovery_diff"): at attach

@@ -21,8 +21,8 @@ const HISTORY_MARKER = "---AGENT-HISTORY-LOOKUP---";
 // The visible symptom: on the first post-ship refresh with 3+ workstation
 // pretty-view sessions, discovery hit the 3s timeout under transient
 // sshd-session pressure, returned `{status:"inactive", reason:"exec_error"}`,
-// and claude-session-server.ts:7228's strict `reason === "not_claude"` guard
-// skipped the dormancy probe → blank surfaces.
+// and the attach path's dormancy probe (then gated on `not_claude` only; now
+// isDormancyCandidateReason) skipped it → blank surfaces.
 const DISCOVERY_EXEC_TIMEOUT_MS = 15000;
 
 // Retry ladder for a single discovery call (2026-09-25). The mainScript and
