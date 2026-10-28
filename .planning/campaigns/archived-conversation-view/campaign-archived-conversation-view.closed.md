@@ -1,7 +1,8 @@
 # Campaign: open an archived conversation from search like a normal conversation — by finding every conversation's history from the agent's own folder, not through its terminal
 
 **Opened:** 2026-10-25
-**Status:** in_progress
+**Status:** closed
+**Closed:** 2026-10-28 — deployed (d073517a 2026-10-27; un-archive follow-up 4ba4b6b2 2026-10-28), walked in the app, the user checked archived tab + Un-archive
 **Workspace:** `.planning/campaigns/archived-conversation-view/` (in the Skynet repo)
 
 ## Concept
@@ -50,6 +51,11 @@ archived, with Un-archive on it.
   and both sweeps on t1000, workstation, thenasty and zoey. The end-to-end
   walk of live, sleeping and waking conversations in the app happens at
   campaign close, after deploy
+- **[discovered] un-archive into a tab before the agent's session exists** —
+  the tab turned live a second before the supervisor made the sleeping agent's
+  session and stayed empty; sleeping and starting-up agents with no session yet
+  now open (b2d974d4/09b5fef7, 4ba4b6b2 after review) — closed (fix mode at
+  campaign close, the user: "Ship it")
 - **[declared] shape-archived-conversation-tab** — archived search result
   opens as a normal read-only conversation tab (new tab kind that needs no
   terminal session, survives reload/split/drag), archived marking,
@@ -69,7 +75,9 @@ archived, with Un-archive on it.
   zoeybattlestation commander-zoey) move right after this campaign's deploy
   (the user: "Carry on, deploy at the end", 2026-10-26). AT CAMPAIGN CLOSE: once
   the deploy is live, DM Domino to start; those 5 conversations are blank for
-  the minutes in between — open
+  the minutes in between — done (2026-10-27: all 5 plus bella on the Beelink
+  box and lulabelle on the laptop box moved; final sweep finds nothing outside
+  agents' own folders on all six machines)
 - Slash-command audit — which Claude Code commands (e.g. `/clear`) break
   Skynet's assumptions and should be blocked; rigel-box-maintainer-4
   (the user: "Spawn it", 2026-10-26), report delivered to the user in its
@@ -85,6 +93,16 @@ archived, with Un-archive on it.
 ## Lingerers (explicitly approved)
 
 ## Open questions
+
+All resolved at close (2026-10-27):
+- Reset/recycle detection: none left on the branch; one history file per agent for life — answered.
+- The Beelink box and the laptop box: checked once switched on (folder naming and first-turn shape match, incl. Claude Code 2.1.150); their legacy agents moved — answered.
+- Bare test sessions: excluded by the `/id` check — answered.
+- Search rework: folded onto the lookup in shape 1 — answered.
+- SDK-run agents: dropped (the user: "Drop it") — whoever moves agents to the SDK checks it.
+- Older Claude Code versions: checked on every machine — answered.
+
+Original notes:
 
 - Blaze (2026-10-25, Claude Code 2.1.310): after Condense, an agent keeps one
   history file for life; compaction and wake-from-sleep append; only a fresh
