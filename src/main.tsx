@@ -10,6 +10,7 @@ import { Toaster } from "@/components/sonner";
 import { SkewLockModal } from "@/features/skew-lock/SkewLockModal";
 import { Auth, getStoredAuth, clearStoredAuth } from "@/auth/Auth";
 import { validateReturnUrl, parseReturnFromSearch } from "@/auth/return-url";
+import { reloadToSignIn } from "@/auth/reload-to-sign-in";
 import { getUserInfo, appReadyPromise } from "@/main-axios";
 import { applyAccentColor, applyFontSize } from "@/lib/theme";
 import type { FontSizeId } from "@/types/ui-types";
@@ -168,10 +169,7 @@ function App() {
   function handleLogout() {
     clearStoredAuth();
     setPhase("fading-out");
-    timerRef.current = setTimeout(() => {
-      setAuthUsername("");
-      setPhase("idle-auth");
-    }, 450);
+    timerRef.current = setTimeout(() => reloadToSignIn("logout"), 450);
   }
 
   const showApp =

@@ -24,4 +24,8 @@ export const WHATS_NEW_NOTES: readonly WhatsNewNote[] = [
     id: "voice-send-phrase-over",
     text: "If you've set voice mode to send when you say a phrase: the default phrase is now \"over\" instead of \"send it\". You can change it under Preferences → Voice.",
   },
+  {
+    id: "logout-clears-app",
+    text: "Logging out now fully clears the app, so the next person to sign in on that browser never sees the previous account's conversations.",
+  },
 ];
