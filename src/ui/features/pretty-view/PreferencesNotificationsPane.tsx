@@ -21,7 +21,7 @@ export function PreferencesNotificationsPane(
     <div className="flex flex-col">
       <h3 className="k-group-title">This computer</h3>
       <PreferencesBrowserNotificationsSection />
-      <h3 className="k-group-title" data-testid="preferences-notifications-telegram-heading">Telegram</h3>
+      <h3 className="k-group-title mt-[22px]" data-testid="preferences-notifications-telegram-heading">Telegram</h3>
       <PreferencesTelegramSection />
     </div>
   );
