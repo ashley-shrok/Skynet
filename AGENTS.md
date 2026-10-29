@@ -1,5 +1,10 @@
 # AGENTS.md
 
+## Who it's for
+
+- Skynet is used by many people on many instances. Build for any user on any instance, never one person's own setup, and never write a real person's name, machines or accounts into the code or the agent docs. Call the person "the user" (they/them).
+- Never put the name "Skynet" in anything a user can see: screens, messages, notifications, emails, or text agents are given to show users. Each instance sets its own name through branding, so use that name or no name.
+
 ## UI look
 
 The app has one look: the **kit**. Build every new element from it; never copy an older screen's styling.
