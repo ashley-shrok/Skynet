@@ -154,14 +154,12 @@ describe("ComposeBox — hands-free voice mode (aux-row button)", () => {
     expect(screen.getByRole("button", { name: "Start voice mode" })).toBeTruthy();
   });
 
-  it("the voice-mode button sits between the memory gauge and the mic in the control row", () => {
+  it("the voice-mode button sits right before the mic in the control row", () => {
     render(<ComposeBox {...props()} />);
-    const gauge = screen.getByTestId("memory-gauge");
     const vm = screen.getByTestId("voice-mode-button");
     const micBtn = screen.getByRole("button", { name: "Record voice" });
     const thumbs = screen.getByRole("button", { name: "Send 'thumbs up'" });
     expect(screen.getByTestId("compose-row").contains(vm)).toBe(true);
-    expect(gauge.nextElementSibling).toBe(vm);
     expect(vm.nextElementSibling).toBe(micBtn);
     // eslint-disable-next-line no-bitwise
     expect(micBtn.compareDocumentPosition(thumbs) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();

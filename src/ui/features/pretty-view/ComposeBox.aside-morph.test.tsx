@@ -7,7 +7,6 @@
  * covers the BODY consumption:
  *
  *   Task 1: aux button `disabled` predicates extended with `|| asideActive === true`
- *     - Condense conversation (in the memory gauge's pop-over) — disabled when asideActive
  *     - paperclip button — disabled when asideActive
  *     - thumbs-up (Send 'thumbs up') — not offered while an aside is up
  *       (shape-conversation-view: the main button is Resume then)
@@ -28,12 +27,6 @@
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, fireEvent } from "@testing-library/react";
-
-// Condense conversation lives in the memory gauge's pop-over.
-async function openCondense(): Promise<HTMLButtonElement> {
-  fireEvent.click(screen.getByTestId("memory-gauge"));
-  return (await screen.findByRole("button", { name: "Condense conversation" })) as HTMLButtonElement;
-}
 
 vi.mock("@/api/compose-drafts-api", () => ({
   getComposeDraft: vi.fn().mockResolvedValue({ body: "" }),
@@ -57,29 +50,6 @@ describe("ComposeBox — Phase 14 Wave 4 aside morph (Task 1: aux button disable
   beforeEach(() => {
     vi.clearAllMocks();
     localStorage.clear();
-  });
-
-  it("Task 1 Test 1: Condense conversation becomes disabled when asideActive=true", async () => {
-    render(
-      <ComposeBox
-        {...baseProps({
-          asideActive: true,
-        })}
-      />,
-    );
-    const condenseBtn = await openCondense();
-    expect((condenseBtn as HTMLButtonElement).disabled).toBe(true);
-  });
-
-  it("Task 1 Test 2: Condense conversation stays enabled when asideActive is undefined (backward-compat)", async () => {
-    render(
-      <ComposeBox
-        {...baseProps({})}
-      />,
-    );
-    const condenseBtn = await openCondense();
-    // canSend=true, no aside → not disabled
-    expect((condenseBtn as HTMLButtonElement).disabled).toBe(false);
   });
 
   it("Task 1 Test 3: paperclip button becomes disabled when asideActive=true", () => {

@@ -110,7 +110,11 @@ vi.mock("@/hooks/use-is-touch-device", () => ({
 }));
 
 import { openClaudeSessionSocket } from "@/api/claude-session-api";
-import { useSessionIdentity } from "@/features/terminal/session-hue";
+import { sessionMatchKey, useSessionIdentity } from "@/features/terminal/session-hue";
+import {
+  __seedIdentitiesLoadedFalseForTest,
+  __resetIdentitiesStoreForTest,
+} from "@/state/identities-store";
 import { PrettyView } from "./PrettyView";
 // publishFleetStatusSessionState seeds the working-store's condensing axis
 // for Test H (the memory pie's "Condensing…").
@@ -118,6 +122,50 @@ import {
   publishFleetStatusSessionState,
   __resetForTest as resetWorkingStore,
 } from "@/state/session-working-store";
+
+// The agent memory pie lives in the task pill, which only renders for a
+// session whose identity is in the identities store. Make one resolve for
+// (hostId, tmuxSession); returns the cleanup that puts the defaults back.
+// The afterEach below also runs it, so a failed assertion can't leak the
+// identity into the next test.
+const pillRestores: Array<() => void> = [];
+afterEach(() => {
+  while (pillRestores.length > 0) pillRestores.pop()!();
+});
+function withPillIdentity(hostId: number, tmuxSession: string): () => void {
+  vi.mocked(sessionMatchKey).mockImplementation((n) => (n ? n.toLowerCase() : null));
+  __seedIdentitiesLoadedFalseForTest([
+    {
+      identityKey: tmuxSession.toLowerCase(),
+      hostId,
+      displayName: "Pill",
+      title: null,
+      colorHue: 200,
+      voice: null,
+      role: null,
+      avatarMime: "image/png",
+      avatarUrl: "/identities/pill/avatar",
+      avatarEtag: "etag",
+      coordinator: false,
+      task: null,
+      project: null,
+    },
+  ]);
+  let restored = false;
+  const restore = () => {
+    if (restored) return;
+    restored = true;
+    vi.mocked(sessionMatchKey).mockImplementation(() => null);
+    __resetIdentitiesStoreForTest();
+  };
+  pillRestores.push(restore);
+  return restore;
+}
+
+// The pie inside the task pill.
+function pillGauge(container: HTMLElement, extra = ""): HTMLElement | null {
+  return container.querySelector(`[data-testid="pv-task-pill"] [data-testid="memory-gauge"]${extra}`);
+}
 
 // ── Patch #148 test helpers ────────────────────────────────────────────────
 
@@ -738,7 +786,7 @@ describe("PrettyView — Phase 14 Wave 5 aside integration (frontend-arm + morph
     expect(findSentFrame(ws2, "aside_arm", beforeAnon)).toBeUndefined();
   });
 
-  it("Test B: inbound aside_ready mounts AsideBubble (role=\"note\") AND morphs ComposeBox (Send→Resume, aux disabled, textarea editable)", async () => {
+  it("Test B: inbound aside_ready mounts AsideBubble (role=\"note\") AND morphs ComposeBox (Send→Resume, textarea editable)", async () => {
     // Identity attached so ComposeBox mounts with the identity color scheme.
     vi.mocked(useSessionIdentity).mockReturnValue({
       identity: { key: "tina", displayName: "Tina", colorHue: 200 } as unknown,
@@ -782,14 +830,8 @@ describe("PrettyView — Phase 14 Wave 5 aside integration (frontend-arm + morph
       expect(getByRole("button", { name: "Resume" })).toBeTruthy();
     });
 
-    // Aux control disabled — pick Condense conversation in the memory
-    // gauge's pop-over (canonical aux gate; other aux controls follow the
-    // same pattern per Wave 4 Task 1).
-    act(() => {
-      fireEvent.click(container.querySelector('[data-testid="memory-gauge"]')!);
-    });
-    const condenseBtn = (await screen.findByRole("button", { name: "Condense conversation" })) as HTMLButtonElement;
-    expect(condenseBtn.disabled).toBe(true);
+    // (Aux-control gating while an aside is up is covered by
+    // ComposeBox.aside-morph.test.tsx.)
 
     // Textarea remains editable — per CONTEXT.md § ComposeBox morph verbatim.
     const textarea = container.querySelector("textarea") as HTMLTextAreaElement | null;
@@ -1073,6 +1115,7 @@ describe("PrettyView — Fix B: session_holding_cleared self-clear (quick 260730
     const { __setSessionContextPctForTests, __resetSessionContextPctForTests } =
       await import("@/api/fleet-status-client");
     __resetSessionContextPctForTests();
+    const restorePill = withPillIdentity(1, "s1");
 
     const { container } = render(
       <PrettyView hostId={1} tmuxSession="s1" onSend={vi.fn(() => true)} isVisible={true} />,
@@ -1104,14 +1147,13 @@ describe("PrettyView — Fix B: session_holding_cleared self-clear (quick 260730
 
     // Overlay gone:
     expect(container.querySelector('[role="status"]')).toBeNull();
-    // contextPct value is surfaced via data-pct on the memory gauge
-    // (shape-conversation-view; MemoryGauge renders data-pct={pct}).
-    // Fleet-status is authoritative; session_holding_cleared does not clear
-    // the meter reading (it never did, but the source is now fleet-status).
-    const ctxBar = container.querySelector('[data-testid="memory-gauge"][data-pct="42"]');
-    expect(ctxBar).toBeTruthy();
+    // contextPct value is surfaced via data-pct on the task pill's memory
+    // pie (MemoryGauge renders data-pct={pct}). Fleet-status is
+    // authoritative; session_holding_cleared does not clear the reading.
+    expect(pillGauge(container, '[data-pct="42"]')).toBeTruthy();
 
     __resetSessionContextPctForTests();
+    restorePill();
   });
 });
 
@@ -1551,7 +1593,8 @@ describe("quick 260808-ho2 loading overlay integration", () => {
     expect(container.querySelector(LOADING_SELECTOR)).toBeNull();
   });
 
-  it("Test H: working-store condensing:true → the memory pie reads Condensing…; no overlay, composer stays usable", async () => {
+  it("Test H: working-store condensing:true → the task pill's memory pie reads Condensing…; no overlay, composer stays usable", async () => {
+    const restorePill = withPillIdentity(1, "s1");
     const { container } = render(
       <PrettyView hostId={1} tmuxSession="s1" onSend={vi.fn(() => true)} isVisible={true} />,
     );
@@ -1567,7 +1610,7 @@ describe("quick 260808-ho2 loading overlay integration", () => {
     });
     fireWsFrame(ws, { type: 'pane_state', state: 'active' });
 
-    const gauge = () => container.querySelector('[data-testid="memory-gauge"]') as HTMLElement;
+    const gauge = () => pillGauge(container) as HTMLElement;
     expect(gauge().getAttribute("data-condensing")).toBeNull();
 
     // The backend-authoritative condensing axis (fleet-status → working-store),
@@ -1615,6 +1658,7 @@ describe("quick 260808-ho2 loading overlay integration", () => {
     });
     expect(gauge().getAttribute("data-condensing")).toBeNull();
     act(() => { resetWorkingStore(); });
+    restorePill();
   });
 });
 
@@ -2023,7 +2067,7 @@ describe("PrettyView — Phase 90 Wave 0 mechanical D-03 waiver regression", () 
     vi.stubGlobal('ResizeObserver', resizeObserverStub);
   });
 
-  it("Test 5: ComposeBox's contextPct prop still receives the current fleet-status value (mount-time swap correctness)", async () => {
+  it("Test 5: the task pill's memory pie shows the current fleet-status value at mount (mount-time swap correctness)", async () => {
     const { __setSessionContextPctForTests, __resetSessionContextPctForTests } =
       await import("@/api/fleet-status-client");
     __resetSessionContextPctForTests();
@@ -2032,6 +2076,7 @@ describe("PrettyView — Phase 90 Wave 0 mechanical D-03 waiver regression", () 
     // first render reads it via the hook.
     __setSessionContextPctForTests("7", "swap-test", 42);
 
+    const restorePill = withPillIdentity(7, "swap-test");
     const { container } = render(
       <PrettyView hostId={7} tmuxSession="swap-test" onSend={vi.fn(() => true)} isVisible={true} />,
     );
@@ -2045,13 +2090,13 @@ describe("PrettyView — Phase 90 Wave 0 mechanical D-03 waiver regression", () 
       );
     });
 
-    // The memory gauge is rendered by ComposeBox with data-pct={contextPct}.
-    // Since contextPct is now sourced from the fleet-status hook, the meter
-    // reflects 42 without any WS `context_pct` frame having been sent.
-    const ctxBar = container.querySelector('[data-testid="memory-gauge"][data-pct="42"]');
-    expect(ctxBar).toBeTruthy();
+    // The memory pie lives in the task pill with data-pct={contextPct},
+    // sourced from the fleet-status hook — 42 without any WS `context_pct`
+    // frame having been sent.
+    expect(pillGauge(container, '[data-pct="42"]')).toBeTruthy();
 
     __resetSessionContextPctForTests();
+    restorePill();
   });
 
   it("Test 6: fleet-status snapshot updates re-render the meter (reactive updates via useSyncExternalStore)", async () => {
@@ -2061,6 +2106,7 @@ describe("PrettyView — Phase 90 Wave 0 mechanical D-03 waiver regression", () 
 
     __setSessionContextPctForTests("7", "swap-reactive", 20);
 
+    const restorePill = withPillIdentity(7, "swap-reactive");
     const { container } = render(
       <PrettyView hostId={7} tmuxSession="swap-reactive" onSend={vi.fn(() => true)} isVisible={true} />,
     );
@@ -2074,16 +2120,17 @@ describe("PrettyView — Phase 90 Wave 0 mechanical D-03 waiver regression", () 
       );
     });
 
-    expect(container.querySelector('[data-testid="memory-gauge"][data-pct="20"]')).toBeTruthy();
+    expect(pillGauge(container, '[data-pct="20"]')).toBeTruthy();
 
     // Publish a new value; meter re-renders.
     act(() => {
       __setSessionContextPctForTests("7", "swap-reactive", 65);
     });
-    expect(container.querySelector('[data-testid="memory-gauge"][data-pct="65"]')).toBeTruthy();
-    expect(container.querySelector('[data-testid="memory-gauge"][data-pct="20"]')).toBeNull();
+    expect(pillGauge(container, '[data-pct="65"]')).toBeTruthy();
+    expect(pillGauge(container, '[data-pct="20"]')).toBeNull();
 
     __resetSessionContextPctForTests();
+    restorePill();
   });
 
   it("Test 7: WS `context_pct` frame arriving is a NO-OP — does not throw, does not crash, does not overwrite the fleet-status-sourced value", async () => {
@@ -2093,6 +2140,7 @@ describe("PrettyView — Phase 90 Wave 0 mechanical D-03 waiver regression", () 
 
     __setSessionContextPctForTests("7", "swap-noop", 55);
 
+    const restorePill = withPillIdentity(7, "swap-noop");
     const { container } = render(
       <PrettyView hostId={7} tmuxSession="swap-noop" onSend={vi.fn(() => true)} isVisible={true} />,
     );
@@ -2106,7 +2154,7 @@ describe("PrettyView — Phase 90 Wave 0 mechanical D-03 waiver regression", () 
       );
     });
 
-    expect(container.querySelector('[data-testid="memory-gauge"][data-pct="55"]')).toBeTruthy();
+    expect(pillGauge(container, '[data-pct="55"]')).toBeTruthy();
 
     // Fire a `context_pct` WS frame — the handler is a no-op post-swap. This
     // MUST NOT throw, MUST NOT crash the component, and MUST NOT overwrite
@@ -2123,9 +2171,10 @@ describe("PrettyView — Phase 90 Wave 0 mechanical D-03 waiver regression", () 
     }).not.toThrow();
 
     // Meter STILL reads 55 (fleet-status is authoritative — 99 does NOT win).
-    expect(container.querySelector('[data-testid="memory-gauge"][data-pct="55"]')).toBeTruthy();
-    expect(container.querySelector('[data-testid="memory-gauge"][data-pct="99"]')).toBeNull();
+    expect(pillGauge(container, '[data-pct="55"]')).toBeTruthy();
+    expect(pillGauge(container, '[data-pct="99"]')).toBeNull();
 
     __resetSessionContextPctForTests();
+    restorePill();
   });
 });

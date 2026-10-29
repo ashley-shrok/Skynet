@@ -124,7 +124,7 @@ export function AgentBadgeWithMeter({
 
   const handleCondense = useCallback(async () => {
     if (requestInFlight) return;
-    if (!(await kitConfirm(condenseConfirm(false)))) return;
+    if (!(await kitConfirm(condenseConfirm()))) return;
     setRequestInFlight(true);
     try {
       await authApi.post(`/identities/${encodeURIComponent(identityKey)}/condense`, { hostId });

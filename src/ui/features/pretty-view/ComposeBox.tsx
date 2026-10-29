@@ -8,9 +8,6 @@ import {
   putComposeDraft,
 } from "@/api/compose-drafts-api";
 import { stampIdentitySendLog } from "@/api/identity-send-log-api";
-// Condense conversation posts to /identities/:key/condense (the same request
-// the relay-pane badge's button makes).
-import { authApi } from "@/main-axios";
 import { seedSessionLastMessageAt } from "@/state/session-working-store";
 import { AttachmentChipStrip, type StagedAttachmentLike } from "./AttachmentChipStrip";
 // Quick 260823-8ji: attachment-path awaits the batch outcome to gate the
@@ -31,7 +28,6 @@ import { useSkillActions } from "./skill-actions-store";
 import { rankSkills } from "./skill-match";
 import { RecordingControls } from "./RecordingControls";
 import { HoldFeedbackPill, type HoldFeedback } from "./HoldFeedbackPill";
-import { MemoryGauge, condenseConfirm, memoryBand } from "./MemoryGauge";
 import { appendVoiceLabel } from "./voice-label";
 import { AskTray } from "./ask/AskTray";
 import { buildAnswerMessage, trayWrapReply, type QuestionAnswer } from "./ask/answer-format";
@@ -97,7 +93,7 @@ import { markTextAreaSend, type TextAreaSendKind } from "./text-area-sends";
 //    flushes immediately. pagehide + visibilitychange fire a
 //    fetch(keepalive:true) so a mid-typing tab close survives. A 10s
 //    setInterval retries any dirty body after failed saves. Successful
-//    send (any of Send / go-ahead / condense) clears the persisted
+//    send (Send or go-ahead) clears the persisted
 //    draft.
 //
 //    NO ERROR UI on failed autosave — mirrors the same "no ghost UI that
@@ -131,7 +127,7 @@ const tapDedup = createLogDedup({ N: 5, W: 3000 });
 // unreachable; the fallback exists so a race between logout and the save
 // debounce cannot write an un-ownerable key.
 import { getCurrentUser } from "@/state/user-scoped-cache";
-import { KitButton, kitConfirm } from "@/components/kit";
+import { KitButton } from "@/components/kit";
 
 function composeDraftLsKey(
   hostId: number,
@@ -186,19 +182,6 @@ function getBatchFailureUserMessage(reason: BatchFailureReasonForCompose): strin
       return "Send failed — try again.";
     }
   }
-}
-
-// A failed Condense request → what the composer says. Only a request that
-// never got an answer is "Not connected"; a server that answered gets a line
-// saying what went wrong instead.
-export function condenseFailureMessage(err: unknown, hostName?: string): string {
-  const status = (err as { response?: { status?: unknown } } | null | undefined)?.response?.status;
-  if (typeof status !== "number") return "Not connected — try again in a moment";
-  if (status === 504) {
-    return `Couldn't reach ${hostName ? hostName : "this agent's machine"} — try again in a moment`;
-  }
-  if (status === 404) return "Couldn't find this agent's machine — it may have been removed";
-  return "Couldn't condense — something went wrong on Skynet's side";
 }
 
 export interface ComposeBoxProps {
@@ -257,9 +240,6 @@ export interface ComposeBoxProps {
   // back to null so a subsequent parent re-render doesn't force-repopulate
   // the textarea with the same value.
   onOverrideTextConsumed?: () => void;
-  // Fired once a Condense conversation request has been accepted, so the
-  // parent can show "Condensing…" before the fleet-status poll catches up.
-  onCondenseRequested?: () => void;
   // Patch #96: invoked by the ThumbsUp "good to go" button BEFORE dispatching
   // the message text. Jumps scrollTop to bottom and enters Slack-follow mode
   // so the reply comes in stuck to the tail without waiting for the JSONL echo.
@@ -277,15 +257,6 @@ export interface ComposeBoxProps {
   // show the inline error — the component does not need to pre-emptively
   // block the attempt since onSend returns false when WS is not ready.
   canSend?: boolean;
-  // A condense is under way: the memory pie reads "Condensing…". Nothing
-  // else is disabled — anything sent meanwhile reaches the agent afterwards.
-  condensing?: boolean;
-  // Live Claude Code context-window percentage (0-100), scraped by the
-  // backend from the tmux status line. null = unknown yet on this attach.
-  // Rendered as a vertical fill bar to the left of the textarea:
-  // <50 green, 50-79 yellow, >=80 red; hidden entirely when null so a
-  // brief "unknown" flash doesn't distract on mount.
-  contextPct?: number | null;
   // Patch #57: identity of the pane the compose box belongs to. Draft
   // body is persisted server-side keyed on (userId, hostId, tmuxSession)
   // — tmuxSession null for non-tmux SSH hosts (Windows / no-tmux).
@@ -297,9 +268,6 @@ export interface ComposeBoxProps {
   // that copy is now universal ("Write a message…") since the identity badge
   // + project breadcrumb carry the who/where context.
   identityName?: string;
-  // The identity's key (its folder name) — where Condense conversation sends
-  // its request. Falls back to tmuxSession when absent.
-  identityKey?: string | null;
   // ============================================================
   // Phase 05 upload wiring — all optional so existing read-only /
   // no-uploads callers stay backward-compatible.
@@ -392,7 +360,7 @@ export interface ComposeBoxProps {
   onAsideDismiss?: () => void;
   // Pretty-view WS reconnect window (patch #148 auto-retry between an old
   // socket's onclose and a fresh session frame). During that ~2s window the
-  // WS is not open so onSend would no-op silently; disable Send + Condense +
+  // WS is not open so onSend would no-op silently; disable Send +
   // ThumbsUp + Queue (Send stays Send, unlike asideActive's morph).
   // Textarea, mic, and attach stay usable (mic records locally; attach
   // stores locally until Send).
@@ -690,13 +658,9 @@ export function ComposeBox({
   onOptimisticSend,
   overrideText,
   onOverrideTextConsumed,
-  onCondenseRequested,
   canSend,
-  condensing,
-  contextPct,
   hostId,
   tmuxSession,
-  identityKey,
   identityName,
   onGoodToGo,
   restoreRequest,
@@ -725,21 +689,6 @@ export function ComposeBox({
   // file to be re-picked later — some browsers otherwise no-op a repeat
   // selection because the "value hasn't changed."
   const fileInputRef = useRef<HTMLInputElement>(null);
-  // Guards async setState from firing after unmount. Load-bearing for
-  // requestCondense's .then/.catch — under JSDOM
-  // teardown a stale promise resolving after the component unmounts
-  // schedules a React setState that hits `resolveUpdatePriority`, which
-  // needs `window` — and JSDOM has already torn `window` down by then.
-  // Result: unhandled-rejection false-positive in the full test suite.
-  // The isMounted guard prevents the setState call entirely so React
-  // never asks for update priority. Standard React defensive pattern.
-  const isMountedRef = useRef(true);
-  useEffect(() => {
-    isMountedRef.current = true;
-    return () => {
-      isMountedRef.current = false;
-    };
-  }, []);
   const handleOpenFilePicker = useCallback(() => {
     fileInputRef.current?.click();
   }, []);
@@ -952,8 +901,6 @@ export function ComposeBox({
   // pass consults the DOM. 144px fallback (24 × 6) covers the JSDOM `normal`
   // keyword branch where parseFloat resolves to NaN.
   const maxHeightPxRef = useRef<number | null>(null);
-
-  const heldPctRef = useRef<number | null>(null);
 
   // Patch #181: press feedback on every composebox button. Delegated
   // handler on the compose root adds `.pv-btn-pressed` to whatever
@@ -1731,72 +1678,6 @@ export function ComposeBox({
     voice.start({ autoCommit: true });
   }
 
-  // Condense conversation: asks for the agent's conversation to be compacted
-  // (the supervisor carries the request out). Whatever is typed in the box
-  // goes along as guidance for what the summary keeps, and is cleared once
-  // the request is accepted. While dictating, the recording is transcribed
-  // and glued on first. A failed request keeps the text and says so.
-  function requestCondense(guidance: string, boxText: string) {
-    setErrorMessage(null);
-    const key = identityKey ?? tmuxSession ?? "";
-    authApi
-      .post(`/identities/${encodeURIComponent(key)}/condense`, {
-        hostId,
-        guidance: guidance.trim(),
-      })
-      .then((response) => {
-        // isMountedRef guard: a stale promise resolving after unmount
-        // (JSDOM teardown race) must not touch state.
-        if (!isMountedRef.current) return;
-        const okShape =
-          response?.data &&
-          typeof response.data === "object" &&
-          (response.data as { ok?: unknown }).ok === true;
-        if (okShape) {
-          onCondenseRequested?.();
-          // Clear only what went along as guidance — anything typed while
-          // the request was in flight stays.
-          if (latestBodyRef.current === boxText) {
-            setTextProgrammatic("");
-            clearAfterSend();
-          }
-        } else {
-          console.warn("[ComposeBox] condense request answered without ok", {
-            hostId,
-            identityKey: key,
-            status: response?.status,
-          });
-          setErrorMessage(condenseFailureMessage({ response: { status: response?.status ?? 500 } }, hostName));
-        }
-      })
-      .catch((err: unknown) => {
-        if (!isMountedRef.current) return;
-        console.warn("[ComposeBox] condense request failed", {
-          hostId,
-          identityKey: key,
-          status: (err as { response?: { status?: unknown } } | null)?.response?.status ?? null,
-          message: err instanceof Error ? err.message : String(err),
-        });
-        setErrorMessage(condenseFailureMessage(err, hostName));
-      });
-  }
-
-  // Live voice state for handlers that await a confirm (the dialog doesn't
-  // freeze the page, so recording can start or stop while it's open).
-  const voiceStateRef = useRef(voice.state);
-  voiceStateRef.current = voice.state;
-
-  async function handleCondenseClick() {
-    if (!(await kitConfirm(condenseConfirm(true)))) return;
-    if (voiceStateRef.current === "recording") {
-      const baseText = text;
-      const result = await voice.endSend(baseText);
-      requestCondense(result ? result.glued : baseText, baseText);
-    } else {
-      requestCondense(text, text);
-    }
-  }
-
   // Quick-reply: fires a canned message through the funnel without touching
   // the compose textarea's text/focus state. Independent of what the user is
   // currently composing.
@@ -2049,7 +1930,7 @@ export function ComposeBox({
 
   // Layout (shape-conversation-view): one card — the text on top, every
   // control on one row under it. Left: attach, skills (harness only), and the
-  // recording chip while dictating. Right: agent memory, voice mode, the mic,
+  // recording chip while dictating. Right: voice mode, the mic,
   // and the round main button, which does the likely next thing — Send while
   // there's something to send, otherwise 👍 (Resume while an aside is up).
   // Relay rooms get only the mic and Send. No Stop here (shape-stop-on-orb): the working orb is the Stop.
@@ -2064,9 +1945,6 @@ export function ComposeBox({
   // Mic open on this composer (a transcript round-trip is not "recording":
   // Send shows its spinner then).
   const recordingHere = voice.state === "starting" || voice.state === "recording";
-  // The card's red edge follows the memory pie, which holds its last reading
-  // through brief dropouts — hold it here the same way.
-  if (contextPct != null) heldPctRef.current = contextPct;
 
   const fireThumbs = () => {
     onGoodToGo?.();
@@ -2107,7 +1985,6 @@ export function ComposeBox({
       className={cn("pv-composebox", className)}
       data-mode={mode}
       data-touch={isTouchDevice === true ? "true" : undefined}
-      data-memory={harness ? memoryBand(heldPctRef.current) : undefined}
     >
       {/* Phase 05: retry affordance surfaces only when at least one chip is
           in the error state. Clicking re-issues the upload batch via the
@@ -2213,15 +2090,6 @@ export function ComposeBox({
             skills (which stay usable — files get picked mid-sentence). */}
         {holdFeedback && <HoldFeedbackPill {...holdFeedback} readLevel={voice.readLevel} />}
         <div className="pv-compose-spacer" aria-hidden="true" />
-        {/* A phone's row is too narrow for the pie beside a recording. */}
-        {harness && !(isTouchDevice === true && recordingHere) && (
-          <MemoryGauge
-            pct={contextPct ?? null}
-            condensing={condensing === true}
-            condenseDisabled={canSend === false || asideActive === true || reconnectingActive === true || voice.state === "transcribing"}
-            onCondense={() => { void handleCondenseClick(); }}
-          />
-        )}
         {/* Hands-free voice mode (harness only). Steps aside while this
             composer is dictating — a second mic can't open then anyway. */}
         {voiceModeFeed && !recordingHere && (

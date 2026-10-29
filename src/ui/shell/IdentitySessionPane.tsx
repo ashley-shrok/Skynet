@@ -694,6 +694,7 @@ export const IdentitySessionPane = forwardRef<IdentityPaneHandle, IdentitySessio
               identityKey={identityKey}
               hostId={paneHostIdNum}
               tmuxSession={effectiveTmuxSession}
+              hostName={host.name}
               tabId={tabId}
               dragDescriptor={{
                 tabType: "terminal",

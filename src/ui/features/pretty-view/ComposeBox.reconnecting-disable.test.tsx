@@ -3,14 +3,14 @@
  *
  * ComposeBox behavior when reconnectingActive=true. During the pretty-view
  * WS retry window (patch #148 auto-reconnect between an old socket's onclose
- * and a fresh session frame), Send + Condense + ThumbsUp are disabled
+ * and a fresh session frame), Send + ThumbsUp are disabled
  * because onSend would silently no-op (ws.readyState !== 1). Textarea, mic,
  * and paperclip stay usable so user can pre-draft the next message while
  * the socket comes back.
  *
  * Truth table:
  *   - Send: STAYS as Send (aria-label "Send", NOT morphed) but disabled=true.
- *   - Aux side-effect buttons (Condense conversation, ThumbsUp): disabled=true.
+ *   - Aux side-effect button (ThumbsUp): disabled=true.
  *   - Textarea: STAYS typeable.
  *   - Enter key: does NOT fire onSend.
  *   - Mic: STAYS enabled (records locally, no WS side-effect).
@@ -61,13 +61,9 @@ describe("ComposeBox — reconnectingActive gating", () => {
     expect(screen.queryByLabelText("Resume")).toBeNull();
   });
 
-  it("R2: reconnectingActive=true — aux side-effect buttons (Condense conversation, ThumbsUp) all disabled", async () => {
+  it("R2: reconnectingActive=true — aux side-effect button (ThumbsUp) disabled", () => {
     render(<ComposeBox {...baseProps({ reconnectingActive: true })} />);
-    // Condense conversation lives in the memory gauge's pop-over.
-    fireEvent.click(screen.getByTestId("memory-gauge"));
-    const condenseBtn = (await screen.findByRole("button", { name: "Condense conversation" })) as HTMLButtonElement;
     const thumbsUpBtn = screen.getByLabelText("Send 'thumbs up'") as HTMLButtonElement;
-    expect(condenseBtn.disabled).toBe(true);
     expect(thumbsUpBtn.disabled).toBe(true);
   });
 

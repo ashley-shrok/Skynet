@@ -40,7 +40,8 @@ describe("ComposeBox mode-hide (Phase 93 Slice 3 Task 2)", () => {
     // Control row present with the harness-only controls.
     const row = container.querySelector('[data-testid="compose-row"]');
     expect(row).not.toBeNull();
-    expect(row!.querySelector('[data-testid="memory-gauge"]')).not.toBeNull();
+    // The memory pie lives in the task pill now, never in the compose row.
+    expect(row!.querySelector('[data-testid="memory-gauge"]')).toBeNull();
     expect(row!.querySelector('button[aria-label="Send \'thumbs up\'"]')).not.toBeNull();
     // Paperclip button present (showPaperclip=true, harness default).
     expect(container.querySelector('button[aria-label="Attach file"]')).not.toBeNull();
@@ -48,9 +49,10 @@ describe("ComposeBox mode-hide (Phase 93 Slice 3 Task 2)", () => {
     expect(container.querySelector('[data-testid="compose-primary-wrapper"]')).not.toBeNull();
   });
 
-  it("Test 1b (explicit mode=harness): same as default — harness controls + Paperclip present", () => {
+  it("Test 1b (explicit mode=harness): same as default — harness controls + Paperclip present, no memory pie", () => {
     const { container } = render(<ComposeBox {...baseProps({ mode: "harness" })} />);
-    expect(container.querySelector('[data-testid="memory-gauge"]')).not.toBeNull();
+    expect(container.querySelector('[data-testid="memory-gauge"]')).toBeNull();
+    expect(container.querySelector('button[aria-label="Send \'thumbs up\'"]')).not.toBeNull();
     expect(container.querySelector('button[aria-label="Attach file"]')).not.toBeNull();
     expect(container.querySelector('[data-testid="compose-primary-wrapper"]')).not.toBeNull();
   });

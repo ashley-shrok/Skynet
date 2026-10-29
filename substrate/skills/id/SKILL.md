@@ -1436,7 +1436,8 @@ crown, then gear.
   with a thin ring in the agent's colour, then the one-line description of
   what the agent is working on — the identity's `task:` frontmatter
   (§ Loading an existing identity), or the agent's name when there is none,
-  the same string as the sidebar row's title. Click = opens the
+  the same string as the sidebar row's title, then the **agent memory** pie
+  (§ Agent memory below; not on archived conversations). Click = opens the
   **identity modal** (below). A **⋯ button** at the pill's
   right end — always visible, and the way in on a phone — opens the
   conversation menu; right-clicking the pill opens the same menu: **Move to
@@ -1622,7 +1623,7 @@ crown, then gear.
 - **Composer (bottom of the conversation).** One rounded card floating
   over the end of the message list: the text on top, every control on one
   row under it. Left: the **paperclip** (attach files) and the **⚡ Skills**
-  menu. Right: the **agent memory** pie, the **sound-wave** (voice mode),
+  menu. Right: the **sound-wave** (voice mode),
   the **mic** (dictation), and one round off-white **main button** that does
   the likely next thing — **Send** while there's something typed or
   attached, **Resume** while an aside is up, otherwise a **thumbs-up**
@@ -1630,20 +1631,20 @@ crown, then gear.
   composer — the working orb is the Stop (§ Stop below). In a relay room
   only the mic and Send show.
 
-- **Agent memory (the pie in the composer's row).** Shows how full the
-  agent's context window is. Grey with no number while there's room;
+- **Agent memory (the pie in the task pill, just before the ⋯).** Shows how
+  full the agent's context window is. Grey with no number while there's room;
   **amber** with the percentage from 45%; **red** from 78%, with a gentle
-  pulse and a thin red line along the composer's edge. Tapping it opens a
+  pulse. Tapping it opens a
   small pop-over — how full, what that means (agents can only hold so much
   of a conversation; at 95% the agent condenses on its own), and
   **Condense conversation** (inward-arrows icon). After a confirm it
   summarises the conversation to give the agent more room; the agent
-  carries on as the same agent, in the same conversation. Anything typed
-  in the box goes along as guidance for what the summary keeps. While it
-  works the pie reads **Condensing…**; the composer stays usable, and
+  carries on as the same agent, in the same conversation. While it
+  works the pie reads **Condensing…** (on a phone or narrow pane, the pie
+  just pulses); the composer stays usable, and
   anything sent meanwhile reaches the agent afterwards. Works on a sleeping
   agent too (it's woken for it). The same pie and button sit under each
-  agent's badge in a relay room (no guidance there). Users call this
+  agent's badge in a relay room. Users call this
   condensing — or compaction, if they know agents; underneath it is the
   harness's own compaction.
   *Agent-side:* the button drops the same condense request you would
@@ -1683,8 +1684,7 @@ crown, then gear.
 - **Mic (in the composer's row) — dictation.** Tap the mic to dictate;
   hold it to record and release to send. While recording, a red-tinted
   chip in the row shows "Recording", a timer and a live waveform (on a
-  phone just the dot, timer and waveform, and the memory pie steps aside;
-  held:
+  phone just the dot, timer and waveform; held:
   "release to send · slide off to cancel"); the paperclip and Skills stay
   usable, and a tapped recording puts **mute** (mic icon; crossed out and
   red while muted — the recording carries on but hears silence until
@@ -1719,8 +1719,7 @@ crown, then gear.
   "[Request interrupted by user]" in your context.
 
 - **Sound-wave button — hands-free voice mode** (agent conversations
-  only). Sits in the composer's row, between the agent-memory pie and the
-  mic. Tapping it turns voice mode
+  only). Sits in the composer's row, just left of the mic. Tapping it turns voice mode
   on: the app listens, sends what the user says when their turn ends, reads
   each new agent reply aloud, then listens again. It hears speech in pieces
   split at short pauses and transcribes each in the background; a piece

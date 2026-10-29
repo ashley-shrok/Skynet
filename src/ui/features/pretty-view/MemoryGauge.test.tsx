@@ -1,11 +1,11 @@
-// MemoryGauge — the composer's agent-memory pie (shape-conversation-view).
+// MemoryGauge — the task pill's agent-memory pie (shape-conversation-view).
 // Grey and silent below 45%, amber from 45%, red from 78%; holds its last
 // reading through brief null dropouts; reads "Condensing…" while a condense is
 // under way; tapping opens a pop-over whose Condense conversation requests one.
 
 import { describe, it, expect, vi } from "vitest";
 import { render, screen, fireEvent } from "@testing-library/react";
-import { MemoryGauge, condenseConfirm, memoryBand } from "./MemoryGauge";
+import { MemoryGauge, condenseConfirm, condenseFailureMessage, memoryBand } from "./MemoryGauge";
 
 const gauge = () => screen.getByTestId("memory-gauge");
 
@@ -108,12 +108,29 @@ describe("MemoryGauge", () => {
 });
 
 describe("condenseConfirm", () => {
-  it("asks in condense terms; mentions typed text only for the composer", () => {
-    const withText = condenseConfirm(true);
-    expect(withText.title).toBe("Condense this conversation?");
-    expect(withText.confirmLabel).toBe("Condense");
-    expect(withText.body).toContain("same agent, in the same conversation");
-    expect(withText.body).toContain("Anything you've typed guides what the summary keeps.");
-    expect(condenseConfirm(false).body).not.toContain("typed");
+  it("asks in condense terms and never mentions typed text", () => {
+    const c = condenseConfirm();
+    expect(c.title).toBe("Condense this conversation?");
+    expect(c.confirmLabel).toBe("Condense");
+    expect(c.body).toContain("same agent, in the same conversation");
+    expect(c.body).not.toContain("typed");
+  });
+});
+
+describe("condenseFailureMessage", () => {
+  it("no answer at all → Not connected", () => {
+    expect(condenseFailureMessage(new Error("Network Error"))).toBe("Not connected — try again in a moment");
+  });
+  it("504 names the machine when known", () => {
+    expect(condenseFailureMessage({ response: { status: 504 } }, "thenasty")).toBe("Couldn't reach thenasty — try again in a moment");
+    expect(condenseFailureMessage({ response: { status: 504 } })).toBe("Couldn't reach this agent's machine — try again in a moment");
+  });
+  it("404 → the machine may have been removed", () => {
+    expect(condenseFailureMessage({ response: { status: 404 } })).toBe("Couldn't find this agent's machine — it may have been removed");
+  });
+  it("any other answered error → something went wrong on Skynet's side", () => {
+    for (const status of [400, 500, 502]) {
+      expect(condenseFailureMessage({ response: { status } })).toBe("Couldn't condense — something went wrong on Skynet's side");
+    }
   });
 });

@@ -11,12 +11,12 @@
  * directly), same mqid capture pattern.
  *
  * Scope: main-textarea only. The quick-reply buttons are Plan 68-03's
- * responsibility. Condense conversation goes off the funnel entirely (Tests 5+
- * below).
+ * responsibility. Condense conversation lives in the task pill, not here
+ * (TaskPill.memory.test.tsx).
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { render, act, waitFor, fireEvent, screen } from "@testing-library/react";
+import { render, act, waitFor, fireEvent } from "@testing-library/react";
 import { autoAnswerKitDialogs, __resetKitDialogsForTests } from "@/components/kit";
 
 type WsStub = {
@@ -79,9 +79,7 @@ vi.mock("@/hooks/use-is-touch-device", () => ({
   useIsTouchDevice: vi.fn(() => false),
 }));
 
-// Condense conversation posts to authApi.post('/identities/<key>/condense')
-// instead of routing through the pretty-view WS funnel. Mock authApi.post
-// so tests can drive success + failure paths.
+// No real network for PrettyView's side requests.
 vi.mock("@/main-axios", async (importOriginal) => {
   const orig = (await importOriginal()) as Record<string, unknown>;
   return {
@@ -140,24 +138,9 @@ function countConfirmedBubbles(container: HTMLElement): number {
   return count;
 }
 
-// Condense conversation lives in the memory gauge's pop-over (tap the gauge,
-// then Condense conversation).
-async function condense(container: HTMLElement): Promise<void> {
-  const gauge = container.querySelector('[data-testid="memory-gauge"]') as HTMLButtonElement | null;
-  expect(gauge).not.toBeNull();
-  act(() => {
-    fireEvent.click(gauge!);
-  });
-  const btn = (await screen.findByRole("button", { name: "Condense conversation" })) as HTMLButtonElement;
-  expect(btn.disabled).toBe(false);
-  act(() => {
-    fireEvent.click(btn);
-  });
-}
-
-// Silence unused reference — countConfirmedBubbles is scaffolded for future
-// use; sendWsFrame is used by Test 5's WS-frame parse so no suppression needed.
+// Silence unused references — scaffolded for future use.
 void countConfirmedBubbles;
+void sendWsFrame;
 
 describe("ComposeBox — send funnel (Phase 68 Plan 01)", () => {
   let resizeObserverStub: ReturnType<typeof vi.fn>;
@@ -179,9 +162,7 @@ describe("ComposeBox — send funnel (Phase 68 Plan 01)", () => {
     });
     vi.useRealTimers();
     localStorage.clear();
-    // Condense shows a kit confirm (kitConfirm) first. Auto-accept in tests
-    // that click it — the confirm gate itself is covered by
-    // ComposeBox.condense.test.tsx.
+    // Auto-accept any kit confirm a test happens to raise.
     autoAnswerKitDialogs({ confirm: true });
   });
 
@@ -277,170 +258,4 @@ describe("ComposeBox — send funnel (Phase 68 Plan 01)", () => {
     expect(onSendMqidCapture).toMatch(/^pv-optim-\d+-[0-9a-z]{8}$/);
   });
 
-  function mountStreaming() {
-    const view = render(
-      <PrettyView
-        hostId={1}
-        tmuxSession="s1"
-        isVisible={true}
-        onSend={onSendMock}
-      />,
-    );
-    const ws = getCurrentWs();
-    flipToStreaming(ws);
-    return { ...view, ws };
-  }
-
-  function gaugeEl(container: HTMLElement): HTMLElement {
-    return container.querySelector('[data-testid="memory-gauge"]') as HTMLElement;
-  }
-
-  it(
-    "Test 5: Condense posts /identities/<key>/condense with { hostId, guidance }; ZERO bubbles; NO WS input frame; onSend not called",
-    async () => {
-      const { authApi } = await import("@/main-axios");
-      const postMock = authApi.post as ReturnType<typeof vi.fn>;
-      postMock.mockResolvedValue({ status: 200, data: { ok: true } });
-
-      const { container, unmount, ws } = mountStreaming();
-
-      await waitFor(() => {
-        expect(container.querySelector('textarea[placeholder="Write a message…"]')).not.toBeNull();
-      });
-
-      await condense(container);
-
-      // No identity resolves for "s1" in this harness, so the key falls back
-      // to the tmux session.
-      await waitFor(() => {
-        expect(postMock).toHaveBeenCalled();
-      });
-      const [url, body] = postMock.mock.calls[0] as [string, Record<string, unknown>];
-      expect(url).toBe("/identities/s1/condense");
-      expect(body).toEqual({ hostId: 1, guidance: "" });
-
-      // Off the funnel entirely: no bubble, no WS input frame, no onSend.
-      expect(countPendingBubbles(container)).toBe(0);
-      const sentCalls = ws.send.mock.calls.map(
-        (c: [string]) => JSON.parse(c[0]) as Record<string, unknown>,
-      );
-      expect(sentCalls.find((f) => f.type === "input")).toBeUndefined();
-      expect(onSendMock).not.toHaveBeenCalled();
-
-      unmount();
-    },
-  );
-
-  // onCondenseRequested fires ONLY on request success; PrettyView's handler
-  // turns on the optimistic "Condensing…" on the memory pie. A failed
-  // request must not leave the pie claiming a condense is under way.
-
-  it(
-    "Test 6a: Condense accepted → the pie reads Condensing… optimistically; Send stays usable",
-    async () => {
-      const { authApi } = await import("@/main-axios");
-      const postMock = authApi.post as ReturnType<typeof vi.fn>;
-      postMock.mockResolvedValue({ status: 200, data: { ok: true } });
-
-      const { container } = mountStreaming();
-
-      await waitFor(() => expect(gaugeEl(container)).not.toBeNull());
-      expect(gaugeEl(container).getAttribute("data-condensing")).toBeNull();
-
-      await condense(container);
-
-      await waitFor(() => {
-        expect(gaugeEl(container).getAttribute("data-condensing")).toBe("true");
-      });
-      expect(gaugeEl(container).textContent).toContain("Condensing…");
-      // No overlay, nothing disabled: the user can keep writing and sending.
-      expect(screen.queryByText(/Session recycling/i)).toBeNull();
-      const textarea = container.querySelector(
-        'textarea[placeholder="Write a message…"]',
-      ) as HTMLTextAreaElement;
-      expect(textarea.disabled).toBe(false);
-      typeAndEnter(container, "still here");
-      await waitFor(() => expect(onSendMock).toHaveBeenCalledTimes(1));
-    },
-  );
-
-  it(
-    "Test 6b: Condense request fails → the pie does NOT read Condensing…",
-    async () => {
-      const { authApi } = await import("@/main-axios");
-      const postMock = authApi.post as ReturnType<typeof vi.fn>;
-      postMock.mockRejectedValue(new Error("Network Error"));
-
-      const { container } = mountStreaming();
-
-      await waitFor(() => expect(gaugeEl(container)).not.toBeNull());
-
-      await condense(container);
-
-      await waitFor(() => expect(container.textContent).toContain("Not connected"));
-      expect(gaugeEl(container).getAttribute("data-condensing")).toBeNull();
-    },
-  );
-
-  it(
-    "Test 11: Condense sends the typed text as guidance and clears the textarea on success",
-    async () => {
-      const { authApi } = await import("@/main-axios");
-      const postMock = authApi.post as ReturnType<typeof vi.fn>;
-      postMock.mockResolvedValue({ status: 200, data: { ok: true } });
-
-      const { container } = mountStreaming();
-
-      await waitFor(() =>
-        expect(container.querySelector('textarea[placeholder="Write a message…"]')).not.toBeNull(),
-      );
-
-      const textarea = container.querySelector(
-        'textarea[placeholder="Write a message…"]',
-      ) as HTMLTextAreaElement;
-      act(() => {
-        fireEvent.change(textarea, { target: { value: "  keep the API notes  " } });
-      });
-
-      await condense(container);
-
-      await waitFor(() => {
-        expect(textarea.value).toBe("");
-      });
-
-      const [, body] = postMock.mock.calls[0] as [string, Record<string, unknown>];
-      expect(body).toEqual({ hostId: 1, guidance: "keep the API notes" });
-    },
-  );
-
-  it(
-    "Test 12: request failure → error message set + textarea NOT cleared + no Condensing…",
-    async () => {
-      const { authApi } = await import("@/main-axios");
-      const postMock = authApi.post as ReturnType<typeof vi.fn>;
-      postMock.mockRejectedValue(new Error("Network Error"));
-
-      const { container } = mountStreaming();
-
-      await waitFor(() =>
-        expect(container.querySelector('textarea[placeholder="Write a message…"]')).not.toBeNull(),
-      );
-
-      const textarea = container.querySelector(
-        'textarea[placeholder="Write a message…"]',
-      ) as HTMLTextAreaElement;
-      act(() => {
-        fireEvent.change(textarea, { target: { value: "should stay" } });
-      });
-      expect(textarea.value).toBe("should stay");
-
-      await condense(container);
-
-      await waitFor(() => {
-        expect(container.textContent).toContain("Not connected — try again in a moment");
-      });
-      expect(textarea.value).toBe("should stay");
-      expect(gaugeEl(container).getAttribute("data-condensing")).toBeNull();
-    },
-  );
 });

@@ -124,8 +124,6 @@ button.pv-float:focus-visible { outline: 2px solid var(--k-acc); outline-offset:
 }
 .pv-archived-strip-text[data-tone="danger"] { color: var(--k-danger-text); }
 .pv-composebox:focus-within { border-color: rgba(255, 255, 255, 0.22); }
-/* Nearly full: the card's edge picks up the warning too. */
-.pv-composebox[data-memory="red"] { border-color: rgba(255, 107, 94, 0.45); }
 .pv-compose-field { position: relative; }
 .pv-compose-text {
   display: block;
@@ -277,7 +275,10 @@ button.pv-float:focus-visible { outline: 2px solid var(--k-acc); outline-offset:
 .pv-composebox[data-touch="true"] .pv-rec-chip:has(.pv-rec-time) .pv-rec-label { display: none; }
 .pv-cbtn[data-holding="true"] { background: rgba(229, 72, 77, 0.18); color: #ff8a82; }
 
-/* ── Agent memory: a small pie. Grey while there's room, amber from 45%, red from 78% ── */
+/* ── Agent memory: a small pie in the task pill. Grey while there's room, amber from 45%, red from 78% ── */
+.pv-pill-mem .pv-cbtn { height: 32px; min-width: 32px; }
+/* The terminal view's pill and every pop-over sit outside [data-pv-root]. */
+.pv-pill-mem, .pv-mem-pop { --pv-amber: #f0b53d; --pv-red: #ff6b5e; }
 .pv-mem { padding: 0 8px; font: 650 12.5px/1 var(--font-sans); font-variant-numeric: tabular-nums; }
 .pv-mem-pie {
   width: 17px;
@@ -327,6 +328,10 @@ button.pv-float:focus-visible { outline: 2px solid var(--k-acc); outline-offset:
 /* Condensing: the pie stays, no alarm — the red halo stops while it works. */
 .pv-mem[data-condensing="true"] { padding: 0 11px 0 9px; }
 .pv-mem[data-condensing="true"]::after { animation: none; opacity: 0; }
+/* Too narrow for the word: just the pie, gently pulsing. */
+.pv-mem[data-condensing="true"][data-compact="true"] { padding: 0 8px; }
+.pv-mem[data-condensing="true"][data-compact="true"] .pv-mem-pie { animation: pv-mem-breathe 1.6s ease-in-out infinite; }
+@keyframes pv-mem-breathe { 0%, 100% { opacity: 1; } 50% { opacity: 0.35; } }
 
 /* ── Messages ── */
 /* The agent: a solid bubble in its own colour. */
@@ -558,7 +563,7 @@ button.pv-float:focus-visible { outline: 2px solid var(--k-acc); outline-offset:
 @keyframes pv-wip-spin { to { transform: rotate(360deg); } }
 @keyframes pv-wip-core { 0%, 100% { transform: scale(0.7); opacity: 0.7; } 50% { transform: scale(1); opacity: 1; } }
 @media (prefers-reduced-motion: reduce) {
-  .pv-wip-orb::before, .pv-wip-orb > i, .pv-mem[data-band="red"]::after { animation: none; }
+  .pv-wip-orb::before, .pv-wip-orb > i, .pv-mem[data-band="red"]::after, .pv-mem-pie { animation: none; }
 }
 
 /* Load older messages: a small pill like the other floating controls. */

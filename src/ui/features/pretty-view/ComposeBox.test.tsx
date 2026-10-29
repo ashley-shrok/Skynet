@@ -814,13 +814,11 @@ describe("ComposeBox — Phase 9 layout", () => {
     expect(screen.queryByRole("button", { name: "Send 'thumbs up'" })).toBeNull();
   });
 
-  it("Layout: agent memory is the MemoryGauge pie (a button that reads its level) in the control row", () => {
-    render(<ComposeBox {...baseProps({ contextPct: 50 })} />);
-    const meter = screen.getByRole("button", { name: "Agent memory: 50% used" });
-    expect(meter.getAttribute("data-testid")).toBe("memory-gauge");
-    expect(meter.getAttribute("data-pct")).toBe("50");
-    expect(meter.getAttribute("data-band")).toBe("amber");
-    expect(screen.getByTestId("compose-row").contains(meter)).toBe(true);
+  it("Layout: the composer holds no agent memory — no pie, no memory edge (it lives in the task pill)", () => {
+    const { container } = render(<ComposeBox {...baseProps()} />);
+    expect(screen.queryByTestId("memory-gauge")).toBeNull();
+    expect(screen.queryByRole("button", { name: /^Agent memory/ })).toBeNull();
+    expect(container.querySelector(".pv-composebox")!.hasAttribute("data-memory")).toBe(false);
   });
 
   it("Layout: touch devices flag the composer root (data-touch) so CSS sizes touch targets", () => {

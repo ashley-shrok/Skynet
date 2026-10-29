@@ -216,13 +216,6 @@ describe("ComposeBox — skill-actions menu", () => {
     expect((screen.getByLabelText("Send 'thumbs up'") as HTMLButtonElement).disabled).toBe(true);
   });
 
-  it("stays enabled while condensing (nothing is disabled during a condense)", async () => {
-    render(<ComposeBox {...baseProps({ condensing: true })} />);
-    const btn = await findButton();
-    expect(btn.disabled).toBe(false);
-    expect((screen.getByLabelText("Send 'thumbs up'") as HTMLButtonElement).disabled).toBe(false);
-  });
-
   it("disabled while asideActive (the thumbs-up steps away for Resume then)", async () => {
     render(<ComposeBox {...baseProps({ asideActive: true })} />);
     const btn = await findButton();

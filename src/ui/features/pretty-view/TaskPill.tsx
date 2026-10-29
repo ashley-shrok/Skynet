@@ -9,6 +9,8 @@
 //   - drag → the pane handle (drop lane, split rearrange, other windows,
 //     filing into sidebar sections) — desktop only
 //   - hover → tooltip with name, roles, project
+//   - just before the ⋮, the agent memory pie (not on archived agents) — tap
+//     for how full it is and Condense conversation
 //
 // Beside it, outside the pill, round buttons appear only while their
 // condition holds, each a shortcut into the agent window:
@@ -20,7 +22,7 @@
 // not they show, and the pill's width reserves room for both so it never
 // resizes when one appears.
 
-import type { DragEvent as ReactDragEvent } from "react";
+import { useCallback, useEffect, useState, type DragEvent as ReactDragEvent } from "react";
 import { GitPullRequestDraft, Monitor } from "lucide-react";
 import { useIdentities } from "@/state/identities-store";
 import type { Identity } from "@/api/identities-api";
@@ -44,6 +46,8 @@ import {
   type RowKebabMenuItem,
 } from "@/features/pretty-conversations/RowKebabMenu";
 import { isCoarsePointer } from "@/features/pretty-conversations/row-touch-gestures";
+import { MemoryGauge } from "./MemoryGauge";
+import { useAgentCondense } from "./use-agent-condense";
 
 /** Agent-window tabs the round buttons jump to. */
 export type TaskPillJumpTab = "desktop" | "git";
@@ -53,6 +57,8 @@ export interface TaskPillProps {
   hostId: number;
   /** The pane's tmux session — keys the live desktop-running signal. */
   tmuxSession: string | null;
+  /** The machine's name — a failed Condense names it. */
+  hostName?: string;
   /** Pane tab id; absent → not a drag source. */
   tabId?: string;
   dragDescriptor?: BadgeDragSource["descriptor"];
@@ -70,12 +76,17 @@ const SIDE_BUTTON_PX = 40;
 const SIDE_RESERVE_PX = 16 + 8 + SIDE_BUTTON_PX + 8 + SIDE_BUTTON_PX;
 
 // The pill's ⋯ menu takes the kit look, like the sidebar's and pane bars'.
+// Below this much room for the pill, "Condensing…" doesn't fit beside the
+// task: the pie says it by pulsing instead (a phone, a narrow split pane).
+const NARROW_PILL_PX = 280;
+
 const PILL_KIT_SCOPE: KitScopeValue = { hue: 220 };
 
 export function TaskPill({
   identityKey,
   hostId,
   tmuxSession,
+  hostName,
   tabId,
   dragDescriptor,
   menuItems,
@@ -95,6 +106,24 @@ export function TaskPill({
   const contextMenu = useRowKebabContextMenu(menuItems);
   const trappedWork = useTrappedWork(identityKey, hostId);
   const desktopRunning = useSessionDesktopRunning(hostId, tmuxSession);
+  const memory = useAgentCondense(hostId, identityKey, tmuxSession, hostName);
+  // The room the pill may take is the pane's width less the side reserves.
+  const [paneEl, setPaneEl] = useState<HTMLElement | null>(null);
+  const anchorRef = useCallback((el: HTMLDivElement | null) => setPaneEl(el?.parentElement ?? null), []);
+  const [narrow, setNarrow] = useState(false);
+  useEffect(() => {
+    if (!paneEl) return;
+    // 0 = not laid out yet; keep the full word until there's a real width.
+    const measure = () => {
+      const w = paneEl.clientWidth;
+      setNarrow(w > 0 && w - SIDE_RESERVE_PX * 2 < NARROW_PILL_PX);
+    };
+    measure();
+    if (typeof ResizeObserver === "undefined") return;
+    const ro = new ResizeObserver(measure);
+    ro.observe(paneEl);
+    return () => ro.disconnect();
+  }, [paneEl]);
   const projects = useProjects();
 
   if (!identity) return null;
@@ -163,6 +192,7 @@ export function TaskPill({
 
   return (
     <div
+      ref={anchorRef}
       data-testid="pv-task-pill-anchor"
       // inset-x-0 + mx-auto + w-fit centers it while letting it grow up to
       // maxWidth (a left:50% anchor would cap it at half the pane).
@@ -219,6 +249,37 @@ export function TaskPill({
             {label}
           </span>
         </button>
+        {!archivedIdentity && (
+          // The memory pie keeps its own taps: a click (or one inside its
+          // pop-over, which bubbles here through the portal) never opens the
+          // agent window, a hold never opens the pill's menu, and a
+          // press-and-move never drags the pane. Right-click on the pie still
+          // reaches the pill's menu.
+          <span
+            className="pv-pill-mem shrink-0 inline-flex"
+            data-testid="pv-task-pill-memory"
+            draggable
+            onDragStart={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+            }}
+            onClick={(e) => e.stopPropagation()}
+            onTouchStart={(e) => e.stopPropagation()}
+            onContextMenu={(e) => {
+              if (!(e.target instanceof Node) || !e.currentTarget.contains(e.target)) e.stopPropagation();
+            }}
+          >
+            <MemoryGauge
+              pct={memory.pct}
+              condensing={memory.condensing}
+              compact={narrow}
+              condenseDisabled={memory.inFlight}
+              onCondense={() => {
+                void memory.condense();
+              }}
+            />
+          </span>
+        )}
         {menuItems.length > 0 && (
           // Its own (cancelled) drag source so a press-and-move starting on
           // the ⋮ doesn't drag the pane.

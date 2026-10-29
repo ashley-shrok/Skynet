@@ -117,8 +117,6 @@ import type { UserPreferences } from "@/api/open-tabs-api";
 import {
   useSessionIsWorking,
   useSessionIsWorkingRaw,
-  // Backend-authoritative condensing axis — the memory pie's "Condensing…".
-  useSessionIsCondensing,
   useSessionActivityMtime,
 } from "@/state/session-working-store";
 import { useSessionWaitingFor } from "@/state/session-waiting-store";
@@ -136,12 +134,6 @@ import {
 // armed AND the pane is visible. Fire-and-forget; pre-unlock is a silent
 // no-op (D-19). AppShell installs the unlock listeners at mount (D-18).
 import { playTink } from "@/audio/ready-cue";
-// Phase 90 Plan 00 Wave 0 (D-10 delivery mechanism, user 2026-09-08 D-03
-// mechanical waiver): contextPct now lives on fleet-status (single source of
-// truth) rather than in this component's local useState. Both PrettyView and
-// the future Plan 06 relay-pane badge appendage subscribe to the same value
-// via this hook. Zero UX change; zero behavior change end-to-end.
-import { useSessionContextPct } from "@/api/fleet-status-client";
 import { WaitingBubble } from "./WaitingBubble";
 import { usePermissionPrompt } from "./use-permission-prompt";
 // Phase 124 Plan 02 (shape 3 — message thumbs): PrettyView owns the
@@ -719,8 +711,6 @@ function useFleetIdentityHosts(): Record<string, number> {
   );
 }
 
-/** How long the pie says Condensing… on a request alone, before the poll confirms it. */
-const OPTIMISTIC_CONDENSE_MS = 2 * 60 * 1000;
 // How far below its summary a condense's guidance line may sit (on disk it's
 // two lines: the local-command caveat, then the command).
 const CONDENSE_GUIDANCE_MAX_LINES = 6;
@@ -1077,17 +1067,6 @@ export function PrettyView({
   const [status, setStatus] = useState<Status>("connecting");
   const [inactiveReason, setInactiveReason] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
-  // Context-window fill %, sourced from the fleet-status shared map (single
-  // source of truth). Phase 90 Plan 00 Wave 0 (D-10 delivery mechanism,
-  // user 2026-09-08 D-03 mechanical waiver) SWAPPED the previous local
-  // `useState<number | null>(null)` for this hook — same variable name,
-  // same type, same behavior end-to-end. Backend dual-writes on every
-  // `context_pct` emission from claude-session-server, publishes on every
-  // fleet-status frame. The WS `context_pct` handler below at L~2269 is a
-  // no-op (backend still emits for backwards compat during transition;
-  // the frontend no longer consumes the WS variant since fleet-status is
-  // authoritative). null = no reading yet OR backend not yet emitted.
-  const contextPct = useSessionContextPct(hostId, tmuxSession ?? "");
   // Claude Code harness task list (TaskCreate + /queue items). Empty array
   // = confirmed no tasks; the backend polls every 3s and emits on change.
   // The panel above the compose box mounts only when the FILTERED list
@@ -1272,34 +1251,6 @@ export function PrettyView({
   // after the paint-delay expires. Hook stays trivial (Phase 30 SPEC — the
   // hook has zero setTimeouts). Companion state slot below.
   const [showResolvingSpinner, setShowResolvingSpinner] = useState(false);
-  // Condensing: the fleet-status poll only sees a Condense request a few
-  // seconds after it's made, so a successful request flips this local hint
-  // at once. The backend axis takes over when it turns true (effect below);
-  // the hint clears itself after OPTIMISTIC_CONDENSE_MS if it never does.
-  const [optimisticCondensing, setOptimisticCondensing] = useState(false);
-  const optimisticCondensingTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  const onCondenseRequested = useCallback(() => {
-    if (optimisticCondensingTimerRef.current !== null) {
-      clearTimeout(optimisticCondensingTimerRef.current);
-    }
-    setOptimisticCondensing(true);
-    optimisticCondensingTimerRef.current = setTimeout(() => {
-      optimisticCondensingTimerRef.current = null;
-      setOptimisticCondensing(false);
-    }, OPTIMISTIC_CONDENSE_MS);
-  }, []);
-
-  // Cleanup timeout on unmount.
-  useEffect(() => {
-    return () => {
-      if (optimisticCondensingTimerRef.current !== null) {
-        clearTimeout(optimisticCondensingTimerRef.current);
-        optimisticCondensingTimerRef.current = null;
-      }
-    };
-  }, []);
-
   // Phase 124 Plan 02 (shape 3 — message thumbs, D-18/D-23/D-32/D-33/D-34/D-35/D-38):
   // handleThumbsUp / handleThumbsDown are the PrettyView-side handlers wired
   // to ChatMessage's onThumbsUp / onThumbsDown callback props (Plan 01).
@@ -2328,19 +2279,6 @@ export function PrettyView({
     optimisticWipPrevWorkingRef.current = isWorking;
     if (!was && isWorking) clearOptimisticWip("backend-working");
   }, [isWorking, clearOptimisticWip]);
-  // Backend-authoritative condensing signal (working-store), OR the local
-  // hint set when this pane's own request succeeded.
-  const isCondensing = useSessionIsCondensing(sessionWorkingKey);
-  const effectiveCondensing = isCondensing || optimisticCondensing;
-  // Backend takeover: once the poll reports condensing, drop the local hint;
-  // the pie then follows the backend until the compaction lands.
-  useEffect(() => {
-    if (isCondensing && optimisticCondensingTimerRef.current !== null) {
-      clearTimeout(optimisticCondensingTimerRef.current);
-      optimisticCondensingTimerRef.current = null;
-      setOptimisticCondensing(false);
-    }
-  }, [isCondensing]);
 
   // Phase 126 Plan 02 (D-02, D-08, D-09, D-10, D-12) — arm-on-new-assistant-bubble.
   //
@@ -4787,6 +4725,7 @@ export function PrettyView({
           identityKey={pvIdentityKey}
           hostId={hostId}
           tmuxSession={tmuxSession || null}
+          hostName={hostName}
           tabId={tabId}
           identity={archived ? archived.identity : undefined}
           dragDescriptor={{
@@ -5388,7 +5327,6 @@ export function PrettyView({
             // textarea and acks via onOverrideTextConsumed on the same tick.
             overrideText={composeOverrideText}
             onOverrideTextConsumed={handleOverrideTextConsumed}
-            onCondenseRequested={onCondenseRequested}
             // Phase 60 finish-line fix (2026-08-29): Phase 60 widened the
             // ComposeBox MOUNT gate above to include `renderedState === "dormant"`
             // (invisible-wake target) and `renderedState === "active"` (cold-
@@ -5427,10 +5365,6 @@ export function PrettyView({
               renderedState === "active" ||
               renderedState === "inactive"
             }
-            // The memory pie reads "Condensing…" while a condense is under
-            // way; nothing else in the composer is disabled.
-            condensing={effectiveCondensing}
-            identityKey={source.kind === "relay" ? null : pvIdentityKey}
             // Phase 30: reconnectingActive derives from `status === "error"
             // || renderedState === "error"`. status="error" covers the
             // transient reconnect window (WS onclose fired, retry ladder
@@ -5440,7 +5374,6 @@ export function PrettyView({
             // Phase 56 (2026-08-23): dormantActive prop DELETED. Compose stays
             // enabled on dormant panes — send triggers invisible wake at the
             // backend send-path (Plan 56-01) with widened watchdog (Plan 56-02).
-            contextPct={contextPct}
             hostId={hostId}
             tmuxSession={tmuxSession}
             // Phase 97 Finding 6 (D-14) originally case-branched identityName

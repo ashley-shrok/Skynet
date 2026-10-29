@@ -21,10 +21,10 @@
 //     E — WS ladder terminally exhausted → PrettyViewErrorOverlay
 //     F — pane_state:holding then transient WS drop → overlay does NOT
 //         flip to resolving (D-11 don't-flicker)
-//   Test G — condense-request callback assertion (patch #381 anti-pattern
-//     stays DELETED) — lives inside GROUP 1's grep gates rather than as a
+//   Test G — condense-request assertion (patch #381 anti-pattern stays
+//     DELETED) — lives inside GROUP 1's grep gates rather than as a
 //     runtime test, because the assertion is a source-code invariant
-//     (onCondenseRequested's body contains no client-side pane-state
+//     (the task pill's condense hook contains no client-side pane-state
 //     mutation) not a rendered-DOM invariant.
 //
 // Sub-step I / Test H — backend-side round-trip latency approximation
@@ -111,6 +111,7 @@ const HERE = dirname(fileURLToPath(import.meta.url));
 const PV_SRC_PATH = join(HERE, "PrettyView.tsx");
 const HOOK_SRC_PATH = join(HERE, "usePaneResolvingMachine.ts");
 const RESOLVE_SRC_PATH = join(HERE, "resolve-phase.ts");
+const CONDENSE_SRC_PATH = join(HERE, "use-agent-condense.ts");
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Helpers
@@ -151,6 +152,7 @@ describe("Phase 30 — structural-grep gates (PS30-04 + PS30-05 + PS30-06)", () 
   const pvSrc = readFileSync(PV_SRC_PATH, "utf-8");
   const hookSrc = readFileSync(HOOK_SRC_PATH, "utf-8");
   const resolveSrc = readFileSync(RESOLVE_SRC_PATH, "utf-8");
+  const condenseSrc = readFileSync(CONDENSE_SRC_PATH, "utf-8");
 
   it("PrettyView.tsx: zero captureFirstFrame references (code AND comments)", () => {
     expect(pvSrc).not.toMatch(/captureFirstFrame/);
@@ -238,28 +240,24 @@ describe("Phase 30 — structural-grep gates (PS30-04 + PS30-05 + PS30-06)", () 
     // pattern above is the load-bearing invariant.)
   });
 
-  it("Test G: onCondenseRequested contains no client-side pane-state mutation (patch #381 anti-pattern stays DELETED)", () => {
-    // Find the onCondenseRequested useCallback body and assert it contains
-    // no setIsHolding, no captureFirstFrame, no setPaneState — it only
-    // drives the memory pie's optimistic "Condensing…".
-    const anchorIdx = pvSrc.indexOf("const onCondenseRequested = useCallback");
-    expect(anchorIdx).toBeGreaterThan(0);
-    // Body extends until the closing `}, [])` (mount-once useCallback).
-    const bodyEnd = pvSrc.indexOf("}, [])", anchorIdx);
-    expect(bodyEnd).toBeGreaterThan(anchorIdx);
-    const body = pvSrc.slice(anchorIdx, bodyEnd);
-    expect(body).not.toMatch(/setIsHolding\(/);
-    expect(body).not.toMatch(/captureFirstFrame\(/);
-    expect(body).not.toMatch(/setPaneState\(/);
+  it("Test G: a condense request does no client-side pane-state mutation (patch #381 anti-pattern stays DELETED)", () => {
+    // Condense lives in the task pill's hook now; it only drives the pie's
+    // optimistic "Condensing…". PrettyView has no condense callback at all.
+    expect(pvSrc).not.toMatch(/onCondenseRequested/);
+    expect(condenseSrc).toMatch(/\/condense`/);
+    expect(condenseSrc).not.toMatch(/setIsHolding\(/);
+    expect(condenseSrc).not.toMatch(/captureFirstFrame\(/);
+    expect(condenseSrc).not.toMatch(/setPaneState\(/);
   });
 
-  it("PrettyView consumes useSessionIsCondensing from the working-store; the holding overlay and reset/recycling wiring are gone", () => {
+  it("the task pill's condense hook consumes useSessionIsCondensing from the working-store; the holding overlay and reset/recycling wiring are gone", () => {
     // Retired bridges stay retired.
     expect(pvSrc).not.toMatch(/publishSessionRecycling\(/);
     expect(pvSrc).not.toMatch(/from ["']@\/state\/session-recycling-store["']/);
-    // The condensing axis comes from the working-store and feeds the pie.
-    expect(pvSrc).toMatch(/useSessionIsCondensing\(/);
-    expect(pvSrc).toMatch(/condensing=\{effectiveCondensing\}/);
+    // The condensing axis comes from the working-store and feeds the pill's
+    // pie; PrettyView no longer reads it (the composer has no pie).
+    expect(condenseSrc).toMatch(/useSessionIsCondensing\(/);
+    expect(pvSrc).not.toMatch(/useSessionIsCondensing/);
     // No holding overlay, no recycling hook.
     expect(pvSrc).not.toMatch(/<SessionHoldingOverlay/);
     expect(pvSrc).not.toMatch(/from ["']\.\/SessionHoldingOverlay["']/);

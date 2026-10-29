@@ -30,12 +30,7 @@
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { render, act, waitFor, screen, fireEvent } from "@testing-library/react";
-import { autoAnswerKitDialogs, __resetKitDialogsForTests } from "@/components/kit";
-import {
-  publishFleetStatusSessionState,
-  __resetForTest as resetWorkingStore,
-} from "@/state/session-working-store";
+import { render, act, waitFor } from "@testing-library/react";
 
 type WsStub = {
   readyState: number;
@@ -79,9 +74,7 @@ vi.mock("@/api/compose-drafts-api", () => ({
   flushComposeDraftKeepalive: vi.fn(),
 }));
 
-// Condense conversation posts through authApi.post — mock it
-// success-by-default so tests D1/D2/D3 drive the optimistic "Condensing…"
-// via the async success path.
+// No real network for PrettyView's side requests.
 vi.mock("@/main-axios", async (importOriginal) => {
   const orig = (await importOriginal()) as Record<string, unknown>;
   return {
@@ -112,25 +105,6 @@ vi.mock("@/hooks/use-is-touch-device", () => ({
 }));
 
 import { PrettyView } from "./PrettyView";
-
-// Condense conversation lives in the memory gauge's pop-over — tap the
-// gauge, then Condense conversation (synchronous, so it also works under
-// fake timers).
-function clickCondense(container: HTMLElement): void {
-  const gauge = container.querySelector('[data-testid="memory-gauge"]') as HTMLButtonElement | null;
-  expect(gauge).not.toBeNull();
-  act(() => {
-    fireEvent.click(gauge!);
-  });
-  const btn = screen.getByRole("button", { name: "Condense conversation" }) as HTMLButtonElement;
-  act(() => {
-    fireEvent.click(btn);
-  });
-}
-
-function gauge(container: HTMLElement): HTMLElement | null {
-  return container.querySelector('[data-testid="memory-gauge"]');
-}
 
 function sendSessionFrame(ws: WsStub, sessionFile: string): void {
   act(() => {
@@ -395,221 +369,5 @@ describe("PrettyView — session-file rotation detection at fresh-WS attach", ()
 
     await new Promise((r) => setTimeout(r, 20));
     expect(container.querySelectorAll("[data-pv-bubble]").length).toBe(1);
-  });
-});
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Optimistic "Condensing…" on the memory pie (client hint with backend
-// override; the hint pattern came from quick 260905-d79's retired
-// recycling overlay):
-//   D1 — Condense accepted → the pie reads Condensing… immediately, no
-//        wire frame required.
-//   D2 — optimistic hint + backend condensing:true (stays) → backend
-//        condensing:false (clears, proving the optimistic slot was cleared
-//        by the backend-takeover useEffect).
-//   D3 — optimistic hint + NO backend signal → 2-min timer self-clears.
-// ─────────────────────────────────────────────────────────────────────────────
-
-function makeCondensingState(condensing: boolean) {
-  return {
-    hostId: "1",
-    tmuxSession: "s1",
-    sessionId: "test-session",
-    pid: 12345,
-    status: "idle" as const,
-    backgroundTasks: [] as never[],
-    updatedAt: Date.now(),
-    lastMessageAt: null,
-    aiTitle: null,
-    dormant: false,
-    condensing,
-  };
-}
-
-describe("PrettyView — optimistic Condensing… on the memory pie", () => {
-  const originalGetBoundingClientRect =
-    HTMLElement.prototype.getBoundingClientRect;
-  const originalOffsetHeightDescriptor = Object.getOwnPropertyDescriptor(
-    HTMLElement.prototype,
-    "offsetHeight",
-  );
-
-  // Auto-accept the Condense kit confirm in the tests below. The confirm
-  // gate itself is covered by ComposeBox.condense.test.tsx.
-  beforeEach(() => {
-    autoAnswerKitDialogs({ confirm: true });
-  });
-
-  beforeEach(() => {
-    vi.clearAllMocks();
-    wsStubs.length = 0;
-    useSessionIdentityMock.mockReturnValue({
-      identity: null,
-      identityHue: null,
-    });
-    vi.stubGlobal(
-      "ResizeObserver",
-      vi.fn(function () {
-        return { observe: vi.fn(), unobserve: vi.fn(), disconnect: vi.fn() };
-      }),
-    );
-    HTMLElement.prototype.getBoundingClientRect = function (): DOMRect {
-      if (this.hasAttribute && this.hasAttribute("data-pv-bubble")) {
-        return {
-          top: 0,
-          left: 0,
-          right: 1024,
-          bottom: 80,
-          width: 1024,
-          height: 80,
-          x: 0,
-          y: 0,
-          toJSON: () => ({}),
-        } as DOMRect;
-      }
-      return originalGetBoundingClientRect.call(this);
-    };
-    Object.defineProperty(HTMLElement.prototype, "offsetHeight", {
-      configurable: true,
-      get(): number {
-        if (this.hasAttribute && this.hasAttribute("data-pv-bubble")) {
-          return 80;
-        }
-        return 0;
-      },
-    });
-  });
-
-  afterEach(() => {
-    __resetKitDialogsForTests();
-    HTMLElement.prototype.getBoundingClientRect =
-      originalGetBoundingClientRect;
-    if (originalOffsetHeightDescriptor) {
-      Object.defineProperty(
-        HTMLElement.prototype,
-        "offsetHeight",
-        originalOffsetHeightDescriptor,
-      );
-    }
-    act(() => { resetWorkingStore(); });
-    vi.restoreAllMocks();
-    vi.unstubAllGlobals();
-    vi.useRealTimers();
-  });
-
-  it("Test D1: Condense accepted → the pie reads Condensing… without any condensing wire frame", async () => {
-    const { container } = render(
-      <PrettyView
-        hostId={1}
-        tmuxSession="s1"
-        onSend={() => true}
-        isVisible={true}
-      />,
-    );
-    const ws = getCurrentWs();
-    // Open WS and send session frame so the compose box is available.
-    sendSessionFrame(ws, "/tmp/d1.jsonl");
-
-    await waitFor(() => {
-      expect(gauge(container)).not.toBeNull();
-    });
-
-    // Not condensing yet — no wire frame published.
-    expect(gauge(container)!.getAttribute("data-condensing")).toBeNull();
-
-    clickCondense(container);
-
-    // Optimistic slot flipped on request success.
-    await waitFor(() => {
-      expect(gauge(container)!.getAttribute("data-condensing")).toBe("true");
-    });
-    // No overlay of any kind.
-    expect(screen.queryByText(/Session recycling/i)).toBeNull();
-  });
-
-  it("Test D2: backend condensing:true → stays (optimistic cleared early) → backend condensing:false → clears", async () => {
-    const { container } = render(
-      <PrettyView
-        hostId={1}
-        tmuxSession="s1"
-        onSend={() => true}
-        isVisible={true}
-      />,
-    );
-    const ws = getCurrentWs();
-    sendSessionFrame(ws, "/tmp/d2.jsonl");
-
-    await waitFor(() => {
-      expect(gauge(container)).not.toBeNull();
-    });
-
-    clickCondense(container);
-
-    await waitFor(() => {
-      expect(gauge(container)!.getAttribute("data-condensing")).toBe("true");
-    });
-
-    // Backend authoritative frame lands: condensing:true — stays, and the
-    // optimistic slot is cleared (backend takeover useEffect fires).
-    await act(async () => {
-      publishFleetStatusSessionState("1", makeCondensingState(true));
-    });
-    expect(gauge(container)!.getAttribute("data-condensing")).toBe("true");
-
-    // Backend frame: condensing:false — must clear. If the optimistic slot
-    // were still set it would stay, and this fails.
-    await act(async () => {
-      publishFleetStatusSessionState("1", makeCondensingState(false));
-    });
-    await waitFor(() => {
-      expect(gauge(container)!.getAttribute("data-condensing")).toBeNull();
-    });
-  });
-
-  it("Test D3: optimistic Condensing… with no backend signal → 2-min timer self-clears", async () => {
-    // Switch to fake timers for this test only — restored in afterEach via vi.useRealTimers().
-    vi.useFakeTimers();
-
-    const { container } = render(
-      <PrettyView
-        hostId={1}
-        tmuxSession="s1"
-        onSend={() => true}
-        isVisible={true}
-      />,
-    );
-    const ws = getCurrentWs();
-
-    // Open WS and send session frame (synchronous act so React effects flush).
-    act(() => {
-      ws.onopen?.();
-      ws.onmessage?.(
-        new MessageEvent("message", {
-          data: JSON.stringify({ type: "session", pid: 1, sessionFile: "/tmp/d3.jsonl" }),
-        }),
-      );
-    });
-
-    // Advance timers to let any delay-arm effects settle (resolving spinner guard etc.)
-    act(() => { vi.advanceTimersByTime(500); });
-
-    expect(gauge(container)).not.toBeNull();
-
-    // The optimistic slot is set inside the authApi.post .then() once the
-    // confirm and the request resolve — flush microtasks explicitly.
-    clickCondense(container);
-    await act(async () => {
-      for (let k = 0; k < 5; k++) await Promise.resolve();
-    });
-
-    expect(gauge(container)!.getAttribute("data-condensing")).toBe("true");
-
-    // Just short of 2 minutes: still condensing.
-    act(() => { vi.advanceTimersByTime(2 * 60 * 1000 - 1000); });
-    expect(gauge(container)!.getAttribute("data-condensing")).toBe("true");
-
-    // Past 2 minutes: the upper-bound self-clear fired.
-    act(() => { vi.advanceTimersByTime(1001); });
-    expect(gauge(container)!.getAttribute("data-condensing")).toBeNull();
   });
 });

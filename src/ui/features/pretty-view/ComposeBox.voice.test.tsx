@@ -35,8 +35,7 @@ vi.mock("@/api/compose-drafts-api", () => ({
   flushComposeDraftKeepalive: vi.fn(),
 }));
 
-// Condense conversation posts through authApi.post — mock it so voice tests
-// can drive the condense-while-recording flow.
+// No real network from the composer's side requests (skills list etc.).
 vi.mock("@/main-axios", async (importOriginal) => {
   const orig = (await importOriginal()) as Record<string, unknown>;
   return {
@@ -49,7 +48,6 @@ vi.mock("@/main-axios", async (importOriginal) => {
 });
 
 import { ComposeBox } from "./ComposeBox";
-import { authApi } from "@/main-axios";
 
 // ---------------------------------------------------------------------------
 // Test helpers
@@ -154,9 +152,7 @@ beforeEach(() => {
     }),
   );
 
-  // Condense shows a kit confirm (kitConfirm) first. Auto-accept in tests
-  // that click it — the confirm gate itself is covered by
-  // ComposeBox.condense.test.tsx.
+  // Auto-accept any kit confirm a test happens to raise.
   autoAnswerKitDialogs({ confirm: true });
 });
 
@@ -169,13 +165,6 @@ afterEach(() => {
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
-
-// Condense conversation lives in the memory gauge's pop-over. Opens the
-// pop-over and returns the Condense conversation button.
-async function openCondense(): Promise<HTMLButtonElement> {
-  fireEvent.click(screen.getByTestId("memory-gauge"));
-  return (await screen.findByRole("button", { name: "Condense conversation" })) as HTMLButtonElement;
-}
 
 describe("ComposeBox — Phase 16 voice flow", () => {
 
@@ -468,134 +457,6 @@ describe("ComposeBox — Phase 16 voice flow", () => {
     // No animate-spin inside the send button.
     const spinner = sendBtn.querySelector("svg.animate-spin");
     expect(spinner).toBeNull();
-  });
-
-  it("Test 13 (quick 260803-7vf): condense-while-recording glues transcript onto textarea body and sends it as guidance", async () => {
-    // user 2026-08-03 (originally for reset): pressing it while recording
-    // combines the send-while-recording behaviour with the button's own —
-    // one click, one request. After endSend resolves, the condense request
-    // carries guidance = textarea body + " " + transcript.
-    vi.stubGlobal(
-      "fetch",
-      vi.fn().mockResolvedValue({
-        ok: true,
-        status: 200,
-        json: () => Promise.resolve({ text: "and one more thing" }),
-      }),
-    );
-    const onSend = vi.fn(() => true);
-    const onCondenseRequested = vi.fn();
-    render(<ComposeBox {...baseProps({ onSend, onCondenseRequested })} />);
-
-    const textarea = screen.getByPlaceholderText(/message/i) as HTMLTextAreaElement;
-    fireEvent.change(textarea, { target: { value: "hi there" } });
-
-    const micBtn = screen.getByRole("button", { name: "Record voice" });
-    fireEvent.click(micBtn);
-
-    // Wait for recording controls to confirm recording state.
-    await screen.findByRole("button", { name: "Send transcript" });
-
-    // Push a data chunk so the blob is non-empty (mirrors Test 8).
-    act(() => {
-      const recorder = MockMediaRecorder.instances[0];
-      recorder.emitData(new Blob(["audio"], { type: "audio/webm" }));
-    });
-
-    fireEvent.click(await openCondense());
-
-    // onCondenseRequested fires on request SUCCESS (authApi.post resolves
-    // {ok:true}), after endSend resolves. No identityKey prop → the key
-    // falls back to the tmux session.
-    const postMock = authApi.post as ReturnType<typeof vi.fn>;
-    await waitFor(() => {
-      expect(postMock).toHaveBeenCalledWith(
-        "/identities/s1/condense",
-        { hostId: 1, guidance: "hi there and one more thing" },
-      );
-    });
-    // onSend must NOT have been called (condense routes off the funnel).
-    expect(onSend).not.toHaveBeenCalled();
-    await waitFor(() => expect(onCondenseRequested).toHaveBeenCalled());
-
-    // Textarea cleared after successful dispatch.
-    await waitFor(() => {
-      expect(textarea.value).toBe("");
-    });
-  });
-
-  it("Test 14 (quick 260803-7vf): condense-while-recording with STT failure falls back to the existing textarea body as guidance", async () => {
-    // Locked design decision #4: the request ALWAYS goes when the user
-    // pressed the button. STT failure MUST NOT produce a silent no-op —
-    // fall back to the existing textarea body as guidance.
-    vi.stubGlobal(
-      "fetch",
-      vi.fn().mockResolvedValue({
-        ok: false,
-        status: 500,
-        json: () => Promise.resolve({ error: "internal server error" }),
-      }),
-    );
-    const onSend = vi.fn(() => true);
-    const onCondenseRequested = vi.fn();
-    render(<ComposeBox {...baseProps({ onSend, onCondenseRequested })} />);
-
-    const textarea = screen.getByPlaceholderText(/message/i) as HTMLTextAreaElement;
-    fireEvent.change(textarea, { target: { value: "existing body" } });
-
-    const micBtn = screen.getByRole("button", { name: "Record voice" });
-    fireEvent.click(micBtn);
-
-    await screen.findByRole("button", { name: "Send transcript" });
-
-    act(() => {
-      const recorder = MockMediaRecorder.instances[0];
-      recorder.emitData(new Blob(["audio"], { type: "audio/webm" }));
-    });
-
-    fireEvent.click(await openCondense());
-
-    // KEY assertion: the request goes with the EXISTING textarea body as
-    // guidance — NOT a silent no-op.
-    const postMock = authApi.post as ReturnType<typeof vi.fn>;
-    await waitFor(() => {
-      expect(postMock).toHaveBeenCalledWith(
-        "/identities/s1/condense",
-        { hostId: 1, guidance: "existing body" },
-      );
-    });
-    expect(onSend).not.toHaveBeenCalled();
-    await waitFor(() => expect(onCondenseRequested).toHaveBeenCalled());
-  });
-
-  it("Test 15 (quick 260803-7vf): transcribing state disables Condense conversation", async () => {
-    // Locked design decision #5: transcribing gate mirrors the send-button
-    // transcribing-disable pattern to prevent double-fire. Freeze the
-    // transcribing state with a never-resolving fetch (mirrors Test 11).
-    vi.stubGlobal("fetch", vi.fn(() => new Promise(() => {})));
-
-    render(<ComposeBox {...baseProps()} />);
-
-    const micBtn = screen.getByRole("button", { name: "Record voice" });
-    fireEvent.click(micBtn);
-
-    const sendTranscriptBtn = await screen.findByRole("button", { name: "Send transcript" });
-
-    act(() => {
-      const recorder = MockMediaRecorder.instances[0];
-      recorder.emitData(new Blob(["audio"], { type: "audio/webm" }));
-    });
-
-    fireEvent.click(sendTranscriptBtn);
-
-    // With fetch frozen the hook stays in "transcribing" — wait for the
-    // transcribing Send spinner, then Condense conversation must render disabled.
-    await waitFor(() => {
-      const send = screen.getByRole("button", { name: "Send" }) as HTMLButtonElement;
-      expect(send.querySelector("svg.animate-spin")).not.toBeNull();
-    });
-    const btn = await openCondense();
-    expect(btn.disabled).toBe(true);
   });
 
   it("Test 16: Append with empty transcript + empty textarea leaves textarea empty (no lone space)", async () => {
