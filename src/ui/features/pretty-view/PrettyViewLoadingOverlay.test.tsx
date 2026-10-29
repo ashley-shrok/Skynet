@@ -13,5 +13,7 @@ describe("PrettyViewLoadingOverlay", () => {
     const { container } = render(<PrettyViewLoadingOverlay />);
     expect(container.querySelector('[role="status"]')!.classList.contains("pv-status")).toBe(true);
     expect(container.querySelector(".pv-wip-orb")).not.toBeNull();
+    // Not a button, so nothing inside the ring.
+    expect(container.querySelector(".pv-wip-orb")!.childElementCount).toBe(0);
   });
 });

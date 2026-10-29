@@ -8,15 +8,15 @@
 // repaint burned 40–50% idle CPU); retired with the image on 2026-10-28.
 //
 // 2026-10-24 (shape-conversation-view): an orb in the agent's colour — an
-// arc spinning around a breathing core, beside the word "Working"
+// arc spinning around an empty middle, beside the word "Working"
 // (conversation.css .pv-wip*). Only transform / opacity animate, so it costs
-// nothing per frame.
+// nothing per frame. A mark inside the orb means it's a button.
 //
 // 2026-10-28 (shape-stop-on-orb): the orb is the Stop — the compose box has
-// none. While the agent's own turn can be stopped, the core is a still small
-// square and a button lies over the orb. When it can't (only background
-// helpers running, a message still being delivered) there is no button —
-// nothing says "Stop", to the eye or to a screen reader. The button is laid
+// none. While the agent's own turn can be stopped, a still small square sits
+// in the middle and a button lies over the orb. When it can't (only background
+// helpers running, a message still being delivered) there is no button and no
+// square — nothing says "Stop", to the eye or to a screen reader. The button is laid
 // over the orb rather than wrapped around it, so the orb itself never
 // remounts and its spin never restarts. After a press the ring pauses and the
 // line shows the outcome (Stopping → Stopped / Cancelled / …); PrettyView
@@ -167,8 +167,10 @@ export function WipBubble({
               title="Stop"
             />
           )}
+          {/* A mark inside the orb means it's a button: the square shows only
+              while a press would stop something; otherwise the ring is empty. */}
           <span className="pv-wip-orb" role="status" aria-label={label}>
-            <i aria-hidden="true" />
+            {ready && <i aria-hidden="true" />}
           </span>
         </span>
         {feedback ? (

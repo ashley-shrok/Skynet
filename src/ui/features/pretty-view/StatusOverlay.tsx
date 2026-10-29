@@ -67,11 +67,7 @@ export function StatusOverlay({
   );
 }
 
-/** The working orb, sized for the status card. */
+/** The working orb, sized for the status card. Empty: only a pressable orb holds a mark. */
 export function StatusOrb() {
-  return (
-    <span className="pv-wip-orb" aria-hidden="true">
-      <i />
-    </span>
-  );
+  return <span className="pv-wip-orb" aria-hidden="true" />;
 }

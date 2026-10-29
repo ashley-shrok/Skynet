@@ -1720,7 +1720,7 @@ crown, then gear.
   a tap couldn't stop anything — only background sub-agents running (they
   run on through a Stop), a compaction running, or the user's message still
   being delivered — the
-  orb shows its plain breathing dot and does nothing. There is no Stop
+  orb shows an empty ring and does nothing. There is no Stop
   anywhere else; when the app hasn't noticed the agent working, or the
   user has scrolled up, the orb isn't in view. One press does whichever of
   these fits the moment:

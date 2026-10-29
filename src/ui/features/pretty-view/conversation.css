@@ -534,7 +534,8 @@ button.pv-float:focus-visible { outline: 2px solid var(--k-acc); outline-offset:
   animation: pv-wip-spin 1.1s linear infinite;
 }
 .pv-wip-orb::after { content: ""; position: absolute; inset: 0; border-radius: 999px; box-shadow: inset 0 0 0 1.5px hsla(var(--pv-id-hue), 50%, 60%, 0.18); }
-.pv-wip-orb > i { width: 12px; height: 12px; border-radius: 999px; background: hsl(var(--pv-id-hue), 70%, 64%); animation: pv-wip-core 1.6s ease-in-out infinite; }
+/* The Stop square — the orb holds it only while it is the Stop button. */
+.pv-wip-orb > i { width: 9px; height: 9px; border-radius: 1px; background: hsl(var(--pv-id-hue), 70%, 64%); }
 .pv-wip-word { font-size: 13px; font-weight: 500; color: var(--k-t2); }
 /* The orb as Stop (shape-stop-on-orb). The button lies over the orb (so the
    orb never remounts) and reaches a little past it — a comfortable tap target
@@ -554,16 +555,12 @@ button.pv-float:focus-visible { outline: 2px solid var(--k-acc); outline-offset:
 .pv-wip-stop:focus-visible { outline: 2px solid hsl(var(--pv-id-hue), 70%, 64%); outline-offset: 3px; }
 /* Focus lands here after a keyboard press (programmatic only). */
 .pv-wip:focus { outline: none; }
-/* Can stop: a still, small, sharp square in place of the breathing dot. */
-.pv-wip[data-stop="ready"] .pv-wip-orb > i { width: 9px; height: 9px; border-radius: 1px; animation: none; transform: none; opacity: 1; }
 .pv-wip-stop:hover + .pv-wip-orb > i { background: hsl(var(--pv-id-hue), 80%, 74%); }
-/* Pressed: everything holds still while the outcome shows. */
-.pv-wip[data-stop="pressed"] .pv-wip-orb::before,
-.pv-wip[data-stop="pressed"] .pv-wip-orb > i { animation-play-state: paused; }
+/* Pressed: the ring holds still while the outcome shows. */
+.pv-wip[data-stop="pressed"] .pv-wip-orb::before { animation-play-state: paused; }
 @keyframes pv-wip-spin { to { transform: rotate(360deg); } }
-@keyframes pv-wip-core { 0%, 100% { transform: scale(0.7); opacity: 0.7; } 50% { transform: scale(1); opacity: 1; } }
 @media (prefers-reduced-motion: reduce) {
-  .pv-wip-orb::before, .pv-wip-orb > i, .pv-mem[data-band="red"]::after, .pv-mem-pie { animation: none; }
+  .pv-wip-orb::before, .pv-mem[data-band="red"]::after, .pv-mem-pie { animation: none; }
 }
 
 /* Load older messages: a small pill like the other floating controls. */
@@ -631,7 +628,6 @@ button.pv-float:focus-visible { outline: 2px solid var(--k-acc); outline-offset:
   -webkit-mask: radial-gradient(circle, transparent 7.5px, #000 8px);
   mask: radial-gradient(circle, transparent 7.5px, #000 8px);
 }
-.pv-status .pv-wip-orb > i { width: 9px; height: 9px; }
 /* Drop files: a dashed outline around the whole conversation. */
 .pv-status-drop {
   position: absolute;

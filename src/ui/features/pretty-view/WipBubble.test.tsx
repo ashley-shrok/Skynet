@@ -27,11 +27,14 @@ describe("WipBubble", () => {
       expect(screen.queryByLabelText("Stop")).toBeNull();
     };
     const state = () => screen.getByTestId("pv-wip").getAttribute("data-stop");
+    // A mark inside the orb means it's a button.
+    const mark = () => screen.getByTestId("pv-wip").querySelector(".pv-wip-orb > i");
 
     it("without a stop it is a plain orb — no button", () => {
       render(<WipBubble />);
       noStop();
       expect(state()).toBe("working");
+      expect(mark()).toBeNull();
     });
 
     it("can stop: a button named Stop, square look, a press calls onStop", () => {
@@ -42,6 +45,7 @@ describe("WipBubble", () => {
       // Laid over the orb, outside the "working" live region.
       expect(btn().closest('[role="status"]')).toBeNull();
       expect(state()).toBe("ready");
+      expect(mark()).not.toBeNull();
       fireEvent.click(btn());
       expect(s.onStop).toHaveBeenCalledTimes(1);
     });
@@ -51,6 +55,7 @@ describe("WipBubble", () => {
       render(<WipBubble stop={s} />);
       noStop();
       expect(state()).toBe("working");
+      expect(mark()).toBeNull();
       fireEvent.click(screen.getByTestId("pv-wip").querySelector(".pv-wip-orb")!);
       expect(s.onStop).not.toHaveBeenCalled();
     });
@@ -66,6 +71,7 @@ describe("WipBubble", () => {
       render(<WipBubble narration={{ short: "x", long: "y" }} stop={s} />);
       expect(state()).toBe("pressed");
       noStop();
+      expect(mark()).toBeNull();
       expect(screen.getByTestId("interrupt-feedback").textContent).toBe(label);
       expect(screen.queryByTestId("wip-narration")).toBeNull();
       // Announced through the live region mounted with the button.
