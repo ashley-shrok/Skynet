@@ -322,7 +322,7 @@ describe("GET /users/list-basic", () => {
       {
         id: "u-user",
         username: "user",
-        mxid: "@ashley:server",
+        mxid: "@alex:server",
         isAdmin: true,
         isOidc: true,
         passwordHash: "hash-user",

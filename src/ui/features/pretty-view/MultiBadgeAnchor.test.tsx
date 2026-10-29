@@ -101,7 +101,7 @@ vi.mock("@/main-axios", async (importOriginal) => {
 
 import { MultiBadgeAnchor } from "./MultiBadgeAnchor";
 
-const ASHLEY_MXID = "@ashley:matrix.example.com";
+const ALEX_MXID = "@alex:matrix.example.com";
 const ZOE_MXID = "@zoe:matrix.example.com";
 const ADA_MXID = "@ada:matrix.example.com";
 const NELLY_MXID = "@nelly:matrix.example.com";
@@ -109,7 +109,7 @@ const NELLY_MXID = "@nelly:matrix.example.com";
 function makeHumans(): HumanParticipant[] {
   return [
     { mxid: ZOE_MXID, displayName: "Zoe", userId: "2" },
-    { mxid: ASHLEY_MXID, displayName: "user", userId: "1" },
+    { mxid: ALEX_MXID, displayName: "user", userId: "1" },
   ];
 }
 
@@ -173,7 +173,7 @@ describe("MultiBadgeAnchor (Phase 93 Slice 2 Task 2)", () => {
           humans: makeHumans(),
           agents: [],
         }}
-        viewingUserMxid={ASHLEY_MXID}
+        viewingUserMxid={ALEX_MXID}
         fleetIdentityHosts={DEFAULT_FLEET_HOSTS}
         isReady={true}
       />,
@@ -193,7 +193,7 @@ describe("MultiBadgeAnchor (Phase 93 Slice 2 Task 2)", () => {
           humans: [{ mxid: ZOE_MXID, displayName: "Zoe", userId: "2" }],
           agents: [{ mxid: NELLY_MXID, identityKey: "nelly" }],
         }}
-        viewingUserMxid={ASHLEY_MXID}
+        viewingUserMxid={ALEX_MXID}
         fleetIdentityHosts={DEFAULT_FLEET_HOSTS}
         isReady={true}
       />,
@@ -217,7 +217,7 @@ describe("MultiBadgeAnchor (Phase 93 Slice 2 Task 2)", () => {
           humans: [{ mxid: ZOE_MXID, displayName: "Zoe", userId: "2" }],
           agents: [{ mxid: NELLY_MXID, identityKey: "nelly" }],
         }}
-        viewingUserMxid={ASHLEY_MXID}
+        viewingUserMxid={ALEX_MXID}
         fleetIdentityHosts={DEFAULT_FLEET_HOSTS}
         isReady={true}
       />,
@@ -240,7 +240,7 @@ describe("MultiBadgeAnchor (Phase 93 Slice 2 Task 2)", () => {
     const { container } = render(
       <MultiBadgeAnchor
         participants={{ humans: makeHumans(), agents: [] }}
-        viewingUserMxid={ASHLEY_MXID}
+        viewingUserMxid={ALEX_MXID}
         fleetIdentityHosts={DEFAULT_FLEET_HOSTS}
         isReady={true}
       />,
@@ -261,7 +261,7 @@ describe("MultiBadgeAnchor (Phase 93 Slice 2 Task 2)", () => {
     const { container } = render(
       <MultiBadgeAnchor
         participants={{ humans: makeHumans(), agents: [] }}
-        viewingUserMxid={ASHLEY_MXID}
+        viewingUserMxid={ALEX_MXID}
         fleetIdentityHosts={DEFAULT_FLEET_HOSTS}
         isReady={true}
       />,
@@ -282,7 +282,7 @@ describe("MultiBadgeAnchor (Phase 93 Slice 2 Task 2)", () => {
           humans: [],
           agents: [{ mxid: NELLY_MXID, identityKey: "nelly" }],
         }}
-        viewingUserMxid={ASHLEY_MXID}
+        viewingUserMxid={ALEX_MXID}
         // Empty map — agent has no host mapping.
         fleetIdentityHosts={{}}
         isReady={true}
@@ -308,7 +308,7 @@ describe("MultiBadgeAnchor (Phase 93 Slice 2 Task 2)", () => {
     const { container } = render(
       <MultiBadgeAnchor
         participants={{ humans: [], agents: [] }}
-        viewingUserMxid={ASHLEY_MXID}
+        viewingUserMxid={ALEX_MXID}
         fleetIdentityHosts={{}}
         isReady={false}
       />,
@@ -334,10 +334,10 @@ describe("MultiBadgeAnchor (Phase 93 Slice 2 Task 2)", () => {
     const { container } = render(
       <MultiBadgeAnchor
         participants={{
-          humans: [{ mxid: ASHLEY_MXID, displayName: "user", userId: "1" }],
+          humans: [{ mxid: ALEX_MXID, displayName: "user", userId: "1" }],
           agents: [],
         }}
-        viewingUserMxid={ASHLEY_MXID}
+        viewingUserMxid={ALEX_MXID}
         fleetIdentityHosts={{}}
         isReady={true}
       />,
@@ -364,7 +364,7 @@ describe("MultiBadgeAnchor (Phase 93 Slice 2 Task 2)", () => {
           humans: [{ mxid: ZOE_MXID, displayName: "Zoe", userId: "2" }],
           agents: [{ mxid: NELLY_MXID, identityKey: "nelly" }],
         }}
-        viewingUserMxid={ASHLEY_MXID}
+        viewingUserMxid={ALEX_MXID}
         fleetIdentityHosts={DEFAULT_FLEET_HOSTS}
         isReady={true}
       />,

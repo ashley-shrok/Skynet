@@ -5,7 +5,7 @@ import type { Identity } from "@/api/identities-api";
 const byKey = new Map<string, Identity>([
   ["bilbo", { identityKey: "bilbo", displayName: "Bilbo", colorHue: 40, avatarUrl: "" } as unknown as Identity],
 ]);
-const viewer = "@ashley:t1000.example";
+const viewer = "@alex:t1000.example";
 const FINCH = { name: "Finch", key: "finch" };
 
 describe("search passage labels read like the conversation's", () => {

@@ -91,7 +91,7 @@ describe("classifyParticipants (module boundary)", () => {
   });
 
   it("Test C3: table-lookup wins over `_human` suffix — pre-Phase-88 human with suffix-less mxid classifies as human", async () => {
-    const suffixless = "@ashley:server";
+    const suffixless = "@alex:server";
     const deps = makeDeps(
       new Map([[suffixless, { displayName: "user", userId: "u-ash" }]]),
     );

@@ -34,7 +34,7 @@ function makeParticipant(overrides: Partial<PickedParticipant> = {}): PickedPart
 }
 
 // 3 humans + 3 agents shared across tests
-const HUMAN_A = makeParticipant({ mxid: "@ashley:s", displayName: "user", role: "human", userId: "u-user" });
+const HUMAN_A = makeParticipant({ mxid: "@alex:s", displayName: "user", role: "human", userId: "u-user" });
 const HUMAN_B = makeParticipant({ mxid: "@bob:s", displayName: "Bob", role: "human", userId: "u-bob" });
 const HUMAN_C = makeParticipant({ mxid: "@carol:s", displayName: "Carol", role: "human", userId: "u-carol" });
 

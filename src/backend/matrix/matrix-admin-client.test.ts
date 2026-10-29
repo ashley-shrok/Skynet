@@ -1115,7 +1115,7 @@ describe("getRoomMessages (Phase 90 Plan 03 Task 1)", () => {
     const ev1 = {
       event_id: "$ev1:server",
       type: "m.room.message",
-      sender: "@ashley:server",
+      sender: "@alex:server",
       origin_server_ts: 1725840000000,
       content: { msgtype: "m.text", body: "hello" },
     };
@@ -1714,8 +1714,8 @@ describe("sendMessageAsUser (Phase 90 Plan 03 Task 2)", () => {
         mockFetchResponse(200, { event_id: "$e-2:s" }),
       );
     vi.stubGlobal("fetch", fetchMock);
-    await sendMessageAsUser("@ashley:s", "!r:s", "hi 1", "mqid-1");
-    await sendMessageAsUser("@ashley:s", "!r:s", "hi 2", "mqid-2");
+    await sendMessageAsUser("@alex:s", "!r:s", "hi 1", "mqid-1");
+    await sendMessageAsUser("@alex:s", "!r:s", "hi 2", "mqid-2");
     expect(fetchMock).toHaveBeenCalledTimes(3);
     // Call 0 is POST /_synapse/admin/v1/users/.../login
     expect((fetchMock.mock.calls[0][1] as RequestInit).method).toBe("POST");
@@ -1923,16 +1923,16 @@ describe("inviteToRoom", () => {
     fetchMock.mockImplementationOnce(async () => mockFetchResponse(200, {}));
     vi.stubGlobal("fetch", fetchMock);
 
-    const result = await inviteToRoom("!room:s", "@bob:s", "@ashley:s");
+    const result = await inviteToRoom("!room:s", "@bob:s", "@alex:s");
     expect(result.ok).toBe(true);
 
     // The invite call (second) should carry userTok, not admin token
     const inviteInit = fetchMock.mock.calls[1][1] as RequestInit;
     expect((inviteInit.headers as Record<string, string>)["Authorization"]).toBe("Bearer userTok");
 
-    // loginAsUser was called with '@ashley:s'
+    // loginAsUser was called with '@alex:s'
     const loginUrl = fetchMock.mock.calls[0][0] as string;
-    expect(loginUrl).toContain(encodeURIComponent("@ashley:s"));
+    expect(loginUrl).toContain(encodeURIComponent("@alex:s"));
     // The one-call token expires (deactivating the user can't revoke admin-owned tokens).
     const loginBody = JSON.parse(fetchMock.mock.calls[0][1].body as string) as { valid_until_ms?: number };
     expect(loginBody.valid_until_ms).toBeGreaterThan(Date.now());
@@ -1971,7 +1971,7 @@ describe("inviteToRoom", () => {
     );
     vi.stubGlobal("fetch", fetchMock);
 
-    const result = await inviteToRoom("!room:s", "@bob:s", "@ashley:s");
+    const result = await inviteToRoom("!room:s", "@bob:s", "@alex:s");
     expect(result.ok).toBe(false);
     // Only the loginAsUser fetch should fire — no invite fetch
     expect(fetchMock).toHaveBeenCalledTimes(1);
@@ -2018,7 +2018,7 @@ describe("createRoomAsUser", () => {
     );
     vi.stubGlobal("fetch", fetchMock);
 
-    const result = await createRoomAsUser("@ashley:s", {
+    const result = await createRoomAsUser("@alex:s", {
       name: "Chat",
       preset: "private_chat",
       visibility: "private",
@@ -2051,7 +2051,7 @@ describe("createRoomAsUser", () => {
     );
     vi.stubGlobal("fetch", fetchMock);
 
-    const result = await createRoomAsUser("@ashley:s", { name: "Chat" });
+    const result = await createRoomAsUser("@alex:s", { name: "Chat" });
     expect(result.ok).toBe(false);
     expect(fetchMock).toHaveBeenCalledTimes(1);
     if (!result.ok) {
@@ -2069,7 +2069,7 @@ describe("createRoomAsUser", () => {
     );
     vi.stubGlobal("fetch", fetchMock);
 
-    const result = await createRoomAsUser("@ashley:s", { name: "Chat" });
+    const result = await createRoomAsUser("@alex:s", { name: "Chat" });
     expect(result.ok).toBe(false);
     if (!result.ok) {
       expect(result.status).toBe(400);
@@ -2090,7 +2090,7 @@ describe("createRoomAsUser", () => {
     });
     vi.stubGlobal("fetch", fetchMock);
 
-    const result = await createRoomAsUser("@ashley:s", { name: "Chat" });
+    const result = await createRoomAsUser("@alex:s", { name: "Chat" });
     expect(result.ok).toBe(false);
     if (!result.ok) {
       expect(result.status).toBe(504);
@@ -2110,7 +2110,7 @@ describe("createRoomAsUser", () => {
     );
     vi.stubGlobal("fetch", fetchMock);
 
-    const result = await createRoomAsUser("@ashley:s", { name: "Chat" });
+    const result = await createRoomAsUser("@alex:s", { name: "Chat" });
     expect(result.ok).toBe(false);
     if (!result.ok) {
       expect(result.status).toBe(502);

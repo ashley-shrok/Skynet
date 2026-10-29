@@ -73,7 +73,7 @@ function makeDeps(overrides: Partial<ObservationTickDeps> = {}): ObservationTick
 }
 
 const USER_A = "user-a-id";
-const USER_A_MXID = "@ashley:server";
+const USER_A_MXID = "@alex:server";
 const USER_B = "user-b-id";
 const USER_B_MXID = "@bob:server";
 

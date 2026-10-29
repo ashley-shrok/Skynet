@@ -68,14 +68,14 @@ describe("viewing-user-store (Phase 90 Plan 05 Task 1 — W#8)", () => {
         is_oidc: false,
         totp_enabled: false,
         data_unlocked: true,
-        mxid: "@ashley:matrix.example.com",
+        mxid: "@alex:matrix.example.com",
       });
       // Flush the .then() microtask so the store publishes.
       await pending;
     });
 
     await waitFor(() => {
-      expect(result.current).toBe("@ashley:matrix.example.com");
+      expect(result.current).toBe("@alex:matrix.example.com");
     });
   });
 
@@ -116,12 +116,12 @@ describe("viewing-user-store (Phase 90 Plan 05 Task 1 — W#8)", () => {
       is_oidc: false,
       totp_enabled: false,
       data_unlocked: true,
-      mxid: "@ashley:matrix.example.com",
+      mxid: "@alex:matrix.example.com",
     });
 
     const { result: r1 } = renderHook(() => useViewingUserMxid());
     await waitFor(() => {
-      expect(r1.current).toBe("@ashley:matrix.example.com");
+      expect(r1.current).toBe("@alex:matrix.example.com");
     });
 
     // Mount three additional consumers.
@@ -129,9 +129,9 @@ describe("viewing-user-store (Phase 90 Plan 05 Task 1 — W#8)", () => {
     const { result: r3 } = renderHook(() => useViewingUserMxid());
     const { result: r4 } = renderHook(() => useViewingUserMxid());
 
-    expect(r2.current).toBe("@ashley:matrix.example.com");
-    expect(r3.current).toBe("@ashley:matrix.example.com");
-    expect(r4.current).toBe("@ashley:matrix.example.com");
+    expect(r2.current).toBe("@alex:matrix.example.com");
+    expect(r3.current).toBe("@alex:matrix.example.com");
+    expect(r4.current).toBe("@alex:matrix.example.com");
 
     // getUserInfo was called exactly once across all four mounts.
     expect(mockedGetUserInfo).toHaveBeenCalledTimes(1);
@@ -164,13 +164,13 @@ describe("viewing-user-store (Phase 90 Plan 05 Task 1 — W#8)", () => {
         is_oidc: false,
         totp_enabled: false,
         data_unlocked: true,
-        mxid: "@ashley:matrix.example.com",
+        mxid: "@alex:matrix.example.com",
       });
       await pending;
     });
 
     await waitFor(() => {
-      expect(result.current).toBe("@ashley:matrix.example.com");
+      expect(result.current).toBe("@alex:matrix.example.com");
     });
 
     // At least one additional render occurred after the store publish
@@ -212,7 +212,7 @@ describe("viewing-user-store (Phase 90 Plan 05 Task 1 — W#8)", () => {
       is_oidc: false,
       totp_enabled: false,
       data_unlocked: true,
-      mxid: "@ashley:matrix.example.com",
+      mxid: "@alex:matrix.example.com",
     });
     const { result } = renderHook(() => useViewingUserId());
     await waitFor(() => {
@@ -228,13 +228,13 @@ describe("viewing-user-store (Phase 90 Plan 05 Task 1 — W#8)", () => {
       is_oidc: false,
       totp_enabled: false,
       data_unlocked: true,
-      mxid: "@ashley:matrix.example.com",
+      mxid: "@alex:matrix.example.com",
     });
     const { result: rId } = renderHook(() => useViewingUserId());
     const { result: rMxid } = renderHook(() => useViewingUserMxid());
     await waitFor(() => {
       expect(rId.current).toBe("user-uuid-99");
-      expect(rMxid.current).toBe("@ashley:matrix.example.com");
+      expect(rMxid.current).toBe("@alex:matrix.example.com");
     });
     // Both hooks resolved from a single fetch.
     expect(mockedGetUserInfo).toHaveBeenCalledTimes(1);
@@ -259,7 +259,7 @@ describe("viewing-user-store (Phase 90 Plan 05 Task 1 — W#8)", () => {
       is_oidc: false,
       totp_enabled: false,
       data_unlocked: true,
-      mxid: "@ashley:matrix.example.com",
+      mxid: "@alex:matrix.example.com",
     });
     const { result } = renderHook(() => useViewingUserId());
     await waitFor(() => {

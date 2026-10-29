@@ -36,7 +36,7 @@ beforeAll(() => {
     agentText("Cheese it is — say \"cheese\""),
     line({ type: "queue-operation", operation: "enqueue", content: "more cheese please" }),
     line({ type: "attachment", attachment: { type: "queued_command", prompt: "cheese again" } }),
-    line({ type: "assistant", message: { role: "assistant", content: [{ type: "tool_use", name: "mcp__relay__send", input: { to: "@ashley:x", body: "cheese ready" } }] } }),
+    line({ type: "assistant", message: { role: "assistant", content: [{ type: "tool_use", name: "mcp__relay__send", input: { to: "@alex:x", body: "cheese ready" } }] } }),
   ];
   writeFileSync(file, lines.join("\n") + "\n");
 });

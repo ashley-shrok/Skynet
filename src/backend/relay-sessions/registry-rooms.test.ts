@@ -490,13 +490,13 @@ describe("joinHumanToHumansRegistry", () => {
       .run(SETTINGS_KEY_HUMANS_REGISTRY, "!humans:server");
     joinRoomSpy.mockResolvedValueOnce({ ok: true, roomId: "!humans:server" });
 
-    const result = await joinHumanToHumansRegistry("@ashley:server");
+    const result = await joinHumanToHumansRegistry("@alex:server");
     expect(result).toEqual({ ok: true, roomId: "!humans:server" });
-    expect(joinRoomSpy).toHaveBeenCalledWith("!humans:server", "@ashley:server");
+    expect(joinRoomSpy).toHaveBeenCalledWith("!humans:server", "@alex:server");
   });
 
   it("Test 7b: settings row absent → { ok:false, status:500, error:'registry_room_not_configured' }, joinRoom NEVER called", async () => {
-    const result = await joinHumanToHumansRegistry("@ashley:server");
+    const result = await joinHumanToHumansRegistry("@alex:server");
     expect(result).toEqual({
       ok: false,
       status: 500,

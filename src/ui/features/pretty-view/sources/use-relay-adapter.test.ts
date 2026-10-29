@@ -98,7 +98,7 @@ class MockWebSocketCtor {
 
 // Mock the viewing-user-store so the hook resolves the viewer mxid + id
 // without hitting the real store.
-const VIEWING_MXID = "@ashley:matrix.example.com";
+const VIEWING_MXID = "@alex:matrix.example.com";
 vi.mock("@/state/viewing-user-store", () => ({
   useViewingUserMxid: () => VIEWING_MXID,
   useViewingUserId: () => "user-42",

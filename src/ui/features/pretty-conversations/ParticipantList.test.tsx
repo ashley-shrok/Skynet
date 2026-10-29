@@ -19,7 +19,7 @@ function makeHuman(
   overrides: Partial<PickedParticipant> = {},
 ): PickedParticipant {
   return {
-    mxid: "@ashley:s",
+    mxid: "@alex:s",
     displayName: "user",
     colorHue: 200,
     avatarUrl: null,

@@ -154,7 +154,7 @@ beforeEach(() => {
   // Reset the default all() to a two-user happy set — individual tests
   // override.
   allMock.mockReturnValue([
-    { userId: "u1", userMxid: "@ashley:server" },
+    { userId: "u1", userMxid: "@alex:server" },
     { userId: "u2", userMxid: "@bob:server" },
   ]);
 });
@@ -183,7 +183,7 @@ describe("startPushTriggerLoopOnBoot", () => {
     // The users passed to loop.start match the DB query result.
     const startArgs = loopStartMock.mock.calls[0][0];
     expect(startArgs).toEqual([
-      { userId: "u1", userMxid: "@ashley:server" },
+      { userId: "u1", userMxid: "@alex:server" },
       { userId: "u2", userMxid: "@bob:server" },
     ]);
   });

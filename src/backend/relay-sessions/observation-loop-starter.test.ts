@@ -122,7 +122,7 @@ beforeEach(() => {
     humansRoomId: "!humans:s",
   });
   mockPreparedAll.mockReturnValue([
-    { userId: "user-a", userMxid: "@ashley:s" },
+    { userId: "user-a", userMxid: "@alex:s" },
     { userId: "user-b", userMxid: "@bob:s" },
   ]);
 });
@@ -139,7 +139,7 @@ describe("startObservationLoopOnBoot", () => {
     expect(mockCreateObservationLoop).toHaveBeenCalledTimes(1);
     expect(mockLoopStart).toHaveBeenCalledTimes(1);
     expect(mockLoopStart).toHaveBeenCalledWith([
-      { userId: "user-a", userMxid: "@ashley:s" },
+      { userId: "user-a", userMxid: "@alex:s" },
       { userId: "user-b", userMxid: "@bob:s" },
     ]);
 

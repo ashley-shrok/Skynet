@@ -128,7 +128,7 @@ vi.mock("@/api/relay-room-create-api", () => ({
 // serverName extraction in NewConversationModal. user is excluded from picker.
 
 vi.mock("@/state/viewing-user-store", () => ({
-  useViewingUserMxid: vi.fn(() => "@ashley:s"),
+  useViewingUserMxid: vi.fn(() => "@alex:s"),
   useViewingUserId: vi.fn(() => "u-user"),
 }));
 
@@ -334,7 +334,7 @@ beforeEach(() => {
   });
 
   // Re-arm default viewing-user (user, so she's excluded from picker).
-  vi.mocked(useViewingUserMxid).mockReturnValue("@ashley:s");
+  vi.mocked(useViewingUserMxid).mockReturnValue("@alex:s");
 
   // Reset identities to default (Nelly only).
   mockIdentities = [
@@ -517,8 +517,8 @@ describe("NewConversationModal — full user flow", () => {
   // Test 6 — self-exclude: user (viewing user) not shown in Humans section
   // ──────────────────────────────────────────────────────────────────────────
 
-  it("Test 6 (self-exclude): viewingUserMxid=@ashley:s → user absent from Humans picker; only Bob visible", async () => {
-    // useViewingUserMxid returns @ashley:s (default mock).
+  it("Test 6 (self-exclude): viewingUserMxid=@alex:s → user absent from Humans picker; only Bob visible", async () => {
+    // useViewingUserMxid returns @alex:s (default mock).
     // H1 fix: getUsersListBasic mock returns only [bob] — server already
     // self-excludes user (ne(users.id, userId) in user-admin-routes.ts:126).
     // useNewConversationForm also applies client-side self-exclusion, which is

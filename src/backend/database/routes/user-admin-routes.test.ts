@@ -399,7 +399,7 @@ describe("POST /users/:id/mxid — Phase 75 Plan 03 (MXA-04)", () => {
   // -------------------------------------------------------------------------
   it("Test 5: request without x-test-user-id → 401 (mocked middleware)", async () => {
     const res = await httpPost(server, "/users/target-1/mxid", {
-      mxid: "@ashley:host.example",
+      mxid: "@alex:host.example",
     });
     expect(res.status).toBe(401);
     expect(dbState.users.find((u) => u.id === "target-1")?.mxid).toBeNull();
@@ -412,7 +412,7 @@ describe("POST /users/:id/mxid — Phase 75 Plan 03 (MXA-04)", () => {
     const res = await httpPost(
       server,
       "/users/target-1/mxid",
-      { mxid: "@ashley:host.example" },
+      { mxid: "@alex:host.example" },
       { "x-test-user-id": "user-1" }, // regularuser, isAdmin=false
     );
     expect(res.status).toBe(403);
@@ -428,7 +428,7 @@ describe("POST /users/:id/mxid — Phase 75 Plan 03 (MXA-04)", () => {
     const res = await httpPost(
       server,
       "/users/does-not-exist/mxid",
-      { mxid: "@ashley:host.example" },
+      { mxid: "@alex:host.example" },
       { "x-test-user-id": "admin-1" },
     );
     expect(res.status).toBe(404);
@@ -443,7 +443,7 @@ describe("POST /users/:id/mxid — Phase 75 Plan 03 (MXA-04)", () => {
     const res = await httpPost(
       server,
       "/users/target-1/mxid",
-      { mxid: "@ashley:host.example" },
+      { mxid: "@alex:host.example" },
       { "x-test-user-id": "admin-1" },
     );
     expect(res.status).toBe(200);
@@ -451,7 +451,7 @@ describe("POST /users/:id/mxid — Phase 75 Plan 03 (MXA-04)", () => {
 
     // DB row now has the new mxid
     expect(dbState.users.find((u) => u.id === "target-1")?.mxid).toBe(
-      "@ashley:host.example",
+      "@alex:host.example",
     );
 
     // saveMemoryDatabaseToFile called exactly once
@@ -466,7 +466,7 @@ describe("POST /users/:id/mxid — Phase 75 Plan 03 (MXA-04)", () => {
       adminId: "admin-1",
       targetUserId: "target-1",
       previousMxid: null,
-      mxid: "@ashley:host.example",
+      mxid: "@alex:host.example",
     });
     // No error path taken
     expect(authLoggerMock.error).not.toHaveBeenCalled();
@@ -483,7 +483,7 @@ describe("POST /users/:id/mxid — Phase 75 Plan 03 (MXA-04)", () => {
     const res = await httpPost(
       server,
       "/users/target-1/mxid",
-      { mxid: "@ashley:host.example" },
+      { mxid: "@alex:host.example" },
       { "x-test-user-id": "admin-1" },
     );
     // Still 200 — the persist failure is non-fatal per the host-autostart
@@ -494,7 +494,7 @@ describe("POST /users/:id/mxid — Phase 75 Plan 03 (MXA-04)", () => {
 
     // Row was updated in RAM even though disk write failed
     expect(dbState.users.find((u) => u.id === "target-1")?.mxid).toBe(
-      "@ashley:host.example",
+      "@alex:host.example",
     );
 
     // authLogger.error called with operation:"mxid_save_failed"
