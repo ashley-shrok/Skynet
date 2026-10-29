@@ -11,13 +11,11 @@
  *     pane_state whose `state` is NOT "error", when statusRef is currently
  *     "error".
  *
- *   Fix 2 — wire_boot frame clears the messages array. Backend's per-WS
- *     `lineNum` counter starts at 0 on every fresh WS closure (container
- *     restart, transient WS drop). Retaining pre-attach messages traps
- *     post-attach frames below them under the insertion-sort-by-line +
- *     20-cap-drop policy. `wire_boot` is emitted at ws.open before any
- *     tail machinery — the fix calls setMessages([]) so post-attach
- *     frames sort into a clean line-counter space.
+ *   Fix 2 — a wire_boot (fresh WS closure: container restart, transient
+ *     WS drop, hidden-pane re-show) rebuilds the messages array from the
+ *     fresh replay so post-attach frames sort into a clean line space. The
+ *     bubbles already on screen stay until the replay's history_ready; the
+ *     clear and the fresh batch land in the same render.
  *
  * Infrastructure copied verbatim from PrettyView.session-rotation.test.tsx
  * per PATTERNS.md § infrastructure verbatim reuse.
@@ -287,8 +285,8 @@ describe("PrettyView — reconnect recovery regression (commit 4a28b005)", () =>
   // FIX 2 — wire_boot frame clears the messages array
   // ---------------------------------------------------------------
 
-  it("Fix 2: wire_boot frame clears any previously-rendered messages", async () => {
-    const { container } = render(
+  const renderWithThreeBubbles = async () => {
+    const view = render(
       <PrettyView
         hostId={1}
         tmuxSession="s1"
@@ -299,8 +297,6 @@ describe("PrettyView — reconnect recovery regression (commit 4a28b005)", () =>
     const ws = getCurrentWs();
     fireWsOpen(ws);
     sendFrame(ws, { type: "session", pid: 1, sessionFile: "/tmp/a.jsonl" });
-
-    // Deliver three assistant messages so we have visible bubbles.
     for (let i = 0; i < 3; i++) {
       sendFrame(ws, {
         type: "message",
@@ -311,17 +307,56 @@ describe("PrettyView — reconnect recovery regression (commit 4a28b005)", () =>
         line: 100 + i,
       });
     }
-
     await waitFor(() => {
-      expect(container.querySelectorAll("[data-pv-bubble]").length).toBe(3);
+      expect(view.container.querySelectorAll("[data-pv-bubble]").length).toBe(3);
     });
+    return { ...view, ws };
+  };
 
-    // Fire wire_boot — client MUST setMessages([]).
+  it("Fix 2: wire_boot keeps the bubbles on screen until the fresh batch is ready", async () => {
+    const { container, ws } = await renderWithThreeBubbles();
+
     sendFrame(ws, { type: "wire_boot" });
-
-    await waitFor(() => {
-      expect(container.querySelectorAll("[data-pv-bubble]").length).toBe(0);
+    // The replay re-sends one of the same messages plus a new one; neither
+    // shows until history_ready, and the old bubbles stay meanwhile.
+    sendFrame(ws, {
+      type: "message",
+      role: "assistant",
+      content: "pre-boot-2",
+      eventId: "e-2",
+      ts: Date.now() + 2,
+      line: 102,
     });
+    sendFrame(ws, {
+      type: "message",
+      role: "assistant",
+      content: "new-after-boot",
+      eventId: "e-3",
+      ts: Date.now() + 3,
+      line: 103,
+    });
+    await new Promise((r) => setTimeout(r, 50));
+    expect(container.querySelectorAll("[data-pv-bubble]").length).toBe(3);
+    expect(container.textContent).toContain("pre-boot-0");
+    expect(container.textContent).not.toContain("new-after-boot");
+
+    // history_ready: the list is rebuilt from the replay in one go.
+    sendFrame(ws, { type: "history_ready", startLine: 102, totalLines: 103 });
+    await waitFor(() => {
+      expect(container.querySelectorAll("[data-pv-bubble]").length).toBe(2);
+    });
+    expect(container.textContent).not.toContain("pre-boot-0");
+    expect(container.textContent).toContain("pre-boot-2");
+    expect(container.textContent).toContain("new-after-boot");
+  });
+
+  it("Fix 2: a socket that drops before history_ready leaves the old bubbles up", async () => {
+    const { container, ws } = await renderWithThreeBubbles();
+
+    sendFrame(ws, { type: "wire_boot" });
+    fireWsClose(ws);
+    await new Promise((r) => setTimeout(r, 50));
+    expect(container.querySelectorAll("[data-pv-bubble]").length).toBe(3);
   });
 
   it("Fix 2: wire_boot lets post-boot low-line frames render without being cap-dropped", async () => {

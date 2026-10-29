@@ -1037,11 +1037,14 @@ export function PrettyView({
   // rotation, session_changed) until the server's history_ready, transcript
   // frames are queued and then applied in one go, so the opening messages
   // appear at once instead of trickling in. Null when not holding.
+  // resetOnRelease: a reconnect keeps the bubbles already on screen and
+  // clears them only when the fresh batch is applied, in the same render.
   const historyHoldRef = useRef<{
     held: MessageEvent<string>[];
     timer: ReturnType<typeof setTimeout> | null;
     startedAt: number;
     trigger: string;
+    resetOnRelease: boolean;
   } | null>(null);
   // loadOlderInFlightRef: SYNCHRONOUS single-request-in-flight guard for
   // handleLoadOlder. React's setLoadOlderState('in-flight') doesn't reach
@@ -1491,6 +1494,12 @@ export function PrettyView({
     if (loadOlderInFlightRef.current) return;
     const ws = wsRef.current;
     if (!ws || ws.readyState !== WebSocket.OPEN) return;
+    // A reconnect keeps the old bubbles up until its fresh batch lands and
+    // then rebuilds the list; an older batch fetched meanwhile would be lost.
+    if (historyHoldRef.current) {
+      console.info(`[load-older] skipped reason=history-hold hostId=${hostId} sessionId=${tmuxSession ?? 'null'}`);
+      return;
+    }
     if (oldestLoadedLine === null) return;
     if (oldestLoadedLine <= 1) return;
     // quick-260822-7no: structured click log for the full click → WS →
@@ -3043,17 +3052,24 @@ export function PrettyView({
       dropHistoryHold();
       console.info(
         `[history-hold] release reason=${reason} trigger=${hold.trigger} frames=${hold.held.length} ` +
-          `held_ms=${Math.round(performance.now() - hold.startedAt)} sessionId=${tmuxSession ?? 'null'} hostId=${hostId}`,
+          `held_ms=${Math.round(performance.now() - hold.startedAt)} reset=${hold.resetOnRelease} ` +
+          `sessionId=${tmuxSession ?? 'null'} hostId=${hostId}`,
       );
+      if (hold.resetOnRelease) {
+        setMessages([]);
+        resetInterruptViewState();
+        resetLoadOlderState();
+      }
       for (const ev of hold.held) ws.onmessage?.call(ws, ev);
     };
-    const beginHistoryHold = (trigger: string) => {
+    const beginHistoryHold = (trigger: string, opts?: { resetOnRelease?: boolean }) => {
       dropHistoryHold();
       historyHoldRef.current = {
         held: [],
         timer: setTimeout(() => releaseHistoryHold("timeout"), HISTORY_HOLD_TIMEOUT_MS),
         startedAt: performance.now(),
         trigger,
+        resetOnRelease: opts?.resetOnRelease === true,
       };
     };
 
@@ -3899,27 +3915,19 @@ export function PrettyView({
         }
         case "wire_boot": {
           // Backend just started a fresh WS closure (initial attach OR any
-          // reconnect — container restart, transient WS drop, whatever).
-          // The per-WS `lineNum` counter that stamps `line` values on
-          // every frame restarted from zero. Retaining pre-attach messages
-          // (which carry their pre-attach `line` values, potentially much
-          // higher than what the fresh counter will emit) traps every
-          // post-attach frame BELOW them under our insertion-sort-by-line
-          // + 20-cap-drop policy — the cap keeps the top-20-by-line, so
-          // fresh low-line frames are silently discarded from the front
-          // on every insert. Reset here so the fresh counter has a clean
-          // sort space. Also clear errorMessage — any stale banner from
-          // a prior WS teardown is now outdated. Every other piece of
-          // state either gets re-emitted by the backend on this fresh
-          // attach (pane_state / session / context_pct / harness_tasks /
-          // aside_ready) OR is client-side interaction state we
-          // deliberately preserve (dormantRef / draft).
-          console.info(`[wire-boot] reset messages sessionId=${tmuxSession ?? 'null'} hostId=${hostId} paneKey=${paneKey}`);
-          setMessages([]);
-          resetInterruptViewState();
-          resetLoadOlderState();
+          // reconnect — hidden-pane close then re-show, transient WS drop,
+          // container restart). The fresh replay re-sends the recent window,
+          // so the list must be rebuilt from it — but the bubbles already on
+          // screen stay until that window is complete: the clear runs inside
+          // the history-hold release, in the same render as the fresh batch.
+          // A reconnect therefore never shows an empty list, and an unchanged
+          // conversation keeps the same eventId keys (nothing visibly moves).
+          // If the socket drops before history_ready, the hold is dropped and
+          // the old bubbles simply stay. Also clear errorMessage — any stale
+          // banner from a prior WS teardown is now outdated.
+          console.info(`[wire-boot] reset deferred to history_ready sessionId=${tmuxSession ?? 'null'} hostId=${hostId} paneKey=${paneKey} kept=${messagesRef.current.length}`);
           setErrorMessage(null);
-          beginHistoryHold("wire_boot");
+          beginHistoryHold("wire_boot", { resetOnRelease: true });
           break;
         }
         case "history_ready": {
