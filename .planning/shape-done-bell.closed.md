@@ -28,7 +28,7 @@ While an agent is working, the round main button in the composer becomes a bell.
 
 ## Prior context
 
-- Ashley already had personal call-me and notify-me skills on some of her machines, saying "when you're finished or hit a blocker, reach me". She has since made both instance-wide on her instance.
+- The user already had personal call-me and notify-me skills on some of their machines, saying "when you're finished or hit a blocker, reach me". They have since made both instance-wide on her instance.
 - Shape 1 of this campaign added notifications on this computer (browser notifications) — the Allow-prompt tie-in turns those on.
 - Mid-turn, the main button's thumbs-up sends "thumbs up", read when the turn ends. Nothing else relies on it; it stays as is whenever the agent isn't working.
 - Skills Skynet distributes don't appear in the Skills menu or the slash list; typing the full name still runs them. The bell becomes the way in.
@@ -48,7 +48,7 @@ While an agent is working, the round main button in the composer becomes a bell.
 
 ## Scope edges
 
-- **In:** the bell on the main button while working; the two-choice menu; hiding Call me without a phone number; the Allow-prompt tie-in; the two distributed skills; the agent-guide mention; a What's-new note (text approved by Ashley before it's committed).
+- **In:** the bell on the main button while working; the two-choice menu; hiding Call me without a phone number; the Allow-prompt tie-in; the two distributed skills; the agent-guide mention; a What's-new note (text approved by the user before it's committed).
 - **Out:** any lit or pending state, cancelling, reminders, delivery into the agent mid-step, attaching who the user is to the request.
 - **Deferred:** whatever the user-info audit recommends.
 - **Tempting but no:** a bell before the agent starts working, escalation (notify, then call), choosing a delay.
@@ -56,7 +56,7 @@ While an agent is working, the round main button in the composer becomes a bell.
 ## Handoff notes
 
 - Worked by sulfur-box-maintainer-4 inside campaign notify-when-done; ends committed, not pushed, not deployed.
-- **Before the campaign's deploy:** delete Ashley's instance-wide call-me and notify-me (Ashley: "before deploying, it makes sense to like delete them"), so the distributed versions take their place.
+- **Before the campaign's deploy:** delete the user's instance-wide call-me and notify-me (user: "before deploying, it makes sense to like delete them"), so the distributed versions take their place.
 - Tasting snippet used to settle the look: workspace/uat/bell-tasting.js.
 
 ---
@@ -78,7 +78,7 @@ While an agent is working, the round main button in the composer becomes a bell.
 - **Shape: The agent guide mention** — present · The composer paragraph describes the bell and its two skills.
 - **Philosophy** — present · The app never reaches the person itself; reuses existing paths; the bell replaces the thumbs-up; no product name.
 - **Prior context** — present · Thumbs-up unchanged when the agent isn't working; skills carry no user identity.
-- **Scope edges** — drifted · Everything in scope present except the What's-new note, which Ashley chose not to have ("No note"); nothing from Out or Tempting-but-no built.
+- **Scope edges** — drifted · Everything in scope present except the What's-new note, which the user chose not to have ("No note"); nothing from Out or Tempting-but-no built.
 - **What would make it wrong: The bell appears while the agent is idle, or replaces Send while something is typed** — present · Guarded.
 - **What would make it wrong: The app reaches the person itself, or nags the agent afterwards** — present · Guarded.
 - **What would make it wrong: What reaches the person says only "done"** — present · Guarded by the skill text.
@@ -95,8 +95,8 @@ None.
 
 ### Follow-ups
 
-- What's-new note for the bell not written; Ashley chose "No note" — accepted-as-drift
-- Before the campaign's deploy, delete Ashley's instance-wide call-me and notify-me so the distributed versions take their place — deferred
+- What's-new note for the bell not written; the user chose "No note" — accepted-as-drift
+- Before the campaign's deploy, delete the user's instance-wide call-me and notify-me so the distributed versions take their place — deferred
 
 ### Notes
 

@@ -29,17 +29,17 @@ People end up sitting and watching the spinner because they forget, or never kne
 ## Shapes
 
 - **[declared] shape-browser-notifications** — Level 1 browser notifications, turned on in Preferences → Notifications next to Telegram, firing for every notification (not only bell ones) — closed (shape-browser-notifications.closed.md; commits d2fab336, 8e29b716, f3c65bbd — rebased from 24a3f2c5, 19911b32, 19db2c55)
-- **[declared] shape-done-bell** — the bell on the main button while the agent works, the notify/call choice, the agent following through (finished or blocked, saying what happened), the Allow-prompt tie-in, and the matching id skill text. Reshaped at /open (Ashley): the bell just sends the notify-me / call-me skills, now distributed to every machine; no lit state, no cancel, no mid-work delivery — closed (shape-done-bell.closed.md; commits 421966c7, 52c5fcfa)
+- **[declared] shape-done-bell** — the bell on the main button while the agent works, the notify/call choice, the agent following through (finished or blocked, saying what happened), the Allow-prompt tie-in, and the matching id skill text. Reshaped at /open (the user): the bell just sends the notify-me / call-me skills, now distributed to every machine; no lit state, no cancel, no mid-work delivery — closed (shape-done-bell.closed.md; commits 421966c7, 52c5fcfa)
 
 ## Other work
 
-- Ask about notifications at sign-in (an in-app "Turn on / Not now" that leads to the browser's prompt) — dropped for now; Ashley: "maybe we add that later"
-- What's-new note for browser notifications — dropped; Ashley: "no note"
-- Audit what Skynet puts on hosts about the user (e.g. their relay ID) and what's missing — handed to a separate agent, myth-box-maintainer-2 (Ashley: "we should spawn a new agent to audit the standard info that's provided to the hosts"); reports to Ashley directly, outside this campaign
-- What's-new note for the bell — dropped; Ashley: "No note"
+- Ask about notifications at sign-in (an in-app "Turn on / Not now" that leads to the browser's prompt) — dropped for now; user: "maybe we add that later"
+- What's-new note for browser notifications — dropped; user: "no note"
+- Audit what Skynet puts on hosts about the user (e.g. their relay ID) and what's missing — handed to a separate agent, myth-box-maintainer-2 (user: "we should spawn a new agent to audit the standard info that's provided to the hosts"); reports to the user directly, outside this campaign
+- What's-new note for the bell — dropped; user: "No note"
 - Instance-wide sync now leaves alone an existing instance-wide item whose name has become a built-in skill (code-review finding; stops it fighting the distributor over notify-me / call-me) — done (52c5fcfa)
-- **At campaign deploy:** delete Ashley's instance-wide call-me and notify-me first (Ashley: "before deploying, it makes sense to like delete them") — pending, part of the deploy
-- Browser notifications always show the full message, even when Telegram is set to "only show who messaged" — done (Ashley: "Full message")
+- **At campaign deploy:** delete the user's instance-wide call-me and notify-me first (user: "before deploying, it makes sense to like delete them") — pending, part of the deploy
+- Browser notifications always show the full message, even when Telegram is set to "only show who messaged" — done (user: "Full message")
 
 ## Lingerers (explicitly approved)
 

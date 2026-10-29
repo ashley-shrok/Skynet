@@ -69,7 +69,7 @@ Browser push once existed and was removed because iOS silently drops push subscr
 - **No product name in user-facing text** — present
 - **Philosophy** — present · adds a route; when agents notify is unchanged
 - **Prior context** — present · no revived push; envelope and Telegram unchanged
-- **Scope In: What's-new note** — deferred · text proposed to Ashley; awaiting approval before commit
+- **Scope In: What's-new note** — deferred · text proposed to the user; awaiting approval before commit
 - **Scope In: id-skill mention** — present
 - **Scope Out items** — present
 - **Deferred to the bell shape** — present (correctly absent)
@@ -86,11 +86,11 @@ Browser push once existed and was removed because iOS silently drops push subscr
 - Notifications' top line reworded (now "Where notifications from agents reach you outside the app.") — endorsed-as-drift
 - "This computer" / "Telegram" group headings and a one-line description under the switch — endorsed-as-drift
 - Feedback line after the test button — endorsed-as-drift
-- Browser notifications show the full message even when Telegram is set to "only show who messaged" — endorsed-as-drift (Ashley: "Full message"; that switch stays Telegram-only)
+- Browser notifications show the full message even when Telegram is set to "only show who messaged" — endorsed-as-drift (user: "Full message"; that switch stays Telegram-only)
 
 ### Follow-ups
 
-- Add the What's-new note once Ashley approves its text — deferred
+- Add the What's-new note once the user approves its text — deferred
 
 ### Notes
 
