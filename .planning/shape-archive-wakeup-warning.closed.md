@@ -42,7 +42,7 @@ the instructions agents follow when they archive themselves.
   user. The "archive if nothing to report" wording given to scheduled-task
   runs gains: having active wake-ups is something to report, so don't
   archive.
-- **What's new note** for users, wording approved by Ashley before it's
+- **What's new note** for users, wording approved by the user before it's
   committed.
 
 ## Philosophy
@@ -86,7 +86,7 @@ Saturn (saturn-box-maintainer-4) does the work. The agent instructions are
 the id skill in the repo's substrate (never the installed copy). The
 scheduled-task wording lives in two byte-identical places (the scheduler and
 the Run now path). Committed with scoped tests green, not pushed or deployed
-without Ashley's per-push / deploy greenlight.
+without the user's per-push / deploy greenlight.
 
 ---
 
@@ -97,13 +97,13 @@ without Ashley's per-push / deploy greenlight.
 
 ### Shape features (conformance)
 
-- **What counts as an active wake-up** — present · Switched on and still able to fire; off, malformed, already-gone one-time, past-end and run-out repeating ones excluded; switched-on sensors count (a one-time sensor stops counting once it has gone). An overdue one-time wake-up still owed a late catch-up counts — endorsed by Ashley.
+- **What counts as an active wake-up** — present · Switched on and still able to fire; off, malformed, already-gone one-time, past-end and run-out repeating ones excluded; switched-on sensors count (a one-time sensor stops counting once it has gone). An overdue one-time wake-up still owed a late catch-up counts — endorsed by the user.
 - **The check** — present · Archive waits for the agent's machine before the confirm opens; gives up after about four seconds and treats that as "couldn't check".
 - **The single-agent confirm** — present · Row menu, task pill and drop lane all check first; same title and opening line; names each wake-up with its schedule plus the scheduled-task line; unchanged with none; "couldn't check" line on failure; Archive stays red.
 - **Phone swipe** — present · Undo bar as today while the check runs; active wake-ups withdraw the bar, bring the row back and open the warning confirm; an early-closed bar waits for the check; failed check archives with the bar saying so.
 - **Whole project / whole role archive** — present · Names agents with wake-ups and their counts, unchecked agents, and the scheduled-task line.
 - **Agents archiving themselves** — present · Id skill step names active wake-ups and waits for the user's go-ahead (endorsed); scheduled-task wording changed identically in both places.
-- **What's new note** — drifted · Ashley decided no note.
+- **What's new note** — drifted · the user decided no note.
 - **Philosophy** — present · A warning, never a gate; no change for agents without active wake-ups.
 - **Scope edges** — present · No sidebar marker, no convert-to-task button, no moving wake-ups, no blocking.
 - **Handoff notes** — present · Substrate id skill edited; commit pending at close time (by design, after review).
@@ -125,7 +125,7 @@ None.
 
 ### Notes
 
-What's new note dropped at Ashley's call. Every person-facing archive route was covered by reading.
+What's new note dropped at the user's call. Every person-facing archive route was covered by reading.
 
 ---
 
@@ -136,8 +136,8 @@ What's new note dropped at Ashley's call. Every person-facing archive route was 
 
 ### Additions (in the result, not in the shape)
 
-- Whole project / role archives: checks run a few at a time per machine with a shared limit of about eight seconds before the confirm opens — endorsed-as-drift (Ashley: "Up to about 8 seconds")
-- A second Archive press on an agent whose check or confirm is already up does nothing — endorsed-as-drift (Ashley: "Yes, ignore it")
+- Whole project / role archives: checks run a few at a time per machine with a shared limit of about eight seconds before the confirm opens — endorsed-as-drift (the user: "Up to about 8 seconds")
+- A second Archive press on an agent whose check or confirm is already up does nothing — endorsed-as-drift (the user: "Yes, ignore it")
 - Self-archive may skip naming wake-ups when the user already knew — already endorsed in the first Close-Out
 
 ### Notes

@@ -9,11 +9,11 @@ Two changes to how an agent's conversation presents compaction. First, while a c
 ## Shape
 
 - **When the orb shows.** The app already knows, per agent, when a compaction has been asked for or is running. That is the same knowledge that makes the memory pie say it is busy now. Whenever that knowledge is on, the orb shows, the same as it does for a turn. It starts the moment the user confirms (the app does not wait for the next status update), covers a sleeping agent being woken for the compaction, and hands straight over to the agent's follow-up turn once compaction is done.
-- **What the orb is during compaction.** A plain orb, with no square inside and nothing to press. Stopping halfway through a compaction would leave it half-done. Standing rule (Ashley, 2026-10-29): any time the orb can't be tapped to stop things, it doesn't show the square. If the agent's own turn is also running (a compaction asked for mid-turn waits for the turn to end), the orb behaves exactly as it does today, and its Stop stops the turn.
+- **What the orb is during compaction.** A plain orb, with no square inside and nothing to press. Stopping halfway through a compaction would leave it half-done. Standing rule (the user, 2026-10-29): any time the orb can't be tapped to stop things, it doesn't show the square. If the agent's own turn is also running (a compaction asked for mid-turn waits for the turn to end), the orb behaves exactly as it does today, and its Stop stops the turn.
 - **The line beside it.** When the orb is showing only because of compaction, the line reads a fixed "Compacting the conversation…" rather than the usual step-by-step narration, which has nothing to describe here. While the agent's own turn is running, the usual narration stays.
 - **The rename.** Every user-visible mention: the pie's "Compacting…", the pop-over's explanations, the "Compact conversation" button, the "Compact this conversation?" confirm and its "Compact" button, the "Couldn't compact" errors, the chat divider "Conversation compacted · <time>", and screen-reader labels. Applies to agent conversations and to each agent's pie in relay rooms.
 - **The agent-facing description.** The app description every agent loads is updated to say compacting, and to mention that the orb shows while compacting.
-- **No what's-new note** (Ashley, 2026-10-29: "No note").
+- **No what's-new note** (the user, 2026-10-29: "No note").
 
 ## Philosophy
 

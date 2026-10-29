@@ -35,7 +35,7 @@ after a scheduled-task run set to archive if there's nothing to report).
 
 ## Other work
 
-- What's new note — dropped (Ashley: "No note")
+- What's new note — dropped (the user: "No note")
 
 ## Lingerers (explicitly approved)
 

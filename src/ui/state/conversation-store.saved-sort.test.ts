@@ -141,7 +141,7 @@ function lastVisit() {
 beforeEach(() => {
   vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
   localStorage.clear();
-  loginAs("ashley");
+  loginAs("alice");
   sessionStorage.clear();
   __resetActiveSetForTest();
   __resetPinnedIdsForTest();
