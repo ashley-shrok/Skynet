@@ -140,6 +140,7 @@ import {
   kitAlert,
 } from "@/components/kit";
 import { RolePickList, type RolePickGroup } from "./RolePickList";
+import { cachedHostRoles, forgetHostRoles, rememberHostRoles } from "./host-roles-cache";
 import type { Host, HostFolder } from "@/types/ui-types";
 import {
   listIdentities,
@@ -197,9 +198,18 @@ const NO_ROLES_OPTION = ":no-roles";
 
 type HostRolesState = {
   roles: RoleSummary[];
+  /** This open's request to the machine hasn't answered yet. */
   loading: boolean;
   error: string | null;
+  /** `roles` can be shown: the machine answered, or it answered on an
+   *  earlier open and `roles` is that answer from the cache. */
+  known: boolean;
 };
+
+// The roles list stays behind "Loading roles…" until every machine's roles
+// are known, so groups don't appear and push each other around one by one.
+// A slow or offline machine holds it back no longer than this.
+const ROLES_SETTLE_MS = 2500;
 
 // Local type-guard inlined from src/ui/sidebar/SidebarTree.tsx (Phase 12 Plan 02 — enables SidebarTree deletion in Plan 03).
 function isFolder(item: Host | HostFolder): item is HostFolder {
@@ -418,6 +428,9 @@ export function NewSessionDialog({
   // yet; each host's request resolves on its own so a slow or offline machine
   // never holds up the others' roles.
   const [hostRoles, setHostRoles] = useState<Record<string, HostRolesState>>({});
+  // Latches true once per open (every machine known, or ROLES_SETTLE_MS
+  // passed); a machine joining afterwards appends rather than blanking the list.
+  const [rolesShown, setRolesShown] = useState(false);
 
   // Birth stream state — Phase 106 Plan 106-02 (D-13, D-15): the sole survivor
   // of the previous step-checklist state. `birthing` gates form-field disable,
@@ -567,6 +580,7 @@ export function NewSessionDialog({
       setSelectedRoles([]);
       setNoRoles(false);
       setHostRoles({});
+      setRolesShown(false);
       rolesRequestedRef.current = new Set();
       // Reset birth state — Phase 106 Plan 106-02 (D-13/D-15): the only
       // surviving birth-related state is the `birthing` boolean.
@@ -634,7 +648,10 @@ export function NewSessionDialog({
     for (const h of pending) rolesRequestedRef.current.add(h.id);
     setHostRoles((prev) => {
       const next = { ...prev };
-      for (const h of pending) next[h.id] = { roles: [], loading: true, error: null };
+      for (const h of pending) {
+        const cached = cachedHostRoles(String(h.id));
+        next[h.id] = { roles: cached ?? [], loading: true, error: null, known: cached !== undefined };
+      }
       return next;
     });
     // Requests are not cancelled when the dialog closes: the close reset
@@ -651,11 +668,30 @@ export function NewSessionDialog({
           return { roles: [] as RoleSummary[], error };
         })
         .then((result) => {
+          if (result.error) forgetHostRoles(String(h.id));
+          else rememberHostRoles(String(h.id), result.roles);
           if (rolesRequestedRef.current !== requested) return;
-          setHostRoles((prev) => ({ ...prev, [h.id]: { ...result, loading: false } }));
+          setHostRoles((prev) => ({ ...prev, [h.id]: { ...result, loading: false, known: true } }));
         });
     }
   }, [open, shellOnly, agentHosts]);
+
+  // Show the roles list once every machine's roles are known, or after
+  // ROLES_SETTLE_MS at the latest.
+  const allRolesKnown = agentHosts.every((h) => hostRoles[h.id]?.known === true);
+  useEffect(() => {
+    if (!open || shellOnly || rolesShown) return;
+    if (allRolesKnown) {
+      console.log(`[new-session] roles shown hosts=${agentHosts.length} reason=all-known`);
+      setRolesShown(true);
+      return;
+    }
+    const timer = setTimeout(() => {
+      console.log(`[new-session] roles shown hosts=${agentHosts.length} reason=settle-timeout`);
+      setRolesShown(true);
+    }, ROLES_SETTLE_MS);
+    return () => clearTimeout(timer);
+  }, [open, shellOnly, rolesShown, allRolesKnown, agentHosts.length]);
 
   // One-machine "No roles" default. While there is exactly one pickable
   // machine and nothing has been picked by the user (or seeded), "No roles" is
@@ -714,7 +750,7 @@ export function NewSessionDialog({
   // Instance-wide roles carry a marker (same role on every host).
   const onEveryHost = t("nav.newSessionOnEveryHost", { defaultValue: "· on every host" });
   // The entries as a list in the dialog: pictures and descriptions.
-  const roleGroups: RolePickGroup[] = sortedHosts.flatMap((host) => {
+  const roleGroups: RolePickGroup[] = !rolesShown ? [] : sortedHosts.flatMap((host) => {
     if (hostRoles[host.id]?.error && multiHost) return [];
     const hostIdNum = parseInt(String(host.id), 10);
     return [
@@ -1385,7 +1421,7 @@ export function NewSessionDialog({
                 groups={roleGroups}
                 value={pickedRoleValues}
                 onChange={handleRolesChange}
-                loading={anyRolesLoading}
+                loading={!rolesShown || agentHosts.some((h) => !hostRoles[h.id]?.known)}
                 disabled={formDisabled}
                 onNewRole={
                   onNewRole

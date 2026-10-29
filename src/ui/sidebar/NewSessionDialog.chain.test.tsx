@@ -39,7 +39,7 @@
 // sibling file stays self-contained + isolated from the 25+ pre-existing suite.
 
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { render, fireEvent, waitFor, screen } from "@testing-library/react";
+import { render, fireEvent, waitFor, screen, act } from "@testing-library/react";
 
 vi.mock("react-i18next", () => ({
   useTranslation: () => ({
@@ -101,6 +101,7 @@ vi.mock("@/hooks/use-is-touch-device", () => ({
 }));
 
 import { NewSessionDialog } from "./NewSessionDialog";
+import { clearHostRolesCache } from "./host-roles-cache";
 import {
   queryRolesGroup,
   getRolesGroup,
@@ -175,6 +176,7 @@ const singleHostTree: HostFolder = {
 };
 
 beforeEach(() => {
+  clearHostRolesCache();
   vi.clearAllMocks();
   // Default: one role returned matching "box-maintainer"
   mockListRolesForHost.mockResolvedValue([

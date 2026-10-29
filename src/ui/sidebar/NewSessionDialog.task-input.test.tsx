@@ -21,7 +21,7 @@
 // grow, don't rewrite; smaller focused suites over one giant one).
 
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { render, fireEvent, waitFor, screen } from "@testing-library/react";
+import { render, fireEvent, waitFor, screen, act } from "@testing-library/react";
 
 vi.mock("react-i18next", () => ({
   useTranslation: () => ({
@@ -79,6 +79,7 @@ async function* emptyStream() {
 }
 
 import { NewSessionDialog } from "./NewSessionDialog";
+import { clearHostRolesCache } from "./host-roles-cache";
 import {
   queryRolesGroup,
   pickedRoleValues,
@@ -217,6 +218,7 @@ async function fillFormForSubmit(opts: {
 }
 
 beforeEach(() => {
+  clearHostRolesCache();
   // Clear call history AND drain any leftover mockResolvedValueOnce queues so
   // an unconsumed Once-value from a prior test cannot leak into this one.
   // We do NOT use resetAllMocks() because that wipes the vi.mock() factory-

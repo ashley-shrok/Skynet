@@ -61,7 +61,7 @@
 //     carries fewer fields).
 
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { render, fireEvent, waitFor, screen } from "@testing-library/react";
+import { render, fireEvent, waitFor, screen, act } from "@testing-library/react";
 
 // apple-ux (shape-creation-and-search-dialogs, 2026-10-22): the admin-only
 // "Just a shell — no agent" tick-box became an Agent / Shell segmented control
@@ -167,6 +167,7 @@ vi.mock("@/api/global-files-api", () => ({
 }));
 
 import { NewSessionDialog } from "./NewSessionDialog";
+import { clearHostRolesCache } from "./host-roles-cache";
 import { autoAnswerKitDialogs, __resetKitDialogsForTests } from "@/components/kit";
 import {
   queryRolesGroup,
@@ -248,6 +249,7 @@ const oneHostTree: HostFolder = {
 };
 
 beforeEach(() => {
+  clearHostRolesCache();
   vi.clearAllMocks();
 });
 
