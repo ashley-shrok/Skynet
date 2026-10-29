@@ -21,7 +21,7 @@ import {
 const PIN = "2.1.286";
 const hostA = { id: "1", name: "alpha" };
 const hostB = { id: "2", name: "bravo" };
-const local = { id: "6", name: "t1000" };
+const local = { id: "6", name: "harbor" };
 
 const line = (rest: string) => `HARNESS_RESULT ${rest}`;
 const OK_NONE = line(`action=none wanted=${PIN} found=${PIN} detail=already on pin`);

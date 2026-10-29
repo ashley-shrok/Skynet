@@ -8,30 +8,30 @@ describe("tab-url — archived conversation", () => {
   it("an archived tab's spec round-trips", () => {
     const spec = specForTab({
       type: "terminal",
-      host: { name: "t1000", id: "7" },
+      host: { name: "harbor", id: "7" },
       targetTmuxSession: "olden",
       sessionKind: "archived",
     });
-    expect(spec).toEqual({ protocol: "archived", host: "t1000", session: "olden" });
-    expect(encodeTabSpec(spec!)).toBe("archived:t1000:olden");
-    expect(parseTabParam("archived:t1000:olden")).toEqual(spec);
+    expect(spec).toEqual({ protocol: "archived", host: "harbor", session: "olden" });
+    expect(encodeTabSpec(spec!)).toBe("archived:harbor:olden");
+    expect(parseTabParam("archived:harbor:olden")).toEqual(spec);
   });
 
   it("a live tab of the same agent stays a tmux tab", () => {
-    expect(specForTab({ type: "terminal", host: { name: "t1000", id: "7" }, targetTmuxSession: "olden" })).toEqual({
+    expect(specForTab({ type: "terminal", host: { name: "harbor", id: "7" }, targetTmuxSession: "olden" })).toEqual({
       protocol: "tmux",
-      host: "t1000",
+      host: "harbor",
       session: "olden",
     });
   });
 
   it("an archived address needs an agent-shaped name", () => {
-    expect(parseTabParam("archived:t1000:")).toBeNull();
-    expect(parseTabParam("archived:t1000:Bad Name")).toBeNull();
-    expect(parseTabParam("archived:t1000:../x")).toBeNull();
+    expect(parseTabParam("archived:harbor:")).toBeNull();
+    expect(parseTabParam("archived:harbor:Bad Name")).toBeNull();
+    expect(parseTabParam("archived:harbor:../x")).toBeNull();
   });
 
   it("an archived tab without an agent name has no address", () => {
-    expect(specForTab({ type: "terminal", host: { name: "t1000" }, targetTmuxSession: null, sessionKind: "archived" })).toBeNull();
+    expect(specForTab({ type: "terminal", host: { name: "harbor" }, targetTmuxSession: null, sessionKind: "archived" })).toBeNull();
   });
 });

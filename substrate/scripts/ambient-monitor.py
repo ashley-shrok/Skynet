@@ -177,12 +177,12 @@ else:
 # <idroot>/ or <idroot>/*/ that contains base + user_id + password keys is
 # treated as a Matrix relay account. State dir = same folder as the cred file,
 # named after the filename stem + "-state" (so relay.json → relay-state/,
-# relay-aithercloud.json → relay-aithercloud-state/, aithercloud/relay.json →
-# aithercloud/relay-state/).
+# relay-work.json → relay-work-state/, work/relay.json →
+# work/relay-state/).
 #
 # Why content-based instead of a narrower filename glob: agents self-registering
 # on secondary homeservers name their cred files however feels natural at the
-# time (george/relay-aithercloud.json, etc.). A wider glob + a strict content
+# time (someone/relay-work.json, etc.). A wider glob + a strict content
 # filter picks up whatever they choose without prescribing a naming convention.
 # The old exactly-relay.json / <subdir>/relay.json layout is a strict subset —
 # every previous identity keeps working because "relay" + "-state" = the

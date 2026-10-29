@@ -640,8 +640,8 @@ async function initializeCompleteDatabase(): Promise<void> {
     -- Persisted via a labeled forceSave in the migration block below.
     --
     -- Scope per D-16 — SINGLE-INSTANCE-PER-DB. Each Skynet instance owns
-    -- its own DB and its own ignore-list (t1000's admin_rooms rows are
-    -- t1000's; T800's are T800's). If Skynet is ever operated multi-tenant
+    -- its own DB and its own ignore-list (one instance's admin_rooms rows are
+    -- its own; another instance's are its own). If Skynet is ever operated multi-tenant
     -- (one DB, multiple Skynet "instances"), this table needs a
     -- 'skynet_instance_id' column added — otherwise different instances'
     -- registry-room IDs would collide in the same table. Phase 89 fixup

@@ -402,7 +402,7 @@ test_pitfall4_no_iddir_relay_json_in_step3() {
 # design lock; the un-archive campaign explicitly reversed that decision —
 # scan_identity_unarchive_requested_sentinels() calls the admin user-update +
 # admin login-as-user endpoints using the fleet-admin creds now available
-# at ~/fleet/roles/box-maintainer/matrix-admin-t1000.json. The retire path
+# at ~/fleet/roles/box-maintainer/matrix-admin-harbor.json. The retire path
 # still uses the client deactivate endpoint (verified dynamically by the
 # retire_happy_path_200 / retire_5xx_aborts / retire_401 tests below), so
 # the "retire uses client, not admin" invariant remains covered.

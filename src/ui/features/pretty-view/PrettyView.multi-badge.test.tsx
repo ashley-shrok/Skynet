@@ -246,7 +246,7 @@ describe("PrettyView — Phase 93 Slice 2 multi-badge case-branch", () => {
         isReady: true,
         participants: {
           humans: [
-            { mxid: "@zoe:x", displayName: "Zoe", userId: "2" },
+            { mxid: "@riley:x", displayName: "Riley", userId: "2" },
           ],
           agents: [],
         },

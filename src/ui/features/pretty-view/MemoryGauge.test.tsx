@@ -122,7 +122,7 @@ describe("condenseFailureMessage", () => {
     expect(condenseFailureMessage(new Error("Network Error"))).toBe("Not connected — try again in a moment");
   });
   it("504 names the machine when known", () => {
-    expect(condenseFailureMessage({ response: { status: 504 } }, "thenasty")).toBe("Couldn't reach thenasty — try again in a moment");
+    expect(condenseFailureMessage({ response: { status: 504 } }, "boreal")).toBe("Couldn't reach boreal — try again in a moment");
     expect(condenseFailureMessage({ response: { status: 504 } })).toBe("Couldn't reach this agent's machine — try again in a moment");
   });
   it("404 → the machine may have been removed", () => {

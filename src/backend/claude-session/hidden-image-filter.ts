@@ -6,7 +6,7 @@
  * JSONL records the whole picture as base64 — ~1 MB per look, twice over
  * (the user tool_result line and Claude Code's api-request-blob copy). The
  * parser never shows these (tool-result images are agent-internal), yet an
- * image-heavy agent's recent window is almost all of them: Tin on thenasty
+ * image-heavy agent's recent window is almost all of them: one agent on a busy box
  * opened with a 66 MB window, 65 MB of it these pictures.
  *
  * The filter only touches lines that carry a `"tool_use_id":"` — every

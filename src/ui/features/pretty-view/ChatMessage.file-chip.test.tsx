@@ -58,7 +58,7 @@ describe("ChatMessage — file-chip a-override", () => {
   });
 
   it("renders a FileChip for a Skynet file URL on the same origin", () => {
-    const url = `${ORIGIN}/file/t1000/home/ubuntu/notes.md`;
+    const url = `${ORIGIN}/file/harbor/home/ubuntu/notes.md`;
     render(
       <ChatMessage
         role="assistant"
@@ -99,7 +99,7 @@ describe("ChatMessage — file-chip a-override", () => {
     // guarded to same-origin, so no external request can be induced.
     // (Injected-turn URL construction uses per-segment encoding; here
     // we cover the a-override branch that gets the URL from markdown.)
-    const url = `${ORIGIN}/file/t1000/home/ubuntu/song.mp3`;
+    const url = `${ORIGIN}/file/harbor/home/ubuntu/song.mp3`;
     render(
       <ChatMessage
         role="assistant"

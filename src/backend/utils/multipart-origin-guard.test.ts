@@ -69,7 +69,7 @@ describe("multipartOriginGuard middleware", () => {
   });
 
   // Instance-agnostic: the shared predicate no longer hardcodes `.serve.term.`
-  // (t1000's subdomain), which used to make this guard fail OPEN on every
+  // (harbor's subdomain), which used to make this guard fail OPEN on every
   // other Skynet instance.
   it("rejects serve subdomain on a non-term instance", () => {
     const req = mkReq("https://foo-8080.serve.skynet.example.com");

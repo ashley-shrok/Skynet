@@ -11,7 +11,7 @@
  *     — its return value is configured per test.
  *   - `databaseLogger` mocked so `.error()` calls don't spam stderr.
  *
- * NO real Synapse is hit here. Integration tests against the live thenasty
+ * NO real Synapse is hit here. Integration tests against the live boreal
  * Synapse are gated behind an env flag in Plan 75-05.
  */
 
@@ -61,8 +61,8 @@ import { databaseLogger } from "../utils/logger.js";
 // ---------------------------------------------------------------------------
 
 const HAPPY_CREDS = {
-  homeserverBase: "http://100.113.23.63:8008",
-  userId: "@skynet-admin:thenasty.taild9b663.ts.net",
+  homeserverBase: "http://100.70.0.4:8008",
+  userId: "@skynet-admin:boreal.example-tailnet.ts.net",
   accessToken: "syt_admin_token_abcdefg",
   password: "admin-plaintext-password",
 };
@@ -113,18 +113,18 @@ describe("setUserDisplayName", () => {
   it("sends only the display name to the account's admin endpoint", async () => {
     const fetchMock = vi.fn(async () => mockFetchResponse(200, {}));
     vi.stubGlobal("fetch", fetchMock);
-    const result = await setUserDisplayName("@bob:thenasty.taild9b663.ts.net", "Bob");
+    const result = await setUserDisplayName("@bob:boreal.example-tailnet.ts.net", "Bob");
     expect(result).toEqual({ ok: true });
     expect(fetchMock).toHaveBeenCalledTimes(1);
     const [url, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
-    expect(url).toContain(encodeURIComponent("@bob:thenasty.taild9b663.ts.net"));
+    expect(url).toContain(encodeURIComponent("@bob:boreal.example-tailnet.ts.net"));
     expect(init.method).toBe("PUT");
     expect(JSON.parse(init.body as string)).toEqual({ displayname: "Bob" });
   });
 
   it("non-2xx → AdminErr carrying the status", async () => {
     stubFetchOk(500, {});
-    const result = await setUserDisplayName("@bob:thenasty.taild9b663.ts.net", "Bob");
+    const result = await setUserDisplayName("@bob:boreal.example-tailnet.ts.net", "Bob");
     expect(result.ok).toBe(false);
     if (!result.ok) expect(result.status).toBe(500);
   });
@@ -133,25 +133,25 @@ describe("setUserDisplayName", () => {
 describe("createOrUpdateUser", () => {
   it("happy path 201 → {ok:true, mxid, password, status:201}", async () => {
     stubFetchOk(201, {
-      name: "@bob:thenasty.taild9b663.ts.net",
+      name: "@bob:boreal.example-tailnet.ts.net",
       admin: false,
     });
     const result = await createOrUpdateUser(
-      "@bob:thenasty.taild9b663.ts.net",
+      "@bob:boreal.example-tailnet.ts.net",
       "bob-pw",
     );
     expect(result.ok).toBe(true);
     if (result.ok) {
-      expect(result.mxid).toBe("@bob:thenasty.taild9b663.ts.net");
+      expect(result.mxid).toBe("@bob:boreal.example-tailnet.ts.net");
       expect(result.password).toBe("bob-pw");
       expect(result.status).toBe(201);
     }
   });
 
   it("happy path 200 (update-existing) → {ok:true, mxid, password, status:200} (Pitfall 5)", async () => {
-    stubFetchOk(200, { name: "@bob:thenasty.taild9b663.ts.net" });
+    stubFetchOk(200, { name: "@bob:boreal.example-tailnet.ts.net" });
     const result = await createOrUpdateUser(
-      "@bob:thenasty.taild9b663.ts.net",
+      "@bob:boreal.example-tailnet.ts.net",
       "bob-pw-2",
     );
     expect(result.ok).toBe(true);
@@ -546,17 +546,17 @@ describe("countUsersMatching", () => {
 
 describe("buildRelayJsonBody", () => {
   const BUILD_OPTS = {
-    mxid: "@bob:thenasty.taild9b663.ts.net",
+    mxid: "@bob:boreal.example-tailnet.ts.net",
     password: "bob-pw",
     accessToken: "syt_bob_token",
-    homeserverBase: "http://100.113.23.63:8008",
+    homeserverBase: "http://100.70.0.4:8008",
   };
 
   it("base ends in /_matrix/client/v3 (recv.sh strips this to derive MROOT)", async () => {
     const json = buildRelayJsonBody(BUILD_OPTS);
     const parsed = JSON.parse(json);
     expect(parsed.base.endsWith("/_matrix/client/v3")).toBe(true);
-    expect(parsed.base).toBe("http://100.113.23.63:8008/_matrix/client/v3");
+    expect(parsed.base).toBe("http://100.70.0.4:8008/_matrix/client/v3");
   });
 
   it("both token and access_token keys are present with the same value", async () => {
@@ -592,13 +592,13 @@ describe("buildRelayJsonBody", () => {
 describe("deactivateUser", () => {
   it("happy path 200 returns {ok:true}", async () => {
     stubFetchOk(200, {});
-    const result = await deactivateUser("@bob:thenasty.taild9b663.ts.net");
+    const result = await deactivateUser("@bob:boreal.example-tailnet.ts.net");
     expect(result.ok).toBe(true);
   });
 
   it("non-2xx 403 propagates status, upstream body NOT leaked", async () => {
     stubFetchOk(403, { errcode: "M_FORBIDDEN", error: "Cannot deactivate" });
-    const result = await deactivateUser("@bob:thenasty.taild9b663.ts.net");
+    const result = await deactivateUser("@bob:boreal.example-tailnet.ts.net");
     expect(result.ok).toBe(false);
     if (!result.ok) {
       expect(result.status).toBe(403);
@@ -674,7 +674,7 @@ describe("createRoom", () => {
   it("Test 1: happy path 200 returns {ok:true, roomId}; POST to /_matrix/client/v3/createRoom with Bearer auth and body includes name+preset+visibility", async () => {
     const fetchMock = vi.fn(async () =>
       mockFetchResponse(200, {
-        room_id: "!agentsRegistry:thenasty.taild9b663.ts.net",
+        room_id: "!agentsRegistry:boreal.example-tailnet.ts.net",
       }),
     );
     vi.stubGlobal("fetch", fetchMock);
@@ -686,7 +686,7 @@ describe("createRoom", () => {
     expect(result.ok).toBe(true);
     if (result.ok) {
       expect(result.roomId).toBe(
-        "!agentsRegistry:thenasty.taild9b663.ts.net",
+        "!agentsRegistry:boreal.example-tailnet.ts.net",
       );
     }
     expect(fetchMock).toHaveBeenCalledTimes(1);

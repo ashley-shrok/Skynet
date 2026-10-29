@@ -798,7 +798,7 @@ describe("POST /roles — Phase 86 cosmetic frontmatter + avatar sibling write",
     const res = await httpPostMultipart(server, "/roles", buildMultipartBody({
       data: {
         displayName: "Box maintainer",
-        description: "A role that owns t1000",
+        description: "A role that owns harbor",
         hostId: 5,
         cosmetics: { colorHue: 190, voice: "Joanna" },
       },
@@ -812,7 +812,7 @@ describe("POST /roles — Phase 86 cosmetic frontmatter + avatar sibling write",
     expect(res.status).toBe(201);
     expect(res.body).toEqual({
       name: "box-maintainer",
-      description: "A role that owns t1000",
+      description: "A role that owns harbor",
       cosmetics: {
         displayName: "Box maintainer",
         colorHue: 190,
@@ -923,7 +923,7 @@ describe("Phase 129: auto-tag on multi-user hosts", () => {
     (getUsernameForUserId as Mock).mockResolvedValue("user");
 
     const res = await httpPostMultipart(server, "/roles", buildMultipartBody({
-      data: { displayName: "shared role", description: "shared t1000 role", hostId: 5 },
+      data: { displayName: "shared role", description: "shared harbor role", hostId: 5 },
     }));
 
     expect(res.status).toBe(201);

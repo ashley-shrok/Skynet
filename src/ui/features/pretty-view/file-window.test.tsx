@@ -80,7 +80,7 @@ const b64 = (text: string): string => btoa(unescape(encodeURIComponent(text)));
 
 const CHAT_FOLDER = "/home/ubuntu/work";
 // A Skynet file URL (this origin's /file/<machine>/<path>), as a chat shares it.
-const chatUrl = (name: string): string => `${window.location.origin}/file/t1000${CHAT_FOLDER}/${name}`;
+const chatUrl = (name: string): string => `${window.location.origin}/file/harbor${CHAT_FOLDER}/${name}`;
 
 interface WindowDriver {
   name: string;

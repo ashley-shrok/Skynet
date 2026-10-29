@@ -29,7 +29,7 @@ describe("sanitizeUsernameToLocalpart", () => {
     expect(sanitizeUsernameToLocalpart("user")).toBe("user");
   });
 
-  it("escapes @ and . in an email-form username (T800 case)", () => {
+  it("escapes @ and . in an email-form username (Cobalt case)", () => {
     expect(sanitizeUsernameToLocalpart("user@example.com")).toBe(
       "user_at_example_dot_com",
     );
@@ -116,24 +116,24 @@ describe("hex fallback for Matrix-illegal characters", () => {
 
 describe("buildHumanMxid (D-06)", () => {
   it("simple username → @<localpart>_human:<server>", () => {
-    expect(buildHumanMxid("user", "thenasty.taild9b663.ts.net")).toBe(
-      "@user_human:thenasty.taild9b663.ts.net",
+    expect(buildHumanMxid("user", "boreal.example-tailnet.ts.net")).toBe(
+      "@user_human:boreal.example-tailnet.ts.net",
     );
   });
 
   it("email username → sanitized localpart with _human suffix", () => {
     expect(
-      buildHumanMxid("user@example.com", "skynet.aithercloud.com"),
-    ).toBe("@user_at_example_dot_com_human:skynet.aithercloud.com");
+      buildHumanMxid("user@example.com", "chat.example.org"),
+    ).toBe("@user_at_example_dot_com_human:chat.example.org");
   });
 
   it("output satisfies MXID_RE from matrix-admin-routes.ts line 27", () => {
     expect(
-      MXID_RE.test(buildHumanMxid("user", "thenasty.taild9b663.ts.net")),
+      MXID_RE.test(buildHumanMxid("user", "boreal.example-tailnet.ts.net")),
     ).toBe(true);
     expect(
       MXID_RE.test(
-        buildHumanMxid("user@example.com", "skynet.aithercloud.com"),
+        buildHumanMxid("user@example.com", "chat.example.org"),
       ),
     ).toBe(true);
     expect(
@@ -172,7 +172,7 @@ describe("extractServerName", () => {
   });
 
   it("strips http:// scheme and port for IP-form base", () => {
-    expect(extractServerName("http://100.113.23.63:8008")).toBe("100.113.23.63");
+    expect(extractServerName("http://100.70.0.4:8008")).toBe("100.70.0.4");
   });
 
   it("returns bare hostname unchanged", () => {

@@ -46,7 +46,7 @@ const pasted = (inner: string) => `\n\n<pasted_content id="bd96">\n${inner}\n</p
 const ambient = (event: string) =>
   `<task-notification>\n<summary>Ambient watcher event (finch) — delivered by agent-supervisor</summary>\n<event>${event}</event>\n</task-notification>`;
 const relayEvent = (sender: string, eventId: string, body: string) =>
-  `[room !abcDEF:t1000.example] [${sender}] (event $${eventId}): ${body}`;
+  `[room !abcDEF:harbor.example] [${sender}] (event $${eventId}): ${body}`;
 
 /** [label, line, expected search result (null = hidden)]. File order matters. */
 const CASES: Array<[string, string, Omit<JudgedLine, "relayFrom" | "relayTo"> & Partial<JudgedLine> | null]> = [
@@ -101,28 +101,28 @@ const CASES: Array<[string, string, Omit<JudgedLine, "relayFrom" | "relayTo"> & 
   ["harness filler", agent([{ type: "text", text: "No response requested." }], { message: { role: "assistant", model: "<synthetic>", content: [{ type: "text", text: "No response requested." }] } }), null],
   [
     "relay message in",
-    user(pasted(ambient(relayEvent("@stacy:t1000.example", "ev1", "cheese is ready")))),
-    { speaker: "relay", text: "cheese is ready", relayFrom: "@stacy:t1000.example", relayTo: null },
+    user(pasted(ambient(relayEvent("@quinn:harbor.example", "ev1", "cheese is ready")))),
+    { speaker: "relay", text: "cheese is ready", relayFrom: "@quinn:harbor.example", relayTo: null },
   ],
   [
     "same relay message, second envelope",
-    JSON.stringify({ type: "queue-operation", operation: "enqueue", timestamp: ts(), content: pasted(ambient(relayEvent("@stacy:t1000.example", "ev1", "cheese is ready"))) }),
+    JSON.stringify({ type: "queue-operation", operation: "enqueue", timestamp: ts(), content: pasted(ambient(relayEvent("@quinn:harbor.example", "ev1", "cheese is ready"))) }),
     null,
   ],
   [
     "long relay message (file pointer)",
-    user(pasted(ambient(relayEvent("@stacy:t1000.example", "ev3", "[long message, 1640 chars — full text at /home/ubuntu/fleet/identities/finch/relay-state/messages/_ev3.txt — Read it] «Hi Finch — the cheese is…»")))),
-    { speaker: "relay", text: "Hi Finch — the cheese is", relayFrom: "@stacy:t1000.example", relayRoom: "!abcDEF:t1000.example" },
+    user(pasted(ambient(relayEvent("@quinn:harbor.example", "ev3", "[long message, 1640 chars — full text at /home/ubuntu/fleet/identities/finch/relay-state/messages/_ev3.txt — Read it] «Hi Finch — the cheese is…»")))),
+    { speaker: "relay", text: "Hi Finch — the cheese is", relayFrom: "@quinn:harbor.example", relayRoom: "!abcDEF:harbor.example" },
   ],
   [
     "relay reply into a room",
-    agent([{ type: "tool_use", id: "t4", name: "mcp__relay__send", input: { room: "!abcDEF:t1000.example", body: "In the room." } }]),
-    { speaker: "relay", text: "In the room.", relayFrom: null, relayTo: null, relayRoom: "!abcDEF:t1000.example" },
+    agent([{ type: "tool_use", id: "t4", name: "mcp__relay__send", input: { room: "!abcDEF:harbor.example", body: "In the room." } }]),
+    { speaker: "relay", text: "In the room.", relayFrom: null, relayTo: null, relayRoom: "!abcDEF:harbor.example" },
   ],
   [
     "relay message out",
-    agent([{ type: "tool_use", id: "t3", name: "mcp__relay__send", input: { to: "@owner:t1000.example", body: "Cheese shipped." } }]),
-    { speaker: "relay", text: "Cheese shipped.", relayFrom: null, relayTo: "@owner:t1000.example" },
+    agent([{ type: "tool_use", id: "t3", name: "mcp__relay__send", input: { to: "@owner:harbor.example", body: "Cheese shipped." } }]),
+    { speaker: "relay", text: "Cheese shipped.", relayFrom: null, relayTo: "@owner:harbor.example" },
   ],
   [
     "message sent while busy (enqueue)",
@@ -132,8 +132,8 @@ const CASES: Array<[string, string, Omit<JudgedLine, "relayFrom" | "relayTo"> & 
   ["same message at dequeue", user("also add crackers"), null],
   [
     "relay message arriving while busy",
-    JSON.stringify({ type: "queue-operation", operation: "enqueue", timestamp: ts(), content: pasted(ambient(relayEvent("@kraken:t1000.example", "ev2", "crackers too"))) }),
-    { speaker: "relay", text: "crackers too", relayFrom: "@kraken:t1000.example", relayTo: null },
+    JSON.stringify({ type: "queue-operation", operation: "enqueue", timestamp: ts(), content: pasted(ambient(relayEvent("@kraken:harbor.example", "ev2", "crackers too"))) }),
+    { speaker: "relay", text: "crackers too", relayFrom: "@kraken:harbor.example", relayTo: null },
   ],
 ];
 

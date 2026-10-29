@@ -302,7 +302,7 @@ export async function refreshRelayRoomLastActivity(
   // every observation tick per user per room (~7-8 rewrites/sec at fleet
   // scale, saturated disk at 128 MB/sec sustained), which crown-jewel
   // forceSave rewrites of the whole encrypted DB blob turned into a box-wide
-  // slowdown at t1000 immediately after the arc-close deploy 2026-09-09
+  // slowdown immediately after the arc-close deploy 2026-09-09
   // (diagnosis: tina, iostat + write-rate + mtime + callsite grep). last_activity_at
   // is ephemeral bookkeeping — the next observation tick regenerates it from
   // Matrix admin API within 10s, so losing it across container restart is fine.

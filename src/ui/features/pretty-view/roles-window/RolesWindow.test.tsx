@@ -64,7 +64,7 @@ describe("roles window — library", () => {
     const shared = await screen.findByTestId("roles-window-section-shared");
     const own = screen.getByTestId("roles-window-section-host");
     expect(within(shared).getByRole("heading").textContent).toBe("On every host");
-    expect(within(own).getByRole("heading").textContent).toBe("On thenasty");
+    expect(within(own).getByRole("heading").textContent).toBe("On boreal");
     // Shared section comes first in the document.
     expect(shared.compareDocumentPosition(own) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(within(shared).getByTestId("roles-window-row-support-bot")).toBeTruthy();
@@ -155,7 +155,7 @@ describe("roles window — library", () => {
   it("several hosts: a host picker (RDP-only hosts left out); picking one loads its roles", async () => {
     renderWindow({ tree: MULTI_HOST_TREE });
     const select = (await screen.findByTestId("roles-window-host-select")) as HTMLSelectElement;
-    expect(Array.from(select.options).map((o) => o.textContent)).toEqual(["Pick a host…", "alpha", "thenasty"]);
+    expect(Array.from(select.options).map((o) => o.textContent)).toEqual(["Pick a host…", "alpha", "boreal"]);
     expect(screen.getByText("Pick a host to see its roles.")).toBeTruthy();
     expect(m.listRolesForHost).not.toHaveBeenCalled();
     fireEvent.change(select, { target: { value: "1" } });
@@ -165,7 +165,7 @@ describe("roles window — library", () => {
 
   it("starts on the host it was asked for", async () => {
     renderWindow({ tree: MULTI_HOST_TREE, start: { view: "library", hostId: 2 } });
-    await screen.findByText("On thenasty");
+    await screen.findByText("On boreal");
     expect((screen.getByTestId("roles-window-host-select") as HTMLSelectElement).value).toBe("2");
   });
 
@@ -173,7 +173,7 @@ describe("roles window — library", () => {
     m.listRolesForHost.mockResolvedValue([]);
     m.listInstanceWide.mockResolvedValue({ isAdmin: false, items: [] });
     renderWindow();
-    expect(await screen.findByText("No roles on thenasty yet.")).toBeTruthy();
+    expect(await screen.findByText("No roles on boreal yet.")).toBeTruthy();
     expect(screen.getAllByTestId("roles-window-new-role").length).toBeGreaterThan(0);
   });
 

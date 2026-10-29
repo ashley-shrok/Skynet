@@ -72,7 +72,7 @@ const MAX_CONFIG_BYTES = 256 * 1024;
 /** Last-resort defaults if even /app/branding-defaults/branding.json is
  * missing at runtime (should never happen — Dockerfile COPYs it). Contents
  * must match docker/branding-defaults/branding.json exactly so a no-config
- * deploy on t1000 preserves current behavior byte-for-byte (D-14). */
+ * existing deploy preserves current behavior byte-for-byte (D-14). */
 const HARDCODED_FALLBACK: BrandingConfig = {
   appName: "SKYNET",
   shortName: "SKYNET",

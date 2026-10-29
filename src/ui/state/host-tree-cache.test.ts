@@ -34,8 +34,8 @@ function wrap<T>(payload: T, owner: string = TEST_USERNAME): string {
 // + name to survive round-trip.
 const SAMPLE_A: SSHHostWithStatus = {
   id: 1,
-  name: "thenasty",
-  ip: "100.113.23.63",
+  name: "boreal",
+  ip: "100.70.0.4",
   port: 22,
   username: "root",
   status: "online",
@@ -44,7 +44,7 @@ const SAMPLE_A: SSHHostWithStatus = {
 const SAMPLE_B: SSHHostWithStatus = {
   id: 2,
   name: "workstation",
-  ip: "100.99.149.9",
+  ip: "100.70.0.2",
   port: 22,
   username: "operator",
   status: "offline",
@@ -70,7 +70,7 @@ describe("host-tree-cache", () => {
     writeHostTreeCache([SAMPLE_A, SAMPLE_B]);
     const out = readHostTreeCache();
     expect(out).toHaveLength(2);
-    expect(out[0].name).toBe("thenasty");
+    expect(out[0].name).toBe("boreal");
     expect(out[0].id).toBe(1);
     expect(out[0].status).toBe("online");
     expect(out[1].name).toBe("workstation");
@@ -102,7 +102,7 @@ describe("host-tree-cache", () => {
     localStorage.setItem(CACHE_KEY, wrap(mixed));
     const out = readHostTreeCache();
     expect(out).toHaveLength(2);
-    expect(out.map((h) => h.name)).toEqual(["thenasty", "workstation"]);
+    expect(out.map((h) => h.name)).toEqual(["boreal", "workstation"]);
   });
 
   it("read: id as numeric string is accepted", () => {
@@ -112,7 +112,7 @@ describe("host-tree-cache", () => {
     localStorage.setItem(CACHE_KEY, wrap([stringId]));
     const out = readHostTreeCache();
     expect(out).toHaveLength(1);
-    expect(out[0].name).toBe("thenasty");
+    expect(out[0].name).toBe("boreal");
   });
 
   it("read: owner-mismatch → [] + clears the key", () => {

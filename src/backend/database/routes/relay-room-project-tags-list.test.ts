@@ -176,9 +176,9 @@ import router from "./relay-room-project-tags-list.js";
 
 let server: http.Server;
 
-const CALLER_MXID = "@ash:t1000.taild9b663.ts.net";
-const ROOM_A = "!aaa:t1000.taild9b663.ts.net";
-const ROOM_B = "!bbb:t1000.taild9b663.ts.net";
+const CALLER_MXID = "@ash:harbor.example-tailnet.ts.net";
+const ROOM_A = "!aaa:harbor.example-tailnet.ts.net";
+const ROOM_B = "!bbb:harbor.example-tailnet.ts.net";
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -186,7 +186,7 @@ beforeEach(() => {
   mockUserMxidByUserId.set("1", CALLER_MXID);
   mockUserId = "1";
 
-  (resolveHostById as Mock).mockResolvedValue({ id: 1, name: "t1000" });
+  (resolveHostById as Mock).mockResolvedValue({ id: 1, name: "harbor" });
 
   // Rebuild app per test.
   const app = express();

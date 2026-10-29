@@ -30,7 +30,7 @@ const FIXTURES: Array<{
   {
     // corpus: project=-home-ubuntu-skynet-tanya ts=2026-08-06T15:42:14.513Z — BODY-sq shape
     name: "BODY-sq — coord room initial setup report (tanya)",
-    cmd: `ROOM='!FHdIfqtmSWcGYUfyVp:thenasty.taild9b663.ts.net'
+    cmd: `ROOM='!FHdIfqtmSWcGYUfyVp:boreal.example-tailnet.ts.net'
 CREDS=~/fleet/identities/tanya/relay.json
 BASE=$(jq -r .base "$CREDS")
 TOK=$(jq -r .access_token "$CREDS")
@@ -49,7 +49,7 @@ curl -sS -X PUT "$BASE/rooms/$ROOM_ENC/send/m.room.message/$TXN" \\
   {
     // corpus: project=-home-ubuntu-skynet-tanya ts=2026-08-06T18:19:48.776Z — BODY-sq shape (short)
     name: "BODY-sq — ack short message (tanya)",
-    cmd: `ROOM='!FHdIfqtmSWcGYUfyVp:thenasty.taild9b663.ts.net'
+    cmd: `ROOM='!FHdIfqtmSWcGYUfyVp:boreal.example-tailnet.ts.net'
 CREDS=~/fleet/identities/tanya/relay.json
 BASE=$(jq -r .base "$CREDS")
 TOK=$(jq -r .access_token "$CREDS")
@@ -67,7 +67,7 @@ curl -sS -X PUT "$BASE/rooms/$ROOM_ENC/send/m.room.message/$TXN" \\
     // bash '"'"' idiom for embedding ' in single-quoted BODY (produces literal ')
     // Phase 49 sanitize pass fix — pre-Phase-49 this returned "Relaying user"
     name: `NELLY-SHAPE — BODY-sq with '"'"' apostrophe escape (bash close-sq/quote/open-sq)`,
-    cmd: `TOK=$(jq -r .access_token ~/fleet/identities/nelly/relay.json); BASE=$(jq -r .base ~/fleet/identities/nelly/relay.json); ROOM='!wNhqmNRUNlHesCshwg:thenasty.taild9b663.ts.net'; BODY='Relaying user'"'"'s reply: hi'; curl -sS -X PUT "$BASE/rooms/$ROOM/send/m.room.message/$TXID" -d "$(jq -nc --arg b "$BODY" '{msgtype:"m.text", body:$b}')"`,
+    cmd: `TOK=$(jq -r .access_token ~/fleet/identities/nelly/relay.json); BASE=$(jq -r .base ~/fleet/identities/nelly/relay.json); ROOM='!wNhqmNRUNlHesCshwg:boreal.example-tailnet.ts.net'; BODY='Relaying user'"'"'s reply: hi'; curl -sS -X PUT "$BASE/rooms/$ROOM/send/m.room.message/$TXID" -d "$(jq -nc --arg b "$BODY" '{msgtype:"m.text", body:$b}')"`,
     expectedBody: "Relaying user's reply: hi",
   },
 
@@ -80,9 +80,9 @@ curl -sS -X PUT "$BASE/rooms/$ROOM_ENC/send/m.room.message/$TXN" \\
     name: "BODY-dq — deploy announce starting (tanya)",
     cmd: `BASE=$(cat ~/fleet/identities/tanya/relay-state/base)
 TOK=$(cat ~/fleet/identities/tanya/relay-state/token)
-ROOM='!FHdIfqtmSWcGYUfyVp:thenasty.taild9b663.ts.net'
-# use IP directly since thenasty doesn't resolve on this box
-BASE_IP=\${BASE/thenasty/100.113.23.63}
+ROOM='!FHdIfqtmSWcGYUfyVp:boreal.example-tailnet.ts.net'
+# use IP directly since boreal doesn't resolve on this box
+BASE_IP=\${BASE/boreal/100.70.0.4}
 TXN="tanya-before-$(date +%s%N)"
 BODY="starting deploy on pv-malformed-line-dedup-across-tail-restarts, HEAD 50c489e — hold if you're mid-container-work"
 curl -sS -X PUT "$BASE_IP/rooms/$ROOM/send/m.room.message/$TXN" \\
@@ -104,7 +104,7 @@ echo`,
     cmd: `R=~/fleet/identities/tanya/relay.json
 BASE=$(jq -r .base "$R")
 TOK=$(jq -r .token "$R")
-ROOM='!FHdIfqtmSWcGYUfyVp:thenasty.taild9b663.ts.net'
+ROOM='!FHdIfqtmSWcGYUfyVp:boreal.example-tailnet.ts.net'
 TXN=$(date +%s%N)
 MSG="starting deploy on extend-session-recycling-overlay-timeout, HEAD ae907c8 — hold if you're mid-container-work"
 curl -sS -X PUT "$BASE/rooms/$ROOM/send/m.room.message/$TXN" \\
@@ -124,7 +124,7 @@ curl -sS -X PUT "$BASE/rooms/$ROOM/send/m.room.message/$TXN" \\
     cmd: `RELAY=~/fleet/identities/tanya/relay.json
 BASE=$(python3 -c "import json; print(json.load(open('$RELAY'))['base'])")
 TOK=$(python3 -c "import json; print(json.load(open('$RELAY'))['access_token'])")
-RID='!FHdIfqtmSWcGYUfyVp:thenasty.taild9b663.ts.net'
+RID='!FHdIfqtmSWcGYUfyVp:boreal.example-tailnet.ts.net'
 MSG='starting deploy on pv-parser-accept-queued-command-attachment + pv-malformed-jsonl-placeholder-bubble, HEAD 1283125 — parser accepts queued_command attachments as user turns, malformed JSONL lines now render a placeholder bubble. hold if you'\\''re mid-container-work.'
 curl -sS -X PUT "$BASE/rooms/$RID/send/m.room.message/$(openssl rand -hex 8)" \\
   -H "Authorization: Bearer $TOK" -H 'Content-Type: application/json' \\
@@ -146,7 +146,7 @@ curl -sS -X PUT "$BASE/rooms/$RID/send/m.room.message/$(openssl rand -hex 8)" \\
 cred=~/fleet/identities/tiffany/relay.json
 TOK=$(jq -r '.token // .access_token' "$cred")
 BASE=$(jq -r '.base' "$cred")
-ROOM='!FHdIfqtmSWcGYUfyVp:thenasty.taild9b663.ts.net'
+ROOM='!FHdIfqtmSWcGYUfyVp:boreal.example-tailnet.ts.net'
 TXN="tiffany-$(date +%s%N)"
 BODY=$(jq -nc --arg m "🚧 tiffany BEFORE: starting deploy on phase-31-ws-regression-rca experiment N (surgical remove of 4 enqueueBackendLog calls in src/backend/utils/logger.ts to isolate transport vs volume mechanism). building from ~5895c7c src/ restored to Phase-31 2df02b2 tip + 4-line edit. hold container mutations." '{msgtype:"m.text", body:$m}')
 curl -sS -X PUT "$BASE/rooms/$ROOM/send/m.room.message/$TXN" \\
@@ -166,7 +166,7 @@ curl -sS -X PUT "$BASE/rooms/$ROOM/send/m.room.message/$TXN" \\
     cmd: `source ~/.claude/skills/agent-relay/lib.sh 2>/dev/null
 BASE=$(jq -r .base ~/fleet/identities/tiffany/relay.json)
 TOK=$(jq -r '.access_token // .token' ~/fleet/identities/tiffany/relay.json)
-ROOM='!FHdIfqtmSWcGYUfyVp:thenasty.taild9b663.ts.net'
+ROOM='!FHdIfqtmSWcGYUfyVp:boreal.example-tailnet.ts.net'
 TXN=t$(date +%s%N)
 curl -sS -X PUT "$BASE/rooms/$ROOM/send/m.room.message/$TXN" \\
   -H "Authorization: Bearer $TOK" -H 'Content-Type: application/json' \\
@@ -187,7 +187,7 @@ curl -sS -X PUT "$BASE/rooms/$ROOM/send/m.room.message/$TXN" \\
     cmd: `STATE_DIR=~/fleet/identities/tanya/relay-state
 BASE=$(jq -r .base ~/fleet/identities/tanya/relay.json)
 TOKEN=$(cat "$STATE_DIR/token" 2>/dev/null || jq -r .token ~/fleet/identities/tanya/relay.json)
-RID='!FHdIfqtmSWcGYUfyVp:thenasty.taild9b663.ts.net'
+RID='!FHdIfqtmSWcGYUfyVp:boreal.example-tailnet.ts.net'
 
 cat > /tmp/tanya-msg.txt <<'EOF'
 got it — pulled clean ff (bf6908e → 8a9f797, +d0b0339 slugifier ~ escape + 8a9f797 sidebar birth-cwd "~/"). working tree matches origin now, next push from here will start from your HEAD. thanks for the heads-up.
@@ -208,7 +208,7 @@ rm -f /tmp/tanya-msg.txt /tmp/tanya-req.json`,
     cmd: `STATE_DIR=~/fleet/identities/tanya/relay-state
 BASE=$(jq -r .base ~/fleet/identities/tanya/relay.json)
 TOKEN=$(cat "$STATE_DIR/token" 2>/dev/null || jq -r .token ~/fleet/identities/tanya/relay.json)
-RID='!FHdIfqtmSWcGYUfyVp:thenasty.taild9b663.ts.net'
+RID='!FHdIfqtmSWcGYUfyVp:boreal.example-tailnet.ts.net'
 
 cat > /tmp/tanya-msg.txt <<'EOF'
 LGTM. Final state on my side: #350 gap (yours vacated), #351 tiffany (pending revert), #352/#353 tina, #354 tiffany row-swipe, #355/#356 tanya. Thanks both.
@@ -231,9 +231,9 @@ rm -f /tmp/tanya-msg.txt /tmp/tanya-req.json`,
   {
     // corpus: project=-home-ubuntu-skynet-tiffany ts=2026-08-10T00:40:31.759Z — heredoc-inline shape
     name: "heredoc-inline — tiffany nelly PC offline report (tiffany)",
-    cmd: `BASE="http://100.113.23.63:8008/_matrix/client/v3"
+    cmd: `BASE="http://100.70.0.4:8008/_matrix/client/v3"
 TOK="syt_dGlmZmFueQ_aclydffTuDuqMRPoTItp_22dFP6"
-ROOM="!uvikqTjaoQkxtQjmrs:thenasty.taild9b663.ts.net"
+ROOM="!uvikqTjaoQkxtQjmrs:boreal.example-tailnet.ts.net"
 ROOM_ENC=$(python3 -c "import urllib.parse;print(urllib.parse.quote('$ROOM',safe=''))")
 TXN=$(date +%s%N)
 BODY=$(cat <<'EOF'
@@ -284,7 +284,7 @@ curl -fsS -X PUT \\
     cmd: `STATE_DIR=~/fleet/identities/tiffany/relay-state
 BASE=$(jq -r .base "$HOME/fleet/identities/tiffany/relay.json")
 TOK=$(jq -r .access_token "$HOME/fleet/identities/tiffany/relay.json")
-RID='!FHdIfqtmSWcGYUfyVp:thenasty.taild9b663.ts.net'
+RID='!FHdIfqtmSWcGYUfyVp:boreal.example-tailnet.ts.net'
 jq -Rs '{msgtype:"m.text",body:(.|rtrimstr("\\n"))}' "$STATE_DIR/msg-before.txt" > "$STATE_DIR/req.json"
 curl -s -X PUT "$BASE/rooms/$RID/send/m.room.message/$(openssl rand -hex 8)" \\
   -H "Authorization: Bearer $TOK" -H 'Content-Type: application/json' \\
@@ -320,7 +320,7 @@ print("bounty updated with mechanism finding")
 PY
 
 # Update user via Tina
-ROOM='!FHdIfqtmSWcGYUfyVp:thenasty.taild9b663.ts.net'
+ROOM='!FHdIfqtmSWcGYUfyVp:boreal.example-tailnet.ts.net'
 CREDS=~/fleet/identities/tiffany/relay.json
 BASE=$(jq -r .base "$CREDS")
 TOK=$(jq -r .access_token "$CREDS")
@@ -341,7 +341,7 @@ import json, urllib.request, time, uuid
 creds = json.load(open('/home/ubuntu/fleet/identities/tiffany/relay.json'))
 BASE = creds['base']; TOK = creds['access_token']
 HDR = {'Authorization': f'Bearer {TOK}', 'Content-Type': 'application/json'}
-room_id = '!TmJoVZLOCdojNYhatT:thenasty.taild9b663.ts.net'
+room_id = '!TmJoVZLOCdojNYhatT:boreal.example-tailnet.ts.net'
 msg = "Got it, thanks"
 txn = f'tiffany-ack-{int(time.time())}'
 req = urllib.request.Request(
@@ -377,7 +377,7 @@ describe("extractOutboundBody — priority order", () => {
     // Composition: real BODY='...' var-assign (BODY-sq shape) from corpus +
     // a synthetic cat > /tmp/decoy <<'EOF'\ndecoy body\nEOF heredoc added AFTER.
     // The extractor MUST return 'real body' (from BODY-sq), NOT 'decoy body'.
-    const priorityCmd = `ROOM='!FHdIfqtmSWcGYUfyVp:thenasty.taild9b663.ts.net'
+    const priorityCmd = `ROOM='!FHdIfqtmSWcGYUfyVp:boreal.example-tailnet.ts.net'
 BODY='real body'
 cat > /tmp/decoy <<'EOF'
 decoy body
@@ -513,7 +513,7 @@ describe("extractOutboundBody — shape A: cmd-sub cat heredoc", () => {
     const cmd = `CREDS=~/fleet/identities/isabella/relay.json
 BASE=$(jq -r '.base' "$CREDS")
 TOK=$(jq -r '.access_token' "$CREDS")
-ROOM='!TOhwMIOAPQHcffSjFM:thenasty.taild9b663.ts.net'
+ROOM='!TOhwMIOAPQHcffSjFM:boreal.example-tailnet.ts.net'
 TXN="isabella-$(date +%s)-$$"
 BODY=$(cat <<'EOF'
 short body
@@ -532,7 +532,7 @@ curl -sS -X PUT "$BASE/rooms/$ROOM_ENC/send/m.room.message/$TXN" \\
     const cmd = `RELAY=~/fleet/identities/wendy/relay.json
 BASE=$(jq -r '.base' "$RELAY")
 TOK=$(jq -r '.access_token' "$RELAY")
-ROOM='!GztzHGVvpCWCSyGDNG:thenasty.taild9b663.ts.net'
+ROOM='!GztzHGVvpCWCSyGDNG:boreal.example-tailnet.ts.net'
 TXN=$(date +%s%N)
 
 BODY=$(cat <<'EOF'
@@ -572,7 +572,7 @@ you and user, and stand by. Ping if that changes.`,
     const cmd = `RELAY=~/fleet/identities/wendy/relay.json
 BASE=$(jq -r '.base' "$RELAY")
 TOK=$(jq -r '.access_token' "$RELAY")
-ROOM='!GztzHGVvpCWCSyGDNG:thenasty.taild9b663.ts.net'
+ROOM='!GztzHGVvpCWCSyGDNG:boreal.example-tailnet.ts.net'
 TXN=$(date +%s%N)
 
 BODY=$(cat <<'EOF'
@@ -602,7 +602,7 @@ describe("extractOutboundBody — shape B: cmd-sub jq -n body:", () => {
     const cmd = `R=~/fleet/identities/tina/relay.json
 BASE=$(jq -r .base "$R")
 TOK=$(jq -r .token "$R")
-ROOM='!FHdIfqtmSWcGYUfyVp:thenasty.taild9b663.ts.net'
+ROOM='!FHdIfqtmSWcGYUfyVp:boreal.example-tailnet.ts.net'
 TXN=$(date +%s%N)
 MSG='tina rescue-rebasing my Phase 50 → 52 after taylor P50 collision.'
 BODY=$(jq -nc --arg m "$MSG" '{msgtype:"m.text", body:$m}')
@@ -622,7 +622,7 @@ curl -sS -X PUT "$BASE/rooms/$ROOM/send/m.room.message/$TXN" \\
     const cmd = `R=~/fleet/identities/tina/relay.json
 BASE=$(jq -r .base "$R")
 TOK=$(jq -r .token "$R")
-ROOM='!FHdIfqtmSWcGYUfyVp:thenasty.taild9b663.ts.net'
+ROOM='!FHdIfqtmSWcGYUfyVp:boreal.example-tailnet.ts.net'
 TXN=$(date +%s%N)
 BODY=$(jq -n '{"msgtype":"m.text", "body":"payload with \\"quotes\\""}')
 curl -sS -X PUT "$BASE/rooms/$ROOM/send/m.room.message/$TXN" \\
@@ -643,7 +643,7 @@ describe("extractOutboundBody — shape C: ANSI-C $'...'", () => {
     const cmd = `RELAY=~/fleet/identities/aqua/relay.json
 BASE=$(jq -r '.base' "$RELAY")
 TOK=$(jq -r '.access_token // .token' "$RELAY")
-ROOM_FULL='!XiCaysQQjBbCwwtOGx:thenasty.taild9b663.ts.net'
+ROOM_FULL='!XiCaysQQjBbCwwtOGx:boreal.example-tailnet.ts.net'
 ROOM_ENC=$(printf %s "$ROOM_FULL" | jq -sRr @uri)
 TXN="aqua-morning-$(date +%s)"
 
@@ -663,7 +663,7 @@ curl -sS -X PUT "$BASE/rooms/\${ROOM_ENC}/send/m.room.message/\${TXN}" \\
     const cmd = `RELAY=~/fleet/identities/aqua/relay.json
 BASE=$(jq -r '.base' "$RELAY")
 TOK=$(jq -r '.access_token' "$RELAY")
-ROOM='!XiCaysQQjBbCwwtOGx:thenasty.taild9b663.ts.net'
+ROOM='!XiCaysQQjBbCwwtOGx:boreal.example-tailnet.ts.net'
 TXN=$(date +%s%N)
 
 MSG=$'tab\\there and \\'apos\\' too'
@@ -685,7 +685,7 @@ describe("extractOutboundBody — shape D: read heredoc", () => {
     // populates the assignment map.
     const cmd = `R=~/fleet/identities/poppy/relay.json
 TOK=$(jq -r '.access_token // .token' "$R"); BASE=$(jq -r '.base' "$R")
-ROOM='!dKuMpeCcOqsMSPUIiZ:thenasty.taild9b663.ts.net'
+ROOM='!dKuMpeCcOqsMSPUIiZ:boreal.example-tailnet.ts.net'
 TXN="poppy-vicky-column-filter-expand-$(date +%s)"
 
 read -r -d '' MSG <<'EOF'
@@ -717,7 +717,7 @@ describe("extractOutboundBody — Strategy 12 preflight", () => {
     const cmd = `CREDS=~/fleet/identities/isabella/relay.json
 BASE=$(jq -r '.base' "$CREDS")
 TOK=$(jq -r '.access_token' "$CREDS")
-ROOM='!TOhwMIOAPQHcffSjFM:thenasty.taild9b663.ts.net'
+ROOM='!TOhwMIOAPQHcffSjFM:boreal.example-tailnet.ts.net'
 TXN="isabella-$(date +%s)-$$"
 BODY=$(cat <<'EOF'
 Got it — updated the bounty with the "no access on either side" reality. Standing by for user's call on standing-directive + which access path she wants (dictate vs Remote Login + key install). No sense doing the Sparkle test until we have SSH on at least one Mac anyway; I'll roll it into whichever access flow lands.
@@ -751,7 +751,7 @@ describe("extractOutboundBody — latent bug regressions", () => {
     // primary body — bypassing Strategy 7's greedy match on the secondary arg.
     const cmd = `TOK=$(jq -r .access_token ~/fleet/identities/tabitha/relay.json)
 BASE=$(jq -r .base ~/fleet/identities/tabitha/relay.json)
-ROOM='!wNhqmNRUNlHesCshwg:thenasty.taild9b663.ts.net'
+ROOM='!wNhqmNRUNlHesCshwg:boreal.example-tailnet.ts.net'
 TXN="tabitha-$(date +%s)"
 BODY=$(cat <<'EOF'
 real primary body
@@ -771,7 +771,7 @@ describe("extractOutboundBody — no-op invariant", () => {
     // the assignment builder + 2 new strategies must NOT change the output for
     // any cmd whose assignment map is dominated by the pre-existing sq/dq shapes.
     // Original fixture: BODY='Ack — holding cps, nothing in flight on my end.'
-    const cmd = `ROOM='!FHdIfqtmSWcGYUfyVp:thenasty.taild9b663.ts.net'
+    const cmd = `ROOM='!FHdIfqtmSWcGYUfyVp:boreal.example-tailnet.ts.net'
 CREDS=~/fleet/identities/tanya/relay.json
 BASE=$(jq -r .base "$CREDS")
 TOK=$(jq -r .access_token "$CREDS")

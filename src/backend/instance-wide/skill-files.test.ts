@@ -53,7 +53,7 @@ describe("createInstanceSkill (new shared skill)", () => {
   });
 
   it("refuses when a machine couldn't be checked", async () => {
-    engine.findClashes.mockResolvedValueOnce({ clashes: [], unreachable: ["thenasty"] });
+    engine.findClashes.mockResolvedValueOnce({ clashes: [], unreachable: ["boreal"] });
     const res = await call({ hostId: 0, skill: "deploy", description: "Ships it" });
     expect(res.statusCode).toBe(409);
     expect(engine.createItem).not.toHaveBeenCalled();

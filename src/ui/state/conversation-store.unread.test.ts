@@ -46,7 +46,7 @@ import {
 import type { Tab, Host, HostFolder } from "@/types/ui-types";
 import type { Identity } from "@/api/identities-api";
 
-const host = { id: "1", name: "t1000" } as unknown as Host;
+const host = { id: "1", name: "harbor" } as unknown as Host;
 
 function tab(id: string, tmux: string): Tab {
   return { id, instanceId: id, type: "terminal", label: tmux, host, openedAt: 0, targetTmuxSession: tmux };
@@ -79,7 +79,7 @@ function setup(names: string[], opts?: { project?: string[] }) {
     updateHostsFlat(new Map([[1, host]]));
     updateIdentitiesByKey(new Map(names.map((n) => [n, identity(n)])));
     if (opts?.project) {
-      setProjects([{ slug: "alpha", displayName: "Alpha", hostId: "1", hostname: "t1000", archived: false }]);
+      setProjects([{ slug: "alpha", displayName: "Alpha", hostId: "1", hostname: "harbor", archived: false }]);
       setIdentityProjectAssignments(new Map(opts.project.map((n) => [`1::${n}`, "alpha"])));
     }
     updateOpenTabs(names.map((n) => tab(`t-${n}`, n)));

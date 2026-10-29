@@ -129,7 +129,7 @@ function makeBundledReader(
   return async (bundledPath: string) => map[bundledPath] ?? null;
 }
 
-const host = { id: "6", name: "t1000" };
+const host = { id: "6", name: "harbor" };
 
 // ---------------------------------------------------------------------------
 // AW1 — atomic-write semantics
@@ -625,7 +625,7 @@ describe("BR1 — bootstrap covers host-parent + host-name writes", () => {
     expect((await fs.readFile(parentPath, "utf-8")).trim()).toBe(
       "https://skynet.example.com",
     );
-    expect((await fs.readFile(hostnamePath, "utf-8")).trim()).toBe("t1000");
+    expect((await fs.readFile(hostnamePath, "utf-8")).trim()).toBe("harbor");
   });
 
   it("SKYNET_PUBLIC_URL missing → skip host-parent (no hadError), still writes host-name", async () => {
@@ -641,7 +641,7 @@ describe("BR1 — bootstrap covers host-parent + host-name writes", () => {
     await expect(fs.access(parentPath)).rejects.toThrow();
 
     const hostnamePath = path.join(tmpRoot, "fleet/host/name");
-    expect((await fs.readFile(hostnamePath, "utf-8")).trim()).toBe("t1000");
+    expect((await fs.readFile(hostnamePath, "utf-8")).trim()).toBe("harbor");
   });
 
   it("SKYNET_PUBLIC_URL malformed (no https://) → skip host-parent (no hadError)", async () => {

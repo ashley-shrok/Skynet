@@ -90,7 +90,7 @@ function host(id: string, name: string, canHostAgents = true): Host {
 
 const SINGLE_HOST_TREE: HostFolder = {
   name: "root",
-  children: [host("1", "thenasty")],
+  children: [host("1", "boreal")],
 };
 
 const MULTI_HOST_TREE: HostFolder = {

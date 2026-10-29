@@ -5,7 +5,7 @@
 // visit still shows. Accounts that predate the feature are counted at server
 // start (countUncountedAccounts) — otherwise they'd only be counted on their
 // next visit, silently swallowing any note shipped in between (the feature
-// rolls out, Zoey doesn't log in, the first note ships, she logs in and the
+// rolls out, a user doesn't log in, the first note ships, they log in and the
 // note is counted as already seen). The boot pass is idempotent: once every
 // account has a record it touches nothing.
 

@@ -172,8 +172,8 @@ describe("writeIdentityArchiveFile — LOCAL relay.json write with chmod (un-arc
     await fs.mkdir(identityArchiveDir, { recursive: true });
 
     const relayJsonBody = JSON.stringify({
-      base: "https://t1000.taild9b663.ts.net/_matrix/client/v3",
-      user_id: "@wren:t1000.taild9b663.ts.net",
+      base: "https://harbor.example-tailnet.ts.net/_matrix/client/v3",
+      user_id: "@wren:harbor.example-tailnet.ts.net",
       password: "pw-preserved",
       token: "fresh-tok",
       access_token: "fresh-tok",
@@ -194,8 +194,8 @@ describe("writeIdentityArchiveFile — LOCAL relay.json write with chmod (un-arc
 
     const contents = await fs.readFile(finalPath, "utf-8");
     expect(JSON.parse(contents)).toEqual({
-      base: "https://t1000.taild9b663.ts.net/_matrix/client/v3",
-      user_id: "@wren:t1000.taild9b663.ts.net",
+      base: "https://harbor.example-tailnet.ts.net/_matrix/client/v3",
+      user_id: "@wren:harbor.example-tailnet.ts.net",
       password: "pw-preserved",
       token: "fresh-tok",
       access_token: "fresh-tok",
@@ -213,8 +213,8 @@ describe("readIdentityArchiveFile — LOCAL round-trip (un-archive route)", () =
     await fs.mkdir(identityArchiveDir, { recursive: true });
 
     const relayJsonBody = JSON.stringify({
-      base: "https://t1000.taild9b663.ts.net/_matrix/client/v3",
-      user_id: "@wren:t1000.taild9b663.ts.net",
+      base: "https://harbor.example-tailnet.ts.net/_matrix/client/v3",
+      user_id: "@wren:harbor.example-tailnet.ts.net",
       password: "pw-abc",
       token: "stale-tok",
       access_token: "stale-tok",
@@ -230,8 +230,8 @@ describe("readIdentityArchiveFile — LOCAL round-trip (un-archive route)", () =
       conn: null,
     });
     expect(JSON.parse(roundTrip)).toEqual({
-      base: "https://t1000.taild9b663.ts.net/_matrix/client/v3",
-      user_id: "@wren:t1000.taild9b663.ts.net",
+      base: "https://harbor.example-tailnet.ts.net/_matrix/client/v3",
+      user_id: "@wren:harbor.example-tailnet.ts.net",
       password: "pw-abc",
       token: "stale-tok",
       access_token: "stale-tok",

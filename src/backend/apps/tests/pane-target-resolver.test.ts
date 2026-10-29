@@ -72,11 +72,11 @@ beforeEach(() => {
 describe("resolvePaneTarget — unconditional-tunnel (Q1 RESOLVED)", () => {
   it("resolves through tunnelCache.getOrCreate for a 'local-looking' hostId", async () => {
     const { resolvePaneTarget } = await import("../pane-target-resolver.js");
-    const host = makeHost("t1000"); // "local" — the current Skynet host
+    const host = makeHost("harbor"); // "local" — the current Skynet host
     const result = await resolvePaneTarget(1, host, 3001);
     expect(mocks.getOrCreate).toHaveBeenCalledTimes(1);
     expect(result).toEqual({
-      target: { hostname: "t1000", port: 3001, host },
+      target: { hostname: "harbor", port: 3001, host },
       tunnelPort: 12345,
     });
   });
@@ -94,7 +94,7 @@ describe("resolvePaneTarget — unconditional-tunnel (Q1 RESOLVED)", () => {
 
   it("produces structurally-identical shape for BOTH local-looking and remote hostIds — no branching", async () => {
     const { resolvePaneTarget } = await import("../pane-target-resolver.js");
-    const localHost = makeHost("t1000");
+    const localHost = makeHost("harbor");
     const remoteHost = makeHost("remote-box");
     const localResult = await resolvePaneTarget(1, localHost, 3001);
     const remoteResult = await resolvePaneTarget(42, remoteHost, 3001);

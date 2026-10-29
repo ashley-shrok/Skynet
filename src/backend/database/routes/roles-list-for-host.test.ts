@@ -772,7 +772,7 @@ describe("GET /roles?hostId=<n>", () => {
 //
 // Fixture strategy: the tests below mock the batched-cat output to include
 // or omit YAML frontmatter with a `users:` list per role. The RED phase
-// asserts the current handler surfaces roles Zoe can't see; the GREEN
+// asserts the current handler surfaces roles Riley can't see; the GREEN
 // phase filters them out via isIdentityVisibleToUser(null, roleCos, callerUsername).
 
 describe("Phase 129: role-picker gate on GET /roles?hostId=<n>", () => {
@@ -861,7 +861,7 @@ describe("Phase 129: role-picker gate on GET /roles?hostId=<n>", () => {
   // Test B: multi-user host, role untagged → visible to both users (D-3
   // fallback). Two requests fire two lookups (no cross-request cache).
   // -------------------------------------------------------------------------
-  it("Test B: multi-user host, role has no `users` key → both User and Zoe see it", async () => {
+  it("Test B: multi-user host, role has no `users` key → both User and Riley see it", async () => {
     (execCommand as Mock).mockImplementation(async (_conn: unknown, cmd: string) => {
       if (cmd.includes("ls ")) return "muffin-friend";
       return roleBlock("muffin-friend").join("\n");
@@ -872,10 +872,10 @@ describe("Phase 129: role-picker gate on GET /roles?hostId=<n>", () => {
     expect(user.body).toHaveLength(1);
     expect(user.body[0].name).toBe("muffin-friend");
 
-    const zoe = await fireGetRolesAs("zoe");
-    expect(zoe.status).toBe(200);
-    expect(zoe.body).toHaveLength(1);
-    expect(zoe.body[0].name).toBe("muffin-friend");
+    const riley = await fireGetRolesAs("riley");
+    expect(riley.status).toBe(200);
+    expect(riley.body).toHaveLength(1);
+    expect(riley.body[0].name).toBe("muffin-friend");
 
     // Two requests → two username lookups. No cross-request caching.
     expect(getUsernameForUserIdMock).toHaveBeenCalledTimes(2);
@@ -883,9 +883,9 @@ describe("Phase 129: role-picker gate on GET /roles?hostId=<n>", () => {
 
   // -------------------------------------------------------------------------
   // Test C: multi-user host, role users:[user] → visible to User, hidden
-  // from Zoe (D-2 role-side gate). Zoe's response has ZERO rows.
+  // from Riley (D-2 role-side gate). Riley's response has ZERO rows.
   // -------------------------------------------------------------------------
-  it("Test C: role users:[user] → User sees it, Zoe does NOT (role-side gate)", async () => {
+  it("Test C: role users:[user] → User sees it, Riley does NOT (role-side gate)", async () => {
     (execCommand as Mock).mockImplementation(async (_conn: unknown, cmd: string) => {
       if (cmd.includes("ls ")) return "muffin-friend";
       return roleBlock("muffin-friend", { users: ["user"] }).join("\n");
@@ -896,21 +896,21 @@ describe("Phase 129: role-picker gate on GET /roles?hostId=<n>", () => {
     expect(user.body).toHaveLength(1);
     expect(user.body[0].name).toBe("muffin-friend");
 
-    const zoe = await fireGetRolesAs("zoe");
-    expect(zoe.status).toBe(200);
-    // D-7 depth: the role is ABSENT from Zoe's response.
-    expect(zoe.body).toHaveLength(0);
-    expect(zoe.body.find((r) => r.name === "muffin-friend")).toBeUndefined();
+    const riley = await fireGetRolesAs("riley");
+    expect(riley.status).toBe(200);
+    // D-7 depth: the role is ABSENT from Riley's response.
+    expect(riley.body).toHaveLength(0);
+    expect(riley.body.find((r) => r.name === "muffin-friend")).toBeUndefined();
   });
 
   // -------------------------------------------------------------------------
-  // Test D: multi-user host, role users:[user, zoe] → visible to both.
+  // Test D: multi-user host, role users:[user, riley] → visible to both.
   // Shared explicitly via the users list.
   // -------------------------------------------------------------------------
-  it("Test D: role users:[user,zoe] → both User and Zoe see it (shared explicitly)", async () => {
+  it("Test D: role users:[user,riley] → both User and Riley see it (shared explicitly)", async () => {
     (execCommand as Mock).mockImplementation(async (_conn: unknown, cmd: string) => {
       if (cmd.includes("ls ")) return "shared-role";
-      return roleBlock("shared-role", { users: ["user", "zoe"] }).join("\n");
+      return roleBlock("shared-role", { users: ["user", "riley"] }).join("\n");
     });
 
     const user = await fireGetRolesAs("user");
@@ -918,15 +918,15 @@ describe("Phase 129: role-picker gate on GET /roles?hostId=<n>", () => {
     expect(user.body).toHaveLength(1);
     expect(user.body[0].name).toBe("shared-role");
 
-    const zoe = await fireGetRolesAs("zoe");
-    expect(zoe.status).toBe(200);
-    expect(zoe.body).toHaveLength(1);
-    expect(zoe.body[0].name).toBe("shared-role");
+    const riley = await fireGetRolesAs("riley");
+    expect(riley.status).toBe(200);
+    expect(riley.body).toHaveLength(1);
+    expect(riley.body[0].name).toBe("shared-role");
   });
 
   // -------------------------------------------------------------------------
   // Test E: identity-side gate is IGNORED by the role-picker gate. A role
-  // with users:[user, zoe] still appears in Zoe's picker even if the
+  // with users:[user, riley] still appears in Riley's picker even if the
   // eventual-child-identity would narrow to [user] — the role picker is
   // used BEFORE any identity exists, so identityCos=null passed to the gate.
   // Also asserts the exact call-shape (identityCos === null) via mock call
@@ -936,20 +936,20 @@ describe("Phase 129: role-picker gate on GET /roles?hostId=<n>", () => {
     (execCommand as Mock).mockImplementation(async (_conn: unknown, cmd: string) => {
       if (cmd.includes("ls ")) return "role-a\nrole-b";
       return [
-        ...roleBlock("role-a", { users: ["user", "zoe"] }),
+        ...roleBlock("role-a", { users: ["user", "riley"] }),
         ...roleBlock("role-b", { users: ["user"] }),
       ].join("\n");
     });
 
-    // Zoe sees role-a (both users listed) but NOT role-b (user only).
+    // Riley sees role-a (both users listed) but NOT role-b (user only).
     // If the picker used identityCos incorrectly (e.g. cosBynName instead of
     // null on the identity slot), the intersection would collapse in ways
     // that break this expected shape.
-    const zoe = await fireGetRolesAs("zoe");
-    expect(zoe.status).toBe(200);
-    expect(zoe.body).toHaveLength(1);
-    expect(zoe.body[0].name).toBe("role-a");
-    expect(zoe.body.find((r) => r.name === "role-b")).toBeUndefined();
+    const riley = await fireGetRolesAs("riley");
+    expect(riley.status).toBe(200);
+    expect(riley.body).toHaveLength(1);
+    expect(riley.body[0].name).toBe("role-a");
+    expect(riley.body.find((r) => r.name === "role-b")).toBeUndefined();
   });
 
   // -------------------------------------------------------------------------

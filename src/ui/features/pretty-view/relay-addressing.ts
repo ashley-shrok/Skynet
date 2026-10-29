@@ -31,7 +31,7 @@ export function mxidLocalpart(mxid: string): string | null {
 
 /**
  * Readable name for an mxid with no matching identity — the localpart with a
- * leading capital (`@stacy:skynet.aithercloud.com` → "Stacy"), never the raw
+ * leading capital (`@quinn:chat.example.org` → "Quinn"), never the raw
  * address.
  */
 export function friendlyMxidName(mxid: string): string {

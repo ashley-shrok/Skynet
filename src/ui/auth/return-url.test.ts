@@ -60,7 +60,7 @@ describe("parseReturnFromSearch", () => {
 describe("validateReturnUrl accept cases", () => {
   it.each([
     ["A1 exact-match", "https://term.example.com/"],
-    ["A2 direct subdomain", "https://thenasty-8899.serve.term.example.com/"],
+    ["A2 direct subdomain", "https://boreal-8899.serve.term.example.com/"],
     ["A3 subdomain with path+query+hash", "https://foo.term.example.com/deep/path?x=1#h"],
     ["A4 subdomain with port", "https://foo.term.example.com:8443/"],
     ["A5 case-insensitive hostname (URL constructor lowercases)", "https://FOO.TERM.example.com/"],

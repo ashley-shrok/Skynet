@@ -877,7 +877,7 @@ const doBirth = async (item: PendingBirth, deps: WorkerDeps): Promise<void> => {
       bodyContent: item.prompt || undefined,
       // Spec-provided `users:` for the newborn's frontmatter. Scheduled-agent
       // specs name whose box the spawn belongs to; this is the carrier field
-      // (news-watcher-zoey-email → users:["zoey"] → newborn's frontmatter).
+      // (news-watcher-riley-email → users:["riley"] → newborn's frontmatter).
       // When absent, buildIdentityFileBody falls through to the single-string
       // creatorUsername auto-tag path (which the worker never sets, so on a
       // bare scan-spawn no `users:` key is emitted). A roleless request

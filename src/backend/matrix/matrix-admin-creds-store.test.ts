@@ -90,8 +90,8 @@ describe("matrix-admin-creds-store", () => {
     );
 
     const creds = {
-      homeserverBase: "http://100.113.23.63:8008",
-      userId: "@skynet-admin:thenasty.taild9b663.ts.net",
+      homeserverBase: "http://100.70.0.4:8008",
+      userId: "@skynet-admin:boreal.example-tailnet.ts.net",
       accessToken: "syt_c2t5bmV0LWFkbWlu_deadbeef_test",
       password: "hunter2-plaintext-should-round-trip",
     };
@@ -117,8 +117,8 @@ describe("matrix-admin-creds-store", () => {
     const plaintextPassword = "UNIQUE_MARKER_PASSWORD_do_not_leak_plaintext";
 
     await setMatrixAdminCreds({
-      homeserverBase: "http://100.113.23.63:8008",
-      userId: "@skynet-admin:thenasty.taild9b663.ts.net",
+      homeserverBase: "http://100.70.0.4:8008",
+      userId: "@skynet-admin:boreal.example-tailnet.ts.net",
       accessToken: plaintextToken,
       password: plaintextPassword,
     });
@@ -236,22 +236,22 @@ describe("matrix-admin-creds-store", () => {
     );
 
     await setMatrixAdminCreds({
-      homeserverBase: "http://100.113.23.63:8008",
-      userId: "@skynet-admin:thenasty.taild9b663.ts.net",
+      homeserverBase: "http://100.70.0.4:8008",
+      userId: "@skynet-admin:boreal.example-tailnet.ts.net",
       accessToken: "syt_original_token",
       password: "original-password",
     });
 
-    const applied = await setMatrixAdminServerName("thenasty.taild9b663.ts.net");
+    const applied = await setMatrixAdminServerName("boreal.example-tailnet.ts.net");
     expect(applied).toBe(true);
 
     const readBack = await getMatrixAdminCreds();
     expect(readBack).toEqual({
-      homeserverBase: "http://100.113.23.63:8008",
-      userId: "@skynet-admin:thenasty.taild9b663.ts.net",
+      homeserverBase: "http://100.70.0.4:8008",
+      userId: "@skynet-admin:boreal.example-tailnet.ts.net",
       accessToken: "syt_original_token",
       password: "original-password",
-      serverName: "thenasty.taild9b663.ts.net",
+      serverName: "boreal.example-tailnet.ts.net",
       hostSideBase: null,
     });
   });
@@ -262,7 +262,7 @@ describe("matrix-admin-creds-store", () => {
     );
 
     await setMatrixAdminCreds({
-      homeserverBase: "http://100.113.23.63:8008",
+      homeserverBase: "http://100.70.0.4:8008",
       userId: "@skynet-admin:example.com",
       accessToken: "syt_x",
       password: "p",
@@ -281,7 +281,7 @@ describe("matrix-admin-creds-store", () => {
     );
 
     // No setMatrixAdminCreds() call — the row doesn't exist yet.
-    const applied = await setMatrixAdminServerName("thenasty.taild9b663.ts.net");
+    const applied = await setMatrixAdminServerName("boreal.example-tailnet.ts.net");
     expect(applied).toBe(false);
   });
 
@@ -294,17 +294,17 @@ describe("matrix-admin-creds-store", () => {
     );
 
     await setMatrixAdminCreds({
-      homeserverBase: "http://100.113.23.63:8008",
-      userId: "@skynet-admin:thenasty.taild9b663.ts.net",
+      homeserverBase: "http://100.70.0.4:8008",
+      userId: "@skynet-admin:boreal.example-tailnet.ts.net",
       accessToken: "syt_first_token",
       password: "first-password",
     });
-    await setMatrixAdminServerName("thenasty.taild9b663.ts.net");
+    await setMatrixAdminServerName("boreal.example-tailnet.ts.net");
 
     // Rotate secrets (as a fresh POST /matrix-admin/creds would).
     await setMatrixAdminCreds({
-      homeserverBase: "http://100.113.23.63:8008",
-      userId: "@skynet-admin:thenasty.taild9b663.ts.net",
+      homeserverBase: "http://100.70.0.4:8008",
+      userId: "@skynet-admin:boreal.example-tailnet.ts.net",
       accessToken: "syt_rotated_token",
       password: "rotated-password",
     });
@@ -312,7 +312,7 @@ describe("matrix-admin-creds-store", () => {
     const readBack = await getMatrixAdminCreds();
     expect(readBack?.accessToken).toBe("syt_rotated_token");
     expect(readBack?.password).toBe("rotated-password");
-    expect(readBack?.serverName).toBe("thenasty.taild9b663.ts.net");
+    expect(readBack?.serverName).toBe("boreal.example-tailnet.ts.net");
   });
 
   it("Test 9: setMatrixAdminHostSideBase round-trips through getMatrixAdminCreds; other fields unchanged", async () => {
@@ -322,25 +322,25 @@ describe("matrix-admin-creds-store", () => {
 
     await setMatrixAdminCreds({
       homeserverBase: "http://synapse:8008",
-      userId: "@skynet-admin:thenasty.taild9b663.ts.net",
+      userId: "@skynet-admin:boreal.example-tailnet.ts.net",
       accessToken: "syt_original_token",
       password: "original-password",
     });
     // Seed serverName first so we can prove the hostSideBase setter does NOT
     // clobber it — sibling independence invariant.
-    await setMatrixAdminServerName("thenasty.taild9b663.ts.net");
+    await setMatrixAdminServerName("boreal.example-tailnet.ts.net");
 
-    const applied = await setMatrixAdminHostSideBase("http://100.99.149.8:8008");
+    const applied = await setMatrixAdminHostSideBase("http://100.70.0.1:8008");
     expect(applied).toBe(true);
 
     const readBack = await getMatrixAdminCreds();
     expect(readBack).toEqual({
       homeserverBase: "http://synapse:8008",
-      userId: "@skynet-admin:thenasty.taild9b663.ts.net",
+      userId: "@skynet-admin:boreal.example-tailnet.ts.net",
       accessToken: "syt_original_token",
       password: "original-password",
-      serverName: "thenasty.taild9b663.ts.net",
-      hostSideBase: "http://100.99.149.8:8008",
+      serverName: "boreal.example-tailnet.ts.net",
+      hostSideBase: "http://100.70.0.1:8008",
     });
   });
 
@@ -355,9 +355,9 @@ describe("matrix-admin-creds-store", () => {
       accessToken: "syt_x",
       password: "p",
     });
-    await setMatrixAdminHostSideBase("http://100.99.149.8:8008");
+    await setMatrixAdminHostSideBase("http://100.70.0.1:8008");
     expect((await getMatrixAdminCreds())?.hostSideBase).toBe(
-      "http://100.99.149.8:8008",
+      "http://100.70.0.1:8008",
     );
 
     const cleared = await setMatrixAdminHostSideBase(null);
@@ -371,7 +371,7 @@ describe("matrix-admin-creds-store", () => {
     );
 
     // No setMatrixAdminCreds() call — the row doesn't exist yet.
-    const applied = await setMatrixAdminHostSideBase("http://100.99.149.8:8008");
+    const applied = await setMatrixAdminHostSideBase("http://100.70.0.1:8008");
     expect(applied).toBe(false);
     expect(await getMatrixAdminCreds()).toBeNull();
   });
@@ -387,11 +387,11 @@ describe("matrix-admin-creds-store", () => {
       accessToken: "syt_x",
       password: "p",
     });
-    await setMatrixAdminHostSideBase("http://100.99.149.8:8008");
-    await setMatrixAdminServerName("thenasty.taild9b663.ts.net");
+    await setMatrixAdminHostSideBase("http://100.70.0.1:8008");
+    await setMatrixAdminServerName("boreal.example-tailnet.ts.net");
 
     const readBack = await getMatrixAdminCreds();
-    expect(readBack?.serverName).toBe("thenasty.taild9b663.ts.net");
-    expect(readBack?.hostSideBase).toBe("http://100.99.149.8:8008");
+    expect(readBack?.serverName).toBe("boreal.example-tailnet.ts.net");
+    expect(readBack?.hostSideBase).toBe("http://100.70.0.1:8008");
   });
 });

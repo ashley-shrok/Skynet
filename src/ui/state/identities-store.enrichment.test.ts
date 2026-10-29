@@ -292,7 +292,7 @@ describe("refresh-after-fleet-load — re-fetches per newly reported host", () =
       updateFleetSessions([
         makeSession(3, "jarvis-2"),
         makeSession(6, "sonar"),
-        makeSession(9, "zoey"),
+        makeSession(9, "riley"),
       ]);
       await flush();
       expect(vi.mocked(IdentitiesApi.listIdentities)).toHaveBeenCalledTimes(8);

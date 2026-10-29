@@ -129,7 +129,7 @@ const HOST_TREE: HostFolder = {
   children: [
     {
       id: "1",
-      name: "thenasty",
+      name: "boreal",
       enableRdp: false,
       enableSsh: true,
       enableTerminal: true,
@@ -1065,7 +1065,7 @@ describe("SkillsEditorModal — Phase 44 SKILLED-05", () => {
     // Host <select> has combobox role (radix); find the host one specifically.
     const hostSelect = screen.getByRole("combobox", { name: /host/i });
     // Assert both SSH hosts are present as options, and the RDP-only host is NOT.
-    expect(within(hostSelect).queryByText("thenasty")).toBeTruthy();
+    expect(within(hostSelect).queryByText("boreal")).toBeTruthy();
     expect(within(hostSelect).queryByText("second-ssh-host")).toBeTruthy();
     expect(within(hostSelect).queryByText("windows-box")).toBeNull();
   });

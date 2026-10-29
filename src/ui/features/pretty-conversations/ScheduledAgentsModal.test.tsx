@@ -411,14 +411,14 @@ describe("ScheduledAgentsModal: search", () => {
 
   it("finds a role by the display name its machine gives it, not just its slug", async () => {
     listRolesForHostMock.mockImplementation((id: number) =>
-      Promise.resolve(id === 1 ? [{ name: "box-maintainer", displayName: "thenasty", description: "" }] : []),
+      Promise.resolve(id === 1 ? [{ name: "box-maintainer", displayName: "boreal", description: "" }] : []),
     );
     listScheduledAgentsMock.mockResolvedValueOnce(ROWS());
     renderModal(TWO_HOST_TREE);
     await screen.findByTestId(ROW("triage"));
     await waitFor(() => expect(listRolesForHostMock).toHaveBeenCalledWith(1));
     const user = userEvent.setup();
-    await user.type(screen.getByTestId("scheduled-agents-modal-filter-search"), "thenasty");
+    await user.type(screen.getByTestId("scheduled-agents-modal-filter-search"), "boreal");
     await waitFor(() =>
       expect(screen.queryAllByTestId(/^scheduled-agents-modal-row-[a-z]+$/).map((el) => el.dataset.testid)).toEqual([
         ROW("sweep"),
@@ -1532,7 +1532,7 @@ describe("ScheduledAgentsModal: project", () => {
   const PROJECTS = [
     { slug: "skynet", displayName: "SKYNET", parent: null },
     { slug: "later", displayName: "later", parent: "skynet" },
-    { slug: "aither", displayName: "Aither", parent: null },
+    { slug: "acme", displayName: "Acme", parent: null },
   ];
 
   it("new task: No project by default; the machine's projects in sidebar order; Create writes the pick and the row shows its path", async () => {
@@ -1546,7 +1546,7 @@ describe("ScheduledAgentsModal: project", () => {
     await waitFor(() => expect(projectSelect().options.length).toBe(4));
     expect(listScheduledAgentProjectsMock).toHaveBeenCalledWith(1);
     expect(projectSelect().value).toBe("");
-    expect([...projectSelect().options].map((o) => o.value)).toEqual(["", "aither", "skynet", "later"]);
+    expect([...projectSelect().options].map((o) => o.value)).toEqual(["", "acme", "skynet", "later"]);
     expect(projectSelect().options[3].textContent).toBe("\u00a0\u00a0\u00a0\u00a0later");
     expect(screen.getByText("Where each conversation it starts is filed.")).toBeInTheDocument();
     fireEvent.change(nameField(), { target: { value: "filed" } });

@@ -38,7 +38,7 @@ import { hueFromSessionName } from "@/features/terminal/session-hue";
 
 // Minimal mock for viewing-user-store (default: user has an mxid).
 const mockViewingUserMxid = vi.fn<[], string | null>(
-  () => "@alex:thenasty.taild9b663.ts.net",
+  () => "@alex:boreal.example-tailnet.ts.net",
 );
 
 vi.mock("@/state/viewing-user-store", () => ({
@@ -68,8 +68,8 @@ vi.mock("@/state/identities-store", () => ({
 
 // Minimal mock for user-management-api (default: user + bob have mxids).
 const mockGetUsersListBasic = vi.fn(async () => [
-  { id: "u1", username: "user", mxid: "@alex:thenasty.taild9b663.ts.net" },
-  { id: "u2", username: "bob", mxid: "@bob:thenasty.taild9b663.ts.net" },
+  { id: "u1", username: "user", mxid: "@alex:boreal.example-tailnet.ts.net" },
+  { id: "u2", username: "bob", mxid: "@bob:boreal.example-tailnet.ts.net" },
 ]);
 
 vi.mock("@/api/user-management-api", () => ({
@@ -80,7 +80,7 @@ vi.mock("@/api/user-management-api", () => ({
 // Minimal mock for relay-room-create-api (default: success).
 const mockCreateRelayRoom = vi.fn(async () => ({
   ok: true as const,
-  roomId: "!room:thenasty.taild9b663.ts.net",
+  roomId: "!room:boreal.example-tailnet.ts.net",
   sessionId: "s-1",
   roomTitle: "Chat",
 }));
@@ -156,7 +156,7 @@ describe("NewConversationModal", () => {
   beforeEach(() => {
     // Clear call counts + reset mocks to defaults before each test.
     vi.clearAllMocks();
-    mockViewingUserMxid.mockReturnValue("@alex:thenasty.taild9b663.ts.net");
+    mockViewingUserMxid.mockReturnValue("@alex:boreal.example-tailnet.ts.net");
     mockIdentities.mockReturnValue({
       identities: [
         {
@@ -173,12 +173,12 @@ describe("NewConversationModal", () => {
       refresh: async () => {},
     });
     mockGetUsersListBasic.mockResolvedValue([
-      { id: "u1", username: "user", mxid: "@alex:thenasty.taild9b663.ts.net" },
-      { id: "u2", username: "bob", mxid: "@bob:thenasty.taild9b663.ts.net" },
+      { id: "u1", username: "user", mxid: "@alex:boreal.example-tailnet.ts.net" },
+      { id: "u2", username: "bob", mxid: "@bob:boreal.example-tailnet.ts.net" },
     ]);
     mockCreateRelayRoom.mockResolvedValue({
       ok: true as const,
-      roomId: "!room:thenasty.taild9b663.ts.net",
+      roomId: "!room:boreal.example-tailnet.ts.net",
       sessionId: "s-1",
       roomTitle: "Chat",
     });
@@ -454,7 +454,7 @@ describe("NewConversationModal", () => {
   it("Test 13 (humans-without-hue derived): colorHue equals deterministic djb2 mod 360 of mxid", async () => {
     // Override users: carol has mxid, no persisted colorHue (BasicUser never has colorHue)
     mockGetUsersListBasic.mockResolvedValueOnce([
-      { id: "u3", username: "carol", mxid: "@carol:thenasty.taild9b663.ts.net" },
+      { id: "u3", username: "carol", mxid: "@carol:boreal.example-tailnet.ts.net" },
     ]);
 
     await renderOpen();
@@ -468,7 +468,7 @@ describe("NewConversationModal", () => {
 
     // The expected hue is the deterministic result of hueFromSessionName(mxid).
     const expectedHue = hueFromSessionName(
-      "@carol:thenasty.taild9b663.ts.net",
+      "@carol:boreal.example-tailnet.ts.net",
     );
     expect(typeof expectedHue).toBe("number");
 
@@ -491,7 +491,7 @@ describe("NewConversationModal", () => {
   it("Test 14 (mxid=null filter): user with mxid=null does NOT appear in picker", async () => {
     mockGetUsersListBasic.mockResolvedValueOnce([
       { id: "u4", username: "ghost", mxid: null },
-      { id: "u2", username: "bob", mxid: "@bob:thenasty.taild9b663.ts.net" },
+      { id: "u2", username: "bob", mxid: "@bob:boreal.example-tailnet.ts.net" },
     ]);
 
     await renderOpen();
@@ -511,8 +511,8 @@ describe("NewConversationModal", () => {
   // ─── Test 15: agent mxid derivation from viewingUserMxid serverName ──────
   it("Test 15 (agent mxid derivation): agent mxid uses identityKey lowercased + serverName from viewer mxid", async () => {
     // Identity has identityKey "Nelly" (uppercase N)
-    // viewingUserMxid = @alex:thenasty.taild9b663.ts.net
-    // Expected agent mxid = @nelly:thenasty.taild9b663.ts.net
+    // viewingUserMxid = @alex:boreal.example-tailnet.ts.net
+    // Expected agent mxid = @nelly:boreal.example-tailnet.ts.net
 
     // Render with only agents — no humans (so we can isolate).
     mockGetUsersListBasic.mockResolvedValueOnce([]);
@@ -628,7 +628,7 @@ describe("NewConversationModal", () => {
 
     mockCreateRelayRoom.mockResolvedValueOnce({
       ok: true as const,
-      roomId: "!roomAlpha:thenasty.taild9b663.ts.net",
+      roomId: "!roomAlpha:boreal.example-tailnet.ts.net",
       sessionId: "s-alpha",
       roomTitle: "Alpha chat",
     });
@@ -666,8 +666,8 @@ describe("NewConversationModal", () => {
       expect(setRelayRoomProject).toHaveBeenCalledTimes(1);
     });
     expect(setRelayRoomProject).toHaveBeenCalledWith(
-      "!roomAlpha:thenasty.taild9b663.ts.net",
-      "@alex:thenasty.taild9b663.ts.net",
+      "!roomAlpha:boreal.example-tailnet.ts.net",
+      "@alex:boreal.example-tailnet.ts.net",
       "alpha",
     );
   });
@@ -678,7 +678,7 @@ describe("NewConversationModal", () => {
 
     mockCreateRelayRoom.mockResolvedValueOnce({
       ok: true as const,
-      roomId: "!roomBeta:thenasty.taild9b663.ts.net",
+      roomId: "!roomBeta:boreal.example-tailnet.ts.net",
       sessionId: "s-beta",
       roomTitle: "Beta chat",
     });

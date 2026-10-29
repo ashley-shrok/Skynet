@@ -237,7 +237,7 @@ export interface BirthOptions {
    * Spec-provided user tag for the newborn's `users:` frontmatter. Set by
    * callers that know the user list up front — notably the spawn-request
    * worker, which carries it from a scheduled-agent spec's `users` field
-   * (e.g. news-watcher-zoey-email → users:["zoey"]).
+   * (e.g. news-watcher-riley-email → users:["riley"]).
    *
    * When present + non-empty, buildIdentityFileBody emits
    * `users: [...]` directly from this field AND skips the creatorUsername
@@ -398,7 +398,7 @@ export interface BirthDeps {
    * extractServerName(matrixHomeserver) when non-null. Load-bearing when
    * homeserverBase is a URL whose host is NOT the Matrix server_name —
    * e.g. `http://matrix:8008` (internal docker alias, host = "matrix")
-   * but synapse's real server_name is `t1000.taild9b663.ts.net`.
+   * but synapse's real server_name is `box.example-tailnet.ts.net`.
    * Without this, Step 6 mints `@name:matrix` and synapse returns 400
    * "This endpoint can only be used with local users" because mxid claims
    * to belong to server "matrix", not the local server_name.
@@ -741,7 +741,7 @@ function generateAgentPassword(): string {
  * a homeserver base URL. Used for mxid construction only.
  * Examples:
  *   "https://matrix.example.com:8448" → "matrix.example.com"
- *   "http://100.113.23.63:8008"       → "100.113.23.63"
+ *   "http://100.70.0.4:8008"       → "100.70.0.4"
  *   "matrix.example.com"              → "matrix.example.com"
  */
 function extractServerName(homeserverBase: string): string {

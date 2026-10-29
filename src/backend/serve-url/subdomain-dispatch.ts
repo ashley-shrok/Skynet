@@ -34,7 +34,7 @@
  *
  * `createSubdomainDispatchMiddleware()` reads `process.env.SKYNET_COOKIE_DOMAIN`
  * at the top of the factory body. If unset, THROWS. NO hardcoded
- * hardcoded-primary-domain fallback — t1000 sets its own value, T800 sets
+ * hardcoded-primary-domain fallback — each instance sets its own value;
  * its own value, and any future customer VM sets its own value. If the env is
  * missing at boot, Skynet MUST refuse to boot cleanly (better than silently
  * accepting all traffic under a wrong domain and misrouting cookies /

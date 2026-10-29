@@ -356,7 +356,7 @@ vi.mock("../../utils/shared-credential-manager.js", () => ({
 vi.mock("../../matrix/matrix-admin-client.js", () => ({
   createOrUpdateUser: vi.fn(async () => ({
     ok: true,
-    mxid: "@user_human:thenasty.taild9b663.ts.net",
+    mxid: "@user_human:boreal.example-tailnet.ts.net",
     password: "test-pw",
     status: 201,
   })),
@@ -370,16 +370,16 @@ vi.mock("../../matrix/matrix-admin-client.js", () => ({
 }));
 
 vi.mock("../../matrix/username-to-mxid.js", () => ({
-  buildHumanMxid: vi.fn(() => "@user_human:thenasty.taild9b663.ts.net"),
+  buildHumanMxid: vi.fn(() => "@user_human:boreal.example-tailnet.ts.net"),
   generateHumanRelayPassword: vi.fn(() => "deadbeef00112233445566778899aabbccddeeff00112233"),
-  extractServerName: vi.fn(() => "thenasty.taild9b663.ts.net"),
+  extractServerName: vi.fn(() => "boreal.example-tailnet.ts.net"),
   sanitizeUsernameToLocalpart: vi.fn((s: string) => s.toLowerCase()),
 }));
 
 vi.mock("../../matrix/matrix-admin-creds-store.js", () => ({
   getMatrixAdminCreds: vi.fn(async () => ({
-    homeserverBase: "http://100.113.23.63:8008",
-    userId: "@skynet-admin:thenasty.taild9b663.ts.net",
+    homeserverBase: "http://100.70.0.4:8008",
+    userId: "@skynet-admin:boreal.example-tailnet.ts.net",
     accessToken: "syt_admin_token",
     password: "admin-pw",
   })),

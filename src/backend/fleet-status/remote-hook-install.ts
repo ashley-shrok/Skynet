@@ -667,7 +667,7 @@ export async function installStopHook(
   // the passwd entry (independent of the $HOME env var), and pwd emits an
   // absolute path. Fall back to $HOME env for exotic shells that don't do
   // tilde. Previously `echo $HOME` returned the literal string `$HOME` on
-  // thenasty (fleet_status_hook_install_home_resolve_failed, 2026-09-04) —
+  // a multi-user box (fleet_status_hook_install_home_resolve_failed, 2026-09-04) —
   // some shell config path was not doing variable expansion for that user.
   const homeRaw = await channel.exec(
     '(cd ~ 2>/dev/null && pwd) || printf "%s" "$HOME"',

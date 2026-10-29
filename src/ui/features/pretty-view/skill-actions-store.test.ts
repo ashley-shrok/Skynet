@@ -117,7 +117,7 @@ describe("skill-actions-store", () => {
   it("lists are scoped per user", async () => {
     listSkillsMock.mockResolvedValue([{ name: "build" }]);
     await refreshSkillActions(9, "prefetch");
-    currentUser = "stacy";
+    currentUser = "quinn";
     expect(getSkillActions(9)).toBeNull();
   });
 

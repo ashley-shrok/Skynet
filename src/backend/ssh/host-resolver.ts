@@ -426,7 +426,7 @@ export async function resolveHostByUniversalId(
  *
  * **Cross-user isolation invariant** (RESEARCH § Pitfall 7): `hosts.name` is
  * a per-user friendly name and is NOT unique across users. If two users both
- * have a host named `thenasty` (different physical boxes), filtering only by
+ * have a host named `bigbox` (different physical boxes), filtering only by
  * `name` would let user A trigger reads on user B's host by guessing the
  * friendly name. The WHERE clause MUST be
  * `and(eq(hosts.name, name), eq(hosts.userId, userId))` — filtering by BOTH.
@@ -448,7 +448,7 @@ export async function resolveHostByName(
 
   // D-13 case-insensitive match: dispatch lowercases the URL hostname
   // (subdomain-dispatch.ts L364) but the DB stores the display case (e.g.
-  // "Skynet" for the fleet's t1000 box). Plain `eq(hosts.name, name)` is
+  // "Skynet" for the box Skynet runs on). Plain `eq(hosts.name, name)` is
   // case-sensitive under SQLite's default BINARY collation, which broke the
   // D-13 promise ("display case preserved on the returned host row") — every
   // serve URL to a mixed-case host returned unknown_host + host_unreachable

@@ -2146,7 +2146,7 @@ export function PrettyConversationsPanel({
   // when the user has exactly one pickable host, visible listbox otherwise).
   // The previous defaultCreateProjectHostId derivation (silently picked the
   // first host in the tree) was retired because on multi-host fleets it
-  // routinely picked the wrong host (thenasty, hostId=3) when the user
+  // routinely picked the wrong host (a multi-user box, hostId=3) when the user
   // meant the local host — the user creates a project without noticing
   // where it landed. The picker moves the choice into the UI.
 

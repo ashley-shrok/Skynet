@@ -89,9 +89,9 @@ import { PrettyView } from "@/features/pretty-view/PrettyView";
 import { identityFromArchivedLook } from "./archived-identity";
 import type { Tab, Host } from "@/types/ui-types";
 
-const host = { id: "7", name: "t1000", enableSsh: true } as unknown as Host;
+const host = { id: "7", name: "harbor", enableSsh: true } as unknown as Host;
 const tab = {
-  id: "t1000-terminal-1",
+  id: "harbor-terminal-1",
   instanceId: "i1",
   type: "terminal",
   label: "olden",

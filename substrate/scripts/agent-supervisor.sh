@@ -115,10 +115,10 @@ declare -A MATRIX_PEEK_SNAPSHOT=()
 IDENTITIES=()
 CHECK_INTERVAL=15
 STAGGER_SECONDS=8
-MEMORY_CAP="disabled"    # 2026-08-08 fleet policy (user + Stacy catch): cap mechanism was unsafe
-                         # at scale (below WSS = thrash; cgroup child-inheritance broke Stacy's t800
+MEMORY_CAP="disabled"    # 2026-08-08 fleet policy (caught by two operators): cap mechanism was unsafe
+                         # at scale (below WSS = thrash; cgroup child-inheritance broke a second instance's
                          # builds). Session-dormancy replaces it for idle reclamation (bounty
-                         # session-dormancy-pilot-beelink). "auto" is still a VALID value below for
+                         # session-dormancy-pilot). "auto" is still a VALID value below for
                          # anyone who wants the historic zram-detect behavior; it's just no longer
                          # the DEFAULT — a stale conf without an explicit MEMORY_CAP now inherits
                          # "disabled", not the old 80M trap. Per-box overrides: MEMORY_CAP="auto"
@@ -130,7 +130,7 @@ CLAUDE_MODEL="opus"      # Model passed as `--model <value>` to every claude lau
 [ -f "$CONF" ] && . "$CONF"
 
 # ---- dormancy (2026-08-07) — ON fleet-wide by default since 2026-09-14.
-# It was opt-in through its pilot (bounty session-dormancy-pilot-beelink); the pilot is over and
+# It was opt-in through its pilot (bounty session-dormancy-pilot); the pilot is over and
 # idle reclamation is the fleet's answer to memory pressure now that MEMORY_CAP is disabled, so a
 # box with no DORMANCY line should GET dormancy rather than silently run every identity forever.
 # The knob survives as an escape hatch — per-box $CONF: DORMANCY="off". Per-identity opt-out is
@@ -171,7 +171,7 @@ if ! command -v tmux >/dev/null 2>&1; then
 fi
 # ⚠️ Every tmux call below is wrapped in `timeout -k 5 10 tmux …`. The reconcile loop is
 # sequential per identity; a single stuck tmux child (server unresponsive to a specific pane,
-# copy-mode, wedged buffer) would hang the entire loop indefinitely. Caught 2026-08-10: stacy's
+# copy-mode, wedged buffer) would hang the entire loop indefinitely. Caught 2026-08-10: one agent's
 # supervisor stuck 20h on a hanging `tmux send-keys deco cd`, blocking every identity's
 # matrix_peek/schedule_peek so no dormant agent could wake. 10s bounded, SIGKILL 5s after.
 
@@ -551,7 +551,7 @@ reap_archived_strays() {
 # ---- memory cap (2026-08-06) — wrap claude launches in a systemd scope with MemoryHigh ----
 # Rationale: claude's baseline is ~500 MB RSS per session (Ink React TUI + Node/V8, architectural).
 # On boxes with zram-primary swap, reclaim under a soft MemoryHigh ceiling is cheap enough (LZO
-# decompress on fault-in ≈ ms) to sit comfortably below the natural working set. Bella's beelink
+# decompress on fault-in ≈ ms) to sit comfortably below the natural working set. One mini PC
 # sweep (bounty cgroup-memory-high-idle-paging-prototype): idle pressure knee at 80M/60M, chose 80M
 # → ~85% RAM cut per agent with imperceptible cost. On boxes WITHOUT zram, the same ceiling would
 # push cold pages to NVMe on every reclaim, making DM response times perceptibly slow — so we
@@ -3027,7 +3027,7 @@ _check_id_first_turn() {
 #
 # REPLACES the prior pane-scrape state-machine (7c54898), which false-positived on tmux
 # scrollback: when a pane is reused across relaunches it retains the prior session's /id NAME
-# text, and the scrape check called it SUBMITTED without ever pasting. Three workstation
+# text, and the scrape check called it SUBMITTED without ever pasting. Three
 # agents landed at empty compose that way on 2026-08-29. A new file can't have scrollback.
 submit_id() {
   local name="$1" sess="$2" cwd="$3"
@@ -3343,7 +3343,7 @@ drive() {
     # bash command-scoped assignment — vars apply to this claude only, not the shell.
     timeout -k 5 10 tmux send-keys -t "$sess" -l "$MEMORY_WRAPPER env FLEET_IDENTITY=$name $(compute_mcp_env "$name") $CLAUDE_LAUNCH_ENV $CLAUDE --resume $resume $CLAUDE_LAUNCH_FLAGS $(compute_mcp_flags)" 2>/dev/null
     timeout -k 5 10 tmux send-keys -t "$sess" Enter 2>/dev/null
-    # ⚠️ VERIFY CLAUDE ACTUALLY LAUNCHED (2026-08-29, user witnessed a live failure on workstation).
+    # ⚠️ VERIFY CLAUDE ACTUALLY LAUNCHED (2026-08-29, user witnessed a live failure on one box).
     # send-keys drops bytes into the pane and returns 0 whether or not they became a viable command.
     # A terminal Device Attributes response echoing at the shell prompt as literal `1;2c0;276;0c`
     # got prefixed onto the env-claude line; bash parsed with `;` as command separators, `0c` became
@@ -3456,7 +3456,7 @@ drive() {
       ;;
   esac
   # ⚠️ VERIFY CLAUDE SURVIVED before pasting /id — this class of failure has been observed
-  # live (2026-09-02, tanya on t1000): wait_for_claude passed cleanly above, then the fresh
+  # live (2026-09-02, one agent): wait_for_claude passed cleanly above, then the fresh
   # claude ended up dead — pane back at bash prompt. Old behavior: submit_id's leading C-c +
   # paste of `/id name` landed IN BASH, producing `-bash: /id: No such file or directory`
   # visible in the pane, no jsonl written, submit_id looped its full 2× 15s budget with no
@@ -3685,7 +3685,7 @@ launch() {
 # =============================================================================================
 # Gated by $DORMANCY (default "on" since 2026-09-14). DORMANCY="off" = no behavior change vs. the
 # pre-2026-08-07 supervisor.
-# Design: bounty session-dormancy-pilot-beelink. Pilot target: beelink (bella + alpha + beta),
+# Design: bounty session-dormancy-pilot. Pilot target: one mini PC (three agents),
 # IDLE_THRESHOLD_MINUTES=10 for iteration speed; prod default 120.
 #
 # Wake paths (all in-supervisor):
@@ -3857,7 +3857,7 @@ pending_check() {
 # Matrix accounts. Enumerates BY CONTENT: any *.json file at <idroot>/ or <idroot>/*/ that
 # contains base + user_id + password keys counts as a relay account. State dir is derived
 # from the cred file's stem — <stem>-state/ as a sibling folder (so relay.json → relay-state/,
-# relay-aithercloud.json → relay-aithercloud-state/, <subdir>/relay.json → <subdir>/relay-state/).
+# relay-work.json → relay-work-state/, <subdir>/relay.json → <subdir>/relay-state/).
 # This matches ambient-monitor.py's discovery so both scripts agree on which files are creds
 # and where each account's state lives.
 #

@@ -1,7 +1,7 @@
 // Age-based retention for the voice disk-bank (STT uploads at
 // /app/stt-recordings and TTS chunks under its tts-bank/ subdirectory).
 // Without it the bank grew without bound (5.5 GB / 7.6k files over two months
-// on t1000). Files older than STT_RECORDINGS_MAX_AGE_DAYS (default 14) are
+// on a typical box). Files older than STT_RECORDINGS_MAX_AGE_DAYS (default 14) are
 // deleted; a sweep runs at most once per PRUNE_INTERVAL_MS per directory,
 // triggered by the next bank write, so an idle box costs nothing.
 import fs from "node:fs";

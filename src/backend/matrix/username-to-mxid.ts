@@ -106,7 +106,7 @@ export function sanitizeUsernameToLocalpart(username: string): string {
  *
  * The `_human` suffix distinguishes human relay accounts from agent accounts
  * in the same homeserver namespace (agents carry no suffix). Legacy identifiers
- * without the suffix (user, Zoey, Laura from the one-shot import) continue
+ * without the suffix (the hand-made accounts from the one-shot import) continue
  * to work — the suffix is convention going forward, not a schema invariant.
  *
  * @param username   - The Skynet username (may be email-form, e.g. `user@example.com`)
@@ -140,7 +140,7 @@ export function generateHumanRelayPassword(): string {
  *
  * Examples:
  *   "https://matrix.example.com:8448" → "matrix.example.com"
- *   "http://100.113.23.63:8008"       → "100.113.23.63"
+ *   "http://100.70.0.4:8008"       → "100.70.0.4"
  *   "matrix.example.com"              → "matrix.example.com"
  *   "https://matrix.example.com/path" → "matrix.example.com"
  *

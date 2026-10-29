@@ -46,13 +46,13 @@ describe("countUncountedAccounts", () => {
 
 describe("countNewAccount", () => {
   it("records the notes existing at creation, so later notes still show", () => {
-    db.exec("INSERT INTO users VALUES ('zoey','z')");
-    countNewAccount(db, "zoey", [{ id: "x", text: "X" }]);
-    expect(seenOf("zoey")).toBe('["x"]');
-    // next deploy adds y and the boot pass runs before Zoey's first visit
+    db.exec("INSERT INTO users VALUES ('riley','z')");
+    countNewAccount(db, "riley", [{ id: "x", text: "X" }]);
+    expect(seenOf("riley")).toBe('["x"]');
+    // next deploy adds y and the boot pass runs before Riley's first visit
     const later = [{ id: "x", text: "X" }, { id: "y", text: "Y" }];
     countUncountedAccounts(db, later);
-    expect(resolveUnseen(seenOf("zoey"), later).unseen.map((n) => n.id)).toEqual(["y"]);
+    expect(resolveUnseen(seenOf("riley"), later).unseen.map((n) => n.id)).toEqual(["y"]);
   });
 
   it("returns the error instead of throwing when it can't write", () => {

@@ -1,7 +1,7 @@
 /**
  * GET /identities must not exceed the per-host SSH channel cap.
  *
- * Regression guard for the exhaustion stacy reported 2026-09-15: the disk
+ * Regression guard for the exhaustion quinn reported 2026-09-15: the disk
  * fanout opened 3 channels per identity (identity file + `.pinned` +
  * `.hidden`) plus one per distinct role, all uncapped on a single
  * connection. sshd's default MaxSessions=10 refused the overflow, the

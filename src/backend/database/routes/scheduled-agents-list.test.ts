@@ -830,7 +830,7 @@ describe("GET /scheduled-agents — per-user users-tagging gate", () => {
   });
 
   it("caller NOT on the users list → row filtered out", async () => {
-    (getUsernameForUserId as Mock).mockResolvedValueOnce("zoey");
+    (getUsernameForUserId as Mock).mockResolvedValueOnce("riley");
     simpleDbSelectMock.mockResolvedValue([hostA]);
     execCommandMock.mockResolvedValue(
       makeRemoteStdout([
@@ -844,12 +844,12 @@ describe("GET /scheduled-agents — per-user users-tagging gate", () => {
           }),
         },
         {
-          slug: "for-zoey",
+          slug: "for-riley",
           body: JSON.stringify({
-            name: "For Zoey",
+            name: "For Riley",
             prompt: "p",
             schedule: { type: "daily", at: "09:00" },
-            users: ["zoey"],
+            users: ["riley"],
           }),
         },
       ]),
@@ -861,11 +861,11 @@ describe("GET /scheduled-agents — per-user users-tagging gate", () => {
     });
     expect(res.status).toBe(200);
     const body = res.body as { items: Array<{ slug: string }> };
-    expect(body.items.map((r) => r.slug).sort()).toEqual(["for-zoey"]);
+    expect(body.items.map((r) => r.slug).sort()).toEqual(["for-riley"]);
   });
 
   it("D-3 fallback: null/absent users list → falls open for any caller", async () => {
-    (getUsernameForUserId as Mock).mockResolvedValueOnce("zoey");
+    (getUsernameForUserId as Mock).mockResolvedValueOnce("riley");
     simpleDbSelectMock.mockResolvedValue([hostA]);
     execCommandMock.mockResolvedValue(
       makeRemoteStdout([
@@ -892,7 +892,7 @@ describe("GET /scheduled-agents — per-user users-tagging gate", () => {
   });
 
   it("D-3 fallback: empty users list → falls open for any caller", async () => {
-    (getUsernameForUserId as Mock).mockResolvedValueOnce("zoey");
+    (getUsernameForUserId as Mock).mockResolvedValueOnce("riley");
     simpleDbSelectMock.mockResolvedValue([hostA]);
     execCommandMock.mockResolvedValue(
       makeRemoteStdout([
@@ -934,12 +934,12 @@ describe("GET /scheduled-agents — per-user users-tagging gate", () => {
           }),
         },
         {
-          slug: "for-zoey",
+          slug: "for-riley",
           body: JSON.stringify({
-            name: "For Zoey",
+            name: "For Riley",
             prompt: "p",
             schedule: { type: "daily", at: "09:00" },
-            users: ["zoey"],
+            users: ["riley"],
           }),
         },
       ]),
@@ -951,7 +951,7 @@ describe("GET /scheduled-agents — per-user users-tagging gate", () => {
     });
     expect(res.status).toBe(200);
     const body = res.body as { items: Array<{ slug: string }> };
-    expect(body.items.map((r) => r.slug).sort()).toEqual(["for-alice", "for-zoey"]);
+    expect(body.items.map((r) => r.slug).sort()).toEqual(["for-alice", "for-riley"]);
   });
 
   it("username lookup THROWS → fail-OPEN (gate disabled, all rows visible)", async () => {
@@ -1028,7 +1028,7 @@ describe("GET /scheduled-agents — per-user users-tagging gate", () => {
     // specToRow is lenient: Array.isArray + every-string check → keep;
     // otherwise → null (falls open). Prevents a hand-edited garbage entry
     // from silently locking out every caller.
-    (getUsernameForUserId as Mock).mockResolvedValueOnce("zoey");
+    (getUsernameForUserId as Mock).mockResolvedValueOnce("riley");
     simpleDbSelectMock.mockResolvedValue([hostA]);
     execCommandMock.mockResolvedValue(
       makeRemoteStdout([

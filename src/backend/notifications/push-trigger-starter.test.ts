@@ -256,10 +256,10 @@ describe("startPushTriggerLoopOnBoot", () => {
     await startPushTriggerLoopOnBoot();
 
     const depsArg = createPushTriggerLoopMock.mock.calls[0][0];
-    const initialResult = await depsArg.fetchInitialCursor("!room:t1000", 20);
+    const initialResult = await depsArg.fetchInitialCursor("!room:harbor", 20);
 
     // The wire call — dir=b, count passed through.
-    expect(fetchRoomHistoryMock).toHaveBeenCalledWith("!room:t1000", {
+    expect(fetchRoomHistoryMock).toHaveBeenCalledWith("!room:harbor", {
       dir: "b",
       count: 20,
     });
@@ -290,7 +290,7 @@ describe("startPushTriggerLoopOnBoot", () => {
     await startPushTriggerLoopOnBoot();
 
     const depsArg = createPushTriggerLoopMock.mock.calls[0][0];
-    const initialResult = await depsArg.fetchInitialCursor("!empty:t1000", 20);
+    const initialResult = await depsArg.fetchInitialCursor("!empty:harbor", 20);
 
     expect(initialResult).toEqual({ ok: true, sinceToken: null, events: [] });
   });

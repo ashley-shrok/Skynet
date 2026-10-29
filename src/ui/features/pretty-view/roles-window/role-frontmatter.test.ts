@@ -131,7 +131,7 @@ describe("multi-line values and YAML edge cases", () => {
     "  healthy and fed.",
     "users:",
     "  - robin",
-    "  - zoey",
+    "  - riley",
     "colorHue: '20'",
     "---",
     "",
@@ -162,7 +162,7 @@ describe("multi-line values and YAML edge cases", () => {
         'description: "One line now"',
         "users:",
         "  - robin",
-        "  - zoey",
+        "  - riley",
         "colorHue: '20'",
         "---",
         "",
@@ -175,7 +175,7 @@ describe("multi-line values and YAML edge cases", () => {
   it("clearing a block-scalar key removes its continuation lines", () => {
     const out = mergeRoleFrontmatter(BLOCK, {}, new Set(["description"]));
     expect(out).not.toContain("Keeps the box");
-    expect(out).toContain("  - zoey");
+    expect(out).toContain("  - riley");
   });
 
   it("keeps an unindented list under its key", () => {

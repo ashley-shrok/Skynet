@@ -32,8 +32,8 @@ describe("extractCosmeticsFromFrontmatter — users narrowing (Phase 129)", () =
   });
 
   it("Test 2: preserves order for a multi-entry users list", () => {
-    const result = extractCosmeticsFromFrontmatter(md("users:\n  - user\n  - zoe"));
-    expect(result.users).toEqual(["user", "zoe"]);
+    const result = extractCosmeticsFromFrontmatter(md("users:\n  - user\n  - riley"));
+    expect(result.users).toEqual(["user", "riley"]);
   });
 
   it("Test 3: absent users key yields no `users` property on the returned object", () => {

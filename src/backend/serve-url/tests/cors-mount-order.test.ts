@@ -144,7 +144,7 @@ describe("serve-url dispatch mounts above the D-07 CORS deny", () => {
         next();
       },
     );
-    mocks.resolveHostByUniversalId.mockResolvedValue({ id: 7, name: "t1000" });
+    mocks.resolveHostByUniversalId.mockResolvedValue({ id: 7, name: "harbor" });
     mocks.canAccessHost.mockResolvedValue({ hasAccess: true });
   });
 

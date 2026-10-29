@@ -58,7 +58,7 @@ vi.mock("../../utils/auth-manager.js", () => {
 // Host resolver / SSH mocks
 // ---------------------------------------------------------------------------
 
-let mockResolvedHost: unknown = { id: 3, host: "t1000", user: "user-1" };
+let mockResolvedHost: unknown = { id: 3, host: "harbor", user: "user-1" };
 let mockResolveShouldThrow = false;
 
 vi.mock("../../ssh/host-resolver.js", () => ({
@@ -212,7 +212,7 @@ async function startServer(): Promise<http.Server> {
 
 beforeEach(async () => {
   mockUserId = "user-1";
-  mockResolvedHost = { id: 3, host: "t1000", user: "user-1" };
+  mockResolvedHost = { id: 3, host: "harbor", user: "user-1" };
   mockResolveShouldThrow = false;
   mockConnectShouldThrow = false;
   mockIsLocal = false;

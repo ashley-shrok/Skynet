@@ -24,7 +24,7 @@
 # renewal (~60 days out for a Let's Encrypt 90-day cert). Two valid
 # shapes for the profile:
 #
-#   1. Cross-account (t1000 today): `role_arn = arn:aws:iam::...:role/...`
+#   1. Cross-account: `role_arn = arn:aws:iam::...:role/...`
 #      + `credential_source = Ec2InstanceMetadata` + `region = ...`.
 #      IMDS creds assume the named role in a different AWS account for
 #      Route 53 writes. Requires the pairing.

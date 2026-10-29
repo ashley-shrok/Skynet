@@ -15,7 +15,7 @@
  *
  * SEMAPHORE CAP HISTORY (see box-maintainer role file for full context):
  *   Original cap = 8 (OpenSSH default MaxSessions=10 minus 2 headroom).
- *   Bumped to 48 on 2026-09-24 after a workstation-side wedge investigation
+ *   Bumped to 48 on 2026-09-24 after a wedge investigation on one busy box
  *   (~27 active identities × one permanently-held slot per `tail -F` via
  *   acquireTailSlot exhausted the 8-slot pool → spawn-scan / image-gen /
  *   fleet-status legacy poll all starved on sem.run). Paired with a bump
@@ -23,7 +23,7 @@
  *   from MaxSessions=30 to MaxSessions=64 on OpenSSH-served hosts, sized
  *   for the 4GB Graviton floor (~10MB per sshd child × 64 ≈ 16% of RAM,
  *   leaves ample budget for the actual identity workload). Tailscale-SSH
- *   hosts (e.g. workstation) ignore MaxSessions entirely — the semaphore
+ *   hosts ignore MaxSessions entirely — the semaphore
  *   bump alone unblocks them.
  *
  * D-02 primary path: makeSemaphore is defined HERE and re-exported for starter.ts
@@ -169,7 +169,7 @@ export function getHostSemaphore(
  * Max concurrent SSH handshakes Skynet opens to one host. The exec-slot
  * semaphore above bounds channels, not connections: a burst of one-shot
  * connects (e.g. the fleet-status WS identity gate on a cold subscribe — one
- * connectOneShot per identity, ~30 on t1000) races ~30 unauthenticated
+ * connectOneShot per identity, ~30 on a busy box) races ~30 unauthenticated
  * handshakes at sshd at once. OpenSSH's default MaxStartups=10:30:100 starts
  * randomly dropping beyond 10 pending, so some connects fail. 8 stays under
  * the default with headroom for other producers.

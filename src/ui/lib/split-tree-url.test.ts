@@ -77,7 +77,7 @@ describe("split-tree-url", () => {
     "Test 3: encodes a single-leaf tree into a debugger-legible string containing session name and host",
     () => {
       const fx = makeFixture([
-        ["tab1", { protocol: "tmux", host: "skynet-t1000", session: "aqua" }],
+        ["tab1", { protocol: "tmux", host: "skynet-harbor", session: "aqua" }],
       ]);
       const url = encodeSplitTreeToUrl(leaf("tab1"), fx.address);
       // Debugger-legibility check: both session name and host name must be
@@ -86,8 +86,8 @@ describe("split-tree-url", () => {
         url.includes("aqua") || url.includes(encodeURIComponent("aqua")),
       ).toBe(true);
       expect(
-        url.includes("skynet-t1000") ||
-          url.includes(encodeURIComponent("skynet-t1000")),
+        url.includes("skynet-harbor") ||
+          url.includes(encodeURIComponent("skynet-harbor")),
       ).toBe(true);
       // Structure: contains both alphabet param and tree param.
       expect(url).toMatch(/(^|&)s=/);
@@ -330,7 +330,7 @@ describe("split-tree-url", () => {
   // split trees.
   it("Test 14: tree with a relay leaf round-trips (regression — relay+tmux split)", () => {
     const A: TabSpec = { protocol: "tmux", host: "workstation", session: "alice" };
-    const R: TabSpec = { protocol: "relay", roomId: "!RXaEPCQRtLMmjyRlGY:t1000.taild9b663.ts.net" };
+    const R: TabSpec = { protocol: "relay", roomId: "!RXaEPCQRtLMmjyRlGY:harbor.example-tailnet.ts.net" };
     const fx = makeFixture([
       ["tabA", A],
       ["tabR", R],

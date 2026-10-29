@@ -1760,8 +1760,8 @@ def _drop_spawn_request(spec, state_dir, sensor_fire=None, sensor_broken_prompt=
     }
     # Spec-provided user tag — carries the spec's `users` field into the
     # spawn-request body so the backend birth path emits it as the newborn's
-    # frontmatter `users:` key (news-watcher-zoey-email → users:["zoey"] →
-    # newborn lands under Zoey, not the host owner). Absent-⇒-omit: when the
+    # frontmatter `users:` key (news-watcher-riley-email → users:["riley"] →
+    # newborn lands under Riley, not the host owner). Absent-⇒-omit: when the
     # spec has no `users`, the key is left out and the strict parse-request-
     # body validator still accepts the body.
     spec_users = spec.get("users")

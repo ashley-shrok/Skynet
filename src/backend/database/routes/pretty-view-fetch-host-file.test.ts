@@ -322,7 +322,7 @@ function httpRequest(
 
 const fixtureHost = {
   id: 42,
-  name: "thenasty",
+  name: "boreal",
   userId: "user-A",
   ip: "100.101.1.1",
   port: 22,
@@ -340,7 +340,7 @@ beforeEach(() => {
   resetStubClient();
   (resolveHostByName as Mock).mockImplementation(
     async (name: string, _userId: string) => {
-      if (name === "thenasty") return fixtureHost;
+      if (name === "boreal") return fixtureHost;
       return null;
     },
   );
@@ -389,7 +389,7 @@ describe("POST /pretty-view/fetch-host-file — modal JSON path", () => {
     const res = await httpRequest(server, {
       method: "POST",
       path: "/pretty-view/fetch-host-file",
-      body: JSON.stringify({ hostname: "thenasty", absolutePath: "relative/path" }),
+      body: JSON.stringify({ hostname: "boreal", absolutePath: "relative/path" }),
     });
     expect(res.status).toBe(400);
     expect((res.body as { error: string }).error).toBe("path_must_be_absolute");
@@ -399,7 +399,7 @@ describe("POST /pretty-view/fetch-host-file — modal JSON path", () => {
     const res = await httpRequest(server, {
       method: "POST",
       path: "/pretty-view/fetch-host-file",
-      body: JSON.stringify({ hostname: "thenasty", absolutePath: "/etc/../root/secret" }),
+      body: JSON.stringify({ hostname: "boreal", absolutePath: "/etc/../root/secret" }),
     });
     expect(res.status).toBe(400);
     expect((res.body as { error: string }).error).toBe("path_traversal");
@@ -409,7 +409,7 @@ describe("POST /pretty-view/fetch-host-file — modal JSON path", () => {
     const res = await httpRequest(server, {
       method: "POST",
       path: "/pretty-view/fetch-host-file",
-      body: JSON.stringify({ hostname: "thenasty", absolutePath: "/proc/kmsg" }),
+      body: JSON.stringify({ hostname: "boreal", absolutePath: "/proc/kmsg" }),
     });
     expect(res.status).toBe(400);
     expect((res.body as { error: string }).error).toBe("path_forbidden");
@@ -437,7 +437,7 @@ describe("POST /pretty-view/fetch-host-file — modal JSON path", () => {
       method: "POST",
       path: "/pretty-view/fetch-host-file",
       body: JSON.stringify({
-        hostname: "thenasty",
+        hostname: "boreal",
         absolutePath: "/etc/hostname",
       }),
     });
@@ -461,7 +461,7 @@ describe("POST /pretty-view/fetch-host-file — modal JSON path", () => {
       method: "POST",
       path: "/pretty-view/fetch-host-file",
       body: JSON.stringify({
-        hostname: "thenasty",
+        hostname: "boreal",
         absolutePath: "/etc",
       }),
     });
@@ -487,7 +487,7 @@ describe("POST /pretty-view/fetch-host-file — modal JSON path", () => {
       method: "POST",
       path: "/pretty-view/fetch-host-file",
       body: JSON.stringify({
-        hostname: "thenasty",
+        hostname: "boreal",
         absolutePath: "/var/log/huge.log",
       }),
     });
@@ -518,7 +518,7 @@ describe("POST /pretty-view/fetch-host-file — modal JSON path", () => {
       method: "POST",
       path: "/pretty-view/fetch-host-file",
       body: JSON.stringify({
-        hostname: "thenasty",
+        hostname: "boreal",
         absolutePath: "/home/ubuntu/note.md",
       }),
     });
@@ -565,7 +565,7 @@ describe("POST /pretty-view/fetch-host-file — modal JSON path", () => {
       method: "POST",
       path: "/pretty-view/fetch-host-file",
       body: JSON.stringify({
-        hostname: "thenasty",
+        hostname: "boreal",
         absolutePath: "/home/ubuntu/mystery-file-no-ext-known",
       }),
     });
@@ -589,7 +589,7 @@ describe("POST /pretty-view/fetch-host-file — modal JSON path", () => {
       method: "POST",
       path: "/pretty-view/fetch-host-file",
       body: JSON.stringify({
-        hostname: "thenasty",
+        hostname: "boreal",
         absolutePath: "/nonexistent",
       }),
     });
@@ -609,7 +609,7 @@ describe("POST /pretty-view/fetch-host-file — modal JSON path", () => {
       method: "POST",
       path: "/pretty-view/fetch-host-file",
       body: JSON.stringify({
-        hostname: "thenasty",
+        hostname: "boreal",
         absolutePath: "/root/secret",
       }),
     });
@@ -626,7 +626,7 @@ describe("POST /pretty-view/fetch-host-file — modal JSON path", () => {
       method: "POST",
       path: "/pretty-view/fetch-host-file",
       body: JSON.stringify({
-        hostname: "thenasty",
+        hostname: "boreal",
         absolutePath: "/etc/hostname",
       }),
     });
@@ -646,7 +646,7 @@ describe("POST /pretty-view/fetch-host-file — modal JSON path", () => {
       method: "POST",
       path: "/pretty-view/fetch-host-file",
       body: JSON.stringify({
-        hostname: "thenasty",
+        hostname: "boreal",
         absolutePath: "/root/very-secret.key",
       }),
     });
@@ -667,7 +667,7 @@ describe("POST /pretty-view/fetch-host-file — modal JSON path", () => {
       method: "POST",
       path: "/pretty-view/fetch-host-file",
       body: JSON.stringify({
-        hostname: "thenasty",
+        hostname: "boreal",
         absolutePath: "/home/ubuntu/nasty-link",
       }),
     });
@@ -689,7 +689,7 @@ describe("GET /file/:host/* — verbatim URL path", () => {
     mockUserId = null;
     const res = await httpRequest(server, {
       method: "GET",
-      path: "/file/thenasty/etc/hostname",
+      path: "/file/boreal/etc/hostname",
     });
     expect(res.status).toBe(401);
   });
@@ -711,7 +711,7 @@ describe("GET /file/:host/* — verbatim URL path", () => {
   it("Test 20: empty path after slash → 400 path_must_be_absolute", async () => {
     const res = await httpRequest(server, {
       method: "GET",
-      path: "/file/thenasty/",
+      path: "/file/boreal/",
     });
     expect(res.status).toBe(400);
     expect(res.rawBody).toContain("path_must_be_absolute");
@@ -720,7 +720,7 @@ describe("GET /file/:host/* — verbatim URL path", () => {
   it("Test 21: traversal in wildcard → 400 path_traversal", async () => {
     const res = await httpRequest(server, {
       method: "GET",
-      path: "/file/thenasty/foo/../etc/passwd",
+      path: "/file/boreal/foo/../etc/passwd",
     });
     expect(res.status).toBe(400);
     expect(res.rawBody).toContain("path_traversal");
@@ -729,7 +729,7 @@ describe("GET /file/:host/* — verbatim URL path", () => {
   it("Test 22: /proc path → 400 path_forbidden", async () => {
     const res = await httpRequest(server, {
       method: "GET",
-      path: "/file/thenasty/proc/kmsg",
+      path: "/file/boreal/proc/kmsg",
     });
     expect(res.status).toBe(400);
     expect(res.rawBody).toContain("path_forbidden");
@@ -749,7 +749,7 @@ describe("GET /file/:host/* — verbatim URL path", () => {
     mockCanAccessHost = async () => ({ hasAccess: false });
     const res = await httpRequest(server, {
       method: "GET",
-      path: "/file/thenasty/etc/hostname",
+      path: "/file/boreal/etc/hostname",
     });
     expect(res.status).toBe(403);
     expect(res.rawBody).toContain("permission_denied");
@@ -776,7 +776,7 @@ describe("GET /file/:host/* — verbatim URL path", () => {
     // ASCII → sniffTextBytes returns true → dispatched as text/plain inline.
     const res = await httpRequest(server, {
       method: "GET",
-      path: "/file/thenasty/etc/hostname",
+      path: "/file/boreal/etc/hostname",
     });
     expect(res.status).toBe(200);
     expect(res.rawBody).toBe("hello\n");
@@ -812,7 +812,7 @@ describe("GET /file/:host/* — verbatim URL path", () => {
     );
     const res = await httpRequest(server, {
       method: "GET",
-      path: "/file/thenasty/home/ubuntu/clip.mp4",
+      path: "/file/boreal/home/ubuntu/clip.mp4",
     });
     expect(res.status).toBe(200);
     expect(res.headers["content-type"]).toBe("video/mp4");
@@ -844,7 +844,7 @@ describe("GET /file/:host/* — verbatim URL path", () => {
     );
     const res = await httpRequest(server, {
       method: "GET",
-      path: "/file/thenasty/home/ubuntu/evil.html",
+      path: "/file/boreal/home/ubuntu/evil.html",
     });
     expect(res.status).toBe(200);
     // Body bytes go through as-is — the defense is at the disposition
@@ -882,7 +882,7 @@ describe("GET /file/:host/* — verbatim URL path", () => {
     );
     const res = await httpRequest(server, {
       method: "GET",
-      path: "/file/thenasty/home/ubuntu/icon.svg",
+      path: "/file/boreal/home/ubuntu/icon.svg",
     });
     expect(res.status).toBe(200);
     expect(res.headers["content-type"]).toBe("image/svg+xml");
@@ -915,7 +915,7 @@ describe("GET /file/:host/* — verbatim URL path", () => {
     );
     const res = await httpRequest(server, {
       method: "GET",
-      path: "/file/thenasty/home/ubuntu/mystery.dat",
+      path: "/file/boreal/home/ubuntu/mystery.dat",
     });
     expect(res.status).toBe(200);
     expect(res.headers["content-type"]).toBe("application/octet-stream");
@@ -946,7 +946,7 @@ describe("GET /file/:host/* — verbatim URL path", () => {
     );
     const res = await httpRequest(server, {
       method: "GET",
-      path: "/file/thenasty/home/ubuntu/clip.mp4",
+      path: "/file/boreal/home/ubuntu/clip.mp4",
       headers: { Range: "bytes=2-5" },
     });
     expect(res.status).toBe(206);
@@ -972,7 +972,7 @@ describe("GET /file/:host/* — verbatim URL path", () => {
     );
     const res = await httpRequest(server, {
       method: "GET",
-      path: "/file/thenasty/home/ubuntu/clip.mp4",
+      path: "/file/boreal/home/ubuntu/clip.mp4",
       headers: { Range: "bytes=100-200" },
     });
     expect(res.status).toBe(416);
@@ -987,7 +987,7 @@ describe("GET /file/:host/* — verbatim URL path", () => {
     );
     const res = await httpRequest(server, {
       method: "GET",
-      path: "/file/thenasty/root/secret",
+      path: "/file/boreal/root/secret",
     });
     expect(res.status).toBe(403);
     expect(res.rawBody).toContain("permission_denied");
@@ -1001,7 +1001,7 @@ describe("GET /file/:host/* — verbatim URL path", () => {
     );
     const res = await httpRequest(server, {
       method: "GET",
-      path: "/file/thenasty/nonexistent",
+      path: "/file/boreal/nonexistent",
     });
     expect(res.status).toBe(404);
     expect(res.rawBody).toContain("not_found");
@@ -1024,7 +1024,7 @@ describe("GET /file/:host/* — verbatim URL path", () => {
     );
     const res = await httpRequest(server, {
       method: "GET",
-      path: "/file/thenasty/var/log/huge.log",
+      path: "/file/boreal/var/log/huge.log",
     });
     expect(res.status).toBe(413);
     expect(res.rawBody).toContain("too_large");
@@ -1054,7 +1054,7 @@ describe("GET /file/:host/* — verbatim URL path", () => {
     );
     const res = await httpRequest(server, {
       method: "GET",
-      path: "/file/thenasty/var/log/big.log",
+      path: "/file/boreal/var/log/big.log",
     });
     expect(res.status).toBe(200);
     expect(res.headers["content-length"]).toBe(String(bigBuf.length));
@@ -1075,7 +1075,7 @@ describe("GET /file/:host/* — verbatim URL path", () => {
     );
     const res = await httpRequest(server, {
       method: "GET",
-      path: "/file/thenasty/etc",
+      path: "/file/boreal/etc",
     });
     expect(res.status).toBe(400);
     expect(res.rawBody).toContain("not_a_file");
@@ -1088,7 +1088,7 @@ describe("GET /file/:host/* — verbatim URL path", () => {
     );
     const res = await httpRequest(server, {
       method: "GET",
-      path: "/file/thenasty/etc/hostname",
+      path: "/file/boreal/etc/hostname",
     });
     expect(res.status).toBe(502);
     expect(res.rawBody).toContain("host_unreachable");
@@ -1108,7 +1108,7 @@ describe("GET /file/:host/* — verbatim URL path", () => {
     );
     const res = await httpRequest(server, {
       method: "GET",
-      path: "/file/thenasty/root/secret",
+      path: "/file/boreal/root/secret",
     });
     expect(res.status).toBe(403);
     expect(res.rawBody).not.toContain(
@@ -1149,7 +1149,7 @@ describe("GET /file/:host/* — verbatim URL path", () => {
     );
     const resPromise = httpRequest(server, {
       method: "GET",
-      path: "/file/thenasty/etc/hostname",
+      path: "/file/boreal/etc/hostname",
     });
     // Advance past the 8s timeout
     await vi.advanceTimersByTimeAsync(9_000);
@@ -1170,7 +1170,7 @@ describe("Split-router ghost-alias absence (W-3)", () => {
       method: "POST",
       path: "/fetch-host-file",
       body: JSON.stringify({
-        hostname: "thenasty",
+        hostname: "boreal",
         absolutePath: "/etc/hostname",
       }),
     });
@@ -1180,7 +1180,7 @@ describe("Split-router ghost-alias absence (W-3)", () => {
   it("GET /pretty-view/file/:host/* → 404 (GET-only router mounted at /; /pretty-view mount is POST-only)", async () => {
     const res = await httpRequest(server, {
       method: "GET",
-      path: "/pretty-view/file/thenasty/etc/hostname",
+      path: "/pretty-view/file/boreal/etc/hostname",
     });
     expect(res.status).toBe(404);
   });

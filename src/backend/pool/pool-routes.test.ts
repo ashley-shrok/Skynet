@@ -509,7 +509,7 @@ describe("POST /identities/pool/pick", () => {
   it("Test 13: LOCAL host skips SSH entirely", async () => {
     // When the target is the box Skynet runs on, enumeration reads the
     // identities root directly — opening an SSH connection to ourselves would
-    // be wasteful and can fail on boxes with no inbound SSH (t1000 is
+    // be wasteful and can fail on boxes with no inbound SSH (harbor is
     // SSM-only).
     (isLocalHostId as Mock).mockReturnValue(true);
     (getVettedPool as Mock).mockReturnValueOnce(["Willow"]);

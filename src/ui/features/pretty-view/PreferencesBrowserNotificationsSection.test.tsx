@@ -22,7 +22,7 @@ vi.mock("@/features/notifications/browser-notifications", () => ({
   setBrowserNotificationsEnabled: (on: boolean) => setEnabled(on),
   showTestNotification: (name: string) => showTest(name),
 }));
-vi.mock("@/branding/branding-store", () => ({ useBrandingConfig: () => ({ appName: "Aither" }) }));
+vi.mock("@/branding/branding-store", () => ({ useBrandingConfig: () => ({ appName: "Acme" }) }));
 
 import { PreferencesBrowserNotificationsSection } from "./PreferencesBrowserNotificationsSection";
 
@@ -43,7 +43,7 @@ describe("PreferencesBrowserNotificationsSection", () => {
   it("is off with the open-tab note in the instance's own name, and no test button", () => {
     render(<PreferencesBrowserNotificationsSection />);
     expect(screen.getByTestId("preferences-browser-notifications-switch").getAttribute("aria-checked")).toBe("false");
-    expect(screen.getByText("Works while a tab of Aither is open in this browser.")).toBeTruthy();
+    expect(screen.getByText("Works while a tab of Acme is open in this browser.")).toBeTruthy();
     expect(screen.queryByTestId("preferences-browser-notifications-test")).toBeNull();
   });
 
@@ -54,7 +54,7 @@ describe("PreferencesBrowserNotificationsSection", () => {
     });
     expect(setEnabled).toHaveBeenCalledWith(true);
     fireEvent.click(screen.getByTestId("preferences-browser-notifications-test"));
-    expect(showTest).toHaveBeenCalledWith("Aither");
+    expect(showTest).toHaveBeenCalledWith("Acme");
     expect(screen.getByTestId("preferences-browser-notifications-test-result")).toBeTruthy();
   });
 

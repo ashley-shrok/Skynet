@@ -265,10 +265,10 @@ describe("kit rows and choices", () => {
       <KitHostPicker
         hosts={[
           { id: "1", name: "Skynet", status: "ok" },
-          { id: "2", name: "thenasty", status: "ok" },
+          { id: "2", name: "boreal", status: "ok" },
           { id: "3", name: "workstation", status: "warn" },
           { id: "4", name: "robin-laptop", status: "off" },
-          { id: "5", name: "beelink", status: "off", disabled: true },
+          { id: "5", name: "minipc", status: "off", disabled: true },
         ]}
         selectedId="1"
         onSelect={onSelect}

@@ -269,7 +269,7 @@ router.post(
     // `<host>-<port>.serve.<domain>` is ALWAYS the last dash of the label and
     // D-11's last-dash split recovers the boundary uniquely. It was also aimed
     // wrong — it rejected names that work (`ip-172-31-209-239`, the AWS default
-    // on T800's exec VMs) while admitting names that genuinely break
+    // on some instances' exec VMs) while admitting names that genuinely break
     // (`foo.bar`). Dottedness is the property actually worth guarding.
     //
     // CREATE path only — PUT is untouched per PATTERNS.md host-record-trap
@@ -1486,7 +1486,7 @@ router.get(
     // requester owns (hosts.userId === userId), bypassing both admin
     // cross-user visibility AND shared-credential access. Every UI surface
     // that presents a picker or sidebar of hosts should pass this so on
-    // multi-user instances (T800 with 100 users) the picker doesn't surface
+    // multi-user instances (100+ users) the picker doesn't surface
     // every other user's hosts. Default (param omitted) preserves the
     // existing behavior verbatim so no non-picker consumer regresses.
     const ownedOnly = req.query.ownedOnly === "true";

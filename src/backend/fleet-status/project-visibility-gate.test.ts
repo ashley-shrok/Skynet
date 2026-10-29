@@ -30,27 +30,27 @@ describe("isProjectVisibleToUser — null caller (gate disabled)", () => {
 describe("isProjectVisibleToUser — D-3 fallback (empty/absent list = falls open)", () => {
   it("null users list → falls open for any caller", () => {
     expect(isProjectVisibleToUser(null, "alice")).toBe(true);
-    expect(isProjectVisibleToUser(null, "zoey")).toBe(true);
+    expect(isProjectVisibleToUser(null, "riley")).toBe(true);
   });
 
   it("empty users list → falls open for any caller", () => {
     expect(isProjectVisibleToUser([], "alice")).toBe(true);
-    expect(isProjectVisibleToUser([], "zoey")).toBe(true);
+    expect(isProjectVisibleToUser([], "riley")).toBe(true);
   });
 });
 
 describe("isProjectVisibleToUser — membership check", () => {
   it("caller in list → true", () => {
     expect(isProjectVisibleToUser(["alice"], "alice")).toBe(true);
-    expect(isProjectVisibleToUser(["alice", "zoey"], "zoey")).toBe(true);
+    expect(isProjectVisibleToUser(["alice", "riley"], "riley")).toBe(true);
     expect(
       isProjectVisibleToUser(["a", "b", "c", "alice", "d"], "alice"),
     ).toBe(true);
   });
 
   it("caller NOT in list → false", () => {
-    expect(isProjectVisibleToUser(["alice"], "zoey")).toBe(false);
-    expect(isProjectVisibleToUser(["a", "b"], "zoey")).toBe(false);
+    expect(isProjectVisibleToUser(["alice"], "riley")).toBe(false);
+    expect(isProjectVisibleToUser(["a", "b"], "riley")).toBe(false);
   });
 });
 
@@ -77,13 +77,13 @@ describe("filterVisibleProjectTree — nested projects", () => {
   });
 
   it("null caller → everything visible", () => {
-    const list = [p("a", null, ["zoey"]), p("b", "a", ["zoey"])];
+    const list = [p("a", null, ["riley"]), p("b", "a", ["riley"])];
     expect(filterVisibleProjectTree(list, null)).toEqual(list);
   });
 
   it("hidden parent hides child and grandchild even when they'd pass alone", () => {
     const list = [
-      p("a", null, ["zoey"]),
+      p("a", null, ["riley"]),
       p("b", "a", null),
       p("c", "b", ["alice"]),
     ];
@@ -91,14 +91,14 @@ describe("filterVisibleProjectTree — nested projects", () => {
   });
 
   it("a sub-project can narrow, never widen", () => {
-    const list = [p("a", null, null), p("b", "a", ["zoey"]), p("c", "b", null)];
+    const list = [p("a", null, null), p("b", "a", ["riley"]), p("c", "b", null)];
     expect(filterVisibleProjectTree(list, "alice").map((x) => x.slug)).toEqual([
       "a",
     ]);
   });
 
   it("missing parent → child judged on its own gate (top level)", () => {
-    const list = [p("b", "gone", null), p("c", "gone", ["zoey"])];
+    const list = [p("b", "gone", null), p("c", "gone", ["riley"])];
     expect(filterVisibleProjectTree(list, "alice").map((x) => x.slug)).toEqual([
       "b",
     ]);
@@ -110,14 +110,14 @@ describe("filterVisibleProjectTree — nested projects", () => {
 
     // y is hidden but sits on the loop with x: x (drawn at top level) stays
     // visible, and z hanging off x stays too. Only y itself hides.
-    const hiddenLoop = [p("x", "y", null), p("y", "x", ["zoey"]), p("z", "x", null)];
+    const hiddenLoop = [p("x", "y", null), p("y", "x", ["riley"]), p("z", "x", null)];
     expect(filterVisibleProjectTree(hiddenLoop, "alice").map((n) => n.slug)).toEqual([
       "x",
       "z",
     ]);
 
     // A hidden project hanging off a loop still hides its own children.
-    const hiddenAbove = [p("x", "y", null), p("y", "x", null), p("h", "x", ["zoey"]), p("k", "h", null)];
+    const hiddenAbove = [p("x", "y", null), p("y", "x", null), p("h", "x", ["riley"]), p("k", "h", null)];
     expect(filterVisibleProjectTree(hiddenAbove, "alice").map((n) => n.slug)).toEqual([
       "x",
       "y",
@@ -144,7 +144,7 @@ describe("redactHiddenParents", () => {
   it("blanks a parent that exists but is hidden; keeps visible and genuinely missing parents", () => {
     const all = [
       { slug: "x", parent: "y", users: null },
-      { slug: "y", parent: "x", users: ["zoey"] },
+      { slug: "y", parent: "x", users: ["riley"] },
       { slug: "kid", parent: "x", users: null },
       { slug: "orphan", parent: "gone", users: null },
     ];

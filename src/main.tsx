@@ -276,7 +276,7 @@ function RootApp() {
 // Fire-and-forget: the store's initial state is a bundled-default sentinel
 // (byte-for-byte match with docker/branding-defaults/branding.json), so
 // first-paint is defensible even if this fetch never resolves — matches
-// today's t1000 "Skynet" behavior (Pitfall 5 mitigation, D-14). Runs in
+// today's default "Skynet" behavior (Pitfall 5 mitigation, D-14). Runs in
 // parallel with prepareClientCacheVersion(); createRoot render is NOT
 // gated on the branding promise.
 void fetchBrandingConfig();

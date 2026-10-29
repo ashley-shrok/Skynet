@@ -20,7 +20,7 @@ describe("chart blocks", () => {
   });
 
   it("reads the code-style form with no space after the colon", () => {
-    const res = parseChartBlock("{xAxis:{type:'category', data:['Mon','Tue']}, yAxis:{type:'value'}, series:[{name:'t1000',type:'line',data:[3.1,2.8]}]}");
+    const res = parseChartBlock("{xAxis:{type:'category', data:['Mon','Tue']}, yAxis:{type:'value'}, series:[{name:'harbor',type:'line',data:[3.1,2.8]}]}");
     expect(res.ok).toBe(true);
     if (res.ok) expect((res.option.series as { type: string }[])[0].type).toBe("line");
   });
@@ -95,7 +95,7 @@ describe("table helpers", () => {
     expect(cellNumber("-4")).toBe(-4);
     expect(cellNumber("(7)")).toBe(-7);
     expect(cellNumber("v1.2.3")).toBeNull();
-    expect(cellNumber("t1000")).toBeNull();
+    expect(cellNumber("harbor")).toBeNull();
   });
 
   it("sorts numerically or by text, keeps empties last, and is stable", () => {

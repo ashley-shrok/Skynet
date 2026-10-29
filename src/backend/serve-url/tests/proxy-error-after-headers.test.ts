@@ -2,7 +2,7 @@
  * Regression: an upstream that resets AFTER the response headers have been
  * forwarded must not crash the backend.
  *
- * Live incident 2026-10-17: a serve URL to thenasty:9501 kept ECONNRESET-ing
+ * Live incident 2026-10-17: a serve URL to boreal:9501 kept ECONNRESET-ing
  * mid-response. The proxy error handler only checked `writableEnded`, so it
  * called writeInterstitial → res.setHeader on a response whose headers were
  * already sent → ERR_HTTP_HEADERS_SENT thrown from an event-emitter callback

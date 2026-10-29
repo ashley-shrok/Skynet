@@ -396,17 +396,17 @@ vi.mock("../../relay-sessions/registry-rooms.js", () => ({
 
 // Mock: username-to-mxid — fixed happy-path stubs so tests don't reason about sanitizer output
 vi.mock("../../matrix/username-to-mxid.js", () => ({
-  buildHumanMxid: vi.fn((_username: string, _serverName: string) => "@user_human:thenasty.taild9b663.ts.net"),
+  buildHumanMxid: vi.fn((_username: string, _serverName: string) => "@user_human:boreal.example-tailnet.ts.net"),
   generateHumanRelayPassword: vi.fn(() => "deadbeef00112233445566778899aabbccddeeff00112233"),
-  extractServerName: vi.fn(() => "thenasty.taild9b663.ts.net"),
+  extractServerName: vi.fn(() => "boreal.example-tailnet.ts.net"),
   sanitizeUsernameToLocalpart: vi.fn((s: string) => s.toLowerCase()),
 }));
 
 // Mock: matrix-admin-creds-store — happy-path: admin creds resolve non-null
 vi.mock("../../matrix/matrix-admin-creds-store.js", () => ({
   getMatrixAdminCreds: vi.fn(async () => ({
-    homeserverBase: "http://100.113.23.63:8008",
-    userId: "@skynet-admin:thenasty.taild9b663.ts.net",
+    homeserverBase: "http://100.70.0.4:8008",
+    userId: "@skynet-admin:boreal.example-tailnet.ts.net",
     accessToken: "syt_admin_token",
     password: "admin-pw",
     serverName: null,
@@ -771,7 +771,7 @@ describe("POST /users/create (Phase 85 — multipart with mandatory avatar)", ()
     // Default happy-path implementations for matrix-admin-client mocks
     mockCreateOrUpdateUser.mockResolvedValue({
       ok: true,
-      mxid: "@user_human:thenasty.taild9b663.ts.net",
+      mxid: "@user_human:boreal.example-tailnet.ts.net",
       password: "test-pw",
       status: 201,
     });
@@ -779,7 +779,7 @@ describe("POST /users/create (Phase 85 — multipart with mandatory avatar)", ()
     // Phase 89-02 Task 3: default happy-path — registry join succeeds.
     mockJoinHumanToHumansRegistry.mockResolvedValue({
       ok: true,
-      roomId: "!humans-registry:thenasty.taild9b663.ts.net",
+      roomId: "!humans-registry:boreal.example-tailnet.ts.net",
     });
 
     // Default implementations
@@ -1160,14 +1160,14 @@ describe("POST /users/create (Phase 85 — multipart with mandatory avatar)", ()
     // createOrUpdateUser must have been called exactly once
     expect(mockCreateOrUpdateUser).toHaveBeenCalledTimes(1);
     // First argument is the mxid (what buildHumanMxid returns per the vi.mock stub)
-    expect(mockCreateOrUpdateUser.mock.calls[0][0]).toBe("@user_human:thenasty.taild9b663.ts.net");
+    expect(mockCreateOrUpdateUser.mock.calls[0][0]).toBe("@user_human:boreal.example-tailnet.ts.net");
 
     // users row must have mxid populated with the minted mxid
     const row = sqliteDb
       .prepare("SELECT mxid FROM users WHERE username = ?")
       .get("user") as { mxid: string | null } | undefined;
     expect(row).toBeDefined();
-    expect(row!.mxid).toBe("@user_human:thenasty.taild9b663.ts.net");
+    expect(row!.mxid).toBe("@user_human:boreal.example-tailnet.ts.net");
 
     // deactivateUser must NOT have been called (happy path — no rollback)
     expect(mockDeactivateUser).not.toHaveBeenCalled();
@@ -1237,7 +1237,7 @@ describe("POST /users/create (Phase 85 — multipart with mandatory avatar)", ()
 
     // deactivateUser must have been called exactly once with the minted mxid (D-05 rollback)
     expect(mockDeactivateUser).toHaveBeenCalledTimes(1);
-    expect(mockDeactivateUser.mock.calls[0][0]).toBe("@user_human:thenasty.taild9b663.ts.net");
+    expect(mockDeactivateUser.mock.calls[0][0]).toBe("@user_human:boreal.example-tailnet.ts.net");
 
     // No users row inserted — avatar write failed before INSERT
     const count = sqliteDb.prepare("SELECT COUNT(*) as c FROM users WHERE username = ?").get("user") as { c: number };
@@ -1275,11 +1275,11 @@ describe("POST /users/create (Phase 85 — multipart with mandatory avatar)", ()
     const row = sqliteDb
       .prepare("SELECT mxid FROM users WHERE username = ?")
       .get("user") as { mxid: string | null } | undefined;
-    expect(row?.mxid).toBe("@user_human:thenasty.taild9b663.ts.net");
+    expect(row?.mxid).toBe("@user_human:boreal.example-tailnet.ts.net");
     // Join hook fired exactly once with the minted mxid.
     expect(mockJoinHumanToHumansRegistry).toHaveBeenCalledTimes(1);
     expect(mockJoinHumanToHumansRegistry.mock.calls[0][0]).toBe(
-      "@user_human:thenasty.taild9b663.ts.net",
+      "@user_human:boreal.example-tailnet.ts.net",
     );
   });
 
@@ -1299,7 +1299,7 @@ describe("POST /users/create (Phase 85 — multipart with mandatory avatar)", ()
     expect(res.status).toBe(200);
     expect(mockJoinHumanToHumansRegistry).toHaveBeenCalledTimes(1);
     expect(mockJoinHumanToHumansRegistry.mock.calls[0][0]).toBe(
-      "@user_human:thenasty.taild9b663.ts.net",
+      "@user_human:boreal.example-tailnet.ts.net",
     );
   });
 
@@ -1326,7 +1326,7 @@ describe("POST /users/create (Phase 85 — multipart with mandatory avatar)", ()
     const row = sqliteDb
       .prepare("SELECT mxid FROM users WHERE username = ?")
       .get("user") as { mxid: string | null } | undefined;
-    expect(row?.mxid).toBe("@user_human:thenasty.taild9b663.ts.net");
+    expect(row?.mxid).toBe("@user_human:boreal.example-tailnet.ts.net");
   });
 
   it("POST /users/create — (89-02-T5) mint failure: joinHumanToHumansRegistry NEVER called (hook lives after mint-success path)", async () => {
@@ -2271,7 +2271,7 @@ describe("DELETE /users/delete-account (M5 — forceSave after row deletion)", (
       .prepare(
         "INSERT OR REPLACE INTO users (id, username, password_hash, is_admin, is_oidc, avatar_path, mxid) VALUES (?, ?, ?, ?, ?, ?, ?)",
       )
-      .run("user-id", "user", passwordHash, 0, 0, null, "@user_human:thenasty.taild9b663.ts.net");
+      .run("user-id", "user", passwordHash, 0, 0, null, "@user_human:boreal.example-tailnet.ts.net");
 
     authControl.userId = "user-id";
 
@@ -2279,7 +2279,7 @@ describe("DELETE /users/delete-account (M5 — forceSave after row deletion)", (
 
     expect(res.status).toBe(200);
     expect(mockDeactivateUser).toHaveBeenCalledTimes(1);
-    expect(mockDeactivateUser).toHaveBeenCalledWith("@user_human:thenasty.taild9b663.ts.net");
+    expect(mockDeactivateUser).toHaveBeenCalledWith("@user_human:boreal.example-tailnet.ts.net");
 
     const count = sqliteDb.prepare("SELECT COUNT(*) as c FROM users WHERE id = ?").get("user-id") as { c: number };
     expect(count.c).toBe(0);
@@ -2322,7 +2322,7 @@ describe("DELETE /users/delete-account (M5 — forceSave after row deletion)", (
       .prepare(
         "INSERT OR REPLACE INTO users (id, username, password_hash, is_admin, is_oidc, avatar_path, mxid) VALUES (?, ?, ?, ?, ?, ?, ?)",
       )
-      .run("user-id", "user", passwordHash, 0, 0, null, "@user_human:thenasty.taild9b663.ts.net");
+      .run("user-id", "user", passwordHash, 0, 0, null, "@user_human:boreal.example-tailnet.ts.net");
 
     authControl.userId = "user-id";
 
@@ -2333,7 +2333,7 @@ describe("DELETE /users/delete-account (M5 — forceSave after row deletion)", (
     // Key assertion: delete not blocked by Synapse failure
     expect(res.status).toBe(200);
     expect(mockDeactivateUser).toHaveBeenCalledTimes(1);
-    expect(mockDeactivateUser).toHaveBeenCalledWith("@user_human:thenasty.taild9b663.ts.net");
+    expect(mockDeactivateUser).toHaveBeenCalledWith("@user_human:boreal.example-tailnet.ts.net");
 
     // Row is gone — proves delete PROCEEDED despite Synapse failure
     const count = sqliteDb.prepare("SELECT COUNT(*) as c FROM users WHERE id = ?").get("user-id") as { c: number };

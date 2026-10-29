@@ -159,7 +159,7 @@ describe("conversation-store (117-07): ProjectRow slice + useProjects", () => {
       slug: "a",
       displayName: "Alpha",
       hostId: "1",
-      hostname: "t1000",
+      hostname: "harbor",
       archived: false,
     };
     act(() => {
@@ -177,7 +177,7 @@ describe("conversation-store (117-07): ProjectRow slice + useProjects", () => {
 describe("conversation-store (117-07): setProjects identity-equal skip", () => {
   it("Test 2: setProjects twice with same content does NOT notify subscribers on the second call", () => {
     const rows: ProjectRow[] = [
-      { slug: "a", displayName: "Alpha", hostId: "1", hostname: "t1000", archived: false },
+      { slug: "a", displayName: "Alpha", hostId: "1", hostname: "harbor", archived: false },
     ];
     act(() => {
       setProjects(rows);
@@ -190,7 +190,7 @@ describe("conversation-store (117-07): setProjects identity-equal skip", () => {
       // no-op (no notify) per the archived-fleet-rows identity-equal skip.
       act(() => {
         setProjects([
-          { slug: "a", displayName: "Alpha", hostId: "1", hostname: "t1000", archived: false },
+          { slug: "a", displayName: "Alpha", hostId: "1", hostname: "harbor", archived: false },
         ]);
       });
       expect(notifySpy).not.toHaveBeenCalled();
@@ -219,7 +219,7 @@ describe("conversation-store (117-07): setProjects delta triggers notify", () =>
       // Real delta [] → [row] — should notify exactly once.
       act(() => {
         setProjects([
-          { slug: "a", displayName: "Alpha", hostId: "1", hostname: "t1000", archived: false },
+          { slug: "a", displayName: "Alpha", hostId: "1", hostname: "harbor", archived: false },
         ]);
       });
       expect(notifySpy).toHaveBeenCalledTimes(1);
@@ -234,7 +234,7 @@ describe("conversation-store (117-07): setProjects delta triggers notify", () =>
 // ─────────────────────────────────────────────────────────────────────────────
 describe("conversation-store (117-07): pinned + unassigned floats to pinnedUnassigned zone", () => {
   it("Test 4: pinned unassigned row lands in pinnedUnassigned; unpinned unassigned row lands in middle", () => {
-    const hostA = makeHost("1", "t1000");
+    const hostA = makeHost("1", "harbor");
     const tree: HostFolder = { name: "root", children: [hostA] };
     act(() => {
       updateHostTree(tree);
@@ -263,7 +263,7 @@ describe("conversation-store (117-07): pinned + unassigned floats to pinnedUnass
 // old D-19 "pinned floats to the top of its project section" rule is retired.
 describe("conversation-store: pinned + in-project row is filed under its project (project outranks pin)", () => {
   it("Test 5: pinned in-project row lands in its project section — NOT in global pinnedUnassigned", () => {
-    const hostA = makeHost("1", "t1000");
+    const hostA = makeHost("1", "harbor");
     const tree: HostFolder = { name: "root", children: [hostA] };
     // Three identities in project "alpha", one pinned.
     act(() => {
@@ -284,7 +284,7 @@ describe("conversation-store: pinned + in-project row is filed under its project
         ]),
       );
       setProjects([
-        { slug: "alpha", displayName: "Alpha", hostId: "1", hostname: "t1000", archived: false },
+        { slug: "alpha", displayName: "Alpha", hostId: "1", hostname: "harbor", archived: false },
       ]);
       updateOpenTabs([
         makeTab("t-cora", "terminal", hostA, "cora"),
@@ -306,7 +306,7 @@ describe("conversation-store: pinned + in-project row is filed under its project
   });
 
   it("Test 5b: a pinned AND assigned row sorts alphabetically with its project's members (no pinned-first float) and is absent from pinnedUnassigned", () => {
-    const hostA = makeHost("1", "t1000");
+    const hostA = makeHost("1", "harbor");
     const tree: HostFolder = { name: "root", children: [hostA] };
     act(() => {
       updateHostTree(tree);
@@ -327,7 +327,7 @@ describe("conversation-store: pinned + in-project row is filed under its project
         ]),
       );
       setProjects([
-        { slug: "alpha", displayName: "Alpha", hostId: "1", hostname: "t1000", archived: false },
+        { slug: "alpha", displayName: "Alpha", hostId: "1", hostname: "harbor", archived: false },
       ]);
       updateOpenTabs([
         makeTab("t-cora", "terminal", hostA, "cora"),
@@ -361,7 +361,7 @@ describe("conversation-store: pinned + in-project row is filed under its project
 // ─────────────────────────────────────────────────────────────────────────────
 describe("conversation-store (117-07): projectSections sorted alphabetical by displayName (D-15)", () => {
   it("Test 6: two projects — {slug:'z',displayName:'Alpha'} sorts BEFORE {slug:'a',displayName:'Zebra'}", () => {
-    const hostA = makeHost("1", "t1000");
+    const hostA = makeHost("1", "harbor");
     act(() => {
       updateHostTree({ name: "root", children: [hostA] });
       updateHostsFlat(new Map([[1, hostA]]));
@@ -378,8 +378,8 @@ describe("conversation-store (117-07): projectSections sorted alphabetical by di
         ]),
       );
       setProjects([
-        { slug: "z", displayName: "Alpha", hostId: "1", hostname: "t1000", archived: false },
-        { slug: "a", displayName: "Zebra", hostId: "1", hostname: "t1000", archived: false },
+        { slug: "z", displayName: "Alpha", hostId: "1", hostname: "harbor", archived: false },
+        { slug: "a", displayName: "Zebra", hostId: "1", hostname: "harbor", archived: false },
       ]);
       updateOpenTabs([
         makeTab("t-wren", "terminal", hostA, "wren"),
@@ -400,7 +400,7 @@ describe("conversation-store (117-07): projectSections sorted alphabetical by di
 // ─────────────────────────────────────────────────────────────────────────────
 describe("conversation-store (117-07): graceful degradation on dangling project ref (D-07)", () => {
   it("Test 7: identity with project='ghost' when useProjects has no such slug → row lands in middle, no crash", () => {
-    const hostA = makeHost("1", "t1000");
+    const hostA = makeHost("1", "harbor");
     act(() => {
       updateHostTree({ name: "root", children: [hostA] });
       updateHostsFlat(new Map([[1, hostA]]));
@@ -426,12 +426,12 @@ describe("conversation-store (117-07): graceful degradation on dangling project 
 // ─────────────────────────────────────────────────────────────────────────────
 describe("conversation-store (117-07): RDP row exclusion from projects (D-08)", () => {
   it("Test 8: rdpHostRow=true rows never appear in projectSections, even when a project assignment exists", () => {
-    const hostA = makeHost("1", "t1000", { enableRdp: true });
+    const hostA = makeHost("1", "harbor", { enableRdp: true });
     act(() => {
       updateHostTree({ name: "root", children: [hostA] });
       updateHostsFlat(new Map([[1, hostA]]));
       setProjects([
-        { slug: "alpha", displayName: "Alpha", hostId: "1", hostname: "t1000", archived: false },
+        { slug: "alpha", displayName: "Alpha", hostId: "1", hostname: "harbor", archived: false },
       ]);
       // Attempt to inject a poisoning assignment for the RDP row's synthetic id.
       // rdp-host row id is `rdp-host::${host.id}` — this shouldn't normally
@@ -460,7 +460,7 @@ describe("conversation-store (117-07): empty project section (D-11)", () => {
   it("Test 9: project with zero conversations still emits {slug, displayName, rows: []}", () => {
     act(() => {
       setProjects([
-        { slug: "empty", displayName: "Empty", hostId: "1", hostname: "t1000", archived: false },
+        { slug: "empty", displayName: "Empty", hostId: "1", hostname: "harbor", archived: false },
       ]);
     });
     const { result } = renderHook(() => useConversations());
@@ -506,7 +506,7 @@ describe("conversation-store (117-07): empty project section (D-11)", () => {
 // ─────────────────────────────────────────────────────────────────────────────
 describe("conversation-store (117-07): identity conversation project resolution", () => {
   it("Test 10: identity 'wren' with identityProjectAssignments {1::wren → 'alpha'} lands in the 'alpha' section", () => {
-    const hostA = makeHost("1", "t1000");
+    const hostA = makeHost("1", "harbor");
     act(() => {
       updateHostTree({ name: "root", children: [hostA] });
       updateHostsFlat(new Map([[1, hostA]]));
@@ -519,7 +519,7 @@ describe("conversation-store (117-07): identity conversation project resolution"
         new Map<string, string>([["1::wren", "alpha"]]),
       );
       setProjects([
-        { slug: "alpha", displayName: "Alpha", hostId: "1", hostname: "t1000", archived: false },
+        { slug: "alpha", displayName: "Alpha", hostId: "1", hostname: "harbor", archived: false },
       ]);
       updateOpenTabs([makeTab("t-wren", "terminal", hostA, "wren")]);
     });
@@ -538,7 +538,7 @@ describe("conversation-store (117-07): identity conversation project resolution"
 // ─────────────────────────────────────────────────────────────────────────────
 describe("conversation-store (117-07): relay-room conversation project resolution", () => {
   it("Test 11: relay-room row with matrixRoomId set → hydrated via roomProjectAssignments Map<roomId, slug>", () => {
-    const roomId = "!abc:t1000";
+    const roomId = "!abc:harbor";
     // Relay-room fleet session — matches computeSnapshot's relay-room branch.
     const relaySession: FleetSession = {
       hostId: 0,
@@ -555,7 +555,7 @@ describe("conversation-store (117-07): relay-room conversation project resolutio
       updateFleetSessions([relaySession]);
       setRoomProjectAssignments(new Map<string, string>([[roomId, "alpha"]]));
       setProjects([
-        { slug: "alpha", displayName: "Alpha", hostId: "1", hostname: "t1000", archived: false },
+        { slug: "alpha", displayName: "Alpha", hostId: "1", hostname: "harbor", archived: false },
       ]);
     });
 
@@ -575,7 +575,7 @@ describe("conversation-store (117-07): relay-room conversation project resolutio
 // ─────────────────────────────────────────────────────────────────────────────
 describe("conversation-store (117-07): empty state", () => {
   it("Test 12: no projects, no assignments — selector returns projectSections=[]", () => {
-    const hostA = makeHost("1", "t1000");
+    const hostA = makeHost("1", "harbor");
     act(() => {
       updateHostTree({ name: "root", children: [hostA] });
       updateOpenTabs([
@@ -609,7 +609,7 @@ describe("conversation-store (projects cache): cold-boot seed + write-on-setter"
       slug: "alpha",
       displayName: "Alpha",
       hostId: "1",
-      hostname: "t1000",
+      hostname: "harbor",
       archived: false,
     };
     act(() => {
@@ -626,7 +626,7 @@ describe("conversation-store (projects cache): cold-boot seed + write-on-setter"
       slug: "alpha",
       displayName: "Alpha",
       hostId: "1",
-      hostname: "t1000",
+      hostname: "harbor",
       archived: false,
     };
     act(() => {
@@ -678,7 +678,7 @@ describe("conversation-store (projects cache): cold-boot seed + write-on-setter"
       slug: "alpha",
       displayName: "Alpha",
       hostId: "1",
-      hostname: "t1000",
+      hostname: "harbor",
       archived: false,
     };
     act(() => {
@@ -716,7 +716,7 @@ describe("conversation-store (projects cache): cold-boot seed + write-on-setter"
               slug: "a",
               displayName: "Alpha",
               hostId: "1",
-              hostname: "t1000",
+              hostname: "harbor",
               archived: false,
             },
           ],
@@ -742,7 +742,7 @@ describe("conversation-store (projects cache): cold-boot seed + write-on-setter"
             slug: "a",
             displayName: "Alpha",
             hostId: "1",
-            hostname: "t1000",
+            hostname: "harbor",
             archived: false,
           },
         ],
@@ -765,7 +765,7 @@ describe("conversation-store (projects cache): cold-boot seed + write-on-setter"
             slug: "b",
             displayName: "Bravo",
             hostId: "1",
-            hostname: "t1000",
+            hostname: "harbor",
             archived: false,
           },
         ],
@@ -789,7 +789,7 @@ describe("conversation-store (projects cache): cold-boot seed + write-on-setter"
           slug: "a",
           displayName: "Alpha",
           hostId: "1",
-          hostname: "t1000",
+          hostname: "harbor",
           archived: false,
         },
       ],
@@ -805,8 +805,8 @@ describe("conversation-store (projects cache): cold-boot seed + write-on-setter"
   it("nested projects: the cache keeps each project's parent (no flat flash on reload)", () => {
     writeProjectsCache({
       projects: [
-        { slug: "top", displayName: "Top", hostId: "1", hostname: "t1000", archived: false, parent: null },
-        { slug: "kid", displayName: "Kid", hostId: "1", hostname: "t1000", archived: false, parent: "top" },
+        { slug: "top", displayName: "Top", hostId: "1", hostname: "harbor", archived: false, parent: null },
+        { slug: "kid", displayName: "Kid", hostId: "1", hostname: "harbor", archived: false, parent: "top" },
       ],
       identityProjectAssignments: new Map(),
       roomProjectAssignments: new Map(),
@@ -825,7 +825,7 @@ describe("conversation-store (projects cache): cold-boot seed + write-on-setter"
           slug: "a",
           displayName: "Alpha",
           hostId: "1",
-          hostname: "t1000",
+          hostname: "harbor",
           archived: false,
         },
       ]);
@@ -855,14 +855,14 @@ describe("conversation-store: mergeProjectsForHost", () => {
     slug: "alpha",
     displayName: "Alpha",
     hostId: "1",
-    hostname: "t1000",
+    hostname: "harbor",
     archived: false,
   };
   const hostA2: ProjectRow = {
     slug: "alpha2",
     displayName: "Alpha 2",
     hostId: "1",
-    hostname: "t1000",
+    hostname: "harbor",
     archived: false,
   };
   const hostB1: ProjectRow = {
@@ -1000,7 +1000,7 @@ describe("conversation-store: nested projects", () => {
     slug,
     displayName,
     hostId,
-    hostname: hostId === "1" ? "t1000" : "workstation",
+    hostname: hostId === "1" ? "harbor" : "workstation",
     archived: false,
     parent,
   });

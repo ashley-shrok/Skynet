@@ -59,7 +59,7 @@ export function getLocalClaudeProjectsRoot(): string {
  * cache entry (the connect-time `totalLines` probe in
  * `claude-session-server.ts:6076`, the `tail -F` in `session-file-tail.ts`,
  * `fetch_older_range` handling in `session-file-range-reader.ts`) runs the
- * path through SSH exec against `ubuntu@t1000`. The SSH session sees the
+ * path through SSH exec against the Skynet box itself. The SSH session sees the
  * HOST filesystem, where `/host-home` doesn't exist — only
  * `${SKYNET_HOME_MOUNT_SRC}` does (the source side of the bind mount). So a
  * container-perspective path reaching SSH fails with "No such file or

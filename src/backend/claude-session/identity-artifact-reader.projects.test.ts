@@ -699,7 +699,7 @@ describe("listProjects — users frontmatter parsing (Phase 130 D-3)", () => {
         // js-yaml renders inline flow-style arrays; assert case preservation
         // by writing mixed-case usernames.
         return Promise.resolve(
-          "---\ndisplayName: 'Alpha'\nusers:\n  - Alice\n  - zoey\n---\n",
+          "---\ndisplayName: 'Alpha'\nusers:\n  - Alice\n  - riley\n---\n",
         );
       }
       const err = new Error("ENOENT") as NodeJS.ErrnoException;
@@ -709,7 +709,7 @@ describe("listProjects — users frontmatter parsing (Phase 130 D-3)", () => {
 
     const result = await listProjects(null);
     expect(result).toEqual([
-      { slug: "alpha", displayName: "Alpha", users: ["Alice", "zoey"], parent: null },
+      { slug: "alpha", displayName: "Alpha", users: ["Alice", "riley"], parent: null },
     ]);
   });
 

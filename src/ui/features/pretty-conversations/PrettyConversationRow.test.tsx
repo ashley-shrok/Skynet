@@ -204,7 +204,7 @@ import { PrettyConversationRow, rdpDisplayName } from "./PrettyConversationRow";
 function makeHost(overrides: Partial<Host> = {}): Host {
   return {
     id: "hA",
-    name: "thenasty",
+    name: "boreal",
     username: "root",
     ip: "10.0.0.1",
     port: 22,
@@ -356,8 +356,8 @@ describe("PrettyConversationRow: title-duplicate suffix suppression", () => {
         row={makeRow({
           rdpHostRow: true,
           targetTmuxSession: null,
-          label: "thenasty-RDP",
-          host: makeHost({ name: "thenasty-RDP" }),
+          label: "boreal-RDP",
+          host: makeHost({ name: "boreal-RDP" }),
         })}
         selected={false}
         pinned={false}
@@ -367,12 +367,12 @@ describe("PrettyConversationRow: title-duplicate suffix suppression", () => {
       />,
     );
     const label = container.querySelector(".pv-label") as HTMLElement;
-    expect(label.textContent).toBe("thenasty");
+    expect(label.textContent).toBe("boreal");
     expect(container.querySelector(".pv-hostname-suffix")).toBeNull();
   });
 
   it("rdpDisplayName trims only a separated RDP tail", () => {
-    expect(rdpDisplayName("aither-cloud2-prod-RDP")).toBe("aither-cloud2-prod");
+    expect(rdpDisplayName("acme-cloud2-prod-RDP")).toBe("acme-cloud2-prod");
     expect(rdpDisplayName("workstation rdp")).toBe("workstation");
     expect(rdpDisplayName("workstation (RDP)")).toBe("workstation");
     expect(rdpDisplayName("xrdp")).toBe("xrdp");
@@ -382,7 +382,7 @@ describe("PrettyConversationRow: title-duplicate suffix suppression", () => {
   it("row whose label differs from host.name keeps the host suffix", () => {
     const { container } = render(
       <PrettyConversationRow
-        row={makeRow({ label: "nelly", host: makeHost({ name: "thenasty" }) })}
+        row={makeRow({ label: "nelly", host: makeHost({ name: "boreal" }) })}
         selected={false}
         pinned={false}
         variant="desktop"
@@ -392,7 +392,7 @@ describe("PrettyConversationRow: title-duplicate suffix suppression", () => {
     );
     expect(
       container.querySelector(".pv-hostname-suffix")?.textContent,
-    ).toBe(" (thenasty)");
+    ).toBe(" (boreal)");
   });
 });
 
@@ -1252,7 +1252,7 @@ describe("PrettyConversationRow: Phase 48 Plan 05 main label source + parentheti
     // The lowercase tmux sessionName MUST NOT appear as the prefix.
     expect(pvLabel!.textContent?.trim()).not.toBe("nelly-session");
     // Hostname MUST NOT appear anywhere in the label when a role is set.
-    expect(pvLabel!.textContent).not.toContain("thenasty");
+    expect(pvLabel!.textContent).not.toContain("boreal");
     // identity.title MUST NOT win over the role (regression guard against
     // reverting to inline-260823's title ladder).
     expect(pvLabel!.textContent).not.toContain("Fleet Coordinator");
@@ -1309,12 +1309,12 @@ describe("PrettyConversationRow: Phase 48 Plan 05 main label source + parentheti
     );
     const pvLabel = container.querySelector(".pv-label") as HTMLElement | null;
     expect(pvLabel).toBeTruthy();
-    expect(pvLabel!.textContent?.trim()).toBe("unresolved-session (thenasty)");
+    expect(pvLabel!.textContent?.trim()).toBe("unresolved-session (boreal)");
     const suffix = pvLabel!.querySelector(
       ".pv-hostname-suffix",
     ) as HTMLElement | null;
     expect(suffix).toBeTruthy();
-    expect(suffix!.textContent).toBe(" (thenasty)");
+    expect(suffix!.textContent).toBe(" (boreal)");
   });
 
   it("Test 20C (inline-261001-conv-title-role-suffix): identity resolved but role=null → parens fall back to hostname", async () => {
@@ -1338,12 +1338,12 @@ describe("PrettyConversationRow: Phase 48 Plan 05 main label source + parentheti
     const pvLabel = container.querySelector(".pv-label") as HTMLElement | null;
     expect(pvLabel).toBeTruthy();
     // displayName + hostname fallback (no role present)
-    expect(pvLabel!.textContent?.trim()).toBe("Nelly (thenasty)");
+    expect(pvLabel!.textContent?.trim()).toBe("Nelly (boreal)");
     const suffix = pvLabel!.querySelector(
       ".pv-hostname-suffix",
     ) as HTMLElement | null;
     expect(suffix).toBeTruthy();
-    expect(suffix!.textContent).toBe(" (thenasty)");
+    expect(suffix!.textContent).toBe(" (boreal)");
   });
 });
 
@@ -1416,11 +1416,11 @@ describe("PrettyConversationRow: Open-in-new-window context-menu item (quick-260
     expect(urlArg.startsWith("#")).toBe(true);
     const params = new URLSearchParams(urlArg.slice(1));
     expect(params.getAll("tab").length).toBe(1);
-    // Default makeRow() → type=terminal, host.name=thenasty, targetTmuxSession=nelly
-    // → specForTab produces {protocol:"tmux", host:"thenasty", session:"nelly"}
-    // → encodeTabSpec → "tmux:thenasty:nelly"
+    // Default makeRow() → type=terminal, host.name=boreal, targetTmuxSession=nelly
+    // → specForTab produces {protocol:"tmux", host:"boreal", session:"nelly"}
+    // → encodeTabSpec → "tmux:boreal:nelly"
     expect(params.get("tab")).toContain("tmux");
-    expect(decodeURIComponent(params.get("tab")!)).toContain("thenasty");
+    expect(decodeURIComponent(params.get("tab")!)).toContain("boreal");
     expect(decodeURIComponent(params.get("tab")!)).toContain("nelly");
     expect(params.get("active")).toBe("0");
     expect(params.get("only")).toBe("1");
@@ -1493,15 +1493,15 @@ describe("PrettyConversationRow: Open-in-new-window context-menu item (quick-260
 
     expect(window.open).toHaveBeenCalledTimes(1);
 
-    // Decode URL: RDP row with host.name=thenasty → specForTab produces
-    // {protocol:"rdp", host:"thenasty"} → encoded as "rdp:thenasty"
+    // Decode URL: RDP row with host.name=boreal → specForTab produces
+    // {protocol:"rdp", host:"boreal"} → encoded as "rdp:boreal"
     const openCall = (window.open as ReturnType<typeof vi.fn>).mock.calls[0];
     const urlArg = openCall[0] as string;
     expect(urlArg.startsWith("#")).toBe(true);
     const params = new URLSearchParams(urlArg.slice(1));
     expect(params.getAll("tab").length).toBe(1);
     expect(decodeURIComponent(params.get("tab")!)).toContain("rdp");
-    expect(decodeURIComponent(params.get("tab")!)).toContain("thenasty");
+    expect(decodeURIComponent(params.get("tab")!)).toContain("boreal");
     expect(params.get("active")).toBe("0");
     expect(params.get("only")).toBe("1");
 
@@ -1963,7 +1963,7 @@ describe("PrettyConversationRow: Phase 48 Plan 05 v14 shape", () => {
     const { container } = render(
       <PrettyConversationRow
         row={makeRow({
-          host: makeHost({ name: "skynet-ec2" }),
+          host: makeHost({ name: "prod-ec2" }),
           targetTmuxSession: "tanya",
         })}
         selected={false}
@@ -1975,12 +1975,12 @@ describe("PrettyConversationRow: Phase 48 Plan 05 v14 shape", () => {
     );
     const pvLabel = container.querySelector(".pv-label") as HTMLElement | null;
     expect(pvLabel).toBeTruthy();
-    expect(pvLabel!.textContent?.trim()).toBe("Tanya (skynet-ec2)");
+    expect(pvLabel!.textContent?.trim()).toBe("Tanya (prod-ec2)");
     const suffix = pvLabel!.querySelector(
       ".pv-hostname-suffix",
     ) as HTMLElement | null;
     expect(suffix).toBeTruthy();
-    expect(suffix!.textContent).toBe(" (skynet-ec2)");
+    expect(suffix!.textContent).toBe(" (prod-ec2)");
   });
 
   it("Test P48-02: title line renders JUST identityName when row.host is null (no trailing parens, no space)", () => {

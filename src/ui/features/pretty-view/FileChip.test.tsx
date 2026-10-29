@@ -69,7 +69,7 @@ describe("classifyFileChipKind", () => {
 });
 
 describe("FileChip — plain variant", () => {
-  const url = "https://term.example.com/file/t1000/home/ubuntu/notes.md";
+  const url = "https://term.example.com/file/harbor/home/ubuntu/notes.md";
 
   it("renders as an anchor with the file URL as href", () => {
     render(<FileChip url={url} filename="notes.md" onOpen={vi.fn()} />);
@@ -131,7 +131,7 @@ describe("FileChip — plain variant", () => {
     // Stub appendChild/removeChild/click so we can assert the sequence
     // without actually pointing the browser at the file URL. The synthesized
     // anchor is appended to document.body, .click()'d, and removed.
-    const url2 = "https://term.example.com/file/t1000/home/ubuntu/song.mp3";
+    const url2 = "https://term.example.com/file/harbor/home/ubuntu/song.mp3";
     const clickSpy = vi.fn();
     const originalCreateElement = document.createElement.bind(document);
     const createSpy = vi
@@ -168,21 +168,21 @@ describe("FileChip — plain variant", () => {
 
 describe("FileChip — media variant", () => {
   it("renders an <img> for image kinds pointing at the URL", () => {
-    const url = "https://term.example.com/file/t1000/home/ubuntu/photo.png";
+    const url = "https://term.example.com/file/harbor/home/ubuntu/photo.png";
     render(<FileChip url={url} filename="photo.png" onOpen={vi.fn()} />);
     const img = screen.getByRole("img", { name: "photo.png" }) as HTMLImageElement;
     expect(img.src).toBe(url);
   });
 
   it("renders an <img> for svg kinds pointing at the URL", () => {
-    const url = "https://term.example.com/file/t1000/home/ubuntu/logo.svg";
+    const url = "https://term.example.com/file/harbor/home/ubuntu/logo.svg";
     render(<FileChip url={url} filename="logo.svg" onOpen={vi.fn()} />);
     const img = screen.getByRole("img", { name: "logo.svg" }) as HTMLImageElement;
     expect(img.src).toBe(url);
   });
 
   it("renders a native <audio controls> for audio kinds", () => {
-    const url = "https://term.example.com/file/t1000/home/ubuntu/song.mp3";
+    const url = "https://term.example.com/file/harbor/home/ubuntu/song.mp3";
     const { container } = render(
       <FileChip url={url} filename="song.mp3" onOpen={vi.fn()} />,
     );
@@ -193,7 +193,7 @@ describe("FileChip — media variant", () => {
   });
 
   it("renders a native <video controls> for video kinds without autoplay", () => {
-    const url = "https://term.example.com/file/t1000/home/ubuntu/clip.mp4";
+    const url = "https://term.example.com/file/harbor/home/ubuntu/clip.mp4";
     const { container } = render(
       <FileChip url={url} filename="clip.mp4" onOpen={vi.fn()} />,
     );
@@ -207,7 +207,7 @@ describe("FileChip — media variant", () => {
   it("does NOT fire onOpen when the user interacts with the native audio controls", () => {
     // The player sits outside the chip's anchor, so a click on it never
     // reaches the open intercept.
-    const url = "https://term.example.com/file/t1000/home/ubuntu/song.mp3";
+    const url = "https://term.example.com/file/harbor/home/ubuntu/song.mp3";
     const onOpen = vi.fn();
     const { container } = render(
       <FileChip url={url} filename="song.mp3" onOpen={onOpen} />,
@@ -221,7 +221,7 @@ describe("FileChip — media variant", () => {
     ["song.mp3", "audio"],
     ["clip.mp4", "video"],
   ])("keeps the %s player outside any anchor so iOS taps don't navigate", (filename, tag) => {
-    const url = `https://term.example.com/file/t1000/home/ubuntu/${filename}`;
+    const url = `https://term.example.com/file/harbor/home/ubuntu/${filename}`;
     const { container } = render(
       <FileChip url={url} filename={filename} onOpen={vi.fn()} />,
     );
@@ -230,7 +230,7 @@ describe("FileChip — media variant", () => {
   });
 
   it("clicking the audio chip's caption fires onOpen and prevents navigation", () => {
-    const url = "https://term.example.com/file/t1000/home/ubuntu/song.mp3";
+    const url = "https://term.example.com/file/harbor/home/ubuntu/song.mp3";
     const onOpen = vi.fn();
     render(<FileChip url={url} filename="song.mp3" onOpen={onOpen} />);
     const caption = screen.getByRole("link", { name: /song\.mp3/i });
@@ -242,7 +242,7 @@ describe("FileChip — media variant", () => {
   });
 
   it("plain click on the surrounding media chip frame still fires onOpen", () => {
-    const url = "https://term.example.com/file/t1000/home/ubuntu/photo.png";
+    const url = "https://term.example.com/file/harbor/home/ubuntu/photo.png";
     const onOpen = vi.fn();
     render(<FileChip url={url} filename="photo.png" onOpen={onOpen} />);
     // Click the anchor frame (the chip root) — the image inside is not an

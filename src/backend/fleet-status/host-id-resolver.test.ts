@@ -56,16 +56,16 @@ describe("host-id-resolver", () => {
       limit: vi.fn(),
     };
 
-    const hostRow = { id: "host-42", name: "thenasty" };
+    const hostRow = { id: "host-42", name: "boreal" };
 
-    // First call: 'thenasty' matches
+    // First call: 'boreal' matches
     mockDb.limit.mockResolvedValueOnce([hostRow]);
     vi.mocked(getDb).mockReturnValue(mockDb as unknown as ReturnType<typeof getDb>);
 
-    const result = await resolveHostRecordByName("THENASTY");
+    const result = await resolveHostRecordByName("BOREAL");
     expect(result).not.toBeNull();
     expect(result?.id).toBe("host-42");
-    expect(result?.name).toBe("thenasty");
+    expect(result?.name).toBe("boreal");
 
     // Second call: no match
     mockDb.limit.mockResolvedValueOnce([]);

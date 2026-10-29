@@ -65,7 +65,7 @@ function wrap<T>(payload: T, owner: string = TEST_USERNAME): string {
 
 const SAMPLE_A: FleetSession = {
   hostId: 1,
-  hostName: "thenasty",
+  hostName: "boreal",
   sessionName: "tina",
   created: 1_700_000_000,
   role: "box-maintainer",

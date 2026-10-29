@@ -18,7 +18,7 @@ vi.mock("@/state/identities-store", () => ({
 }));
 
 const membersMock = vi.fn<(room: string | null | undefined, hostId: number | null | undefined) => RelayRoomMember[] | null>(() => null);
-const viewerMxidMock = vi.fn<() => string | null>(() => "@robin:t1000.example");
+const viewerMxidMock = vi.fn<() => string | null>(() => "@robin:harbor.example");
 vi.mock("@/state/viewing-user-store", () => ({
   useViewingUserMxid: () => viewerMxidMock(),
 }));
@@ -69,7 +69,7 @@ beforeEach(() => {
 function renderOut(props: Partial<React.ComponentProps<typeof RelayOutboundBubble>> = {}) {
   return render(
     <RelayOutboundBubble
-      room="!abc:t1000.example"
+      room="!abc:harbor.example"
       body="Hey Tina, is the fix deployed yet?"
       hostId={42}
       selfIdentity={aster}
@@ -93,13 +93,13 @@ describe("RelayOutboundBubble", () => {
 
   it("looks up members for the resolved room on the pane's host", () => {
     renderOut();
-    expect(membersMock).toHaveBeenCalledWith("!abc:t1000.example", 42);
+    expect(membersMock).toHaveBeenCalledWith("!abc:harbor.example", 42);
   });
 
   it("members known → 'Aster → Tina', no DM tag", () => {
     membersMock.mockReturnValue([
-      { mxid: "@aster:t1000.example", kind: "agent", displayName: null },
-      { mxid: "@tina:t1000.example", kind: "agent", displayName: null },
+      { mxid: "@aster:harbor.example", kind: "agent", displayName: null },
+      { mxid: "@tina:harbor.example", kind: "agent", displayName: null },
     ]);
     renderOut();
     const who = screen.getByTestId("relay-who-line").textContent ?? "";
@@ -128,8 +128,8 @@ describe("RelayOutboundBubble", () => {
 
   it("DM to the viewing user → an open bubble with the red envelope", () => {
     membersMock.mockReturnValue([
-      { mxid: "@aster:t1000.example", kind: "agent", displayName: null },
-      { mxid: "@robin:t1000.example", kind: "you", displayName: "Robin" },
+      { mxid: "@aster:harbor.example", kind: "agent", displayName: null },
+      { mxid: "@robin:harbor.example", kind: "you", displayName: "Robin" },
     ]);
     renderOut();
     expectToYouBubble();
@@ -140,7 +140,7 @@ describe("RelayOutboundBubble", () => {
   });
 
   it("relay-mcp send to the viewer's mxid (no room) → open bubble with the envelope", () => {
-    renderOut({ room: null, to: "@robin:t1000.example" });
+    renderOut({ room: null, to: "@robin:harbor.example" });
     expectToYouBubble();
   });
 
@@ -159,7 +159,7 @@ describe("RelayOutboundBubble", () => {
   it("failed relay-mcp send to the viewer → still an open bubble, no envelope, '⚠ not sent' with the reason on tap", () => {
     renderOut({
       room: null,
-      to: "@robin:t1000.example",
+      to: "@robin:harbor.example",
       result: { type: "relay_send_result", toolUseId: "t1", ok: false, roomId: null, error: "relay error: boom", eventId: "r1", ts: 0 },
     });
     const bubble = screen.getByTestId("relay-outbound-bubble");
@@ -201,16 +201,16 @@ describe("RelayOutboundBubble", () => {
     renderOut({
       room: null,
       to: "tina",
-      result: { type: "relay_send_result", toolUseId: "t1", ok: true, roomId: "!dm:t1000.example", error: null, eventId: "r1", ts: 0 },
+      result: { type: "relay_send_result", toolUseId: "t1", ok: true, roomId: "!dm:harbor.example", error: null, eventId: "r1", ts: 0 },
     });
-    expect(membersMock).toHaveBeenCalledWith("!dm:t1000.example", 42);
+    expect(membersMock).toHaveBeenCalledWith("!dm:harbor.example", 42);
     expect(screen.queryByTestId("relay-not-sent")).toBeNull();
   });
 
   it("room members win over `to` when both are known", () => {
     membersMock.mockReturnValue([
-      { mxid: "@aster:t1000.example", kind: "agent", displayName: null },
-      { mxid: "@sam:t1000.example", kind: "human", displayName: "Sam" },
+      { mxid: "@aster:harbor.example", kind: "agent", displayName: null },
+      { mxid: "@sam:harbor.example", kind: "human", displayName: "Sam" },
     ]);
     renderOut({ to: "tina" });
     expect(screen.getByTestId("relay-who-line").textContent ?? "").toMatch(/Aster\s*→\s*Sam/);
@@ -218,8 +218,8 @@ describe("RelayOutboundBubble", () => {
 
   it("DM to another person → their display name, no notified marker", () => {
     membersMock.mockReturnValue([
-      { mxid: "@aster:t1000.example", kind: "agent", displayName: null },
-      { mxid: "@sam:t1000.example", kind: "human", displayName: "Sam" },
+      { mxid: "@aster:harbor.example", kind: "agent", displayName: null },
+      { mxid: "@sam:harbor.example", kind: "human", displayName: "Sam" },
     ]);
     renderOut();
     const who = screen.getByTestId("relay-who-line").textContent ?? "";

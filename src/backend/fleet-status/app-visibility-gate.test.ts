@@ -23,27 +23,27 @@ describe("isAppVisibleToUser — null caller (gate disabled)", () => {
 describe("isAppVisibleToUser — D-3 fallback (empty/absent list = falls open)", () => {
   it("null users list → falls open for any caller", () => {
     expect(isAppVisibleToUser(null, "alice")).toBe(true);
-    expect(isAppVisibleToUser(null, "zoey")).toBe(true);
+    expect(isAppVisibleToUser(null, "riley")).toBe(true);
   });
 
   it("empty users list → falls open for any caller", () => {
     expect(isAppVisibleToUser([], "alice")).toBe(true);
-    expect(isAppVisibleToUser([], "zoey")).toBe(true);
+    expect(isAppVisibleToUser([], "riley")).toBe(true);
   });
 });
 
 describe("isAppVisibleToUser — membership check", () => {
   it("caller in list → true", () => {
     expect(isAppVisibleToUser(["alice"], "alice")).toBe(true);
-    expect(isAppVisibleToUser(["alice", "zoey"], "zoey")).toBe(true);
+    expect(isAppVisibleToUser(["alice", "riley"], "riley")).toBe(true);
     expect(isAppVisibleToUser(["a", "b", "c", "alice", "d"], "alice")).toBe(
       true,
     );
   });
 
   it("caller NOT in list → false", () => {
-    expect(isAppVisibleToUser(["alice"], "zoey")).toBe(false);
-    expect(isAppVisibleToUser(["a", "b"], "zoey")).toBe(false);
+    expect(isAppVisibleToUser(["alice"], "riley")).toBe(false);
+    expect(isAppVisibleToUser(["a", "b"], "riley")).toBe(false);
   });
 });
 

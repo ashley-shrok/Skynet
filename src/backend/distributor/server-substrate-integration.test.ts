@@ -1510,7 +1510,7 @@ describe("Phase 75 — server-substrate integration", () => {
         }),
         makeRow({
           id: 6,
-          name: "t1000-local",
+          name: "harbor-local",
           credentialId: 101,
           cred_id: 101,
           cred_systemPassword: "ct-b",
@@ -1573,7 +1573,7 @@ describe("Phase 75 — server-substrate integration", () => {
         }),
         makeRow({
           id: 6,
-          name: "t1000-local",
+          name: "harbor-local",
           credentialId: 101,
           cred_id: 101,
           cred_systemPassword: "ct-b",
@@ -1608,10 +1608,10 @@ describe("Phase 75 — server-substrate integration", () => {
       expect(vi.mocked(bootstrapFleetSubstrateLocally)).toHaveBeenCalledTimes(1);
       const installArg = vi.mocked(installFleetSubstrateLocally).mock.calls[0][0];
       expect(installArg.id).toBe("6");
-      expect(installArg.name).toBe("t1000-local");
+      expect(installArg.name).toBe("harbor-local");
       const bootstrapArg = vi.mocked(bootstrapFleetSubstrateLocally).mock.calls[0][0];
       expect(bootstrapArg.id).toBe("6");
-      expect(bootstrapArg.name).toBe("t1000-local");
+      expect(bootstrapArg.name).toBe("harbor-local");
 
       orch.stop();
     });
@@ -1620,7 +1620,7 @@ describe("Phase 75 — server-substrate integration", () => {
       const rows = [
         makeRow({
           id: 6,
-          name: "t1000-local",
+          name: "harbor-local",
           credentialId: 101,
           cred_id: 101,
           cred_systemPassword: "ct-b",
@@ -1681,7 +1681,7 @@ describe("Phase 75 — server-substrate integration", () => {
       const rows = [
         makeRow({
           id: 6,
-          name: "t1000-local",
+          name: "harbor-local",
           credentialId: 101,
           cred_id: 101,
           cred_systemPassword: "ct-b",
@@ -1744,7 +1744,7 @@ describe("Phase 75 — server-substrate integration", () => {
       ).toBe(3);
       expect(
         (persistentCalls[0][1] as Record<string, unknown>).hostName,
-      ).toBe("t1000-local");
+      ).toBe("harbor-local");
 
       // 4th failure MUST NOT re-alert.
       await capturedTickFn!();
@@ -1774,7 +1774,7 @@ describe("Phase 75 — server-substrate integration", () => {
         }),
         makeRow({
           id: 6,
-          name: "t1000-local",
+          name: "harbor-local",
           credentialId: 101,
           cred_id: 101,
           cred_systemPassword: "ct-b",

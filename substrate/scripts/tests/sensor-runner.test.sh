@@ -241,10 +241,10 @@ SR08() {
 }
 
 SR09() {
-  printf '[Service]\nExecStart=/bin/true\n' > "$SCRATCH/units/sensor-check-for-deliveries-zoey.service"
+  printf '[Service]\nExecStart=/bin/true\n' > "$SCRATCH/units/sensor-check-for-deliveries-riley.service"
   printf '[Service]\nExecStart=/bin/true\n' > "$SCRATCH/units/sensor-runner.service"
   runner_pass
-  assert_file "$SCRATCH/units/sensor-check-for-deliveries-zoey.service" "hand-made unit untouched"
+  assert_file "$SCRATCH/units/sensor-check-for-deliveries-riley.service" "hand-made unit untouched"
   assert_file "$SCRATCH/units/sensor-runner.service" "the runner's own unit untouched"
 }
 

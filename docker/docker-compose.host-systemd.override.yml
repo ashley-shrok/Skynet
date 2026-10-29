@@ -21,7 +21,7 @@
 # Trust posture: this is a real widening. Enable only on boxes where you
 # accept that "if the container is compromised, the attacker can restart
 # arbitrary ubuntu-user systemd units." For the co-located deployment
-# shape (Skynet running on t1000 to manage t1000 itself; equivalent
+# shape (Skynet running on a box to manage that same box; equivalent
 # elsewhere) this is a proportionate tradeoff — without it the distributor
 # can update supervisor bytes on disk but can't get them into memory
 # without a manual `systemctl --user restart agent-supervisor` or a host

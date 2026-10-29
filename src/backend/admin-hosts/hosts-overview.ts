@@ -1,8 +1,8 @@
 /**
  * Admin Hosts overview — one entry per MACHINE, not per host row.
  *
- * The hosts table has a row per (user, protocol) connection: "thenasty" and
- * "thenasty-RDP" are the same box, and two users who both added the same box
+ * The hosts table has a row per (user, protocol) connection: "bigbox" and
+ * "bigbox-RDP" are the same box, and two users who both added the same box
  * each have their own row. Rows are grouped by address, then each machine is
  * probed once:
  *

@@ -161,7 +161,7 @@ describe("GET /relay-pointer", () => {
     // user's exact reproducer path from recv.sh (fleet tree, Phase 96+) — MUST match
     expect(WHITELIST_REGEX.test("/home/ubuntu/fleet/identities/molly/relay-state/messages/_j14UxhqP0NpJXLReeXBR0qPGh04JwNXDGneCrEyarWw.txt")).toBe(true);
     // Alternate user + identity name
-    expect(WHITELIST_REGEX.test("/home/thenasty/fleet/identities/tina/relay-state/messages/AbCdEf-_1234.txt")).toBe(true);
+    expect(WHITELIST_REGEX.test("/home/boreal/fleet/identities/tina/relay-state/messages/AbCdEf-_1234.txt")).toBe(true);
   });
 
   it("Test 2: whitelist reject dot-dot — /home/ubuntu/fleet/identities/../../etc/passwd rejected", () => {

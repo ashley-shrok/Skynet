@@ -201,8 +201,8 @@ import router from "./relay-room-project-tag.js";
 
 let server: http.Server;
 
-const CALLER_MXID = "@ash:t1000.taild9b663.ts.net";
-const ROOM_ID = "!abcdef:t1000.taild9b663.ts.net";
+const CALLER_MXID = "@ash:harbor.example-tailnet.ts.net";
+const ROOM_ID = "!abcdef:harbor.example-tailnet.ts.net";
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -306,7 +306,7 @@ describe("POST /relay-rooms/:roomId/project", () => {
       method: "POST",
       path: `/relay-rooms/${encodeURIComponent(ROOM_ID)}/project`,
       body: {
-        userMxid: "@carol:t1000.taild9b663.ts.net",
+        userMxid: "@carol:harbor.example-tailnet.ts.net",
         project: "alpha",
       },
     });

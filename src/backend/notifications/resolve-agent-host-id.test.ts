@@ -62,14 +62,14 @@ describe("resolveAgentHostId — env populated with a single hostId", () => {
 
   it("well-formed mxid + identity dir exists → returns first local hostId", async () => {
     statMock.mockResolvedValue({ isDirectory: () => true });
-    const result = await resolveAgentHostId("@zulu:t1000.example.net");
+    const result = await resolveAgentHostId("@zulu:harbor.example.net");
     expect(result).toBe(42);
     expect(statMock).toHaveBeenCalledTimes(1);
   });
 
   it("mxid localpart is lowercased before disk lookup", async () => {
     statMock.mockResolvedValue({ isDirectory: () => true });
-    await resolveAgentHostId("@Zulu:t1000.example.net");
+    await resolveAgentHostId("@Zulu:harbor.example.net");
     const pathArg = statMock.mock.calls[0][0] as string;
     // Path ends with the lowercased localpart, not the original case.
     expect(pathArg.endsWith("/zulu")).toBe(true);
@@ -77,7 +77,7 @@ describe("resolveAgentHostId — env populated with a single hostId", () => {
 
   it("identity dir missing (stat throws ENOENT) → null", async () => {
     statMock.mockRejectedValue(Object.assign(new Error("ENOENT"), { code: "ENOENT" }));
-    const result = await resolveAgentHostId("@ghost:t1000.example.net");
+    const result = await resolveAgentHostId("@ghost:harbor.example.net");
     expect(result).toBeNull();
   });
 
@@ -88,7 +88,7 @@ describe("resolveAgentHostId — env populated with a single hostId", () => {
       if (p === "/archive/retired") return { isDirectory: () => true };
       throw Object.assign(new Error("ENOENT"), { code: "ENOENT" });
     });
-    const result = await resolveAgentHostId("@retired:t1000.example.net");
+    const result = await resolveAgentHostId("@retired:harbor.example.net");
     expect(result).toBe(42);
     expect(statMock.mock.calls.map((c) => c[0])).toEqual([
       "/live/retired",
@@ -98,13 +98,13 @@ describe("resolveAgentHostId — env populated with a single hostId", () => {
 
   it("live dir exists → archive is not probed", async () => {
     statMock.mockResolvedValue({ isDirectory: () => true });
-    await resolveAgentHostId("@zulu:t1000.example.net");
+    await resolveAgentHostId("@zulu:harbor.example.net");
     expect(statMock).toHaveBeenCalledTimes(1);
   });
 
   it("path exists but is not a directory → null", async () => {
     statMock.mockResolvedValue({ isDirectory: () => false });
-    const result = await resolveAgentHostId("@rogue:t1000.example.net");
+    const result = await resolveAgentHostId("@rogue:harbor.example.net");
     expect(result).toBeNull();
   });
 
@@ -180,7 +180,7 @@ describe("resolveAgentHostId — IDENTITIES_LOCAL_HOST_IDS empty", () => {
     const infoSpy = databaseLogger.info as ReturnType<typeof vi.fn>;
     infoSpy.mockClear();
     for (let i = 0; i < 3; i++) {
-      expect(await resolveAgentHostId("@zulu:t1000.example.net")).toBeNull();
+      expect(await resolveAgentHostId("@zulu:harbor.example.net")).toBeNull();
     }
     expect(warnSpy).not.toHaveBeenCalled();
     expect(infoSpy).not.toHaveBeenCalled();
@@ -223,7 +223,7 @@ describe("resolveAgentHostId — multi-entry IDENTITIES_LOCAL_HOST_IDS", () => {
 
   it("returns the FIRST entry of IDENTITIES_LOCAL_HOST_IDS", async () => {
     statMock.mockResolvedValue({ isDirectory: () => true });
-    const result = await resolveAgentHostId("@zulu:t1000.example.net");
+    const result = await resolveAgentHostId("@zulu:harbor.example.net");
     expect(result).toBe(42);
   });
 

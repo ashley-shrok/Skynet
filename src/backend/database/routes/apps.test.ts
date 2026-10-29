@@ -199,7 +199,7 @@ beforeEach(() => {
     // looks the app up under the resolved row's own id.
     id: 1,
     machineId: 1,
-    name: "t1000",
+    name: "harbor",
     ip: "10.0.0.5",
     port: 22,
     username: "ubuntu",
@@ -604,15 +604,15 @@ describe("GET /apps/:hostId/:slug — HIGH-1 redirect route", () => {
   });
 
   it("HIGH-1-T5: multi-parent — Location parent matches the request Host, NOT SKYNET_COOKIE_DOMAIN", async () => {
-    // Repro of the T800 bug Stacy diagnosed 2026-09-23: an instance
-    // reachable via BOTH `ai.aithercloud.com` and `skynet.aithercloud.com`
-    // has to set SKYNET_COOKIE_DOMAIN to the eTLD+1 (`aithercloud.com`)
+    // Repro of a bug diagnosed on a second instance 2026-09-23: an instance
+    // reachable via BOTH `ai.example.org` and `chat.example.org`
+    // has to set SKYNET_COOKIE_DOMAIN to the eTLD+1 (`example.org`)
     // so login cookies span both subdomains. Under the pre-fix code, that
     // umbrella got pasted into the serve URL and produced
-    // `<host>-<port>.serve.aithercloud.com` — a subdomain that isn't
+    // `<host>-<port>.serve.example.org` — a subdomain that isn't
     // served on the edge. The fix derives the parent from the click's
     // origin, so a click from either parent stays on that parent.
-    process.env.SKYNET_COOKIE_DOMAIN = "aithercloud.com";
+    process.env.SKYNET_COOKIE_DOMAIN = "example.org";
     getAppSnapshotMock.mockReturnValue([
       {
         hostId: "1",
@@ -628,22 +628,22 @@ describe("GET /apps/:hostId/:slug — HIGH-1 redirect route", () => {
       },
     ]);
 
-    // Click from skynet.aithercloud.com → Location stays on that parent.
+    // Click from chat.example.org → Location stays on that parent.
     const res1 = await httpGet(server, "/apps/1/scratch-test", {
-      Host: "skynet.aithercloud.com",
+      Host: "chat.example.org",
     });
     expect(res1.status).toBe(302);
     expect(res1.headers["location"]).toBe(
-      "https://1-9502.serve.skynet.aithercloud.com",
+      "https://1-9502.serve.chat.example.org",
     );
 
-    // Click from ai.aithercloud.com → Location stays on THAT parent.
+    // Click from ai.example.org → Location stays on THAT parent.
     const res2 = await httpGet(server, "/apps/1/scratch-test", {
-      Host: "ai.aithercloud.com",
+      Host: "ai.example.org",
     });
     expect(res2.status).toBe(302);
     expect(res2.headers["location"]).toBe(
-      "https://1-9502.serve.ai.aithercloud.com",
+      "https://1-9502.serve.ai.example.org",
     );
   });
 

@@ -51,8 +51,8 @@ const HAPPY_CREDS = {
   password: "admin-plaintext-password",
 };
 
-const USER_MXID = "@ash:t1000.taild9b663.ts.net";
-const ROOM_ID = "!abc:t1000.taild9b663.ts.net";
+const USER_MXID = "@ash:harbor.example-tailnet.ts.net";
+const ROOM_ID = "!abc:harbor.example-tailnet.ts.net";
 const EXPECTED_URL =
   "https://matrix.example.com/_matrix/client/v3/user/" +
   encodeURIComponent(USER_MXID) +

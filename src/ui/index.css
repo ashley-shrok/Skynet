@@ -360,7 +360,7 @@ html.fs-xl {
  * 24px shipped in #163 turned out to be too big — user had been counter-
  * scaling with a Safari per-domain zoom preference set 2 steps below default
  * and hadn't realized we'd been iterating design against that zoomed-out
- * view. Fresh browser + Stacey's ceo-skynet instance surfaced the gap. 18px
+ * view. A fresh browser on a second instance surfaced the gap. 18px
  * matches fs-xl and approximates Safari-2-steps-down of 24px, aligning the
  * default with what user has actually been designing at. Some previously-
  * shipped mobile px chrome overrides (patch #165 composebox buttons, .pv-

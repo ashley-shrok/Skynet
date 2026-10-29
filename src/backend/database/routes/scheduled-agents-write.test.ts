@@ -807,7 +807,7 @@ describe("Users-strip discipline (per-user gate list is disk-only)", () => {
       return "";
     });
 
-    const specWithUsers = { ...validSpec, users: ["alice", "zoey"] };
+    const specWithUsers = { ...validSpec, users: ["alice", "riley"] };
     const res = await httpRequest(server, {
       method: "POST",
       path: "/scheduled-agents",
@@ -1085,7 +1085,7 @@ describe("POST /scheduled-agents/:slug/run-now", () => {
   }
 
   it("happy REMOTE — 202 + spawn-request written atomically to ~/fleet/spawn-requests/<uuid>.json", async () => {
-    mockRemoteSpec({ ...validSpec, users: ["zoey"] });
+    mockRemoteSpec({ ...validSpec, users: ["riley"] });
 
     const res = await httpRequest(server, {
       method: "POST",
@@ -1110,7 +1110,7 @@ describe("POST /scheduled-agents/:slug/run-now", () => {
     expect(parsed.roles).toEqual(["box-maintainer"]);
     expect("skills" in parsed).toBe(false);
     expect(parsed.task).toBe("⏰ Morning digest");
-    expect(parsed.users).toEqual(["zoey"]);
+    expect(parsed.users).toEqual(["riley"]);
     expect(parsed.requested_at).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/);
     expect(parsed.prompt).toContain("> Summarize overnight events");
     expect(parsed.prompt).toContain("started manually");
@@ -1213,11 +1213,11 @@ describe("buildRunNowSpawnRequest (helper)", () => {
   const at = "2026-10-07T12:00:00Z";
 
   it("empty or absent roles → roleless request (`roles: []`), users still carried", () => {
-    const r = buildRunNowSpawnRequest({ ...validSpec, roles: [], users: ["zoey"] }, "x", at, false);
+    const r = buildRunNowSpawnRequest({ ...validSpec, roles: [], users: ["riley"] }, "x", at, false);
     expect(r.ok).toBe(true);
     if (r.ok) {
       expect(r.body.roles).toEqual([]);
-      expect(r.body.users).toEqual(["zoey"]);
+      expect(r.body.users).toEqual(["riley"]);
     }
     const { roles: _roles, ...noRoles } = validSpec;
     const r2 = buildRunNowSpawnRequest(noRoles, "x", at, false);
@@ -1257,7 +1257,7 @@ describe("buildRunNowSpawnRequest (helper)", () => {
   });
 
   it("prettifyScheduledAgentName mirrors the scheduler's _prettify_name", () => {
-    expect(prettifyScheduledAgentName("news-watcher_zoey")).toBe("News watcher zoey");
+    expect(prettifyScheduledAgentName("news-watcher_riley")).toBe("News watcher riley");
     expect(prettifyScheduledAgentName("")).toBe("");
   });
 });

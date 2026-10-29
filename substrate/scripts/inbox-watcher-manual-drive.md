@@ -26,15 +26,15 @@ sentinel drop needed. The dropper's responsibility ends at the file.
 
 ## Drop a message by hand
 
-For an identity named `stacy`:
+For an identity named `quinn`:
 
 ```sh
 ts=$(date -u +%Y%m%dT%H%M%S%3N)              # 20261002T143022123
 hex=$(openssl rand -hex 4)                   # e.g. a7f3b2c1
 name="${ts}-${hex}.msg"                      # 20261002T143022123-a7f3b2c1.msg
-mkdir -p ~/fleet/identities/stacy/inbox
-printf 'ping from manual drive' > ~/fleet/identities/stacy/inbox/${name}.tmp
-mv ~/fleet/identities/stacy/inbox/${name}.tmp ~/fleet/identities/stacy/inbox/${name}
+mkdir -p ~/fleet/identities/quinn/inbox
+printf 'ping from manual drive' > ~/fleet/identities/quinn/inbox/${name}.tmp
+mv ~/fleet/identities/quinn/inbox/${name}.tmp ~/fleet/identities/quinn/inbox/${name}
 ```
 
 That is the full contract. Six steps; `mkdir` + `openssl rand -hex 4` +
@@ -117,7 +117,7 @@ catch-up sweep processes the waiting file(s).
 ### Zero-byte file
 
 ```sh
-touch ~/fleet/identities/stacy/inbox/20261002T143022123-ffffffff.msg
+touch ~/fleet/identities/quinn/inbox/20261002T143022123-ffffffff.msg
 ```
 
 The watcher surfaces the path, the parent reads zero bytes, logs loudly:
@@ -161,8 +161,8 @@ contract requires regular files, not symlinks.
 ### Wrong-shape filename
 
 ```sh
-echo "ping" > ~/fleet/identities/stacy/inbox/README.md
-echo "ping" > ~/fleet/identities/stacy/inbox/20261002T143022123-UPPERCASE.msg
+echo "ping" > ~/fleet/identities/quinn/inbox/README.md
+echo "ping" > ~/fleet/identities/quinn/inbox/20261002T143022123-UPPERCASE.msg
 ```
 
 The watcher's name filter ignores these entirely. No log line, no paste,

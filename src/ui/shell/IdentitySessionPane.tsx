@@ -134,7 +134,7 @@ export const IdentitySessionPane = forwardRef<IdentityPaneHandle, IdentitySessio
     const { previewTerminalTheme } = useTabsSafe();
     // quick-260912-0t4 followup: byHostKey-with-byKey-fallback so the terminal-mode
     // identity badge / modal-open path picks THIS pane's own host when two identities
-    // share a name across the fleet (e.g. willow on workstation + willow on t1000).
+    // share a name across the fleet (e.g. willow on one box + willow on another).
     // Same pattern as PrettyConversationRow.tsx L332-349.
     const { byHostKey: identitiesByHostKey, byKey: identitiesByKey } = useIdentities();
     const isMobile = useIsMobile();

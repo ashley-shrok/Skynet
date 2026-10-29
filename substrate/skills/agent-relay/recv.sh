@@ -68,7 +68,7 @@ relogin(){
   printf '%s' "$t" > "$STATE_DIR/token"; H="Authorization: Bearer $t"
   echo "recv.sh: re-logged in as ${ME:-?}, token refreshed" >&2; return 0
 }
-# LOUD AUTH ALERT (added 2026-08-01, class-fix for commander-zoey silent-deafness 3-day incident):
+# LOUD AUTH ALERT (added 2026-08-01, class-fix for an agent's silent-deafness 3-day incident):
 # stderr goes to the Monitor's output file but does NOT wake the agent — only STDOUT lines become
 # wake events. So a receiver whose token is dead AND whose password re-login also fails (i.e.
 # account itself is dead on the server, not just a stale token) just spins in the AUTH GUARD's

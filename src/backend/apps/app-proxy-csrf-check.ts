@@ -9,7 +9,7 @@
  * FAIL-LOUD env enforcement (W4):
  *
  * Module-load reads `process.env.SKYNET_COOKIE_DOMAIN` and THROWS if unset.
- * No hardcoded fallback — t1000 sets its own value, T800 sets its own value.
+ * No hardcoded fallback — each instance sets its own value.
  * Same shape as `src/backend/serve-url/serve-route.ts` lines 50-61 —
  * duplicated (not shared) because both modules independently need to fail
  * loud, and indirection through a shared helper would add nothing.

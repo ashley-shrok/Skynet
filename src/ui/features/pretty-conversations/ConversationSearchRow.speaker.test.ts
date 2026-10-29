@@ -5,7 +5,7 @@ import type { Identity } from "@/api/identities-api";
 const byKey = new Map<string, Identity>([
   ["bilbo", { identityKey: "bilbo", displayName: "Bilbo", colorHue: 40, avatarUrl: "" } as unknown as Identity],
 ]);
-const viewer = "@alex:t1000.example";
+const viewer = "@alex:harbor.example";
 const FINCH = { name: "Finch", key: "finch" };
 
 describe("search passage labels read like the conversation's", () => {
@@ -16,11 +16,11 @@ describe("search passage labels read like the conversation's", () => {
 
   it("a relay message the agent received names its sender", () => {
     expect(
-      speakerLabel({ speaker: "relay", text: "x", relayFrom: "@bilbo:t1000.example", relayTo: null }, FINCH, byKey, viewer, null),
+      speakerLabel({ speaker: "relay", text: "x", relayFrom: "@bilbo:harbor.example", relayTo: null }, FINCH, byKey, viewer, null),
     ).toBe("Bilbo → Finch");
     expect(
-      speakerLabel({ speaker: "relay", text: "x", relayFrom: "@stacy:other.example", relayTo: null }, FINCH, byKey, viewer, null),
-    ).toBe("Stacy → Finch");
+      speakerLabel({ speaker: "relay", text: "x", relayFrom: "@quinn:other.example", relayTo: null }, FINCH, byKey, viewer, null),
+    ).toBe("Quinn → Finch");
   });
 
   it("a relay message the agent sent: to you reads as the agent; to another agent as a card", () => {
@@ -35,18 +35,18 @@ describe("search passage labels read like the conversation's", () => {
 
   it("with the room's members known, names them as the card does", () => {
     const members = [
-      { mxid: "@finch:t1000.example", kind: "agent" as const, displayName: null },
+      { mxid: "@finch:harbor.example", kind: "agent" as const, displayName: null },
       { mxid: viewer, kind: "you" as const, displayName: null },
     ];
     expect(
       speakerLabel({ speaker: "relay", text: "x", relayFrom: null, relayTo: null, relayRoom: "!r:x" }, FINCH, byKey, viewer, members),
     ).toBe("Finch");
-    const group = [...members, { mxid: "@bilbo:t1000.example", kind: "agent" as const, displayName: null }];
+    const group = [...members, { mxid: "@bilbo:harbor.example", kind: "agent" as const, displayName: null }];
     expect(
       speakerLabel({ speaker: "relay", text: "x", relayFrom: null, relayTo: null, relayRoom: "!r:x" }, FINCH, byKey, viewer, group),
     ).toBe("Finch → group with You, Bilbo");
     expect(
-      speakerLabel({ speaker: "relay", text: "x", relayFrom: "@bilbo:t1000.example", relayTo: null, relayRoom: "!r:x" }, FINCH, byKey, viewer, group),
+      speakerLabel({ speaker: "relay", text: "x", relayFrom: "@bilbo:harbor.example", relayTo: null, relayRoom: "!r:x" }, FINCH, byKey, viewer, group),
     ).toBe("Bilbo → group with Finch, You");
   });
 });

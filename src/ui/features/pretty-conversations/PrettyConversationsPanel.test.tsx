@@ -501,7 +501,7 @@ vi.mock("@/api/relay-room-create-api", () => ({
   createRelayRoom: vi.fn(async () => ({ ok: true, roomId: "!r:s", sessionId: "s1", roomTitle: "T" })),
 }));
 vi.mock("@/state/viewing-user-store", () => ({
-  useViewingUserMxid: vi.fn(() => "@the-operator:thenasty.taild9b663.ts.net"),
+  useViewingUserMxid: vi.fn(() => "@the-operator:boreal.example-tailnet.ts.net"),
   useViewingUserId: vi.fn(() => "u-user"),
 }));
 
@@ -734,7 +734,7 @@ describe("PrettyConversationsPanel: load-in-flight affordance", () => {
 
   it("Test 1c: loading strip renders ABOVE already-arrived rows (RDP-first consumer case)", () => {
     // Mimic the real observable: RDP rows arrive first, fleet is still in flight.
-    const rdpHost = makeHost("rdp1", "beelink");
+    const rdpHost = makeHost("rdp1", "minipc");
     setSnapshot({
       activeSet: [],
       pinned: [],
@@ -745,7 +745,7 @@ describe("PrettyConversationsPanel: load-in-flight affordance", () => {
           rows: [
             makeConversationRow({
               id: "rdp-row-1",
-              label: "beelink",
+              label: "minipc",
               host: rdpHost,
               rdpHostRow: true,
               targetTmuxSession: null,
@@ -2161,7 +2161,7 @@ describe("PrettyConversationsPanel (quick-260727-kbw, Phase 92 rewire): mount hy
 // quick-260912-5q2 — mount hydration race: identities gate
 // ─────────────────────────────────────────────────────────────────────────────
 // Regression trap for the cold-reload pin-loss race the operator reproduced on
-// t1000: the hydrate effect fired on the fleetSessionsLoaded false→true flip
+// harbor: the hydrate effect fired on the fleetSessionsLoaded false→true flip
 // BEFORE any identity data was in the store, causing deriveDiskPinnedIds to
 // read an empty state.identities and return []. The original hydratedRef
 // latch then prevented the correct projection from ever landing.
@@ -2812,7 +2812,7 @@ describe("PrettyConversationsPanel: Phase 115 Plan 115-06 handleArchive", () => 
 
   // A9: RDP host row → Archive item NOT in menu (affordance-narrowing preserved).
   it("A9: RDP host row → Archive item NOT in row menu (canonicalArchiveIdForRow gate)", async () => {
-    const rdpHost = makeHost("h9", "beelink", { enableRdp: true });
+    const rdpHost = makeHost("h9", "minipc", { enableRdp: true });
     setSnapshot({
       activeSet: [],
       pinned: [],
@@ -2823,7 +2823,7 @@ describe("PrettyConversationsPanel: Phase 115 Plan 115-06 handleArchive", () => 
         rows: [
           makeConversationRow({
             id: "rdp-row",
-            label: "beelink",
+            label: "minipc",
             host: rdpHost,
             targetTmuxSession: null,
             rdpHostRow: true,
@@ -4471,7 +4471,7 @@ describe("PrettyConversationsPanel (shape-sidebar): swipe to archive with Undo",
   });
 
   it("rows that can't be archived (non-numeric host / RDP) don't swipe", async () => {
-    const rdpHost = makeHost("h9", "beelink", { enableRdp: true });
+    const rdpHost = makeHost("h9", "minipc", { enableRdp: true });
     setSnapshot({
       activeSet: [],
       pinned: [],
@@ -4482,7 +4482,7 @@ describe("PrettyConversationsPanel (shape-sidebar): swipe to archive with Undo",
         rows: [
           makeConversationRow({
             id: "rdp-row",
-            label: "beelink",
+            label: "minipc",
             host: rdpHost,
             targetTmuxSession: null,
             rdpHostRow: true,

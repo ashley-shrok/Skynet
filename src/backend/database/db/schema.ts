@@ -37,7 +37,7 @@ export const users = sqliteTable("users", {
   // matrix-admin-client.ts) as part of POST /users/create; the mxid is
   // populated in the same INSERT that writes the user row. New-user mxids
   // follow `@<sanitized-username>_human:<server_name>` (bijective sanitizer,
-  // `_human` suffix per D-06). Legacy users (user/Zoey/Laura on t1000,
+  // `_human` suffix per D-06). Legacy users (hand-made accounts on an older instance,
   // imported before slice A) have suffix-less mxids that continue to work
   // indefinitely. Nullable: OIDC users (D-12 out of scope) and legacy
   // pre-Phase-88 users may still have mxid=null. POST /users/:id/mxid

@@ -39,7 +39,7 @@ describe("wire-protocol", () => {
     const validHello = {
       schemaVersion: 1,
       type: "hello",
-      hostname: "thenasty",
+      hostname: "boreal",
     };
     expect(WatcherInboundFrame.safeParse(validHello).success).toBe(true);
 
@@ -781,7 +781,7 @@ describe("wire-protocol Phase 117 Plan 117-03 — project-list-changed frame", (
           slug: "alpha",
           displayName: "Alpha",
           hostId: "1",
-          hostname: "t1000",
+          hostname: "harbor",
           archived: false,
         },
       ],
@@ -854,7 +854,7 @@ describe("wire-protocol Phase 117 Plan 117-03 — project-list-changed frame", (
           // slug: missing
           displayName: "Alpha",
           hostId: "1",
-          hostname: "t1000",
+          hostname: "harbor",
           archived: false,
         },
       ],
@@ -880,7 +880,7 @@ describe("wire-protocol Phase 117 Plan 117-03 — project-list-changed frame", (
           slug: "alpha",
           displayName: "Alpha",
           hostId: "1",
-          hostname: "t1000",
+          hostname: "harbor",
           archived: "false",
         },
       ],
@@ -903,7 +903,7 @@ describe("wire-protocol Phase 117 Plan 117-03 — project-list-changed frame", (
           slug: "alpha",
           displayName: "Alpha",
           hostId: "1",
-          hostname: "t1000",
+          hostname: "harbor",
           archived: false,
         },
       ],
@@ -917,7 +917,7 @@ describe("wire-protocol Phase 117 Plan 117-03 — project-list-changed frame", (
       type: "identity-archived",
       name: "wren",
       hostId: "42",
-      hostname: "thenasty",
+      hostname: "boreal",
     };
     expect(FrontendOutboundFrame.safeParse(archivedFrame).success).toBe(false);
   });
@@ -929,7 +929,7 @@ describe("wire-protocol Phase 117 Plan 117-03 — project-list-changed frame", (
         slug: "alpha",
         displayName: "Alpha",
         hostId: "1",
-        hostname: "t1000",
+        hostname: "harbor",
         archived: false,
         parent: null,
       },
@@ -937,7 +937,7 @@ describe("wire-protocol Phase 117 Plan 117-03 — project-list-changed frame", (
         slug: "beta",
         displayName: "Beta",
         hostId: "1",
-        hostname: "t1000",
+        hostname: "harbor",
         archived: true,
         parent: "alpha",
       },
@@ -962,7 +962,7 @@ describe("wire-protocol Phase 117 Plan 117-03 — project-list-changed frame", (
       slug: "alpha",
       displayName: "Alpha",
       hostId: "1",
-      hostname: "t1000",
+      hostname: "harbor",
       archived: false,
     };
     const frame = makeProjectListChangedFrame("1", [legacy]);

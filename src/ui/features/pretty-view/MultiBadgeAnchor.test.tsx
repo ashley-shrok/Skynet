@@ -47,7 +47,7 @@ function makeIdentity(
 
 const IDENTITIES_BY_KEY = new Map<string, Identity>([
   ["user", makeIdentity("user", "user", 200)],
-  ["zoe", makeIdentity("zoe", "Zoe", 30)],
+  ["riley", makeIdentity("riley", "Riley", 30)],
   ["ada", makeIdentity("ada", "Ada", 90)],
   ["nelly", makeIdentity("nelly", "Nelly", 150)],
 ]);
@@ -102,13 +102,13 @@ vi.mock("@/main-axios", async (importOriginal) => {
 import { MultiBadgeAnchor } from "./MultiBadgeAnchor";
 
 const ALEX_MXID = "@alex:matrix.example.com";
-const ZOE_MXID = "@zoe:matrix.example.com";
+const RILEY_MXID = "@riley:matrix.example.com";
 const ADA_MXID = "@ada:matrix.example.com";
 const NELLY_MXID = "@nelly:matrix.example.com";
 
 function makeHumans(): HumanParticipant[] {
   return [
-    { mxid: ZOE_MXID, displayName: "Zoe", userId: "2" },
+    { mxid: RILEY_MXID, displayName: "Riley", userId: "2" },
     { mxid: ALEX_MXID, displayName: "user", userId: "1" },
   ];
 }
@@ -181,16 +181,16 @@ describe("MultiBadgeAnchor (Phase 93 Slice 2 Task 2)", () => {
     const humanCells = container.querySelectorAll(
       '[data-testid="relay-room-participant"][data-role="human"]',
     );
-    // user excluded — only Zoe renders.
+    // user excluded — only Riley renders.
     expect(humanCells.length).toBe(1);
-    expect(humanCells[0].getAttribute("data-mxid")).toBe(ZOE_MXID);
+    expect(humanCells[0].getAttribute("data-mxid")).toBe(RILEY_MXID);
   });
 
   it("Test 3 (role attribution): each cell has data-role='human' or 'agent'", () => {
     const { container } = render(
       <MultiBadgeAnchor
         participants={{
-          humans: [{ mxid: ZOE_MXID, displayName: "Zoe", userId: "2" }],
+          humans: [{ mxid: RILEY_MXID, displayName: "Riley", userId: "2" }],
           agents: [{ mxid: NELLY_MXID, identityKey: "nelly" }],
         }}
         viewingUserMxid={ALEX_MXID}
@@ -206,7 +206,7 @@ describe("MultiBadgeAnchor (Phase 93 Slice 2 Task 2)", () => {
     );
     expect(humanCell).not.toBeNull();
     expect(agentCell).not.toBeNull();
-    expect(humanCell?.getAttribute("data-mxid")).toBe(ZOE_MXID);
+    expect(humanCell?.getAttribute("data-mxid")).toBe(RILEY_MXID);
     expect(agentCell?.getAttribute("data-mxid")).toBe(NELLY_MXID);
   });
 
@@ -214,7 +214,7 @@ describe("MultiBadgeAnchor (Phase 93 Slice 2 Task 2)", () => {
     const { container } = render(
       <MultiBadgeAnchor
         participants={{
-          humans: [{ mxid: ZOE_MXID, displayName: "Zoe", userId: "2" }],
+          humans: [{ mxid: RILEY_MXID, displayName: "Riley", userId: "2" }],
           agents: [{ mxid: NELLY_MXID, identityKey: "nelly" }],
         }}
         viewingUserMxid={ALEX_MXID}
@@ -361,7 +361,7 @@ describe("MultiBadgeAnchor (Phase 93 Slice 2 Task 2)", () => {
     const { container } = render(
       <MultiBadgeAnchor
         participants={{
-          humans: [{ mxid: ZOE_MXID, displayName: "Zoe", userId: "2" }],
+          humans: [{ mxid: RILEY_MXID, displayName: "Riley", userId: "2" }],
           agents: [{ mxid: NELLY_MXID, identityKey: "nelly" }],
         }}
         viewingUserMxid={ALEX_MXID}

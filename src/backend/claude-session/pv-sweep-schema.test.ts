@@ -131,7 +131,7 @@ describe("parseSweepJsonl — round-trip", () => {
   it("parses a hand-crafted JSONL blob with 3 identity lines", () => {
     const l1 = makeLine({ identity: "tiffany", context_pct: 24 });
     const l2 = makeLine({ identity: "user", context_pct: 67 });
-    const l3 = makeLine({ identity: "zoeysephilya", context_pct: null });
+    const l3 = makeLine({ identity: "riley", context_pct: null });
     const blob = makeJsonl(l1, l2, l3);
 
     const result = parseSweepJsonl(blob);

@@ -46,27 +46,27 @@ function host(p: Partial<AdminHostOverview> & { key: string; name: string }): Ad
 }
 
 const HEALTHY_AGENT = host({
-  key: "t1000",
+  key: "harbor",
   name: "Skynet",
   agentHost: true,
   fleet: { agents: 14, running: 4, apps: 3, supervisorRunning: true },
   substrate: { lastSuccessAt: NOW - 3 * 60_000, lastFailureAt: null, lastError: null, consecutiveFailures: 0, inFlight: false },
 });
 const FULL_DISK = host({
-  key: "zoey",
-  name: "ZoeyBattlestation",
+  key: "riley",
+  name: "RileyDesktop",
   resources: { ...host({ key: "", name: "" }).resources!, diskUsedKb: 95 * GB, diskAvailKb: 5 * GB },
 });
 const BROKEN_AGENT = host({
-  key: "beelink",
-  name: "alice-beelink",
+  key: "minipc",
+  name: "alice-minipc",
   agentHost: true,
   fleet: { agents: 5, running: 0, apps: 0, supervisorRunning: false },
   substrate: { lastSuccessAt: null, lastFailureAt: NOW - 60_000, lastError: "couldn't connect over SSH", consecutiveFailures: 3, inFlight: false },
 });
 const RDP_ONLY = host({
-  key: "aither",
-  name: "aither-cloud-prod",
+  key: "acme",
+  name: "acme-cloud-prod",
   protocols: ["rdp"],
   resources: null,
   resourcesNote: "no_ssh",
@@ -106,35 +106,35 @@ describe("AdminHostsPane — the list", () => {
     render(<Harness />);
     const summary = await screen.findByTestId("admin-hosts-summary");
     expect(summary.textContent).toContain("5 hosts · 4 online · 3 need attention · updated just now");
-    expect(rowsIn("admin-hosts-attention")).toEqual(["admin-host-beelink", "admin-host-laptop", "admin-host-zoey"]);
-    expect(rowsIn("admin-hosts-fine")).toEqual(["admin-host-aither", "admin-host-t1000"]);
+    expect(rowsIn("admin-hosts-attention")).toEqual(["admin-host-laptop", "admin-host-minipc", "admin-host-riley"]);
+    expect(rowsIn("admin-hosts-fine")).toEqual(["admin-host-acme", "admin-host-harbor"]);
     expect(screen.getByText("Needs attention")).toBeTruthy();
     expect(screen.getByText("Running fine")).toBeTruthy();
   });
 
   it("each host that needs attention says why", async () => {
     render(<Harness />);
-    expect((await screen.findByTestId("admin-host-beelink")).textContent).toContain(
+    expect((await screen.findByTestId("admin-host-minipc")).textContent).toContain(
       "Agent supervisor down · Substrate sync failing since 1m ago",
     );
     expect(screen.getByTestId("admin-host-laptop").textContent).toContain("Unreachable · last seen 3d ago");
-    expect(screen.getByTestId("admin-host-zoey").textContent).toContain("Disk 95% full");
+    expect(screen.getByTestId("admin-host-riley").textContent).toContain("Disk 95% full");
   });
 
   it("hosts running fine get one quiet line", async () => {
     render(<Harness />);
-    expect((await screen.findByTestId("admin-host-t1000")).textContent).toContain(
+    expect((await screen.findByTestId("admin-host-harbor")).textContent).toContain(
       "4 of 14 agents running · memory 25% · 60 GB free",
     );
-    expect(screen.getByTestId("admin-host-aither").textContent).toContain("RDP · 2 ms");
-    expect(screen.getByTestId("admin-host-t1000").textContent).toContain("Agents");
-    expect(screen.getByTestId("admin-host-aither").textContent).toContain("Remote");
+    expect(screen.getByTestId("admin-host-acme").textContent).toContain("RDP · 2 ms");
+    expect(screen.getByTestId("admin-host-harbor").textContent).toContain("Agents");
+    expect(screen.getByTestId("admin-host-acme").textContent).toContain("Remote");
   });
 
   it("with nothing wrong there are no group titles", async () => {
     m.getAdminHosts.mockResolvedValue({ hosts: [HEALTHY_AGENT], generatedAt: NOW });
     render(<Harness />);
-    await screen.findByTestId("admin-host-t1000");
+    await screen.findByTestId("admin-host-harbor");
     expect(screen.queryByText("Needs attention")).toBeNull();
     expect(screen.queryByText("Running fine")).toBeNull();
   });
@@ -163,7 +163,7 @@ describe("AdminHostsPane — the list", () => {
     document.dispatchEvent(new Event("visibilitychange"));
     expect(m.getAdminHosts).toHaveBeenCalledTimes(1);
     release({ hosts: [HEALTHY_AGENT], generatedAt: NOW });
-    await screen.findByTestId("admin-host-t1000");
+    await screen.findByTestId("admin-host-harbor");
     vi.useRealTimers();
   });
 
@@ -182,28 +182,28 @@ describe("AdminHostsPane — the list", () => {
 describe("AdminHostsPane — one host", () => {
   it("an agent host: readings, agents and about; ‹ Hosts goes back", async () => {
     render(<Harness />);
-    await userEvent.click(await screen.findByTestId("admin-host-t1000"));
-    const view = screen.getByTestId("admin-host-view-t1000");
-    expect(screen.getByTestId("admin-host-t1000-status").textContent).toContain("Online · Runs agents");
+    await userEvent.click(await screen.findByTestId("admin-host-harbor"));
+    const view = screen.getByTestId("admin-host-view-harbor");
+    expect(screen.getByTestId("admin-host-harbor-status").textContent).toContain("Online · Runs agents");
     expect(view.textContent).toContain("load 1.0 on 4 cores");
     expect(view.textContent).toContain("4.0 GB of 16 GB");
     expect(view.textContent).toContain("60 GB free");
-    expect(screen.getByTestId("admin-host-t1000-cpu")).toBeTruthy();
+    expect(screen.getByTestId("admin-host-harbor-cpu")).toBeTruthy();
     expect(view.textContent).toContain("4 running of 14");
     expect(view.textContent).toContain("Synced 3m ago");
     expect(view.textContent).toContain("Running");
     expect(view.textContent).toContain("Ubuntu 24.04 · x86_64");
     expect(view.textContent).toContain("1d 1h");
-    expect(screen.queryByTestId("admin-host-t1000-reasons")).toBeNull();
+    expect(screen.queryByTestId("admin-host-harbor-reasons")).toBeNull();
     await userEvent.click(screen.getByTestId("admin-host-back"));
     expect(await screen.findByTestId("admin-hosts-pane")).toBeTruthy();
   });
 
   it("a broken agent host says why on top and shows the sync error", async () => {
     render(<Harness />);
-    await userEvent.click(await screen.findByTestId("admin-host-beelink"));
-    expect(screen.getByTestId("admin-host-beelink-reasons").textContent).toContain("Agent supervisor down");
-    const view = screen.getByTestId("admin-host-view-beelink");
+    await userEvent.click(await screen.findByTestId("admin-host-minipc"));
+    expect(screen.getByTestId("admin-host-minipc-reasons").textContent).toContain("Agent supervisor down");
+    const view = screen.getByTestId("admin-host-view-minipc");
     expect(view.textContent).toContain("Down");
     expect(view.textContent).toContain("Failing since 1m ago");
     expect(view.textContent).toContain("couldn't connect over SSH");
@@ -211,8 +211,8 @@ describe("AdminHostsPane — one host", () => {
 
   it("a host with no readings says why; Esc goes back", async () => {
     render(<Harness />);
-    await userEvent.click(await screen.findByTestId("admin-host-aither"));
-    const view = screen.getByTestId("admin-host-view-aither");
+    await userEvent.click(await screen.findByTestId("admin-host-acme"));
+    const view = screen.getByTestId("admin-host-view-acme");
     expect(view.textContent).toContain("No readings — reachable over RDP only · 2 ms");
     expect(view.textContent).toContain("Remote host");
     expect(view.textContent).not.toContain("Resources");

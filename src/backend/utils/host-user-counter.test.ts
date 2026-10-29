@@ -242,7 +242,7 @@ describe("isHostMultiUser — Phase 129 multi-user host detection", () => {
   it("Test 7b: SSH-connection collision — another user's host row on same (ip, port, username) → true (Skynet's actual shared-host model)", async () => {
     // Post-deploy fix 2026-09-23: Skynet's real sharing model is per-user
     // connection profiles pointing at the same physical (ip, port, ssh-user).
-    // host_access is empty in prod (verified in the live thenasty repro).
+    // host_access is empty in prod (verified in the live boreal repro).
     // Same (ip, port, username) on a different user's row → same filesystem
     // → multi-user for auto-tag purposes.
     enqueue(

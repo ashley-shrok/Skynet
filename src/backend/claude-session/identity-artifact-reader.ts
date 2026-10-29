@@ -16,7 +16,7 @@
  *
  * ENV VARS:
  * - IDENTITIES_LOCAL_HOST_IDS: comma-separated positive integer hostIds for which the
- *   bind-mount is authoritative (e.g. skynet-ec2's own hostId). Parsed once at module load.
+ *   bind-mount is authoritative (e.g. the box's own hostId). Parsed once at module load.
  * - IDENTITIES_HOST_DIR: the bind-mount path (patch #89). Used by getLocalIdentitiesRoot().
  *
  * SSH EXEC: all remote reads use execCommand from tmux-helper.ts (R3). Each call wrapped
@@ -459,7 +459,7 @@ export function getLocalProjectsRoot(): string {
  * Returns the local wake-ups root directory (Phase 134 Plan 134-01).
  *
  * D-16: Skynet's own host is a managed host from the scheduled-agents CRUD
- * API's perspective. The fleet-wide LIST fan-out reads t1000 (Skynet's own
+ * API's perspective. The fleet-wide LIST fan-out reads the Skynet box (its own
  * host) via the container bind mount, not loopback SSH. This helper mirrors
  * getLocalIdentitiesRoot + getLocalRolesRoot + getLocalProjectsRoot so
  * every fleet subtree derives its root from the same HOME_HOST_DIR
@@ -2567,7 +2567,7 @@ export const MIME_TO_AVATAR_EXT: Record<string, AvatarExt> = {
  * D-IDMEDIT-06).
  *
  * WHY ext_openssh_rename AND NOT sftp.rename (quick 260802-qrw, root-caused
- * by @stacy on ceo-skynet 2026-08-02, confirmed on skynet-ec2):
+ * 2026-08-02, confirmed on a second instance):
  *
  *   SFTPv3's SSH_FXP_RENAME cannot atomically overwrite an existing target.
  *   OpenSSH's process_rename tries link(old, new) first; when `new` already

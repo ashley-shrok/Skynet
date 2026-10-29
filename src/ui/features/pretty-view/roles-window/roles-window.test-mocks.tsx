@@ -76,7 +76,7 @@ export function resetRolesWindowMocks(): void {
     tooLarge: false,
     clashes: [],
     unreachable: [],
-    sourceHostName: "thenasty",
+    sourceHostName: "boreal",
   });
   m.promote.mockResolvedValue(undefined);
   m.removeInstanceWide.mockResolvedValue({ hostCount: 4 });

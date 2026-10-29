@@ -729,7 +729,7 @@ describe("subscription-registry", () => {
       slug: "alpha",
       displayName: "Alpha",
       hostId: "1",
-      hostname: "t1000",
+      hostname: "harbor",
       archived: false,
       parent: null,
     };
@@ -737,7 +737,7 @@ describe("subscription-registry", () => {
       slug: "alpha2",
       displayName: "Alpha 2",
       hostId: "1",
-      hostname: "t1000",
+      hostname: "harbor",
       archived: false,
       parent: null,
     };
@@ -897,7 +897,7 @@ describe("subscription-registry", () => {
           slug: "alpha",
           displayName: "Alpha",
           hostId: "1",
-          hostname: "t1000",
+          hostname: "harbor",
           archived: false,
         },
       ];
@@ -906,7 +906,7 @@ describe("subscription-registry", () => {
           slug: "alpha",
           displayName: "Alpha",
           hostId: "1",
-          hostname: "t1000",
+          hostname: "harbor",
           archived: false,
         },
       ];
@@ -1368,7 +1368,7 @@ describe("subscription-registry", () => {
       framesU2.length = 0;
 
       registry.publishProjectListChanged("42", [
-        { slug: "a", displayName: "A", hostId: "42", hostname: "thenasty", archived: false },
+        { slug: "a", displayName: "A", hostId: "42", hostname: "boreal", archived: false },
       ]);
       registry.publishProjectListChanged("99", [
         { slug: "b", displayName: "B", hostId: "99", hostname: "workstation", archived: false },
@@ -1399,7 +1399,7 @@ describe("subscription-registry", () => {
 
       // Seed the project list BEFORE any subscribe — one publish per host.
       registry.publishProjectListChanged("42", [
-        { slug: "a", displayName: "A", hostId: "42", hostname: "thenasty", archived: false },
+        { slug: "a", displayName: "A", hostId: "42", hostname: "boreal", archived: false },
       ]);
       registry.publishProjectListChanged("99", [
         { slug: "b", displayName: "B", hostId: "99", hostname: "workstation", archived: false },

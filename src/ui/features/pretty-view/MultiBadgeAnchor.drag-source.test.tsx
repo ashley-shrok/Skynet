@@ -50,7 +50,7 @@ function makeIdentity(
 }
 
 const IDENTITIES_BY_KEY = new Map<string, Identity>([
-  ["zoe", makeIdentity("zoe", "Zoe", 30)],
+  ["riley", makeIdentity("riley", "Riley", 30)],
   ["ada", makeIdentity("ada", "Ada", 90)],
   ["nelly", makeIdentity("nelly", "Nelly", 150)],
   ["bare-agent", makeIdentity("bare-agent", "Bare Agent", 200)],
@@ -128,14 +128,14 @@ vi.mock("@/features/terminal/IdentityBadge", () => ({
 
 import { MultiBadgeAnchor } from "./MultiBadgeAnchor";
 
-const ZOE_MXID = "@zoe:matrix.example.com";
+const RILEY_MXID = "@riley:matrix.example.com";
 const NELLY_MXID = "@nelly:matrix.example.com";
 const ADA_MXID = "@ada:matrix.example.com";
 const BARE_AGENT_MXID = "@bare-agent:matrix.example.com";
 const VIEWER_MXID = "@viewer:matrix.example.com";
 
 function makeHumans(): HumanParticipant[] {
-  return [{ mxid: ZOE_MXID, displayName: "Zoe", userId: "2" }];
+  return [{ mxid: RILEY_MXID, displayName: "Riley", userId: "2" }];
 }
 
 // Mix of agents: nelly + ada have host mappings (AgentBadgeWithMeter branch);
@@ -220,7 +220,7 @@ describe("MultiBadgeAnchor — Phase 97 Plan 06 tabId drag-source threading", ()
         tabId={TAB_ID}
       />,
     );
-    // Human cell (Zoe) — plain IdentityBadge, HumanBadgeCell branch.
+    // Human cell (Riley) — plain IdentityBadge, HumanBadgeCell branch.
     const humanCell = container.querySelector(
       '[data-testid="relay-room-participant"][data-role="human"]',
     );
@@ -229,7 +229,7 @@ describe("MultiBadgeAnchor — Phase 97 Plan 06 tabId drag-source threading", ()
       '[data-testid="identity-badge-spy"]',
     );
     expect(humanBadge?.getAttribute("data-tabid")).toBe(TAB_ID);
-    expect(humanBadge?.getAttribute("data-identity-key")).toBe("zoe");
+    expect(humanBadge?.getAttribute("data-identity-key")).toBe("riley");
 
     // bare-agent cell — plain IdentityBadge inside AgentBadgeCell fallback
     // branch (no host mapping). Identify via data-mxid.

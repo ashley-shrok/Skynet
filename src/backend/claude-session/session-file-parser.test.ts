@@ -655,7 +655,7 @@ describe("parseSessionLine — relay detection (Phase 17 / RELAYBUB-01, RELAYBUB
   });
 
   it("Test 12 (fp-safety): grep for m.room.message in a doc file returns kind:message NOT relay_outbound", () => {
-    // Real fleet false-positive class: 3 hits in corpus (t1000, thenasty,
+    // Real fleet false-positive class: 3 hits in corpus (harbor, boreal,
     // workstation) — grepping the agent-relay SKILL.md for reference. No
     // curl. Sentinel matches but CURL_RE rejects → NOT relay_outbound.
     const cmd = `grep -n "sendMessage\\|send message\\|room/.*/send\\|m.room.message" ~/.claude/skills/agent-relay/SKILL.md | head -30`;
@@ -1170,15 +1170,15 @@ describe("parseSessionLine — queue-operation enqueue as kind:message (Phase 50
         type: "queue-operation",
         operation: "enqueue",
         content:
-          '<task-notification>\n<task-id>b8fgbx2pm</task-id>\n<summary>Monitor event: "[ambient] poppy relay receiver"</summary>\n<event>[room !eEmSaImJffvUZTwWcS:thenasty.taild9b663.ts.net] [@zack:thenasty.taild9b663.ts.net] (event $EA3MJ9B27m08TMGRackXQOIRTvwCbacS92t1itTLwd8): hi poppy — recon on the reference email</event>\n</task-notification>',
+          '<task-notification>\n<task-id>b8fgbx2pm</task-id>\n<summary>Monitor event: "[ambient] poppy relay receiver"</summary>\n<event>[room !eEmSaImJffvUZTwWcS:boreal.example-tailnet.ts.net] [@zack:boreal.example-tailnet.ts.net] (event $EA3MJ9B27m08TMGRackXQOIRTvwCbacS92t1itTLwd8): hi poppy — recon on the reference email</event>\n</task-notification>',
         timestamp: "2026-08-28T11:13:04.465Z",
       }),
       "sess-poppy",
     );
     expect(parsed.kind).toBe("relay_inbound");
     if (parsed.kind !== "relay_inbound") throw new Error("unreachable");
-    expect(parsed.room).toBe("!eEmSaImJffvUZTwWcS:thenasty.taild9b663.ts.net");
-    expect(parsed.sender).toBe("@zack:thenasty.taild9b663.ts.net");
+    expect(parsed.room).toBe("!eEmSaImJffvUZTwWcS:boreal.example-tailnet.ts.net");
+    expect(parsed.sender).toBe("@zack:boreal.example-tailnet.ts.net");
     expect(parsed.matrixEventId).toBe(
       "$EA3MJ9B27m08TMGRackXQOIRTvwCbacS92t1itTLwd8",
     );
@@ -1552,7 +1552,7 @@ describe("parseSessionLine — session-lifecycle noise skips (quick-260829-r9i)"
   it("Test R9I-9c: no_response_requested — synthetic assistant turn (model:'<synthetic>') is skipped", () => {
     // Regression: original 2026-09-02 fix gated the phrase check on isUser,
     // but Claude Code emits it as a synthetic assistant turn after /exit
-    // (model:'<synthetic>'). The bubble rendered on Stacy's T800 instance
+    // (model:'<synthetic>'). The bubble rendered on a second instance
     // because the gate missed the assistant path. Check is now role-agnostic.
     const parsed = parseSessionLine(
       line({
@@ -1754,10 +1754,10 @@ describe("parseSessionLine — relay-mcp sends", () => {
   }
 
   it("send with `to` → relay_outbound carrying to + body, no room, no raw command", () => {
-    const parsed = parseSessionLine(mcpTurn("mcp__relay__send", { to: "@robin:t1000.example", body: "hi — done ✅" }));
+    const parsed = parseSessionLine(mcpTurn("mcp__relay__send", { to: "@robin:harbor.example", body: "hi — done ✅" }));
     expect(parsed.kind).toBe("relay_outbound");
     if (parsed.kind !== "relay_outbound") throw new Error("unreachable");
-    expect(parsed.to).toBe("@robin:t1000.example");
+    expect(parsed.to).toBe("@robin:harbor.example");
     expect(parsed.room).toBeNull();
     expect(parsed.body).toBe("hi — done ✅");
     expect(parsed.rawCommand).toBe("");
@@ -1765,9 +1765,9 @@ describe("parseSessionLine — relay-mcp sends", () => {
   });
 
   it("send with `room` → relay_outbound with the room, to null", () => {
-    const parsed = parseSessionLine(mcpTurn("mcp__relay__send", { room: "!abc:t1000.example", body: "reply" }));
+    const parsed = parseSessionLine(mcpTurn("mcp__relay__send", { room: "!abc:harbor.example", body: "reply" }));
     if (parsed.kind !== "relay_outbound") throw new Error(`got ${parsed.kind}`);
-    expect(parsed.room).toBe("!abc:t1000.example");
+    expect(parsed.room).toBe("!abc:harbor.example");
     expect(parsed.to).toBeNull();
   });
 
@@ -1859,26 +1859,26 @@ describe("resolveOutboundRoom", () => {
     `curl -s -X PUT "$BASE/_matrix/client/v3/rooms/${room}/send/m.room.message/$TXN" -d "$B"`;
 
   it("literal room id passes through", () => {
-    expect(resolveOutboundRoom("!abc:t1000.example", send("!abc:t1000.example"))).toBe("!abc:t1000.example");
+    expect(resolveOutboundRoom("!abc:harbor.example", send("!abc:harbor.example"))).toBe("!abc:harbor.example");
   });
 
   it("URL-encoded literal is decoded", () => {
-    expect(resolveOutboundRoom("%21abc%3At1000.example", send("%21abc%3At1000.example"))).toBe("!abc:t1000.example");
+    expect(resolveOutboundRoom("%21abc%3Aharbor.example", send("%21abc%3Aharbor.example"))).toBe("!abc:harbor.example");
   });
 
   it("$VAR with a quoted literal assignment in the same command resolves", () => {
-    const cmd = `RID='!abc:t1000.example'; TOKEN=$(cat tok); ${send("$RID")}`;
-    expect(resolveOutboundRoom("$RID", cmd)).toBe("!abc:t1000.example");
+    const cmd = `RID='!abc:harbor.example'; TOKEN=$(cat tok); ${send("$RID")}`;
+    expect(resolveOutboundRoom("$RID", cmd)).toBe("!abc:harbor.example");
   });
 
   it("${VAR}, export and URL-encoded assignment forms resolve", () => {
-    const cmd = `export ROOM_ENC=%21abc%3At1000.example\n${send("${ROOM_ENC}")}`;
-    expect(resolveOutboundRoom("${ROOM_ENC}", cmd)).toBe("!abc:t1000.example");
+    const cmd = `export ROOM_ENC=%21abc%3Aharbor.example\n${send("${ROOM_ENC}")}`;
+    expect(resolveOutboundRoom("${ROOM_ENC}", cmd)).toBe("!abc:harbor.example");
   });
 
   it("last assignment wins", () => {
-    const cmd = `RID="!old:t1000.example"; RID="!new:t1000.example"; ${send("$RID")}`;
-    expect(resolveOutboundRoom("$RID", cmd)).toBe("!new:t1000.example");
+    const cmd = `RID="!old:harbor.example"; RID="!new:harbor.example"; ${send("$RID")}`;
+    expect(resolveOutboundRoom("$RID", cmd)).toBe("!new:harbor.example");
   });
 
   it("computed or missing assignment passes through unchanged", () => {
@@ -1887,17 +1887,17 @@ describe("resolveOutboundRoom", () => {
   });
 
   it("a var whose name is a suffix of another var is not confused", () => {
-    const cmd = `MYRID='!wrong:t1000.example'; ${send("$RID")}`;
+    const cmd = `MYRID='!wrong:harbor.example'; ${send("$RID")}`;
     expect(resolveOutboundRoom("$RID", cmd)).toBe("$RID");
   });
 
   it("detectRelayOutbound returns the resolved room", () => {
-    const cmd = `RID='!abc:t1000.example'; ${send("$RID")}`;
+    const cmd = `RID='!abc:harbor.example'; ${send("$RID")}`;
     const out = detectRelayOutbound({
       type: "assistant",
       message: { content: [{ type: "tool_use", name: "Bash", input: { command: cmd } }] },
     });
-    expect(out?.room).toBe("!abc:t1000.example");
+    expect(out?.room).toBe("!abc:harbor.example");
   });
 });
 

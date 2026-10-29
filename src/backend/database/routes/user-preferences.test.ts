@@ -669,7 +669,7 @@ describe("handlePutPreferences: Phase 92-02 pin sentinel fan-out", () => {
 // timeout on openConnForHost) threw out of the openConns Promise.all, was
 // caught by the outer try, and 500'd the whole PUT — killing pin/unpin for
 // EVERY identity on every host, not just the offline one. The user hit this
-// with a battle-station host offline: pinning an identity on t1000 (fully reachable)
+// with a battle-station host offline: pinning an identity on harbor (fully reachable)
 // failed with "Failed to update user preferences".
 //
 // New shape: openConnForHost failure marks the host as unreachable, its
@@ -679,7 +679,7 @@ describe("handlePutPreferences: Phase 92-02 pin sentinel fan-out", () => {
 // the tolerance is scoped to the openConn phase only.
 describe("handlePutPreferences: Phase 92-02 pin fan-out — offline host tolerance", () => {
   it("PUT-92-09a: one unreachable host does NOT fail the PUT — reachable-host pin still writes", async () => {
-    // Two hosts, both REMOTE. Host 1 reachable, host 9 (Zoey stand-in) unreachable.
+    // Two hosts, both REMOTE. Host 1 reachable, host 9 (Riley stand-in) unreachable.
     isLocalHostIdMock.mockReturnValue(false);
     connectOneShotMock.mockImplementation(async (host: { ip: string }) => {
       if (host.ip === "10.0.0.9") {

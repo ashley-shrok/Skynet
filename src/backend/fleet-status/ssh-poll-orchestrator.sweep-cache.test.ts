@@ -138,7 +138,7 @@ describe("sweep-result cache — two-orchestrator dedup shape", () => {
     // for-byte, so the two orchestrators publish IDENTICAL downstream frames.
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-09-29T22:00:00Z"));
-    const peer = "100.82.225.100:22"; // real workstation peer for shape realism
+    const peer = "100.70.0.3:22"; // real workstation peer for shape realism
     const sweepBytes = [
       '{"kind":"identity","identity":"willa","tmuxSession":"willa","hostId":"7"}',
       '{"kind":"pid","pid":12345}',

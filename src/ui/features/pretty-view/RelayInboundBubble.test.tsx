@@ -73,8 +73,8 @@ beforeEach(() => {
 function renderHarness(props: Partial<React.ComponentProps<typeof RelayInboundBubble>> = {}) {
   return render(
     <RelayInboundBubble
-      room="!abc:t1000.example"
-      sender="@tina:t1000.example"
+      room="!abc:harbor.example"
+      sender="@tina:harbor.example"
       body="Yep, it went out this morning."
       hostId={42}
       selfIdentity={aster}
@@ -126,7 +126,7 @@ describe("RelayInboundBubble — harness view (folded card)", () => {
     expect(screen.queryByTestId("relay-avatar-img")).toBeNull();
     expect(screen.getByTestId("relay-avatar").textContent).toBe("T");
 
-    renderHarness({ sender: "@stranger:t1000.example" });
+    renderHarness({ sender: "@stranger:harbor.example" });
     const avatars = screen.getAllByTestId("relay-avatar");
     expect(avatars[avatars.length - 1].textContent).toBe("S");
   });
@@ -142,18 +142,18 @@ describe("RelayInboundBubble — harness view (folded card)", () => {
     renderHarness({ ts: Date.UTC(2026, 9, 14, 14, 16) });
     fireEvent.click(screen.getByTestId("relay-inbound-header"));
     const text = screen.getByTestId("relay-inbound-bubble").textContent ?? "";
-    expect(text).not.toMatch(/!abc|@tina|t1000\.example|recv\.sh|curl|relay send/);
+    expect(text).not.toMatch(/!abc|@tina|harbor\.example|recv\.sh|curl|relay send/);
     expect(text).not.toMatch(/\d{1,2}:\d{2}/);
     // Exact time is still available on hover.
     expect(screen.getByTestId("relay-inbound-bubble").getAttribute("title")).toBeTruthy();
   });
 
   it("unresolved sender reads as a name, not an address", () => {
-    renderHarness({ sender: "@stacy:skynet.aithercloud.com" });
+    renderHarness({ sender: "@quinn:chat.example.org" });
     const who = screen.getByTestId("relay-who-line").textContent ?? "";
-    expect(who).toContain("Stacy");
-    expect(who).not.toContain("@stacy");
-    expect(who).not.toContain("aithercloud");
+    expect(who).toContain("Quinn");
+    expect(who).not.toContain("@quinn");
+    expect(who).not.toContain("work");
   });
 
   it("card is tinted with the sender's hue; unresolved sender falls back to 210", () => {
@@ -166,8 +166,8 @@ describe("RelayInboundBubble — harness view (folded card)", () => {
 
   it("members known, two in room → DM to the other member", () => {
     membersMock.mockReturnValue([
-      { mxid: "@tina:t1000.example", kind: "agent", displayName: null },
-      { mxid: "@pixel:t1000.example", kind: "agent", displayName: null },
+      { mxid: "@tina:harbor.example", kind: "agent", displayName: null },
+      { mxid: "@pixel:harbor.example", kind: "agent", displayName: null },
     ]);
     renderHarness();
     const who = screen.getByTestId("relay-who-line").textContent ?? "";
@@ -177,9 +177,9 @@ describe("RelayInboundBubble — harness view (folded card)", () => {
 
   it("members known, three in room → 'group with' and no DM tag", () => {
     membersMock.mockReturnValue([
-      { mxid: "@tina:t1000.example", kind: "agent", displayName: null },
-      { mxid: "@pixel:t1000.example", kind: "agent", displayName: null },
-      { mxid: "@aster:t1000.example", kind: "agent", displayName: null },
+      { mxid: "@tina:harbor.example", kind: "agent", displayName: null },
+      { mxid: "@pixel:harbor.example", kind: "agent", displayName: null },
+      { mxid: "@aster:harbor.example", kind: "agent", displayName: null },
     ]);
     renderHarness();
     const who = screen.getByTestId("relay-who-line").textContent ?? "";

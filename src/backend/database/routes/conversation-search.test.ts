@@ -222,7 +222,7 @@ function installDelegatingBatchMocks(): void {
 
 // Phase 129 Plan 129-04: getUsernameForUserId mock powers the per-request
 // callerUsername resolution. Tests install per-mockUserId maps to route
-// different callers ("user" vs "zoe") through the same handler.
+// different callers ("user" vs "riley") through the same handler.
 const { getUsernameForUserIdMock } = vi.hoisted(() => ({
   getUsernameForUserIdMock: vi.fn(),
 }));
@@ -1062,10 +1062,10 @@ describe("Phase 129: search-surface visibility gate", () => {
   });
 
   // -------------------------------------------------------------------------
-  // Test B — multi-user host, identity users:[user] → Zoe filtered
+  // Test B — multi-user host, identity users:[user] → Riley filtered
   // -------------------------------------------------------------------------
 
-  it("Test B: identity users:[user] — User sees muffin hit; Zoe sees ZERO hits from muffin (D-7 no leak)", async () => {
+  it("Test B: identity users:[user] — User sees muffin hit; Riley sees ZERO hits from muffin (D-7 no leak)", async () => {
     mockSearchWithIdentityUsers("muffin", { identityUsers: ["user"] });
     mockSearchWithIdentityUsers("scone"); // ungated, both see
     mockSearchHits([
@@ -1086,9 +1086,9 @@ describe("Phase 129: search-surface visibility gate", () => {
     const userKeys = userBody.results.map((r) => r.identityKey).sort();
     expect(userKeys).toEqual(["muffin", "scone"]);
 
-    // Zoe: only scone; muffin FILTERED because users:[user] excludes her.
-    mockUserId = "uid-zoe";
-    getUsernameForUserIdMock.mockResolvedValue("zoe");
+    // Riley: only scone; muffin FILTERED because users:[user] excludes her.
+    mockUserId = "uid-riley";
+    getUsernameForUserIdMock.mockResolvedValue("riley");
     const zoeRes = await httpPostJson(server, "/conversation-search", {
       query: "cheese",
     });
@@ -1102,10 +1102,10 @@ describe("Phase 129: search-surface visibility gate", () => {
   });
 
   // -------------------------------------------------------------------------
-  // Test C — role users:[user], identity untagged → Zoe filtered (D-2)
+  // Test C — role users:[user], identity untagged → Riley filtered (D-2)
   // -------------------------------------------------------------------------
 
-  it("Test C: role users:[user] (identity untagged) — Zoe sees ZERO hits under that role (D-2 role-side gate closes)", async () => {
+  it("Test C: role users:[user] (identity untagged) — Riley sees ZERO hits under that role (D-2 role-side gate closes)", async () => {
     mockSearchWithIdentityUsers("muffin", {
       roleName: "coordinator",
       roleUsers: ["user"],
@@ -1125,9 +1125,9 @@ describe("Phase 129: search-surface visibility gate", () => {
     };
     expect(userBody.results.map((r) => r.identityKey)).toEqual(["muffin"]);
 
-    // Zoe does not (role gate closes)
-    mockUserId = "uid-zoe";
-    getUsernameForUserIdMock.mockResolvedValue("zoe");
+    // Riley does not (role gate closes)
+    mockUserId = "uid-riley";
+    getUsernameForUserIdMock.mockResolvedValue("riley");
     const zoeRes = await httpPostJson(server, "/conversation-search", {
       query: "cheese",
     });
@@ -1141,7 +1141,7 @@ describe("Phase 129: search-surface visibility gate", () => {
   // Test D — archive branch also gated
   // -------------------------------------------------------------------------
 
-  it("Test D: archived identity file with users:[user] — Zoe's archive-branch search returns ZERO hits from that identity", async () => {
+  it("Test D: archived identity file with users:[user] — Riley's archive-branch search returns ZERO hits from that identity", async () => {
     mockSearchWithIdentityUsers("stale-muffin", { identityUsers: ["user"] });
     mockSearchHits([
       {
@@ -1165,9 +1165,9 @@ describe("Phase 129: search-surface visibility gate", () => {
     expect(userBody.results[0].identityKey).toBe("stale-muffin");
     expect(userBody.results[0].isArchived).toBe(true);
 
-    // Zoe does not — archive branch honors the SAME gate as the live branch
-    mockUserId = "uid-zoe";
-    getUsernameForUserIdMock.mockResolvedValue("zoe");
+    // Riley does not — archive branch honors the SAME gate as the live branch
+    mockUserId = "uid-riley";
+    getUsernameForUserIdMock.mockResolvedValue("riley");
     const zoeRes = await httpPostJson(server, "/conversation-search", {
       query: "cheese",
     });
@@ -1474,12 +1474,12 @@ describe("Phase 129: search-surface visibility gate", () => {
     mockSearchWithIdentityUsers("fig", { identityUsers: ["user"] });
     mockSearchHits([{ identityKey: "fig", mtime: 200, content: "cheese" }]);
     listArchivedIdentityKeysOnHostMock.mockResolvedValue(["fig"]); // stale archive folder too
-    mockUserId = "uid-zoe";
-    getUsernameForUserIdMock.mockResolvedValue("zoe");
+    mockUserId = "uid-riley";
+    getUsernameForUserIdMock.mockResolvedValue("riley");
 
     const res = await httpPostJson(server, "/conversation-search", { query: "cheese" });
     expect(res.status).toBe(200);
-    // The live file's users:[user] gate still closes for zoe.
+    // The live file's users:[user] gate still closes for riley.
     expect((res.body as { results: unknown[] }).results).toHaveLength(0);
     expect([...readIdentityBatchMock.mock.calls[0][2]]).toEqual([]);
 

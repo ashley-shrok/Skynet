@@ -67,7 +67,7 @@ function isBrandingConfig(v: unknown): v is BrandingConfig {
  *   - Parsed value fails isBrandingConfig shape guard
  *
  * In all these cases the store retains the bundled-default sentinel; the app
- * renders with "Skynet" branding, which is byte-identical to today's t1000
+ * renders with "Skynet" branding, which is byte-identical to today's default
  * behavior per D-14. Only a successful, well-shaped response transitions the
  * store to the operator's config.
  */

@@ -27,7 +27,7 @@
  *
  * - **Region hardcoded to `us-east-1`** (per D-Claude's-discretion).
  *   Generative-engine Polly is not available in every region; hardcoding
- *   removes an operator failure mode. Both t1000 and T800 have us-east-1
+ *   removes an operator failure mode. Instances so far have us-east-1
  *   generative available. If a future region-switch becomes needed,
  *   one-line change here.
  *

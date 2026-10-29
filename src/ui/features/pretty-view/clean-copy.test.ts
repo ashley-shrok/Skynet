@@ -32,12 +32,12 @@ describe("cleanSelectionPayload", () => {
 
   it("keeps structure but drops style, class and data attributes", () => {
     const el = mountBubble(
-      '<p class="x" style="background:#000;color:#fff">Hi <strong style="color:red">Laura</strong></p>' +
+      '<p class="x" style="background:#000;color:#fff">Hi <strong style="color:red">Jamie</strong></p>' +
         '<ul data-k="1"><li>one</li></ul><a href="https://e.x" class="l">link</a>',
     );
     const payload = cleanSelectionPayload(selectContents(el))!;
     expect(payload.html).toBe(
-      '<p>Hi <strong>Laura</strong></p><ul><li>one</li></ul><a href="https://e.x">link</a>',
+      '<p>Hi <strong>Jamie</strong></p><ul><li>one</li></ul><a href="https://e.x">link</a>',
     );
     expect(payload.html).not.toMatch(/style|class|background|color/);
   });

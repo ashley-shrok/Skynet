@@ -23,8 +23,8 @@ export interface SpawnRequestBody {
   // Spec-provided user tag for the newborn's frontmatter `users:` field.
   // When present + non-empty, overrides the host-owner creatorUsername auto-tag
   // at birth. Used by scheduled-agent specs that name whose box this spawn
-  // belongs to (e.g. news-watcher-zoey-email → users:["zoey"] so the newborn
-  // lands under Zoey, not the host owner). For a roleless request without
+  // belongs to (e.g. news-watcher-riley-email → users:["riley"] so the newborn
+  // lands under Riley, not the host owner). For a roleless request without
   // `users`, the worker copies the requester's (`requested_by`) own identity
   // `users:` list when it has one; otherwise the newborn is open.
   users?: string[];
@@ -158,7 +158,7 @@ export interface RoleSuccessResponse {
  *
  * `matrix_homeserver_unreachable` — birth step 6 hit a network failure
  * talking to the Matrix Synapse admin API (mint the identity's Matrix
- * account). Distinct from peer-host issues; the fleet Synapse at t1000 could
+ * account). Distinct from peer-host issues; the fleet Synapse could
  * be down while every managed peer is reachable, or vice versa.
  *
  * Historically these were one enum value (`homeserver_unreachable`) which

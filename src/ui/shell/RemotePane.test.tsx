@@ -42,7 +42,7 @@ function renderPane(props: Partial<React.ComponentProps<typeof RemotePane>> = {}
   return render(
     <RemotePane
       hostId="7"
-      hostName="ZoeyBattlestation"
+      hostName="RileyDesktop"
       tabId="rdp-tab-1"
       protocol="rdp"
       isVisible
@@ -86,7 +86,7 @@ afterEach(() => {
 describe("RemotePane bar", () => {
   it("shows the host name and mounts the remote display below the bar", async () => {
     const { getByTestId, findByTestId } = renderPane();
-    expect(getByTestId("remote-pane-title").textContent).toContain("ZoeyBattlestation");
+    expect(getByTestId("remote-pane-title").textContent).toContain("RileyDesktop");
     expect(await findByTestId("guacamole-stub")).toBeTruthy();
   });
 
@@ -102,7 +102,7 @@ describe("RemotePane bar", () => {
     expect(typeof payload.dragId).toBe("string");
     expect(payload.identityKey).toBeNull();
     expect(payload.hostId).toBe(7);
-    expect(payload.descriptor).toEqual({ tabType: "rdp", label: "ZoeyBattlestation" });
+    expect(payload.descriptor).toEqual({ tabType: "rdp", label: "RileyDesktop" });
   });
 
   it("a press that starts on Reconnect never drags the pane", () => {

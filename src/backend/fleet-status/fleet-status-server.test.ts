@@ -217,7 +217,7 @@ describe("fleet-status-server", () => {
   });
 
   it("Test 4: Watcher hello resolves hostId; subsequent session_state calls publishSessionState with resolved hostId", async () => {
-    resolveHostRecordByName.mockResolvedValue({ id: "host-thenasty", name: "thenasty" });
+    resolveHostRecordByName.mockResolvedValue({ id: "host-boreal", name: "boreal" });
     const publishSpy = vi.spyOn(registry, "publishSessionState");
 
     const url = `ws://localhost:${port}/fleet-status/watcher`;
@@ -226,11 +226,11 @@ describe("fleet-status-server", () => {
     await new Promise<void>((resolve) => ws.on("open", resolve));
 
     ws.send(
-      JSON.stringify({ schemaVersion: 1, type: "hello", hostname: "thenasty" }),
+      JSON.stringify({ schemaVersion: 1, type: "hello", hostname: "boreal" }),
     );
 
     const sessionState = {
-      hostId: "host-thenasty",
+      hostId: "host-boreal",
       tmuxSession: "tina",
       sessionId: "session-abc",
       pid: 1234,
@@ -253,9 +253,9 @@ describe("fleet-status-server", () => {
     ws.close();
     await new Promise((resolve) => setTimeout(resolve, 50));
 
-    expect(resolveHostRecordByName).toHaveBeenCalledWith("thenasty");
+    expect(resolveHostRecordByName).toHaveBeenCalledWith("boreal");
     expect(publishSpy).toHaveBeenCalledWith(
-      "host-thenasty",
+      "host-boreal",
       expect.objectContaining({ sessionId: "session-abc" }),
     );
   });
@@ -294,7 +294,7 @@ describe("fleet-status-server", () => {
   });
 
   it("Test 6: Watcher session_gone calls registry.publishSessionGone with resolved hostId", async () => {
-    resolveHostRecordByName.mockResolvedValue({ id: "host-thenasty", name: "thenasty" });
+    resolveHostRecordByName.mockResolvedValue({ id: "host-boreal", name: "boreal" });
     const goneSpy = vi.spyOn(registry, "publishSessionGone");
 
     const url = `ws://localhost:${port}/fleet-status/watcher`;
@@ -303,7 +303,7 @@ describe("fleet-status-server", () => {
     await new Promise<void>((resolve) => ws.on("open", resolve));
 
     ws.send(
-      JSON.stringify({ schemaVersion: 1, type: "hello", hostname: "thenasty" }),
+      JSON.stringify({ schemaVersion: 1, type: "hello", hostname: "boreal" }),
     );
 
     await new Promise((resolve) => setTimeout(resolve, 50));
@@ -321,7 +321,7 @@ describe("fleet-status-server", () => {
     ws.close();
     await new Promise((resolve) => setTimeout(resolve, 50));
 
-    expect(goneSpy).toHaveBeenCalledWith("host-thenasty", "tina", "session-abc");
+    expect(goneSpy).toHaveBeenCalledWith("host-boreal", "tina", "session-abc");
   });
 
   it("Test 7: Wrong path is closed with code 4000", async () => {

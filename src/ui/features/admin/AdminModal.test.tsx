@@ -139,7 +139,7 @@ const USERS: AdminUser[] = [
     isAdmin: true,
     mxid: "@alice_human:skynet",
   }),
-  user({ id: "u2", username: "zoey" }),
+  user({ id: "u2", username: "riley" }),
   user({ id: "u3", username: "bob", isOidc: true }),
 ];
 
@@ -208,7 +208,7 @@ describe("AdminModal — Users", () => {
     expect(members.textContent).toContain("Members · 2");
     expect(within(members).getAllByRole("button").map((r) => r.textContent)).toEqual([
       expect.stringContaining("bob"),
-      expect.stringContaining("zoey"),
+      expect.stringContaining("riley"),
     ]);
     expect(screen.getByTestId("admin-user-row-me").textContent).toContain("You");
     expect(screen.getByTestId("admin-user-row-u2").textContent).not.toContain("You");
@@ -237,7 +237,7 @@ describe("AdminModal — Users", () => {
       ...Array.from({ length: 7 }, (_, i) => user({ id: `x${i}`, username: `extra${i}` })),
     ]);
     const search = await screen.findByTestId("admin-users-search");
-    await userEvent.type(search, "zo");
+    await userEvent.type(search, "ril");
     expect(screen.getByTestId("admin-user-row-u2")).toBeTruthy();
     expect(screen.queryByTestId("admin-user-row-me")).toBeNull();
     await userEvent.clear(search);
@@ -255,9 +255,9 @@ function cleanupAndRender(users: AdminUser[]) {
 describe("AdminModal — a user", () => {
   it("opens one level deeper in the same window; ‹ Users goes back", async () => {
     renderModal();
-    await openUser("zoey");
+    await openUser("riley");
     expect(screen.getAllByRole("dialog")).toHaveLength(1);
-    expect(screen.getByTestId("admin-user-name").textContent).toBe("zoey");
+    expect(screen.getByTestId("admin-user-name").textContent).toBe("riley");
     expect(screen.getByTestId("admin-user-standing").textContent).toBe("Member");
     expect(screen.queryByTestId("admin-section-hero")).toBeNull();
     await userEvent.click(screen.getByTestId("admin-user-back"));
@@ -267,7 +267,7 @@ describe("AdminModal — a user", () => {
   it("Esc goes back to the list instead of closing the window", async () => {
     const onOpenChange = vi.fn();
     render(<AdminModal open onOpenChange={onOpenChange} currentUserId="me" />);
-    await openUser("zoey");
+    await openUser("riley");
     await userEvent.keyboard("{Escape}");
     expect(await screen.findByTestId("admin-users-pane")).toBeTruthy();
     expect(onOpenChange).not.toHaveBeenCalled();
@@ -275,7 +275,7 @@ describe("AdminModal — a user", () => {
 
   it("picking Users in the side list again goes back to the list", async () => {
     renderModal();
-    await openUser("zoey");
+    await openUser("riley");
     await userEvent.click(screen.getByTestId("admin-tab-users"));
     expect(await screen.findByTestId("admin-users-pane")).toBeTruthy();
   });
@@ -302,17 +302,17 @@ describe("AdminModal — a user", () => {
   it("promotes a user after confirmation and reloads the list", async () => {
     const dialogs = autoAnswerKitDialogs({ confirm: true });
     renderModal();
-    await openUser("zoey");
+    await openUser("riley");
     await userEvent.click(sw("admin-user-admin-switch"));
     await waitFor(() => expect(m.makeUserAdmin).toHaveBeenCalledWith("u2"));
-    expect(dialogs.calls[0].opts.title).toMatch(/Make zoey an admin/);
+    expect(dialogs.calls[0].opts.title).toMatch(/Make riley an admin/);
     await waitFor(() => expect(m.getUserList).toHaveBeenCalledTimes(2));
   });
 
   it("declining the admin confirm changes nothing", async () => {
     autoAnswerKitDialogs({ confirm: false });
     renderModal();
-    await openUser("zoey");
+    await openUser("riley");
     await userEvent.click(sw("admin-user-admin-switch"));
     expect(m.makeUserAdmin).not.toHaveBeenCalled();
   });
@@ -320,7 +320,7 @@ describe("AdminModal — a user", () => {
   it("grants push notifications to a non-admin and reloads the list", async () => {
     m.setUserNotificationsEnabled.mockResolvedValue({});
     renderModal();
-    await openUser("zoey");
+    await openUser("riley");
     expect(sw("admin-user-notifications-switch").disabled).toBe(false);
     expect(sw("admin-user-notifications-switch").checked).toBe(false);
     await userEvent.click(sw("admin-user-notifications-switch"));
@@ -338,7 +338,7 @@ describe("AdminModal — a user", () => {
   it("phone: Save appears only once the number changes, and saves it", async () => {
     m.setUserPhone.mockResolvedValue({});
     renderModal();
-    await openUser("zoey");
+    await openUser("riley");
     expect(screen.queryByTestId("admin-user-phone-save")).toBeNull();
     await userEvent.type(screen.getByTestId("admin-user-phone-input"), "+17165550100");
     await userEvent.click(screen.getByTestId("admin-user-phone-save"));
@@ -347,22 +347,22 @@ describe("AdminModal — a user", () => {
   });
 
   it("requires the typed username before deleting, then goes back to the list", async () => {
-    let typed = "zoe";
+    let typed = "rile";
     const dialogs = autoAnswerKitDialogs({ prompt: () => typed });
     renderModal();
-    await openUser("zoey");
+    await openUser("riley");
     await userEvent.click(screen.getByTestId("admin-user-delete"));
     expect(m.deleteUser).not.toHaveBeenCalled();
     expect(screen.getByTestId("admin-user-delete-error").textContent).toContain("didn't match");
 
     // The dialog itself refuses a mismatched name before it resolves.
     const opts = dialogs.calls[0].opts as { validate?: (v: string) => string | null | undefined };
-    expect(opts.validate?.("zoe")).toBeTruthy();
-    expect(opts.validate?.("zoey")).toBeFalsy();
+    expect(opts.validate?.("rile")).toBeTruthy();
+    expect(opts.validate?.("riley")).toBeFalsy();
 
-    typed = "zoey";
+    typed = "riley";
     await userEvent.click(screen.getByTestId("admin-user-delete"));
-    await waitFor(() => expect(m.deleteUser).toHaveBeenCalledWith("zoey"));
+    await waitFor(() => expect(m.deleteUser).toHaveBeenCalledWith("riley"));
     expect(await screen.findByTestId("admin-users-pane")).toBeTruthy();
   });
 
@@ -383,7 +383,7 @@ describe("AdminModal — a user", () => {
     m.revokeAllUserSessions.mockResolvedValue({});
     const dialogs = autoAnswerKitDialogs({ confirm: true });
     renderModal();
-    await openUser("zoey");
+    await openUser("riley");
     expect(await screen.findByTestId("admin-session-s1")).toBeTruthy();
     expect(screen.getByTestId("admin-session-s5")).toBeTruthy();
     expect(screen.queryByTestId("admin-session-s2")).toBeNull();
@@ -397,24 +397,24 @@ describe("AdminModal — a user", () => {
 
     await userEvent.click(screen.getByTestId("admin-user-sessions-revoke-all"));
     await waitFor(() => expect(m.revokeAllUserSessions).toHaveBeenCalledWith("u2", false));
-    expect(dialogs.calls[1].opts.title).toBe("Log zoey out everywhere?");
+    expect(dialogs.calls[1].opts.title).toBe("Log riley out everywhere?");
   });
 
   it("says when someone isn't signed in anywhere, with no log-out-everywhere row", async () => {
     renderModal();
-    await openUser("zoey");
+    await openUser("riley");
     expect(await screen.findByTestId("admin-user-sessions-empty")).toBeTruthy();
     expect(screen.queryByTestId("admin-user-sessions-revoke-all")).toBeNull();
   });
 
   it("shows only hosts the user owns", async () => {
     m.getSSHHosts.mockResolvedValue([
-      { id: 1, name: "t1000", ip: "10.0.0.1", port: 22, username: "zoey", userId: "u2", status: "online" },
+      { id: 1, name: "harbor", ip: "10.0.0.1", port: 22, username: "riley", userId: "u2", status: "online" },
       { id: 2, name: "other", ip: "10.0.0.2", port: 22, username: "alice", userId: "me", status: "online" },
     ]);
     renderModal();
-    await openUser("zoey");
-    expect((await screen.findByTestId("admin-user-host-1")).textContent).toContain("t1000");
+    await openUser("riley");
+    expect((await screen.findByTestId("admin-user-host-1")).textContent).toContain("harbor");
     expect(screen.queryByTestId("admin-user-host-2")).toBeNull();
     expect(screen.getByText("Hosts · 1")).toBeTruthy();
     expect(m.getSSHHosts).toHaveBeenCalledWith(false);
@@ -512,7 +512,7 @@ describe("AdminModal — Instance file", () => {
 describe("AdminModal — a user (review fixes)", () => {
   it("the back link takes focus when a user opens", async () => {
     renderModal();
-    await openUser("zoey");
+    await openUser("riley");
     expect(document.activeElement).toBe(screen.getByTestId("admin-user-back"));
   });
 
@@ -521,10 +521,10 @@ describe("AdminModal — a user (review fixes)", () => {
       users: [...USERS, ...Array.from({ length: 7 }, (_, i) => user({ id: `x${i}`, username: `extra${i}` }))],
     });
     renderModal();
-    await userEvent.type(await screen.findByTestId("admin-users-search"), "zo");
+    await userEvent.type(await screen.findByTestId("admin-users-search"), "ril");
     await userEvent.click(screen.getByTestId("admin-user-row-u2"));
     await userEvent.click(await screen.findByTestId("admin-user-back"));
-    expect(((await screen.findByTestId("admin-users-search")) as HTMLInputElement).value).toBe("zo");
+    expect(((await screen.findByTestId("admin-users-search")) as HTMLInputElement).value).toBe("ril");
     expect(screen.queryByTestId("admin-user-row-me")).toBeNull();
   });
 
@@ -532,7 +532,7 @@ describe("AdminModal — a user (review fixes)", () => {
     const answers = [false, true];
     const dialogs = autoAnswerKitDialogs({ confirm: () => answers.shift() ?? true });
     renderModal();
-    await openUser("zoey");
+    await openUser("riley");
     const box = screen.getByTestId("admin-user-phone-input") as HTMLInputElement;
     await userEvent.type(box, "+1716");
     await userEvent.click(screen.getByTestId("admin-user-back"));
@@ -572,7 +572,7 @@ describe("AdminModal — a user (review fixes)", () => {
     autoAnswerKitDialogs({ confirm: true });
     let release: () => void = () => {};
     renderModal();
-    await openUser("zoey");
+    await openUser("riley");
     m.getUserList.mockImplementationOnce(
       () =>
         new Promise((r) => {

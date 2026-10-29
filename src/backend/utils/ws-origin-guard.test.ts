@@ -22,7 +22,7 @@ describe("SERVE_SUBDOMAIN_ORIGIN_RE", () => {
 });
 
 // The `serve` label is matched WITHOUT the instance's own primary-domain
-// labels. An earlier revision hardcoded `.serve.term.` — t1000's subdomain —
+// labels. An earlier revision hardcoded `.serve.term.` — harbor's subdomain —
 // so this deny-guard silently failed OPEN on every other Skynet instance.
 // These cases pin the instance-agnostic behavior: without them the suite
 // passes either way and proves nothing.

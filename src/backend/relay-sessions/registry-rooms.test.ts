@@ -125,8 +125,8 @@ const loggerInfoSpy = databaseLogger.info as ReturnType<typeof vi.fn>;
 const loggerWarnSpy = databaseLogger.warn as ReturnType<typeof vi.fn>;
 
 const HAPPY_CREDS = {
-  homeserverBase: "http://100.113.23.63:8008",
-  userId: "@skynet-admin:thenasty.taild9b663.ts.net",
+  homeserverBase: "http://100.70.0.4:8008",
+  userId: "@skynet-admin:boreal.example-tailnet.ts.net",
   accessToken: "syt_admin_token_abcdefg",
   password: "admin-plaintext-password",
 };
@@ -161,7 +161,7 @@ beforeEach(() => {
       ban: 100,
       historical: 100,
       users: {
-        "@skynet-admin:thenasty.taild9b663.ts.net": 100,
+        "@skynet-admin:boreal.example-tailnet.ts.net": 100,
       },
     },
   });

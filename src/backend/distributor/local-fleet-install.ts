@@ -9,7 +9,7 @@
  * (systemctl enable, settings.json patch, host-parent/host-name writes).
  *
  * When the substrate host is the container's OWN host (`fleetHostId` is in the
- * IDENTITIES_LOCAL_HOST_IDS env allowlist, e.g. Skynet on t1000), SSH-to-self
+ * IDENTITIES_LOCAL_HOST_IDS env allowlist), SSH-to-self
  * from inside the container occasionally HANGS INDEFINITELY in
  * `deps.acquireChannel(host)`. The whole serial `for-of` loop wedges: every
  * subsequent host never receives skill / helper-script updates until the
@@ -1771,13 +1771,13 @@ export async function bootstrapFleetSubstrateLocally(
     // equivalent busctl-based Manager.EnableUnitFiles + StartUnit calls
     // (systemctl itself fails at the private-socket handshake here — see
     // fireRestartHookLocally comment for the version-skew rationale). Until
-    // that's added, t1000 requires a manual `systemctl --user enable --now
+    // that's added, an existing box requires a manual `systemctl --user enable --now
     // scheduled-agents-scheduler.service` at ship time. Both fields shape-
     // satisfy the BootstrapResult interface without lying about state.
     scheduledAgentsSchedulerAlreadyEnabled: false,
     scheduledAgentsSchedulerBootstrapped: false,
     // sensor-runner.service shares the same gap: manual `systemctl --user
-    // enable --now sensor-runner.service` on t1000 at ship time.
+    // enable --now sensor-runner.service` on it at ship time.
     sensorRunnerAlreadyEnabled: false,
     sensorRunnerBootstrapped: false,
     // relay-mcp.service: same gap, but agent-supervisor starts it on demand

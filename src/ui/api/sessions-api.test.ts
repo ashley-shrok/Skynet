@@ -25,7 +25,7 @@ describe("sessions-api (Phase 90 Plan 01): RemoteTmuxSession widening", () => {
     const harness: RemoteTmuxSession = {
       kind: "harness",
       hostId: 1,
-      hostName: "thenasty",
+      hostName: "boreal",
       sessionName: "tina",
       created: 1_700_000_000,
       role: "box-maintainer",
@@ -96,7 +96,7 @@ describe("sessions-api (Phase 90 Plan 01): RemoteTmuxSession widening", () => {
       {
         kind: "harness",
         hostId: 1,
-        hostName: "thenasty",
+        hostName: "boreal",
         sessionName: "tina",
         created: 1_700_000_000,
         role: "box-maintainer",

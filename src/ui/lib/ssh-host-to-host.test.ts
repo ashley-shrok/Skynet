@@ -5,7 +5,7 @@ import { sshHostToHost } from "@/lib/ssh-host-to-host";
 const base = {
   id: 6,
   name: "Skynet",
-  ip: "100.99.149.8",
+  ip: "100.70.0.1",
   port: 22,
   username: "ubuntu",
   status: "online",

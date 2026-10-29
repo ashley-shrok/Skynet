@@ -4843,7 +4843,7 @@ describe("Phase 55: session-file cache writes", () => {
       // Path does NOT sit under /host-home → translation is a no-op.
       const discovery = buildDiscoveryFixture55(
         "aqua",
-        "/home/thenasty/.claude/projects/-home-thenasty/id.jsonl",
+        "/home/boreal/.claude/projects/-home-boreal/id.jsonl",
       );
       wireSourceAResponses(channel, { discoveryStdout: discovery });
 
@@ -4857,7 +4857,7 @@ describe("Phase 55: session-file cache writes", () => {
       const entry = readSessionFileCache("host-1", "aqua");
       expect(entry).not.toBeNull();
       expect(entry!.sessionFile).toBe(
-        "/home/thenasty/.claude/projects/-home-thenasty/id.jsonl",
+        "/home/boreal/.claude/projects/-home-boreal/id.jsonl",
       );
     } finally {
       if (prevHomeHost === undefined) delete process.env.HOME_HOST_DIR;
@@ -6140,7 +6140,7 @@ describe("ssh-poll-orchestrator Phase 62 Plan 03 — activityMtime + stoppedMtim
 // ---------------------------------------------------------------------------
 // Regression coverage for bounty 9c8d4a72-1e5f-4b8a-9d3c-6f2b8e4a7c19 —
 // SSH channel-open-failure on stat read was being conflated with PID-dead,
-// causing session_gone publishes for actively-working sessions on t1000 under
+// causing session_gone publishes for actively-working sessions on harbor under
 // sshd MaxSessions saturation. Fix landed 2026-09-02 in ssh-poll-orchestrator.ts.
 //
 // The fix wraps every /proc/<pid>/stat SSH exec in a sentinel — `cat ... &&
@@ -7718,7 +7718,7 @@ describe("spawn-request scan helpers", () => {
 
   // scanSpawnRequests — spec-provided users propagates onto PendingBirth so
   // the worker's BirthOptions assembly can forward it to the orchestrator
-  // (news-watcher-zoey-email → users:["zoey"] → newborn's frontmatter).
+  // (news-watcher-riley-email → users:["riley"] → newborn's frontmatter).
   it("scanSpawnRequests valid request file with users:[…] → PendingBirth.users carries the array verbatim", async () => {
     const channel = new MockSshChannel();
     const uuid = "deadbeef-dead-beef-dead-beefdeadbeef";
@@ -7727,7 +7727,7 @@ describe("spawn-request scan helpers", () => {
       prompt: "triage inbox",
       task: null,
       requested_at: "2026-09-30T00:00:00Z",
-      users: ["zoey"],
+      users: ["riley"],
     });
     channel.setResponse("fleet/spawn-requests", `${uuid}.json\t${body}\n`);
     const host: HostRecord = { id: "host-1", name: "testhost" };
@@ -7735,7 +7735,7 @@ describe("spawn-request scan helpers", () => {
     const result = await scanSpawnRequests(host, channel);
     expect(result).toHaveLength(1);
     const item = result[0] as PendingBirth;
-    expect(item.users).toEqual(["zoey"]);
+    expect(item.users).toEqual(["riley"]);
   });
 
   // Regression 260923-9x1 — scanSpawnRequests reads `_connDetails` off the

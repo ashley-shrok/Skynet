@@ -384,11 +384,11 @@ describe("spawn-request worker", () => {
     it("Test 14: users present as string[] accepted — field is passed through", () => {
       const result = parseRequestBody(
         "test-uuid",
-        JSON.stringify({ roles: ["news-watcher"], prompt: "x", task: null, requested_at: "2026-09-30T00:00:00Z", users: ["zoey"] }),
+        JSON.stringify({ roles: ["news-watcher"], prompt: "x", task: null, requested_at: "2026-09-30T00:00:00Z", users: ["riley"] }),
       );
       expect(result.ok).toBe(true);
       if (result.ok) {
-        expect(result.body.users).toEqual(["zoey"]);
+        expect(result.body.users).toEqual(["riley"]);
       }
     });
 
@@ -406,7 +406,7 @@ describe("spawn-request worker", () => {
     it("Test 16: users present as non-array rejected as malformed + message:/users/i", () => {
       const result = parseRequestBody(
         "test-uuid",
-        JSON.stringify({ roles: ["coordinator"], prompt: "x", task: null, requested_at: "2026-09-10T00:00:00Z", users: "zoey" }),
+        JSON.stringify({ roles: ["coordinator"], prompt: "x", task: null, requested_at: "2026-09-10T00:00:00Z", users: "riley" }),
       );
       expect(result.ok).toBe(false);
       if (!result.ok) {
@@ -573,8 +573,8 @@ describe("spawn-request worker", () => {
 
     it("Test 17b: spec-provided users on PendingBirth threads through to BirthOptions.users verbatim", async () => {
       // Guards the plumbing added to carry a scheduled-agent spec's `users`
-      // field from the spawn-request body (news-watcher-zoey-email →
-      // users:["zoey"]) through the worker and into BirthOptions.users for
+      // field from the spawn-request body (news-watcher-riley-email →
+      // users:["riley"]) through the worker and into BirthOptions.users for
       // identity-birth-orchestrator to emit as the newborn's frontmatter
       // users: field. Precedence vs creatorUsername is tested in the
       // orchestrator's buildIdentityFileBody tests.
@@ -585,12 +585,12 @@ describe("spawn-request worker", () => {
           emit({ type: "ended", ok: true, identityId: "willow", sessionName: "Willow-Coordinator" });
         }),
       });
-      const item = makePendingBirth({ users: ["zoey"] });
+      const item = makePendingBirth({ users: ["riley"] });
 
       await processBirth(item, deps);
 
       expect(capturedOpts).not.toBeNull();
-      expect((capturedOpts as unknown as BirthOptions).users).toEqual(["zoey"]);
+      expect((capturedOpts as unknown as BirthOptions).users).toEqual(["riley"]);
     });
 
     it("Test 17c: PendingBirth without users leaves BirthOptions.users undefined", async () => {
@@ -635,12 +635,12 @@ describe("spawn-request worker", () => {
       it("Test 17r2: roleless + no users → copies the requester's identity users: list", async () => {
         const { captured, birthIdentity } = captureOpts();
         const readIdentityFile = vi.fn().mockResolvedValue({
-          markdown: "---\nroles: [coordinator]\nusers: [alice, zoey]\n---\n\n# aster\n",
+          markdown: "---\nroles: [coordinator]\nusers: [alice, riley]\n---\n\n# aster\n",
         });
         const deps = buildTestDeps({ birthIdentity, readIdentityFile });
         await processBirth(makePendingBirth({ roles: [], requested_by: "aster-coordinator" }), deps);
         expect(readIdentityFile).toHaveBeenCalledWith(expect.anything(), "aster-coordinator");
-        expect(captured.opts?.users).toEqual(["alice", "zoey"]);
+        expect(captured.opts?.users).toEqual(["alice", "riley"]);
       });
 
       it("Test 17r3: roleless, neither the requester nor its roles have a users: list → left open", async () => {
@@ -665,14 +665,14 @@ describe("spawn-request worker", () => {
       it("Test 17r3c: roleless, identity + several roles gated → intersection of every list", async () => {
         const { captured, birthIdentity } = captureOpts();
         const readIdentityFile = vi.fn().mockResolvedValue({
-          markdown: "---\nroles: [coordinator, scout]\nusers: [alice, zoey, sam]\n---\n",
+          markdown: "---\nroles: [coordinator, scout]\nusers: [alice, riley, sam]\n---\n",
         });
         const readRoleFileByName = vi.fn().mockImplementation(async (_c: unknown, role: string) => ({
-          markdown: role === "coordinator" ? "---\nusers: [alice, zoey]\n---\n" : "---\nusers: [zoey, sam]\n---\n",
+          markdown: role === "coordinator" ? "---\nusers: [alice, riley]\n---\n" : "---\nusers: [riley, sam]\n---\n",
         }));
         const deps = buildTestDeps({ birthIdentity, readIdentityFile, readRoleFileByName });
         await processBirth(makePendingBirth({ roles: [], requested_by: "aster-coordinator" }), deps);
-        expect(captured.opts?.users).toEqual(["zoey"]);
+        expect(captured.opts?.users).toEqual(["riley"]);
       });
 
       it("Test 17r3e: roleless, a requester role file can't be read → refused, nothing born", async () => {
@@ -689,7 +689,7 @@ describe("spawn-request worker", () => {
       it("Test 17r3d: roleless, nobody can see the requester → refused, nothing born", async () => {
         const { birthIdentity } = captureOpts();
         const readIdentityFile = vi.fn().mockResolvedValue({ markdown: "---\nroles: [coordinator]\nusers: [alice]\n---\n" });
-        const readRoleFileByName = vi.fn().mockResolvedValue({ markdown: "---\nusers: [zoey]\n---\n" });
+        const readRoleFileByName = vi.fn().mockResolvedValue({ markdown: "---\nusers: [riley]\n---\n" });
         const deps = buildTestDeps({ birthIdentity, readIdentityFile, readRoleFileByName });
         await processBirth(makePendingBirth({ roles: [], requested_by: "aster-coordinator" }), deps);
         expect(birthIdentity).not.toHaveBeenCalled();
@@ -702,9 +702,9 @@ describe("spawn-request worker", () => {
         const { captured, birthIdentity } = captureOpts();
         const readIdentityFile = vi.fn();
         const deps = buildTestDeps({ birthIdentity, readIdentityFile });
-        await processBirth(makePendingBirth({ roles: [], users: ["zoey"], requested_by: "aster-coordinator" }), deps);
+        await processBirth(makePendingBirth({ roles: [], users: ["riley"], requested_by: "aster-coordinator" }), deps);
         expect(readIdentityFile).not.toHaveBeenCalled();
-        expect(captured.opts?.users).toEqual(["zoey"]);
+        expect(captured.opts?.users).toEqual(["riley"]);
       });
 
       it("Test 17r5: roleless, no requested_by → left open, nothing read", async () => {

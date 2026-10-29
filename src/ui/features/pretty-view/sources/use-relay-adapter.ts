@@ -659,7 +659,7 @@ export function useRelayAdapter(
         clearTimeout(reconnectTimeoutRef.current);
         reconnectTimeoutRef.current = null;
       }
-      // Bounty t800-frontend-websocket-leak-on-container-recreate: detach
+      // Bounty frontend-websocket-leak-on-container-recreate: detach
       // handler property refs BEFORE close() so the retention cycle
       // (ws → ws.onopen closure → ws via ws.send at L438) is broken. Without
       // this, each cleanup (retryKey bump or unmount) leaves a dead WS pinned

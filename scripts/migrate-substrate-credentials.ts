@@ -66,7 +66,7 @@
  *
  *   3. Inspect stdout. Verify aborted=false and perUser[].failed=0 for all users.
  *
- *   4. Repeat on the second instance (T800).
+ *   4. Repeat on each other instance.
  *
  *   5. Delete this script and ~/known-users.json from both machines.
  */

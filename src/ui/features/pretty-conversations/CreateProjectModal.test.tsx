@@ -285,7 +285,7 @@ describe("CreateProjectModal", () => {
     renderModal({
       open: true,
       hosts: [
-        { id: "3", name: "thenasty" },
+        { id: "3", name: "boreal" },
         { id: "6", name: "Skynet" },
       ],
     });
@@ -301,7 +301,7 @@ describe("CreateProjectModal", () => {
     renderModal({
       open: true,
       hosts: [
-        { id: "3", name: "thenasty" },
+        { id: "3", name: "boreal" },
         { id: "6", name: "Skynet" },
       ],
     });
@@ -321,7 +321,7 @@ describe("CreateProjectModal", () => {
     const { onCreated } = renderModal({
       open: true,
       hosts: [
-        { id: "3", name: "thenasty" },
+        { id: "3", name: "boreal" },
         { id: "6", name: "Skynet" },
       ],
       lockedHostId: 6,
@@ -346,7 +346,7 @@ describe("CreateProjectModal", () => {
     renderModal({
       open: true,
       hosts: [
-        { id: "3", name: "thenasty" },
+        { id: "3", name: "boreal" },
         { id: "6", name: "Skynet" },
       ],
     });
@@ -367,7 +367,7 @@ describe("CreateProjectModal", () => {
     renderModal({
       open: true,
       hosts: [
-        { id: "3", name: "thenasty" },
+        { id: "3", name: "boreal" },
         { id: "6", name: "Skynet" },
         { id: "7", name: "workstation" },
       ],
@@ -389,8 +389,8 @@ describe("CreateProjectModal", () => {
     renderModal({
       open: true,
       hosts: [
-        { id: "3", name: "thenasty" },
-        { id: "5", name: "thenasty-RDP", overrides: { enableRdp: true } },
+        { id: "3", name: "boreal" },
+        { id: "5", name: "boreal-RDP", overrides: { enableRdp: true } },
         { id: "6", name: "Skynet" },
       ],
     });
@@ -431,7 +431,7 @@ describe("CreateProjectModal", () => {
     createProjectSpy.mockResolvedValueOnce({ ok: true as const, slug: "parked" });
     renderModal({
       hosts: [
-        { id: "3", name: "thenasty" },
+        { id: "3", name: "boreal" },
         { id: "6", name: "Skynet" },
       ],
       lockedHostId: 6,

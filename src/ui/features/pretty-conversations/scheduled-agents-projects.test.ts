@@ -13,11 +13,11 @@ describe("scheduled-agents project helpers", () => {
       P("skynet", "SKYNET"),
       P("later-later", "later-later", "later"),
       P("later", "later", "skynet"),
-      P("aither", "Aither"),
+      P("acme", "Acme"),
       P("on-watch", "on-watch", "skynet"),
     ]);
     expect(out.map((o) => [o.slug, o.depth])).toEqual([
-      ["aither", 0],
+      ["acme", 0],
       ["skynet", 0],
       ["later", 1],
       ["later-later", 2],

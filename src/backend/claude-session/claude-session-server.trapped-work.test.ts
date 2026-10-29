@@ -370,7 +370,7 @@ describe("identity:probe-trapped-work handler — batched per-target fan-out", (
 
   it("30 targets on ONE remote connection never run more than 8 reads at once (MaxSessions guard), all answered in order", async () => {
     expect(TRAPPED_WORK_PER_CONN_CONCURRENCY).toBe(8);
-    const fakeConn = makeFakeConn("t1000");
+    const fakeConn = makeFakeConn("harbor");
     vi.mocked(resolveHostById).mockResolvedValue({ ip: "1.2.3.4", username: "ubuntu" } as never);
     vi.mocked(connectOneShot).mockResolvedValue(fakeConn as never);
     let active = 0;

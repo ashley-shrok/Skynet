@@ -511,7 +511,7 @@ describe("POST /db/host — D-12 host-name-not-a-single-dns-label", () => {
   });
 
   it("accepts AWS-default name ending -<digits> (ip-172-31-209-239)", async () => {
-    // The case the old D-12 wrongly rejected — T800's exec VMs get this shape.
+    // The case the old D-12 wrongly rejected — some instances' exec VMs get this shape.
     const req = makePostReq({
       name: "ip-172-31-209-239",
       ip: "1.1.1.1",
@@ -543,9 +543,9 @@ describe("POST /db/host — D-12 host-name-not-a-single-dns-label", () => {
     expect(body?.error ?? "").not.toContain(D12_ERR);
   });
 
-  it("accepts hostname with non-terminal digit (aither-cloud2)", async () => {
+  it("accepts hostname with non-terminal digit (acme-cloud2)", async () => {
     const req = makePostReq({
-      name: "aither-cloud2",
+      name: "acme-cloud2",
       ip: "1.1.1.1",
       port: 22,
       runsFleetSubstrate: false,
@@ -560,9 +560,9 @@ describe("POST /db/host — D-12 host-name-not-a-single-dns-label", () => {
     expect(body?.error ?? "").not.toContain(D12_ERR);
   });
 
-  it("accepts hostname without dash (t800)", async () => {
+  it("accepts hostname without dash (cobalt)", async () => {
     const req = makePostReq({
-      name: "t800",
+      name: "cobalt",
       ip: "1.1.1.1",
       port: 22,
       runsFleetSubstrate: false,

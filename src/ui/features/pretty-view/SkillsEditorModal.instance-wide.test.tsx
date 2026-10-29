@@ -102,7 +102,7 @@ vi.mock("@/api/instance-wide-api", async (importOriginal) => {
       tooLarge: false,
       clashes: ["beta"],
       unreachable: [],
-      sourceHostName: "thenasty",
+      sourceHostName: "boreal",
     }),
     promote: vi.fn().mockResolvedValue(undefined),
     removeInstanceWide: vi.fn().mockResolvedValue({ hostCount: 3 }),
@@ -125,7 +125,7 @@ const HOST_TREE: HostFolder = {
   children: [
     {
       id: "1",
-      name: "thenasty",
+      name: "boreal",
       enableRdp: false,
       enableSsh: true,
       enableTerminal: true,
@@ -230,7 +230,7 @@ const IW_ITEM = {
   conflicts: 0,
   hostCount: 3,
   hosts: [
-    { machineId: "1", hostName: "thenasty", state: "current" as const },
+    { machineId: "1", hostName: "boreal", state: "current" as const },
     { machineId: "2", hostName: "laptop", state: "behind" as const, detail: "unreachable since 2pm" },
   ],
 };

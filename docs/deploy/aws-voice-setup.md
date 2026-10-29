@@ -1,7 +1,7 @@
 # AWS voice setup (Polly + Transcribe)
 
 Phase 98 — per-instance operator setup for the AWS-backed voice endpoints. Each
-Skynet instance (t1000, T800, future) uses its own AWS account and its own IAM
+Skynet instance uses its own AWS account and its own IAM
 role; policy attach is a per-operator step, not shipped in code. Without a
 policy attach, voice features are dark (503 responses to `/voice/transcribe`
 and `/voice/speak-stream`) — this is intentional and IS the cost gate.
@@ -32,7 +32,7 @@ and `/voice/speak-stream`) — this is intentional and IS the cost gate.
 - Verifying the policy is live via one `aws` CLI command.
 - Understanding the off-switch behavior (policy absence = feature dark, no
   crash, no error cascade).
-- Instance-specific notes for **t1000 (user)** and **T800 (Stacy)**.
+- Notes for setting up each instance.
 - Ship-motion coordination checklist.
 
 ## Prerequisites
@@ -50,8 +50,7 @@ and `/voice/speak-stream`) — this is intentional and IS the cost gate.
 
 - IAM permissions on the operator side to attach a customer-managed policy (or
   inline policy) to that EC2 instance role. If the operator doesn't have the
-  IAM perms, they need to coordinate with the cloud-infra team (Iris on
-  user's side).
+  IAM perms, they need to coordinate with whoever runs their cloud account.
 
 ## Steps
 
@@ -170,7 +169,7 @@ Region is hardcoded to `us-east-1` in the adapter code:
 To change region: edit both adapters. Note: Amazon Polly's generative engine
 is **not available in every region**. Verify availability at
 <https://docs.aws.amazon.com/polly/latest/dg/generative-voices.html> before
-switching. Both t1000 and T800 have `us-east-1` generative available.
+switching. `us-east-1` has generative voices available.
 
 ## Cost
 
@@ -185,37 +184,23 @@ switching. Both t1000 and T800 have `us-east-1` generative available.
 - **Policy-attach is the primary cost gate.** Not attaching the policy = zero
   AWS spend. This is the shape's off-switch by design.
 
-## For t1000 (user's instance)
+## Setting up each instance
 
-Policy is already attached:
-`termix-ssm-role/PollyTranscribeExploratory` (Iris attached 2026-09-09 for the
-exploration phase).
-
-**PRE-SHIP action:** ping Iris to re-scope the policy name from
-`-Exploratory` to a production name (she asked for this explicitly). No
-functional change — same 4 actions, cleaner name for the prod-tracked policy.
-
-Verification from t1000 should already succeed without any additional work —
-just re-run the two `aws` CLI checks in step 3–4 above.
-
-## For T800 (Stacy's instance)
-
-Follow the numbered steps above using Stacy's own AWS account and her EC2
-instance role. No modifications needed; the doc is the whole runbook.
-
-If any step is unclear or fails, contact user (not tabitha directly —
-user routes questions to the right person).
+Each instance follows the numbered steps above with its own AWS account and
+its own EC2 instance role. No modifications are needed; this doc is the whole
+runbook. If a policy was attached earlier under a temporary or exploratory
+name, re-scope it to a production name before shipping — same 4 actions, no
+functional change.
 
 ## Coordination checklist (ship-motion)
 
-- [ ] Ping Iris to re-scope t1000 policy name from `PollyTranscribeExploratory`
-      to a production name on `termix-ssm-role` (pre-ship, user owns).
+- [ ] The instance role has the policy attached under a production name.
 - [ ] Confirm `ffmpeg` is present in the docker image (per Plan 01;
       verify with `docker run --rm skynet-patched:local ffmpeg -version`).
-- [ ] Run the AWS integration smoke as a pre-ship sanity check from t1000:
+- [ ] Run the AWS integration smoke as a pre-ship sanity check from the instance:
 
       ```bash
       AWS_INTEGRATION_TESTS=1 npx vitest run src/backend/voice/*.integration.test.ts
       ```
 
-- [ ] Post-deploy: browser smoke on both t1000 and T800 per step 6 above.
+- [ ] Post-deploy: browser smoke on each instance per step 6 above.

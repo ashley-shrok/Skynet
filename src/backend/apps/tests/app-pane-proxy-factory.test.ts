@@ -98,7 +98,7 @@ vi.mock("../../utils/logger.js", () => ({
 
 // Minimal ServeTarget stub. `host` is opaque here — the factory doesn't
 // inspect its fields, only threads it through.
-function makeTarget(hostname = "t1000", port = 3001) {
+function makeTarget(hostname = "harbor", port = 3001) {
   return {
     hostname,
     port,

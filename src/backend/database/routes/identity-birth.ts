@@ -854,7 +854,7 @@ router.post(
       matrixHomeserver: creds.homeserverBase,
       matrixServerName: creds.serverName,
       // Host-reachable relay.json base — falls back to homeserverBase when
-      // the hostSideBase column is null (single-URL fleets like t1000).
+      // the hostSideBase column is null (single-URL fleets).
       relayJsonHomeserverBase: creds.hostSideBase ?? creds.homeserverBase,
       buildRelayJsonBody: (opts) => buildRelayJsonBody(opts),
       // Phase 80 Plan 80-03b — countUsersMatching primitive from plan 80-02.

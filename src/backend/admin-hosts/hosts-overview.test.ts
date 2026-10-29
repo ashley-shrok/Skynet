@@ -41,20 +41,20 @@ function deps(over: Partial<OverviewDeps> = {}): OverviewDeps {
 describe("groupHostRows", () => {
   it("merges SSH + RDP rows and other users' rows for the same address", () => {
     const groups = groupHostRows([
-      row({ id: 5, name: "thenasty-RDP", ip: "100.1.1.1", port: 3389, enableRdp: true }),
-      row({ id: 3, name: "thenasty", ip: "100.1.1.1", enableSsh: true, runsFleetSubstrate: true }),
-      row({ id: 22, name: "thenasty", ip: "100.1.1.1", enableSsh: true }),
-      row({ id: 11, name: "aither-cloud-prod-RDP", ip: "172.31.0.1", port: 3389, enableRdp: true }),
+      row({ id: 5, name: "boreal-RDP", ip: "100.1.1.1", port: 3389, enableRdp: true }),
+      row({ id: 3, name: "boreal", ip: "100.1.1.1", enableSsh: true, runsFleetSubstrate: true }),
+      row({ id: 22, name: "boreal", ip: "100.1.1.1", enableSsh: true }),
+      row({ id: 11, name: "acme-cloud-prod-RDP", ip: "172.31.0.1", port: 3389, enableRdp: true }),
     ]);
     expect(groups).toHaveLength(2);
     const nasty = groups.find((g) => g.address === "100.1.1.1")!;
-    expect(nasty.name).toBe("thenasty");
+    expect(nasty.name).toBe("boreal");
     expect(nasty.agentHost).toBe(true);
     expect(nasty.protocols).toEqual(["ssh", "rdp"]);
     expect(nasty.pingPorts).toEqual([22, 3389]);
     expect(nasty.rows.map((r) => r.id)).toEqual([3, 5, 22]);
     // RDP-only machine: suffix stripped from the display name.
-    expect(groups.find((g) => g.address === "172.31.0.1")!.name).toBe("aither-cloud-prod");
+    expect(groups.find((g) => g.address === "172.31.0.1")!.name).toBe("acme-cloud-prod");
   });
 
   it("splits one address fronting several SSH ports into separate machines", () => {

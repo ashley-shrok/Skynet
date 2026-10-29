@@ -24,27 +24,27 @@ describe("isScheduledAgentVisibleToUser — null caller (gate disabled)", () => 
 describe("isScheduledAgentVisibleToUser — D-3 fallback (empty/absent list = falls open)", () => {
   it("null users list → falls open for any caller", () => {
     expect(isScheduledAgentVisibleToUser(null, "alice")).toBe(true);
-    expect(isScheduledAgentVisibleToUser(null, "zoey")).toBe(true);
+    expect(isScheduledAgentVisibleToUser(null, "riley")).toBe(true);
   });
 
   it("empty users list → falls open for any caller", () => {
     expect(isScheduledAgentVisibleToUser([], "alice")).toBe(true);
-    expect(isScheduledAgentVisibleToUser([], "zoey")).toBe(true);
+    expect(isScheduledAgentVisibleToUser([], "riley")).toBe(true);
   });
 });
 
 describe("isScheduledAgentVisibleToUser — membership check", () => {
   it("caller in list → true", () => {
     expect(isScheduledAgentVisibleToUser(["alice"], "alice")).toBe(true);
-    expect(isScheduledAgentVisibleToUser(["alice", "zoey"], "zoey")).toBe(true);
+    expect(isScheduledAgentVisibleToUser(["alice", "riley"], "riley")).toBe(true);
     expect(
       isScheduledAgentVisibleToUser(["a", "b", "c", "alice", "d"], "alice"),
     ).toBe(true);
   });
 
   it("caller NOT in list → false", () => {
-    expect(isScheduledAgentVisibleToUser(["alice"], "zoey")).toBe(false);
-    expect(isScheduledAgentVisibleToUser(["a", "b"], "zoey")).toBe(false);
+    expect(isScheduledAgentVisibleToUser(["alice"], "riley")).toBe(false);
+    expect(isScheduledAgentVisibleToUser(["a", "b"], "riley")).toBe(false);
   });
 });
 

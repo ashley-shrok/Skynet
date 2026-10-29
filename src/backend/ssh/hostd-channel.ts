@@ -11,7 +11,7 @@ import { sshLogger } from "../utils/logger.js";
  *
  * Why: over Tailscale SSH every exec channel is a fresh login on the host (a
  * logind session per command). Skynet's pollers send several commands a
- * second per host; on thenasty that churn drove a polkitd leak. Routing every
+ * second per host; on a busy multi-user box that churn drove a polkitd leak. Routing every
  * routine command through one helper channel makes the whole stream cost one
  * login per connection.
  *

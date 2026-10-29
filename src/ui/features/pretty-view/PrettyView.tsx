@@ -323,7 +323,7 @@ export interface PrettyViewProps {
   source?: ChatSurfaceSource;
   hostId: number;
   /**
-   * String hostname (e.g. `t1000`) for the target host — matches
+   * String hostname (e.g. `bigbox`) for the target host — matches
    * `hosts.name` in the DB and the `<host>` segment of the Skynet
    * `/file/<host>/<abs-path>` URL grammar. Threaded down to ChatMessage
    * so the injected user-turn's file entries can be rendered as
@@ -4080,12 +4080,12 @@ export function PrettyView({
         clearTimeout(reconnectTimeoutRef.current);
         reconnectTimeoutRef.current = null;
       }
-      // Bounty t800-frontend-websocket-leak-on-container-recreate: detach
+      // Bounty frontend-websocket-leak-on-container-recreate: detach
       // handler property refs BEFORE close() so the retention cycle
       // (ws → ws.onopen closure → ws via ws.send at L2094) is broken. Without
       // this, each cleanup (retryKey bump or unmount) leaves a dead WS pinned
       // by its own handlers, and container-recreate storms compound the count
-      // against nginx worker_connections (T800 saturated at ~8k with 2 pretty
+      // against nginx worker_connections (one instance saturated at ~8k with 2 pretty
       // views after 3 recreates = 13x baseline).
       dropHistoryHold();
       ws.onopen = null;
@@ -5286,7 +5286,7 @@ export function PrettyView({
             panes where backend discovery timed out (returns pane_state:"inactive"
             → resolveRenderedState maps to "inactive"). Previously the gate
             matched none of {active,dormant,error} so ComposeBox never mounted
-            (domNodeCount:6). On a busy target (workstation load 60+ / 1500+
+            (domNodeCount:6). On a busy target (load 60+ / 1500+
             shells / 750+ claude procs) 7 of 8 concurrent discoveries hit the
             15s timeout on rapid multi-pane reload, leaving those panes
             permanently uncomposable. Treating "inactive" the same as "dormant"

@@ -444,13 +444,13 @@ describe("EditableFileModal — Phase 40 Plan 40-03 Task 2", () => {
 
   const FILE_URL_PROPS = {
     ...DEFAULT_PROPS,
-    url: "https://term.example.com/file/thenasty/home/ubuntu/note.md",
+    url: "https://term.example.com/file/boreal/home/ubuntu/note.md",
     filename: "note.md",
   };
 
   const successFileFetch = () =>
     (fetchHostFileUrl as ReturnType<typeof vi.fn>).mockResolvedValue({
-      contentBase64: btoa("hi from thenasty"),
+      contentBase64: btoa("hi from boreal"),
       sizeBytes: 16,
       contentType: null,
       extension: "md",
@@ -511,7 +511,7 @@ describe("EditableFileModal — Phase 40 Plan 40-03 Task 2", () => {
     });
     // The hostname is safe to include (user typed/saw it in the URL, no
     // info leak — see plan action block for the copy design).
-    expect(screen.getByText(/thenasty/i)).toBeTruthy();
+    expect(screen.getByText(/boreal/i)).toBeTruthy();
     expect(screen.queryByText(/403/)).toBeNull();
   });
 

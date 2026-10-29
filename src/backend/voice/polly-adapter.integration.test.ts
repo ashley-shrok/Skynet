@@ -24,8 +24,8 @@ import { describe, it, expect } from "vitest";
  * defers the load to when shouldRun is true, so the AWS SDK is only
  * required in the environment that actually runs the test.
  *
- * Prerequisite for local runs on t1000:
- *   - `termix-ssm-role/SkynetPollyTranscribeAccess` attached to the instance.
+ * Prerequisite for local runs on harbor:
+ *   - the `SkynetPollyTranscribe` policy attached to the instance role.
  *   - `AWS_INTEGRATION_TESTS=1 npx vitest run src/backend/voice/polly-adapter.integration.test.ts`
  */
 

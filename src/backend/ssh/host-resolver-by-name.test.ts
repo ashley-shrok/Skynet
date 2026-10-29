@@ -6,7 +6,7 @@
  *
  * Cross-user isolation is load-bearing (RESEARCH § Pitfall 7):
  * `hosts.name` is a per-user friendly name and is NOT unique across users. If
- * two users both have a host named `thenasty`, filtering only by `name` would
+ * two users both have a host named `boreal`, filtering only by `name` would
  * let user A trigger reads on user B's box just by guessing the friendly name.
  * `and(name, userId)` returns null on cross-user access; the route boundary
  * then maps null → 404 `unknown_host` (no cross-user existence leak).
@@ -205,7 +205,7 @@ describe("resolveHostByName — cross-user isolation invariants", () => {
     setHostFixtures([
       {
         id: 42,
-        name: "thenasty",
+        name: "boreal",
         userId: "user-A",
         ip: "100.101.1.1",
         port: 22,
@@ -215,14 +215,14 @@ describe("resolveHostByName — cross-user isolation invariants", () => {
       },
     ]);
 
-    const result = await resolveHostByName("thenasty", "user-A");
+    const result = await resolveHostByName("boreal", "user-A");
     expect(result).not.toBeNull();
     expect(result?.id).toBe(42);
-    expect(result?.name).toBe("thenasty");
+    expect(result?.name).toBe("boreal");
     expect((result as unknown as { userId: string }).userId).toBe("user-A");
   });
 
-  it("Test 2: returns null when only user-A owns 'thenasty' but user-B asks", async () => {
+  it("Test 2: returns null when only user-A owns 'boreal' but user-B asks", async () => {
     // Fixture holds ONLY the user-A row; the chainable stubs return the whole
     // bucket, but the resolver must apply an `and(name, userId)` filter which
     // — since our mock chain doesn't actually filter — is enforced via the
@@ -231,7 +231,7 @@ describe("resolveHostByName — cross-user isolation invariants", () => {
     // return after the userId scope).
     setHostFixtures([]);
 
-    const result = await resolveHostByName("thenasty", "user-B");
+    const result = await resolveHostByName("boreal", "user-B");
     expect(result).toBeNull();
   });
 
@@ -248,7 +248,7 @@ describe("resolveHostByName — cross-user isolation invariants", () => {
     setHostFixtures([
       {
         id: 42,
-        name: "thenasty",
+        name: "boreal",
         userId: "user-A",
         ip: "100.101.1.1",
         port: 22,
@@ -271,7 +271,7 @@ describe("resolveHostByName — cross-user isolation invariants", () => {
       },
     ]);
 
-    const result = await resolveHostByName("thenasty", "user-A");
+    const result = await resolveHostByName("boreal", "user-A");
     expect(result).not.toBeNull();
     // JSON-field parsing performed by the credential-resolution tail:
     expect(Array.isArray((result as unknown as { jumpHosts: unknown }).jumpHosts)).toBe(
@@ -304,7 +304,7 @@ describe("resolveHostByName — cross-user isolation invariants", () => {
     (drizzle.eq as unknown as { mockClear: () => void }).mockClear();
     (drizzle.sql as unknown as { mockClear: () => void }).mockClear();
 
-    await resolveHostByName("thenasty", "user-A");
+    await resolveHostByName("boreal", "user-A");
 
     const eqCalls = (drizzle.eq as unknown as { mock: { calls: unknown[][] } })
       .mock.calls;

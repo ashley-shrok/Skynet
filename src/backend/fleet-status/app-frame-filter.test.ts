@@ -667,7 +667,7 @@ describe("app-frame-filter", () => {
         hostId: "h1",
         hostname: "one",
         archived: false,
-        users: ["zoey"], // hidden
+        users: ["riley"], // hidden
       },
       {
         slug: "gamma",
@@ -711,7 +711,7 @@ describe("app-frame-filter", () => {
   it("nested projects: visibility inherits — hidden parent hides child + grandchild, missing parent does not, loops judged as drawn; parent survives on the wire unless it names a hidden project", async () => {
     const base = { hostId: "h1", hostname: "one", archived: false };
     const frame = makeProjectListChangedFrame("h1", [
-      { ...base, slug: "secret", displayName: "S", users: ["zoey"], parent: null },
+      { ...base, slug: "secret", displayName: "S", users: ["riley"], parent: null },
       { ...base, slug: "kid", displayName: "K", users: null, parent: "secret" },
       { ...base, slug: "grandkid", displayName: "G", users: ["alice"], parent: "kid" },
       { ...base, slug: "open", displayName: "O", users: null, parent: null },
@@ -720,7 +720,7 @@ describe("app-frame-filter", () => {
       { ...base, slug: "loop-a", displayName: "LA", users: null, parent: "loop-b" },
       { ...base, slug: "loop-b", displayName: "LB", users: null, parent: "loop-a" },
       { ...base, slug: "hid-loop-a", displayName: "HA", users: null, parent: "hid-loop-b" },
-      { ...base, slug: "hid-loop-b", displayName: "HB", users: ["zoey"], parent: "hid-loop-a" },
+      { ...base, slug: "hid-loop-b", displayName: "HB", users: ["riley"], parent: "hid-loop-a" },
     ]);
     const ctx: AppFrameFilterCtx = {
       userId: "U",
@@ -755,7 +755,7 @@ describe("app-frame-filter", () => {
         hostId: "h1",
         hostname: "one",
         archived: false,
-        users: ["zoey"], // caller should NOT match, but null username disables gate
+        users: ["riley"], // caller should NOT match, but null username disables gate
       },
     ]);
 
@@ -793,7 +793,7 @@ describe("app-frame-filter", () => {
         hostId: "h1",
         hostname: "one",
         archived: false,
-        users: ["zoey"],
+        users: ["riley"],
       },
     ]);
 
@@ -848,12 +848,12 @@ describe("app-frame-filter", () => {
       expect(visibleResult.app.users).toBeUndefined();
     }
 
-    // Case 2: caller is zoey → hidden.
+    // Case 2: caller is riley → hidden.
     const hiddenCtx: AppFrameFilterCtx = {
       userId: "U",
       resolveHostOwnerById: async () => ({ hostIdNum: 1, hostUserId: "U" }),
       resolveIdentityGate: async () => true,
-      resolveCallerUsername: async () => "zoey",
+      resolveCallerUsername: async () => "riley",
     };
     const hiddenResult = await filterAppFrame(
       frame,
@@ -870,7 +870,7 @@ describe("app-frame-filter", () => {
       type: "app-snapshot" as const,
       apps: [
         makeAppState("h1", "alpha", { users: ["alice"] }), // visible
-        makeAppState("h1", "beta", { users: ["zoey"] }), // hidden
+        makeAppState("h1", "beta", { users: ["riley"] }), // hidden
         makeAppState("h1", "gamma", { users: null }), // falls open
         makeAppState("h1", "delta", { users: [] }), // falls open (empty)
       ],
@@ -965,7 +965,7 @@ describe("app-frame-filter", () => {
         hostId: "h1",
         hostname: "one",
         archived: false,
-        users: ["zoey"], // caller shouldn't match, but no resolver → gate skipped
+        users: ["riley"], // caller shouldn't match, but no resolver → gate skipped
       },
     ]);
 

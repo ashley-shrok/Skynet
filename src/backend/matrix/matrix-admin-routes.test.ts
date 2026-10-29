@@ -176,8 +176,8 @@ function request(
 // ---------------------------------------------------------------------------
 
 const VALID_BODY = {
-  homeserverBase: "http://100.113.23.63:8008",
-  userId: "@skynet-admin:thenasty.taild9b663.ts.net",
+  homeserverBase: "http://100.70.0.4:8008",
+  userId: "@skynet-admin:boreal.example-tailnet.ts.net",
   password: "test-password-abc-123",
   accessToken: "syt_test-token-abc-456",
 };
@@ -288,11 +288,11 @@ describe("GET /matrix-admin/creds", () => {
 
   it("returns metadata WITHOUT leaking password or access_token", async () => {
     getMatrixAdminCredsMock.mockResolvedValue({
-      homeserverBase: "http://100.113.23.63:8008",
-      userId: "@skynet-admin:thenasty.taild9b663.ts.net",
+      homeserverBase: "http://100.70.0.4:8008",
+      userId: "@skynet-admin:boreal.example-tailnet.ts.net",
       password: "SECRET-DO-NOT-LEAK",
       accessToken: "SECRET-TOKEN-DO-NOT-LEAK",
-      serverName: "thenasty.taild9b663.ts.net",
+      serverName: "boreal.example-tailnet.ts.net",
       hostSideBase: null,
     });
     const res = await request(server.port, "GET", "/matrix-admin/creds");
@@ -300,9 +300,9 @@ describe("GET /matrix-admin/creds", () => {
     const parsed = JSON.parse(res.body);
     expect(parsed).toEqual({
       present: true,
-      mxid: "@skynet-admin:thenasty.taild9b663.ts.net",
-      homeserverBase: "http://100.113.23.63:8008",
-      serverName: "thenasty.taild9b663.ts.net",
+      mxid: "@skynet-admin:boreal.example-tailnet.ts.net",
+      homeserverBase: "http://100.70.0.4:8008",
+      serverName: "boreal.example-tailnet.ts.net",
       hostSideBase: null,
     });
     expect(res.body).not.toMatch(/SECRET/);
@@ -310,8 +310,8 @@ describe("GET /matrix-admin/creds", () => {
 
   it("surfaces serverName:null when the override has not been patched", async () => {
     getMatrixAdminCredsMock.mockResolvedValue({
-      homeserverBase: "http://100.113.23.63:8008",
-      userId: "@skynet-admin:thenasty.taild9b663.ts.net",
+      homeserverBase: "http://100.70.0.4:8008",
+      userId: "@skynet-admin:boreal.example-tailnet.ts.net",
       password: "p",
       accessToken: "t",
       serverName: null,
@@ -325,23 +325,23 @@ describe("GET /matrix-admin/creds", () => {
   it("surfaces hostSideBase when set", async () => {
     getMatrixAdminCredsMock.mockResolvedValue({
       homeserverBase: "http://synapse:8008",
-      userId: "@skynet-admin:thenasty.taild9b663.ts.net",
+      userId: "@skynet-admin:boreal.example-tailnet.ts.net",
       password: "p",
       accessToken: "t",
-      serverName: "thenasty.taild9b663.ts.net",
-      hostSideBase: "http://100.99.149.8:8008",
+      serverName: "boreal.example-tailnet.ts.net",
+      hostSideBase: "http://100.70.0.1:8008",
     });
     const res = await request(server.port, "GET", "/matrix-admin/creds");
     expect(res.status).toBe(200);
     const parsed = JSON.parse(res.body);
-    expect(parsed.hostSideBase).toBe("http://100.99.149.8:8008");
+    expect(parsed.hostSideBase).toBe("http://100.70.0.1:8008");
     expect(parsed.homeserverBase).toBe("http://synapse:8008");
   });
 
   it("surfaces hostSideBase:null when the override has not been patched", async () => {
     getMatrixAdminCredsMock.mockResolvedValue({
       homeserverBase: "http://synapse:8008",
-      userId: "@skynet-admin:thenasty.taild9b663.ts.net",
+      userId: "@skynet-admin:boreal.example-tailnet.ts.net",
       password: "p",
       accessToken: "t",
       serverName: null,
@@ -372,7 +372,7 @@ describe("PATCH /matrix-admin/creds/server-name", () => {
       server.port,
       "PATCH",
       "/matrix-admin/creds/server-name",
-      { serverName: "thenasty.taild9b663.ts.net" },
+      { serverName: "boreal.example-tailnet.ts.net" },
     );
     expect(res.status).toBe(401);
   });
@@ -383,7 +383,7 @@ describe("PATCH /matrix-admin/creds/server-name", () => {
       server.port,
       "PATCH",
       "/matrix-admin/creds/server-name",
-      { serverName: "thenasty.taild9b663.ts.net" },
+      { serverName: "boreal.example-tailnet.ts.net" },
     );
     expect(res.status).toBe(403);
   });
@@ -410,7 +410,7 @@ describe("PATCH /matrix-admin/creds/server-name", () => {
 
   it("400 when serverName contains illegal characters (uppercase, colon, etc.)", async () => {
     for (const bad of [
-      "Thenasty.example.com", // uppercase
+      "Boreal.example.com", // uppercase
       "host:8008", // colon (port)
       "host with space",
       "host_underscore",
@@ -431,7 +431,7 @@ describe("PATCH /matrix-admin/creds/server-name", () => {
       server.port,
       "PATCH",
       "/matrix-admin/creds/server-name",
-      { serverName: "thenasty.taild9b663.ts.net" },
+      { serverName: "boreal.example-tailnet.ts.net" },
     );
     expect(res.status).toBe(409);
   });
@@ -442,15 +442,15 @@ describe("PATCH /matrix-admin/creds/server-name", () => {
       server.port,
       "PATCH",
       "/matrix-admin/creds/server-name",
-      { serverName: "thenasty.taild9b663.ts.net" },
+      { serverName: "boreal.example-tailnet.ts.net" },
     );
     expect(res.status).toBe(200);
     expect(JSON.parse(res.body)).toEqual({
       ok: true,
-      serverName: "thenasty.taild9b663.ts.net",
+      serverName: "boreal.example-tailnet.ts.net",
     });
     expect(setMatrixAdminServerNameMock).toHaveBeenCalledWith(
-      "thenasty.taild9b663.ts.net",
+      "boreal.example-tailnet.ts.net",
     );
   });
 
@@ -492,7 +492,7 @@ describe("PATCH /matrix-admin/creds/host-side-base", () => {
       server.port,
       "PATCH",
       "/matrix-admin/creds/host-side-base",
-      { hostSideBase: "http://100.99.149.8:8008" },
+      { hostSideBase: "http://100.70.0.1:8008" },
     );
     expect(res.status).toBe(401);
     expect(setMatrixAdminHostSideBaseMock).not.toHaveBeenCalled();
@@ -504,7 +504,7 @@ describe("PATCH /matrix-admin/creds/host-side-base", () => {
       server.port,
       "PATCH",
       "/matrix-admin/creds/host-side-base",
-      { hostSideBase: "http://100.99.149.8:8008" },
+      { hostSideBase: "http://100.70.0.1:8008" },
     );
     expect(res.status).toBe(403);
     expect(setMatrixAdminHostSideBaseMock).not.toHaveBeenCalled();
@@ -552,7 +552,7 @@ describe("PATCH /matrix-admin/creds/host-side-base", () => {
       server.port,
       "PATCH",
       "/matrix-admin/creds/host-side-base",
-      { hostSideBase: "http://100.99.149.8:8008" },
+      { hostSideBase: "http://100.70.0.1:8008" },
     );
     expect(res.status).toBe(409);
     expect(JSON.parse(res.body).error).toMatch(/POST \/matrix-admin\/creds/);
@@ -564,15 +564,15 @@ describe("PATCH /matrix-admin/creds/host-side-base", () => {
       server.port,
       "PATCH",
       "/matrix-admin/creds/host-side-base",
-      { hostSideBase: "http://100.99.149.8:8008" },
+      { hostSideBase: "http://100.70.0.1:8008" },
     );
     expect(res.status).toBe(200);
     expect(JSON.parse(res.body)).toEqual({
       ok: true,
-      hostSideBase: "http://100.99.149.8:8008",
+      hostSideBase: "http://100.70.0.1:8008",
     });
     expect(setMatrixAdminHostSideBaseMock).toHaveBeenCalledWith(
-      "http://100.99.149.8:8008",
+      "http://100.70.0.1:8008",
     );
   });
 
@@ -646,16 +646,16 @@ describe("POST /matrix-admin/reset-registry-rooms", () => {
   it("200 happy path — clears settings, forceSaves, calls ensureRegistryRoomsExist, returns new room IDs", async () => {
     ensureRegistryRoomsExistMock.mockResolvedValue({
       ok: true,
-      agentsRoomId: "!newagents:t1000.taild9b663.ts.net",
-      humansRoomId: "!newhumans:t1000.taild9b663.ts.net",
+      agentsRoomId: "!newagents:harbor.example-tailnet.ts.net",
+      humansRoomId: "!newhumans:harbor.example-tailnet.ts.net",
     });
 
     const res = await request(server.port, "POST", "/matrix-admin/reset-registry-rooms");
     expect(res.status).toBe(200);
     const parsed = JSON.parse(res.body);
     expect(parsed.ok).toBe(true);
-    expect(parsed.agentsRoomId).toBe("!newagents:t1000.taild9b663.ts.net");
-    expect(parsed.humansRoomId).toBe("!newhumans:t1000.taild9b663.ts.net");
+    expect(parsed.agentsRoomId).toBe("!newagents:harbor.example-tailnet.ts.net");
+    expect(parsed.humansRoomId).toBe("!newhumans:harbor.example-tailnet.ts.net");
 
     // DELETE must be issued with both settings keys bound in order
     expect(dbPrepareRunMock).toHaveBeenCalledWith(
@@ -700,8 +700,8 @@ describe("POST /matrix-admin/reset-registry-rooms", () => {
   it("200 idempotent — two consecutive calls both clear + recreate", async () => {
     ensureRegistryRoomsExistMock.mockResolvedValue({
       ok: true,
-      agentsRoomId: "!agents:t1000.taild9b663.ts.net",
-      humansRoomId: "!humans:t1000.taild9b663.ts.net",
+      agentsRoomId: "!agents:harbor.example-tailnet.ts.net",
+      humansRoomId: "!humans:harbor.example-tailnet.ts.net",
     });
 
     const res1 = await request(server.port, "POST", "/matrix-admin/reset-registry-rooms");

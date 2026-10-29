@@ -67,7 +67,7 @@ describe("EditableFileModal — PDF", () => {
         open
         onOpenChange={onOpenChange}
         messageEventId="e1"
-        url="https://term.example.com/file/t1000/home/u/spec.pdf"
+        url="https://term.example.com/file/harbor/home/u/spec.pdf"
         filename="spec.pdf"
         agentIdentityName={null}
         onStageEditedFile={onStageEditedFile}

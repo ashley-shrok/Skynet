@@ -19,9 +19,9 @@ import type { Host } from "@/types/ui-types";
 function makeHost(overrides: Partial<Host> = {}): Host {
   return {
     id: "1",
-    name: "t1000",
+    name: "harbor",
     username: "ubuntu",
-    ip: "100.99.149.8",
+    ip: "100.70.0.1",
     port: 22,
     folder: "/home/ubuntu",
     online: true,
@@ -68,12 +68,12 @@ describe("getRowCandidateStrings", () => {
   it("includes row.label, host.name, host.username, and role", () => {
     const row = makeRow({
       label: "samwise",
-      host: makeHost({ name: "t1000", username: "ubuntu" }),
+      host: makeHost({ name: "harbor", username: "ubuntu" }),
       role: "box-maintainer",
     });
     const out = getRowCandidateStrings(row, null);
     expect(out).toContain("samwise");
-    expect(out).toContain("t1000");
+    expect(out).toContain("harbor");
     expect(out).toContain("ubuntu");
     expect(out).toContain("box-maintainer");
   });
@@ -134,7 +134,7 @@ describe("getRowCandidateStrings", () => {
 describe("rowMatchesSearchQuery", () => {
   const row = makeRow({
     label: "samwise",
-    host: makeHost({ name: "t1000", username: "ubuntu" }),
+    host: makeHost({ name: "harbor", username: "ubuntu" }),
     role: "box-maintainer",
   });
   const identity = makeIdentity({
@@ -168,7 +168,7 @@ describe("rowMatchesSearchQuery", () => {
   });
 
   it("matches the host name and role", () => {
-    expect(rowMatchesSearchQuery(row, identity, "t1000")).toBe(true);
+    expect(rowMatchesSearchQuery(row, identity, "harbor")).toBe(true);
     expect(rowMatchesSearchQuery(row, identity, "box-maintainer")).toBe(true);
   });
 

@@ -298,7 +298,7 @@ describe("ConversationSearchModal: sidebar-parity look + passages", () => {
         passages: [
           { speaker: "user", text: "foo then FOO again" },
           { speaker: "agent", text: "agent says foo" },
-          { speaker: "relay", text: "relay foo in", relayFrom: "@stacy:skynet.example", relayTo: null },
+          { speaker: "relay", text: "relay foo in", relayFrom: "@quinn:skynet.example", relayTo: null },
         ],
         matchCount: 5,
         matchCountCapped: false,
@@ -308,7 +308,7 @@ describe("ConversationSearchModal: sidebar-parity look + passages", () => {
     expect(passages).toHaveLength(3);
     expect(passages[0].querySelector("[data-part='speaker']")).toHaveTextContent("You");
     expect(passages[1].querySelector("[data-part='speaker']")).toHaveTextContent("Soprano");
-    expect(passages[2].querySelector("[data-part='speaker']")).toHaveTextContent("Stacy → Soprano");
+    expect(passages[2].querySelector("[data-part='speaker']")).toHaveTextContent("Quinn → Soprano");
     expect(passages[0].querySelectorAll("span[data-part='hit']")).toHaveLength(2);
     expect(row.querySelector("[data-part='more']")).toHaveTextContent(
       "+2 more matches in this conversation",

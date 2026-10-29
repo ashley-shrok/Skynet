@@ -16,7 +16,7 @@ vi.mock("./telegram-api.js", () => ({
 const TOKEN = "111:AAAA";
 let bot: { token: string; chatId: string | null; titleOnly: boolean } | null = null;
 const unlinkChat = vi.fn();
-vi.mock("./app-name.js", () => ({ getAppName: async () => "Aither" }));
+vi.mock("./app-name.js", () => ({ getAppName: async () => "Acme" }));
 
 vi.mock("./telegram-bots.js", () => ({
   getBot: () => bot,
@@ -108,7 +108,7 @@ describe("sendTelegramToUser", () => {
     expect(method).toBe("sendMessage");
     expect(params).toMatchObject({ chat_id: "555", parse_mode: "HTML" });
     expect(params.reply_markup.inline_keyboard[0][0]).toEqual({
-      text: "Open in Aither",
+      text: "Open in Acme",
       url: "https://skynet.example.com/?openHarness=%40mitzi%3Ahs&host=3",
     });
     expect(info).toHaveBeenCalledWith(

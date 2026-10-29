@@ -15,7 +15,7 @@ import {
 } from "../interstitial.js";
 import type { ErrorClass, ServeTarget } from "../types.js";
 
-const target = { hostname: "thenasty", port: 3020, host: {} } as ServeTarget;
+const target = { hostname: "boreal", port: 3020, host: {} } as ServeTarget;
 const url = "https://term.example.com/apps/3/videos/pane/";
 
 describe("renderInterstitial self-retry", () => {

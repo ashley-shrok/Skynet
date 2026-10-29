@@ -39,7 +39,7 @@ export function classifyTunnelError(err: unknown): ErrorClass {
   // the target's sshd — target port refused the connection. Bucket into
   // port_not_listening; the tunnel-open path never sees ECONNRESET (its
   // failures land on the specific SSH-* / connect-time codes above).
-  // Discovered 2026-09-10 UAT — killed http.server on thenasty:8899 while
+  // Discovered 2026-09-10 UAT — killed an http.server on port 8899 while
   // the SSH tunnel was already up; the proxy hit ECONNRESET.
   if (code === "ECONNRESET") return "port_not_listening";
   if (code === "ETIMEDOUT" || code === "EHOSTUNREACH" || code === "ENETUNREACH") {

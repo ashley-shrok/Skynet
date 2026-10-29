@@ -2,7 +2,7 @@
  * Regression guard: a pane whose SSH connection dies must not stay bound to
  * the dead connection.
  *
- * Observed 2026-10-28 (aqua@workstation, mitzi@thenasty): the connection
+ * Observed 2026-10-28 (aqua@workstation, mitzi@boreal): the connection
  * dropped right after a conversation opened, the tail died with "No response
  * from server", nothing noticed, and every later send failed "Not connected"
  * until the user reopened the conversation. The fix watches the pane's

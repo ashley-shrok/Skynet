@@ -788,20 +788,20 @@ describe("folder-collision listing", () => {
     (artifactReader.isLocalHostId as Mock).mockReturnValue(true);
     const fsp = await import("node:fs/promises");
     (fsp.stat as Mock).mockImplementation(async (p: string) => {
-      if (p === `${ARCHIVE_ROOT}/zoey`) return {} as unknown;
+      if (p === `${ARCHIVE_ROOT}/riley`) return {} as unknown;
       const err = new Error("ENOENT") as NodeJS.ErrnoException;
       err.code = "ENOENT";
       throw err;
     });
     okBirth();
 
-    const body = { ...VALID_BODY, displayName: "Zoey" };
+    const body = { ...VALID_BODY, displayName: "Riley" };
     delete (body as Partial<typeof body>).name;
     const result = await httpPost(port, "/identities/birth", body);
 
     expect(result.status).toBe(200);
     const callOpts = mockBirthIdentity.mock.calls[0]?.[0] as { name: string };
-    expect(callOpts.name).toBe("zoey-2");
+    expect(callOpts.name).toBe("riley-2");
   });
 
   it("typed name on a remote host: probe checks identities-archive too", async () => {
@@ -818,19 +818,19 @@ describe("folder-collision listing", () => {
     execSpy.mockReset();
     execSpy.mockImplementation(async (_c: unknown, cmd: string) => {
       if (cmd.startsWith("if [ -d")) {
-        return cmd.includes("identities-archive/zoey\"") ? "exists" : "missing";
+        return cmd.includes("identities-archive/riley\"") ? "exists" : "missing";
       }
       return "";
     });
     okBirth();
 
-    const body = { ...VALID_BODY, displayName: "Zoey" };
+    const body = { ...VALID_BODY, displayName: "Riley" };
     delete (body as Partial<typeof body>).name;
     const result = await httpPost(port, "/identities/birth", body);
 
     expect(result.status).toBe(200);
     const callOpts = mockBirthIdentity.mock.calls[0]?.[0] as { name: string };
-    expect(callOpts.name).toBe("zoey-2");
+    expect(callOpts.name).toBe("riley-2");
   });
 });
 
@@ -956,11 +956,11 @@ it("Test 5: orchestrator called with body opts + userId + all required dep keys"
 it("Test 5a: deps.relayJsonHomeserverBase === creds.hostSideBase when set; matrixHomeserver unchanged", async () => {
   getMatrixAdminCredsMock.mockResolvedValueOnce({
     homeserverBase: "http://synapse:8008",
-    userId: "@mock-admin:thenasty.taild9b663.ts.net",
+    userId: "@mock-admin:boreal.example-tailnet.ts.net",
     password: "p",
     accessToken: "t",
-    serverName: "thenasty.taild9b663.ts.net",
-    hostSideBase: "http://100.99.149.8:8008",
+    serverName: "boreal.example-tailnet.ts.net",
+    hostSideBase: "http://100.70.0.1:8008",
   });
 
   let capturedDeps: unknown;
@@ -978,18 +978,18 @@ it("Test 5a: deps.relayJsonHomeserverBase === creds.hostSideBase when set; matri
 
   const d = capturedDeps as Record<string, unknown>;
   // Override branch: relay.json base points at the host-reachable URL.
-  expect(d.relayJsonHomeserverBase).toBe("http://100.99.149.8:8008");
+  expect(d.relayJsonHomeserverBase).toBe("http://100.70.0.1:8008");
   // matrixHomeserver (Step 6 admin-API URL) stays as the container-internal
   // URL — the whole point of the split.
   expect(d.matrixHomeserver).toBe("http://synapse:8008");
   // matrixServerName override also propagates so mxid derivation is stable.
-  expect(d.matrixServerName).toBe("thenasty.taild9b663.ts.net");
+  expect(d.matrixServerName).toBe("boreal.example-tailnet.ts.net");
 });
 
 it("Test 5b: deps.relayJsonHomeserverBase falls back to homeserverBase when hostSideBase is null", async () => {
   getMatrixAdminCredsMock.mockResolvedValueOnce({
-    homeserverBase: "http://t1000.taild9b663.ts.net:8008",
-    userId: "@mock-admin:t1000.taild9b663.ts.net",
+    homeserverBase: "http://harbor.example-tailnet.ts.net:8008",
+    userId: "@mock-admin:harbor.example-tailnet.ts.net",
     password: "p",
     accessToken: "t",
     serverName: null,
@@ -1011,8 +1011,8 @@ it("Test 5b: deps.relayJsonHomeserverBase falls back to homeserverBase when host
 
   const d = capturedDeps as Record<string, unknown>;
   // Fallback branch: single-URL fleets get the same URL for both slots.
-  expect(d.relayJsonHomeserverBase).toBe("http://t1000.taild9b663.ts.net:8008");
-  expect(d.matrixHomeserver).toBe("http://t1000.taild9b663.ts.net:8008");
+  expect(d.relayJsonHomeserverBase).toBe("http://harbor.example-tailnet.ts.net:8008");
+  expect(d.matrixHomeserver).toBe("http://harbor.example-tailnet.ts.net:8008");
 });
 
 // ---------------------------------------------------------------------------
@@ -1804,12 +1804,12 @@ describe("Phase 129: auto-tag on multi-user hosts", () => {
   // returns the caller's username, creatorUsername is threaded through.
   // Test locks that Assumption A6 lands at the write side.
   it("Test C: multi-user host via RBAC-role → creatorUsername passed (A6 write-side lock)", async () => {
-    // Simulate an RBAC-shared t1000 where isHostMultiUser expands
+    // Simulate an RBAC-shared harbor where isHostMultiUser expands
     // hostAccess.roleId → userRoles and returns true. From the route
     // handler's POV the observable is identical to Test B; the difference
     // lives inside host-user-counter.ts's Query 3/4 which Plan 01 tests.
     mockIsHostMultiUser.mockResolvedValue(true);
-    mockGetUsernameForUserId.mockResolvedValue("zoe");
+    mockGetUsernameForUserId.mockResolvedValue("riley");
 
     let capturedOpts: unknown;
     mockBirthIdentity.mockImplementation(
@@ -1822,7 +1822,7 @@ describe("Phase 129: auto-tag on multi-user hosts", () => {
 
     expect(result.status).toBe(200);
     const o = capturedOpts as Record<string, unknown>;
-    expect(o.creatorUsername).toBe("zoe");
+    expect(o.creatorUsername).toBe("riley");
   });
 
   // Test D: multi-user host + getUsernameForUserId returns null →

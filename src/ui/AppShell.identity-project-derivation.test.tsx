@@ -146,7 +146,7 @@ describe("AppShell identity-project derivation effect (H1 fix)", () => {
   });
 
   it("end-to-end: derived map + setIdentityProjectAssignments buckets identity conversation into project section", () => {
-    const hostA = makeHost("1", "t1000");
+    const hostA = makeHost("1", "harbor");
     const wren = makeIdentity("wren", { hostId: 1, project: "alpha" });
     act(() => {
       updateHostTree({ name: "root", children: [hostA] } as HostFolder);
@@ -160,7 +160,7 @@ describe("AppShell identity-project derivation effect (H1 fix)", () => {
           slug: "alpha",
           displayName: "Alpha",
           hostId: "1",
-          hostname: "t1000",
+          hostname: "harbor",
           archived: false,
         },
       ]);

@@ -29,7 +29,7 @@ describe("isIdentityVisibleToUser — Phase 129 per-user visibility gate", () =>
     expect(
       isIdentityVisibleToUser(
         { users: ["user"] },
-        { users: ["zoe"] },
+        { users: ["riley"] },
         null,
       ),
     ).toBe(true);
@@ -53,40 +53,40 @@ describe("isIdentityVisibleToUser — Phase 129 per-user visibility gate", () =>
     ).toBe(true);
   });
 
-  it("Test 4: both sides list User → CLOSED for Zoe (D-2 intersection)", () => {
+  it("Test 4: both sides list User → CLOSED for Riley (D-2 intersection)", () => {
     expect(
       isIdentityVisibleToUser(
         { users: ["user"] },
         { users: ["user"] },
-        "zoe",
+        "riley",
       ),
     ).toBe(false);
   });
 
   it("Test 5: role open + identity narrow → CLOSED for non-matching user", () => {
-    // Identity side lists user; role side is empty (open). Zoe fails
+    // Identity side lists user; role side is empty (open). Riley fails
     // identity gate → hidden.
     expect(
-      isIdentityVisibleToUser({ users: ["user"] }, {}, "zoe"),
+      isIdentityVisibleToUser({ users: ["user"] }, {}, "riley"),
     ).toBe(false);
   });
 
   it("Test 6: role narrow + identity open → CLOSED for non-matching user", () => {
-    // Role side lists user; identity side is empty (open). Zoe fails
+    // Role side lists user; identity side is empty (open). Riley fails
     // role gate → hidden.
     expect(
-      isIdentityVisibleToUser({}, { users: ["user"] }, "zoe"),
+      isIdentityVisibleToUser({}, { users: ["user"] }, "riley"),
     ).toBe(false);
   });
 
-  it("Test 7: shared role, identity-side narrow to User → CLOSED for Zoe", () => {
-    // The intersection-semantics headliner: a role shared by user+zoe can
+  it("Test 7: shared role, identity-side narrow to User → CLOSED for Riley", () => {
+    // The intersection-semantics headliner: a role shared by user+riley can
     // still contain identities each narrowed further via identity.users.
     expect(
       isIdentityVisibleToUser(
         { users: ["user"] },
-        { users: ["user", "zoe"] },
-        "zoe",
+        { users: ["user", "riley"] },
+        "riley",
       ),
     ).toBe(false);
   });
@@ -94,16 +94,16 @@ describe("isIdentityVisibleToUser — Phase 129 per-user visibility gate", () =>
   it("Test 8: shared role AND shared identity → open for both users", () => {
     expect(
       isIdentityVisibleToUser(
-        { users: ["user", "zoe"] },
-        { users: ["user", "zoe"] },
+        { users: ["user", "riley"] },
+        { users: ["user", "riley"] },
         "user",
       ),
     ).toBe(true);
     expect(
       isIdentityVisibleToUser(
-        { users: ["user", "zoe"] },
-        { users: ["user", "zoe"] },
-        "zoe",
+        { users: ["user", "riley"] },
+        { users: ["user", "riley"] },
+        "riley",
       ),
     ).toBe(true);
   });
@@ -125,24 +125,24 @@ describe("isIdentityVisibleToUser — Phase 129 per-user visibility gate", () =>
       isIdentityVisibleToUser(null, { users: ["user"] }, "user"),
     ).toBe(true);
     // null roleCos treated as "no gate on role side".
-    // Identity side lists user → closed for zoe.
+    // Identity side lists user → closed for riley.
     expect(
-      isIdentityVisibleToUser({ users: ["user"] }, null, "zoe"),
+      isIdentityVisibleToUser({ users: ["user"] }, null, "riley"),
     ).toBe(false);
   });
 });
 
 describe("isIdentityVisibleToUser — multi-role (role side is a list)", () => {
   it("every listed role's users gate must pass", () => {
-    const roles = [{ users: ["user", "zoe"] }, { users: ["user"] }];
+    const roles = [{ users: ["user", "riley"] }, { users: ["user"] }];
     expect(isIdentityVisibleToUser(null, roles, "user")).toBe(true);
-    expect(isIdentityVisibleToUser(null, roles, "zoe")).toBe(false);
+    expect(isIdentityVisibleToUser(null, roles, "riley")).toBe(false);
   });
 
   it("ungated roles (null / no users) fall open; identity side still applies", () => {
-    expect(isIdentityVisibleToUser(null, [null, {}], "zoe")).toBe(true);
+    expect(isIdentityVisibleToUser(null, [null, {}], "riley")).toBe(true);
     expect(
-      isIdentityVisibleToUser({ users: ["user"] }, [null, {}], "zoe"),
+      isIdentityVisibleToUser({ users: ["user"] }, [null, {}], "riley"),
     ).toBe(false);
   });
 });

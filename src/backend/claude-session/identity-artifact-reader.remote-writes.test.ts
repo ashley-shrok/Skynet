@@ -3,7 +3,7 @@
 // Regression test for QRW-02: pins the writeMarkdownFileAtomic helper to
 // sftp.ext_openssh_rename (posix-rename@openssh.com) instead of sftp.rename.
 //
-// WHY THIS EXISTS (root-caused by @stacy on ceo-skynet 2026-08-02, full handoff
+// WHY THIS EXISTS (root-caused 2026-08-02 on a second instance, full handoff
 // at ~/pretty-view-uploads/2026-08-02/190204-TINA-HANDOFF.md):
 //
 //   user's IdentityModal saves against an EXISTING identity file were

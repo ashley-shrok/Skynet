@@ -81,7 +81,7 @@ import { PrettyConversationRow } from "./PrettyConversationRow";
 function makeHost(overrides: Partial<Host> = {}): Host {
   return {
     id: "hA",
-    name: "thenasty",
+    name: "boreal",
     username: "root",
     ip: "10.0.0.1",
     port: 22,
@@ -413,7 +413,7 @@ describe("PrettyConversationRow: identity with no roles", () => {
     currentIdentity = makeIdentityWithTask({ role: null, roles: [], colorHue: null });
     const { container } = renderRow();
     const subtitle = container.querySelector(".pv-ai-title") as HTMLElement;
-    expect(subtitle.textContent).toBe("thenasty");
+    expect(subtitle.textContent).toBe("boreal");
     expect(subtitle.querySelector("strong")).toBeNull();
   });
 

@@ -2024,7 +2024,7 @@ describe("conversation-store (2026-08-05 uo4 followup): only=1 sessionStorage-bl
       JSON.stringify(["opener-tina", "opener-nelly"]),
     );
     // Simulate the Move-to-new-window URL landing.
-    window.location.hash = "#tab=tmux:thenasty:nelly&active=0&only=1";
+    window.location.hash = "#tab=tmux:boreal:nelly&active=0&only=1";
 
     vi.resetModules();
     const reImported = await import("./conversation-store.js");
@@ -2050,7 +2050,7 @@ describe("conversation-store (2026-08-05 uo4 followup): only=1 sessionStorage-bl
     // A hash without only=1 (e.g. a normal restored URL, or empty hash) must
     // NOT trigger the clear — the guard is strictly for the Move-to-new-window
     // origin URL.
-    window.location.hash = "#tab=tmux:thenasty:tina&active=0";
+    window.location.hash = "#tab=tmux:boreal:tina&active=0";
 
     vi.resetModules();
     const reImported = await import("./conversation-store.js");
@@ -3583,7 +3583,7 @@ describe("conversation-store (Phase 90 Plan 01): FleetSession kind + relay-room 
     // for pre-Phase-90 rehydrated caches.
     const legacyRow: FleetSession = {
       hostId: 1,
-      hostName: "thenasty",
+      hostName: "boreal",
       sessionName: "tina",
       created: 100,
       role: null,
@@ -3898,7 +3898,7 @@ describe("upsertFleetSession — pulse row-appear contract", () => {
   // Case 1: Appear — empty fleetSessions, upsert one harness session → row exists
   it("case 1 — appear: upsert into empty fleetSessions creates a row with correct composite id", () => {
     act(() => {
-      upsertFleetSession({ hostId: 6, hostName: "t1000", sessionName: "willow", created: Date.now(), role: null });
+      upsertFleetSession({ hostId: 6, hostName: "harbor", sessionName: "willow", created: Date.now(), role: null });
     });
 
     const snap = __getSnapshotForTest();
@@ -3923,7 +3923,7 @@ describe("upsertFleetSession — pulse row-appear contract", () => {
     expect(snap1.fleetSessionsLoaded).toBe(false);
 
     act(() => {
-      upsertFleetSession({ hostId: 6, hostName: "t1000", sessionName: "willow", created: Date.now(), role: null });
+      upsertFleetSession({ hostId: 6, hostName: "harbor", sessionName: "willow", created: Date.now(), role: null });
     });
 
     const snap2 = __getSnapshotForTest();
@@ -3936,7 +3936,7 @@ describe("upsertFleetSession — pulse row-appear contract", () => {
   it("case 3 — idempotent: upsert identical session twice fires notify once", () => {
     const session: FleetSession = {
       hostId: 6,
-      hostName: "t1000",
+      hostName: "harbor",
       sessionName: "willow",
       created: 1000,
       role: null,
@@ -3966,7 +3966,7 @@ describe("upsertFleetSession — pulse row-appear contract", () => {
       updateFleetSessions([
         {
           hostId: 6,
-          hostName: "t1000",
+          hostName: "harbor",
           sessionName: "willow",
           created: 1000,
           role: null,
@@ -3978,7 +3978,7 @@ describe("upsertFleetSession — pulse row-appear contract", () => {
 
     // Upsert the same tuple but without lastMessageAt / aiTitle.
     act(() => {
-      upsertFleetSession({ hostId: 6, hostName: "t1000", sessionName: "willow", created: 1000, role: null });
+      upsertFleetSession({ hostId: 6, hostName: "harbor", sessionName: "willow", created: 1000, role: null });
     });
 
     const snap = __getSnapshotForTest();
@@ -3993,12 +3993,12 @@ describe("upsertFleetSession — pulse row-appear contract", () => {
   it("case 5 — additive: merge preserves existing created even when incoming differs", () => {
     act(() => {
       updateFleetSessions([
-        { hostId: 6, hostName: "t1000", sessionName: "willow", created: 1000, role: null },
+        { hostId: 6, hostName: "harbor", sessionName: "willow", created: 1000, role: null },
       ]);
     });
 
     act(() => {
-      upsertFleetSession({ hostId: 6, hostName: "t1000", sessionName: "willow", created: 9999, role: null });
+      upsertFleetSession({ hostId: 6, hostName: "harbor", sessionName: "willow", created: 9999, role: null });
     });
 
     const snap = __getSnapshotForTest();
@@ -4012,7 +4012,7 @@ describe("upsertFleetSession — pulse row-appear contract", () => {
   it("case 6 — hostName: empty string does not blank good name; non-empty string updates", () => {
     act(() => {
       updateFleetSessions([
-        { hostId: 6, hostName: "t1000", sessionName: "willow", created: 1000, role: null },
+        { hostId: 6, hostName: "harbor", sessionName: "willow", created: 1000, role: null },
       ]);
     });
 
@@ -4021,34 +4021,34 @@ describe("upsertFleetSession — pulse row-appear contract", () => {
       upsertFleetSession({ hostId: 6, hostName: "", sessionName: "willow", created: 1000, role: null });
     });
     let s = __getSnapshotForTest().fleetSessions.find((x) => x.hostId === 6 && x.sessionName === "willow");
-    expect(s?.hostName).toBe("t1000");
+    expect(s?.hostName).toBe("harbor");
 
     // Non-empty string should update to the new name.
     act(() => {
-      upsertFleetSession({ hostId: 6, hostName: "t1000-renamed", sessionName: "willow", created: 1000, role: null });
+      upsertFleetSession({ hostId: 6, hostName: "harbor-renamed", sessionName: "willow", created: 1000, role: null });
     });
     s = __getSnapshotForTest().fleetSessions.find((x) => x.hostId === 6 && x.sessionName === "willow");
-    expect(s?.hostName).toBe("t1000-renamed");
+    expect(s?.hostName).toBe("harbor-renamed");
   });
 
   // Case 7: role never blanks but does update.
   it("case 7 — role: null does not blank existing role; non-null string updates", () => {
     act(() => {
       updateFleetSessions([
-        { hostId: 6, hostName: "t1000", sessionName: "willow", created: 1000, role: "box-maintainer" },
+        { hostId: 6, hostName: "harbor", sessionName: "willow", created: 1000, role: "box-maintainer" },
       ]);
     });
 
     // Upsert with null role — must preserve existing.
     act(() => {
-      upsertFleetSession({ hostId: 6, hostName: "t1000", sessionName: "willow", created: 1000, role: null });
+      upsertFleetSession({ hostId: 6, hostName: "harbor", sessionName: "willow", created: 1000, role: null });
     });
     let s = __getSnapshotForTest().fleetSessions.find((x) => x.hostId === 6 && x.sessionName === "willow");
     expect(s?.role).toBe("box-maintainer");
 
     // Upsert with a different non-null role — must update.
     act(() => {
-      upsertFleetSession({ hostId: 6, hostName: "t1000", sessionName: "willow", created: 1000, role: "auditor" });
+      upsertFleetSession({ hostId: 6, hostName: "harbor", sessionName: "willow", created: 1000, role: "auditor" });
     });
     s = __getSnapshotForTest().fleetSessions.find((x) => x.hostId === 6 && x.sessionName === "willow");
     expect(s?.role).toBe("auditor");
@@ -4065,7 +4065,7 @@ describe("upsertFleetSession — pulse row-appear contract", () => {
     act(() => {
       upsertFleetSession({
         hostId: 6,
-        hostName: "t1000",
+        hostName: "harbor",
         sessionName: "willow",
         created: 1000,
         role: null,
@@ -4096,7 +4096,7 @@ describe("upsertFleetSession — pulse row-appear contract", () => {
 
     // Now upsert a HARNESS session — relay row must be unaffected.
     act(() => {
-      upsertFleetSession({ hostId: 6, hostName: "t1000", sessionName: "willow", created: 1000, role: null });
+      upsertFleetSession({ hostId: 6, hostName: "harbor", sessionName: "willow", created: 1000, role: null });
     });
 
     // Relay row is still present, still well-formed (its id is the relay id, not fleet::undefined::undefined).
@@ -4125,7 +4125,7 @@ describe("upsertFleetSession — pulse row-appear contract", () => {
 
     // Step 1: Upsert a pulse-only session.
     act(() => {
-      upsertFleetSession({ hostId: 6, hostName: "t1000", sessionName: "willow", created: 1000, role: null });
+      upsertFleetSession({ hostId: 6, hostName: "harbor", sessionName: "willow", created: 1000, role: null });
     });
     expect(__getSnapshotForTest().fleetSessions.some((s) => s.sessionName === "willow")).toBe(true);
     expect(__getSnapshotForTest().fleetSessionsLoaded).toBe(false);
@@ -4138,7 +4138,7 @@ describe("upsertFleetSession — pulse row-appear contract", () => {
     // its own snapshot semantics — that is the OQ-3 intent this case pins.
     act(() => {
       updateFleetSessions([
-        { hostId: 7, hostName: "beelink", sessionName: "other", created: 2000, role: null },
+        { hostId: 7, hostName: "minipc", sessionName: "other", created: 2000, role: null },
       ]);
     });
     // Row is gone (a non-empty fetch is authoritative for its snapshot),
@@ -4148,7 +4148,7 @@ describe("upsertFleetSession — pulse row-appear contract", () => {
 
     // Step 3: Re-upsert (the pulse ticks again) — the row returns.
     act(() => {
-      upsertFleetSession({ hostId: 6, hostName: "t1000", sessionName: "willow", created: 1000, role: null });
+      upsertFleetSession({ hostId: 6, hostName: "harbor", sessionName: "willow", created: 1000, role: null });
     });
     expect(__getSnapshotForTest().fleetSessions.some((s) => s.sessionName === "willow")).toBe(true);
   });
@@ -4160,14 +4160,14 @@ describe("upsertFleetSession — pulse row-appear contract", () => {
 
     // Empty sessionName.
     act(() => {
-      expect(() => upsertFleetSession({ hostId: 6, hostName: "t1000", sessionName: "", created: 1000, role: null })).not.toThrow();
+      expect(() => upsertFleetSession({ hostId: 6, hostName: "harbor", sessionName: "", created: 1000, role: null })).not.toThrow();
     });
     expect(cb).toHaveBeenCalledTimes(0);
     expect(__getSnapshotForTest().fleetSessions).toHaveLength(0);
 
     // Non-finite hostId (NaN from a failed parseInt).
     act(() => {
-      expect(() => upsertFleetSession({ hostId: NaN, hostName: "t1000", sessionName: "willow", created: 1000, role: null })).not.toThrow();
+      expect(() => upsertFleetSession({ hostId: NaN, hostName: "harbor", sessionName: "willow", created: 1000, role: null })).not.toThrow();
     });
     expect(cb).toHaveBeenCalledTimes(0);
     expect(__getSnapshotForTest().fleetSessions).toHaveLength(0);
@@ -4183,7 +4183,7 @@ describe("upsertFleetSession — pulse row-appear contract", () => {
     expect(__getSnapshotForTest().fleetSessionsLoaded).toBe(false);
 
     act(() => {
-      upsertFleetSession({ hostId: 6, hostName: "t1000", sessionName: "willow", created: 1000, role: null });
+      upsertFleetSession({ hostId: 6, hostName: "harbor", sessionName: "willow", created: 1000, role: null });
     });
     expect(__getSnapshotForTest().fleetSessions).toHaveLength(1);
     expect(__getSnapshotForTest().fleetSessionsLoaded).toBe(false);
@@ -4213,7 +4213,7 @@ describe("upsertFleetSession — pulse row-appear contract", () => {
     act(() => {
       upsertFleetSession({
         hostId: 5,
-        hostName: "beelink",
+        hostName: "minipc",
         sessionName: "willow",
         created: 5000,
         role: "operator",
@@ -4247,7 +4247,7 @@ describe("upsertFleetSession — pulse row-appear contract", () => {
     const spy = vi.spyOn(Storage.prototype, "setItem");
 
     act(() => {
-      upsertFleetSession({ hostId: 6, hostName: "t1000", sessionName: "willow", created: 1000, role: null });
+      upsertFleetSession({ hostId: 6, hostName: "harbor", sessionName: "willow", created: 1000, role: null });
     });
 
     // Cache was written under the v5 key (current).

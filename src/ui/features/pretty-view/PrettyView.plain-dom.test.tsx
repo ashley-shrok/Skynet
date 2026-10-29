@@ -692,7 +692,7 @@ describe("PrettyView plain-DOM render — Phase 43 Plan 43-07a", () => {
     fireWsMessage(ws, {
       type: "relay_inbound",
       room: "!room:example.org",
-      sender: "@stacy:skynet.aithercloud.com",
+      sender: "@quinn:chat.example.org",
       matrixEventId: sharedMatrixEventId,
       body: "hey nicole, ready for the next patch?",
       raw: "raw-line-1",
@@ -702,7 +702,7 @@ describe("PrettyView plain-DOM render — Phase 43 Plan 43-07a", () => {
     fireWsMessage(ws, {
       type: "relay_inbound",
       room: "!room:example.org",
-      sender: "@stacy:skynet.aithercloud.com",
+      sender: "@quinn:chat.example.org",
       matrixEventId: sharedMatrixEventId,
       body: "hey nicole, ready for the next patch?",
       raw: "raw-line-2",
@@ -712,7 +712,7 @@ describe("PrettyView plain-DOM render — Phase 43 Plan 43-07a", () => {
     fireWsMessage(ws, {
       type: "relay_inbound",
       room: "!room:example.org",
-      sender: "@stacy:skynet.aithercloud.com",
+      sender: "@quinn:chat.example.org",
       matrixEventId: sharedMatrixEventId,
       body: "hey nicole, ready for the next patch?",
       raw: "raw-line-3",
@@ -734,7 +734,7 @@ describe("PrettyView plain-DOM render — Phase 43 Plan 43-07a", () => {
     fireWsMessage(ws, {
       type: "relay_inbound",
       room: "!room:example.org",
-      sender: "@stacy:skynet.aithercloud.com",
+      sender: "@quinn:chat.example.org",
       matrixEventId: "$different:example.org",
       body: "second message",
       raw: "raw-line-4",

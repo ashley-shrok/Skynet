@@ -130,7 +130,7 @@ const AGENT_HOST_TREE: HostFolder = {
   children: [
     {
       id: "1",
-      name: "thenasty",
+      name: "boreal",
       enableRdp: false,
       enableSsh: true,
       enableTerminal: true,

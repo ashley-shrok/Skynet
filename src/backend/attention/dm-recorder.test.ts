@@ -32,7 +32,7 @@ describe("recordAgentDm", () => {
   it("records under the lowercased mxid local-part and tells the user's tabs", () => {
     const entry = { hostId: "7", identityName: "aspen-box-maintainer-3", lastDmAt: 1000, seenDmAt: 0 };
     store.recordDm.mockReturnValue(entry);
-    recordAgentDm("u1", 7, "@Aspen-Box-Maintainer-3:t1000.example", 1000);
+    recordAgentDm("u1", 7, "@Aspen-Box-Maintainer-3:harbor.example", 1000);
     expect(store.recordDm).toHaveBeenCalledWith("u1", "7", "aspen-box-maintainer-3", 1000);
     expect(publishToUser).toHaveBeenCalledWith("u1", { schemaVersion: 1, type: "dm-state-changed", ...entry });
   });
@@ -53,7 +53,7 @@ describe("publishAgentNotification", () => {
   it("sends the words to the user's tabs, keyed by conversation", () => {
     publishAgentNotification("u1", {
       notificationId: "$ev1",
-      agentMxid: "@Aspen:t1000.example",
+      agentMxid: "@Aspen:harbor.example",
       hostId: 7,
       title: "Aspen",
       body: "Done — the deploy is live.",
@@ -64,7 +64,7 @@ describe("publishAgentNotification", () => {
       notificationId: "$ev1",
       hostId: "7",
       identityName: "aspen",
-      agentMxid: "@Aspen:t1000.example",
+      agentMxid: "@Aspen:harbor.example",
       title: "Aspen",
       body: "Done — the deploy is live.",
     });

@@ -14,7 +14,7 @@ describe("slugifyRoleName", () => {
       ["box-maintainer", "box-maintainer"],
       ["Box_Maintainer", "box-maintainer"],
       ["  Box   Maintainer  ", "box-maintainer"],
-      ["Aither Health / Infra", "aither-health-infra"],
+      ["Acme Health / Infra", "acme-health-infra"],
       ["Café Ops", "cafe-ops"],
       ["R2D2", "r2d2"],
       ["Ops!!!", "ops"],

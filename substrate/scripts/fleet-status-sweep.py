@@ -2,7 +2,7 @@
 """fleet-status-sweep.py — server-side batch emitter for the app's fleet-status poller.
 
 Phase 92 Plan 02. Replaces the O(hosts × identities × sentinels) per-poll SSH
-exec fan-out (~200+ `channel.exec` calls per cycle on a t1000-sized box) with
+exec fan-out (~200+ `channel.exec` calls per cycle on a busy box) with
 ONE exec-per-host-per-cycle that emits all per-identity + per-live-PID state
 as a JSONL blob on stdout. See:
     .planning/phases/92-fleet-status-poller-batch-sweep-one-exec-per-host-not-one-pe/
@@ -473,7 +473,7 @@ def _resolve_pid_to_tmux_session(pid):
 # self-poll (hostId 6) once peer's isLocalHostId acquireLocalChannel fix
 # ran the sweep from inside the container: the container is uid 0 with no
 # /run/user/1000 mount and no dbus session, so every `systemctl --user`
-# call transport-failed → sweep dropped every t1000 app-line silently.
+# call transport-failed → sweep dropped every app-line silently.
 #
 # Fix: the source of truth for existence + port is the unit file on disk
 # under ~/.config/systemd/user/app-<slug>.service — the same file systemd
@@ -1458,7 +1458,7 @@ def _build_app_line(slug, folder_path, home, owner=None, listening=None, failed=
 
     # Phase 130: users list for the per-user visibility gate. Optional key on
     # app.json; the substrate/skills/app-development README (added Phase 130)
-    # tells agents on multi-user boxes (thenasty, ZoeyBattlestation) to add
+    # tells agents on multi-user boxes to add
     # this list when creating an app. Missing / non-list / mixed-type values
     # fall back to None (falls open per D-3 — every user with host access
     # sees the app; zero-migration invariant for existing app.json files

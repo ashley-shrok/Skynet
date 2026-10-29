@@ -23,8 +23,8 @@
  *
  * ## Ownership
  *
- * Each Skynet instance owns its own ignore-list (t1000's list has t1000's
- * registry room IDs; T800's has T800's). Nothing hard-coded, nothing
+ * Each Skynet instance owns its own ignore-list (each list has that instance's
+ * registry room IDs). Nothing hard-coded, nothing
  * cross-instance. Internal-only — no user-visible surface, no admin
  * console, no debug endpoint in this slice.
  *

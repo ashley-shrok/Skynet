@@ -182,7 +182,7 @@ describe("role view — facts line and tabs", () => {
   it("one agent: '1 agent holds this role' — no machine named", async () => {
     store.identities = [agent("tabitha", ["box-maintainer"])];
     await openRole();
-    expect(screen.getByTestId("role-view-facts").textContent).not.toContain("thenasty");
+    expect(screen.getByTestId("role-view-facts").textContent).not.toContain("boreal");
     expect(screen.getByTestId("role-view-facts").textContent).toMatch(new RegExp("^" + "1 agent holds this role"));
   });
 

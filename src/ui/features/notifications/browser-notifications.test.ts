@@ -60,7 +60,7 @@ const N = {
   notificationId: "$ev1",
   hostId: "7",
   identityName: "aspen",
-  agentMxid: "@aspen:t1000.example",
+  agentMxid: "@aspen:harbor.example",
   title: "Aspen",
   body: "Deploy is live.",
 };
@@ -247,7 +247,7 @@ describe("showing a notification", () => {
     handleAgentNotified(N);
     shown[0].onclick!();
     expect(focus).toHaveBeenCalled();
-    expect(opened).toEqual([{ mxid: "@aspen:t1000.example", hostId: 7 }]);
+    expect(opened).toEqual([{ mxid: "@aspen:harbor.example", hostId: 7 }]);
     expect(shown[0].close).toHaveBeenCalled();
   });
 });
@@ -255,12 +255,12 @@ describe("showing a notification", () => {
 describe("test notification", () => {
   it("shows one under the instance's own name when on", async () => {
     await turnOn();
-    expect(showTestNotification("Aither")).toBe(true);
-    expect(shown[0].title).toBe("Aither");
+    expect(showTestNotification("Acme")).toBe(true);
+    expect(shown[0].title).toBe("Acme");
   });
 
   it("does nothing when off", () => {
-    expect(showTestNotification("Aither")).toBe(false);
+    expect(showTestNotification("Acme")).toBe(false);
     expect(shown).toHaveLength(0);
   });
 });

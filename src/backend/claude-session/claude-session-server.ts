@@ -7176,7 +7176,7 @@ wss.on("connection", async (ws: WebSocket, req) => {
           // promise is orphaned, and starter.ts's unhandledRejection
           // handler calls process.exit(1) — killing the backend for every
           // user on a single peer's disconnect (yeti forensic 2026-09-29
-          // 13:15:02Z: aqua@100.82.225.100 dropped, crashed the container).
+          // 13:15:02Z: one agent's connection dropped, crashed the container).
           // Mirrors the "skip this tick silently" posture of
           // __applyDormantPollTickForTests.
         } finally {

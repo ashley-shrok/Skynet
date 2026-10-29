@@ -239,7 +239,7 @@ function paletteHueLine(hue: number | null): string {
 //
 // This instruction lives HERE rather than in the operator-authored
 // avatarDirectorSpec deliberately: the spec is per-instance and not in git
-// (t1000 and T800 each hold their own copy), so requiring an operator edit to
+// (each instance holds its own copy), so requiring an operator edit to
 // get variety would silently leave existing deployments on the old behavior.
 // The spec still owns all AESTHETIC content; this only owns the output SHAPE.
 // Same division of labor as paletteHueLine above.

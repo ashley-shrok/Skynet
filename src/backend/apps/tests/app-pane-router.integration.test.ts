@@ -264,7 +264,7 @@ describe("app-pane-router", () => {
     // Happy defaults; individual tests override.
     mocks.resolveHostByUniversalId.mockResolvedValue({
       id: 5,
-      name: "t1000",
+      name: "harbor",
       userId: "u1",
     });
     mocks.checkHostAccess.mockResolvedValue(true);
@@ -287,9 +287,9 @@ describe("app-pane-router", () => {
     });
     mocks.resolvePaneTarget.mockResolvedValue({
       target: {
-        hostname: "t1000",
+        hostname: "harbor",
         port: 3001,
-        host: { id: 5, name: "t1000", userId: "u1" },
+        host: { id: 5, name: "harbor", userId: "u1" },
       },
       tunnelPort: 12345,
     });
@@ -476,7 +476,7 @@ describe("app-pane-router", () => {
         // — dispatching through auth+validation+access+CSRF+port+target.
         expect(upgradeSpy).toHaveBeenCalledTimes(1);
         expect(mocks.getOrCreateAppPaneProxyForTarget).toHaveBeenCalledWith(
-          expect.objectContaining({ hostname: "t1000" }),
+          expect.objectContaining({ hostname: "harbor" }),
           12345,
           5,
           "todo",
@@ -720,7 +720,7 @@ describe("app-pane-router", () => {
         const res = await sendHttp(port, "GET", "/apps/5/todo/pane/api/list");
         expect(res.status).toBe(200);
         expect(mocks.getOrCreateAppPaneProxyForTarget).toHaveBeenCalledWith(
-          expect.objectContaining({ hostname: "t1000", port: 3001 }),
+          expect.objectContaining({ hostname: "harbor", port: 3001 }),
           12345,
           5,
           "todo",
@@ -771,7 +771,7 @@ describe("app-pane-router", () => {
       // Branch B: checkHostAccess returns false (host resolves fine).
       mocks.resolveHostByUniversalId.mockResolvedValueOnce({
         id: 5,
-        name: "t1000",
+        name: "harbor",
         userId: "u1",
       });
       mocks.checkHostAccess.mockResolvedValueOnce(false);

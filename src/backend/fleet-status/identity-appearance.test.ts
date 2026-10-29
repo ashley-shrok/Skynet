@@ -313,14 +313,14 @@ describe("roleDefaults — three-valued semantics", () => {
   // side MUST be stripped from roleDefaults before it lands on the wire.
   // Leaking role membership through `GET /identities` would violate the
   // shape §"no evidence in the UI" promise for cohabitants (any caller with
-  // DevTools could see "role X is scoped to me + Zoe" purely from the JSON
+  // DevTools could see "role X is scoped to me + Riley" purely from the JSON
   // body). Parallel to the raw/narrowed split in roles-list-for-host.ts.
   it("roleCosmetics with `users` list → roleDefaults strips `users` from wire projection (HIGH-1)", () => {
     const rc: RawCosmetics = {
       title: "Skynet",
       colorHue: 324,
       avatar: "box-maintainer.webp",
-      users: ["user", "zoe"],
+      users: ["user", "riley"],
     };
     const result = resolveIdentityAppearance(makeArgs({
       roleCosmetics: rc,

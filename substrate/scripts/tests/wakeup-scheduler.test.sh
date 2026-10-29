@@ -535,13 +535,13 @@ test_SA_G7_users_propagation() {
   mkdir -p "$scheduled_agents_dir/users-slug"
   cat > "$scheduled_agents_dir/users-slug/scheduled-agent.json" <<'JSON'
 {
-  "name": "zoey mail",
+  "name": "riley mail",
   "enabled": true,
   "schedule": {"type": "interval", "every": "1s"},
   "prompt": "triage inbox",
   "roles": ["news-watcher"],
   "skills": [],
-  "users": ["zoey"]
+  "users": ["riley"]
 }
 JSON
 
@@ -561,7 +561,7 @@ JSON
 import json
 d = json.load(open('$req_file'))
 got = d.get('users')
-print('OK' if got == ['zoey'] else 'FAIL: users got=%r want=[\"zoey\"]' % got)
+print('OK' if got == ['riley'] else 'FAIL: users got=%r want=[\"riley\"]' % got)
 " 2>&1)
   if [ "$check_result" != "OK" ]; then
     fail "SA-G7: $check_result"

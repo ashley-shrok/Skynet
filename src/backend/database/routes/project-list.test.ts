@@ -402,7 +402,7 @@ describe("GET /projects", () => {
     (getUsernameForUserId as Mock).mockResolvedValue("alice");
     (listProjects as Mock).mockResolvedValue([
       { slug: "alpha", displayName: "Alpha", users: ["alice"] }, // visible
-      { slug: "beta", displayName: "Beta", users: ["zoey"] }, // hidden
+      { slug: "beta", displayName: "Beta", users: ["riley"] }, // hidden
       { slug: "gamma", displayName: "Gamma", users: null }, // falls open
       { slug: "delta", displayName: "Delta", users: [] }, // falls open (empty)
     ]);
@@ -432,7 +432,7 @@ describe("GET /projects", () => {
     (getUsernameForUserId as Mock).mockResolvedValue(null);
     (listProjects as Mock).mockResolvedValue([
       { slug: "alpha", displayName: "Alpha", users: ["alice"] },
-      { slug: "beta", displayName: "Beta", users: ["zoey"] },
+      { slug: "beta", displayName: "Beta", users: ["riley"] },
     ]);
 
     const res = await httpRequest(server, {
@@ -456,7 +456,7 @@ describe("GET /projects", () => {
     );
     (listProjects as Mock).mockResolvedValue([
       { slug: "alpha", displayName: "Alpha", users: ["alice"] },
-      { slug: "beta", displayName: "Beta", users: ["zoey"] },
+      { slug: "beta", displayName: "Beta", users: ["riley"] },
     ]);
 
     const res = await httpRequest(server, {
@@ -1151,7 +1151,7 @@ describe("nested projects — GET /projects parent + inherited visibility", () =
   it("a parent hidden from the caller hides its child and grandchild; a missing parent does not hide", async () => {
     (getUsernameForUserId as Mock).mockResolvedValue("alice");
     (listProjects as Mock).mockResolvedValue([
-      { slug: "secret", displayName: "Secret", users: ["zoey"], parent: null },
+      { slug: "secret", displayName: "Secret", users: ["riley"], parent: null },
       { slug: "kid", displayName: "Kid", users: null, parent: "secret" },
       { slug: "grandkid", displayName: "GK", users: ["alice"], parent: "kid" },
       { slug: "orphan", displayName: "Orphan", users: null, parent: "gone" },
@@ -1350,9 +1350,9 @@ describe("nested projects — POST /projects/:slug/parent", () => {
 // ===========================================================================
 
 describe("nested projects — write routes treat projects hidden from the caller as absent", () => {
-  // secret is visible only to zoey; inner hangs off it; open is for all.
+  // secret is visible only to riley; inner hangs off it; open is for all.
   const list = [
-    { slug: "secret", displayName: "Secret", users: ["zoey"], parent: null },
+    { slug: "secret", displayName: "Secret", users: ["riley"], parent: null },
     { slug: "inner", displayName: "Inner", users: null, parent: "secret" },
     { slug: "open", displayName: "Open", users: null, parent: null },
   ];
@@ -1390,7 +1390,7 @@ describe("nested projects — write routes treat projects hidden from the caller
 
   it("the project's own audience can still move it", async () => {
     (listProjects as Mock).mockResolvedValue(list);
-    (getUsernameForUserId as Mock).mockResolvedValue("zoey");
+    (getUsernameForUserId as Mock).mockResolvedValue("riley");
     const res = await httpRequest(server, {
       method: "POST",
       path: "/projects/open/parent",

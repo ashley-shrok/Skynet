@@ -74,7 +74,7 @@ function baseProps(overrides: Partial<{
     open: true,
     onOpenChange: vi.fn(),
     messageEventId: "e1",
-    url: overrides.url ?? "https://term.example.com/file/t1000/home/ubuntu/photo.png",
+    url: overrides.url ?? "https://term.example.com/file/harbor/home/ubuntu/photo.png",
     filename: overrides.filename ?? "photo.png",
     agentIdentityName: null,
     onStageEditedFile: vi.fn(),
@@ -93,7 +93,7 @@ describe("EditableFileModal — media viewer branches", () => {
     render(<EditableFileModal {...baseProps({ filename: "photo.png" })} />);
     const img = await screen.findByAltText("photo.png") as HTMLImageElement;
     expect(img.src).toBe(
-      "https://term.example.com/file/t1000/home/ubuntu/photo.png",
+      "https://term.example.com/file/harbor/home/ubuntu/photo.png",
     );
     expect(mockedFetchFile).not.toHaveBeenCalled();
   });
@@ -103,7 +103,7 @@ describe("EditableFileModal — media viewer branches", () => {
       <EditableFileModal
         {...baseProps({
           filename: "song.mp3",
-          url: "https://term.example.com/file/t1000/home/ubuntu/song.mp3",
+          url: "https://term.example.com/file/harbor/home/ubuntu/song.mp3",
         })}
       />,
     );
@@ -113,7 +113,7 @@ describe("EditableFileModal — media viewer branches", () => {
     });
     const audio = document.body.querySelector("audio")!;
     expect(audio.getAttribute("src")).toBe(
-      "https://term.example.com/file/t1000/home/ubuntu/song.mp3",
+      "https://term.example.com/file/harbor/home/ubuntu/song.mp3",
     );
     expect(audio.hasAttribute("controls")).toBe(true);
     expect(mockedFetchFile).not.toHaveBeenCalled();
@@ -125,7 +125,7 @@ describe("EditableFileModal — media viewer branches", () => {
       <EditableFileModal
         {...baseProps({
           filename: "clip.mp4",
-          url: "https://term.example.com/file/t1000/home/ubuntu/clip.mp4",
+          url: "https://term.example.com/file/harbor/home/ubuntu/clip.mp4",
         })}
       />,
     );
@@ -134,7 +134,7 @@ describe("EditableFileModal — media viewer branches", () => {
     });
     const video = document.body.querySelector("video")!;
     expect(video.getAttribute("src")).toBe(
-      "https://term.example.com/file/t1000/home/ubuntu/clip.mp4",
+      "https://term.example.com/file/harbor/home/ubuntu/clip.mp4",
     );
     expect(video.hasAttribute("controls")).toBe(true);
     expect(video.hasAttribute("autoplay")).toBe(false);
@@ -146,13 +146,13 @@ describe("EditableFileModal — media viewer branches", () => {
       <EditableFileModal
         {...baseProps({
           filename: "logo.svg",
-          url: "https://term.example.com/file/t1000/home/ubuntu/logo.svg",
+          url: "https://term.example.com/file/harbor/home/ubuntu/logo.svg",
         })}
       />,
     );
     const img = await screen.findByAltText("logo.svg") as HTMLImageElement;
     expect(img.src).toBe(
-      "https://term.example.com/file/t1000/home/ubuntu/logo.svg",
+      "https://term.example.com/file/harbor/home/ubuntu/logo.svg",
     );
     expect(mockedFetchFile).not.toHaveBeenCalled();
     // Modal-unification 2026-09-29: SVG toggle is a segmented [Rendered |
@@ -174,7 +174,7 @@ describe("EditableFileModal — media viewer branches", () => {
       <EditableFileModal
         {...baseProps({
           filename: "logo.svg",
-          url: "https://term.example.com/file/t1000/home/ubuntu/logo.svg",
+          url: "https://term.example.com/file/harbor/home/ubuntu/logo.svg",
         })}
       />,
     );
@@ -190,7 +190,7 @@ describe("EditableFileModal — media viewer branches", () => {
     // Fetch fires now — modal has switched into text-editor path.
     await waitFor(() => {
       expect(mockedFetchFile).toHaveBeenCalledWith(
-        "https://term.example.com/file/t1000/home/ubuntu/logo.svg",
+        "https://term.example.com/file/harbor/home/ubuntu/logo.svg",
       );
     });
     // Now the "Source" tab is the selected one.
@@ -213,13 +213,13 @@ describe("EditableFileModal — text path regression", () => {
       <EditableFileModal
         {...baseProps({
           filename: "notes.md",
-          url: "https://term.example.com/file/t1000/home/ubuntu/notes.md",
+          url: "https://term.example.com/file/harbor/home/ubuntu/notes.md",
         })}
       />,
     );
     await waitFor(() => {
       expect(mockedFetchFile).toHaveBeenCalledWith(
-        "https://term.example.com/file/t1000/home/ubuntu/notes.md",
+        "https://term.example.com/file/harbor/home/ubuntu/notes.md",
       );
     });
   });
@@ -235,7 +235,7 @@ describe("EditableFileModal — binary fallback", () => {
       <EditableFileModal
         {...baseProps({
           filename: "bundle.zip",
-          url: "https://term.example.com/file/t1000/home/ubuntu/bundle.zip",
+          url: "https://term.example.com/file/harbor/home/ubuntu/bundle.zip",
         })}
       />,
     );
@@ -243,7 +243,7 @@ describe("EditableFileModal — binary fallback", () => {
     expect(mockedFetchFile).not.toHaveBeenCalled();
     const download = screen.getByRole("link", { name: /download/i });
     expect(download.getAttribute("href")).toBe(
-      "https://term.example.com/file/t1000/home/ubuntu/bundle.zip",
+      "https://term.example.com/file/harbor/home/ubuntu/bundle.zip",
     );
     // Nothing to edit → no save button.
     expect(screen.queryByTestId("file-window-save")).toBeNull();
@@ -263,7 +263,7 @@ describe("EditableFileModal — binary fallback", () => {
       <EditableFileModal
         {...baseProps({
           filename: "blob.dat2",
-          url: "https://term.example.com/file/t1000/home/ubuntu/blob.dat2",
+          url: "https://term.example.com/file/harbor/home/ubuntu/blob.dat2",
         })}
       />,
     );
@@ -286,7 +286,7 @@ describe("EditableFileModal — binary fallback", () => {
       <EditableFileModal
         {...baseProps({
           filename: "app.cfg2",
-          url: "https://term.example.com/file/t1000/home/ubuntu/app.cfg2",
+          url: "https://term.example.com/file/harbor/home/ubuntu/app.cfg2",
         })}
       />,
     );

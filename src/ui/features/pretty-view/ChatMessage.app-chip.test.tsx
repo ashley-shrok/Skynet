@@ -65,7 +65,7 @@ describe("parseSkynetAppUrl", () => {
     expect(parseSkynetAppUrl(`${ORIGIN}/apps/6/tally`)).toBeNull();
     expect(parseSkynetAppUrl(`${ORIGIN}/apps/0/tally/pane/`)).toBeNull();
     expect(parseSkynetAppUrl(`${ORIGIN}/apps/6/Bad_Slug/pane/`)).toBeNull();
-    expect(parseSkynetAppUrl(`${ORIGIN}/file/t1000/home/x.md`)).toBeNull();
+    expect(parseSkynetAppUrl(`${ORIGIN}/file/harbor/home/x.md`)).toBeNull();
     expect(parseSkynetAppUrl(undefined)).toBeNull();
   });
 });

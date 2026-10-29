@@ -1621,7 +1621,7 @@ if (process.env.VITEST !== "true") {
       // RATIONALE: D-01 says the pass "runs at container start," NOT "boot
       // blocks until pass completes." Awaiting start() would serialize the
       // boot IIFE on however long it takes to walk all substrate hosts —
-      // on Stacy's box with unreachable VMs this could be minutes. Fire-and-
+      // on a box with unreachable VMs this could be minutes. Fire-and-
       // forget lets the container become fully ready quickly while the pass
       // runs in the background. If a future decision changes this (e.g.,
       // health-check probes need the pass to complete before serving traffic),

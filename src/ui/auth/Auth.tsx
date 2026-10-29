@@ -211,7 +211,7 @@ export function Auth({ onLogin }: AuthProps) {
   const { t } = useTranslation();
   // Phase 70 Plan 04: login header (icon + wordmark below at ~L1131) reads
   // from the branding store — falls back to the bundled Skynet defaults on
-  // t1000, swaps to operator assets on AI+ deploys.
+  // default deploys, swaps to operator assets on AI+ deploys.
   const brandingConfig = useBrandingConfig();
   const [view, setView] = useState<AuthView>("login");
   const [loading, setLoading] = useState(false);

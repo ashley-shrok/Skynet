@@ -10,9 +10,9 @@ const byKey = new Map([
 ]);
 
 describe("partyForAddressee", () => {
-  const viewer = "@robin:t1000.example";
+  const viewer = "@robin:harbor.example";
   it("the viewer's mxid, any case → You", () => {
-    expect(partyForAddressee("@Robin:t1000.example", byKey, viewer)).toEqual({ name: "You", hue: null, you: true });
+    expect(partyForAddressee("@Robin:harbor.example", byKey, viewer)).toEqual({ name: "You", hue: null, you: true });
   });
   it("the viewer's bare localpart → You", () => {
     expect(partyForAddressee("robin", byKey, viewer).you).toBe(true);
@@ -21,10 +21,10 @@ describe("partyForAddressee", () => {
     expect(partyForAddressee("Tina", byKey, viewer)).toEqual({ name: "Tina", hue: 200, you: false, avatarUrl: null });
   });
   it("an agent's mxid → resolved through identities", () => {
-    expect(partyForAddressee("@aster:t1000.example", byKey, viewer).name).toBe("Aster");
+    expect(partyForAddressee("@aster:harbor.example", byKey, viewer).name).toBe("Aster");
   });
   it("someone unknown → their name capitalized, not you", () => {
-    expect(partyForAddressee("stacy", byKey, viewer)).toEqual({ name: "Stacy", hue: null, you: false });
+    expect(partyForAddressee("quinn", byKey, viewer)).toEqual({ name: "Quinn", hue: null, you: false });
   });
   it("no viewer mxid → never You", () => {
     expect(partyForAddressee("robin", byKey, null).you).toBe(false);
@@ -33,7 +33,7 @@ describe("partyForAddressee", () => {
 
 describe("relay-addressing", () => {
   it("friendlyMxidName drops the server and capitalizes", () => {
-    expect(friendlyMxidName("@stacy:skynet.aithercloud.com")).toBe("Stacy");
+    expect(friendlyMxidName("@quinn:chat.example.org")).toBe("Quinn");
     expect(friendlyMxidName("not-an-mxid")).toBe("Not-an-mxid");
   });
 

@@ -1,6 +1,6 @@
 /**
- * matrix-admin-client — END-TO-END integration test against the live thenasty
- * Synapse relay (http://100.113.23.63:8008).
+ * matrix-admin-client — END-TO-END integration test against the live boreal
+ * Synapse relay (http://100.70.0.4:8008).
  *
  * PURPOSE — Phase 75 Plan 75-05, implements RESEARCH.md § Open Question 5:
  * "Include one end-to-end integration test in Phase A that exercises
@@ -31,7 +31,7 @@
  *   1. The @skynet-admin creds must be ingested into the matrix_admin_creds
  *      table via setMatrixAdminCreds({...}) — Wave 3 human checkpoint step.
  *   2. Synapse must be reachable from wherever the test runs (usually the
- *      Skynet t1000 backend host, over tailnet).
+ *      Skynet harbor backend host, over tailnet).
  *   3. Optionally set MATRIX_INTEGRATION_ROOM_ID to override the default
  *      integration-test room. If unset, the test creates a fresh room owned
  *      by @skynet-admin (leaves it in place — Matrix rooms are cheap;
@@ -62,7 +62,7 @@ const gate = process.env.INTEGRATION_TESTS === "1";
 // impersonation (bridge inbound), so this test uses a non-admin fleet account.
 // Default target is @tina, a durable long-lived non-admin account on the fleet
 // relay; operator can override via env for testing against another account.
-const LOGIN_TARGET_DEFAULT = "@tina:thenasty.taild9b663.ts.net";
+const LOGIN_TARGET_DEFAULT = "@tina:boreal.example-tailnet.ts.net";
 const LOGIN_TARGET_MXID =
   process.env.MATRIX_INTEGRATION_LOGIN_TARGET ?? LOGIN_TARGET_DEFAULT;
 
@@ -126,7 +126,7 @@ async function createIntegrationRoom(
 // any string other than the exact "1"), ALL tests inside are SKIPPED.
 // ---------------------------------------------------------------------------
 describe.skipIf(!gate)(
-  "matrix-admin-client integration (live thenasty Synapse)",
+  "matrix-admin-client integration (live boreal Synapse)",
   () => {
     it(
       "mints a token via loginAsUser then sends + reads an m.room.message",

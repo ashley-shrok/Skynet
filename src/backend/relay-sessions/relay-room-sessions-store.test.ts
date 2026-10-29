@@ -312,7 +312,7 @@ describe("relay-room-sessions-store — persistence flush discipline", () => {
 
     // refreshRelayRoomLastActivity uses debounced triggerSave — called on
     // every observation tick per user per room; forceSave here saturated
-    // disk at t1000 immediately after the arc-close deploy 2026-09-09.
+    // disk at harbor immediately after the arc-close deploy 2026-09-09.
     // last_activity_at is ephemeral (regenerates from Matrix admin API on
     // next 10s tick), so debounced flush is correct.
     expect(triggerSaveSpy).toHaveBeenCalledTimes(1);

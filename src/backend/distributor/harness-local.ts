@@ -1,6 +1,6 @@
 /**
  * harness-local.ts — Harness reconcile for the co-located host (Skynet's own
- * box, e.g. t1000), where SSH-to-self is off the table (see
+ * box), where SSH-to-self is off the table (see
  * local-fleet-install.ts for why).
  *
  * Two stages:

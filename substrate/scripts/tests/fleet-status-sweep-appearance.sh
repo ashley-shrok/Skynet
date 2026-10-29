@@ -235,7 +235,7 @@ print(sum(1 for l in lines if json.loads(l).get('line_kind') == 'identity'))
 # Identity with roles: + displayName: + task: and NO title/colorHue;
 # role with title: + colorHue:. Assert identity_cosmetics has displayName and
 # task but NOT title/colorHue; role_cosmetics has title and colorHue.
-# Mirrors the live t1000 shape (pixel inherits from box-maintainer).
+# Mirrors a live shape (pixel inherits from box-maintainer).
 test_case_01_full_inheritance() {
   make_identity "archie" "---
 roles: archivist

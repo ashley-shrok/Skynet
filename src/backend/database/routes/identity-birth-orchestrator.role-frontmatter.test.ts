@@ -279,13 +279,13 @@ it("opts.users non-empty → users: emitted verbatim from the array", () => {
     makeOpts({
       name: "testkey",
       role: "news-watcher",
-      users: ["zoey"],
+      users: ["riley"],
     }),
     "Testkey",
     "",
   );
   const parsed = extractFrontmatter(body);
-  expect(parsed.users).toEqual(["zoey"]);
+  expect(parsed.users).toEqual(["riley"]);
 });
 
 it("opts.users multi-element → every element preserved in order with case preserved", () => {
@@ -293,13 +293,13 @@ it("opts.users multi-element → every element preserved in order with case pres
     makeOpts({
       name: "testkey",
       role: "news-watcher",
-      users: ["Zoey", "user1"],
+      users: ["Riley", "user1"],
     }),
     "Testkey",
     "",
   );
   const parsed = extractFrontmatter(body);
-  expect(parsed.users).toEqual(["Zoey", "user1"]);
+  expect(parsed.users).toEqual(["Riley", "user1"]);
 });
 
 it("opts.users wins over creatorUsername when both set", () => {
@@ -308,13 +308,13 @@ it("opts.users wins over creatorUsername when both set", () => {
       name: "testkey",
       role: "news-watcher",
       creatorUsername: "Alice",
-      users: ["zoey"],
+      users: ["riley"],
     }),
     "Testkey",
     "",
   );
   const parsed = extractFrontmatter(body);
-  expect(parsed.users).toEqual(["zoey"]);
+  expect(parsed.users).toEqual(["riley"]);
 });
 
 it("opts.users empty array → falls through to creatorUsername branch", () => {

@@ -55,8 +55,8 @@ const sessionParserLogger = {
 // carries the discrimination signal at zero shape-parsing cost. CURL_RE +
 // PUT_RE stay: they contribute real verb-level discrimination (rejects coord
 // GETs and non-curl analysis scripts) at zero implementation risk.
-// Corpus-validated 2026-08-28 against 716 candidate commands from t1000 +
-// thenasty + workstation (14-day window): +86 rescues over the old shape,
+// Corpus-validated 2026-08-28 against 716 candidate commands from three fleet boxes
+// (14-day window): +86 rescues over the old shape,
 // zero false positives, zero regressions (SENTINEL is a strict superset of
 // the old URL_RE — every command that passed URL_RE contained the sentinel).
 // Bounty: detector-fleet-corpus-sentinel-eval (REPORT.md has the full table).
@@ -467,7 +467,7 @@ function restoreApostrophes(body: string | null): string | null {
 // quick-260823-hd6: substituteShellVars extended to 6 assignment shapes.
 // Ported verbatim from ~/fleet/roles/box-maintainer/bounties/
 //   relay-outbound-cmdsub-heredoc-body/extractor_v3.py — corpus-validated
-// against 787 real fleet outbound cmds (t1000 + workstation, 2 weeks):
+// against 787 real fleet outbound cmds (two boxes, 2 weeks):
 // 96.3% ok extraction, 0 regressions vs v0, catches 2 latent wrong-body
 // bugs (secondary --arg captured before primary heredoc). Residual 15
 // unrecoverable = external files + runtime-conditional picks.

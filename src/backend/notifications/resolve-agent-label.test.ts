@@ -14,7 +14,7 @@ import {
   type AgentLabelDeps,
 } from "./resolve-agent-label.js";
 
-const MXID = "@mitzi:t1000.example";
+const MXID = "@mitzi:harbor.example";
 
 function makeDeps(overrides: Partial<AgentLabelDeps> = {}) {
   let clock = 1_000_000;
@@ -138,7 +138,7 @@ describe("createAgentLabelResolver", () => {
 
   it("lowercases the local-part to find the identity folder", async () => {
     const { deps } = makeDeps();
-    await createAgentLabelResolver(deps)("@Mitzi:t1000.example", "u1", 7);
+    await createAgentLabelResolver(deps)("@Mitzi:harbor.example", "u1", 7);
     expect(deps.readFiles).toHaveBeenCalledWith("u1", 7, "mitzi");
   });
 });

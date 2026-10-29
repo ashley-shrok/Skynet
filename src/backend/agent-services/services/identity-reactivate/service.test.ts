@@ -24,7 +24,7 @@ import {
 } from "./service.js";
 import type { ServiceContext } from "../../engine/types.js";
 
-const SERVER = "t1000.taild9b663.ts.net";
+const SERVER = "harbor.example-tailnet.ts.net";
 const ACCOUNT = `@ace:${SERVER}`;
 const AGENTS_ROOM = "!agents:server";
 const HUMANS_ROOM = "!humans:server";

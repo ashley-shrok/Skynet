@@ -710,7 +710,7 @@ class AuthManager {
     // Phase 103 D-02: widen JWT session cookie to Domain=<SKYNET_COOKIE_DOMAIN>
     // (e.g. "term.example.com") so the cookie reaches *.term.<domain>
     // subdomains (including *.serve.term.<domain>). Env-driven per D-23
-    // (t1000 sets its own value; T800 sets its own value independently).
+    // (each instance sets its own value independently).
     // When unset (dev / tests / unconfigured), omit `domain` for
     // backwards-compatibility with today's behavior.
     const skynetDomain = process.env.SKYNET_COOKIE_DOMAIN;

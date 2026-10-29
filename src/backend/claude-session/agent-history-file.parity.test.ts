@@ -104,9 +104,9 @@ describe("agent-history lookup — symlinked home (Bazzite: /home → /var/home)
 
   beforeAll(async () => {
     base = await fsp.realpath(await fsp.mkdtemp(path.join(os.tmpdir(), "history-symlink-")));
-    const realHome = path.join(base, "var-home", "zoey");
+    const realHome = path.join(base, "var-home", "riley");
     await fsp.mkdir(realHome, { recursive: true });
-    linkHome = path.join(base, "home-zoey");
+    linkHome = path.join(base, "home-riley");
     await fsp.symlink(realHome, linkHome);
     // Claude names the folder after the REAL launch path.
     const folder = `${realHome}/fleet/identities/rune/workspace`.replace(/[^a-zA-Z0-9]/g, "-");

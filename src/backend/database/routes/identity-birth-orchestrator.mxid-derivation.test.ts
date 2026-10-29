@@ -628,7 +628,7 @@ describe("takenFolderNames — candidate skipped when its folder exists on host"
       name: "ace",
       role: undefined,
       poolPicked: true,
-      creatorUsername: "zoey",
+      creatorUsername: "riley",
     });
 
     const { emit } = collectEvents();
@@ -681,7 +681,7 @@ describe("takenFolderNames — candidate skipped when its folder exists on host"
       status: 201,
     });
     const deps = makeDeps({ matrixCreateOrUpdateUser: mintMock });
-    const opts = makeOpts({ name: "ace", role: undefined, poolPicked: true, creatorUsername: "zoey" });
+    const opts = makeOpts({ name: "ace", role: undefined, poolPicked: true, creatorUsername: "riley" });
 
     const { emit } = collectEvents();
     const birthPromise = birthIdentity(opts, emit, deps);

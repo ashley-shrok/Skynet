@@ -194,7 +194,7 @@ describe("new role view", () => {
     fill("Meal Planner", "Plans meals");
     await generateAndPick();
     fireEvent.click(createBtn());
-    expect(await screen.findByText('A role named "Meal Planner" could not be created on thenasty.')).toBeTruthy();
+    expect(await screen.findByText('A role named "Meal Planner" could not be created on boreal.')).toBeTruthy();
     expect(screen.getByTestId("new-role-name")).toBeTruthy();
     expect(createBtn().disabled).toBe(false);
   });
@@ -204,7 +204,7 @@ describe("new role view", () => {
     await openNewRole({ tree: MULTI_HOST_TREE, start: { view: "library", hostId: 1 } });
     expect(screen.getByText("Host")).toBeTruthy();
     expect(screen.getByRole("option", { name: /alpha/ }).getAttribute("aria-selected")).toBe("true");
-    fireEvent.click(screen.getByRole("option", { name: /thenasty/ }));
+    fireEvent.click(screen.getByRole("option", { name: /boreal/ }));
     fill("Meal Planner", "Plans meals");
     await generateAndPick();
     fireEvent.click(createBtn());

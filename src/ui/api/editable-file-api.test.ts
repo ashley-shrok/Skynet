@@ -174,13 +174,13 @@ describe("fetchHostFileUrl — POST /pretty-view/fetch-host-file wrapper (Phase 
     });
 
     await fetchHostFileUrl(
-      "https://term.example.com/file/thenasty/home/ubuntu/note.md",
+      "https://term.example.com/file/boreal/home/ubuntu/note.md",
     );
 
     expect(authApi.post).toHaveBeenCalledTimes(1);
     expect(authApi.post).toHaveBeenCalledWith(
       "/pretty-view/fetch-host-file",
-      { hostname: "thenasty", absolutePath: "/home/ubuntu/note.md" },
+      { hostname: "boreal", absolutePath: "/home/ubuntu/note.md" },
     );
   });
 
@@ -198,12 +198,12 @@ describe("fetchHostFileUrl — POST /pretty-view/fetch-host-file wrapper (Phase 
     });
 
     await fetchHostFileUrl(
-      "https://term.example.com:8080/file/thenasty/etc/hostname",
+      "https://term.example.com:8080/file/boreal/etc/hostname",
     );
 
     expect(authApi.post).toHaveBeenCalledWith(
       "/pretty-view/fetch-host-file",
-      { hostname: "thenasty", absolutePath: "/etc/hostname" },
+      { hostname: "boreal", absolutePath: "/etc/hostname" },
     );
   });
 
@@ -212,10 +212,10 @@ describe("fetchHostFileUrl — POST /pretty-view/fetch-host-file wrapper (Phase 
       data: { contentBase64: "", sizeBytes: 0, contentType: null, extension: "md", filename: "x", isTextByExt: true },
     });
     await fetchHostFileUrl(
-      "https://term.example.com/file/thenasty/home/ubuntu/my%20notes/%C3%BCber%2520.md",
+      "https://term.example.com/file/boreal/home/ubuntu/my%20notes/%C3%BCber%2520.md",
     );
     expect(authApi.post).toHaveBeenCalledWith("/pretty-view/fetch-host-file", {
-      hostname: "thenasty",
+      hostname: "boreal",
       absolutePath: "/home/ubuntu/my notes/über%20.md",
     });
   });
@@ -224,9 +224,9 @@ describe("fetchHostFileUrl — POST /pretty-view/fetch-host-file wrapper (Phase 
     (authApi.post as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
       data: { contentBase64: "", sizeBytes: 0, contentType: null, extension: "txt", filename: "x", isTextByExt: true },
     });
-    await fetchHostFileUrl("https://term.example.com/file/thenasty/tmp/100%done.txt");
+    await fetchHostFileUrl("https://term.example.com/file/boreal/tmp/100%done.txt");
     expect(authApi.post).toHaveBeenCalledWith("/pretty-view/fetch-host-file", {
-      hostname: "thenasty",
+      hostname: "boreal",
       absolutePath: "/tmp/100%done.txt",
     });
   });
@@ -266,7 +266,7 @@ describe("fetchHostFileUrl — POST /pretty-view/fetch-host-file wrapper (Phase 
     // suite requires this).
     await expect(
       fetchHostFileUrl(
-        "https://term.example.com/file/thenasty/nope.md",
+        "https://term.example.com/file/boreal/nope.md",
       ),
     ).rejects.toThrow("not_found");
   });
@@ -286,7 +286,7 @@ describe("fetchHostFileUrl — POST /pretty-view/fetch-host-file wrapper (Phase 
     });
 
     const result = await fetchHostFileUrl(
-      "https://term.example.com/file/thenasty/tmp/greeting.md",
+      "https://term.example.com/file/boreal/tmp/greeting.md",
     );
 
     expect(result).toEqual(fixture);

@@ -542,7 +542,7 @@ router.get("/", authenticateJWT, async (req: Request, res: Response) => {
                   // Skip this key, but say so: an identity that is absent from
                   // disk and one whose read was refused are very different
                   // facts, and collapsing them silently made an SSH channel
-                  // exhaustion present as a UI glitch (stacy, 2026-09-15).
+                  // exhaustion present as a UI glitch (2026-09-15).
                   databaseLogger.warn("Dropping identity from roster — read failed", {
                     operation: "list_identities_key_read",
                     hostId,

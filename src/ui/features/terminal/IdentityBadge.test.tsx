@@ -603,7 +603,7 @@ describe("IdentityBadge — project (in the name tooltip)", () => {
         slug: "fleet-substrate",
         displayName: "Fleet Substrate",
         hostId: "7",
-        hostname: "t1000",
+        hostname: "harbor",
         archived: false,
       },
     ];
