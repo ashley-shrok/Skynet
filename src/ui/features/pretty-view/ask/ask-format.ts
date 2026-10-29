@@ -275,17 +275,24 @@ export function deriveAskId(questions: { question: string }[]): string {
   return `q-${h.toString(36)}`;
 }
 
-// Shorthand holding two ": " ("Shown | "Asked you: … · You picked: Ship"")
-// isn't YAML at all. Quote each unquoted "- Label | description" list line so
-// the block reads; only tried on a block that already failed.
-const SHORTHAND_LINE_RE = /^(\s*-\s+)([^\s'"[{&*!|>%@`#].*?)\s*$/;
-function quoteShorthandLines(body: string): string {
+// Some list lines aren't YAML on their own: shorthand holding two ": "
+// ("Shown | "Asked you: … · You picked: Ship"") or text that opens with a
+// quoted phrase (""Up to here" on a special"). Quote each list line that
+// doesn't read by itself so the block reads; only tried on a block that
+// already failed.
+const LIST_LINE_RE = /^(\s*-\s+)([^\s[{#].*?)\s*$/;
+function quoteUnreadableListLines(body: string): string {
   return body.split("\n").map((line) => {
-    const m = SHORTHAND_LINE_RE.exec(line);
-    if (!m || !m[2].includes(" | ")) return line;
+    const m = LIST_LINE_RE.exec(line);
+    if (!m) return line;
     const key = /^([\w-]+):\s/.exec(m[2]);
     if (key && OPTION_KEYS.has(key[1].toLowerCase())) return line;
-    return `${m[1]}'${m[2].replace(/'/g, "''")}'`;
+    try {
+      parseYaml(m[2]);
+      return line;
+    } catch {
+      return `${m[1]}'${m[2].replace(/'/g, "''")}'`;
+    }
   }).join("\n");
 }
 
@@ -295,7 +302,7 @@ export function parseAskBlock(body: string): AskParseResult {
     doc = parseYaml(body);
   } catch (e) {
     try {
-      doc = parseYaml(quoteShorthandLines(body));
+      doc = parseYaml(quoteUnreadableListLines(body));
     } catch {
       return { ok: false, error: `not readable YAML: ${(e as Error).message.split("\n")[0]}` };
     }

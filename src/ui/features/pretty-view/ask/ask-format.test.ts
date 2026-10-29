@@ -57,6 +57,26 @@ items:
     expect(q.options[1].description).toBe('"Asked you: … · You picked: Ship now"');
   });
 
+  it("reads an item that opens with a quoted phrase", () => {
+    const q = ok(`id: close-browse-extras
+question: Keep or change each of these?
+kind: decide
+items:
+  - Wide background picture behind a film's player
+  - "Up to here" on a special marks earlier specials
+  - "Quoted alone"
+choices:
+  - Keep
+  - Change
+`).questions[0];
+    expect(q.options.map((o) => o.label)).toEqual([
+      "Wide background picture behind a film's player",
+      '"Up to here" on a special marks earlier specials',
+      "Quoted alone",
+    ]);
+    expect(q.choices).toEqual(["Keep", "Change"]);
+  });
+
   it("still refuses a block that isn't YAML for other reasons", () => {
     const r = parseAskBlock(`question: Which?\noptions:\n  - [unclosed | one\n  - two`);
     expect(r.ok).toBe(false);
