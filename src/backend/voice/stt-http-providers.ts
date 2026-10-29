@@ -51,7 +51,8 @@ function readApiKey(spec: HttpProviderSpec): string {
 async function transcribeOverHttp(spec: HttpProviderSpec, input: SttInput): Promise<string> {
   const apiKey = readApiKey(spec);
   const model = process.env.STT_MODEL?.trim() || spec.defaultModel;
-  const language = process.env.STT_LANGUAGE?.trim() || undefined;
+  const language =
+    input.language?.trim() || process.env.STT_LANGUAGE?.trim() || undefined;
 
   const form = new FormData();
   for (const [k, v] of Object.entries(spec.formFields(model, language))) {

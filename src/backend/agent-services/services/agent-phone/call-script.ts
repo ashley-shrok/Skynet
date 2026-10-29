@@ -31,6 +31,9 @@
 /** Twilio <Say> voice: a Google Chirp3-HD generative voice. */
 export const CALL_VOICE = "Google.en-US-Chirp3-HD-Aoede";
 
+/** The call's language: <Gather> listens for it and the reply is transcribed in it. */
+export const CALL_LANGUAGE = "en-US";
+
 /** Seconds of pause after speech that end the callee's reply. */
 export const REPLY_PAUSE_SEC = 3;
 
@@ -84,7 +87,7 @@ export function buildReceiptLine(): string {
 
 /** One reply window: ends after a pause in speech or any keypad press. */
 function replyGather(startTimeoutSec: number): string {
-  return `<Gather input="speech dtmf" numDigits="1" speechTimeout="${REPLY_PAUSE_SEC}" timeout="${startTimeoutSec}" speechModel="googlev2_telephony" language="en-US"/>`;
+  return `<Gather input="speech dtmf" numDigits="1" speechTimeout="${REPLY_PAUSE_SEC}" timeout="${startTimeoutSec}" speechModel="googlev2_telephony" language="${CALL_LANGUAGE}"/>`;
 }
 
 /** The whole call as TwiML. */

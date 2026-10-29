@@ -120,6 +120,20 @@ describe("HTTP STT providers", () => {
     expect(lastRequest().form.get("language")).toBe("en");
   });
 
+  it("a per-request language overrides STT_LANGUAGE", async () => {
+    process.env.STT_LANGUAGE = "fr";
+    fetchMock.mockImplementation(async () => okJson({ text: "x" }));
+
+    await elevenLabsSttProvider.transcribe({ ...INPUT, language: "en" });
+    expect(lastRequest().form.get("language_code")).toBe("en");
+
+    await groqSttProvider.transcribe({ ...INPUT, language: "en" });
+    expect(lastRequest().form.get("language")).toBe("en");
+
+    await groqSttProvider.transcribe(INPUT);
+    expect(lastRequest().form.get("language")).toBe("fr");
+  });
+
   it("missing API key → SttNotConfiguredError (unavailable), and no request is sent", async () => {
     delete process.env.GROQ_API_KEY;
 

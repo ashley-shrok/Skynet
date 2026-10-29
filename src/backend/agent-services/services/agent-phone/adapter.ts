@@ -35,7 +35,7 @@ import {
   resolveSttProvider,
   transcribeWithRetries,
 } from "../../../voice/stt-provider.js";
-import { buildCallTwiml } from "./call-script.js";
+import { CALL_LANGUAGE, buildCallTwiml } from "./call-script.js";
 import type { PhoneCallOutcome } from "./types.js";
 
 const TWILIO_API_BASE = "https://api.twilio.com/2010-04-01";
@@ -139,11 +139,22 @@ function errorText(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
 }
 
+/**
+ * The reply is transcribed in the call's language, not auto-detected: a
+ * one-word reply ("Done") is too short for language detection, which
+ * turned it into Hindi or unrelated English words.
+ */
 async function defaultTranscribe(audio: Buffer): Promise<string> {
   const provider = resolveSttProvider();
   return transcribeWithRetries(
     provider,
-    { audio, mimetype: "audio/mpeg", ext: "mp3", timeoutMs: TRANSCRIBE_TIMEOUT_MS },
+    {
+      audio,
+      mimetype: "audio/mpeg",
+      ext: "mp3",
+      timeoutMs: TRANSCRIBE_TIMEOUT_MS,
+      language: CALL_LANGUAGE.split("-")[0],
+    },
     TRANSCRIBE_MAX_ATTEMPTS,
   );
 }

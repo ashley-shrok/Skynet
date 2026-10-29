@@ -44,6 +44,13 @@ export interface SttInput {
    * a dictated clip; agent-supplied files can be much longer.
    */
   timeoutMs?: number;
+  /**
+   * ISO-639-1 code pinning this request's language, overriding STT_LANGUAGE.
+   * For callers that know what language the audio is in (agent-phone calls
+   * are scripted in English); auto-detect misreads very short clips. Bedrock
+   * ignores it.
+   */
+  language?: string;
 }
 
 export interface SttProvider {
