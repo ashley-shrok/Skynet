@@ -10,7 +10,7 @@
 //     filing into sidebar sections) — desktop only
 //   - hover → tooltip with name, roles, project
 //   - just before the ⋮, the agent memory pie (not on archived agents) — tap
-//     for how full it is and Condense conversation
+//     for how full it is and Compact conversation
 //
 // Beside it, outside the pill, round buttons appear only while their
 // condition holds, each a shortcut into the agent window:
@@ -57,7 +57,7 @@ export interface TaskPillProps {
   hostId: number;
   /** The pane's tmux session — keys the live desktop-running signal. */
   tmuxSession: string | null;
-  /** The machine's name — a failed Condense names it. */
+  /** The machine's name — a failed Compact names it. */
   hostName?: string;
   /** Pane tab id; absent → not a drag source. */
   tabId?: string;
@@ -76,7 +76,7 @@ const SIDE_BUTTON_PX = 40;
 const SIDE_RESERVE_PX = 16 + 8 + SIDE_BUTTON_PX + 8 + SIDE_BUTTON_PX;
 
 // The pill's ⋯ menu takes the kit look, like the sidebar's and pane bars'.
-// Below this much room for the pill, "Condensing…" doesn't fit beside the
+// Below this much room for the pill, "Compacting…" doesn't fit beside the
 // task: the pie says it by pulsing instead (a phone, a narrow split pane).
 const NARROW_PILL_PX = 280;
 

@@ -29,7 +29,7 @@
 //   it doesn't collapse against the page). NO meter appendage.
 // - AGENT (D-02/D-08): AgentBadgeWithMeter (Task 1 port) — plain badge
 //   PLUS the memory pie. It reads via Wave 0 useSessionContextPct; its
-//   Condense conversation request is INTERNAL to AgentBadgeWithMeter.
+//   Compact conversation request is INTERNAL to AgentBadgeWithMeter.
 //
 // ## Loading vs. empty discrimination (Warning 2)
 //

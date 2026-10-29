@@ -1,7 +1,7 @@
 // MemoryGauge — the task pill's agent-memory pie (shape-conversation-view).
 // Grey and silent below 45%, amber from 45%, red from 78%; holds its last
-// reading through brief null dropouts; reads "Condensing…" while a condense is
-// under way; tapping opens a pop-over whose Condense conversation requests one.
+// reading through brief null dropouts; reads "Compacting…" while a condense is
+// under way; tapping opens a pop-over whose Compact conversation requests one.
 
 import { describe, it, expect, vi } from "vitest";
 import { render, screen, fireEvent } from "@testing-library/react";
@@ -55,63 +55,63 @@ describe("MemoryGauge", () => {
     expect(gauge().getAttribute("data-pct")).toBe("62");
   });
 
-  it("condensing: the pie says Condensing…, keeps its reading, and drops the red alarm", () => {
+  it("condensing: the pie says Compacting…, keeps its reading, and drops the red alarm", () => {
     render(<MemoryGauge pct={90} condensing onCondense={vi.fn()} />);
     expect(gauge().getAttribute("data-condensing")).toBe("true");
     expect(gauge().getAttribute("data-pct")).toBe("90");
-    expect(gauge().textContent).toContain("Condensing…");
+    expect(gauge().textContent).toContain("Compacting…");
     expect(gauge().textContent).not.toContain("90%");
-    expect(gauge().getAttribute("aria-label")).toBe("Agent memory: condensing");
+    expect(gauge().getAttribute("aria-label")).toBe("Agent memory: compacting");
   });
 
-  it("tapping opens the pop-over; Condense conversation requests it and closes it", async () => {
+  it("tapping opens the pop-over; Compact conversation requests it and closes it", async () => {
     const onCondense = vi.fn();
     render(<MemoryGauge pct={50} onCondense={onCondense} />);
     expect(screen.queryByTestId("memory-pop")).toBeNull();
     fireEvent.click(gauge());
     const pop = await screen.findByTestId("memory-pop");
     expect(pop.textContent).toContain("50% used");
-    expect(pop.textContent).toContain("good moment to condense");
-    fireEvent.click(screen.getByRole("button", { name: "Condense conversation" }));
+    expect(pop.textContent).toContain("good moment to compact");
+    fireEvent.click(screen.getByRole("button", { name: "Compact conversation" }));
     expect(onCondense).toHaveBeenCalledTimes(1);
     expect(screen.queryByTestId("memory-pop")).toBeNull();
   });
 
-  it("the pop-over explains each band in condense terms", async () => {
+  it("the pop-over explains each band in compact terms", async () => {
     const { rerender } = render(<MemoryGauge pct={20} onCondense={vi.fn()} />);
     fireEvent.click(gauge());
-    expect((await screen.findByTestId("memory-pop")).textContent).toContain("condensing summarises it");
+    expect((await screen.findByTestId("memory-pop")).textContent).toContain("compacting summarises it");
     rerender(<MemoryGauge pct={90} onCondense={vi.fn()} />);
-    expect(screen.getByTestId("memory-pop").textContent).toContain("At 95% the agent condenses on its own");
+    expect(screen.getByTestId("memory-pop").textContent).toContain("At 95% the agent compacts on its own");
     expect(screen.getByTestId("memory-pop").textContent).not.toMatch(/start fresh|reset/i);
   });
 
-  it("Condense conversation is disabled when condenseDisabled", async () => {
+  it("Compact conversation is disabled when condenseDisabled", async () => {
     const onCondense = vi.fn();
     render(<MemoryGauge pct={50} condenseDisabled onCondense={onCondense} />);
     fireEvent.click(gauge());
-    const btn = (await screen.findByRole("button", { name: "Condense conversation" })) as HTMLButtonElement;
+    const btn = (await screen.findByRole("button", { name: "Compact conversation" })) as HTMLButtonElement;
     expect(btn.disabled).toBe(true);
     fireEvent.click(btn);
     expect(onCondense).not.toHaveBeenCalled();
   });
 
-  it("while condensing the button reads Condensing… and can't be pressed again", async () => {
+  it("while condensing the button reads Compacting… and can't be pressed again", async () => {
     const onCondense = vi.fn();
     render(<MemoryGauge pct={50} condensing onCondense={onCondense} />);
     fireEvent.click(gauge());
     const pop = await screen.findByTestId("memory-pop");
     expect(pop.textContent).toContain("reaches it once that's done");
-    const btn = screen.getByRole("button", { name: "Condensing…" }) as HTMLButtonElement;
+    const btn = screen.getByRole("button", { name: "Compacting…" }) as HTMLButtonElement;
     expect(btn.disabled).toBe(true);
   });
 });
 
 describe("condenseConfirm", () => {
-  it("asks in condense terms and never mentions typed text", () => {
+  it("asks in compact terms and never mentions typed text", () => {
     const c = condenseConfirm();
-    expect(c.title).toBe("Condense this conversation?");
-    expect(c.confirmLabel).toBe("Condense");
+    expect(c.title).toBe("Compact this conversation?");
+    expect(c.confirmLabel).toBe("Compact");
     expect(c.body).toContain("same agent, in the same conversation");
     expect(c.body).not.toContain("typed");
   });
@@ -130,7 +130,7 @@ describe("condenseFailureMessage", () => {
   });
   it("any other answered error → something went wrong on the server", () => {
     for (const status of [400, 500, 502]) {
-      expect(condenseFailureMessage({ response: { status } })).toBe("Couldn't condense — something went wrong on the server");
+      expect(condenseFailureMessage({ response: { status } })).toBe("Couldn't compact — something went wrong on the server");
     }
   });
 });

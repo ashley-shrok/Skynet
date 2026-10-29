@@ -11,7 +11,7 @@
  * directly), same mqid capture pattern.
  *
  * Scope: main-textarea only. The quick-reply buttons are Plan 68-03's
- * responsibility. Condense conversation lives in the task pill, not here
+ * responsibility. Compact conversation lives in the task pill, not here
  * (TaskPill.memory.test.tsx).
  */
 

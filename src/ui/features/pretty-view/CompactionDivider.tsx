@@ -4,9 +4,9 @@ import remarkGfm from "remark-gfm";
 import remarkBreaks from "remark-breaks";
 import { ChevronDown, Minimize2 } from "lucide-react";
 
-// Where a conversation was condensed: one slim divider in place of the
+// Where a conversation was compacted: one slim divider in place of the
 // summary, the compact command and its output. Closed it reads "Conversation
-// condensed · <time>", with the guidance (if any) under it cut to one line;
+// compacted · <time>", with the guidance (if any) under it cut to one line;
 // opened it shows the full guidance, then the summary. The summary was written
 // for the agent — it's here for the curious moment, so it starts closed.
 // Styles: .pv-condense in conversation.css.
@@ -23,7 +23,7 @@ export interface CompactionDividerProps {
   ts: number;
 }
 
-function condensedAt(ts: number): string {
+function compactedAt(ts: number): string {
   const d = new Date(ts);
   const time = d.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
   const now = new Date();
@@ -53,7 +53,7 @@ export const CompactionDivider = memo(function CompactionDivider({ summary, guid
         <span className="pv-condense-rule" aria-hidden="true" />
         <span className="pv-condense-label">
           <Minimize2 aria-hidden="true" />
-          Conversation condensed · {condensedAt(ts)}
+          Conversation compacted · {compactedAt(ts)}
           <ChevronDown aria-hidden="true" className="pv-condense-chev" />
         </span>
         <span className="pv-condense-rule" aria-hidden="true" />

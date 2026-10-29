@@ -1,7 +1,7 @@
 // Which sends came out of the compose box's text area — the only place the
 // user types freely, and so the only sends the server checks for blocked
 // commands (see src/types/blocked-commands.ts). Everything a button sends
-// (Skills menu, thumbs-up, answer tray, Condense, asides) is never marked and
+// (Skills menu, thumbs-up, answer tray, Compact, asides) is never marked and
 // never checked.
 //
 // Keyed by the send's message id, which every layer between the composer and

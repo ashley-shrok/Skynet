@@ -119,6 +119,7 @@ import {
   useSessionIsWorkingRaw,
   useSessionActivityMtime,
 } from "@/state/session-working-store";
+import { useSessionCompacting } from "@/state/compact-request-store";
 import { useSessionWaitingFor } from "@/state/session-waiting-store";
 // Phase 126 Plan 02 (D-01, D-02, D-03, D-22) — per-row armed:boolean latch.
 // Read/written imperatively from the arm-effect + fire-effect below (~L1725
@@ -714,6 +715,12 @@ function useFleetIdentityHosts(): Record<string, number> {
 // How far below its summary a condense's guidance line may sit (on disk it's
 // two lines: the local-command caveat, then the command).
 const CONDENSE_GUIDANCE_MAX_LINES = 6;
+
+// The working orb's line while it shows only for a compaction.
+const COMPACTING_NARRATION = { short: "Compacting…", long: "Compacting the conversation…" };
+// How long the orb stays up after a compaction ends, waiting for the agent's
+// follow-up turn to light it (the two arrive on different status updates).
+const COMPACT_TAIL_MS = 15_000;
 
 export function PrettyView({
   source: sourceProp,
@@ -4606,15 +4613,45 @@ export function PrettyView({
   const mainTurnWorking =
     (isWorking || optimisticWip) &&
     (turnOverTail === null || turnOverWipReleased || pendingSends.some((p) => p.state === "sending"));
-  const agentWorking =
+  const turnWorking =
     mainTurnWorking ||
     (status === "streaming" && !dormant && waitingFor === null && backgroundedAgents.length > 0);
+  // Compacting runs no turn, so nothing above lights the orb while the agent
+  // summarises — the orb shows for it on its own, with a fixed line and no
+  // Stop (stopping halfway would leave the compaction half-done). Lit from the
+  // moment a compaction is asked for (a sleeping agent is woken for it), and
+  // held past its end until the agent's follow-up turn lights the orb itself,
+  // so the hand-over never flickers dark — for COMPACT_TAIL_MS at most.
+  const compacting = useSessionCompacting(sessionWorkingKey);
+  const [compactTail, setCompactTail] = useState(false);
+  const prevCompactingRef = useRef(compacting);
+  useEffect(() => {
+    const was = prevCompactingRef.current;
+    prevCompactingRef.current = compacting;
+    if (compacting) setCompactTail(false);
+    else if (was) setCompactTail(true);
+    if (was !== compacting) console.info(`[pv-compacting] ${compacting ? "on" : "off"} key=${sessionWorkingKey}`);
+  }, [compacting, sessionWorkingKey]);
+  useEffect(() => {
+    if (!compactTail) return;
+    if (turnWorking) {
+      setCompactTail(false);
+      return;
+    }
+    const t = setTimeout(() => {
+      console.info(`[pv-compacting] no follow-up turn within ${COMPACT_TAIL_MS}ms — orb off key=${sessionWorkingKey}`);
+      setCompactTail(false);
+    }, COMPACT_TAIL_MS);
+    return () => clearTimeout(t);
+  }, [compactTail, turnWorking, sessionWorkingKey]);
+  const compactingOnly = !turnWorking && (compacting || compactTail) && waitingFor === null;
+  const agentWorking = turnWorking || compactingOnly;
   // Work narration: tell the backend whether this view is showing the work
-  // indicator (narration only runs while some view is), and drop the line
-  // when the indicator goes away so the next turn starts blank.
+  // indicator for a turn (narration only runs while some view is), and drop
+  // the line when the indicator goes away so the next turn starts blank.
   // The backend starts each connection at "not watching", so only changes
   // from that are sent.
-  const narrationWatch = agentWorking && isVisible;
+  const narrationWatch = turnWorking && isVisible;
   const narrationWatchSentRef = useRef<{ ws: WebSocket; active: boolean } | null>(null);
   useEffect(() => {
     if (!uploadWs || uploadWs.readyState !== WebSocket.OPEN) return;
@@ -4629,8 +4666,8 @@ export function PrettyView({
     }
   }, [uploadWs, narrationWatch]);
   useEffect(() => {
-    if (!agentWorking) setWorkNarration(null);
-  }, [agentWorking]);
+    if (!turnWorking) setWorkNarration(null);
+  }, [turnWorking]);
 
   return (
     <div
@@ -5134,7 +5171,7 @@ export function PrettyView({
               end until a press's outcome has shown. */}
           {(agentWorking || interruptFeedback !== null) && (
             <WipBubble
-              narration={workNarration}
+              narration={compactingOnly ? COMPACTING_NARRATION : workNarration}
               stop={
                 onInterrupt && source.kind !== "relay"
                   ? {

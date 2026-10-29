@@ -4,7 +4,7 @@
  * AgentBadgeWithMeter is a byte-preserving port of Slice D's agent badge
  * with appendage (Phase 93 Slice 4 retired the source). Renders the plain
  * IdentityBadge + the agent-memory pie (MemoryGauge, sourced via Wave 0
- * `useSessionContextPct`) whose pop-over's Condense conversation posts to
+ * `useSessionContextPct`) whose pop-over's Compact conversation posts to
  * `/identities/<identityKey>/condense` (shape-conversation-view replaced the
  * segmented meter + reset button; the reset became Condense).
  *
@@ -90,6 +90,7 @@ import {
 } from "@/state/session-working-store";
 import { useSessionContextPct } from "@/api/fleet-status-client";
 import { AgentBadgeWithMeter } from "./AgentBadgeWithMeter";
+import { __resetCompactRequestsForTests } from "@/state/compact-request-store";
 
 const mockedUseSessionIsWorking =
   useSessionIsWorking as unknown as ReturnType<typeof vi.fn>;
@@ -99,10 +100,10 @@ const mockedUseSessionContextPct =
   useSessionContextPct as unknown as ReturnType<typeof vi.fn>;
 const mockedPost = authApi.post as unknown as ReturnType<typeof vi.fn>;
 
-// Condense lives behind the memory pie: tap the gauge, then Condense conversation.
+// Condense lives behind the memory pie: tap the gauge, then Compact conversation.
 async function clickCondense(): Promise<HTMLButtonElement> {
   fireEvent.click(screen.getByTestId("memory-gauge"));
-  const btn = (await screen.findByRole("button", { name: "Condense conversation" })) as HTMLButtonElement;
+  const btn = (await screen.findByRole("button", { name: "Compact conversation" })) as HTMLButtonElement;
   fireEvent.click(btn);
   return btn;
 }
@@ -128,6 +129,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+    __resetCompactRequestsForTests();
   __resetKitDialogsForTests();
   vi.restoreAllMocks();
 });
@@ -234,7 +236,7 @@ describe("AgentBadgeWithMeter (Phase 93 Slice 2 Task 1 — byte-preserving port)
     expect(url).toBe(`/identities/${encodeURIComponent("agent name")}/condense`);
   });
 
-  it("Test 9: Condense disabled while in-flight (prevents double-fire); pie reads Condensing… once accepted", async () => {
+  it("Test 9: Condense disabled while in-flight (prevents double-fire); pie reads Compacting… once accepted", async () => {
     // Held promise so the request stays in-flight.
     let resolvePost: (v: unknown) => void = () => {};
     mockedPost.mockReturnValueOnce(
@@ -247,18 +249,18 @@ describe("AgentBadgeWithMeter (Phase 93 Slice 2 Task 1 — byte-preserving port)
     await waitFor(() => expect(mockedPost).toHaveBeenCalledTimes(1));
     // The pop-over closes on Condense; reopen it — the button is disabled.
     fireEvent.click(screen.getByTestId("memory-gauge"));
-    const again = (await screen.findByRole("button", { name: "Condense conversation" })) as HTMLButtonElement;
+    const again = (await screen.findByRole("button", { name: "Compact conversation" })) as HTMLButtonElement;
     expect(again).toBeDisabled();
     // Rapid second click — must NOT fire the request again.
     fireEvent.click(again);
     expect(mockedPost).toHaveBeenCalledTimes(1);
-    // Resolve the request — the pie optimistically reads Condensing… before
+    // Resolve the request — the pie optimistically reads Compacting… before
     // the fleet-status poll confirms.
     resolvePost({ status: 200, data: { ok: true } });
     await waitFor(() => {
       expect(screen.getByTestId("memory-gauge")).toHaveAttribute("data-condensing", "true");
     });
-    expect(screen.getByTestId("memory-gauge").textContent).toContain("Condensing…");
+    expect(screen.getByTestId("memory-gauge").textContent).toContain("Compacting…");
   });
 
   it("Test 10: condense error → structured warn logged; component does NOT crash + does NOT retry", async () => {
@@ -277,12 +279,12 @@ describe("AgentBadgeWithMeter (Phase 93 Slice 2 Task 1 — byte-preserving port)
     });
     // No auto-retry
     expect(mockedPost).toHaveBeenCalledTimes(1);
-    // Failure doesn't leave the pie claiming Condensing….
+    // Failure doesn't leave the pie claiming Compacting….
     expect(screen.getByTestId("memory-gauge")).not.toHaveAttribute("data-condensing");
     warnSpy.mockRestore();
   });
 
-  it("Test 11: store says condensing → the pie reads Condensing… and keeps its reading", () => {
+  it("Test 11: store says condensing → the pie reads Compacting… and keeps its reading", () => {
     mockedUseSessionIsCondensing.mockReturnValue(true);
     mockedUseSessionContextPct.mockReturnValue(50);
     render(<AgentBadgeWithMeter {...DEFAULT_PROPS} />);
@@ -290,7 +292,7 @@ describe("AgentBadgeWithMeter (Phase 93 Slice 2 Task 1 — byte-preserving port)
     const meter = screen.getByTestId("memory-gauge");
     expect(meter).toHaveAttribute("data-condensing", "true");
     expect(meter).toHaveAttribute("data-pct", "50");
-    expect(meter.textContent).toContain("Condensing…");
+    expect(meter.textContent).toContain("Compacting…");
   });
 
   it("Test 12: appendage container carries data-appendage='true' (D-09 humans-no-appendage discriminator preserved)", () => {

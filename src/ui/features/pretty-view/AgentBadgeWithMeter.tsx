@@ -8,7 +8,7 @@
  *
  * Renders the plain IdentityBadge (D-08 reuse — same badges as pretty view
  * / terminal mode) PLUS the agent's memory pie, whose pop-over carries
- * Condense conversation.
+ * Compact conversation.
  *
  * ## D-10 correctness by construction (Pitfall 2 mitigation)
  *
@@ -19,34 +19,29 @@
  * READ SIDE:
  *   - `useSessionIsWorking(\`${hostId}:${tmuxSessionName}\`)` — same store,
  *     same key format as PrettyView's `sessionWorkingKey`.
- *   - `useSessionIsCondensing(\`${hostId}:${tmuxSessionName}\`)` — same
- *     store's condensing axis.
+ *   - `useSessionCompacting(\`${hostId}:${tmuxSessionName}\`)` — the
+ *     store's condensing axis, or a Compact request just made from any surface.
  *   - `useSessionContextPct(hostId, tmuxSessionName)` — the fleet-status
  *     hook PrettyView reads.
  *
  * WRITE SIDE:
- *   - Condense fires `authApi.post('/identities/<identityKey>/condense',
- *     {hostId})` — the same request the composer's Condense button makes,
+ *   - Compact fires `authApi.post('/identities/<identityKey>/condense',
+ *     {hostId})` — the same request the task pill's Compact button makes,
  *     minus guidance (the badge has no compose field).
  *
  * Errors log structurally (`operation: 'agent_condense_failed'`) with only
  * hostId + identityKey + err.message; never the full error object.
  */
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useState } from "react";
 
 import { authApi } from "@/main-axios";
-import {
-  useSessionIsWorking,
-  useSessionIsCondensing,
-} from "@/state/session-working-store";
+import { useSessionIsWorking } from "@/state/session-working-store";
+import { markCompactRequested, useSessionCompacting } from "@/state/compact-request-store";
 import { useSessionContextPct } from "@/api/fleet-status-client";
 import { IdentityBadge } from "@/features/terminal/IdentityBadge";
 import { kitConfirm } from "@/components/kit";
 import { MemoryGauge, condenseConfirm } from "./MemoryGauge";
-
-/** How long the pie says Condensing… on its own before the poll confirms it. */
-const OPTIMISTIC_MS = 2 * 60 * 1000;
 
 // ─── Props ───────────────────────────────────────────────────────────────────
 
@@ -101,26 +96,15 @@ export function AgentBadgeWithMeter({
   // call site (not extracted to a local) so the grep gate on the exact
   // template literal shape trips on any accidental reshaping.
   const _isWorking = useSessionIsWorking(`${hostId}:${tmuxSessionName}`);
-  const isCondensing = useSessionIsCondensing(`${hostId}:${tmuxSessionName}`);
+  const isCondensing = useSessionCompacting(`${hostId}:${tmuxSessionName}`);
   // Wave 0 fleet-status hook — same source PrettyView reads post D-03
   // mechanical swap. Test 3 regression gate.
   const contextPct = useSessionContextPct(hostId, tmuxSessionName);
 
-  // In-flight guard (prevents double-fire on rapid clicks) plus a local
-  // "requested" flag so the pie reads Condensing… before the fleet-status
-  // poll sees the request. Cleared when the store's condensing axis takes
-  // over, or after OPTIMISTIC_MS if it never does.
+  // In-flight guard (prevents double-fire on rapid clicks). An accepted
+  // request marks the session in the shared compact-request store, so the pie
+  // reads Compacting… before the fleet-status poll sees it.
   const [requestInFlight, setRequestInFlight] = useState<boolean>(false);
-  const [requested, setRequested] = useState<boolean>(false);
-  useEffect(() => {
-    if (!requested) return;
-    if (isCondensing) {
-      setRequested(false);
-      return;
-    }
-    const t = setTimeout(() => setRequested(false), OPTIMISTIC_MS);
-    return () => clearTimeout(t);
-  }, [requested, isCondensing]);
 
   const handleCondense = useCallback(async () => {
     if (requestInFlight) return;
@@ -128,7 +112,7 @@ export function AgentBadgeWithMeter({
     setRequestInFlight(true);
     try {
       await authApi.post(`/identities/${encodeURIComponent(identityKey)}/condense`, { hostId });
-      setRequested(true);
+      markCompactRequested(`${hostId}:${tmuxSessionName}`);
     } catch (err: unknown) {
       // Structured warn — never JSON.stringify the raw error (PATTERNS.md § 2).
       // eslint-disable-next-line no-console
@@ -163,13 +147,13 @@ export function AgentBadgeWithMeter({
         }
       />
       {/* Under it, the agent's memory — the composer's pie (grey / amber /
-          red, tap for Condense conversation). data-appendage='true' is the
+          red, tap for Compact conversation). data-appendage='true' is the
           discriminator the row-cell tests use to tell agent cells from human
           cells. */}
       <div data-appendage="true" data-role="agent-appendage" className="pv-float rounded-full">
         <MemoryGauge
           pct={contextPct}
-          condensing={isCondensing || requested}
+          condensing={isCondensing}
           condenseDisabled={requestInFlight}
           onCondense={() => {
             void handleCondense();

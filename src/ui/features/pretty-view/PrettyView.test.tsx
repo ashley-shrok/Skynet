@@ -117,7 +117,7 @@ import {
 } from "@/state/identities-store";
 import { PrettyView } from "./PrettyView";
 // publishFleetStatusSessionState seeds the working-store's condensing axis
-// for Test H (the memory pie's "Condensing…").
+// for Test H (the memory pie's "Compacting…").
 import {
   publishFleetStatusSessionState,
   __resetForTest as resetWorkingStore,
@@ -1593,7 +1593,7 @@ describe("quick 260808-ho2 loading overlay integration", () => {
     expect(container.querySelector(LOADING_SELECTOR)).toBeNull();
   });
 
-  it("Test H: working-store condensing:true → the task pill's memory pie reads Condensing…; no overlay, composer stays usable", async () => {
+  it("Test H: working-store condensing:true → the task pill's memory pie reads Compacting…; no overlay, composer stays usable", async () => {
     const restorePill = withPillIdentity(1, "s1");
     const { container } = render(
       <PrettyView hostId={1} tmuxSession="s1" onSend={vi.fn(() => true)} isVisible={true} />,
@@ -1632,9 +1632,14 @@ describe("quick 260808-ho2 loading overlay integration", () => {
     });
 
     expect(gauge().getAttribute("data-condensing")).toBe("true");
-    expect(gauge().textContent).toContain("Condensing…");
-    // Nothing covers the conversation and nothing is disabled.
-    expect(container.querySelector('[role="status"]')).toBeNull();
+    expect(gauge().textContent).toContain("Compacting…");
+    // The working orb shows for the compaction: plain (nothing to stop) with
+    // the fixed line. Nothing covers the conversation and nothing is disabled.
+    const wip = container.querySelector('[data-testid="pv-wip"]') as HTMLElement;
+    expect(wip).not.toBeNull();
+    expect(wip.getAttribute("data-stop")).toBe("working");
+    expect(wip.querySelector("button")).toBeNull();
+    expect(container.querySelector('[data-testid="wip-narration"]')?.textContent).toMatch(/^Compacting/);
     const textarea = container.querySelector('textarea[placeholder="Write a message…"]') as HTMLTextAreaElement;
     expect(textarea.disabled).toBe(false);
     // The main button (thumbs-up, or Send if a draft is in the box) stays live.
@@ -1657,6 +1662,28 @@ describe("quick 260808-ho2 loading overlay integration", () => {
       });
     });
     expect(gauge().getAttribute("data-condensing")).toBeNull();
+    // The orb holds on past the compaction's end, waiting for the agent's
+    // follow-up turn to light it…
+    expect(container.querySelector('[data-testid="pv-wip"]')).not.toBeNull();
+    // …which takes over: the orb stays, without the fixed line.
+    await act(async () => {
+      publishFleetStatusSessionState("1", {
+        hostId: "1",
+        tmuxSession: "s1",
+        sessionId: "test-session",
+        pid: 12345,
+        status: "busy",
+        backgroundTasks: [],
+        updatedAt: Date.now(),
+        lastMessageAt: null,
+        aiTitle: null,
+        dormant: false,
+        activityMtime: 2000,
+        stoppedMtime: 1000,
+      });
+    });
+    expect(container.querySelector('[data-testid="pv-wip"]')).not.toBeNull();
+    expect(container.querySelector('[data-testid="wip-narration"]')).toBeNull();
     act(() => { resetWorkingStore(); });
     restorePill();
   });

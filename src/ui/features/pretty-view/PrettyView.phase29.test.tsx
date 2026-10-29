@@ -242,7 +242,7 @@ describe("Phase 30 — structural-grep gates (PS30-04 + PS30-05 + PS30-06)", () 
 
   it("Test G: a condense request does no client-side pane-state mutation (patch #381 anti-pattern stays DELETED)", () => {
     // Condense lives in the task pill's hook now; it only drives the pie's
-    // optimistic "Condensing…". PrettyView has no condense callback at all.
+    // optimistic "Compacting…". PrettyView has no condense callback at all.
     expect(pvSrc).not.toMatch(/onCondenseRequested/);
     expect(condenseSrc).toMatch(/\/condense`/);
     expect(condenseSrc).not.toMatch(/setIsHolding\(/);
@@ -250,13 +250,14 @@ describe("Phase 30 — structural-grep gates (PS30-04 + PS30-05 + PS30-06)", () 
     expect(condenseSrc).not.toMatch(/setPaneState\(/);
   });
 
-  it("the task pill's condense hook consumes useSessionIsCondensing from the working-store; the holding overlay and reset/recycling wiring are gone", () => {
+  it("the task pill's condense hook and PrettyView's orb read compacting from the shared compact-request store; the holding overlay and reset/recycling wiring are gone", () => {
     // Retired bridges stay retired.
     expect(pvSrc).not.toMatch(/publishSessionRecycling\(/);
     expect(pvSrc).not.toMatch(/from ["']@\/state\/session-recycling-store["']/);
-    // The condensing axis comes from the working-store and feeds the pill's
-    // pie; PrettyView no longer reads it (the composer has no pie).
-    expect(condenseSrc).toMatch(/useSessionIsCondensing\(/);
+    // The condensing axis (plus a just-made request) comes through the shared
+    // compact-request store: it feeds the pill's pie and lights PrettyView's orb.
+    expect(condenseSrc).toMatch(/useSessionCompacting\(/);
+    expect(pvSrc).toMatch(/useSessionCompacting\(/);
     expect(pvSrc).not.toMatch(/useSessionIsCondensing/);
     // No holding overlay, no recycling hook.
     expect(pvSrc).not.toMatch(/<SessionHoldingOverlay/);

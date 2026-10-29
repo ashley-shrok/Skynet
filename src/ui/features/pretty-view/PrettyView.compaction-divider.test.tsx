@@ -188,7 +188,7 @@ describe("PrettyView — compaction divider", () => {
       expect(d).not.toBeNull();
       return d as HTMLElement;
     });
-    expect(divider.textContent).toContain("Conversation condensed");
+    expect(divider.textContent).toContain("Conversation compacted");
     expect(container.querySelector('[data-testid="compaction-summary"]')).toBeNull();
     expect(container.textContent).not.toContain("OSPREY");
 

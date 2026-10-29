@@ -74,7 +74,7 @@ vi.mock("@/hooks/use-is-touch-device", () => ({
   useIsTouchDevice: vi.fn(() => false),
 }));
 
-// Condense conversation posts to authApi.post('/identities/<key>/condense')
+// Compact conversation posts to authApi.post('/identities/<key>/condense')
 // instead of routing through the pretty-view WS funnel. Mock authApi.post
 // so tests can drive success + failure paths.
 vi.mock("@/main-axios", async (importOriginal) => {

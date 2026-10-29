@@ -279,8 +279,8 @@ External events are automatically fed to you by the agent-supervisor service for
    the wake-up back on when it should resume. When you get
    one, **do the instruction**, then carry on. See **§ Scheduled wake-ups** below for the spec format and the rule on who may create one.
 
-3. **Compaction done.** After a compaction that went through the condense
-   request (yours, or the user pressing **Condense conversation**), the
+3. **Compaction done.** After a compaction that went through the compact
+   request (yours, or the user pressing **Compact conversation**), the
    supervisor delivers one `Compaction done (<name>) — delivered by
    agent-supervisor` event so you always take a turn afterwards. It is
    never from the user and never permission — see § Compacting yourself for
@@ -1385,7 +1385,7 @@ crown, then gear.
 
 - **Confirms are the app's own dialogs.** Every "are you sure?", "type a
   name" and "something went wrong" moment — archive, delete, discard
-  changes, rename, condense conversation, log out — is an in-app dialog in the
+  changes, rename, compact conversation, log out — is an in-app dialog in the
   app's look, not the browser's grey pop-up: a short question, a line of
   detail, and named buttons (the destructive one red, e.g. **Archive**,
   **Delete**, **Discard** — and a destructive question starts with Cancel
@@ -1617,11 +1617,11 @@ crown, then gear.
   the sender's picture, "Finch → Bilbo" and a one-line preview; tap to
   read. In a **relay room** the user opened, each agent's messages are
   bubbles in its colour with its name on top.
-  Where the conversation was **condensed** (§ Compacting yourself), a slim
-  divider across the column reads "Conversation condensed · <time>", with
+  Where the conversation was **compacted** (§ Compacting yourself), a slim
+  divider across the column reads "Conversation compacted · <time>", with
   the guidance given (if any) in quotes under it, cut to one line. It starts
   closed; clicking it opens the full guidance and then the summary, and
-  clicking again closes it. Every condense looks the same, however it was
+  clicking again closes it. Every compaction looks the same, however it was
   started.
   *Agent-side:* a message you relay to the user normally shows in your own
   conversation as one of your bubbles. While the room's members are still
@@ -1650,18 +1650,18 @@ crown, then gear.
   **amber** with the percentage from 45%; **red** from 78%, with a gentle
   pulse. Tapping it opens a
   small pop-over — how full, what that means (agents can only hold so much
-  of a conversation; at 95% the agent condenses on its own), and
-  **Condense conversation** (inward-arrows icon). After a confirm it
+  of a conversation; at 95% the agent compacts on its own), and
+  **Compact conversation** (inward-arrows icon). After a confirm it
   summarises the conversation to give the agent more room; the agent
   carries on as the same agent, in the same conversation. While it
-  works the pie reads **Condensing…** (on a phone or narrow pane, the pie
-  just pulses); the composer stays usable, and
+  works the pie reads **Compacting…** (on a phone or narrow pane, the pie
+  just pulses) and the conversation shows the work indicator; the composer
+  stays usable, and
   anything sent meanwhile reaches the agent afterwards. Works on a sleeping
   agent too (it's woken for it). The same pie and button sit under each
-  agent's badge in a relay room. Users call this
-  condensing — or compaction, if they know agents; underneath it is the
-  harness's own compaction.
-  *Agent-side:* the button drops the same condense request you would
+  agent's badge in a relay room. Underneath it is the harness's own
+  compaction.
+  *Agent-side:* the button drops the same compact request you would
   (§ Compacting yourself); you're compacted, then woken with the
   supervisor's `Compaction done` event.
 
@@ -1672,7 +1672,9 @@ crown, then gear.
   what's next — written every minute or so by a small model that reads the
   agent's recent steps, and only while someone has the conversation open.
   It shows nothing until the turn's first line is written, uses a shorter
-  version when space is tight, and starts blank again each turn.
+  version when space is tight, and starts blank again each turn. While the
+  conversation is being compacted (§ Agent memory) the orb shows too, with
+  the line "Compacting the conversation…" and nothing to stop.
   *Agent-side: none.* You don't write the line and nothing is added to your
   context; if the user says it described you wrongly, that's the narrator,
   not something you said.
@@ -1710,7 +1712,8 @@ crown, then gear.
   own turn is running, the work indicator's orb has a small still square in
   its middle and tapping it (or Tab to it, then Enter) stops the agent. When
   a tap couldn't stop anything — only background sub-agents running (they
-  run on through a Stop), or the user's message still being delivered — the
+  run on through a Stop), a compaction running, or the user's message still
+  being delivered — the
   orb shows its plain breathing dot and does nothing. There is no Stop
   anywhere else; when the app hasn't noticed the agent working, or the
   user has scrolled up, the orb isn't in view. One press does whichever of
@@ -2067,22 +2070,21 @@ When invoked:
 
 ---
 
-## Compacting yourself — what the user calls Condense
+## Compacting yourself — Compact conversation in the app
 
 Compaction shrinks your context: the harness summarises the conversation
 so far and you carry on as the same agent, in the same conversation, with
 the summary in place of the detail. Nothing restarts. The user sees it as
-**Condense conversation** (§ Conversation view → Agent memory) and may call
-it condensing; it's the same thing. In the chat it shows as one slim
+**Compact conversation** (§ Conversation view → Agent memory). In the chat it shows as one slim
 divider (§ Conversation view → Messages).
 
 It happens three ways:
 
 - **Automatically** — Claude Code compacts on its own when your context
   reaches 95%. It happens mid-turn and you carry straight on.
-- **The user presses Condense conversation.**
-- **You request it** — ⚠️ only when the user asks you to ("condense
-  yourself", "compact", or an old `/id reset`), or where a skill you are
+- **The user presses Compact conversation.**
+- **You request it** — ⚠️ only when the user asks you to ("compact
+  yourself", "condense", or an old `/id reset`), or where a skill you are
   following calls for it (the build and campaign skills do, between
   shapes). Never on your own initiative otherwise: a compaction loses
   detail the user may want you to keep.

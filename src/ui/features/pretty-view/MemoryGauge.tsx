@@ -1,8 +1,8 @@
 // Agent memory — the small pie, in the task pill, for how full the agent's context
 // window is. Grey and silent while there's room, amber with the percentage
 // from 45%, red from 78% (the old meter's bands, so the colours mean the same
-// thing). A tap opens a pop-over: how full, what that means, and Condense
-// conversation. While a condense is under way the pie reads "Condensing…".
+// thing). A tap opens a pop-over: how full, what that means, and Compact
+// conversation. While a compaction is under way the pie reads "Compacting…".
 // Styles: conversation.css (.pv-mem*).
 
 import { useRef, useState } from "react";
@@ -20,26 +20,26 @@ export function memoryBand(pct: number | null | undefined): MemoryBand {
 
 const WORDS: Record<MemoryBand | "unknown", string> = {
   unknown: "The agent hasn't said how full its memory is yet.",
-  grey: "Plenty of room. Agents can only hold so much of a conversation at once — condensing summarises it so the agent has more room to work.",
+  grey: "Plenty of room. Agents can only hold so much of a conversation at once — compacting summarises it so the agent has more room to work.",
   amber:
-    "Filling up. When this piece of work wraps up is a good moment to condense — the agent carries on with a summary of everything so far.",
+    "Filling up. When this piece of work wraps up is a good moment to compact — the agent carries on with a summary of everything so far.",
   red:
-    "Nearly full. At 95% the agent condenses on its own. Condensing at a good stopping point means less is lost mid-task.",
+    "Nearly full. At 95% the agent compacts on its own. Compacting at a good stopping point means less is lost mid-task.",
 };
 
 const CONDENSING_WORDS =
   "The agent is summarising the conversation to make room. Anything you send now reaches it once that's done.";
 
-/** The confirm every Condense button asks before requesting a condense. */
+/** The confirm every Compact button asks before requesting a compaction. */
 export function condenseConfirm() {
   return {
-    title: "Condense this conversation?",
+    title: "Compact this conversation?",
     body: "The agent summarises everything so far to make room, then carries on as the same agent, in the same conversation.",
-    confirmLabel: "Condense",
+    confirmLabel: "Compact",
   };
 }
 
-// A failed Condense request → what to tell the user. Only a request that
+// A failed Compact request → what to tell the user. Only a request that
 // never got an answer is "Not connected"; a server that answered gets a line
 // saying what went wrong instead.
 export function condenseFailureMessage(err: unknown, hostName?: string): string {
@@ -49,18 +49,18 @@ export function condenseFailureMessage(err: unknown, hostName?: string): string 
     return `Couldn't reach ${hostName ? hostName : "this agent's machine"} — try again in a moment`;
   }
   if (status === 404) return "Couldn't find this agent's machine — it may have been removed";
-  return "Couldn't condense — something went wrong on the server";
+  return "Couldn't compact — something went wrong on the server";
 }
 
 export interface MemoryGaugeProps {
   /** 0–100, or null while unknown. */
   pct: number | null;
-  /** A condense has been requested and hasn't finished yet. */
+  /** A compaction has been requested and hasn't finished yet. */
   condensing?: boolean;
-  /** Too narrow for the word: while condensing, the pie pulses instead of
-   *  reading "Condensing…" (the label and pop-over still say it). */
+  /** Too narrow for the word: while compacting, the pie pulses instead of
+   *  reading "Compacting…" (the label and pop-over still say it). */
   compact?: boolean;
-  /** Condense conversation is unavailable (reconnecting, …). */
+  /** Compact conversation is unavailable (reconnecting, …). */
   condenseDisabled?: boolean;
   onCondense: () => void;
 }
@@ -74,7 +74,7 @@ export function MemoryGauge({ pct, condensing = false, compact = false, condense
   const shown = lastRef.current;
   const band = memoryBand(shown);
   const label = condensing
-    ? "Agent memory: condensing"
+    ? "Agent memory: compacting"
     : shown == null
       ? "Agent memory"
       : `Agent memory: ${shown}% used`;
@@ -94,7 +94,7 @@ export function MemoryGauge({ pct, condensing = false, compact = false, condense
           data-pct={shown ?? undefined}
         >
           <i className="pv-mem-pie" style={{ ["--pv-mem-p" as string]: String(shown ?? 0) }} aria-hidden="true" />
-          {condensing ? !compact && <span>Condensing…</span> : band !== "grey" && <span>{shown}%</span>}
+          {condensing ? !compact && <span>Compacting…</span> : band !== "grey" && <span>{shown}%</span>}
         </button>
       </PopoverTrigger>
       <PopoverContent
@@ -106,7 +106,7 @@ export function MemoryGauge({ pct, condensing = false, compact = false, condense
         data-testid="memory-pop"
       >
         <h4>Agent memory</h4>
-        <div className="pv-mem-pop-big">{condensing ? "Condensing…" : shown == null ? "—" : `${shown}% used`}</div>
+        <div className="pv-mem-pop-big">{condensing ? "Compacting…" : shown == null ? "—" : `${shown}% used`}</div>
         <div className="pv-mem-pop-bar" aria-hidden="true">
           <i style={{ width: `${shown ?? 0}%` }} />
         </div>
@@ -122,7 +122,7 @@ export function MemoryGauge({ pct, condensing = false, compact = false, condense
           }}
         >
           <Minimize2 aria-hidden="true" />
-          {condensing ? "Condensing…" : "Condense conversation"}
+          {condensing ? "Compacting…" : "Compact conversation"}
         </button>
       </PopoverContent>
     </Popover>

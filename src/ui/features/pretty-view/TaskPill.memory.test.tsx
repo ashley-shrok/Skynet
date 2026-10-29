@@ -4,7 +4,7 @@
  * The pie sits inside the pill just before the ⋯, on every agent that isn't
  * archived. Tapping it opens its pop-over (never the agent window). Condense
  * asks first, then posts the request with no guidance; the pie reads
- * Condensing… until the fleet-status poll says it's done (or a 2-minute
+ * Compacting… until the fleet-status poll says it's done (or a 2-minute
  * upper bound passes with no word). A failed request says why in a toast.
  */
 
@@ -60,6 +60,7 @@ vi.mock("@/main-axios", async (importOriginal) => {
 vi.mock("sonner", () => ({ toast: { error: vi.fn(), success: vi.fn() } }));
 
 import { TaskPill } from "./TaskPill";
+import { __resetCompactRequestsForTests } from "@/state/compact-request-store";
 import { authApi } from "@/main-axios";
 import { toast } from "sonner";
 import {
@@ -95,7 +96,7 @@ const gauge = () => screen.getByTestId("memory-gauge");
 
 async function pressCondense() {
   fireEvent.click(gauge());
-  const btn = await screen.findByRole("button", { name: "Condense conversation" });
+  const btn = await screen.findByRole("button", { name: "Compact conversation" });
   act(() => {
     fireEvent.click(btn);
   });
@@ -124,6 +125,7 @@ describe("TaskPill — agent memory pie", () => {
     postMock.mockResolvedValue({ status: 200, data: { ok: true } });
   });
   afterEach(() => {
+    __resetCompactRequestsForTests();
     __resetKitDialogsForTests();
     act(() => {
       resetWorkingStore();
@@ -154,8 +156,8 @@ describe("TaskPill — agent memory pie", () => {
     );
     expect(gauge().getAttribute("data-condensing")).toBe("true");
     expect(gauge().getAttribute("data-compact")).toBe(compact ? "true" : null);
-    expect(gauge().textContent?.includes("Condensing…")).toBe(!compact);
-    expect(gauge().getAttribute("aria-label")).toBe("Agent memory: condensing");
+    expect(gauge().textContent?.includes("Compacting…")).toBe(!compact);
+    expect(gauge().getAttribute("aria-label")).toBe("Agent memory: compacting");
     pane.remove();
   });
 
@@ -196,14 +198,14 @@ describe("TaskPill — agent memory pie", () => {
     await pressCondense();
     await waitFor(() => expect(dialogs.calls).toHaveLength(1));
     const opts = dialogs.calls[0].opts as KitConfirmOptions;
-    expect(String(opts.title)).toBe("Condense this conversation?");
+    expect(String(opts.title)).toBe("Compact this conversation?");
     expect(String(opts.body)).not.toContain("typed");
     await new Promise((r) => setTimeout(r, 0));
     expect(postMock).not.toHaveBeenCalled();
     expect(onOpen).not.toHaveBeenCalled();
   });
 
-  it("accepted: posts the request with no guidance, and the pie reads Condensing…", async () => {
+  it("accepted: posts the request with no guidance, and the pie reads Compacting…", async () => {
     autoAnswerKitDialogs({ confirm: true });
     const { onOpen } = renderPill();
     expect(gauge().getAttribute("data-condensing")).toBeNull();
@@ -211,7 +213,7 @@ describe("TaskPill — agent memory pie", () => {
     await waitFor(() => expect(postMock).toHaveBeenCalledTimes(1));
     expect(postMock).toHaveBeenCalledWith("/identities/willow/condense", { hostId: 1 });
     await waitFor(() => expect(gauge().getAttribute("data-condensing")).toBe("true"));
-    expect(gauge().textContent).toContain("Condensing…");
+    expect(gauge().textContent).toContain("Compacting…");
     expect(onOpen).not.toHaveBeenCalled();
     expect(toastError).not.toHaveBeenCalled();
   });
@@ -231,7 +233,7 @@ describe("TaskPill — agent memory pie", () => {
     renderPill();
     await pressCondense();
     await waitFor(() =>
-      expect(toastError).toHaveBeenCalledWith("Couldn't condense — something went wrong on the server"),
+      expect(toastError).toHaveBeenCalledWith("Couldn't compact — something went wrong on the server"),
     );
   });
 
@@ -267,13 +269,13 @@ describe("TaskPill — agent memory pie", () => {
     await waitFor(() => expect(gauge().getAttribute("data-condensing")).toBeNull());
   });
 
-  it("with no word from the backend, Condensing… clears itself after 2 minutes", async () => {
+  it("with no word from the backend, Compacting… clears itself after 2 minutes", async () => {
     vi.useFakeTimers();
     autoAnswerKitDialogs({ confirm: true });
     renderPill();
     fireEvent.click(gauge());
     act(() => {
-      fireEvent.click(screen.getByRole("button", { name: "Condense conversation" }));
+      fireEvent.click(screen.getByRole("button", { name: "Compact conversation" }));
     });
     await act(async () => {
       for (let k = 0; k < 5; k++) await Promise.resolve();
