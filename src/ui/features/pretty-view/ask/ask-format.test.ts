@@ -40,6 +40,29 @@ options:
     expect(q.options[1].description).toBe('Exception to the rule: findable but shown faded as "Wake-up"');
   });
 
+  it("reads unquoted shorthand whose text holds two colons", () => {
+    const q = ok(`id: tray-refinements
+question: Which of these go in this round?
+kind: decide
+choices: [Keep, Drop, Later]
+items:
+  - One Send for everything | Composer Send carries tray picks; tray's own Send goes
+  - Answer shown on the question | "Asked you: … · You picked: Ship now"
+  - label: Small fixes
+    description: Say why Send is greyed
+`).questions[0];
+    expect(q.kind).toBe("decide");
+    expect(q.options.map((o) => o.label)).toEqual(["One Send for everything", "Answer shown on the question", "Small fixes"]);
+    expect(q.options[0].description).toBe("Composer Send carries tray picks; tray's own Send goes");
+    expect(q.options[1].description).toBe('"Asked you: … · You picked: Ship now"');
+  });
+
+  it("still refuses a block that isn't YAML for other reasons", () => {
+    const r = parseAskBlock(`question: Which?\noptions:\n  - [unclosed | one\n  - two`);
+    expect(r.ok).toBe(false);
+    expect(r.error).toMatch(/not readable YAML/);
+  });
+
   it("still reads a one-key mapping option by its field", () => {
     const q = ok(`question: Pick
 options:
