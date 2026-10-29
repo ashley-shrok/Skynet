@@ -28,23 +28,26 @@ People end up sitting and watching the spinner because they forget, or never kne
 
 ## Shapes
 
-- **[declared] shape-browser-notifications** — Level 1 browser notifications, turned on in Preferences → Notifications next to Telegram, firing for every notification (not only bell ones) — closed (shape-browser-notifications.closed.md; commits 24a3f2c5, 19911b32, 19db2c55)
-- **[declared] shape-done-bell** — the bell on the main button while the agent works, the notify/call choice, the lit promise and cancel, delivering the request to the agent mid-work, the agent following through (finished or blocked, saying what happened), the Allow-prompt tie-in, and the matching id skill text — in_progress
+- **[declared] shape-browser-notifications** — Level 1 browser notifications, turned on in Preferences → Notifications next to Telegram, firing for every notification (not only bell ones) — closed (shape-browser-notifications.closed.md; commits d2fab336, 8e29b716, f3c65bbd — rebased from 24a3f2c5, 19911b32, 19db2c55)
+- **[declared] shape-done-bell** — the bell on the main button while the agent works, the notify/call choice, the agent following through (finished or blocked, saying what happened), the Allow-prompt tie-in, and the matching id skill text. Reshaped at /open (Ashley): the bell just sends the notify-me / call-me skills, now distributed to every machine; no lit state, no cancel, no mid-work delivery — closed (shape-done-bell.closed.md; commits 421966c7, 52c5fcfa)
 
 ## Other work
 
 - Ask about notifications at sign-in (an in-app "Turn on / Not now" that leads to the browser's prompt) — dropped for now; Ashley: "maybe we add that later"
 - What's-new note for browser notifications — dropped; Ashley: "no note"
 - Audit what Skynet puts on hosts about the user (e.g. their relay ID) and what's missing — handed to a separate agent, myth-box-maintainer-2 (Ashley: "we should spawn a new agent to audit the standard info that's provided to the hosts"); reports to Ashley directly, outside this campaign
+- What's-new note for the bell — dropped; Ashley: "No note"
+- Instance-wide sync now leaves alone an existing instance-wide item whose name has become a built-in skill (code-review finding; stops it fighting the distributor over notify-me / call-me) — done (52c5fcfa)
+- **At campaign deploy:** delete Ashley's instance-wide call-me and notify-me first (Ashley: "before deploying, it makes sense to like delete them") — pending, part of the deploy
 - Browser notifications always show the full message, even when Telegram is set to "only show who messaged" — done (Ashley: "Full message")
 
 ## Lingerers (explicitly approved)
 
 ## Open questions
 
-- **Call with no phone number on file:** hide the call choice, or show it with a pointer to Preferences (better for discovery)? Raised, not answered. Settle in shape-done-bell.
+- **Call with no phone number on file:** — Answered: Call me is hidden; only an admin can give someone a number, so a pointer to Preferences would lead nowhere.
 - **Several open tabs:** only one of them may show a given browser notification. — Answered: one chosen tab per browser shows it; a standby tab steps in if the chosen one never got it.
 - **Looking at it already:** should a browser notification be skipped when the user is actively viewing that conversation? — Answered: skipped only when a focused window has that conversation on screen.
-- **Mid-work delivery rail:** today a message sent mid-turn reaches the agent only when its turn ends. The bell's request has to arrive between the agent's steps, the way file-change notices already do. Confirm the mechanism in shape-done-bell.
-- **Thumbs-up mid-turn:** with the bell appearing right away, the main button's mid-turn thumbs-up goes away. Confirm nothing relies on it.
+- **Mid-work delivery rail:** — Answered: not needed. The bell sends a skill like any message; read when the turn ends, which is exactly when "finished or needs you" can be judged.
+- **Thumbs-up mid-turn:** — Answered: nothing relied on it; the thumbs-up stays whenever the agent isn't working.
 - **Company machines:** IT policy can block notification permission outright. Settings should say so plainly rather than looking broken. — Answered: the setting says the browser is blocking it, how to undo it, and that a company may have turned it off.
