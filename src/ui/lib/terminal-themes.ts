@@ -29,7 +29,7 @@ export interface TerminalTheme {
 
 export const TERMINAL_THEMES: Record<string, TerminalTheme> = {
   skynet: {
-    name: "Skynet Default",
+    name: "Default",
     category: "dark",
     colors: {
       background: "#0c0d0b",
@@ -57,7 +57,7 @@ export const TERMINAL_THEMES: Record<string, TerminalTheme> = {
   },
 
   skynetDark: {
-    name: "Skynet Dark",
+    name: "Dark",
     category: "dark",
     colors: {
       background: "#0c0d0b",
@@ -85,7 +85,7 @@ export const TERMINAL_THEMES: Record<string, TerminalTheme> = {
   },
 
   skynetLight: {
-    name: "Skynet Light",
+    name: "Light",
     category: "light",
     colors: {
       background: "#ffffff",

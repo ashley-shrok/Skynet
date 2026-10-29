@@ -122,9 +122,8 @@ export function AdminSystemPane() {
         <KitSettingsGroup title="Version">
           <KitSettingsRow
             label={
-              version?.localVersion
-                ? `Skynet ${version.localVersion}`
-                : "Skynet"
+              version?.localVersion ??
+              (version || versionError ? "Unknown" : "Checking…")
             }
             description={
               <span data-testid="admin-system-update-status">

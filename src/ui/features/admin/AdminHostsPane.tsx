@@ -107,7 +107,7 @@ export function needsAttention(h: AdminHostOverview): boolean {
 export function attentionReasons(h: AdminHostOverview, now: number): string[] {
   if (!h.online) {
     return [
-      h.lastSeenAt !== null ? `Unreachable · last seen ${ago(h.lastSeenAt, now)}` : "Unreachable · not seen since Skynet started",
+      h.lastSeenAt !== null ? `Unreachable · last seen ${ago(h.lastSeenAt, now)}` : "Unreachable · not seen since the server started",
     ];
   }
   const out: string[] = [];
@@ -283,7 +283,7 @@ function HostView({ h, now, onBack }: { h: AdminHostOverview; now: number; onBac
             )}
             <KitSettingsRow
               label="Substrate"
-              description="Scripts and skills Skynet keeps in step on every agent host."
+              description="Scripts and skills kept in step on every agent host."
               value={<span className={toneText(sub.tone)}>{sub.text}</span>}
             />
           </KitSettingsGroup>

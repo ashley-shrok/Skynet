@@ -15,6 +15,7 @@ import type { NextFunction, Request, Response } from "express";
 import { databaseLogger } from "../../utils/logger.js";
 import { AuthManager } from "../../utils/auth-manager.js";
 import { userCanUseNotifications } from "../../notifications/notifications-access.js";
+import { getAppName } from "../../notifications/app-name.js";
 import { callTelegram } from "../../notifications/telegram-api.js";
 import {
   createLinkCode,
@@ -121,9 +122,10 @@ export async function handlePutTelegramBot(
   }
 
   const botId = String(me.result.id);
+  const appName = await getAppName();
   const alreadyUsed = () =>
     res.status(409).json({
-      error: "That bot is already used by another Skynet account. Create a separate bot with /newbot.",
+      error: `That bot is already used by another ${appName} account. Create a separate bot with /newbot.`,
     });
   if (findOtherUserWithBot(botId, userId)) return alreadyUsed();
 
@@ -162,7 +164,7 @@ export async function handlePostTelegramLink(userId: string, res: Response): Pro
 
 export async function handlePostTelegramTest(userId: string, res: Response): Promise<Response> {
   const result = await sendTelegramToUser(userId, {
-    title: "Skynet test notification",
+    title: `${await getAppName()} test notification`,
     subtitle: null,
     body: "Telegram notifications are working.",
     agentMxid: "@system:skynet",

@@ -49,7 +49,7 @@ export function condenseFailureMessage(err: unknown, hostName?: string): string 
     return `Couldn't reach ${hostName ? hostName : "this agent's machine"} — try again in a moment`;
   }
   if (status === 404) return "Couldn't find this agent's machine — it may have been removed";
-  return "Couldn't condense — something went wrong on Skynet's side";
+  return "Couldn't condense — something went wrong on the server";
 }
 
 export interface MemoryGaugeProps {

@@ -399,7 +399,7 @@ describe("SkillsEditorModal — fleet-distributed section", () => {
     renderModal();
     await selectSkill("stt");
     await waitFor(() => expect(skillsApi.enumerateSkillFiles).toHaveBeenCalledWith(1, "stt"));
-    expect(screen.getByTestId("skills-editor-modal-readonly-banner")).toHaveTextContent(/Skynet repo/);
+    expect(screen.getByTestId("skills-editor-modal-readonly-banner")).toHaveTextContent(/installed on every machine by your administrator/);
     expect(screen.queryByTestId("skills-editor-modal-switch-you-stt")).toBeNull();
     await waitFor(() => expect(screen.queryByText("Loading files…")).toBeNull());
     expect(screen.queryByTestId("skills-editor-modal-add-file")).toBeNull();

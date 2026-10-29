@@ -798,7 +798,7 @@ what you're doing — surprises here are worse than a moment of confirmation.
   prints `<app-dir>`). Inspect with `sqlite3 <app-dir>/db.sqlite '.tables'`.
 - **What port did my app get?**
   `bash ~/.claude/skills/app-development/app-units.sh port <slug>` prints the
-  public port (the one Skynet and `curl` use; the app itself listens on
+  public port (the one the server and `curl` use; the app itself listens on
   public + 10000). Or
   check the create-app helper's output when you ran it.
 - **How do I test locally without disturbing the running instance?** Stop

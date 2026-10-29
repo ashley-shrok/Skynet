@@ -231,7 +231,7 @@ describe("TaskPill — agent memory pie", () => {
     renderPill();
     await pressCondense();
     await waitFor(() =>
-      expect(toastError).toHaveBeenCalledWith("Couldn't condense — something went wrong on Skynet's side"),
+      expect(toastError).toHaveBeenCalledWith("Couldn't condense — something went wrong on the server"),
     );
   });
 

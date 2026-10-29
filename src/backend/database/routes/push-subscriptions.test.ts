@@ -46,6 +46,8 @@ vi.mock("../../notifications/telegram-poller.js", () => ({
   stopBotPoller: (...a: unknown[]) => stopBotPoller(...a),
 }));
 
+vi.mock("../../notifications/app-name.js", () => ({ getAppName: async () => "Acme" }));
+
 const sendTelegramToUser = vi.fn();
 vi.mock("../../notifications/telegram-sender.js", () => ({
   sendTelegramToUser: (...a: unknown[]) => sendTelegramToUser(...a),
@@ -143,6 +145,7 @@ describe("PUT /telegram/bot", () => {
     const res = makeRes();
     await handlePutTelegramBot("u1", { token: TOKEN }, asRes(res));
     expect(res._status).toBe(409);
+    expect(res._body).toMatchObject({ error: expect.stringMatching(/another Acme account/) });
     expect(saveBot).not.toHaveBeenCalled();
   });
 
@@ -192,6 +195,7 @@ describe("POST /telegram/test", () => {
     const res = makeRes();
     await handlePostTelegramTest("u1", asRes(res));
     expect(res._body).toEqual({ ok: true });
+    expect(sendTelegramToUser).toHaveBeenCalledWith("u1", expect.objectContaining({ title: "Acme test notification" }));
   });
 
   it("explains a revoked token", async () => {

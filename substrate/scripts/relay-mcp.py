@@ -782,7 +782,7 @@ def tool_leave_room(mx, args):
             raise
         alias = ""
     if REGISTRY_ALIAS_RE.match(alias):
-        raise ToolError("that's the fleet directory room — Skynet relies on you staying in it")
+        raise ToolError("that's the fleet directory room — the app relies on you staying in it")
     mx.request("POST", f"/rooms/{q}/leave", {})
     for k, rid in list(_dm_cache.items()):
         if rid == room:

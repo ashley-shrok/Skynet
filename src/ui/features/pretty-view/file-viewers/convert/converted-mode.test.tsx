@@ -10,7 +10,7 @@ const api = vi.hoisted(() => ({
 vi.mock("@/api/document-convert-api", async () => {
   class DocumentConvertError extends Error {
     constructor(readonly reason: string) {
-      super(reason === "unavailable" ? "The document converter isn't running on this Skynet server." : "This file couldn't be converted.");
+      super(reason === "unavailable" ? "The document converter isn't running on this server." : "This file couldn't be converted.");
     }
   }
   return { ...api, DocumentConvertError };

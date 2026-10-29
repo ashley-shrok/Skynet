@@ -352,7 +352,7 @@ export function registerHostOpksshRoutes(router: Router): void {
                 message:
                   "OPKSSH did not return an external OAuth provider URL. " +
                   "This typically indicates a configuration mismatch between the provider's redirect_uris " +
-                  "and the Skynet callback path. Check the server log for the OPKSSH response body.",
+                  "and this server's callback path. Check the server log for the OPKSSH response body.",
                 details: detailLines.join("\n"),
                 requestId,
               }),
@@ -369,7 +369,7 @@ export function registerHostOpksshRoutes(router: Router): void {
                 title: "OPKSSH error",
                 heading: "Failed to reach OPKSSH service",
                 message:
-                  "Skynet could not connect to the local OPKSSH authentication service. " +
+                  "The server could not connect to the local OPKSSH authentication service. " +
                   "The OPKSSH process may have exited or is not listening yet.",
                 details: `Upstream: ${startUrl}\nError: ${errMsg}`,
                 requestId,

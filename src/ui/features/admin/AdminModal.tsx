@@ -59,7 +59,7 @@ const SECTIONS: ReadonlyArray<ModalSidebarTabDef<AdminTab>> = [
 /** What each section is for — the line under its name. */
 const HERO_COPY: Record<AdminTab, string> = {
   users: "Everyone with an account on this instance. Open someone to change their access or sign them out.",
-  hosts: "Every host Skynet connects to, how it's doing, and whether its agents are running.",
+  hosts: "Every host this app connects to, how it's doing, and whether its agents are running.",
   signin: "Who can make an account, and how long a sign-in lasts.",
   "instance-file": "Instructions every agent on every host starts with.",
   system: "The version this instance runs, its database, logging and voice services.",

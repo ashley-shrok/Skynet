@@ -128,9 +128,9 @@ describe("condenseFailureMessage", () => {
   it("404 → the machine may have been removed", () => {
     expect(condenseFailureMessage({ response: { status: 404 } })).toBe("Couldn't find this agent's machine — it may have been removed");
   });
-  it("any other answered error → something went wrong on Skynet's side", () => {
+  it("any other answered error → something went wrong on the server", () => {
     for (const status of [400, 500, 502]) {
-      expect(condenseFailureMessage({ response: { status } })).toBe("Couldn't condense — something went wrong on Skynet's side");
+      expect(condenseFailureMessage({ response: { status } })).toBe("Couldn't condense — something went wrong on the server");
     }
   });
 });

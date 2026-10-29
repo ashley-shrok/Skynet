@@ -223,8 +223,8 @@ function validateRedirectUrisAreLocalhost(
         `${issues.join("\n")}\n\n` +
         `This field is OPKSSH's local callback listener, it must be localhost (or omitted to use ` +
         `the defaults http://localhost:3000/login-callback, :10001, :11110). ` +
-        `The public Skynet callback URL is supplied automatically by Skynet via --remote-redirect-uri; ` +
-        `you do not put it here. Register the PUBLIC Skynet URL with your OAuth provider instead ` +
+        `This server supplies its public callback URL automatically via --remote-redirect-uri; ` +
+        `you do not put it here. Register this server's PUBLIC URL with your OAuth provider instead ` +
         `(e.g. https://your-domain${OPKSSH_CALLBACK_PATH}).\n\n` +
         `Fix: remove the non-localhost entries above, or delete the whole 'redirect_uris' block to use defaults.\n\n` +
         `Docs: https://docs.skynet.site/opkssh`,
@@ -406,10 +406,10 @@ export async function startOPKSSHAuth(
             error:
               `OPKSSH rejected the local callback URI: every entry in 'redirect_uris' must be localhost.\n\n` +
               `OPKSSH output:\n${stderr.trim()}\n\n` +
-              `The 'redirect_uris' config field is OPKSSH's LOCAL listener — it is not the public Skynet callback. ` +
+              `The 'redirect_uris' config field is OPKSSH's LOCAL listener — it is not this server's public callback. ` +
               `Remove any non-localhost entries from redirect_uris (or delete the whole block to use OPKSSH's ` +
-              `defaults of :3000, :10001, :11110). Register the public Skynet callback URL with your OAuth ` +
-              `provider instead, Skynet passes it to OPKSSH automatically via --remote-redirect-uri.`,
+              `defaults of :3000, :10001, :11110). Register this server's public callback URL with your OAuth ` +
+              `provider instead; the server passes it to OPKSSH automatically via --remote-redirect-uri.`,
             instructions: "See documentation: https://docs.skynet.site/opkssh",
           }),
         );
@@ -443,7 +443,7 @@ export async function startOPKSSHAuth(
             requestId,
             error:
               `OPKSSH or the OAuth provider rejected the redirect URI.\n\n` +
-              `Computed Skynet callback URI (sent to provider): ${remoteRedirectUri}\n\n` +
+              `Computed callback URI (sent to provider): ${remoteRedirectUri}\n\n` +
               `OPKSSH output:\n${stderr.trim()}\n\n` +
               `Register '${remoteRedirectUri}' as an authorized redirect URI with your OAuth provider ` +
               `(e.g. in Google Cloud Console → OAuth client). ` +

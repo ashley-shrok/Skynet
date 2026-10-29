@@ -89,7 +89,7 @@ const DESKTOP_ERROR_COPY: Record<string, WorkspaceErrorCopy> = {
   },
   guacd_unreachable: {
     heading: "The viewer service isn't reachable",
-    body: "Skynet's remote-desktop service isn't responding right now. Try again in a moment.",
+    body: "The remote-desktop service isn't responding right now. Try again in a moment.",
   },
   too_many_tunnels: {
     heading: "Too many desktops open",

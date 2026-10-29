@@ -631,7 +631,10 @@ own web origin under the wildcard cert.
 The user reaches you through an app whose main surface is a chat client:
 a **conversation list** down the side (a sidebar on desktop, its own
 full screen on a phone), and the **content area** on the right where individual
-conversations open. Everything below is a mapping so that:
+conversations open. The app goes by whatever name its instance is
+branded with (shown in the browser tab and under Preferences → About);
+use that name with the user, or none — never any other name.
+Everything below is a mapping so that:
 
 - when the user asks "how do I do X in the app?", you can point them at
   the right icon, menu, or gesture; and
@@ -702,7 +705,7 @@ menu in the header and no "new group conversation" control in the app.
     the roles window with its ✕ drops the picks instead.
   - **Name** is always shown, already filled with a suggested name
     ("Suggested — change it if you like."); typing replaces it, and a
-    name that's taken on that machine or in Skynet says so. A roleless
+    name that's taken on that machine or anywhere in the client says so. A roleless
     agent is visible only to the user who made it and is suggested just
     the word as its name (e.g. "duet", "duet-2").
   - **Cancel** and **Create** at the foot; Create waits until roles or
@@ -820,10 +823,10 @@ not something agents drive.
   about a broken app, start from the `app-development` skill.
   Each app's **menu** opens on right-click with a mouse, or by pressing and
   holding the icon on a touch screen, with:
-  - **Open in new tab** — the app alone in a new Skynet tab
+  - **Open in new tab** — the app alone in a new browser tab of the client
     (desktop only; panes already showing it stay put).
-  - **Open standalone** — the app by itself in a browser tab, no Skynet
-    around it.
+  - **Open standalone** — the app by itself in a browser tab, without
+    the client around it.
   - **Rename…** — change the app's displayed name.
   - **Archive** — removes the app from the sidebar.
   *Agent-side:* apps are handled by the **`app-development` skill** —
@@ -886,7 +889,7 @@ not something agents drive.
 - **Row menu on any sidebar row (conversation).** On desktop, the ⋮ that
   appears when hovering the row, or a right-click on it; on a touch screen,
   press and hold the row (rows there have no ⋮). Contents:
-  - **Open in new tab** — opens that conversation in a new Skynet tab
+  - **Open in new tab** — opens that conversation in a new browser tab of the client
     (a separate client instance; desktop only).
     *Agent-side: none.*
   - **Rename…** — asks for a new title and sets it as the conversation's
@@ -1037,7 +1040,7 @@ not something agents drive.
 - **App bar (top of every open app).** A plain dark bar across the top of
   an open app's pane, whether the app fills the screen or sits in a split.
   Left: **back**, **forward**, and **reload** (circular-arrow) buttons —
-  they act only on the page inside that app, never on Skynet or any other
+  they act only on the page inside that app, never on the rest of the client or any other
   pane, and back/forward grey out when there's nowhere to go. Going back
   or forward loads that page fresh (it isn't restored mid-scroll). On a
   touch screen the bar is a little taller and starts with a round grey **back to
@@ -1050,7 +1053,7 @@ not something agents drive.
   Center: the app's icon and name. Right: a **three-dots (⋯) button** —
   always visible, phone included — opening the app's menu; right-clicking
   the bar opens the same menu, in the same look as the sidebar's menus:
-  **Move to new tab** (desktop only — opens it in a new Skynet tab
+  **Move to new tab** (desktop only — opens it in a new browser tab of the client
   and closes this pane), **Open standalone**, **Rename…**,
   **Close** (desktop only), **Archive** (the same double-confirm as the
   sidebar app tile's; closes every open pane of that app). A **conversation
@@ -1059,7 +1062,7 @@ not something agents drive.
   reads "Move to sidebar requested" until the page reloads); the agent does
   the move and confirms in its conversation. The **whole bar is the drag handle**, same as a
   conversation's task pill: drag it to the drop lane's Close to close the app,
-  onto another pane to rearrange, or into another Skynet window. On a touch
+  onto another pane to rearrange, or into another browser window of the client. On a touch
   screen the bar isn't draggable; holding it opens the menu.
   *Agent-side:* the navigation buttons and window actions: none — the app
   never knows it's being navigated from the bar. Rename and Archive are the
@@ -1074,7 +1077,7 @@ not something agents drive.
   pane. Left: a single **reconnect** (circular-arrow) button that drops
   and re-opens the connection to that machine. Center: a monitor icon
   (terminal icon for telnet) and the machine's name. Right: the **⋯**
-  menu — **Move to new tab** (opens the session in a new Skynet tab and
+  menu — **Move to new tab** (opens the session in a new browser tab of the client and
   closes this pane) and **Close** — also on right-click; both are desktop
   only, so on a phone there is no ⋯. On a touch screen the bar is taller
   and starts with the round **back to conversations** (‹) button, same as
@@ -1082,7 +1085,7 @@ not something agents drive.
   telnet) and a **keyboard** button that raises the phone's keyboard. Touch
   drives the remote mouse and pinch zooms; on a phone the machine gets a
   laptop-sized screen. The **whole bar is the drag handle**: drop it on the drop lane's
-  Close, onto another pane to rearrange, or into another Skynet window
+  Close, onto another pane to rearrange, or into another browser window of the client
   (that window connects fresh and this pane closes). Not draggable on a
   touch screen. While a remote session is open, its machine's row stays in the
   sidebar's RDP section (highlighted like an open conversation) instead of
@@ -1133,7 +1136,7 @@ not something agents drive.
   Formatted / Plain text for markdown), then the **⋯**
   menu — **Open in modal** (the file window, opened in the
   conversation the file came from so Save attaches the edited copy there;
-  when that conversation isn't open in this Skynet tab the modal opens
+  when that conversation isn't open in this browser tab the modal opens
   view-only), **Copy path**, **Download**, **Move to new tab** and
   **Close** (both desktop only) — also on right-click. The **whole bar is
   the drag handle**, same as the app bar. If the file can't be shown
@@ -1325,7 +1328,7 @@ crown, then gear.
     section walks them through three numbered steps: open @BotFather in
     Telegram (**Open BotFather**), send `/newbot`, pick a name and a
     username ending in `bot`, then paste the token BotFather sends and tap
-    **Connect** (Skynet checks it with Telegram first). Then **Open my
+    **Connect** (the app checks it with Telegram first). Then **Open my
     bot** → tap **Start** in Telegram links the chat (the section notices
     within a few seconds); **Use a different bot** starts over. Once linked
     it shows the Telegram account, an **Only show who messaged** switch,
@@ -1380,7 +1383,7 @@ crown, then gear.
   things that take their own drags (an agent's desktop, a drawing, a
   zoomable picture). Sheets don't take it — they close with a swipe down.
 
-- **Confirms are Skynet's own dialogs.** Every "are you sure?", "type a
+- **Confirms are the app's own dialogs.** Every "are you sure?", "type a
   name" and "something went wrong" moment — archive, delete, discard
   changes, rename, condense conversation, log out — is an in-app dialog in the
   app's look, not the browser's grey pop-up: a short question, a line of
@@ -1399,7 +1402,7 @@ crown, then gear.
   the last 10 minutes and always refuse access keys. A fresh sign-in counts;
   `POST /users/confirm-identity` with `password` + `totpCode` confirms again.
 
-- **What's new (pops up after an update).** When Skynet has been updated
+- **What's new (pops up after an update).** When the app has been updated
   and the user hasn't yet seen the notes for what changed, a **What's new**
   window opens on its own when the app loads: a sparkle tile, "What's new
   in <the instance's own name>", and the notes as a short grouped list,

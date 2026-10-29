@@ -541,7 +541,7 @@ function HostsGroup({ user }: { user: AdminUser }) {
     <div className="flex flex-col gap-2" data-testid="admin-user-hosts">
       <KitSettingsGroup
         title={hosts && hosts.length > 0 ? `Hosts · ${hosts.length}` : "Hosts"}
-        footer="Hosts they added to Skynet. Only they can change them."
+        footer="Hosts they added. Only they can change them."
       >
         {hosts === null && !error ? (
           <div className="px-3.5 py-3">

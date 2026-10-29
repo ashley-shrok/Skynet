@@ -1111,7 +1111,7 @@ describe("SkillsEditorModal — Phase 44 SKILLED-05", () => {
   it("library: fleet-distributed skills get their own read-only section with fixed marks", async () => {
     renderLibrary();
     const sectionEl = await screen.findByTestId("skills-editor-modal-section-distributed");
-    expect(within(sectionEl).getByText(/Installed on every machine from the Skynet repo/)).toBeInTheDocument();
+    expect(within(sectionEl).getByText(/Installed on every machine by your administrator/)).toBeInTheDocument();
     expect(screen.queryByTestId("skills-editor-modal-switch-you-stt")).toBeNull();
     expect(screen.getByTestId("skills-editor-modal-mark-you-stt")).toBeInTheDocument();
     expect(screen.getByTestId("skills-editor-modal-mark-agents-stt")).toBeInTheDocument();

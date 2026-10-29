@@ -1,7 +1,7 @@
 {
   "name": "SKYNET",
   "short_name": "SKYNET",
-  "description": "Skynet fleet orchestrator",
+  "description": "Chat with your agents",
   "start_url": "/",
   "display": "standalone",
   "orientation": "portrait-primary",

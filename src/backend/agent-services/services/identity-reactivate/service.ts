@@ -109,10 +109,10 @@ export function createIdentityReactivateService(
 
       const serverName = await deps.getServerName();
       if (serverName === null) {
-        return fail("not_configured", "chat admin credentials are not set up on this Skynet");
+        return fail("not_configured", "chat admin credentials are not set up on this server");
       }
       if (account.slice(account.indexOf(":") + 1) !== serverName) {
-        return fail("wrong_server", `account is not on this Skynet's chat server (${serverName})`);
+        return fail("wrong_server", `account is not on this chat server (${serverName})`);
       }
 
       const status = await deps.getUserAccountStatus(account);
@@ -129,7 +129,7 @@ export function createIdentityReactivateService(
       const agentsRoom = await deps.getAgentsRegistryRoomId();
       const humansRoom = await deps.getHumansRegistryRoomId();
       if (agentsRoom === null || humansRoom === null) {
-        return fail("not_configured", "the agents/humans directory rooms are not set up on this Skynet");
+        return fail("not_configured", "the agents/humans directory rooms are not set up on this server");
       }
       const inHumans = await deps.getRoomMembershipOf(humansRoom, account);
       const inAgents = await deps.getRoomMembershipOf(agentsRoom, account);

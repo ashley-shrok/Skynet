@@ -1381,7 +1381,7 @@ export default function SkillsEditorModal({
             {section(
               "distributed",
               "Fleet-distributed — read-only",
-              "Installed on every machine from the Skynet repo — change them there. They run with /name but stay out of your Skills button.",
+              "Installed on every machine by your administrator. They run with /name but stay out of your Skills button.",
             )}
             {visibleRows.length === 0 ? <KitEmpty title="No skills match." /> : null}
           </ModalBody>
@@ -1541,7 +1541,7 @@ export default function SkillsEditorModal({
     selectedRow == null ? null : selectedRow.readOnly ? (
       <KitBanner tone="info" data-testid="skills-editor-modal-readonly-banner">
         {selectedRow.section === "distributed"
-          ? "Fleet-distributed — installed on every machine from the Skynet repo. Change it there; here it's view-only."
+          ? "Fleet-distributed — installed on every machine by your administrator. It's view-only here."
           : "Shared to every host and kept in step by an admin — use it like your own; only an admin can change it."}
       </KitBanner>
     ) : (
@@ -1612,7 +1612,7 @@ export default function SkillsEditorModal({
           : selectedIsDistributed
             ? [
                 {
-                  label: "Managed by the fleet distributor — change it in the Skynet repo",
+                  label: "Managed by the fleet distributor — view-only here",
                   disabled: true,
                   testId: "skills-editor-modal-distributed-readonly",
                   onClick: () => {},

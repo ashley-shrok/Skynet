@@ -16,7 +16,7 @@ export class DocumentConvertError extends Error {
   constructor(readonly reason: ConvertFailure) {
     super(
       {
-        unavailable: "The document converter isn't running on this Skynet server.",
+        unavailable: "The document converter isn't running on this server.",
         busy: "The document converter is busy. Try again in a moment.",
         too_large: "This file is too large to convert (over 50 MB).",
         failed: "This file couldn't be converted.",
