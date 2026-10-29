@@ -5,7 +5,7 @@
 
 ## What this is
 
-On a phone, an agent's virtual desktop gets the whole screen, the way a session to one of Ashley's own machines already does. A slim bar sits on top with the controls it needs, and the desktop fills the rest. Today the only way to see it on a phone is the agent window's Desktop tab. There the desktop sits under the window's header, tabs and toolbar and gets a small part of the screen.
+On a phone, an agent's virtual desktop gets the whole screen, the way a session to one of the user's own machines already does. A slim bar sits on top with the controls it needs, and the desktop fills the rest. Today the only way to see it on a phone is the agent window's Desktop tab. There the desktop sits under the window's header, tabs and toolbar and gets a small part of the screen.
 
 ## Shape
 
@@ -26,25 +26,25 @@ On a phone, an agent's virtual desktop gets the whole screen, the way a session 
 - **Leaving.**
   - Back returns to the conversation it was opened from, not to the conversation list. That's back in the bar, or the phone's own back gesture.
   - Leaving hands control back to the agent, the same as closing the desktop on a computer.
-  - No swipe right to leave. A swipe on the desktop picture is input to the desktop. The bar doesn't take the app's swipe either: elsewhere that swipe slides the conversation list in, which would show the wrong place. (Changed during the build, with Ashley's agreement on 2026-10-29. The shape first had a swipe on the bar going back.)
+  - No swipe right to leave. A swipe on the desktop picture is input to the desktop. The bar doesn't take the app's swipe either: elsewhere that swipe slides the conversation list in, which would show the wrong place. (Changed during the build, with the user's agreement on 2026-10-29. The shape first had a swipe on the bar going back.)
 - **When things go wrong.** If the desktop stops or the connection drops, the full-screen view behaves as the desktop does elsewhere: the "isn't running" notice with its Start button, or reconnect.
 
 ## Philosophy
 
-- One full-screen remote view on phones, not a new kind of screen. The agent's desktop reuses what a session to Ashley's machines already does, and the bar the desktop already has beside a conversation on a computer.
+- One full-screen remote view on phones, not a new kind of screen. The agent's desktop reuses what a session to the user's machines already does, and the bar the desktop already has beside a conversation on a computer.
 - Opening the desktop is watching, not driving. Nothing about opening it pauses the agent, apart from carrying control over that you already held.
-- A desktop opened from a conversation belongs to that conversation, so back returns there. Sessions to Ashley's machines go back to the conversation list. The two back buttons differ on purpose.
+- A desktop opened from a conversation belongs to that conversation, so back returns there. Sessions to the user's machines go back to the conversation list. The two back buttons differ on purpose.
 - Phones only. Tablets keep the agent window and Open beside conversation.
 
 ## Prior context
 
 - Shape 1 (touch input) made the desktop usable by touch on every surface: two touch modes, pinch-zoom and pan, the phone's keyboard, and the key strip on agent desktops while in control. Its bar buttons appear on touch screens only, and on agent desktops only while in control. This shape reuses them.
 - On a computer, the agent's desktop can already sit in its own pane beside the conversation, with that slim bar. Panes beside a conversation don't exist on a phone, which is why the agent window was the only route there.
-- Sessions to Ashley's machines on a phone open full screen with the same kind of bar and its back-to-conversations button.
+- Sessions to the user's machines on a phone open full screen with the same kind of bar and its back-to-conversations button.
 
 ## What would make it wrong
 
-- Opening the desktop on a phone pauses the agent without Ashley asking for it.
+- Opening the desktop on a phone pauses the agent without the user asking for it.
 - Back from the full-screen desktop strands her on the conversation list when she came from a conversation.
 - Leaving the full-screen desktop leaves the agent paused, because control wasn't handed back.
 - Turning the phone sideways drops the full-screen view or swaps to a different layout.
@@ -61,7 +61,7 @@ On a phone, an agent's virtual desktop gets the whole screen, the way a session 
   - control carry-over
   - back (bar button and phone back gesture) to the conversation it came from
   - refit on rotation
-- **Out:** tablets; split view; any change to sessions to Ashley's own machines, including their back going to the list.
+- **Out:** tablets; split view; any change to sessions to the user's own machines, including their back going to the list.
 - **Deferred:** the touch-first key strip redesign is shape 3.
 - **Tempting but no:** taking control automatically on open; a new full-screen design separate from the existing bar; hiding the bar for an immersive view.
 
@@ -103,7 +103,7 @@ On a phone, an agent's virtual desktop gets the whole screen, the way a session 
 ### Additions (in the result, not in the shape)
 
 - Swipe-to-list was off for a lone desktop on tablets too. Not intended; it's now limited to phones.
-- The phone check treats a screen whose size can't be read as "not a phone". This guards against the test environment's zero-size screen and has no effect on real devices. Endorsed-as-drift (Ashley: "Keep it").
+- The phone check treats a screen whose size can't be read as "not a phone". This guards against the test environment's zero-size screen and has no effect on real devices. Endorsed-as-drift (the user: "Keep it").
 
 ### Follow-ups
 
@@ -111,7 +111,7 @@ On a phone, an agent's virtual desktop gets the whole screen, the way a session 
 
 ### Notes
 
-The swipe on the bar was dropped mid-build with Ashley's agreement. The list sliding in would have shown the wrong place, and the shape text was amended before the close.
+The swipe on the bar was dropped mid-build with the user's agreement. The list sliding in would have shown the wrong place, and the shape text was amended before the close.
 
 ### After the code review (2026-10-29)
 

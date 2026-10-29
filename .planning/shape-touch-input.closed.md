@@ -5,7 +5,7 @@
 
 ## What this is
 
-On a phone or tablet, a remote desktop can be driven by touch. This covers Ashley's own machines (RDP, VNC, telnet) and an agent's desktop once she has taken control of it. Today touches are thrown away and there's no way to type. After this shape, touch drives the remote mouse in one of two modes she can switch between, she can pinch to zoom and move around a zoomed-in desktop, she can bring up the phone's keyboard and type into the desktop, and agent desktops get the same key strip her machines already have.
+On a phone or tablet, a remote desktop can be driven by touch. This covers the user's own machines (RDP, VNC, telnet) and an agent's desktop once she has taken control of it. Today touches are thrown away and there's no way to type. After this shape, touch drives the remote mouse in one of two modes she can switch between, she can pinch to zoom and move around a zoomed-in desktop, she can bring up the phone's keyboard and type into the desktop, and agent desktops get the same key strip her machines already have.
 
 ## Shape
 
@@ -38,7 +38,7 @@ On a phone or tablet, a remote desktop can be driven by touch. This covers Ashle
 
 **Where the controls sit.**
 - The mode switch and keyboard button are buttons in the bar at the top of each surface:
-  - the remote-desktop bar, for Ashley's machines;
+  - the remote-desktop bar, for the user's machines;
   - the desktop bar and the Desktop tab's toolbar, for agent desktops.
 - They show only on touch screens, and on agent desktops only while she has control.
 
@@ -94,8 +94,8 @@ On a phone or tablet, a remote desktop can be driven by touch. This covers Ashle
 
 ## Handoff notes
 
-- Work in Ashley's Skynet repo on the shared branch; in a campaign, a shape ends at committed, not pushed, not deployed.
-- User-visible change, so the id skill's description of the remote-desktop bar, desktop bar and Desktop tab needs a brief mention, and a what's-new note needs Ashley's approval of its exact wording.
+- Work in the user's Skynet repo on the shared branch; in a campaign, a shape ends at committed, not pushed, not deployed.
+- User-visible change, so the id skill's description of the remote-desktop bar, desktop bar and Desktop tab needs a brief mention, and a what's-new note needs the user's approval of its exact wording.
 - Log mode switches, keyboard raise/lower and zoom changes per the role's logging directive.
 
 ---
@@ -103,7 +103,7 @@ On a phone or tablet, a remote desktop can be driven by touch. This covers Ashle
 ## Close-Out
 
 **Closed:** 2026-10-29
-**Overall verdict:** closed-hit (all agreed features present; three additions endorsed by Ashley as drift)
+**Overall verdict:** closed-hit (all agreed features present; three additions endorsed by the user as drift)
 
 ### Shape features (conformance)
 
@@ -149,8 +149,8 @@ On a phone or tablet, a remote desktop can be driven by touch. This covers Ashle
 
 ### Follow-ups
 
-- What's-new note with Ashley's approved wording — deferred (campaign close)
+- What's-new note with the user's approved wording — deferred (campaign close)
 
 ### Notes
 
-No omissions. Additions were confirmed with Ashley on 2026-10-29 ("Keep it" ×3).
+No omissions. Additions were confirmed with the user on 2026-10-29 ("Keep it" ×3).

@@ -6,7 +6,7 @@
 
 ## Concept
 
-Remote desktops in Skynet should be usable from a phone or tablet, not just watchable. That covers both kinds: sessions to Ashley's own machines (RDP, VNC, telnet) and an agent's own virtual desktop when she takes control of it. Today touches are thrown away, so nothing reaches the desktop, and there's no way to type. After this campaign, touch drives the mouse in one of two modes she can switch between. Trackpad mode (slide a cursor, tap to click) is the default on phones, and direct mode (tap where you want to click) is the default on tablets. She can pinch to zoom and pan around a desktop too big for the screen, and she can bring up the phone's keyboard and type into it. Agent desktops get the same key strip her machines already have, and they open full screen on a phone the way RDP sessions do. Tablets with a real mouse and keyboard keep working as they do now. Once all that works, the key strip itself gets a touch-first redesign.
+Remote desktops in Skynet should be usable from a phone or tablet, not just watchable. That covers both kinds: sessions to the user's own machines (RDP, VNC, telnet) and an agent's own virtual desktop when she takes control of it. Today touches are thrown away, so nothing reaches the desktop, and there's no way to type. After this campaign, touch drives the mouse in one of two modes she can switch between. Trackpad mode (slide a cursor, tap to click) is the default on phones, and direct mode (tap where you want to click) is the default on tablets. She can pinch to zoom and pan around a desktop too big for the screen, and she can bring up the phone's keyboard and type into it. Agent desktops get the same key strip her machines already have, and they open full screen on a phone the way RDP sessions do. Tablets with a real mouse and keyboard keep working as they do now. Once all that works, the key strip itself gets a touch-first redesign.
 
 ## Success criteria
 
@@ -28,9 +28,9 @@ Remote desktops in Skynet should be usable from a phone or tablet, not just watc
 
 ## Other work
 
-- **What's-new note for the whole campaign** — one note covering every shape, shown to Ashley for approval of its exact wording at `/campaign close`, before the deploy. — open
+- **What's-new note for the whole campaign** — one note covering every shape, shown to the user for approval of its exact wording at `/campaign close`, before the deploy. — open
 
-- **Real-phone check at hand-off** — touch input was checked in-process and in emulated Android Chrome and iPhone Safari, not on a real phone. Emulated Safari also disagreed with a real iPhone on one point (the key strip's taps, which work for Ashley on iOS 18). The campaign-close hand-off should ask Ashley to try it on her iPhone. That includes the full-screen agent desktop from shape 2: the green button, back to the conversation, and the phone's own back gesture, including after a reload. — open
+- **Real-phone check at hand-off** — touch input was checked in-process and in emulated Android Chrome and iPhone Safari, not on a real phone. Emulated Safari also disagreed with a real iPhone on one point (the key strip's taps, which work for the user on iOS 18). The campaign-close hand-off should ask the user to try it on her iPhone. That includes the full-screen agent desktop from shape 2: the green button, back to the conversation, and the phone's own back gesture, including after a reload. — open
 
 ## Lingerers (explicitly approved)
 
