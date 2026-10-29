@@ -603,6 +603,19 @@ export const FLEET_SUBSTRATE_CATALOG: readonly CatalogEntry[] = [
     restartHook: null,
   },
 
+  // machine-people: SessionStart hook that hands every session the people
+  // file (~/fleet/host/people.md, written by bootstrap Step 5c) — everyone
+  // with access to this machine and their relay IDs. Wired via the
+  // run-bootstrap.ts settings.json patch. No restart hook — new bytes picked
+  // up on next hook fire.
+  {
+    slug: "machine-people",
+    sourceKind: "bundled",
+    bundledPath: "/app/fleet-substrate/scripts/machine-people.sh",
+    installPath: "~/.local/bin/machine-people",
+    restartHook: null,
+  },
+
   // --- user-onboarding/ (1 row: agent-supervisor.service) ---
   // The .service unit file must land in ~/.config/systemd/user/ on every
   // managed host. runBootstrapForHost runs `systemctl --user daemon-reload`

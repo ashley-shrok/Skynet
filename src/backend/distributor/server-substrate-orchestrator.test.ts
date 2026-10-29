@@ -1197,3 +1197,41 @@ describe("Per-host sweep deadline", () => {
     orch.stop();
   });
 });
+
+describe("people file — machinePeopleFile resolver", () => {
+  it("passes each host's resolved people bytes to its sweep", async () => {
+    const { deps } = makeDeps({ hosts: [{ id: "h1", name: "host-1" }, { id: "h2", name: "host-2" }] });
+    const machinePeopleFile = vi.fn(async (hostId: string) => (hostId === "h1" ? "list for h1\n" : null));
+    vi.mocked(runSweepForHost).mockResolvedValue({ itemsChecked: 1, itemsChanged: 0, itemsFailed: 0 });
+    const orch = createServerSubstrateOrchestrator({ ...deps, machinePeopleFile });
+    await orch.start();
+    const calls = vi.mocked(runSweepForHost).mock.calls;
+    expect(calls.find((c) => c[1].id === "h1")?.[1].peopleFile).toBe("list for h1\n");
+    expect(calls.find((c) => c[1].id === "h2")?.[1].peopleFile).toBeNull();
+    orch.stop();
+  });
+
+  it("a throwing resolver leaves the file alone (null) and the sweep still runs", async () => {
+    const { deps } = makeDeps();
+    vi.mocked(runSweepForHost).mockResolvedValue({ itemsChecked: 1, itemsChanged: 0, itemsFailed: 0 });
+    const orch = createServerSubstrateOrchestrator({
+      ...deps,
+      machinePeopleFile: vi.fn(async () => {
+        throw new Error("db down");
+      }),
+    });
+    await orch.start();
+    const call = vi.mocked(runSweepForHost).mock.calls.at(-1);
+    expect(call?.[1].peopleFile).toBeNull();
+    orch.stop();
+  });
+
+  it("no resolver → peopleFile not passed at all", async () => {
+    const { deps } = makeDeps();
+    vi.mocked(runSweepForHost).mockResolvedValue({ itemsChecked: 1, itemsChanged: 0, itemsFailed: 0 });
+    const orch = createServerSubstrateOrchestrator(deps);
+    await orch.start();
+    expect(vi.mocked(runSweepForHost).mock.calls.at(-1)?.[1]).not.toHaveProperty("peopleFile");
+    orch.stop();
+  });
+});

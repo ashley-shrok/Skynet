@@ -212,6 +212,10 @@ export interface BootstrapResult {
    *  the numeric fleet-DB hostId into PANE_BASE at scaffold time — agents
    *  never need to know or look up the integer themselves. */
   hostIdOk: boolean;
+  /** Step 5c: whether ~/fleet/host/people.md was written or already current.
+   *  Absent when the step was skipped (no people bytes resolved this sweep —
+   *  the file is left as it is); false implies hadError. */
+  peopleFileOk?: boolean;
   /** Whether the usage-reporter retirement step succeeded. Step 6 is
    *  idempotent and always runs; a false value implies hadError. */
   usageReporterRetireOk: boolean;
@@ -330,8 +334,8 @@ function logRolesKeyMigration(
  * shell. Local jq invocation must NOT expand it either (pass the expression
  * as an argv arg, not through a shell).
  *
- * Currently sets eighteen keys total: seven simple flags/env vars, plus eleven
- * hook entries under .hooks —
+ * Sets the simple flags/env vars above, plus these hook entries under
+ * .hooks —
  *   - task-field-check on UserPromptSubmit (identity `task:` placeholder nudge).
  *   - resume-gap-notice on UserPromptSubmit (time-since-last-activity note
  *     when a session receives a message after a 30+ minute gap).
@@ -353,6 +357,8 @@ function logRolesKeyMigration(
  *     SessionStart (hands the agent the file-watch notices queued since its
  *     last turn or tool call instead of waking it for them; SessionStart
  *     discards the queue on a fresh session).
+ *   - machine-people on SessionStart (hands every session the people file
+ *     written by Step 5c).
  */
 /**
  * CLAUDE_AUTOCOMPACT_PCT_OVERRIDE value that makes near-limit compaction fire
@@ -371,6 +377,9 @@ function logRolesKeyMigration(
  * 2.1.310 binaries; re-check on any pin bump.
  */
 export const AUTOCOMPACT_PCT = "96.9388";
+
+/** The people file (machine-people.ts), relative to $HOME. Written in Step 5c. */
+export const MACHINE_PEOPLE_REL_PATH = "fleet/host/people.md";
 
 export const SETTINGS_MERGE_JQ =
   `.permissions = ((.permissions // {}) | .deny = (((.deny // []) + ["AskUserQuestion"]) | unique))` +
@@ -394,6 +403,7 @@ export const SETTINGS_MERGE_JQ =
   `      | .SessionStart = ((.SessionStart // []) | if any(.[]?.hooks[]?.command // ""; test("pending-context-drain")) then . else . + [{"hooks":[{"type":"command","command":"$HOME/.local/bin/pending-context-drain"}]}] end)` +
   `      | .PostToolUse = ((.PostToolUse // []) | if any(.[]?.hooks[]?.command // ""; test("id-load-context")) then . else . + [{"matcher":"Skill","hooks":[{"type":"command","command":"$HOME/.local/bin/id-load-context"}]}] end)` +
   `      | .PreCompact = ((.PreCompact // []) | if any(.[]?.hooks[]?.command // ""; test("precompact-reground")) then . else . + [{"hooks":[{"type":"command","command":"$HOME/.local/bin/precompact-reground"}]}] end)` +
+  `      | .SessionStart = ((.SessionStart // []) | if any(.[]?.hooks[]?.command // ""; test("machine-people")) then . else . + [{"hooks":[{"type":"command","command":"$HOME/.local/bin/machine-people"}]}] end)` +
   `    )`;
 
 /** CHECK jq expression. Returns true iff every required key is set. */
@@ -421,7 +431,8 @@ export const SETTINGS_CHECK_JQ =
   `  and ((.hooks.PostToolUse // []) | any(.[]?.hooks[]?.command // ""; test("pending-context-drain")))` +
   `  and ((.hooks.SessionStart // []) | any(.[]?.hooks[]?.command // ""; test("pending-context-drain")))` +
   `  and ((.hooks.PostToolUse // []) | any(.[]?.hooks[]?.command // ""; test("id-load-context")))` +
-  `  and ((.hooks.PreCompact // []) | any(.[]?.hooks[]?.command // ""; test("precompact-reground")))`;
+  `  and ((.hooks.PreCompact // []) | any(.[]?.hooks[]?.command // ""; test("precompact-reground")))` +
+  `  and ((.hooks.SessionStart // []) | any(.[]?.hooks[]?.command // ""; test("machine-people")))`;
 
 /**
  * Number of required keys enforced by SETTINGS_CHECK_JQ, derived from the
@@ -568,7 +579,7 @@ export const USAGE_REPORTER_RETIRED_DIR = ".claude/usage";
  */
 export async function runBootstrapForHost(
   channel: SshChannel,
-  host: { id: string; name: string; machineId?: string },
+  host: { id: string; name: string; machineId?: string; peopleFile?: string | null },
 ): Promise<BootstrapResult> {
   // Phase 75 D-03: parent Skynet's HTTPS URL, read at function top so it flows
   // directly into step 4 without threading it through SweepDeps +
@@ -1289,6 +1300,50 @@ export async function runBootstrapForHost(
   }
 
   // -------------------------------------------------------------------------
+  // Step 5c: Write ~/fleet/host/people.md — everyone with access to this box
+  //          and their relay IDs (machine-people.ts), read into every session
+  //          by the machine-people SessionStart hook. Skipped when the caller
+  //          resolved no bytes (unknown host, DB error) so a transient failure
+  //          never blanks the list. Content-diff idempotent like Step 5;
+  //          bytes travel base64 so no quoting can break the command.
+  // -------------------------------------------------------------------------
+  let peopleFileOk: boolean | undefined;
+  if (typeof host.peopleFile === "string") {
+    peopleFileOk = false;
+    try {
+      const b64 = Buffer.from(host.peopleFile, "utf8").toString("base64");
+      const cmd = [
+        `SP="$HOME/${MACHINE_PEOPLE_REL_PATH}"`,
+        `mkdir -p "$(dirname "$SP")"`,
+        `printf '%s' '${b64}' | base64 -d > "$SP.new" || exit 1`,
+        `if [ -f "$SP" ] && cmp -s "$SP" "$SP.new"; then rm -f "$SP.new"; else mv "$SP.new" "$SP"; fi`,
+        `echo "__PEOPLE_FILE_OK__"`,
+      ].join("\n");
+      const raw = await channel.exec(cmd);
+      if (raw === null) {
+        hadError = true;
+        logBootstrapFailed(host, "people-file-write", "channel returned null");
+      } else if (!raw.trimEnd().endsWith("__PEOPLE_FILE_OK__")) {
+        hadError = true;
+        logBootstrapFailed(
+          host,
+          "people-file-write",
+          raw.trimEnd().slice(0, 500) || "people-file write failed",
+        );
+      } else {
+        peopleFileOk = true;
+      }
+    } catch (err) {
+      hadError = true;
+      logBootstrapFailed(
+        host,
+        "people-file-write",
+        err instanceof Error ? err.message : "unknown throw",
+      );
+    }
+  }
+
+  // -------------------------------------------------------------------------
   // Step 6: usage-reporter retirement.
   //   (a) Read the current settings.json.statusLine.command.
   //       If settings.json exists but can't be read (malformed, no jq),
@@ -1524,6 +1579,7 @@ export async function runBootstrapForHost(
     hostParentOk,
     hostNameOk,
     hostIdOk,
+    ...(peopleFileOk === undefined ? {} : { peopleFileOk }),
     usageReporterRetireOk,
     rolesKeyMigrationOk,
     roleSkillsMigrationOk,

@@ -121,6 +121,13 @@ export interface ServerSubstrateOrchestratorDeps {
    * start a second sweep alongside it.
    */
   hostSweepDeadlineMs?: number;
+
+  /**
+   * Bytes of the host's people file (machine-people.ts), or null to leave it
+   * as it is. Read once per host sweep. Optional so tests that don't
+   * exercise it stay unaffected.
+   */
+  machinePeopleFile?(hostId: string): Promise<string | null>;
 }
 
 /**
@@ -260,6 +267,16 @@ export function createServerSubstrateOrchestrator(
    */
   let currentRuntimeBytes: Map<string, Buffer | null> = new Map();
 
+  /** The host's people file, or null (leave it) when there's no resolver or it fails. */
+  async function readPeopleFile(hostId: string): Promise<string | null> {
+    if (!deps.machinePeopleFile) return null;
+    try {
+      return await deps.machinePeopleFile(hostId);
+    } catch {
+      return null;
+    }
+  }
+
   /**
    * Bumped by resweepAll once fresh bytes are in place. A sweep snapshots
    * (bytes, generation) together when it starts; one that started under an
@@ -380,6 +397,7 @@ export function createServerSubstrateOrchestrator(
           id: host.id,
           name: host.name,
           machineId: host.machineId,
+          ...(deps.machinePeopleFile ? { peopleFile: await readPeopleFile(host.id) } : {}),
         });
         result = await installFleetSubstrateLocally(
           { id: host.id, name: host.name },
@@ -450,7 +468,13 @@ export function createServerSubstrateOrchestrator(
             : "unknown";
         result = await runSweepForHost(
           channel,
-          { id: host.id, name: host.name, username, machineId: host.machineId },
+          {
+            id: host.id,
+            name: host.name,
+            username,
+            machineId: host.machineId,
+            ...(deps.machinePeopleFile ? { peopleFile: await readPeopleFile(host.id) } : {}),
+          },
           FLEET_SUBSTRATE_CATALOG,
           {
             readBundledBytes: bundledReaderFromDisk,

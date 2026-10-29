@@ -1469,6 +1469,9 @@ if (process.env.VITEST !== "true") {
       const { listSubstrateHosts: listSubstrateHostsFn } = await import(
         "./distributor/list-substrate-hosts.js"
       );
+      const { machinePeopleFileFor } = await import(
+        "./distributor/machine-people.js"
+      );
       const { setSubstrateOrchestrator } = await import(
         "./distributor/substrate-orchestrator-singleton.js"
       );
@@ -1607,6 +1610,7 @@ if (process.env.VITEST !== "true") {
         retryIntervalMs: 30000,
         persistentFailureThreshold: 3,
         harnessReconciler,
+        machinePeopleFile: machinePeopleFileFor,
       });
 
       // Populate the singleton so the host-create route (75-06) can reach it.

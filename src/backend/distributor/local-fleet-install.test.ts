@@ -575,6 +575,37 @@ describe("RH1 — restart-hook fires after changed items", () => {
 });
 
 // ---------------------------------------------------------------------------
+// BR-PEOPLE — bootstrap Step 5c writes the people file
+// ---------------------------------------------------------------------------
+
+describe("BR-PEOPLE — bootstrap writes ~/fleet/host/people.md", () => {
+  const FILE = "People on this machine — x\n\n- amy · relay ID @amy:x\n";
+
+  it("writes the resolved bytes, and leaves them alone on a repeat", async () => {
+    const { bootstrapFleetSubstrateLocally } = await importFresh();
+    const result = await bootstrapFleetSubstrateLocally({ ...host, peopleFile: FILE });
+    expect(result.peopleFileOk).toBe(true);
+    const target = path.join(tmpRoot, "fleet/host/people.md");
+    expect(await fs.readFile(target, "utf-8")).toBe(FILE);
+
+    const before = (await fs.stat(target)).mtimeMs;
+    await new Promise((r) => setTimeout(r, 20));
+    await bootstrapFleetSubstrateLocally({ ...host, peopleFile: FILE });
+    expect((await fs.stat(target)).mtimeMs).toBe(before);
+  });
+
+  it("no resolved bytes → file untouched, step not reported", async () => {
+    const target = path.join(tmpRoot, "fleet/host/people.md");
+    await fs.mkdir(path.dirname(target), { recursive: true });
+    await fs.writeFile(target, "previous list\n");
+    const { bootstrapFleetSubstrateLocally } = await importFresh();
+    const result = await bootstrapFleetSubstrateLocally({ ...host, peopleFile: null });
+    expect(result).not.toHaveProperty("peopleFileOk");
+    expect(await fs.readFile(target, "utf-8")).toBe("previous list\n");
+  });
+});
+
+// ---------------------------------------------------------------------------
 // BR1 — bootstrap covers host-parent + host-name
 // ---------------------------------------------------------------------------
 

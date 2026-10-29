@@ -1153,6 +1153,53 @@ describe("runBootstrapForHost", () => {
   // pre-existing tests keep passing; these tests explicitly override.
   // -------------------------------------------------------------------------
 
+  describe("step 5c: people-file write", () => {
+    const HAPPY = {
+      "is-enabled": "enabled\nEXIT:0",
+      "daemon-reload": "__RELOAD_OK__",
+      "SETTINGS": "__SETTINGS_OK__",
+      "gsd-context-monitor": "__CLEANUP_OK__",
+      "host/parent": "__HOST_PARENT_OK__",
+      "host/name": "__HOST_NAME_OK__",
+    };
+    const FILE = "People on this machine — x\n\n- amy · relay ID @amy:x\n";
+
+    it("skips the step (file left alone) when no people bytes were resolved", async () => {
+      for (const peopleFile of [undefined, null]) {
+        const { channel, exec } = makeChannel(HAPPY);
+        const result = await runBootstrapForHost(channel, { ...HOST, peopleFile });
+        expect(captureCommands(exec).some((c) => c.includes("host/people.md"))).toBe(false);
+        expect(result).not.toHaveProperty("peopleFileOk");
+        expect(result.hadError).toBe(false);
+      }
+    });
+
+    it("writes the bytes base64-encoded with content-diff idempotency", async () => {
+      const { channel, exec } = makeChannel({ ...HAPPY, "host/people.md": "__PEOPLE_FILE_OK__" });
+      const result = await runBootstrapForHost(channel, { ...HOST, peopleFile: FILE });
+      const cmd = captureCommands(exec).find((c) => c.includes("host/people.md"));
+      expect(cmd).toBeDefined();
+      expect(cmd).toContain(Buffer.from(FILE, "utf8").toString("base64"));
+      expect(cmd).toContain("cmp -s");
+      expect(result.peopleFileOk).toBe(true);
+      expect(result.hadError).toBe(false);
+    });
+
+    it("missing sentinel → peopleFileOk=false, hadError=true", async () => {
+      const { channel } = makeChannel({ ...HAPPY, "host/people.md": "base64: invalid input" });
+      const result = await runBootstrapForHost(channel, { ...HOST, peopleFile: FILE });
+      expect(result.peopleFileOk).toBe(false);
+      expect(result.hadError).toBe(true);
+    });
+
+    it("channel null → peopleFileOk=false, hadError=true", async () => {
+      const { channel } = makeChannel({ ...HAPPY, "host/people.md": null });
+      const result = await runBootstrapForHost(channel, { ...HOST, peopleFile: FILE });
+      expect(result.peopleFileOk).toBe(false);
+      expect(result.hadError).toBe(true);
+    });
+  });
+
   describe("step 5b: host-id write", () => {
     it("writes the machine id (shared across users' rows) when present, else the row id", async () => {
       const withMachine = makeChannel({});

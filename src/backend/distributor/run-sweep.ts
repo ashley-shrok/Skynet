@@ -106,7 +106,14 @@ async function retryOnTransport<T>(
 
 export async function runSweepForHost(
   channel: SshChannel,
-  host: { id: string; name: string; username: string; machineId?: string },
+  host: {
+    id: string;
+    name: string;
+    username: string;
+    machineId?: string;
+    /** People file bytes (machine-people.ts); null/absent leaves the file alone. */
+    peopleFile?: string | null;
+  },
   catalog: readonly CatalogEntry[],
   deps: SweepDeps,
 ): Promise<{ itemsChecked: number; itemsChanged: number; itemsFailed: number }> {

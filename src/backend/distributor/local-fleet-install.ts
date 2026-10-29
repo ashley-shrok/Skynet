@@ -103,6 +103,7 @@ import { computeInstallMode } from "./sweep-logic.js";
 import type { CatalogEntry } from "./catalog.js";
 import type { BootstrapResult } from "./run-bootstrap.js";
 import {
+  MACHINE_PEOPLE_REL_PATH,
   SETTINGS_MERGE_JQ,
   SETTINGS_CHECK_JQ,
   SETTINGS_REQUIRED_KEY_COUNT,
@@ -1365,7 +1366,7 @@ async function removeLegacyFileIfPresent(legacyPath: string): Promise<void> {
  * NEVER REJECTS. Same never-throw contract as installFleetSubstrateLocally.
  */
 export async function bootstrapFleetSubstrateLocally(
-  host: { id: string; name: string; machineId?: string },
+  host: { id: string; name: string; machineId?: string; peopleFile?: string | null },
 ): Promise<BootstrapResult> {
   let alreadyEnabled = false;
   let bootstrapRan = false;
@@ -1578,6 +1579,47 @@ export async function bootstrapFleetSubstrateLocally(
     );
   }
 
+  // ---- Step 5c: people file ----
+  //   Everyone with access to this box and their relay IDs (machine-people.ts).
+  //   Skipped when no bytes were resolved, so a lookup failure never blanks
+  //   the list. Same fail-soft shape as Step 5.
+  let peopleFileOk: boolean | undefined;
+  if (typeof host.peopleFile === "string") {
+    peopleFileOk = false;
+    try {
+      const target = path.join(getLocalHomeRoot(), MACHINE_PEOPLE_REL_PATH);
+      const outcome = await writeContentDiffFile(target, host.peopleFile);
+      if (typeof outcome === "object") {
+        hadError = true;
+        systemLogger.warn(
+          `local-fleet-bootstrap: people-file write failed for ${host.name}`,
+          {
+            operation: "local_fleet_bootstrap_error",
+            site: outcome.site,
+            fleetHostId: host.id,
+            hostName: host.name,
+            finalPath: target,
+            error: outcome.error,
+          },
+        );
+      } else {
+        peopleFileOk = true;
+      }
+    } catch (err) {
+      hadError = true;
+      systemLogger.warn(
+        `local-fleet-bootstrap: people-file step threw unexpectedly for ${host.name}`,
+        {
+          operation: "local_fleet_bootstrap_error",
+          site: "people_file_catchall",
+          fleetHostId: host.id,
+          hostName: host.name,
+          error: err instanceof Error ? err.message : String(err),
+        },
+      );
+    }
+  }
+
   // ---- Step 6: usage-reporter retirement ----
   // Pure fs work — no systemd dependency. Parallel with SSH surface
   // (run-bootstrap.ts Step 6). Idempotent.
@@ -1715,6 +1757,7 @@ export async function bootstrapFleetSubstrateLocally(
     hostParentOk,
     hostNameOk,
     hostIdOk,
+    ...(peopleFileOk === undefined ? {} : { peopleFileOk }),
     usageReporterRetireOk,
     rolesKeyMigrationOk,
     roleSkillsMigrationOk,

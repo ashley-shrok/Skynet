@@ -36,7 +36,7 @@ function bundledPathToRepoPath(bundledPath: string): string {
 }
 
 describe("FLEET_SUBSTRATE_CATALOG", () => {
-  it("Test 1: contains exactly 75 entries (17 conceptual items + agent-supervisor.service unit + file-watch fourth ambient monitor + fleet-status-sweep Phase 92 + pv-context-pct-sweep Phase 95 + ambient-monitor mega-monitor phase + instance-policy-claude-md Phase 114 twinkie + image-gen-skill + image-gen-helper Phase 116 + 24 app-development shape-1 rows (26 originally; favicon.svg row retired 2026-09-28 when the scaffold switched to a static/icon.webp symlink; restore-app.sh row retired 2026-09-30 by the un-archiving campaign, host-side shape) + task-field-check hook + inbox-watcher (fifth ambient-monitor child, shape-agent-supervisor-inbox 2026-10-02) + 4 agent-desktop rows (desktop skill + agent-desktop + desktop-mcp + agent-desktop@.service) + fleet-service agent-services client + pending-context-drain hook)", () => {
+  it("Test 1: contains exactly 75 entries (17 conceptual items + agent-supervisor.service unit + file-watch fourth ambient monitor + fleet-status-sweep Phase 92 + pv-context-pct-sweep Phase 95 + ambient-monitor mega-monitor phase + instance-policy-claude-md Phase 114 twinkie + image-gen-skill + image-gen-helper Phase 116 + 24 app-development shape-1 rows (26 originally; favicon.svg row retired 2026-09-28 when the scaffold switched to a static/icon.webp symlink; restore-app.sh row retired 2026-09-30 by the un-archiving campaign, host-side shape) + task-field-check hook + inbox-watcher (fifth ambient-monitor child, shape-agent-supervisor-inbox 2026-10-02) + 4 agent-desktop rows (desktop skill + agent-desktop + desktop-mcp + agent-desktop@.service) + fleet-service agent-services client + pending-context-drain hook + machine-people hook)", () => {
     // 17 = 6 single-file skills + agent-relay (SKILL.md + recv.sh counted as
     // one item) + id (SKILL.md + 3 companions counted as one item) + 8 helper
     // scripts + 1 mega-monitor launcher (ambient-monitor) + 1 Phase 114 twinkie
@@ -137,7 +137,8 @@ describe("FLEET_SUBSTRATE_CATALOG", () => {
     // compaction) — 75 → 76.
     // -1 for context-watch, retired with reset (Condense) — 76 → 75.
     // +2 for the notify-me and call-me skills (done-bell) — 75 → 77.
-    expect(FLEET_SUBSTRATE_CATALOG.length).toBe(77);
+    // +1 machine-people (SessionStart hook — people on this machine) — 77 → 78.
+    expect(FLEET_SUBSTRATE_CATALOG.length).toBe(78);
   });
 
   it("Test 2: every bundled row's bundledPath starts with /app/fleet-substrate/skills/, /app/fleet-substrate/scripts/, or /app/fleet-substrate/user-onboarding/", () => {
@@ -313,7 +314,8 @@ describe("FLEET_SUBSTRATE_CATALOG", () => {
     // (interactive-messages-gc retired 2026-10-25 — 24 → 23)
     // + precompact-reground (PreCompact hook — re-ground after compaction)
     // - context-watch (retired with reset, Condense campaign)
-    expect(scriptRows.length).toBe(23);
+    // + machine-people (SessionStart hook — people on this machine)
+    expect(scriptRows.length).toBe(24);
     // user-onboarding files: agent-supervisor.service
     // + scheduled-agents-scheduler.service (this ship: move
     // scheduled-agents scheduler from in-process agent-supervisor child
@@ -470,7 +472,8 @@ describe("FLEET_SUBSTRATE_CATALOG", () => {
     // -1 for the interactive-messages SKILL.md — 75 → 74.
     // +1 for precompact-reground — 74 → 75.
     // -1 for context-watch, retired with reset — 75 → 74.
-    expect(bundled.length).toBe(76);
+    // +1 for machine-people — 76 → 77.
+    expect(bundled.length).toBe(77);
     expect(runtime.length).toBe(1);
 
     // Every bundled row retains bundledPath under /app/fleet-substrate/
