@@ -14,6 +14,7 @@ import { useIsMobile } from "@/hooks/use-mobile";
 import { systemLogger } from "@/lib/frontend-logger";
 import { encodeWorkspaceSpec, specForTab } from "@/lib/tab-url";
 import { useIdentities } from "@/state/identities-store";
+import { desktopOpensFullScreen, requestDesktopBack } from "./desktop-drag";
 import { PANE_BAR_BUTTON_CLASS, PaneBar } from "./PaneBar";
 
 // ─── DesktopPane — an agent's virtual desktop as a split-view leaf ─────────
@@ -30,6 +31,10 @@ import { PANE_BAR_BUTTON_CLASS, PaneBar } from "./PaneBar";
 //   - Title: monitor glyph + the agent's name; subtitle says whether this is
 //     view only, under the user's control, or paused by someone else.
 //   - Menu: Move to new tab (desktop) → Close (desktop).
+//
+// On a phone the pane is the desktop's full-screen view: the bar's back
+// button returns to the agent's conversation (AppShell, DESKTOP_BACK_EVENT)
+// rather than the conversation list.
 //
 // Control is handed back when the pane closes, hides, or loses its stream —
 // the session's own rules. If the desktop stops, the pane stays with the
@@ -55,6 +60,8 @@ export function DesktopPane({
   onCloseTab,
 }: DesktopPaneProps): ReactElement {
   const isMobile = useIsMobile();
+  // A phone shows this pane as the desktop's full-screen view.
+  const phoneFullScreen = desktopOpensFullScreen();
   const isTouchDevice = useIsTouchDevice();
   const displayRef = useRef<GuacamoleDisplayHandle | null>(null);
   const { byHostKey } = useIdentities();
@@ -78,7 +85,9 @@ export function DesktopPane({
 
   const menuItems = useMemo<RowKebabMenuItem[]>(() => {
     const items: RowKebabMenuItem[] = [];
-    if (isMobile) return items;
+    // No new tabs or closing panes on a phone (held sideways, it's wider than
+    // the narrow-screen breakpoint); back is how it leaves.
+    if (isMobile || phoneFullScreen) return items;
     const spec = specForTab({ type: "desktop", desktop: { hostId, identityKey } });
     if (spec !== null) {
       items.push({
@@ -109,7 +118,7 @@ export function DesktopPane({
       });
     }
     return items;
-  }, [isMobile, hostId, identityKey, tabId, onCloseTab]);
+  }, [isMobile, phoneFullScreen, hostId, identityKey, tabId, onCloseTab]);
 
   return (
     <div className="flex flex-col h-full w-full" data-testid="desktop-pane">
@@ -132,6 +141,11 @@ export function DesktopPane({
         titleIcon={<Monitor width={12} height={12} />}
         menuItems={menuItems}
         onSelectPane={onSelectPane}
+        back={
+          phoneFullScreen
+            ? { label: "Back to conversation", onBack: () => requestDesktopBack(tabId) }
+            : undefined
+        }
         navButtons={
           <>
             <button

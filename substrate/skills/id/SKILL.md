@@ -1162,8 +1162,10 @@ not something agents drive.
   screen. Control is handed back when the pane closes or its connection
   drops. If the desktop stops, the pane stays with a "desktop isn't
   running" notice and a **Start desktop** button. Desktop panes come back
-  after a page reload. Desktop only — there's no way to open one on a
-  phone.
+  after a page reload. On a phone the desktop opens full screen instead
+  (the green button, or **Open full screen** on the Desktop tab), with this
+  bar; its back button returns to the agent's conversation and hands control
+  back.
   *Agent-side:* see the `desktop` skill (§ If the user takes control) —
   control taken from a pane pauses you exactly as from the modal.
 
@@ -1452,7 +1454,8 @@ crown, then gear.
 - **Round buttons beside the task pill.** Just to the right of the pill,
   shown only while their condition is true, each a shortcut into the
   identity modal: a green **monitor** button while the agent's virtual
-  desktop is running (opens the Desktop tab), and an amber button while the
+  desktop is running (opens the Desktop tab; on a phone, the desktop full
+  screen), and an amber button while the
   agent has local work not pushed to any remote (opens the Git tab). Both
   are the pill's height. They pulse briefly when they appear, then hold a
   steady color. On desktop the green button can also be dragged into the
@@ -1548,7 +1551,8 @@ crown, then gear.
     strip floats over the desktop.
     **Open beside conversation** (desktop only) closes the modal and opens
     the desktop in its own pane to the right of the conversation
-    (§ Desktop bar).
+    (§ Desktop bar). On a phone it's **Open full screen**, which keeps
+    control if the user has it.
     *Agent-side:* see the `desktop` skill (§ If the user takes control).
 
 - **A role from an agent (click a role name in the identity modal's

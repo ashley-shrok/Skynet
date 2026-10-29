@@ -23,14 +23,14 @@ Remote desktops in Skynet should be usable from a phone or tablet, not just watc
 ## Shapes
 
 - **[declared] shape-touch-input** — touch becomes mouse input (trackpad and direct modes plus a switch), pinch-zoom and pan, a keyboard button that raises the phone's keyboard, and the existing key strip on agent desktops. Covers agent desktops and RDP/VNC/telnet alike. — closed (2026-10-29, shape-touch-input.closed.md)
-- **[declared] shape-phone-fullscreen-desktop** — an agent's desktop opens full screen on a phone, like RDP sessions do, with the controls it needs. — in_progress
+- **[declared] shape-phone-fullscreen-desktop** — an agent's desktop opens full screen on a phone, like RDP sessions do, with the controls it needs. — closed (2026-10-29, shape-phone-fullscreen-desktop.closed.md)
 - **[declared] shape-touch-key-strip** — a touch-first redesign of the shared key strip (terminal, RDP/VNC, agent desktops). — in_progress
 
 ## Other work
 
 - **What's-new note for the whole campaign** — one note covering every shape, shown to Ashley for approval of its exact wording at `/campaign close`, before the deploy. — open
 
-- **Real-phone check at hand-off** — touch input was checked in-process and in emulated Android Chrome and iPhone Safari, not on a real phone. Emulated Safari also disagreed with a real iPhone on one point (the key strip's taps, which work for Ashley on iOS 18). The campaign-close hand-off should ask Ashley to try it on her iPhone. — open
+- **Real-phone check at hand-off** — touch input was checked in-process and in emulated Android Chrome and iPhone Safari, not on a real phone. Emulated Safari also disagreed with a real iPhone on one point (the key strip's taps, which work for Ashley on iOS 18). The campaign-close hand-off should ask Ashley to try it on her iPhone. That includes the full-screen agent desktop from shape 2: the green button, back to the conversation, and the phone's own back gesture, including after a reload. — open
 
 ## Lingerers (explicitly approved)
 

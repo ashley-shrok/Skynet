@@ -52,6 +52,7 @@ import type {
   FontSizeId,
 } from "@/types/ui-types";
 import { isAppTab, isDesktopTab, isFileTab } from "@/types/ui-types";
+import { usePhoneDesktop } from "@/shell/use-phone-desktop";
 import { applyAccentColor, applyFontSize } from "@/lib/theme";
 import { useTheme } from "@/components/theme-provider";
 import {
@@ -77,6 +78,7 @@ import { setVoiceModeSettings } from "@/features/pretty-view/voice-mode-settings
 import {
   DESKTOP_DRAG_MIME,
   OPEN_DESKTOP_PANE_EVENT,
+  desktopOpensFullScreen,
   parseDesktopDragPayload,
   type DesktopDragPayload,
 } from "@/shell/desktop-drag";
@@ -3586,6 +3588,20 @@ export function AppShell({
   // split open, the shown conversation (if any) splits; otherwise the desktop
   // fills the area.
   const openDesktopBesideRef = useRef<(payload: DesktopDragPayload) => void>(() => {});
+  const phoneDesktop = usePhoneDesktop(
+    tabs,
+    (id) => doCloseTabRef.current(id),
+    (hostId, identityKey) => {
+      const host = hostsById.get(hostId);
+      if (!host) return null;
+      return openTab(host, "terminal", undefined, {
+        targetTmuxSession: identityKey,
+        label: identityKey,
+        allowCreateTmux: false,
+      });
+    },
+    selectedConversationId,
+  );
   openDesktopBesideRef.current = (payload: DesktopDragPayload) => {
     const convTab = tabs.find(
       (t) =>
@@ -3594,6 +3610,11 @@ export function AppShell({
         t.targetTmuxSession?.toLowerCase() === payload.identityKey,
     );
     const newTabId = openDesktopTab(payload);
+    // A phone: the desktop takes the whole screen (no split).
+    if (desktopOpensFullScreen()) {
+      phoneDesktop.openFullScreen(newTabId, payload, selectedConversationId);
+      return;
+    }
     const convPath =
       splitTree !== null && convTab !== undefined ? findLeaf(splitTree, convTab.id) : null;
     systemLogger.info("[desktop-pane] open beside conversation", {
@@ -4083,8 +4104,17 @@ export function AppShell({
   const hideBackButtonForModal = isTouchDevice && anyIdentityModalOpen;
   // Swipe right on the conversation screen drags the list back in.
   const swipeListLayerRef = useRef<HTMLDivElement>(null);
+  // Not over a phone's full-screen desktop: the desktop takes its own touches,
+  // and its way back is to the conversation (bar button, phone back gesture),
+  // which the list sliding in would misstate.
+  const selectedTabForSwipe = tabs.find((t) => t.id === selectedConversationId);
+  const onFullScreenDesktop =
+    splitTree === null &&
+    selectedTabForSwipe !== undefined &&
+    isDesktopTab(selectedTabForSwipe) &&
+    desktopOpensFullScreen();
   useSwipeToList({
-    enabled: isTouchDevice && !isMobileListScreen && !anyIdentityModalOpen,
+    enabled: isTouchDevice && !isMobileListScreen && !anyIdentityModalOpen && !onFullScreenDesktop,
     layerRef: swipeListLayerRef,
     onCommit: navigateToList,
   });

@@ -53,7 +53,7 @@ vi.mock("@/state/conversation-store", () => ({
 import { TaskPill } from "./TaskPill";
 import { __setSessionDesktopRunningForTests } from "@/api/fleet-status-client";
 import { parseBadgePayload, BADGE_MIME } from "@/shell/badge-drag";
-import { DESKTOP_DRAG_MIME } from "@/shell/desktop-drag";
+import { DESKTOP_DRAG_MIME, OPEN_DESKTOP_PANE_EVENT } from "@/shell/desktop-drag";
 
 function setMobileViewport(isMobile: boolean) {
   Object.defineProperty(window, "innerWidth", {
@@ -302,6 +302,39 @@ describe("TaskPill", () => {
       expect(onOpen).toHaveBeenCalledWith("desktop");
       act(() => __setSessionDesktopRunningForTests(1, "willow", false));
       expect(screen.queryByTestId("pv-desktop-button")).toBeNull();
+    });
+
+    it("on a phone the desktop button opens the desktop full screen, not the agent window", async () => {
+      vi.stubGlobal("screen", { width: 844, height: 390 }); // a phone, held sideways
+      vi.stubGlobal("matchMedia", (q: string) => ({ matches: q.includes("coarse"), media: q, addEventListener: () => {}, removeEventListener: () => {} }));
+      const requests: unknown[] = [];
+      const onReq = (e: Event) => requests.push((e as CustomEvent).detail);
+      window.addEventListener(OPEN_DESKTOP_PANE_EVENT, onReq);
+      try {
+        const user = userEvent.setup();
+        const { onOpen } = renderPill();
+        act(() => __setSessionDesktopRunningForTests(1, "willow", true));
+        await user.click(screen.getByTestId("pv-desktop-button"));
+        expect(onOpen).not.toHaveBeenCalled();
+        expect(requests).toEqual([{ hostId: 1, identityKey: "willow", label: "Willow" }]);
+      } finally {
+        window.removeEventListener(OPEN_DESKTOP_PANE_EVENT, onReq);
+        vi.unstubAllGlobals();
+      }
+    });
+
+    it("on a tablet the desktop button still opens the agent window", async () => {
+      vi.stubGlobal("screen", { width: 820, height: 1180 });
+      vi.stubGlobal("matchMedia", (q: string) => ({ matches: q.includes("coarse"), media: q, addEventListener: () => {}, removeEventListener: () => {} }));
+      try {
+        const user = userEvent.setup();
+        const { onOpen } = renderPill();
+        act(() => __setSessionDesktopRunningForTests(1, "willow", true));
+        await user.click(screen.getByTestId("pv-desktop-button"));
+        expect(onOpen).toHaveBeenCalledWith("desktop");
+      } finally {
+        vi.unstubAllGlobals();
+      }
     });
 
     it("dragging the desktop button carries only the desktop payload (it opens a desktop pane)", () => {

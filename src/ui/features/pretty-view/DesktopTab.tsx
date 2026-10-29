@@ -10,18 +10,21 @@
  * Hiding the tab or closing the modal drops the stream and hands back control.
  *
  * "Open beside the conversation" (desktop only) hands the desktop to a split
- * pane next to the conversation and closes the agent window.
+ * pane next to the conversation and closes the agent window. On a phone the
+ * same button is "Open full screen": the desktop opens on its own screen, and
+ * control, if held, is handed over to it rather than back to the agent.
  *
  * The identity modal only shows this tab once useDesktopRunning
  * (use-desktop-running.ts) sees the desktop running.
  */
 
-import { Eye, Hand, MousePointer2, PanelRightOpen, RefreshCw, Undo2 } from "lucide-react";
+import { Eye, Hand, Maximize2, MousePointer2, PanelRightOpen, RefreshCw, Undo2 } from "lucide-react";
 import { useRef } from "react";
 import { useModalFullscreen } from "@/components/modal";
 import { KitButton, KitChip, KitToolbar, KitToolbarSpacer } from "@/components/kit";
 import type { GuacamoleDisplayHandle } from "@/features/guacamole/GuacamoleDisplay";
 import { TouchDesktopButtons } from "@/features/guacamole/touch/TouchDesktopButtons";
+import { desktopOpensFullScreen } from "@/shell/desktop-drag";
 import { useIsTouchDevice } from "@/hooks/use-is-touch-device";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { DesktopStage, desktopGeometry, useDesktopSession } from "./desktop-session";
@@ -43,7 +46,7 @@ export default function DesktopTab({
   isVisible: boolean;
   /** Told when this tab takes or gives up control (the modal stops Esc from closing it meanwhile). */
   onControlChange?: (inControl: boolean) => void;
-  /** Open the desktop in a split pane instead; absent → no button. */
+  /** Open the desktop in a split pane (on a phone: full screen) instead; absent → no button. */
   onPopOut?: () => void;
 }): JSX.Element {
   const session = useDesktopSession({
@@ -53,10 +56,12 @@ export default function DesktopTab({
     logTag: "desktop-tab",
     onControlChange,
   });
-  const { view, taking, inControl, connect, takeControl } = session;
+  const { view, taking, inControl, connect, takeControl, handOverControl } = session;
   // Phone: the modal is fullscreen and the body just takes what's left.
   const fullscreen = useModalFullscreen();
-  // No split view on a phone, so nowhere to pop out to.
+  // A phone opens it full screen instead (judged by its short side, so a
+  // phone held sideways still counts); other narrow screens have no split view.
+  const isPhone = desktopOpensFullScreen();
   const isMobile = useIsMobile();
   const isTouchDevice = useIsTouchDevice();
   const displayRef = useRef<GuacamoleDisplayHandle | null>(null);
@@ -123,7 +128,21 @@ export default function DesktopTab({
             <Undo2 size={13} aria-hidden="true" /> Hand back to agent
           </KitButton>
         )}
-        {onPopOut && !isMobile && (
+        {onPopOut && isPhone && (
+          <KitButton
+            size="sm"
+            onClick={() => {
+              // Keep control across the switch: the full-screen view takes it over.
+              handOverControl();
+              onPopOut();
+            }}
+            title="Show this desktop on its own screen"
+            data-testid="desktop-full-screen"
+          >
+            <Maximize2 size={13} aria-hidden="true" /> Open full screen
+          </KitButton>
+        )}
+        {onPopOut && !isPhone && !isMobile && (
           <KitButton
             size="sm"
             onClick={onPopOut}

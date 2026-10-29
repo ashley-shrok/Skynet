@@ -7,6 +7,13 @@ import * as React from "react";
 // gates space-adaptive behaviour that DOES want to fire at narrow widths.
 const TOUCH_QUERY = "(pointer: coarse) and (hover: none)";
 
+/** The same check, read once (outside React). */
+export function isTouchDeviceNow(): boolean {
+  return typeof window !== "undefined" && typeof window.matchMedia === "function"
+    ? window.matchMedia(TOUCH_QUERY).matches
+    : false;
+}
+
 export function useIsTouchDevice(): boolean {
   const [isTouchDevice, setIsTouchDevice] = React.useState<boolean>(() => {
     if (typeof window === "undefined") return false;  // SSR safety, even though skynet is SPA-only

@@ -15,7 +15,10 @@ import userEvent from "@testing-library/user-event";
 const mobileState = { isMobile: false };
 vi.mock("@/hooks/use-mobile", () => ({ useIsMobile: () => mobileState.isMobile }));
 const touchState = { isTouchDevice: false };
-vi.mock("@/hooks/use-is-touch-device", () => ({ useIsTouchDevice: () => touchState.isTouchDevice }));
+vi.mock("@/hooks/use-is-touch-device", () => ({
+  useIsTouchDevice: () => touchState.isTouchDevice,
+  isTouchDeviceNow: () => touchState.isTouchDevice,
+}));
 vi.mock("@/state/identities-store", () => ({
   useIdentities: () => ({
     byKey: new Map(),
@@ -44,6 +47,7 @@ vi.mock("@/features/guacamole/GuacamoleDisplay", () => ({
 }));
 
 import { DesktopPane } from "./DesktopPane";
+import { DESKTOP_BACK_EVENT } from "./desktop-drag";
 
 const view = { token: "view", geometry: "1280x800", userHasControl: false };
 const drive = { token: "drive", geometry: "1280x800", userHasControl: true };
@@ -181,6 +185,48 @@ describe("DesktopPane", () => {
     expect(getByTestId("desktop-pane-touch-mode")).toBeTruthy();
     expect(getByTestId("desktop-pane-keyboard")).toBeTruthy();
     expect(getByTestId("key-strip")).toBeTruthy();
+  });
+
+  it("on a phone, back returns to the agent's conversation, not the list", async () => {
+    touchState.isTouchDevice = true;
+    vi.stubGlobal("screen", { width: 390, height: 844 });
+    const backs: unknown[] = [];
+    const onBack = (e: Event) => backs.push((e as CustomEvent).detail);
+    window.addEventListener(DESKTOP_BACK_EVENT, onBack);
+    try {
+      const { getByTestId } = renderPane();
+      const btn = getByTestId("desktop-pane-back-to-list");
+      expect(btn.getAttribute("aria-label")).toBe("Back to conversation");
+      fireEvent.click(btn);
+      expect(backs).toEqual([{ tabId: "desk-1" }]);
+    } finally {
+      window.removeEventListener(DESKTOP_BACK_EVENT, onBack);
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("on a tablet, back goes to the conversation list as before", () => {
+    touchState.isTouchDevice = true;
+    vi.stubGlobal("screen", { width: 820, height: 1180 });
+    try {
+      const { getByTestId } = renderPane();
+      expect(getByTestId("desktop-pane-back-to-list").getAttribute("aria-label")).toBe(
+        "Back to conversations",
+      );
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("on a phone the bar menu offers no new tab or close, even held sideways", () => {
+    touchState.isTouchDevice = true;
+    vi.stubGlobal("screen", { width: 844, height: 390 });
+    try {
+      const { container } = renderPane({ onCloseTab: vi.fn() });
+      expect(container.querySelector('[data-testid="desktop-pane-kebab-trigger"]')).toBeNull();
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 
   it("no touch screen: in control shows no touch controls or key strip", async () => {

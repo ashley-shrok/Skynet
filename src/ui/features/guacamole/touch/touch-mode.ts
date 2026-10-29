@@ -20,7 +20,9 @@ export const TOGGLE_KEYBOARD_EVENT = "skynet:guacamole-toggle-keyboard";
 /** A phone: the screen's short side is under 600 CSS px, whichever way it's held. */
 export function isPhoneScreen(): boolean {
   if (typeof window === "undefined" || !window.screen) return false;
-  return Math.min(window.screen.width, window.screen.height) < 600;
+  const short = Math.min(window.screen.width, window.screen.height);
+  // 0 = the size isn't known (not a real screen): not a phone.
+  return short > 0 && short < 600;
 }
 
 export function defaultTouchMode(): TouchMouseMode {

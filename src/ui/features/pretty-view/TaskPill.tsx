@@ -37,7 +37,7 @@ import {
 import { AvatarImage } from "@/components/avatar-image";
 import { KitScopeContext, type KitScopeValue } from "@/components/kit/scope";
 import { writeBadgeDragData, type BadgeDragSource } from "@/shell/badge-drag";
-import { writeDesktopDragData } from "@/shell/desktop-drag";
+import { desktopOpensFullScreen, requestDesktopPane, writeDesktopDragData } from "@/shell/desktop-drag";
 import {
   RowKebabMenu,
   useRowKebabContextMenu,
@@ -149,6 +149,15 @@ export function TaskPill({
     console.info(
       `[task-pill] open hostId=${hostId} identityKey=${identityKey} tab=${tab ?? "default"}`,
     );
+    // A phone opens the desktop full screen, skipping the agent window.
+    if (tab === "desktop" && identity && Number.isFinite(hostId) && desktopOpensFullScreen()) {
+      requestDesktopPane({
+        hostId,
+        identityKey: identity.identityKey.toLowerCase(),
+        label: identity.displayName || identity.identityKey,
+      });
+      return;
+    }
     onOpen(tab);
   };
 

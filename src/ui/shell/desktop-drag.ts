@@ -8,6 +8,8 @@
 // the drop lane's Close / Archive and the sidebar's filing targets. Once the
 // pane exists, its bar drags as a badge like every other pane.
 
+import { isPhoneScreen } from "@/features/guacamole/touch/touch-mode";
+import { isTouchDeviceNow } from "@/hooks/use-is-touch-device";
 import { APP_HOST_ID_RE, DESKTOP_IDENTITY_RE } from "@/lib/tab-url";
 
 export const DESKTOP_DRAG_MIME = "application/x-skynet-desktop";
@@ -59,4 +61,30 @@ export const OPEN_DESKTOP_PANE_EVENT = "skynet:open-desktop-pane";
 
 export function requestDesktopPane(payload: DesktopDragPayload): void {
   window.dispatchEvent(new CustomEvent(OPEN_DESKTOP_PANE_EVENT, { detail: payload }));
+}
+
+/**
+ * Window event a phone's full-screen desktop fires for its bar's back button:
+ * go back to the agent's conversation. Detail is `{ tabId }` — the desktop's tab.
+ */
+export const DESKTOP_BACK_EVENT = "skynet:desktop-back";
+
+export function requestDesktopBack(tabId: string): void {
+  window.dispatchEvent(new CustomEvent(DESKTOP_BACK_EVENT, { detail: { tabId } }));
+}
+
+/**
+ * History marker for a phone's full-screen desktop: opening one adds a
+ * history entry, so the phone's own back gesture returns to the conversation
+ * too. The entry keeps the same address.
+ */
+export const DESKTOP_HISTORY_KEY = "__skynetPhoneDesktop";
+
+/**
+ * Whether an agent's desktop opens full screen here: a touch phone (judged by
+ * the screen's short side, so held sideways still counts). Tablets and
+ * computers keep the agent window and split view.
+ */
+export function desktopOpensFullScreen(): boolean {
+  return isTouchDeviceNow() && isPhoneScreen();
 }

@@ -43,7 +43,9 @@ vi.mock("@/features/guacamole/GuacamoleDisplay", () => ({
 const mobileState = { isMobile: false };
 vi.mock("@/hooks/use-mobile", () => ({ useIsMobile: () => mobileState.isMobile }));
 
+import { StrictMode } from "react";
 import DesktopTab from "./DesktopTab";
+import { HANDOVER_MS, __resetDesktopHandoversForTest } from "./desktop-session";
 
 function lastDisplay() {
   return displayProps[displayProps.length - 1] as {
@@ -71,6 +73,8 @@ beforeEach(() => {
   displayProps.length = 0;
   mobileState.isMobile = false;
   vi.spyOn(console, "info").mockImplementation(() => {});
+  vi.unstubAllGlobals();
+  __resetDesktopHandoversForTest();
 });
 
 describe("DesktopTab", () => {
@@ -471,6 +475,148 @@ describe("DesktopTab", () => {
       render(<DesktopTab identityKey="alice" hostId={7} isVisible onPopOut={vi.fn()} />);
       await screen.findAllByTestId("guac-display");
       expect(screen.queryByTestId("desktop-pop-out")).toBeNull();
+    });
+  });
+
+  describe("on a phone: open full screen", () => {
+    const view = { token: "view", geometry: "1280x800", userHasControl: false };
+    const drive = { token: "drive", geometry: "1280x800", userHasControl: true };
+    const phone = (w: number, h: number) => {
+      vi.stubGlobal("screen", { width: w, height: h });
+      vi.stubGlobal("matchMedia", (q: string) => ({ matches: q.includes("coarse"), media: q, addEventListener: () => {}, removeEventListener: () => {} }));
+    };
+
+    it("offers Open full screen instead of Open beside conversation, held either way", async () => {
+      connectDesktop.mockResolvedValue(view);
+      phone(390, 844);
+      mobileState.isMobile = true;
+      const { unmount } = render(<DesktopTab identityKey="alice" hostId={7} isVisible onPopOut={vi.fn()} />);
+      await screen.findByTestId("guac-display");
+      expect(screen.getByTestId("desktop-full-screen")).toBeTruthy();
+      expect(screen.queryByTestId("desktop-pop-out")).toBeNull();
+      unmount();
+      // Sideways the window is wide, but it's still a phone.
+      phone(844, 390);
+      mobileState.isMobile = false;
+      render(<DesktopTab identityKey="alice" hostId={7} isVisible onPopOut={vi.fn()} />);
+      await screen.findAllByTestId("guac-display");
+      expect(screen.getByTestId("desktop-full-screen")).toBeTruthy();
+      expect(screen.queryByTestId("desktop-pop-out")).toBeNull();
+    });
+
+    it("a small screen without touch isn't a phone", async () => {
+      connectDesktop.mockResolvedValue(view);
+      vi.stubGlobal("screen", { width: 390, height: 844 });
+      vi.stubGlobal("matchMedia", (q: string) => ({ matches: false, media: q, addEventListener: () => {}, removeEventListener: () => {} }));
+      render(<DesktopTab identityKey="alice" hostId={7} isVisible onPopOut={vi.fn()} />);
+      await screen.findByTestId("guac-display");
+      expect(screen.queryByTestId("desktop-full-screen")).toBeNull();
+    });
+
+    it("a tablet keeps Open beside conversation", async () => {
+      connectDesktop.mockResolvedValue(view);
+      phone(820, 1180);
+      render(<DesktopTab identityKey="alice" hostId={7} isVisible onPopOut={vi.fn()} />);
+      await screen.findByTestId("guac-display");
+      expect(screen.getByTestId("desktop-pop-out")).toBeTruthy();
+      expect(screen.queryByTestId("desktop-full-screen")).toBeNull();
+    });
+
+    it("watching: opens full screen and the full-screen view starts view only", async () => {
+      connectDesktop.mockResolvedValue(view);
+      phone(390, 844);
+      const onPopOut = vi.fn();
+      const { unmount } = render(<DesktopTab identityKey="alice" hostId={7} isVisible onPopOut={onPopOut} />);
+      fireEvent.click(await screen.findByTestId("desktop-full-screen"));
+      expect(onPopOut).toHaveBeenCalledTimes(1);
+      unmount();
+      // The next view of this desktop connects view-only.
+      render(<DesktopTab identityKey="alice" hostId={7} isVisible />);
+      await screen.findByTestId("desktop-view-only");
+      expect(takeDesktopControl).not.toHaveBeenCalled();
+      expect(releaseDesktopControl).not.toHaveBeenCalled();
+    });
+
+    it("in control: control carries over to the next view without being released", async () => {
+      connectDesktop.mockResolvedValue(view);
+      takeDesktopControl.mockResolvedValue(drive);
+      phone(390, 844);
+      const onPopOut = vi.fn();
+      const first = render(<DesktopTab identityKey="alice" hostId={7} isVisible onPopOut={onPopOut} />);
+      fireEvent.click(await screen.findByTestId("desktop-take-control"));
+      await screen.findByTestId("desktop-in-control");
+      fireEvent.click(screen.getByTestId("desktop-full-screen"));
+      first.unmount();
+      expect(releaseDesktopControl).not.toHaveBeenCalled();
+      expect(toastInfo).not.toHaveBeenCalled();
+
+      connectDesktop.mockClear();
+      render(<DesktopTab identityKey="alice" hostId={7} isVisible />);
+      await screen.findByTestId("desktop-in-control");
+      expect(takeDesktopControl).toHaveBeenCalledTimes(2);
+      expect(connectDesktop).not.toHaveBeenCalled();
+      expect(lastDisplay().viewOnly).toBe(false);
+      expect(releaseDesktopControl).not.toHaveBeenCalled();
+    });
+
+    it("a carried-over control survives the effect running twice (no view-only connect over it)", async () => {
+      connectDesktop.mockResolvedValue(view);
+      takeDesktopControl.mockResolvedValue(drive);
+      phone(390, 844);
+      const first = render(<DesktopTab identityKey="alice" hostId={7} isVisible onPopOut={vi.fn()} />);
+      fireEvent.click(await screen.findByTestId("desktop-take-control"));
+      await screen.findByTestId("desktop-in-control");
+      fireEvent.click(screen.getByTestId("desktop-full-screen"));
+      first.unmount();
+      connectDesktop.mockClear();
+      render(
+        <StrictMode>
+          <DesktopTab identityKey="alice" hostId={7} isVisible />
+        </StrictMode>,
+      );
+      await screen.findByTestId("desktop-in-control");
+      await act(async () => {
+        await new Promise((r) => setTimeout(r, 30));
+      });
+      expect(connectDesktop).not.toHaveBeenCalled();
+      expect(screen.getByTestId("desktop-in-control")).toBeTruthy();
+      expect(releaseDesktopControl).not.toHaveBeenCalled();
+    });
+
+    it("a carried-over control that can't be kept is handed back, and says so", async () => {
+      connectDesktop.mockResolvedValue(view);
+      takeDesktopControl.mockResolvedValueOnce(drive).mockRejectedValueOnce(new Error("host_unreachable"));
+      phone(390, 844);
+      const first = render(<DesktopTab identityKey="alice" hostId={7} isVisible onPopOut={vi.fn()} />);
+      fireEvent.click(await screen.findByTestId("desktop-take-control"));
+      await screen.findByTestId("desktop-in-control");
+      fireEvent.click(screen.getByTestId("desktop-full-screen"));
+      first.unmount();
+      render(<DesktopTab identityKey="alice" hostId={7} isVisible />);
+      await screen.findByTestId("desktop-view-only");
+      expect(releaseDesktopControl).toHaveBeenCalledWith("alice", 7);
+      expect(toastError).toHaveBeenCalledWith("Couldn't keep control — handed back to agent");
+    });
+
+    it("a handed-over control nothing picks up is released", async () => {
+      vi.useFakeTimers({ shouldAdvanceTime: true });
+      try {
+        connectDesktop.mockResolvedValue(view);
+        takeDesktopControl.mockResolvedValue(drive);
+        phone(390, 844);
+        const first = render(<DesktopTab identityKey="alice" hostId={7} isVisible onPopOut={vi.fn()} />);
+        fireEvent.click(await screen.findByTestId("desktop-take-control"));
+        await screen.findByTestId("desktop-in-control");
+        fireEvent.click(screen.getByTestId("desktop-full-screen"));
+        first.unmount();
+        expect(releaseDesktopControl).not.toHaveBeenCalled();
+        await act(async () => {
+          await vi.advanceTimersByTimeAsync(HANDOVER_MS + 100);
+        });
+        expect(releaseDesktopControl).toHaveBeenCalledWith("alice", 7);
+      } finally {
+        vi.useRealTimers();
+      }
     });
   });
 });

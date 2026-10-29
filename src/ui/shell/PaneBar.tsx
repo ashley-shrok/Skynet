@@ -100,6 +100,11 @@ export interface PaneBarProps {
   rightControls?: ReactNode;
   menuItems: RowKebabMenuItem[];
   onSelectPane?: (tabId: string) => void;
+  /**
+   * Touch screens: what the back button does, and its label. Absent → back to
+   * the conversation list.
+   */
+  back?: { label: string; onBack: () => void };
 }
 
 export function PaneBar({
@@ -116,6 +121,7 @@ export function PaneBar({
   rightControls,
   menuItems,
   onSelectPane,
+  back,
 }: PaneBarProps): ReactElement {
   const barRef = useRef<HTMLDivElement>(null);
   const isMobile = useIsMobile();
@@ -207,17 +213,19 @@ export function PaneBar({
             <button
               type="button"
               data-testid={`${testIdPrefix}-back-to-list`}
-              aria-label="Back to conversations"
-              title="Back to conversations"
+              aria-label={back?.label ?? "Back to conversations"}
+              title={back?.label ?? "Back to conversations"}
               draggable={false}
               onClick={(e) => {
                 e.stopPropagation();
-                systemLogger.info(`[${logTag}] back to conversations`, {
+                systemLogger.info(`[${logTag}] back`, {
                   operation: `${opPrefix}_back_to_list`,
                   tabId,
+                  to: back ? "custom" : "list",
                   ...logContext,
                 });
-                navigateToList();
+                if (back) back.onBack();
+                else navigateToList();
               }}
               className="pane-bar-btn pane-bar-back"
               style={{ marginRight: BACK_TO_LIST_GAP - 2 }}

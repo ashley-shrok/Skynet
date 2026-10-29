@@ -23,6 +23,12 @@
  * fixedRemoteSize, so neither watching nor control ever resizes it — the
  * picture just scales to fill whatever box it is given.
  *
+ * Handing over: a surface that opens another view of the same desktop while
+ * in control (the phone's "Open full screen") hands its lease over instead of
+ * releasing it; the next surface to connect takes control straight away, so
+ * the agent never gets the desktop back in between. Unclaimed after
+ * HANDOVER_MS, the lease is released.
+ *
  * Several surfaces may show the same desktop at once (the tab in one window, a
  * pane in another): the backend shares one tunnel per desktop, and each
  * surface sees `agentPaused` when someone else holds control. A watching
@@ -73,6 +79,8 @@ const START_POLL_MS = 2_000;
 const RENEW_MS = 30_000;
 /** How often a watching surface re-checks whether someone has control. */
 const STATUS_POLL_MS = 15_000;
+/** How long a handed-over lease waits for the next surface before it's released. */
+export const HANDOVER_MS = 10_000;
 
 const DESKTOP_ERROR_COPY: Record<string, WorkspaceErrorCopy> = {
   not_installed: {
@@ -138,6 +146,11 @@ export interface DesktopSession {
   takeControl: () => Promise<void>;
   start: () => Promise<void>;
   onStreamLost: () => void;
+  /**
+   * Pass the lease on to the next surface that opens this desktop, instead of
+   * releasing it (true when there was a lease to pass on).
+   */
+  handOverControl: () => boolean;
 }
 
 /**
@@ -150,6 +163,38 @@ const pendingReleases = new Map<string, Promise<void>>();
 
 function desktopKey(identityKey: string, hostId: number): string {
   return `${hostId}::${identityKey}`;
+}
+
+/** Release the lease, recorded so every surface's connect waits for it. */
+function trackRelease(identityKey: string, hostId: number): Promise<void> {
+  const key = desktopKey(identityKey, hostId);
+  const release = releaseDesktopControl(identityKey, hostId).then(
+    () => {},
+    () => {},
+  );
+  pendingReleases.set(key, release);
+  void release.then(() => {
+    if (pendingReleases.get(key) === release) pendingReleases.delete(key);
+  });
+  return release;
+}
+
+/** Leases handed over and not yet claimed, per desktop: the release timer. */
+const pendingHandovers = new Map<string, ReturnType<typeof setTimeout>>();
+
+/** Take a handed-over lease for this desktop (true when there was one). */
+function claimHandover(key: string): boolean {
+  const timer = pendingHandovers.get(key);
+  if (timer === undefined) return false;
+  clearTimeout(timer);
+  pendingHandovers.delete(key);
+  return true;
+}
+
+/** Test-only: forget handovers between cases. */
+export function __resetDesktopHandoversForTest(): void {
+  for (const t of pendingHandovers.values()) clearTimeout(t);
+  pendingHandovers.clear();
 }
 
 export function useDesktopSession({
@@ -195,16 +240,7 @@ export function useDesktopSession({
         hostId,
         reason,
       });
-      const key = desktopKey(identityKey, hostId);
-      const release = releaseDesktopControl(identityKey, hostId).then(
-        () => {},
-        () => {},
-      );
-      pendingReleases.set(key, release);
-      void release.then(() => {
-        if (pendingReleases.get(key) === release) pendingReleases.delete(key);
-      });
-      return release;
+      return trackRelease(identityKey, hostId);
     },
     [identityKey, hostId, logTag, opPrefix],
   );
@@ -255,22 +291,43 @@ export function useDesktopSession({
     }
   }, [identityKey, hostId, releaseIfHeld, logTag, opPrefix]);
 
-  // Connect when shown; drop the stream (and any control) when hidden.
+  /** A handed-over take is in flight (a re-run effect mustn't connect over it). */
+  const handoverTakingRef = useRef(false);
+  // Assigned below once takeControl exists (it needs connect).
+  const takeControlRef = useRef<(opts?: { handedOver?: boolean }) => Promise<void>>(
+    async () => {},
+  );
+  // Connect when shown — straight into control when a lease was handed over
+  // to this desktop; drop the stream (and any control) when hidden.
   useEffect(() => {
-    if (isVisible) void connect();
-    else {
+    if (isVisible) {
+      if (handoverTakingRef.current) return;
+      if (claimHandover(desktopKey(identityKey, hostId))) {
+        systemLogger.info(`[${logTag}] control handover claimed`, {
+          operation: `${opPrefix}_control_handover_claimed`,
+          identityKey,
+          hostId,
+        });
+        void takeControlRef.current({ handedOver: true });
+      } else void connect();
+    } else {
       connectGenRef.current += 1;
       if (releaseIfHeld("hidden") !== null) toast.info("Handed back to agent");
       setView({ status: "connecting" });
     }
-  }, [isVisible, connect, releaseIfHeld]);
+  }, [isVisible, connect, releaseIfHeld, identityKey, hostId, logTag, opPrefix]);
 
-  const takeControl = useCallback(async () => {
+  const takeControl = useCallback(async (opts?: { handedOver?: boolean }) => {
+    const handedOver = opts?.handedOver === true;
+    // A connect still in flight bows out rather than land over the take.
+    const gen = ++connectGenRef.current;
+    if (handedOver) handoverTakingRef.current = true;
     setTaking(true);
     try {
       const conn = await takeDesktopControl(identityKey, hostId);
-      if (!mountedRef.current) {
-        releaseDesktopControl(identityKey, hostId).catch(() => {});
+      if (!mountedRef.current || gen !== connectGenRef.current) {
+        // Unmounted, hidden or reconnected meanwhile: don't keep the lease.
+        void trackRelease(identityKey, hostId);
         return;
       }
       controlRef.current = true;
@@ -291,11 +348,57 @@ export function useDesktopSession({
         agentPaused: true,
       });
     } catch (err) {
-      if (mountedRef.current)
+      if (handedOver) {
+        // The handed-over lease is still ours: let the agent have it back,
+        // and say so rather than leave a view-only desktop that looks driven.
+        systemLogger.info(`[${logTag}] control handover failed`, {
+          operation: `${opPrefix}_control_handover_failed`,
+          identityKey,
+          hostId,
+          errorClass: errorClassOf(err),
+        });
+        void trackRelease(identityKey, hostId);
+        if (mountedRef.current) {
+          toast.error("Couldn't keep control — handed back to agent");
+          handoverTakingRef.current = false;
+          void connect();
+        }
+      } else if (mountedRef.current) {
         toast.error(desktopErrorCopy(errorClassOf(err)).heading);
+      }
     } finally {
+      if (handedOver) handoverTakingRef.current = false;
       if (mountedRef.current) setTaking(false);
     }
+  }, [identityKey, hostId, logTag, opPrefix, connect]);
+  takeControlRef.current = takeControl;
+
+  const handOverControl = useCallback((): boolean => {
+    if (!controlRef.current) return false;
+    controlRef.current = false;
+    onControlChangeRef.current?.(false);
+    const key = desktopKey(identityKey, hostId);
+    const prev = pendingHandovers.get(key);
+    if (prev !== undefined) clearTimeout(prev);
+    pendingHandovers.set(
+      key,
+      setTimeout(() => {
+        if (!pendingHandovers.has(key)) return;
+        pendingHandovers.delete(key);
+        systemLogger.info(`[${logTag}] control handover unclaimed — released`, {
+          operation: `${opPrefix}_control_handover_unclaimed`,
+          identityKey,
+          hostId,
+        });
+        void trackRelease(identityKey, hostId);
+      }, HANDOVER_MS),
+    );
+    systemLogger.info(`[${logTag}] control handed over`, {
+      operation: `${opPrefix}_control_handed_over`,
+      identityKey,
+      hostId,
+    });
+    return true;
   }, [identityKey, hostId, logTag, opPrefix]);
 
   const inControl = view.status === "live" && view.control;
@@ -374,7 +477,16 @@ export function useDesktopSession({
     }
   }, [identityKey, hostId, connect]);
 
-  return { view, taking, inControl, connect, takeControl, start, onStreamLost };
+  return {
+    view,
+    taking,
+    inControl,
+    connect,
+    takeControl: () => takeControl(),
+    start,
+    onStreamLost,
+    handOverControl,
+  };
 }
 
 /** Width × height of a live view's geometry, or [0, 0] when unknown. */
