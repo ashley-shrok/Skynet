@@ -58,3 +58,46 @@ While an agent is working, the round main button in the composer becomes a bell.
 - Worked by sulfur-box-maintainer-4 inside campaign notify-when-done; ends committed, not pushed, not deployed.
 - **Before the campaign's deploy:** delete Ashley's instance-wide call-me and notify-me (Ashley: "before deploying, it makes sense to like delete them"), so the distributed versions take their place.
 - Tasting snippet used to settle the look: workspace/uat/bell-tasting.js.
+
+---
+
+## Close-Out
+
+**Closed:** 2026-10-29
+**Overall verdict:** closed-hit
+
+### Shape features (conformance)
+
+- **What this is** — present · While the agent works, the main button is a bell offering Notify me / Call me, which send the matching skill the same way the Skills menu does.
+- **Shape: The bell** — present · Bell shows only while working with nothing typed or attached; Send when there is a draft, Resume during an aside, thumbs-up when idle; relay rooms untouched.
+- **Shape: The menu** — present · Pops up above the button in the Skills menu's look; two rows with the shared hint; pointer vs keyboard focus and closing handled by the menu.
+- **Shape: Call me only for people with a phone number** — present · The row only shows when a number is on file; unknown counts as no number.
+- **Shape: Picking sends the skill** — present · Sends notify-me or call-me through the same send as the Skills menu; nothing tracked afterwards.
+- **Shape: The Allow-prompt tie-in** — present · Asks only when Telegram is unlinked, notifications are supported and off, and the browser hasn't been asked; the send happens either way.
+- **Shape: The two skills, distributed, agent-invisible** — present · Agreed text verbatim, distributed, not agent-startable, no tool named.
+- **Shape: The agent guide mention** — present · The composer paragraph describes the bell and its two skills.
+- **Philosophy** — present · The app never reaches the person itself; reuses existing paths; the bell replaces the thumbs-up; no product name.
+- **Prior context** — present · Thumbs-up unchanged when the agent isn't working; skills carry no user identity.
+- **Scope edges** — drifted · Everything in scope present except the What's-new note, which Ashley chose not to have ("No note"); nothing from Out or Tempting-but-no built.
+- **What would make it wrong: The bell appears while the agent is idle, or replaces Send while something is typed** — present · Guarded.
+- **What would make it wrong: The app reaches the person itself, or nags the agent afterwards** — present · Guarded.
+- **What would make it wrong: What reaches the person says only "done"** — present · Guarded by the skill text.
+- **What would make it wrong: Call me offered without a phone number** — present · Guarded.
+- **What would make it wrong: The Allow prompt appears with Telegram, on a phone, or again after answering** — present · Guarded.
+- **What would make it wrong: Notify me sends nothing because the prompt was blocked** — present · Guarded.
+- **What would make it wrong: A menu row is lit before the pointer is on it** — present · Guarded.
+- **What would make it wrong: The work line or composer gains an extra control** — present · Guarded.
+- **What would make it wrong: A product name appears in user-facing text** — present · Guarded.
+
+### Additions (in the result, not in the shape)
+
+None.
+
+### Follow-ups
+
+- What's-new note for the bell not written; Ashley chose "No note" — accepted-as-drift
+- Before the campaign's deploy, delete Ashley's instance-wide call-me and notify-me so the distributed versions take their place — deferred
+
+### Notes
+
+The commit also adds a planning-file line about the separate user-info audit agent — bookkeeping, not product behaviour. Menu open/close behaviour was judged from the menu component it uses, without running it.

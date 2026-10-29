@@ -300,7 +300,19 @@ export class InstanceWideEngine {
 
     let masterChanged = false;
     try {
-      const items = await this.store.listItems();
+      // An item made instance-wide before its name became one of the app's
+      // built-in skills is left alone: the distributor owns that folder now,
+      // and syncing both would flip the file back and forth.
+      const items = (await this.store.listItems()).filter((i) => {
+        if (!this.deps.isReservedName?.(i.kind, i.name)) return true;
+        systemLogger.warn("Instance-wide: skipping item whose name is now built in", {
+          operation: "instance_wide_item_reserved_skipped",
+          machineId: machine.machineId,
+          hostName: machine.hostName,
+          item: itemKey(i.kind, i.name),
+        });
+        return false;
+      });
       const removals = Object.entries(state.tombstones)
         .filter(([, t]) => t.pending.includes(machine.machineId))
         .map(([key]) => key);

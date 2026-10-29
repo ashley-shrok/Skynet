@@ -323,6 +323,25 @@ describe("InstanceWideEngine", () => {
     reserved.stop();
   });
 
+  it("leaves alone an existing item whose name has since become built in", async () => {
+    await engine.promote("skill", "demo", machines[0]);
+    await engine.syncNow();
+    engine.stop();
+    // The app now distributes its own "demo"; the distributor rewrote b's copy.
+    await put("b", "SKILL.md", "---\nname: demo\n---\nbuilt-in\n");
+    const homeOf: Record<string, string> = { "1": "a", "2": "b", "3": "c" };
+    engine = new InstanceWideEngine({
+      store: new InstanceWideStore(path.join(tmp, "store")),
+      listMachines: async () => machines,
+      acquireChannel: async (m) => bashChannel(homes[homeOf[m.machineId]]),
+      isReservedName: (kind, name) => kind === "skill" && name === "demo",
+      immediateDelayMs: 60_000,
+    });
+    await engine.syncNow();
+    expect(read("b", "SKILL.md")).toContain("built-in");
+    expect(read("a", "SKILL.md")).toContain("v1");
+  });
+
   it("remove counts only machines still in the fleet", async () => {
     await engine.promote("skill", "demo", machines[0]);
     await engine.syncNow();

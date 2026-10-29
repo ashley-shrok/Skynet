@@ -122,6 +122,27 @@ describe("ComposeBox — done-bell", () => {
     expect(screen.queryByTestId("done-bell-call")).toBeNull();
   });
 
+  it("leaves out Call me when the phone number couldn't be read", async () => {
+    getMyPhoneMock.mockRejectedValue(new Error("down"));
+    render(<ComposeBox {...baseProps()} />);
+    await settleReach();
+    openMenu(screen.getByTestId("done-bell-button"));
+    await screen.findByTestId("done-bell-notify");
+    expect(screen.queryByTestId("done-bell-call")).toBeNull();
+  });
+
+  it("forgets the phone number on logout", async () => {
+    render(<ComposeBox {...baseProps()} />);
+    await settleReach();
+    act(() => {
+      window.dispatchEvent(new Event("skynet:logout"));
+    });
+    getMyPhoneMock.mockReturnValue(new Promise(() => {}));
+    openMenu(screen.getByTestId("done-bell-button"));
+    await screen.findByTestId("done-bell-notify");
+    expect(screen.queryByTestId("done-bell-call")).toBeNull();
+  });
+
   it("Notify me sends the notify-me skill and jumps to the bottom", async () => {
     const onSend = vi.fn(() => true);
     const onGoodToGo = vi.fn();
@@ -187,6 +208,18 @@ describe("ComposeBox — done-bell", () => {
       browserState = "unsupported";
       await pickNotify();
       expect(setBrowserEnabledMock).not.toHaveBeenCalled();
+    });
+
+    it("asks only once per browser, even if the prompt was closed unanswered", async () => {
+      getTelegramStatusMock.mockResolvedValue({ linked: false });
+      const onSend = vi.fn(() => true);
+      await pickNotify(onSend);
+      expect(setBrowserEnabledMock).toHaveBeenCalledTimes(1);
+      // Closed with X: the browser's permission is still unset.
+      openMenu(screen.getByTestId("done-bell-button"));
+      fireEvent.click(await screen.findByTestId("done-bell-notify"));
+      await waitFor(() => expect(onSend).toHaveBeenCalledTimes(2));
+      expect(setBrowserEnabledMock).toHaveBeenCalledTimes(1);
     });
 
     it("doesn't ask on a guess when Telegram's status couldn't be read", async () => {

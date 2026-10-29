@@ -74,7 +74,8 @@
  *     - 1 row for user-onboarding/agent-supervisor.service
  *     - 1 row for instance-policy-claude-md (Phase 114 twinkie — runtime-sourced,
  *       system-root-installed)
- *   Total = 49 (+2 notify-me / call-me, done-bell; 45 pre-agent-phone + 2 for the agent-phone-skill and
+ *   Total = 77 rows as of the done-bell skills (the breakdown above is
+ *   historical — catalog.test.ts keeps the exact count). Earlier: 47 (45 pre-agent-phone + 2 for the agent-phone-skill and
  *   agent-phone-helper rows added alongside the image-gen equivalents;
  *   was 52 before 2026-09-20 retirements — 3 bounty-adjacent skills,
  *   3 id/ coord companions, and promote-to-coordinator).

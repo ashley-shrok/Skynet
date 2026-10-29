@@ -56,7 +56,7 @@ export function DoneBellButton({
   onChoose: (choice: DoneBellChoice) => void;
   buttonClassName?: string;
 }): React.JSX.Element {
-  const reach = useDoneBellReach(true);
+  const reach = useDoneBellReach();
   const [open, setOpen] = useState(false);
 
   useEffect(() => {
