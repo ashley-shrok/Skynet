@@ -60,8 +60,8 @@ its spec `wakeup.json` and its own state `.state/` (keyed by the folder name):
      #   Malformed `at` = LOUD one-shot alert, spec DOES NOT FIRE.
      "instruction": "Check the work Kanban for cards assigned to you and triage."}
 
-⚠️ GOVERNANCE (user-reserved): an agent may SUGGEST a wake-up, but only user
-authorizes creating one — she says yes to a suggestion, or asks for it. Agents
+⚠️ GOVERNANCE (user-reserved): an agent may SUGGEST a wake-up, but only the user
+authorizes creating one — they say yes to a suggestion, or ask for it. Agents
 never self-schedule. (This file just executes whatever specs exist.)
 
 On a due entry it prints:

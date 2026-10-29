@@ -10,7 +10,7 @@ Place a one-turn phone call to a user of the app. The backend rings their number
 
 ## ⚠️ This RINGS THEIR PHONE
 
-This is not a Matrix DM. It rings a physical phone (and by extension a watch, if they've paired one). Use it when the message is genuinely time-sensitive or when a chat message would not reliably get their attention. Do NOT use it as a chattier notification — this capability exists so agents can reach the user when it matters, not so every build failure calls her.
+This is not a Matrix DM. It rings a physical phone (and by extension a watch, if they've paired one). Use it when the message is genuinely time-sensitive or when a chat message would not reliably get their attention. Do NOT use it as a chattier notification — this capability exists so agents can reach the user when it matters, not so every build failure calls them.
 
 If you're about to run this and the message would be fine as a Matrix DM, use the DM instead.
 
@@ -25,7 +25,7 @@ agent-phone --to <username> --from "<caller name>" "<message>"
 Three arguments, all required:
 
 - `--to <username>` — the app username of the person to call. The backend looks up their phone number from their user record. You can only call people who have registered the host you're running on in the app; anyone else gets `not_permitted`.
-- `--from "<caller name>"` — a TTS-friendly identifier for you as the caller. Compose it from your identity's `displayName` frontmatter field plus a title-cased version of your role's slug — e.g. `Clipper the Box Maintainer` (identity `clipper`, role `box-maintainer`). This is what the recipient hears on pickup ("Hi, this is Clipper the Box Maintainer. …") so she knows which of your agents is calling.
+- `--from "<caller name>"` — a TTS-friendly identifier for you as the caller. Compose it from your identity's `displayName` frontmatter field plus a title-cased version of your role's slug — e.g. `Clipper the Box Maintainer` (identity `clipper`, role `box-maintainer`). This is what the recipient hears on pickup ("Hi, this is Clipper the Box Maintainer. …") so they know which of your agents is calling.
 - `<message>` — the line to deliver. A text-to-speech voice reads it verbatim; write it the way you'd want it spoken (spell out anything awkward to read aloud). Short is fine; a whole paragraph is fine too. The cap is 2000 characters (a little less if it's full of `&`, `<` or `>`), but a phone call is not a chat log — keep it to what actually needs saying. **Do NOT self-introduce or sign off in `<message>` — the opener and receipt already do that; see the next section.**
 
 Example:
@@ -86,9 +86,9 @@ Every response file carries exactly one `outcome`. Successful transcripts land u
 
 | outcome            | caller action |
 | ------------------ | --- |
-| completed          | Human answered and spoke. Transcript in stdout has both sides. Read it and act. Rarely the `user:` line reads `[the reply was recorded but could not be transcribed]` — she did reply; ask again by another channel if it matters. |
+| completed          | Human answered and spoke. Transcript in stdout has both sides. Read it and act. Rarely the `user:` line reads `[the reply was recorded but could not be transcribed]` — they did reply; ask again by another channel if it matters. |
 | no_response        | Human answered but didn't say anything (or hung up during your message). Transcript has only your opener. Treat as "message was probably heard, no reply." |
-| no_answer          | The phone rang out, or voicemail picked up — in which case your message was probably left on her voicemail (`message` says which). If the error carries a `transcript`, something was recorded after the message: read it, it may be a real reply that the voicemail detector misjudged. Otherwise try again later, or use a different channel. |
+| no_answer          | The phone rang out, or voicemail picked up — in which case your message was probably left on their voicemail (`message` says which). If the error carries a `transcript`, something was recorded after the message: read it, it may be a real reply that the voicemail detector misjudged. Otherwise try again later, or use a different channel. |
 | busy               | The line was busy. Try again in a bit. |
 | canceled           | Rare — the call was canceled before it connected. Retry. |
 | placement_error    | The provider refused to place the call. Check `message` for the reason (bad phone number, out of credit, rejected credentials). Not agent-retriable — escalate to the operator. |

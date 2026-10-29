@@ -71,4 +71,4 @@ if ! mv "$APP_DIR" "$ARCHIVE_DIR"; then
 fi
 log "moved $APP_DIR -> $ARCHIVE_DIR"
 
-log "done — $SLUG is archived. Recover by dropping .unarchive-requested inside ~/fleet/apps-archive/$SLUG/ if the user changes her mind."
+log "done — $SLUG is archived. Recover by dropping .unarchive-requested inside ~/fleet/apps-archive/$SLUG/ if the user changes their mind."

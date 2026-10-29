@@ -25,7 +25,7 @@ Apps live on your box, on disk. There are two kinds:
 
 Your job with this skill is to build one when the user asks — "throw
 together a tool that tracks X", "make me a page that graphs Y", "give me a
-dashboard for Z", "log every W" — or to edit an existing app when she asks
+dashboard for Z", "log every W" — or to edit an existing app when they ask
 for changes to something you or another agent made before.
 
 ### Which kind to build
@@ -67,9 +67,9 @@ which works everywhere.
 
 **Publishing a sidebar app (§ Making a new app step 9) is what makes the tile
 appear and is deferred until the app is verified end-to-end** — otherwise a
-half-built app flashes onto her sidebar and invites a click that hits a broken
-page. If she needs to see a work-in-progress sidebar app before it's done,
-publish it anyway (rename `app.json.pending` → `app.json`) so it reaches her
+half-built app flashes onto their sidebar and invites a click that hits a broken
+page. If they need to see a work-in-progress sidebar app before it's done,
+publish it anyway (rename `app.json.pending` → `app.json`) so it reaches them
 as a tile. Conversation apps have no publish step: nothing appears anywhere
 until you link the chip, so just don't link it before it works.
 
@@ -158,10 +158,10 @@ systemd from the moment `create-app.sh` finishes, but the user cannot
 see it. Renaming `app.json.pending` → `app.json` is the explicit
 "publish" step, done ONLY when the app is complete and verified end-to-end
 (§ Making a new app step 9). This prevents a half-built app from flashing
-onto her sidebar and inviting a click that hits a broken page.
+onto their sidebar and inviting a click that hits a broken page.
 
 For **editing** an existing app, this doesn't apply — its `app.json`
-already exists (it's already on her sidebar). Only NEW sidebar apps go
+already exists (it's already on their sidebar). Only NEW sidebar apps go
 through the pending flow. **Conversation apps get `app.json` straight
 away** — they never show in the sidebar, and the title + description show
 on their chip and in the Apps tab.
@@ -679,7 +679,7 @@ changing — they're a package.
 
 ## Authentication — the front-end client handles it, you don't
 
-The user reaches the app through the front-end client she's using, which
+The user reaches the app through the front-end client they're using, which
 has already gated who can see which boxes and which apps on those boxes.
 **From the app's perspective, every request that arrives is already
 authorized.** You do not build a login form, you do not check session
@@ -764,7 +764,7 @@ what you're doing — surprises here are worse than a moment of confirmation.
 - About to edit an existing app without backing up first → **stop.** Run
   `backup-app.sh <slug>`. Costs seconds; buys you a rollback.
 - About to hard-delete an app when the user said "get rid of it" → **stop.**
-  Archive it. Only hard-delete if she said explicitly "delete, don't
+  Archive it. Only hard-delete if they said explicitly "delete, don't
   archive".
 - About to add a third field to `app.json` → **stop.** Two fields, forever.
   Everything else has a natural home elsewhere.
@@ -786,7 +786,7 @@ what you're doing — surprises here are worse than a moment of confirmation.
   it to the sidebar is `promote-app.sh`, when the user asks.
 - About to `mv app.json.pending app.json` for a new sidebar app before it
   actually works end-to-end → **stop.** Publishing early flashes a
-  broken app onto her sidebar. Verify step 7 first.
+  broken app onto their sidebar. Verify step 7 first.
 - About to write `app.json` directly for a new sidebar app (skipping the
   pending file) → **stop.** Use the pending flow — the whole point is
   the app is invisible to the sidebar until you publish.

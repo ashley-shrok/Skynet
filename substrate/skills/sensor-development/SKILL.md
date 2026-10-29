@@ -27,8 +27,8 @@ findings. Checking, remembering what was already seen, and deciding to fire
 are yours.
 
 **Governance is unchanged.** A sensor-triggered wake-up or scheduled task is
-still a wake-up or scheduled task: only the user authorizes creating one (she
-asks, or says yes to your suggestion). Agents never self-schedule.
+still a wake-up or scheduled task: only the user authorizes creating one (they
+ask, or say yes to your suggestion). Agents never self-schedule.
 
 ## Where it lives
 
