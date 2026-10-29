@@ -1183,6 +1183,7 @@ clean_workspace_dependency_dirs() {
 # retire_identity(name)
 #
 # Executes the four-step retire in the Phase 115 D-13 order:
+#   STEP 0: stop the ambient monitor + its watcher children (so nothing injects mid-retire)
 #   STEP 1: matrix deactivate  (was Phase 94 step 3)
 #   STEP 2: graceful harness exit  (NEW in Phase 115)
 #   STEP 3: tmux kill-session  (was Phase 94 step 2)
@@ -1294,14 +1295,11 @@ restore_identity_apps() {
   done
 }
 
-retire_identity() {
-  local name="$1"
-  local iddir="$IDENTITIES_DIR/$name"
-  local archdir="$IDENTITIES_ARCHIVE_DIR/$name"
-
-  # A birth that landed mid-pass launches now, not after every queued retire (see helper).
-  launch_newborns_midtick
-
+# retire_deactivate_account — STEP 1 + 1b of retire_identity, split out so every failure path
+# returns through one place (retire_identity re-starts the ambient monitor on failure). Reads
+# $name / $iddir / $archdir from the caller (retire_identity) via bash dynamic scoping.
+# Returns 0 when the account is confirmed off, 1 otherwise.
+retire_deactivate_account() {
   # =============================================================================================
   # STEP 1 (Phase 115 D-13): Matrix deactivate — FIRST, using credentials from the LIVE tree.
   # =============================================================================================
@@ -1428,6 +1426,85 @@ retire_identity() {
     401) log "'$name' retire step 1b: saved chat token was already invalid" ;;
     *)   log "WARNING: '$name' retire step 1b: logging out the saved chat token failed (http=$_logout_code) — it may keep working" ;;
   esac
+  return 0
+}
+
+# stop_ambient_monitor <name> <max-seconds> — stop the identity's ambient-monitor and so every
+# watcher child (relay receiver, wakeup-scheduler, file-watch, inbox-watcher). SIGTERM first: the
+# monitor finishes any paste in flight, then forwards SIGTERM with a grace window so the receiver
+# flushes its cursor. If it is still up after <max-seconds>, SIGKILL its children's process groups
+# (each child runs in its own) and then the monitor. Matches on the launch argv shape like
+# wait_ambient_monitor_exit, excluding this shell's own PIDs.
+# Sets STOPPED_MONITOR_SESSION to the tmux session the monitor was injecting into (read from its
+# own --inject-to argument — exact, unlike the reconcile-time session snapshot), empty when no
+# monitor was running, and STOPPED_MONITOR_OUTCOME to a short phrase for the caller's log line.
+# Never fails.
+STOPPED_MONITOR_SESSION=""
+STOPPED_MONITOR_OUTCOME=""
+stop_ambient_monitor() {
+  local name="$1" max="$2" pattern pid pids child
+  STOPPED_MONITOR_SESSION=""
+  STOPPED_MONITOR_OUTCOME="none running"
+  pattern="ambient-monitor $IDENTITIES_DIR/$name --inject-to"
+  pids="$(pgrep -f -- "$pattern" 2>/dev/null | grep -vwE "^($$|$BASHPID)$")"
+  [ -n "$pids" ] || return 0
+  for pid in $pids; do
+    [ -n "$STOPPED_MONITOR_SESSION" ] || STOPPED_MONITOR_SESSION="$(tr '\0' '\n' < "/proc/$pid/cmdline" 2>/dev/null \
+      | awk 'prev == "--inject-to" { print; exit } { prev = $0 }')"
+    kill "$pid" 2>/dev/null
+  done
+  STOPPED_MONITOR_OUTCOME="$(wait_ambient_monitor_exit "$name" "$max")"
+  case "$STOPPED_MONITOR_OUTCOME" in
+    still*)
+      for pid in $pids; do
+        for child in $(pgrep -P "$pid" 2>/dev/null); do kill -KILL -- "-$child" 2>/dev/null; done
+        kill -KILL "$pid" 2>/dev/null
+      done
+      STOPPED_MONITOR_OUTCOME="still running after ${max}s — SIGKILLed it and its children"
+      ;;
+  esac
+  return 0
+}
+
+retire_identity() {
+  local name="$1"
+  local iddir="$IDENTITIES_DIR/$name"
+  local archdir="$IDENTITIES_ARCHIVE_DIR/$name"
+
+  # A birth that landed mid-pass launches now, not after every queued retire (see helper).
+  launch_newborns_midtick
+
+  # =============================================================================================
+  # STEP 0: stop the ambient monitor (and with it every watcher child) BEFORE the account goes off.
+  # =============================================================================================
+  # Step 1 kills the agent's chat token; a receiver still running would see M_UNKNOWN_TOKEN, fail
+  # its relogin and inject an "AUTH DEAD" event — which landed in the compose box together with
+  # step 2's /exit paste, so the harness got "/exit<task-notification>…" as one ordinary message,
+  # never exited, and every archived conversation ended on it. With the monitor gone first,
+  # nothing can inject into the pane during the retire. The monitor is never restarted while the
+  # harness runs (start_ambient_monitor is launch-only), so if step 1 fails we restart it ourselves
+  # — otherwise the agent would sit deaf until the next retry succeeds.
+  # The restart is rate-limited to once per 15 minutes: the scan retries a failed retire every
+  # tick, and each fresh monitor resets its children's own alert limits (recv.sh's AUTH DEAD is
+  # once per 15 min per process) and truncates ambient-monitor.log. Between restarts a retire
+  # that keeps failing leaves the agent deaf — it is being archived, so that is the lesser cost.
+  local _s0_restarted="$DORMANCY_STATE_DIR/$name.retire-monitor-restarted"
+  stop_ambient_monitor "$name" 20
+  log "'$name' retire step 0 (stop ambient monitor): ${STOPPED_MONITOR_OUTCOME}"
+
+  if ! retire_deactivate_account; then
+    if [ -n "$STOPPED_MONITOR_SESSION" ]; then
+      if [ -n "$(find "$_s0_restarted" -mmin -15 2>/dev/null)" ]; then
+        log "'$name' retire step 1 failed — ambient monitor NOT restarted (already restarted after a failed retire in the last 15 min); agent is deaf until the retire succeeds or the next restart"
+      else
+        log "'$name' retire step 1 failed — restarting ambient monitor so the agent keeps hearing until the retry"
+        mkdir -p "$DORMANCY_STATE_DIR" 2>/dev/null; touch "$_s0_restarted" 2>/dev/null
+        start_ambient_monitor "$name" "$STOPPED_MONITOR_SESSION" || true
+      fi
+    fi
+    return 1
+  fi
+  rm -f "$_s0_restarted" 2>/dev/null
 
   # =============================================================================================
   # STEP 2 (Phase 115 D-13/D-14 NEW): Graceful harness exit.
@@ -1557,7 +1634,7 @@ retire_identity() {
   mkdir -p "$IDENTITIES_ARCHIVE_DIR" 2>/dev/null
 
   local _step4b_ok=0
-  # NOTE: _attempt / _delay reused from the step-1 loop above (both are local to retire_identity).
+  local _attempt _delay
   for _attempt in 1 2 3; do
     if [ -d "$iddir" ] && [ ! -d "$archdir" ]; then
       # State 1 (normal path): active present, archive absent — do the move.

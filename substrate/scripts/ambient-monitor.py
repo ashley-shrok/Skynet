@@ -759,7 +759,20 @@ except (AttributeError, ValueError):
     pass
 
 
+# Longest a paste in flight can take: three tmux calls bounded at 10s each is the worst case,
+# but the normal path is the 0.5s settle plus up to three Enter retries 2s apart.
+SHUTDOWN_INJECT_WAIT_SECONDS = 15
+
+
 def _do_shutdown():
+    # Take the inject lock first and keep it until exit. A paste already in flight finishes
+    # (with its Enter) instead of being cut off by sys.exit() — the pump threads are daemons —
+    # and no new paste starts while children print their last lines. Matters when we are told
+    # to stop while the harness is still alive (agent-supervisor's retire step 0): an
+    # uncommitted paste left in the compose box would merge with the /exit that follows.
+    if not _inject_lock.acquire(timeout=SHUTDOWN_INJECT_WAIT_SECONDS):
+        emit_diag("a paste was still in flight after %ds; shutting down anyway"
+                  % SHUTDOWN_INJECT_WAIT_SECONDS)
     live = [e for e in running if e["popen"].poll() is None]
     emit_diag("forwarding SIGTERM to %d live child(ren)" % len(live))
     for entry in live:
