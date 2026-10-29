@@ -1025,6 +1025,11 @@ export function useSessionIsDormant(key: string | null): boolean {
  * folded into SessionState.condensing by ssh-poll-orchestrator source B.
  * Works for unmounted rows too — no pane needs to be open to publish it.
  */
+/** Non-hook read of the condensing axis (false for an unknown key). */
+export function getSessionIsCondensing(key: string): boolean {
+  return state.map.get(key)?.condensing === true;
+}
+
 export function useSessionIsCondensing(key: string | null): boolean {
   const getSnapshot = (): boolean => {
     if (key === null) return false;

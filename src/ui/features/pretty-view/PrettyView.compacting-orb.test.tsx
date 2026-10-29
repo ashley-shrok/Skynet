@@ -227,6 +227,25 @@ describe("PrettyView — the working orb while compacting (shape-compacting-indi
     expect(sent.some((m) => m.includes('"narration_watch"') && m.includes('"active":true'))).toBe(false);
   });
 
+  it("screen readers hear that the conversation is being compacted", async () => {
+    const { container } = await mount();
+    act(() => markCompactRequested(KEY));
+    expect(container.querySelector('.pv-wip-orb[role="status"]')?.getAttribute("aria-label")).toBe(
+      "Compacting the conversation",
+    );
+  });
+
+  it("the same orb stays mounted from the request through the compaction's end", async () => {
+    const { container } = await mount();
+    act(() => markCompactRequested(KEY));
+    const first = wip(container);
+    expect(first).not.toBeNull();
+    publishCondensing(true);
+    expect(wip(container)).toBe(first);
+    publishCondensing(false);
+    expect(wip(container)).toBe(first);
+  });
+
   it("the poll's condensing signal lights the orb the same way", async () => {
     const { container } = await mount();
     publishCondensing(true);

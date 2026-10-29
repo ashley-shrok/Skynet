@@ -108,7 +108,16 @@ export type WipStop = {
   feedback: InterruptFeedback | null;
 };
 
-export function WipBubble({ narration = null, stop }: { narration?: Narration | null; stop?: WipStop }) {
+export function WipBubble({
+  narration = null,
+  stop,
+  label = "Claude is working",
+}: {
+  narration?: Narration | null;
+  stop?: WipStop;
+  /** What screen readers hear for the orb. */
+  label?: string;
+}) {
   const feedback = stop?.feedback ?? null;
   const ready = stop !== undefined && stop.canStop && feedback === null;
   const state = feedback ? "pressed" : ready ? "ready" : "working";
@@ -158,7 +167,7 @@ export function WipBubble({ narration = null, stop }: { narration?: Narration | 
               title="Stop"
             />
           )}
-          <span className="pv-wip-orb" role="status" aria-label="Claude is working">
+          <span className="pv-wip-orb" role="status" aria-label={label}>
             <i aria-hidden="true" />
           </span>
         </span>

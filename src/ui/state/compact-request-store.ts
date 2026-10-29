@@ -5,12 +5,17 @@
 // the memory pie, a relay room's badge and the conversation's working orb all
 // turn on together the moment the user confirms.
 //
-// The flag clears once the poll reports the compaction (the poll takes over),
-// or after OPTIMISTIC_MS if it never does.
+// The flag clears once the poll reports the compaction (the poll takes over)
+// — watched here, so it clears whether or not anything for that agent is on
+// screen — or after OPTIMISTIC_MS if it never does.
 
-import { useEffect, useSyncExternalStore } from "react";
+import { useSyncExternalStore } from "react";
 
-import { useSessionIsCondensing } from "./session-working-store";
+import {
+  getSessionIsCondensing,
+  subscribeSessionWorkingStore,
+  useSessionIsCondensing,
+} from "./session-working-store";
 
 /** How long a request counts as compacting on its own before the poll confirms it. */
 export const OPTIMISTIC_MS = 2 * 60 * 1000;
@@ -37,6 +42,13 @@ function clearRequested(key: string): void {
   notify();
 }
 
+// The poll has taken over for every flagged session it now reports compacting.
+subscribeSessionWorkingStore(() => {
+  for (const key of [...requested.keys()]) {
+    if (getSessionIsCondensing(key)) clearRequested(key);
+  }
+});
+
 /** A Compact request for this session key was accepted. Key: `${hostId}:${tmuxSession}`. */
 export function markCompactRequested(key: string): void {
   const prior = requested.get(key);
@@ -60,9 +72,6 @@ export function useSessionCompacting(key: string | null): boolean {
     () => key !== null && requested.has(key),
     () => key !== null && requested.has(key),
   );
-  useEffect(() => {
-    if (key !== null && condensing && asked) clearRequested(key);
-  }, [key, condensing, asked]);
   return condensing || asked;
 }
 

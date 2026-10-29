@@ -4623,14 +4623,21 @@ export function PrettyView({
   // held past its end until the agent's follow-up turn lights the orb itself,
   // so the hand-over never flickers dark — for COMPACT_TAIL_MS at most.
   const compacting = useSessionCompacting(sessionWorkingKey);
+  // The tail starts in the same render the compaction ends (adjusting state
+  // while rendering), so the orb is never unmounted for even one render; a
+  // different session starts with no tail.
   const [compactTail, setCompactTail] = useState(false);
-  const prevCompactingRef = useRef(compacting);
+  const [compactSeen, setCompactSeen] = useState({ key: sessionWorkingKey, compacting });
+  if (compactSeen.key !== sessionWorkingKey || compactSeen.compacting !== compacting) {
+    const sameSession = compactSeen.key === sessionWorkingKey;
+    setCompactSeen({ key: sessionWorkingKey, compacting });
+    setCompactTail(sameSession && compactSeen.compacting && !compacting);
+  }
+  const loggedCompactingRef = useRef(compacting);
   useEffect(() => {
-    const was = prevCompactingRef.current;
-    prevCompactingRef.current = compacting;
-    if (compacting) setCompactTail(false);
-    else if (was) setCompactTail(true);
-    if (was !== compacting) console.info(`[pv-compacting] ${compacting ? "on" : "off"} key=${sessionWorkingKey}`);
+    if (loggedCompactingRef.current === compacting) return;
+    loggedCompactingRef.current = compacting;
+    console.info(`[pv-compacting] ${compacting ? "on" : "off"} key=${sessionWorkingKey}`);
   }, [compacting, sessionWorkingKey]);
   useEffect(() => {
     if (!compactTail) return;
@@ -5172,6 +5179,7 @@ export function PrettyView({
           {(agentWorking || interruptFeedback !== null) && (
             <WipBubble
               narration={compactingOnly ? COMPACTING_NARRATION : workNarration}
+              label={compactingOnly ? "Compacting the conversation" : undefined}
               stop={
                 onInterrupt && source.kind !== "relay"
                   ? {

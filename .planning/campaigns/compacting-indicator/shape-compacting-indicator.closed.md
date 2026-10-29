@@ -43,3 +43,40 @@ Today, pressing Condense makes the pie read "Condensing…", but the conversatio
 - The orb, its Stop and the narration line all live in the agent-conversation view. The "is compacting" knowledge already exists per agent and feeds the pie through the task pill's memory hook; the relay-room badges have their own copy.
 - The agent description is the distributed id skill source in the repo, never the installed copy.
 - The tests that assert the old words need updating alongside.
+
+---
+
+## Close-Out
+
+**Closed:** 2026-10-29
+**Overall verdict:** closed-hit
+
+### Shape features (conformance)
+
+- **When the orb shows** — present · Driven by the shared "is compacting" knowledge (status poll or a just-accepted request), so pie, relay badges and orb switch together; on at confirm; covers a sleeping agent; held until the follow-up turn lights it.
+- **What the orb is during compaction** — present · Compacting-only orb is plain, no square, nothing to press; a running turn keeps today's orb and Stop.
+- **The line beside it** — present · Fixed "Compacting the conversation…" (short "Compacting…") only when no turn runs; narration untouched otherwise and only requested for a turn.
+- **The rename** — present · Pie, pop-over, button, confirm, error, divider and screen-reader label all say compact; relay pies share the pie; no user-visible "condense" left.
+- **The agent-facing description** — present · Says compact throughout, mentions the orb while compacting and lists compaction among times a tap can't stop; one "condense" kept only as a phrase users might say.
+- **No what's-new note** — present · None added.
+- **Philosophy: internal names stay** — present · Internal names, request address and data fields unchanged.
+- **Scope edges: out items** — present · Compaction mechanics, automatic compaction and progress estimates untouched.
+- **Handoff: tests updated** — present · Old-word tests updated; new test file covers the orb during compaction.
+- **What would make it wrong: orb flickers off between compaction end and follow-up turn, or stays stuck on** — present · Held until the turn starts, 15 seconds at most.
+- **What would make it wrong: square or anything pressable when a tap couldn't stop something** — present · Stop needs a running turn with no send in flight.
+- **What would make it wrong: compacting line replaces a real turn's narration** — present · Fixed line only when no turn runs.
+- **What would make it wrong: user-visible condense survives or agent description teaches the old word** — present · None found.
+- **What would make it wrong: a compaction that never starts leaves the orb on forever** — present · Request flag expires after two minutes; hold lasts 15 seconds at most.
+
+### Additions (in the result, not in the shape)
+
+- The 15-second hold limit and diagnostic log lines — implementation of agreed hand-over and never-stuck guard — endorsed-as-drift
+- The commit includes the shape's own planning files — endorsed-as-drift
+
+### Follow-ups
+
+None.
+
+### Notes
+
+Reviewed the latest commit against its parent by reading only. Neither addition needed a question to the user.
