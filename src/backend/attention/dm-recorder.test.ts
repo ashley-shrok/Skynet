@@ -12,6 +12,10 @@ vi.mock("./read-state-store.js", () => ({
   isValidIdentityName: (n: unknown) => typeof n === "string" && n.length > 0 && n.length <= 256,
 }));
 const publishToUser = vi.fn();
+let canUse = true;
+vi.mock("../notifications/notifications-access.js", () => ({
+  userCanUseNotifications: () => canUse,
+}));
 vi.mock("../fleet-status/registry-holder.js", () => ({
   getRegistry: () => ({ publishToUser }),
 }));
@@ -19,6 +23,7 @@ vi.mock("../fleet-status/registry-holder.js", () => ({
 import { publishAgentNotification, recordAgentDm } from "./dm-recorder.js";
 
 beforeEach(() => {
+  canUse = true;
   store.recordDm.mockReset();
   publishToUser.mockReset();
 });
@@ -63,6 +68,12 @@ describe("publishAgentNotification", () => {
       title: "Aspen",
       body: "Done — the deploy is live.",
     });
+  });
+
+  it("sends nothing to a user without notifications access", () => {
+    canUse = false;
+    publishAgentNotification("u1", { notificationId: "$e", agentMxid: "@aspen:s", hostId: 7, title: "x", body: "y" });
+    expect(publishToUser).not.toHaveBeenCalled();
   });
 
   it("ignores a malformed mxid", () => {

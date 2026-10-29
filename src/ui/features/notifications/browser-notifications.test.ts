@@ -8,7 +8,7 @@ let touch = false;
 vi.mock("@/hooks/use-is-touch-device", () => ({ isTouchDeviceNow: () => touch }));
 
 import {
-  LOOKING_WAIT_MS,
+  FALLBACK_WAIT_MS,
   _resetBrowserNotificationsForTests,
   getBrowserNotificationsState,
   handleAgentNotified,
@@ -127,11 +127,9 @@ describe("the setting", () => {
 });
 
 describe("showing a notification", () => {
-  it("shows the agent's name and message after the short wait", async () => {
+  it("shows the agent's name and message", async () => {
     await turnOn();
     handleAgentNotified(N);
-    expect(shown).toHaveLength(0);
-    vi.advanceTimersByTime(LOOKING_WAIT_MS);
     expect(shown).toHaveLength(1);
     expect(shown[0].title).toBe("Aspen");
     expect(shown[0].options).toMatchObject({ body: "Deploy is live.", tag: "$ev1" });
@@ -141,7 +139,6 @@ describe("showing a notification", () => {
     permission = "granted";
     startBrowserNotifications();
     handleAgentNotified(N);
-    vi.advanceTimersByTime(LOOKING_WAIT_MS);
     expect(shown).toHaveLength(0);
   });
 
@@ -149,7 +146,6 @@ describe("showing a notification", () => {
     await turnOn();
     handleAgentNotified(N);
     handleAgentNotified(N);
-    vi.advanceTimersByTime(LOOKING_WAIT_MS);
     expect(shown).toHaveLength(1);
   });
 
@@ -157,7 +153,6 @@ describe("showing a notification", () => {
     await turnOn();
     setLookingAtConversations([{ hostId: "7", identityName: "aspen" }]);
     handleAgentNotified(N);
-    vi.advanceTimersByTime(LOOKING_WAIT_MS);
     expect(shown).toHaveLength(0);
   });
 
@@ -166,7 +161,6 @@ describe("showing a notification", () => {
     vi.spyOn(document, "hasFocus").mockReturnValue(false);
     setLookingAtConversations([{ hostId: "7", identityName: "aspen" }]);
     handleAgentNotified(N);
-    vi.advanceTimersByTime(LOOKING_WAIT_MS);
     expect(shown).toHaveLength(1);
   });
 
@@ -174,38 +168,75 @@ describe("showing a notification", () => {
     await turnOn();
     setLookingAtConversations([{ hostId: "7", identityName: "birch" }]);
     handleAgentNotified(N);
-    vi.advanceTimersByTime(LOOKING_WAIT_MS);
     expect(shown).toHaveLength(1);
   });
 
-  it("stays quiet when another tab says it's looking at that conversation", async () => {
+  it("stays quiet when another tab in a focused window has that conversation on screen", async () => {
     await turnOn();
+    vi.spyOn(document, "hasFocus").mockReturnValue(false);
     const otherTab = new FakeChannel("agent-notifications");
+    otherTab.postMessage({ kind: "focus", tabId: "other", focused: true, keys: ["7|aspen"] });
     handleAgentNotified(N);
-    otherTab.postMessage({ kind: "looking", notificationId: "$ev1" });
-    vi.advanceTimersByTime(LOOKING_WAIT_MS);
     expect(shown).toHaveLength(0);
   });
 
-  it("only the tab holding the lock shows it", async () => {
-    let grant: (() => void) | null = null;
-    Object.defineProperty(navigator, "locks", {
-      configurable: true,
-      value: {
-        request: vi.fn((_name: string, cb: () => Promise<void>) => {
-          grant = () => void cb();
-          return new Promise(() => {});
-        }),
-      },
-    });
+  it("fires again once that other tab loses focus", async () => {
     await turnOn();
+    vi.spyOn(document, "hasFocus").mockReturnValue(false);
+    const otherTab = new FakeChannel("agent-notifications");
+    otherTab.postMessage({ kind: "focus", tabId: "other", focused: true, keys: ["7|aspen"] });
+    otherTab.postMessage({ kind: "focus", tabId: "other", focused: false, keys: ["7|aspen"] });
     handleAgentNotified(N);
-    vi.advanceTimersByTime(LOOKING_WAIT_MS);
-    expect(shown).toHaveLength(0); // not the chosen tab yet
-    grant!();
-    handleAgentNotified({ ...N, notificationId: "$ev2" });
-    vi.advanceTimersByTime(LOOKING_WAIT_MS);
     expect(shown).toHaveLength(1);
+  });
+
+  it("tells the other tabs it handled the notification", async () => {
+    await turnOn();
+    const otherTab = new FakeChannel("agent-notifications");
+    const heard: unknown[] = [];
+    otherTab.onmessage = (e) => heard.push(e.data);
+    handleAgentNotified(N);
+    expect(heard).toContainEqual({ kind: "handled", notificationId: "$ev1" });
+  });
+
+  describe("with one tab chosen to show notifications", () => {
+    let grant: (() => void) | null = null;
+    beforeEach(() => {
+      grant = null;
+      Object.defineProperty(navigator, "locks", {
+        configurable: true,
+        value: {
+          request: vi.fn((_name: string, cb: () => Promise<void>) => {
+            grant = () => void cb();
+            return new Promise(() => {});
+          }),
+        },
+      });
+    });
+
+    it("the chosen tab shows it at once", async () => {
+      await turnOn();
+      grant!();
+      handleAgentNotified(N);
+      expect(shown).toHaveLength(1);
+    });
+
+    it("another tab stays quiet when the chosen tab handled it", async () => {
+      await turnOn();
+      const chosenTab = new FakeChannel("agent-notifications");
+      handleAgentNotified(N);
+      chosenTab.postMessage({ kind: "handled", notificationId: "$ev1" });
+      vi.advanceTimersByTime(FALLBACK_WAIT_MS);
+      expect(shown).toHaveLength(0);
+    });
+
+    it("another tab steps in when the chosen tab never got it", async () => {
+      await turnOn();
+      handleAgentNotified(N);
+      expect(shown).toHaveLength(0);
+      vi.advanceTimersByTime(FALLBACK_WAIT_MS);
+      expect(shown).toHaveLength(1);
+    });
   });
 
   it("clicking opens the conversation and closes the notification", async () => {
@@ -214,7 +245,6 @@ describe("showing a notification", () => {
     const opened: unknown[] = [];
     subscribeOpenConversationRequests((r) => opened.push(r));
     handleAgentNotified(N);
-    vi.advanceTimersByTime(LOOKING_WAIT_MS);
     shown[0].onclick!();
     expect(focus).toHaveBeenCalled();
     expect(opened).toEqual([{ mxid: "@aspen:t1000.example", hostId: 7 }]);

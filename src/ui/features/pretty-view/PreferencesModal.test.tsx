@@ -217,7 +217,7 @@ describe("PreferencesModal", () => {
     ).toBeTruthy();
     // Says what an agent notifying you does, without promising a phone.
     const hero = screen.getByTestId("preferences-section-hero");
-    expect(hero.textContent).toContain("Where notifications from agents reach you when you're away from the app.");
+    expect(hero.textContent).toContain("Where notifications from agents reach you outside the app.");
     expect(hero.textContent?.toLowerCase()).not.toContain("phone");
   });
 

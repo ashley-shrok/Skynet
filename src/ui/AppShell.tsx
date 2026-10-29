@@ -2473,7 +2473,9 @@ export function AppShell({
   }, []);
 
   // A clicked browser notification opens its conversation through the same
-  // path as the deep link (browser-notifications.ts).
+  // path as the deep link (browser-notifications.ts): clearing the
+  // dispatched ref and setting a fresh target object re-runs the dispatch
+  // effect below, so keep these two effects in step.
   useEffect(() => {
     startBrowserNotifications();
     return subscribeOpenConversationRequests((target) => {

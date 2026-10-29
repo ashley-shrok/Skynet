@@ -14,6 +14,7 @@ import { systemLogger } from "../utils/logger.js";
 import { getRegistry } from "../fleet-status/registry-holder.js";
 import { FRAME_SCHEMA_VERSION } from "../fleet-status/wire-protocol.js";
 import { getReadStateStore, isValidIdentityName, type DmEntry } from "./read-state-store.js";
+import { userCanUseNotifications } from "../notifications/notifications-access.js";
 
 const MXID_PATTERN = /^@([^:]+):.+$/;
 
@@ -73,9 +74,11 @@ export interface AgentNotification {
 /**
  * Tell every open tab of `userId` that an agent just notified them, with the
  * words to show, so a tab can raise a browser notification. Same title and
- * preview text the Telegram notification carries.
+ * preview text the Telegram notification carries, and the same access gate.
  */
 export function publishAgentNotification(userId: string, n: AgentNotification): void {
+  // Same access gate as Telegram: no notifications access, no notification.
+  if (!userCanUseNotifications(userId)) return;
   const match = n.agentMxid.match(MXID_PATTERN);
   const identityName = match ? match[1].toLowerCase() : null;
   if (!isValidIdentityName(identityName)) {

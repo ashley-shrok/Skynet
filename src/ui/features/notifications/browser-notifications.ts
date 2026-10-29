@@ -8,12 +8,14 @@
  *
  *   - Only when switched on in THIS browser (localStorage — per browser, not
  *     per account) and the browser has granted permission. Desktop only.
- *   - One tab per browser shows it: the tab holding a Web Lock. Without Web
- *     Locks every tab shows it under the same tag, which the browser folds
- *     into one.
- *   - Not when the user is looking at that conversation: a tab with the
- *     conversation on screen in a focused window says so over a
- *     BroadcastChannel, and the showing tab waits briefly to hear it.
+ *   - One tab per browser shows it: the tab holding a Web Lock, which tells
+ *     the others it handled it. If they hear nothing (that tab's connection
+ *     was down when the frame went out) one of them shows it after a short
+ *     wait. Without Web Locks every tab shows it under the same tag, which
+ *     the browser folds into one.
+ *   - Not when the user is looking at that conversation: the focused tab
+ *     announces what it has on screen over a BroadcastChannel whenever that
+ *     changes, so every tab already knows before a notification arrives.
  *
  * Clicking a notification focuses the tab that showed it and opens the
  * conversation (requestOpenConversation → AppShell's openHarness path).
@@ -24,8 +26,8 @@ import { isTouchDeviceNow } from "@/hooks/use-is-touch-device";
 const ENABLED_KEY = "browser-notifications-enabled";
 const LOCK_NAME = "agent-notifications-leader";
 const CHANNEL_NAME = "agent-notifications";
-/** How long the showing tab waits to hear that another tab is looking. */
-export const LOOKING_WAIT_MS = 300;
+/** How long a tab that isn't the chosen one waits to hear it was handled. */
+export const FALLBACK_WAIT_MS = 2_000;
 /** Notification ids remembered, so a re-sent frame never shows twice. */
 const SEEN_IDS_CAP = 200;
 
@@ -112,7 +114,8 @@ export async function setBrowserNotificationsEnabled(on: boolean): Promise<Brows
   let permission = Notification.permission;
   if (permission === "default") {
     try {
-      permission = await Notification.requestPermission();
+      // Old Safari's is callback-only and resolves undefined.
+      permission = (await Notification.requestPermission()) ?? Notification.permission;
     } catch (err) {
       console.warn({ operation: "browser_notifications_permission_threw", error: err instanceof Error ? err.message : String(err) });
       permission = Notification.permission;
@@ -144,29 +147,45 @@ function requestOpenConversation(req: OpenConversationRequest): void {
   }
 }
 
-// ─── What this tab is showing ────────────────────────────────────────────────
+// ─── What the user is looking at ─────────────────────────────────────────────
 
 function convKey(hostId: string, identityName: string): string {
   return `${hostId}|${identityName.toLowerCase()}`;
 }
 
-let lookingAt = new Set<string>();
+const tabId = Math.random().toString(36).slice(2) + Date.now().toString(36);
+let lookingAt: string[] = [];
+/** The tab in a focused window and what it has on screen — at most one. */
+let focusedTab: { tabId: string; keys: string[] } | null = null;
+
+function thisTabIsFocused(): boolean {
+  try {
+    return document.visibilityState === "visible" && document.hasFocus();
+  } catch {
+    return false;
+  }
+}
+
+/** Tell the other tabs whether this one is focused, and on what. */
+function announceFocus(): void {
+  const focused = thisTabIsFocused();
+  if (focused) focusedTab = { tabId, keys: lookingAt };
+  else if (focusedTab?.tabId === tabId) focusedTab = null;
+  channel?.postMessage({ kind: "focus", tabId, focused, keys: lookingAt } satisfies ChannelMessage);
+}
 
 /**
  * The conversations this tab has on screen while the tab is visible (fed by
  * the seen tracker). Empty when the tab is hidden.
  */
 export function setLookingAtConversations(targets: ReadonlyArray<{ hostId: string; identityName: string }>): void {
-  lookingAt = new Set(targets.map((t) => convKey(t.hostId, t.identityName)));
+  lookingAt = targets.map((t) => convKey(t.hostId, t.identityName));
+  announceFocus();
 }
 
-function thisTabIsLookingAt(key: string): boolean {
-  if (!lookingAt.has(key)) return false;
-  try {
-    return document.visibilityState === "visible" && document.hasFocus();
-  } catch {
-    return false;
-  }
+function userIsLookingAt(key: string): boolean {
+  if (thisTabIsFocused()) return lookingAt.includes(key);
+  return focusedTab !== null && focusedTab.tabId !== tabId && focusedTab.keys.includes(key);
 }
 
 // ─── Which tab shows it ──────────────────────────────────────────────────────
@@ -175,14 +194,24 @@ let started = false;
 let isLeader = false;
 let locksAvailable = false;
 let channel: BroadcastChannel | null = null;
-const lookingElsewhere = new Set<string>();
 const seenIds: string[] = [];
+/** Notifications another tab has dealt with (shown or skipped). */
+const handledIds: string[] = [];
 
-type ChannelMessage = { kind: "looking"; notificationId: string };
+type ChannelMessage =
+  | { kind: "focus"; tabId: string; focused: boolean; keys: string[] }
+  | { kind: "handled"; notificationId: string };
+
+function remember(list: string[], id: string): boolean {
+  if (list.includes(id)) return false;
+  list.push(id);
+  if (list.length > SEEN_IDS_CAP) list.shift();
+  return true;
+}
 
 /**
  * Join this browser's tabs: take part in choosing the one tab that shows
- * notifications, and listen for tabs that are looking at a conversation.
+ * notifications, and keep track of which tab the user is looking at.
  * Idempotent; called once at app start.
  */
 export function startBrowserNotifications(): void {
@@ -192,8 +221,12 @@ export function startBrowserNotifications(): void {
     try {
       channel = new BroadcastChannel(CHANNEL_NAME);
       channel.onmessage = (e: MessageEvent<ChannelMessage>) => {
-        if (e.data?.kind === "looking" && typeof e.data.notificationId === "string") {
-          lookingElsewhere.add(e.data.notificationId);
+        const m = e.data;
+        if (m?.kind === "handled" && typeof m.notificationId === "string") {
+          remember(handledIds, m.notificationId);
+        } else if (m?.kind === "focus" && typeof m.tabId === "string" && Array.isArray(m.keys)) {
+          if (m.focused) focusedTab = { tabId: m.tabId, keys: m.keys };
+          else if (focusedTab?.tabId === m.tabId) focusedTab = null;
         }
       };
     } catch (err) {
@@ -218,23 +251,44 @@ export function startBrowserNotifications(): void {
   window.addEventListener("storage", (e) => {
     if (e.key === ENABLED_KEY) notifyState();
   });
+  window.addEventListener("focus", announceFocus);
+  window.addEventListener("blur", announceFocus);
+  document.addEventListener("visibilitychange", announceFocus);
+  window.addEventListener("pagehide", () => {
+    if (focusedTab?.tabId === tabId) focusedTab = null;
+    channel?.postMessage({ kind: "focus", tabId, focused: false, keys: [] } satisfies ChannelMessage);
+  });
+  // Blocked or allowed in the browser's own settings while the app is open.
+  const permissions = (navigator as Navigator & { permissions?: Permissions }).permissions;
+  if (permissions && typeof permissions.query === "function") {
+    permissions
+      .query({ name: "notifications" as PermissionName })
+      .then((status) => {
+        status.onchange = () => {
+          console.info({ operation: "browser_notifications_permission_changed", permission: Notification.permission });
+          notifyState();
+        };
+      })
+      .catch(() => {
+        // Not every browser can watch this permission; the switch re-reads on its next render.
+      });
+  }
 }
 
-function rememberId(id: string): boolean {
-  if (seenIds.includes(id)) return false;
-  seenIds.push(id);
-  if (seenIds.length > SEEN_IDS_CAP) seenIds.shift();
-  return true;
+function markHandled(id: string): void {
+  remember(handledIds, id);
+  channel?.postMessage({ kind: "handled", notificationId: id } satisfies ChannelMessage);
 }
 
 function show(n: AgentNotification): void {
-  if (lookingElsewhere.has(n.notificationId)) {
-    lookingElsewhere.delete(n.notificationId);
-    console.info({ operation: "browser_notifications_skipped_looking_elsewhere", notificationId: n.notificationId });
+  if (handledIds.includes(n.notificationId)) return;
+  // Re-check: switched off, permission revoked, or the user came to it while we waited.
+  if (getBrowserNotificationsState() !== "on") return;
+  markHandled(n.notificationId);
+  if (userIsLookingAt(convKey(n.hostId, n.identityName))) {
+    console.info({ operation: "browser_notifications_skipped_looking", notificationId: n.notificationId });
     return;
   }
-  // Re-check: switched off or permission revoked while we waited.
-  if (getBrowserNotificationsState() !== "on") return;
   try {
     const shown = new Notification(n.title, { body: n.body, tag: n.notificationId });
     const hostId = Number(n.hostId);
@@ -259,16 +313,12 @@ function show(n: AgentNotification): void {
 /** An agent just notified the user (fleet-status `agent-notified` frame). */
 export function handleAgentNotified(n: AgentNotification): void {
   if (getBrowserNotificationsState() !== "on") return;
-  if (!rememberId(n.notificationId)) return;
-  if (thisTabIsLookingAt(convKey(n.hostId, n.identityName))) {
-    channel?.postMessage({ kind: "looking", notificationId: n.notificationId } satisfies ChannelMessage);
-    console.info({ operation: "browser_notifications_skipped_looking", notificationId: n.notificationId });
-    return;
-  }
-  // With Web Locks only the chosen tab shows it; without, every tab does and
-  // the shared tag folds them into one.
-  if (locksAvailable && !isLeader) return;
-  window.setTimeout(() => show(n), LOOKING_WAIT_MS);
+  if (!remember(seenIds, n.notificationId)) return;
+  // The chosen tab (or every tab, without Web Locks — the shared tag folds
+  // them into one) shows it now; the others stand by in case the chosen
+  // tab never got it.
+  if (!locksAvailable || isLeader) show(n);
+  else window.setTimeout(() => show(n), FALLBACK_WAIT_MS);
 }
 
 /** Preferences' "Send a test notification". */
@@ -294,9 +344,10 @@ export function _resetBrowserNotificationsForTests(): void {
   locksAvailable = false;
   channel?.close();
   channel = null;
-  lookingElsewhere.clear();
   seenIds.length = 0;
-  lookingAt = new Set();
+  handledIds.length = 0;
+  lookingAt = [];
+  focusedTab = null;
   stateListeners.clear();
   openListeners.clear();
 }
