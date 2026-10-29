@@ -312,6 +312,15 @@ import { roleDisplayName } from "@/lib/role-display-name";
 import { KitButton, kitAlert, kitConfirm, kitPrompt } from "@/components/kit";
 import { toast } from "sonner";
 import { systemLogger } from "@/lib/frontend-logger";
+import {
+  checkActiveWakeups,
+  checkActiveWakeupsForAgents,
+  claimArchivePrompt,
+  multiAgentWakeupWarning,
+  releaseArchivePrompt,
+  singleAgentArchiveBody,
+  type WakeupCheck,
+} from "@/shell/archive-wakeup-check";
 import { KitScopeContext, type KitScopeValue } from "@/components/kit/scope";
 
 // Phase 122 Plan 04 (D-17 removal): the SEARCH_HIDDEN_SENTINEL_KEY constant
@@ -2013,13 +2022,32 @@ export function PrettyConversationsPanel({
   const handleArchive = async (row: ConversationRowShape) => {
     const target = archiveTarget(row);
     if (target === null) return;
+    // Look up the wake-ups that would stop first, so the confirm can name them.
+    await confirmThenArchive(row, target, () => checkActiveWakeups(target.hostIdNum, target.identityKey));
+  };
+
+  // The confirm (naming any wake-ups that would stop) and, on yes, the archive.
+  // While the check and the confirm are up, another Archive on the same agent
+  // is ignored.
+  const confirmThenArchive = async (
+    row: ConversationRowShape,
+    target: { hostIdNum: number; identityKey: string; label: string },
+    getCheck: () => Promise<WakeupCheck>,
+  ) => {
     const { hostIdNum, identityKey, label } = target;
-    const ok = await kitConfirm({
-      title: `Archive "${label}"?`,
-      body: "The agent is retired and its conversation leaves the sidebar. You can't undo this here.",
-      confirmLabel: "Archive",
-      destructive: true,
-    });
+    if (!claimArchivePrompt(hostIdNum, identityKey)) return;
+    let ok: boolean;
+    try {
+      const check = await getCheck();
+      ok = await kitConfirm({
+        title: `Archive "${label}"?`,
+        body: singleAgentArchiveBody(check),
+        confirmLabel: "Archive",
+        destructive: true,
+      });
+    } finally {
+      releaseArchivePrompt(hostIdNum, identityKey);
+    }
     if (!ok) return;
     if (activeSetRef.current.has(row.id)) { // latest — the confirm doesn't freeze the page
       handleRowDeactivate(row);
@@ -2037,6 +2065,11 @@ export function PrettyConversationsPanel({
   // the bar goes (timed out or swiped away). Undo puts the row back with
   // nothing to restore. Leaving the page inside the window archives nothing —
   // the row is back on the next load.
+  // The agent's wake-ups are checked alongside, and the archive never goes
+  // ahead before that check is back (it gives up within CHECK_TIMEOUT_MS). An
+  // agent with active wake-ups doesn't archive from the swipe: the bar goes,
+  // the row comes back and the warning confirm opens. A failed check archives
+  // as normal, with the bar saying so.
   const handleSwipeArchive = (row: ConversationRowShape) => {
     const target = archiveTarget(row);
     if (target === null) return;
@@ -2054,14 +2087,34 @@ export function PrettyConversationsPanel({
     const undoRemove = optimisticArchiveRemove(hostIdNum, identityKey, identityKey);
     const logCtx = { operation: "swipe_archive", hostId: hostIdNum, identityKey };
     systemLogger.info("swipe-archive pending", { ...logCtx, event: "pending" });
+    const checkPromise = checkActiveWakeups(hostIdNum, identityKey);
+    let checkFailureShown = false;
+    const hasActiveWakeups = (check: WakeupCheck) => check.status === "checked" && check.active.length > 0;
     let settled = false;
+    // Put the row back and ask instead, naming the wake-ups that would stop.
+    const warnInstead = (check: WakeupCheck) => {
+      systemLogger.info("swipe-archive held for wake-ups", { ...logCtx, event: "wakeup_warning" });
+      setPending(false);
+      undoRemove();
+      void confirmThenArchive(row, target, async () => check);
+    };
     const commit = () => {
       if (settled) return;
       settled = true;
-      systemLogger.info("swipe-archive commit", { ...logCtx, event: "commit" });
-      if (activeSetRef.current.has(row.id)) handleRowDeactivate(row);
-      setPending(false);
-      void commitArchive(hostIdNum, identityKey, undoRemove);
+      void checkPromise.then((check) => {
+        if (hasActiveWakeups(check)) {
+          warnInstead(check);
+          return;
+        }
+        systemLogger.info("swipe-archive commit", { ...logCtx, event: "commit", wakeupCheck: check.status });
+        if (activeSetRef.current.has(row.id)) handleRowDeactivate(row);
+        setPending(false);
+        // The bar went before a failed check could say so on it: say it now.
+        if (check.status === "unknown" && !checkFailureShown) {
+          toast(`Archived "${label}"`, { description: "Couldn't check its wake-ups first — any it had have stopped." });
+        }
+        void commitArchive(hostIdNum, identityKey, undoRemove);
+      });
     };
     const undo = () => {
       if (settled) return;
@@ -2070,11 +2123,27 @@ export function PrettyConversationsPanel({
       setPending(false);
       undoRemove();
     };
-    toast(`Archived "${label}"`, {
+    const toastOpts = {
       duration: SWIPE_UNDO_MS,
       action: { label: "Undo", onClick: undo },
       onAutoClose: commit,
       onDismiss: commit,
+    };
+    const toastId = toast(`Archived "${label}"`, toastOpts);
+    void checkPromise.then((check) => {
+      if (settled) return; // the bar already went; commit() acts on this check
+      if (hasActiveWakeups(check)) {
+        settled = true;
+        toast.dismiss(toastId);
+        warnInstead(check);
+      } else if (check.status === "unknown") {
+        checkFailureShown = true;
+        toast(`Archived "${label}"`, {
+          ...toastOpts,
+          id: toastId,
+          description: "Couldn't check its wake-ups — any it has will stop.",
+        });
+      }
     });
   };
 
@@ -3059,6 +3128,18 @@ export function PrettyConversationsPanel({
           return;
         }
       }
+      // Look up the agents' wake-ups so the confirm can name the agents whose
+      // wake-ups would stop with them.
+      const agentTargets = nonRdpMembers
+        .filter((r) => !isRoomRow(r))
+        .map((r) => archiveTarget(r))
+        .filter((t): t is NonNullable<typeof t> => t !== null);
+      const wakeupChecks = await checkActiveWakeupsForAgents(
+        agentTargets.map((t) => ({ hostId: t.hostIdNum, identityKey: t.identityKey, label: t.label })),
+      );
+      const wakeupWarning = multiAgentWakeupWarning(
+        wakeupChecks.map(({ agent, check }) => ({ label: agent.label, check })),
+      );
       // 3. Confirm with counts.
       const lines: string[] = [];
       if (subProjects.length > 0) {
@@ -3075,6 +3156,7 @@ export function PrettyConversationsPanel({
           `${plural(roomCount, "relay room")} will move back to Conversations.`,
         );
       }
+      if (wakeupWarning) lines.push(wakeupWarning);
       lines.push("This can't be undone. Move conversations out first to keep them.");
       console.info({
         operation: "archive_project_confirm_shown",
@@ -3083,6 +3165,8 @@ export function PrettyConversationsPanel({
         subProjectCount: subProjects.length,
         agentCount,
         roomCount,
+        agentsWithWakeups: wakeupChecks.filter((r) => r.check.status === "checked" && r.check.active.length > 0).length,
+        agentsUnchecked: wakeupChecks.filter((r) => r.check.status === "unknown").length,
       });
       const proceed = await kitConfirm({
         title: `Archive "${name}"?`,

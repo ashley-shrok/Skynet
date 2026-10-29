@@ -7,6 +7,12 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 
+// Archive confirms look up the agent's wake-ups first (default: none).
+vi.mock("@/shell/archive-wakeup-check", async (o) =>
+  (await import("@/shell/archive-wakeup-check.test-mocks")).archiveWakeupCheck(o),
+);
+beforeEach(() => resetWakeupCheckMock());
+
 vi.mock("@/api/identities-api", async (o) => (await import("./roles-window.test-mocks")).identitiesApi(o));
 vi.mock("@/api/instance-wide-api", async (o) => (await import("./roles-window.test-mocks")).instanceWideApi(o));
 vi.mock("@/api/roles-archive-list-api", async () => (await import("./roles-window.test-mocks")).rolesArchiveListApi());
@@ -40,6 +46,7 @@ import {
   pressEscape,
   renderWindow,
 } from "./roles-window.test-fixtures";
+import { resetWakeupCheckMock } from "@/shell/archive-wakeup-check.test-mocks";
 
 /** Type in the role-file editor the way a person does (a keypress, then the text). */
 function typeInEditor(el: HTMLElement, init: { target: { value: string } }): void {

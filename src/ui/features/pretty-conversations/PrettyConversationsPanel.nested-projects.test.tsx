@@ -86,6 +86,12 @@ import type { Host, HostFolder } from "@/types/ui-types";
 
 // ─── Global mocks ─────────────────────────────────────────────────────────────
 
+// Archive confirms look up the agent's wake-ups first (default: none).
+vi.mock("@/shell/archive-wakeup-check", async (o) =>
+  (await import("@/shell/archive-wakeup-check.test-mocks")).archiveWakeupCheck(o),
+);
+beforeEach(() => resetWakeupCheckMock());
+
 vi.mock("react-i18next", () => ({
   useTranslation: () => ({
     t: (key: string, opts?: { defaultValue?: string }) =>
@@ -462,6 +468,7 @@ vi.mock("@/api/global-files-api", () => ({
 // ─── Component under test ───────────────────────────────────────────────────
 
 import { PrettyConversationsPanel } from "./PrettyConversationsPanel";
+import { resetWakeupCheckMock } from "@/shell/archive-wakeup-check.test-mocks";
 
 // ─── Fixture helpers ────────────────────────────────────────────────────────
 

@@ -5,6 +5,12 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { cleanup, fireEvent, screen, waitFor, within } from "@testing-library/react";
 
+// Archive confirms look up the agent's wake-ups first (default: none).
+vi.mock("@/shell/archive-wakeup-check", async (o) =>
+  (await import("@/shell/archive-wakeup-check.test-mocks")).archiveWakeupCheck(o),
+);
+beforeEach(() => resetWakeupCheckMock());
+
 vi.mock("@/api/identities-api", async (o) => (await import("./roles-window.test-mocks")).identitiesApi(o));
 vi.mock("@/api/instance-wide-api", async (o) => (await import("./roles-window.test-mocks")).instanceWideApi(o));
 vi.mock("@/api/roles-archive-list-api", async () => (await import("./roles-window.test-mocks")).rolesArchiveListApi());
@@ -37,6 +43,7 @@ import {
   pressEscape,
   renderWindow,
 } from "./roles-window.test-fixtures";
+import { resetWakeupCheckMock, wakeupCheckMock } from "@/shell/archive-wakeup-check.test-mocks";
 
 /** Type in the role-file editor the way a person does (a keypress, then the text). */
 function typeInEditor(el: HTMLElement, init: { target: { value: string } }): void {
@@ -449,6 +456,31 @@ describe("role view — ⋯ menu", () => {
     expect(screen.getByTestId("roles-window-row-ally-role")).toBeTruthy();
     // The archived list is fetched again (the row count follows).
     expect(m.listArchivedRoles.mock.calls.length).toBeGreaterThan(1);
+  });
+
+  it("Archive role… names which holders have wake-ups that would stop", async () => {
+    store.identities = [
+      agent("tabitha", ["box-maintainer"], HOST_ID, "Fix the printer"),
+      agent("rex", ["box-maintainer"]),
+    ];
+    wakeupCheckMock.impl = async (_hostId, identityKey) =>
+      identityKey === "rex"
+        ? { status: "checked", active: [{ slug: "s", name: "Standup", scheduleHuman: "Daily at 09:00" }] }
+        : { status: "checked", active: [] };
+    const dialogs = autoAnswerKitDialogs({ confirm: false });
+    await openRole();
+    fireEvent.click(within(await openMenu("role-view-menu")).getByTestId("role-view-archive"));
+    await waitFor(() => expect(dialogs.calls).toHaveLength(1));
+    expect(wakeupCheckMock.calls).toEqual([
+      [HOST_ID, "tabitha"],
+      [HOST_ID, "rex"],
+    ]);
+    expect(dialogs.calls[0].opts.body).toBe(
+      "This also archives the 2 agents holding it:\n• Fix the printer\n• Rex\n\n" +
+        "1 of these agents has wake-ups that will stop: Rex (1).\n\n" +
+        "If this work should keep running, set it up as a scheduled task (clock icon) first.",
+    );
+    expect(m.archiveRole).not.toHaveBeenCalled();
   });
 
   it("Archive with no agents says so; 'no' archives nothing", async () => {

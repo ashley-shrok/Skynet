@@ -5872,12 +5872,15 @@ wss.on("connection", async (ws: WebSocket, req) => {
       const hostIdNum = requireHostId(ws, rawHostId, "identity:list-wakeups", { type: "identity:wakeups", wakeups: [] }, userId);
       if (hostIdNum === null) return;
       const archived = (msg as { archived?: unknown }).archived === true;
+      // The archive check asks for a strict read so a failed one reaches the
+      // catch below (and its `error`) instead of reading as "no wake-ups".
+      const strict = (msg as { strict?: unknown }).strict === true;
       const useLocal = isLocalHostId(hostIdNum);
 
       try {
         let wakeups: { name: string; enabled: boolean; scheduleHuman: string; instruction: string }[];
         if (useLocal) {
-          ({ wakeups } = await readIdentityWakeups(null, identityKey, { archived }));
+          ({ wakeups } = await readIdentityWakeups(null, identityKey, { archived, strict }));
           sshLogger.info("identity:list-wakeups", {
             operation: "identity_list_wakeups",
             userId, identityKey, hostId: hostIdNum, useLocal: true, payloadSize: wakeups.length,
@@ -5891,7 +5894,7 @@ wss.on("connection", async (ws: WebSocket, req) => {
           await getHostSemaphore(hostIdNum).run(async () => {
             const conn = await connectOneShot(resolved as unknown as Parameters<typeof connectOneShot>[0], 5000);
             try {
-              ({ wakeups } = await readIdentityWakeups(conn, identityKey, { archived }));
+              ({ wakeups } = await readIdentityWakeups(conn, identityKey, { archived, strict }));
               sshLogger.info("identity:list-wakeups", {
                 operation: "identity_list_wakeups",
                 userId, identityKey, hostId: hostIdNum, useLocal: false, payloadSize: wakeups.length,

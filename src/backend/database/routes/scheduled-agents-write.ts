@@ -452,7 +452,10 @@ export const ARCHIVE_IF_NOTHING_TO_REPORT_SECTION =
   "task, and that is their instruction to do so. What counts as smooth, and what is " +
   "worth mentioning, is your call. Follow any preferences your user has set about " +
   "what matters. If the run did have something for your user, don't archive; stay " +
-  "so they can see it. This applies to the end of this run only; in any later " +
+  "so they can see it. Holding wake-ups that are switched on and can still fire " +
+  "always counts as something to report: archiving would end them for good, so " +
+  "don't archive; tell your user which ones they are. This applies to the end of " +
+  "this run only; in any later " +
   "session, archive only when your user asks.";
 
 export type RunNowBuildResult =

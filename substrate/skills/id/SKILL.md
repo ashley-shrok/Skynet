@@ -883,7 +883,9 @@ not something agents drive.
   **Swipe to archive (phone).** Swiping a conversation row to the left
   archives it at once, no confirm: the row slides away and a bar says
   "Archived … · Undo" for about 5 seconds. The archive only happens once
-  the bar is gone; Undo puts the row back. Rows that can't be archived
+  the bar is gone; Undo puts the row back. An agent with wake-ups that can
+  still fire isn't archived by a swipe: its row comes back and the archive
+  confirm (below) opens instead. Rows that can't be archived
   (remote desktops, relay rooms) don't swipe.
 
 - **Row menu on any sidebar row (conversation).** On desktop, the ⋮ that
@@ -913,7 +915,9 @@ not something agents drive.
     **User-gated.**
   - **Archive** — retires the identity, after a confirm, and closes every
     open copy of its conversation (splits, other windows, other devices).
-    See § On `/id archive`.
+    The confirm names the agent's wake-ups that can still fire — they stop
+    for good with it — and points at scheduled tasks for work that should
+    carry on. See § On `/id archive`.
 
   Much the same menu appears on the conversation's **task pill** in the
   open conversation view (top-center) — its own ⋯ button, or right-click —
@@ -980,7 +984,8 @@ not something agents drive.
   - **Archive project** — retires the project together with every
     sub-project beneath it and every agent in any of them; relay rooms
     anywhere inside move back to Conversations. The confirm names the
-    project and counts the sub-projects, agents and rooms first.
+    project and counts the sub-projects, agents and rooms first, and names
+    the agents whose wake-ups would stop.
   With a mouse a project header can also be dragged: drop it on another
   project to move it inside that one, or on the **Projects** super-header
   to move it back to top level. On a touch screen, **Move to** is the way.
@@ -1214,7 +1219,8 @@ crown, then gear.
     **Start a conversation** (opens the new-conversation dialog with this
     role picked), for admins **Make instance-wide…** / **Delete from every host…**,
     and **Archive role…** — one confirm naming the agents that hold it,
-    which are archived with it; greyed out on a shared role, which is
+    which are archived with it (and which of them have wake-ups that would
+    stop); greyed out on a shared role, which is
     deleted from every host instead.
   - **A role skill** (click one under Skills): one level deeper; back
     reads the role's name; its name heads it with its description under
@@ -2135,6 +2141,13 @@ is told to archive itself after a smooth run (§ Scheduled tasks).
 
 ### When invoked
 
+0. **Check your own wake-ups first.** Archiving ends every wake-up you
+   hold for good. If any in `~/fleet/identities/<name>/wakeups/` are
+   switched on and can still fire, name them to the user and wait for
+   their go-ahead before going on — unless they already knew when they
+   asked. Under a scheduled task's **Archive if nothing to report**, they
+   count as something to report: don't archive.
+
 1. **Run the full `/id save` procedure** (§ On `/id save`, steps 1–4) —
    this is your LAST chance to land anything you're carrying in context only (meaning not on disk somewhere).
 
@@ -2583,7 +2596,8 @@ the project comes back. Changing it affects future runs only.
 report** switch. When it's `true`, each agent the task spawns is told, after
 the prompt, to run `/id archive` when it's done if the run went smoothly and
 there's nothing worth bringing to the user, using its own judgement and the
-user's preferences about what matters. Use it for routine checks and chores
+user's preferences about what matters (holding wake-ups that can still fire
+always counts as something to bring). Use it for routine checks and chores
 whose uneventful runs needn't stay in the sidebar. When creating or editing a
 scheduled task, set this field; don't write your own archive wording into
 `prompt`. It's off by default because an archive the user didn't want costs

@@ -6,6 +6,7 @@ import { kitAlert, kitConfirm } from "@/components/kit";
 import { archiveRole } from "@/api/role-archive-api";
 import { deleteRoleSkill } from "@/api/role-skills-api";
 import type { Identity } from "@/api/identities-api";
+import { checkActiveWakeupsForAgents, multiAgentWakeupWarning } from "@/shell/archive-wakeup-check";
 
 function plural(n: number, word: string): string {
   return `${n} ${word}${n === 1 ? "" : "s"}`;
@@ -17,18 +18,35 @@ export async function confirmAndArchiveRole(args: {
   hostId: number;
   name: string;
   label: string;
-  agents: Pick<Identity, "task" | "displayName">[];
+  agents: Pick<Identity, "identityKey" | "task" | "displayName">[];
 }): Promise<boolean> {
   const { hostId, name, label, agents } = args;
+  const agentLabel = (i: (typeof agents)[number]) => i.task || i.displayName || i.identityKey;
+  // A role lives on one host, and so do the agents holding it. Look up their
+  // wake-ups so the confirm can name the agents whose wake-ups would stop.
+  const wakeupChecks = await checkActiveWakeupsForAgents(
+    agents.map((i) => ({ hostId, identityKey: i.identityKey, label: agentLabel(i) })),
+  );
+  const wakeupWarning = multiAgentWakeupWarning(
+    wakeupChecks.map(({ agent, check }) => ({ label: agent.label, check })),
+  );
   const body =
     agents.length === 0
       ? "No agents hold it. This can't be undone from here — archived roles can be brought back from Archived roles."
       : `This also archives the ${plural(agents.length, "agent")} holding it:\n` +
-        agents.map((i) => `• ${i.task || i.displayName}`).join("\n");
+        agents.map((i) => `• ${agentLabel(i)}`).join("\n") +
+        (wakeupWarning ? `\n\n${wakeupWarning}` : "");
   if (!(await kitConfirm({ title: `Archive ${label}?`, body, confirmLabel: "Archive", destructive: true }))) return false;
   try {
     await archiveRole(hostId, name);
-    console.info({ operation: "role_archived", hostId, roleName: name, agentCount: agents.length });
+    console.info({
+      operation: "role_archived",
+      hostId,
+      roleName: name,
+      agentCount: agents.length,
+      agentsWithWakeups: wakeupChecks.filter((r) => r.check.status === "checked" && r.check.active.length > 0).length,
+      agentsUnchecked: wakeupChecks.filter((r) => r.check.status === "unknown").length,
+    });
     return true;
   } catch (err) {
     const errMessage = err instanceof Error ? err.message : String(err);

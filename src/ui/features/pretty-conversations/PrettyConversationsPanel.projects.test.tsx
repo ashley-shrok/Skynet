@@ -98,6 +98,12 @@ import {
 
 // ─── Global mocks ─────────────────────────────────────────────────────────────
 
+// Archive confirms look up the agent's wake-ups first (default: none).
+vi.mock("@/shell/archive-wakeup-check", async (o) =>
+  (await import("@/shell/archive-wakeup-check.test-mocks")).archiveWakeupCheck(o),
+);
+beforeEach(() => resetWakeupCheckMock());
+
 vi.mock("react-i18next", () => ({
   useTranslation: () => ({
     t: (key: string, opts?: { defaultValue?: string }) =>
@@ -465,6 +471,7 @@ vi.mock("@/api/global-files-api", () => ({
 // ─── Component under test ───────────────────────────────────────────────────
 
 import { PrettyConversationsPanel } from "./PrettyConversationsPanel";
+import { resetWakeupCheckMock, wakeupCheckMock } from "@/shell/archive-wakeup-check.test-mocks";
 
 // ─── Fixture helpers ────────────────────────────────────────────────────────
 
@@ -1568,6 +1575,54 @@ describe("PrettyConversationsPanel: archive-project cascade (117-09 Task 2)", ()
       "This also archives the 1 agent in it.\n\nThis can't be undone. Move conversations out first to keep them.",
     );
     expect(opts.destructive).toBe(true);
+  });
+
+  it("A9 Test 1b (wake-ups): the confirm names the agents whose wake-ups would stop, and any it couldn't check", async () => {
+    const hostA = makeHost("1", "hostA");
+    const row1 = makeRow({ id: "r1", host: hostA, targetTmuxSession: "wren" });
+    const row2 = makeRow({ id: "r2", host: hostA, targetTmuxSession: "sparrow" });
+    const row3 = makeRow({ id: "r3", host: hostA, targetTmuxSession: "finch" });
+    setSnapshot({
+      projectSections: [{ slug: "alpha", displayName: "Alpha", rows: [row1, row2, row3] }],
+    });
+    mockProjects = [
+      { slug: "alpha", displayName: "Alpha", hostId: "1", hostname: "hostA", archived: false },
+    ];
+    wakeupCheckMock.impl = async (_hostId, identityKey) =>
+      identityKey === "wren"
+        ? {
+            status: "checked",
+            active: [
+              { slug: "a", name: "A", scheduleHuman: "Daily at 09:00" },
+              { slug: "b", name: "B", scheduleHuman: "Every 2h" },
+            ],
+          }
+        : identityKey === "finch"
+          ? { status: "unknown", reason: "timeout" }
+          : { status: "checked", active: [] };
+    confirmAnswer = false;
+
+    const { container } = render(
+      <PrettyConversationsPanel isAdmin
+        variant="desktop"
+        hostTree={HOST_TREE}
+        onCreateSession={() => {}}
+        onDeactivateRow={() => {}}
+      />,
+    );
+    await openProjectKebabAndClickItem(container, "alpha", "Archive project");
+
+    await waitFor(() => expect(kitCalls("confirm")).toHaveLength(1));
+    expect(wakeupCheckMock.calls.map(([, k]) => k).sort()).toEqual(["finch", "sparrow", "wren"]);
+    const opts = kitCalls("confirm")[0] as KitConfirmOptions;
+    expect(opts.body).toBe(
+      "This also archives the 3 agents in it.\n\n" +
+        "1 of these agents has wake-ups that will stop: wren (2).\n\n" +
+        "Couldn't check the wake-ups of finch — any they have will stop.\n\n" +
+        "If this work should keep running, set it up as a scheduled task (clock icon) first.\n\n" +
+        "This can't be undone. Move conversations out first to keep them.",
+    );
+    expect(archiveProjectSpy).not.toHaveBeenCalled();
   });
 
   it("A9 Test 2 (cascade: archiveProject first, then N archiveIdentity): 3 identity members → 3 archiveIdentity + 1 archiveProject", async () => {

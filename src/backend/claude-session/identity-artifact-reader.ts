@@ -53,7 +53,7 @@ import yaml from "js-yaml";
 import { parseDocument as yamlParseDocument } from "yaml";
 import { sshLogger, systemLogger } from "../utils/logger.js";
 import { execCommand } from "../ssh/tmux-helper.js";
-import { scheduleError, SENSOR_TYPE } from "./schedule-next-fire.js";
+import { computeNextFireAt, scheduleError, SENSOR_TYPE } from "./schedule-next-fire.js";
 import {
   deriveSensorStatus,
   parseSensorProbe,
@@ -409,7 +409,12 @@ export function getLocalIdentitiesArchiveRoot(): string {
  * `archived` only says which view is asking; where to read is decided here,
  * on the host: the live folder if it exists, else the archived one.
  */
-export type IdentityFolderOpts = { archived?: boolean };
+export type IdentityFolderOpts = {
+  archived?: boolean;
+  /** Wake-up reads only: a remote read that fails throws instead of reading as
+   *  "no wake-ups" (the archive check must be able to say it couldn't check). */
+  strict?: boolean;
+};
 
 /** Local root holding the agent's folder: live wins, else the archive. */
 async function localIdentityRootFor(identityKey: string, opts: IdentityFolderOpts): Promise<string> {
@@ -1863,7 +1868,53 @@ type Wakeup = {
   /** Epoch seconds of the last real fire; null when it has never fired. */
   lastFiredAt: number | null;
   sensor: SensorStatus | null;
+  /** Switched on and still able to fire — what archiving the agent would
+   *  end. The archive confirms warn about these. */
+  canFireAgain: boolean;
 };
+
+/** The scheduler's bookkeeping for one wake-up, from its `.state/` folder. */
+export type WakeupFireState = {
+  last: number | null;
+  anchored: number | null;
+  runs: number;
+  /** A current `.fired`: a one-time wake-up (or one-time sensor) already
+   *  went. One older than the spec is a leftover from an earlier wake-up of
+   *  the same name, which the scheduler clears and fires past. */
+  fired: boolean;
+};
+
+const NO_FIRE_STATE: WakeupFireState = { last: null, anchored: null, runs: 0, fired: false };
+
+/**
+ * Whether a wake-up will fire again if nothing changes — mirrors the
+ * scheduler's own bookkeeping (`current_slot` in wakeup-scheduler.py). Off,
+ * malformed, a one-time one that already went, a repeating one with no slot
+ * after now (past its end) or out of runs: false. A switched-on sensor: true
+ * until a one-time sensor has delivered.
+ */
+export function wakeupCanFireAgain(
+  schedule: unknown,
+  enabled: boolean,
+  state: WakeupFireState,
+  nowSecs: number,
+): boolean {
+  if (!enabled || scheduleError(schedule) !== null) return false;
+  const sch = schedule as Record<string, unknown>;
+  if (sch.type === SENSOR_TYPE) return !(sch.once === true && state.fired);
+  // A past one-time wake-up still fires (catch-up) until its `.fired` is written.
+  if (sch.type === "one_shot") return !state.fired;
+  // Asked from now, not from the last fire: a repeating one past its end
+  // still owes one catch-up slot in the past, but nothing after that.
+  const reference = Math.max(state.last ?? state.anchored ?? nowSecs, nowSecs);
+  return computeNextFireAt(schedule, reference, nowSecs, state.runs) !== null;
+}
+
+/** Parse a `.runs` sentinel (a whole count). */
+function parseRunsSentinel(raw: string | null | undefined): number {
+  const n = raw === null || raw === undefined ? NaN : Number(raw.trim());
+  return Number.isInteger(n) && n > 0 ? n : 0;
+}
 
 /** Slug regex for wakeup folder names — kebab/snake, 1-80 chars. Enforced
  *  before we ever touch the filesystem so a hostile slug can't traverse
@@ -1892,6 +1943,7 @@ function wakeupFromSpec(
   lastFiredAt: number | null = null,
   probe: SensorProbe | null = null,
   nowSecs: number = Math.floor(Date.now() / 1000),
+  fireState: WakeupFireState = { ...NO_FIRE_STATE, last: lastFiredAt },
 ): Wakeup {
   const name = typeof parsed.name === "string" ? parsed.name : slug;
   // Read exactly as the wake-up scheduler and sensor-runner read it, so the
@@ -1911,10 +1963,17 @@ function wakeupFromSpec(
     instruction,
     lastFiredAt,
     sensor,
+    canFireAgain: wakeupCanFireAgain(parsed.schedule, enabled, fireState, nowSecs),
   };
 }
 
 const WAKEUP_LAST_MARK = "===SKYNET-WAKEUP-LAST:";
+/** Rest of the scheduler bookkeeping, one line per wake-up:
+ *  `===SKYNET-WAKEUP-STATE:A=<anchored>;R=<runs>;F=<0|1>===`. */
+const WAKEUP_STATE_MARK = "===SKYNET-WAKEUP-STATE:";
+/** Printed instead of any listing when the agent has no wakeups/ folder. */
+const NO_WAKEUPS_MARK = "===SKYNET-NO-WAKEUPS===";
+const WAKEUP_STATE_RE = /===SKYNET-WAKEUP-STATE:A=([^;\n]*);R=([^;\n]*);F=([01])===/;
 
 /** Result shape for wakeups reads. Matches the wire shape "identity:wakeups". */
 export async function readIdentityWakeups(
@@ -1963,13 +2022,29 @@ export async function readIdentityWakeups(
       try {
         const parsed = JSON.parse(raw) as Record<string, unknown>;
         const dir = path.join(wakeupsDir, slug);
-        const lastRaw = await fs
-          .readFile(path.join(dir, ".state", `${slug}.last`), "utf-8")
-          .catch(() => null);
+        const stateFile = (ext: string) =>
+          fs.readFile(path.join(dir, ".state", `${slug}${ext}`), "utf-8").catch(() => null);
+        const mtimeMs = (p: string) => fs.stat(p).then((st) => st.mtimeMs, () => null);
+        const [lastRaw, anchoredRaw, runsRaw, firedAt, specAt] = await Promise.all([
+          stateFile(".last"),
+          stateFile(".anchored"),
+          stateFile(".runs"),
+          mtimeMs(path.join(dir, ".state", `${slug}.fired`)),
+          mtimeMs(filePath),
+        ]);
         const probe = isSensorWakeupSchedule(parsed.schedule)
           ? await readSensorProbeLocal(dir)
           : null;
-        wakeups.push(wakeupFromSpec(parsed, slug, parseLastSentinel(lastRaw), probe));
+        const lastFiredAt = parseLastSentinel(lastRaw);
+        wakeups.push(
+          wakeupFromSpec(parsed, slug, lastFiredAt, probe, undefined, {
+            last: lastFiredAt,
+            anchored: parseLastSentinel(anchoredRaw),
+            runs: parseRunsSentinel(runsRaw),
+            // Same rule as the scheduler: a spec newer than its sentinel hasn't fired.
+            fired: firedAt !== null && !(specAt !== null && specAt > firedAt),
+          }),
+        );
       } catch (err) {
         sshLogger.error(
           "identity-artifact-reader: failed to parse local wakeup JSON",
@@ -1989,30 +2064,39 @@ export async function readIdentityWakeups(
   // REMOTE branch — delimiter-based one-liner (one round-trip for all wakeup
   // folders). `*/` never matches dot-folders; folders without wakeup.json are
   // skipped by the `[ -f ]` guard. nullglob keeps an empty dir from looping
-  // once over a literal `*/`. The loop is grouped under the `cd … &&` so a
-  // missing wakeups/ dir runs nothing (rather than looping over $HOME); the
-  // failed cd exits non-zero, which the catch below reads as "no wake-ups".
+  // once over a literal `*/`. A missing wakeups/ dir prints NO_WAKEUPS_MARK and
+  // exits 0, so an exec that fails is a real failure (empty stdout + non-zero
+  // exit rejects) — thrown under `strict`, read as "no wake-ups" otherwise.
   // Patch #95: direct interpolation (see readIdentityFile for the bug).
+  const wakeupsDirShell = opts.archived ? '"$D/wakeups"' : `"$HOME/fleet/identities/${identityKey}/wakeups"`;
   const cmd =
-    (opts.archived
-      ? `${remoteArchivedViewDirShell(identityKey)}cd "$D/wakeups" 2>/dev/null && { `
-      : `cd "$HOME/fleet/identities/${identityKey}/wakeups" 2>/dev/null && { `) +
+    (opts.archived ? remoteArchivedViewDirShell(identityKey) : "") +
+    `if [ -d ${wakeupsDirShell} ]; then cd ${wakeupsDirShell} || exit 1; ` +
     'shopt -s nullglob; ' +
     'for d in */; do s="${d%/}"; [ -f "$s/wakeup.json" ] || continue; ' +
     'echo "===FILE:$s==="; cat "$s/wakeup.json"; echo; ' +
     // Sensors shape 2: last fire + sensor probe ride the same round-trip.
     `echo "${WAKEUP_LAST_MARK}$(cat "$s/.state/$s.last" 2>/dev/null)==="; ` +
+    // A `.fired` older than the spec is a leftover the scheduler fires past.
+    `_f=0; [ -e "$s/.state/$s.fired" ] && ! [ "$s/wakeup.json" -nt "$s/.state/$s.fired" ] && _f=1; ` +
+    `echo "${WAKEUP_STATE_MARK}A=$(cat "$s/.state/$s.anchored" 2>/dev/null | tr -d '\\n;');` +
+    `R=$(cat "$s/.state/$s.runs" 2>/dev/null | tr -d '\\n;');F=$_f==="; ` +
     sensorProbeShell('"$s"') +
-    'done; }';
+    `done; else echo "${NO_WAKEUPS_MARK}"; fi`;
   let stdout: string;
   try {
     stdout = await execWithTimeout(conn, cmd);
-  } catch {
-    // Wakeups dir likely doesn't exist — treat as empty (matches ENOENT semantics).
+  } catch (err) {
+    if (opts.strict) throw err;
+    sshLogger.warn("identity-artifact-reader: remote wake-ups read failed — showing none", {
+      operation: "identity_wakeups_remote_read_failed",
+      identityKey,
+      error: err instanceof Error ? err.message : String(err),
+    });
     return { wakeups: [] };
   }
 
-  if (!stdout) return { wakeups: [] };
+  if (!stdout || stdout.trim() === NO_WAKEUPS_MARK) return { wakeups: [] };
 
   const wakeups: Wakeup[] = [];
   // Split on ===FILE: delimiter; first chunk is empty (before the first marker).
@@ -2029,15 +2113,30 @@ export async function readIdentityWakeups(
     if (!slug || !jsonContent) continue;
     let lastFiredAt: number | null = null;
     let probe: SensorProbe | null = null;
+    let fireState: WakeupFireState = NO_FIRE_STATE;
     if (lastIdx !== -1) {
       const after = rest.slice(lastIdx + WAKEUP_LAST_MARK.length);
       const end = after.indexOf("===");
       if (end !== -1) lastFiredAt = parseLastSentinel(after.slice(0, end));
       probe = parseSensorProbe(after);
+      const st = WAKEUP_STATE_RE.exec(after);
+      fireState = {
+        last: lastFiredAt,
+        anchored: st ? parseLastSentinel(st[1]) : null,
+        runs: st ? parseRunsSentinel(st[2]) : 0,
+        fired: st ? st[3] === "1" : false,
+      };
     }
     try {
       wakeups.push(
-        wakeupFromSpec(JSON.parse(jsonContent) as Record<string, unknown>, slug, lastFiredAt, probe),
+        wakeupFromSpec(
+          JSON.parse(jsonContent) as Record<string, unknown>,
+          slug,
+          lastFiredAt,
+          probe,
+          undefined,
+          fireState,
+        ),
       );
     } catch (err) {
       sshLogger.error(

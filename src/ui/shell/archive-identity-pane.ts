@@ -2,7 +2,9 @@
 // Archive the identity behind an open pane: confirm, close the pane, drop
 // the sidebar row optimistically, then fire the archive. Shared by the
 // identity badge's menu Archive item and the badge drop lane's archive zone
-// so both read the same confirmation and roll back the same way.
+// so both read the same confirmation and roll back the same way. The agent's
+// active wake-ups are looked up first so the confirm can name the ones that
+// would stop (archive-wakeup-check.ts).
 
 import { announceAgentArchived } from "@/features/archived-view/archived-identity";
 import { applyIdentityChange } from "@/state/identities-store";
@@ -13,6 +15,12 @@ import {
 } from "@/state/conversation-store";
 import { archiveIdentity } from "@/api/identity-archive-api";
 import { kitAlert, kitConfirm } from "@/components/kit";
+import {
+  checkActiveWakeups,
+  claimArchivePrompt,
+  releaseArchivePrompt,
+  singleAgentArchiveBody,
+} from "./archive-wakeup-check";
 
 export function confirmAndArchiveIdentityPane(args: {
   hostId: number;
@@ -31,12 +39,19 @@ async function confirmThenArchive(args: {
   closePane: () => void;
 }): Promise<void> {
   const { hostId, identityKey, label, closePane } = args;
-  const ok = await kitConfirm({
-    title: `Archive "${label}"?`,
-    body: "The agent is retired and its conversation leaves the sidebar. You can't undo this here.",
-    confirmLabel: "Archive",
-    destructive: true,
-  });
+  if (!claimArchivePrompt(hostId, identityKey)) return;
+  let ok: boolean;
+  try {
+    const check = await checkActiveWakeups(hostId, identityKey);
+    ok = await kitConfirm({
+      title: `Archive "${label}"?`,
+      body: singleAgentArchiveBody(check),
+      confirmLabel: "Archive",
+      destructive: true,
+    });
+  } finally {
+    releaseArchivePrompt(hostId, identityKey);
+  }
   if (!ok) return;
   // Close the visible pane BEFORE the API call (mirrors the panel's
   // handleArchive).

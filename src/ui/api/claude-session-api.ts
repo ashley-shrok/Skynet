@@ -894,6 +894,8 @@ export type Wakeup = {
   lastFiredAt?: number | null;
   /** Sensor-triggered wake-ups only; null/absent for clock schedules. */
   sensor?: SensorStatus | null;
+  /** Switched on and still able to fire — what archiving the agent ends. */
+  canFireAgain?: boolean;
 };
 export type IdentityListWakeupsPayload = {
   type: "identity:list-wakeups";
@@ -902,6 +904,9 @@ export type IdentityListWakeupsPayload = {
   hostId: number;
   /** Read the archived agent's wake-ups. */
   archived?: boolean;
+  /** A failed read replies with `error` rather than an empty list (the
+   *  archive check, which must say when it couldn't check). */
+  strict?: boolean;
 };
 
 /** An archived agent's conversation apps (view-only window). */

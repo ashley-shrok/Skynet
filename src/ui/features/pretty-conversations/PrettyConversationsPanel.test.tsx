@@ -87,6 +87,12 @@ import type { AppState } from "@/api/fleet-status-types";
 
 // ─── Global mocks (BEFORE component import — Vitest hoists vi.mock) ──────────
 
+// Archive confirms look up the agent's wake-ups first (default: none).
+vi.mock("@/shell/archive-wakeup-check", async (o) =>
+  (await import("@/shell/archive-wakeup-check.test-mocks")).archiveWakeupCheck(o),
+);
+beforeEach(() => resetWakeupCheckMock());
+
 vi.mock("react-i18next", () => ({
   useTranslation: () => ({
     t: (key: string, opts?: { defaultValue?: string }) =>
@@ -3852,6 +3858,8 @@ describe("PrettyConversationsPanel: Phase 119 Apps section", () => {
 // ─────────────────────────────────────────────────────────────────────────────
 
 import { _resetForTests as _resetSearchStoreForTests, useSearchState } from "@/state/search-store";
+import { resetWakeupCheckMock, wakeupCheckMock } from "@/shell/archive-wakeup-check.test-mocks";
+import { toast } from "sonner";
 
 describe("PrettyConversationsPanel (shape-sidebar-search-inline): sidebar-search input row", () => {
   beforeEach(() => {
@@ -4451,7 +4459,7 @@ describe("PrettyConversationsPanel (shape-sidebar): swipe to archive with Undo",
     const opts = await swipe(container);
     expect(onDeactivateRow).not.toHaveBeenCalled();
     act(() => opts.onAutoClose());
-    expect(onDeactivateRow).toHaveBeenCalled();
+    await waitFor(() => expect(onDeactivateRow).toHaveBeenCalled());
   });
 
   it("Undo leaves an open conversation's pane open", async () => {
@@ -4533,6 +4541,235 @@ describe("PrettyConversationsPanel (shape-sidebar): swipe to archive with Undo",
     expectArchiveConfirm(kitConfirms(dialogs)[0], "Wren");
     await waitFor(() => expect(archiveIdentitySpy).toHaveBeenCalledTimes(1));
     expect(toastSpy).not.toHaveBeenCalled();
+  });
+
+  // ─── Wake-ups that would stop (shape-archive-wakeup-warning) ─────────────
+  describe("wake-up warning", () => {
+    const standup = { slug: "standup", name: "Standup check", scheduleHuman: "Daily at 09:00" };
+    const inbox = { slug: "inbox", name: "Inbox watcher", scheduleHuman: "When its sensor fires" };
+    const withWakeups = () => {
+      wakeupCheckMock.impl = async () => ({ status: "checked", active: [standup, inbox] });
+    };
+
+    async function archiveFromRowMenu(container: HTMLElement) {
+      const body = bodyOf(container);
+      await openRowKebabInBody(body);
+      fireEvent.click(within(screen.getByRole("menu")).getByRole("menuitem", { name: "Archive" }));
+    }
+
+    it("row menu: the confirm names each active wake-up and points at scheduled tasks", async () => {
+      seedWren();
+      withWakeups();
+      const dialogs = autoAnswerKitDialogs({ confirm: false });
+      const { container } = render(
+        <PrettyConversationsPanel isAdmin variant="desktop" onDeactivateRow={() => {}} />,
+      );
+      await archiveFromRowMenu(container);
+      await waitFor(() => expect(kitConfirms(dialogs)).toHaveLength(1));
+      expect(wakeupCheckMock.calls).toEqual([[42, "wren"]]);
+      const o = kitConfirms(dialogs)[0];
+      expectArchiveConfirm(o, "Wren");
+      expect(String(o.body)).toContain("It has 2 wake-ups that will never fire again:");
+      expect(String(o.body)).toContain("• Standup check — Daily at 09:00");
+      expect(String(o.body)).toContain("• Inbox watcher — When its sensor fires");
+      expect(String(o.body)).toContain("scheduled task (clock icon)");
+      expect(o.destructive).toBe(true);
+      expect(archiveIdentitySpy).not.toHaveBeenCalled();
+    });
+
+    it("row menu: no active wake-ups → today's confirm, word for word", async () => {
+      seedWren();
+      const dialogs = autoAnswerKitDialogs({ confirm: true });
+      const { container } = render(
+        <PrettyConversationsPanel isAdmin variant="desktop" onDeactivateRow={() => {}} />,
+      );
+      await archiveFromRowMenu(container);
+      await waitFor(() => expect(kitConfirms(dialogs)).toHaveLength(1));
+      expect(kitConfirms(dialogs)[0].body).toBe(
+        "The agent is retired and its conversation leaves the sidebar. You can't undo this here.",
+      );
+      await waitFor(() => expect(archiveIdentitySpy).toHaveBeenCalledWith(42, "wren"));
+    });
+
+    it("row menu: a failed check still archives on yes, and the confirm says it couldn't check", async () => {
+      seedWren();
+      wakeupCheckMock.impl = async () => ({ status: "unknown", reason: "timeout" });
+      const dialogs = autoAnswerKitDialogs({ confirm: true });
+      const { container } = render(
+        <PrettyConversationsPanel isAdmin variant="desktop" onDeactivateRow={() => {}} />,
+      );
+      await archiveFromRowMenu(container);
+      await waitFor(() => expect(kitConfirms(dialogs)).toHaveLength(1));
+      expect(String(kitConfirms(dialogs)[0].body)).toContain(
+        "Couldn't check this agent's wake-ups — any it has will stop.",
+      );
+      await waitFor(() => expect(archiveIdentitySpy).toHaveBeenCalledWith(42, "wren"));
+    });
+
+    it("row menu: the confirm doesn't open until the check is back", async () => {
+      seedWren();
+      let release!: () => void;
+      wakeupCheckMock.impl = () =>
+        new Promise((r) => {
+          release = () => r({ status: "checked", active: [standup] });
+        });
+      const dialogs = autoAnswerKitDialogs({ confirm: false });
+      const { container } = render(
+        <PrettyConversationsPanel isAdmin variant="desktop" onDeactivateRow={() => {}} />,
+      );
+      await archiveFromRowMenu(container);
+      await waitFor(() => expect(wakeupCheckMock.calls).toHaveLength(1));
+      await flushKit();
+      expect(kitConfirms(dialogs)).toHaveLength(0);
+      act(() => release());
+      await waitFor(() => expect(kitConfirms(dialogs)).toHaveLength(1));
+      expect(String(kitConfirms(dialogs)[0].body)).toContain("Standup check");
+    });
+
+    it("swipe: active wake-ups → the Undo bar goes, the row comes back and the warning confirm opens; nothing archives on cancel", async () => {
+      seedWren();
+      withWakeups();
+      const dialogs = autoAnswerKitDialogs({ confirm: false });
+      const dismissSpy = vi.spyOn(toast, "dismiss");
+      const { container } = render(
+        <PrettyConversationsPanel isAdmin variant="mobile" onDeactivateRow={() => {}} />,
+      );
+      upsertFleetSessionSpy.mockClear();
+      await swipe(container);
+      await waitFor(() => expect(kitConfirms(dialogs)).toHaveLength(1));
+      expect(dismissSpy).toHaveBeenCalled();
+      expect(clearPendingArchiveSpy).toHaveBeenCalledWith(42, "wren");
+      expect(upsertFleetSessionSpy).toHaveBeenCalledWith(wrenSession);
+      expect(String(kitConfirms(dialogs)[0].body)).toContain("Standup check — Daily at 09:00");
+      await flushKit();
+      expect(archiveIdentitySpy).not.toHaveBeenCalled();
+      dismissSpy.mockRestore();
+    });
+
+    it("swipe: active wake-ups, confirm yes → archives once", async () => {
+      seedWren();
+      withWakeups();
+      const dialogs = autoAnswerKitDialogs({ confirm: true });
+      const { container } = render(
+        <PrettyConversationsPanel isAdmin variant="mobile" onDeactivateRow={() => {}} />,
+      );
+      const opts = await swipe(container);
+      await waitFor(() => expect(kitConfirms(dialogs)).toHaveLength(1));
+      await waitFor(() => expect(archiveIdentitySpy).toHaveBeenCalledWith(42, "wren"));
+      // The withdrawn bar's own callbacks no longer archive.
+      act(() => {
+        opts.onAutoClose();
+        opts.onDismiss();
+      });
+      await flushKit();
+      expect(archiveIdentitySpy).toHaveBeenCalledTimes(1);
+    });
+
+    it("swipe: the bar dismissed before the check is back waits for it, then warns instead of archiving", async () => {
+      seedWren();
+      let release!: () => void;
+      wakeupCheckMock.impl = () =>
+        new Promise((r) => {
+          release = () => r({ status: "checked", active: [standup] });
+        });
+      const dialogs = autoAnswerKitDialogs({ confirm: false });
+      const { container } = render(
+        <PrettyConversationsPanel isAdmin variant="mobile" onDeactivateRow={() => {}} />,
+      );
+      const opts = await swipe(container);
+      act(() => opts.onDismiss());
+      await flushKit();
+      expect(archiveIdentitySpy).not.toHaveBeenCalled();
+      act(() => release());
+      await waitFor(() => expect(kitConfirms(dialogs)).toHaveLength(1));
+      expect(String(kitConfirms(dialogs)[0].body)).toContain("Standup check");
+      await flushKit();
+      expect(archiveIdentitySpy).not.toHaveBeenCalled();
+    });
+
+    it("swipe: a failed check archives as normal, the bar saying it couldn't check", async () => {
+      seedWren();
+      let release!: () => void;
+      wakeupCheckMock.impl = () =>
+        new Promise((r) => {
+          release = () => r({ status: "unknown", reason: "connection failed" });
+        });
+      const dialogs = autoAnswerKitDialogs({ confirm: true });
+      const { container } = render(
+        <PrettyConversationsPanel isAdmin variant="mobile" onDeactivateRow={() => {}} />,
+      );
+      await swipe(container);
+      act(() => release());
+      const spy = toastSpy as unknown as ReturnType<typeof vi.fn>;
+      await waitFor(() => expect(spy).toHaveBeenCalledTimes(2));
+      const updated = spy.mock.calls[1][1] as ToastOpts & { id: unknown; description: string };
+      expect(spy.mock.calls[1][0]).toBe('Archived "Wren"');
+      expect(updated.description).toBe("Couldn't check its wake-ups — any it has will stop.");
+      expect("id" in updated).toBe(true); // replaces the bar in place (the mock returns no id)
+      expect(kitConfirms(dialogs)).toHaveLength(0);
+      act(() => updated.onAutoClose());
+      await waitFor(() => expect(archiveIdentitySpy).toHaveBeenCalledTimes(1));
+    });
+
+    it("swipe: the bar dismissed before a failed check is back still says it couldn't check", async () => {
+      seedWren();
+      let release!: () => void;
+      wakeupCheckMock.impl = () =>
+        new Promise((r) => {
+          release = () => r({ status: "unknown", reason: "timeout" });
+        });
+      autoAnswerKitDialogs({ confirm: true });
+      const { container } = render(
+        <PrettyConversationsPanel isAdmin variant="mobile" onDeactivateRow={() => {}} />,
+      );
+      const opts = await swipe(container);
+      act(() => opts.onDismiss());
+      act(() => release());
+      await waitFor(() => expect(archiveIdentitySpy).toHaveBeenCalledTimes(1));
+      const spy = toastSpy as unknown as ReturnType<typeof vi.fn>;
+      expect(spy).toHaveBeenCalledTimes(2);
+      expect((spy.mock.calls[1][1] as { description: string }).description).toMatch(/couldn't check its wake-ups/i);
+    });
+
+    it("row menu: pressing Archive twice while the check runs opens one confirm", async () => {
+      seedWren();
+      let release!: () => void;
+      wakeupCheckMock.impl = () =>
+        new Promise((r) => {
+          release = () => r({ status: "checked", active: [] });
+        });
+      const dialogs = autoAnswerKitDialogs({ confirm: true });
+      const { container } = render(
+        <PrettyConversationsPanel isAdmin variant="desktop" onDeactivateRow={() => {}} />,
+      );
+      await archiveFromRowMenu(container);
+      await archiveFromRowMenu(container);
+      act(() => release());
+      await waitFor(() => expect(archiveIdentitySpy).toHaveBeenCalledTimes(1));
+      await flushKit();
+      expect(kitConfirms(dialogs)).toHaveLength(1);
+      expect(archiveIdentitySpy).toHaveBeenCalledTimes(1);
+    });
+
+    it("swipe: Undo before the check is back leaves the agent alone and asks nothing", async () => {
+      seedWren();
+      let release!: () => void;
+      wakeupCheckMock.impl = () =>
+        new Promise((r) => {
+          release = () => r({ status: "checked", active: [standup] });
+        });
+      const dialogs = autoAnswerKitDialogs({ confirm: true });
+      const { container } = render(
+        <PrettyConversationsPanel isAdmin variant="mobile" onDeactivateRow={() => {}} />,
+      );
+      const opts = await swipe(container);
+      act(() => opts.action.onClick());
+      act(() => release());
+      await flushKit();
+      await flushKit();
+      expect(kitConfirms(dialogs)).toHaveLength(0);
+      expect(archiveIdentitySpy).not.toHaveBeenCalled();
+    });
   });
 });
 

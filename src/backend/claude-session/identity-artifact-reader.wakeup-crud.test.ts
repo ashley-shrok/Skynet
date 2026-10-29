@@ -304,8 +304,10 @@ describe("writeIdentityWakeupCreate / readIdentityWakeups — REMOTE branch (rea
       expect(r.wakeups).toEqual([]);
       return (execCommand as Mock).mock.calls[0][1] as string;
     });
-    expect(cmd).toContain('2>/dev/null && { shopt -s nullglob; for d in */;');
-    expect(cmd.trimEnd().endsWith("done; }")).toBe(true);
+    // The loop only runs after a successful cd into the folder; a missing
+    // folder prints the no-wake-ups marker instead (exit 0, not a failure).
+    expect(cmd).toMatch(/^if \[ -d "[^"]+\/wakeups" \]; then cd "[^"]+\/wakeups" \|\| exit 1; shopt -s nullglob; for d in \*\/;/);
+    expect(cmd.trimEnd().endsWith('done; else echo "===SKYNET-NO-WAKEUPS==="; fi')).toBe(true);
   });
 
   it("list: an empty wakeups/ dir is empty", async () => {
