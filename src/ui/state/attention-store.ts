@@ -20,6 +20,14 @@
 // The seen mark is always a lastFinishAt value echoed back, never a clock
 // reading, so clock differences between machines can't create or hide marks.
 //
+// Sort order before the server answers. The sidebar's order depends on all
+// of the above, which a fresh page only has once the fleet snapshot and the
+// read state arrive — so rows used to paint in a different order and then
+// jump. The last full picture is saved per user and, until the read state
+// loads, the sort reads it (max-wins with anything live). It decides ORDER
+// only: unread dots and DM envelopes still wait for the server, so a mark
+// cleared on another device never flashes.
+//
 // DM marks work the same way. When an agent DMs this user the server records
 // the DM's time (lastDmAt) and pushes it here (dm-state-changed frames, plus
 // the dms list in the read state). Looking at the conversation echoes that
@@ -29,6 +37,7 @@
 
 import { useSyncExternalStore } from "react";
 import { authApi } from "@/main-axios";
+import { getCurrentUser, readUserScopedCache, writeUserScopedCache } from "@/state/user-scoped-cache";
 
 type Key = string;
 
@@ -53,6 +62,7 @@ export function attentionKey(hostId: string | number, identityName: string): Key
 
 function notify(): void {
   version++;
+  scheduleSortCacheWrite();
   for (const l of listeners) {
     try {
       l();
@@ -63,6 +73,121 @@ function notify(): void {
       });
     }
   }
+}
+
+// ─── Saved sort inputs ───────────────────────────────────────────────────────
+
+const SORT_CACHE_KEY = "skynet:attention-sort-cache:v1";
+const SORT_CACHE_WRITE_DEBOUNCE_MS = 1_000;
+type Pairs = Array<[Key, number]>;
+type SavedSort = { baselineAt: number; finishes: Pairs; seen: Pairs; dms: Pairs; dmSeen: Pairs };
+type SavedMaps = {
+  owner: string;
+  baselineAt: number | null;
+  finishes: Map<Key, number>;
+  seen: Map<Key, number>;
+  dms: Map<Key, number>;
+  dmSeen: Map<Key, number>;
+};
+let saved: SavedMaps | null = null;
+let sortCacheTimer: ReturnType<typeof setTimeout> | null = null;
+
+function toMap(pairs: unknown): Map<Key, number> {
+  const m = new Map<Key, number>();
+  if (!Array.isArray(pairs)) return m;
+  for (const p of pairs) {
+    if (Array.isArray(p) && typeof p[0] === "string" && typeof p[1] === "number" && Number.isFinite(p[1])) {
+      m.set(p[0], p[1]);
+    }
+  }
+  return m;
+}
+
+/** The saved sort inputs for the logged-in user (read once per user). */
+function savedForCurrentUser(): SavedMaps | null {
+  const user = getCurrentUser();
+  if (!user) return null;
+  if (saved && saved.owner === user) return saved;
+  const raw = readUserScopedCache<SavedSort>(SORT_CACHE_KEY);
+  saved = {
+    owner: user,
+    baselineAt: raw && typeof raw.baselineAt === "number" ? raw.baselineAt : null,
+    finishes: toMap(raw?.finishes),
+    seen: toMap(raw?.seen),
+    dms: toMap(raw?.dms),
+    dmSeen: toMap(raw?.dmSeen),
+  };
+  console.info({
+    operation: "attention_sort_cache_loaded",
+    found: raw !== null,
+    finishes: saved.finishes.size,
+    seen: saved.seen.size,
+    dms: saved.dms.size,
+  });
+  return saved;
+}
+
+function merged(live: Map<Key, number>, old: Map<Key, number> | undefined): Pairs {
+  const out = new Map(old ?? []);
+  for (const [k, v] of live) {
+    const prev = out.get(k);
+    if (prev === undefined || v > prev) out.set(k, v);
+  }
+  return [...out];
+}
+
+/** Save the current picture for the next page load (only once it's whole). */
+function scheduleSortCacheWrite(): void {
+  if (baselineAt === null || sortCacheTimer !== null) return;
+  sortCacheTimer = setTimeout(() => {
+    sortCacheTimer = null;
+    if (baselineAt === null) return;
+    const old = savedForCurrentUser();
+    writeUserScopedCache<SavedSort>(SORT_CACHE_KEY, {
+      baselineAt,
+      finishes: merged(finishes, old?.finishes),
+      seen: merged(seen, old?.seen),
+      dms: merged(dms, old?.dms),
+      dmSeen: merged(dmSeen, old?.dmSeen),
+    });
+  }, SORT_CACHE_WRITE_DEBOUNCE_MS);
+}
+
+function maxOf(a: number | undefined, b: number | undefined): number | undefined {
+  if (a === undefined) return b;
+  if (b === undefined) return a;
+  return Math.max(a, b);
+}
+
+/** For sorting: the latest finished turn, live or saved. */
+export function getSortFinishAt(k: Key | null): number | null {
+  if (k === null) return null;
+  const live = finishes.get(k);
+  if (baselineAt !== null) return live ?? null;
+  return maxOf(live, savedForCurrentUser()?.finishes.get(k)) ?? null;
+}
+
+/** For sorting: unread, judged from the saved read state until the server's lands. */
+export function isUnreadForSort(k: Key | null): boolean {
+  if (baselineAt !== null) return isUnread(k);
+  if (k === null) return false;
+  const old = savedForCurrentUser();
+  if (!old || old.baselineAt === null) return false;
+  const finish = maxOf(finishes.get(k), old.finishes.get(k));
+  if (finish === undefined) return false;
+  const s = maxOf(seen.get(k), old.seen.get(k));
+  return finish > (s !== undefined ? Math.max(s, old.baselineAt) : old.baselineAt);
+}
+
+/** For sorting: the unseen DM's time, judged from the saved read state until the server's lands. */
+export function getUnseenDmAtForSort(k: Key | null): number | null {
+  if (baselineAt !== null) return getUnseenDmAt(k);
+  if (k === null) return null;
+  const old = savedForCurrentUser();
+  const dm = maxOf(dms.get(k), old?.dms.get(k));
+  if (dm === undefined) return null;
+  const s = maxOf(dmSeen.get(k), old?.dmSeen.get(k));
+  return s !== undefined && s >= dm ? null : dm;
 }
 
 export function subscribeAttention(cb: () => void): () => void {
@@ -380,6 +505,9 @@ export function __resetAttentionForTest(): void {
   dmSeen.clear();
   unsyncedDm.clear();
   baselineAt = null;
+  saved = null;
+  if (sortCacheTimer !== null) clearTimeout(sortCacheTimer);
+  sortCacheTimer = null;
   loadInFlight = null;
   reloadQueued = false;
   unsynced.clear();

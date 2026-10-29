@@ -82,8 +82,11 @@ import {
 import {
   getLastDmAt,
   getLastFinishAt,
+  getSortFinishAt,
   getUnseenDmAt,
+  getUnseenDmAtForSort,
   isUnread,
+  isUnreadForSort,
   subscribeAttention,
 } from "./attention-store";
 
@@ -178,6 +181,11 @@ export type ConversationRow = {
   // DM'd tier. Both absent otherwise.
   dm?: boolean;
   dmAt?: number;
+  // The DM'd / unread tiers the sort uses. Same as the marks once the read
+  // state has loaded; before that, judged from the saved picture
+  // (attention-store § Sort order before the server answers). Absent otherwise.
+  sortDmAt?: number;
+  sortUnread?: boolean;
   // Most recent activity from either side — the later of lastMessageAt (the
   // user sent) and the agent's last finished turn. The recency key for the
   // Conversations list and the rows inside a project.
@@ -910,7 +918,9 @@ function attentionKeyForRow(row: ConversationRow): string | null {
 
 function decorateAttention(row: ConversationRow): void {
   const k = attentionKeyForRow(row);
-  const finishAt = getLastFinishAt(k);
+  // Sort inputs fall back to the saved picture until the server's lands, so a
+  // fresh page opens in the order last seen; the marks below never do.
+  const finishAt = getSortFinishAt(k);
   const sent = row.lastMessageAt ?? null;
   const activityAt =
     finishAt === null ? sent : sent === null ? finishAt : Math.max(sent, finishAt);
@@ -927,11 +937,16 @@ function decorateAttention(row: ConversationRow): void {
     delete row.dm;
     delete row.dmAt;
   }
+  const sortDmAt = getUnseenDmAtForSort(k);
+  if (sortDmAt !== null) row.sortDmAt = sortDmAt;
+  else delete row.sortDmAt;
+  if (k !== null && isUnreadForSort(k)) row.sortUnread = true;
+  else delete row.sortUnread;
 }
 
 function rowSortKey(row: ConversationRow): SortKey {
-  if (row.dm === true) return { tier: 2, recency: row.dmAt ?? null };
-  return { tier: row.unread === true ? 1 : 0, recency: row.activityAt ?? null };
+  if (row.sortDmAt !== undefined) return { tier: 2, recency: row.sortDmAt };
+  return { tier: row.sortUnread === true ? 1 : 0, recency: row.activityAt ?? null };
 }
 
 function effectiveSortKey(row: ConversationRow): SortKey {
