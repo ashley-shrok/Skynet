@@ -136,7 +136,8 @@ describe("FLEET_SUBSTRATE_CATALOG", () => {
     // +1 for precompact-reground (PreCompact hook — re-ground after
     // compaction) — 75 → 76.
     // -1 for context-watch, retired with reset (Condense) — 76 → 75.
-    expect(FLEET_SUBSTRATE_CATALOG.length).toBe(75);
+    // +2 for the notify-me and call-me skills (done-bell) — 75 → 77.
+    expect(FLEET_SUBSTRATE_CATALOG.length).toBe(77);
   });
 
   it("Test 2: every bundled row's bundledPath starts with /app/fleet-substrate/skills/, /app/fleet-substrate/scripts/, or /app/fleet-substrate/user-onboarding/", () => {
@@ -280,7 +281,8 @@ describe("FLEET_SUBSTRATE_CATALOG", () => {
     // -68 for the interactive-messages widget companions, retired
     // 2026-10-25 (SKILL.md stays) — 114 → 46.
     // -1 for its SKILL.md, folded into the id skill — 46 → 45.
-    expect(skillRows.length).toBe(45);
+    // +2 for notify-me and call-me (done-bell) — 45 → 47.
+    expect(skillRows.length).toBe(47);
     // 18 helper scripts: agent-supervisor + wakeup-scheduler +
     // file-watch (4th ambient monitor) + fleet-status-sweep (Phase 92
     // batch sweep) + (usage-reporter / usage-report / claude-usage-collector
@@ -338,7 +340,7 @@ describe("FLEET_SUBSTRATE_CATALOG", () => {
     // Single-file skills each contribute one entry (backlog, bounty,
     // next-bounty, promote-to-coordinator all retired 2026-09-20; role
     // retired 2026-10-09).
-    const singleFileSkillSlugs = ["queue"];
+    const singleFileSkillSlugs = ["queue", "notify-me", "call-me"];
     for (const slug of singleFileSkillSlugs) {
       const rows = skillRows.filter((e) =>
         e.bundledPath.startsWith(`/app/fleet-substrate/skills/${slug}/`),
@@ -468,7 +470,7 @@ describe("FLEET_SUBSTRATE_CATALOG", () => {
     // -1 for the interactive-messages SKILL.md — 75 → 74.
     // +1 for precompact-reground — 74 → 75.
     // -1 for context-watch, retired with reset — 75 → 74.
-    expect(bundled.length).toBe(74);
+    expect(bundled.length).toBe(76);
     expect(runtime.length).toBe(1);
 
     // Every bundled row retains bundledPath under /app/fleet-substrate/

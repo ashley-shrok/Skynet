@@ -5312,6 +5312,7 @@ export function PrettyView({
             // 2026-10-06: hands-free voice mode (mic long-press) — harness only;
             // relay rooms have no working signal and keep hold-to-send.
             voiceModeFeed={source.kind === "relay" ? undefined : voiceModeFeed}
+            agentWorking={agentWorking}
             // Phase 50 D-01: seed a pending bubble synchronously with the
             // WS write; PrettyView owns the FIFO pendingSends queue.
             // Phase 93 Slice 6 (post-close fix): NOT seeded in relay mode — the

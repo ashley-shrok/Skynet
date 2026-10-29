@@ -48,7 +48,7 @@
  *     - 1 row for id/           (SKILL.md; 3 companions retired 2026-09-20
  *       with coord-as-mode retirement — coordinator became its own role)
  *     - 2 rows for agent-relay/ (SKILL.md + recv.sh)
- *     - 1 row for the single-file skills (queue) — backlog, bounty,
+ *     - 3 rows for the single-file skills (queue, notify-me, call-me) — backlog, bounty,
  *       and next-bounty retired 2026-09-20 with the bounty-concept
  *       retirement; promote-to-coordinator retired 2026-09-20 with the
  *       coord-as-mode retirement; role retired 2026-10-09 with the
@@ -74,7 +74,7 @@
  *     - 1 row for user-onboarding/agent-supervisor.service
  *     - 1 row for instance-policy-claude-md (Phase 114 twinkie — runtime-sourced,
  *       system-root-installed)
- *   Total = 47 (45 pre-agent-phone + 2 for the agent-phone-skill and
+ *   Total = 49 (+2 notify-me / call-me, done-bell; 45 pre-agent-phone + 2 for the agent-phone-skill and
  *   agent-phone-helper rows added alongside the image-gen equivalents;
  *   was 52 before 2026-09-20 retirements — 3 bounty-adjacent skills,
  *   3 id/ coord companions, and promote-to-coordinator).
@@ -269,6 +269,23 @@ export const FLEET_SUBSTRATE_CATALOG: readonly CatalogEntry[] = [
     sourceKind: "bundled",
     bundledPath: "/app/fleet-substrate/skills/queue/SKILL.md",
     installPath: "~/.claude/skills/queue/SKILL.md",
+    restartHook: null,
+  },
+  // done-bell (campaign notify-when-done): the two skills the composer's bell
+  // sends while an agent works — the agent reaches the user when it's done or
+  // needs them. Person-started only (disable-model-invocation).
+  {
+    slug: "notify-me-skill",
+    sourceKind: "bundled",
+    bundledPath: "/app/fleet-substrate/skills/notify-me/SKILL.md",
+    installPath: "~/.claude/skills/notify-me/SKILL.md",
+    restartHook: null,
+  },
+  {
+    slug: "call-me-skill",
+    sourceKind: "bundled",
+    bundledPath: "/app/fleet-substrate/skills/call-me/SKILL.md",
+    installPath: "~/.claude/skills/call-me/SKILL.md",
     restartHook: null,
   },
   // Phase 116: file-drop broker skill body — carries the D-17 PHI directive

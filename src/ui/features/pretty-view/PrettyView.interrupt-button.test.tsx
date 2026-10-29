@@ -480,18 +480,20 @@ describe("PrettyView — interrupt button (shape-interrupt-button)", () => {
   describe("the orb is the Stop (shape-stop-on-orb)", () => {
     const composeRow = (c: HTMLElement) => c.querySelector('[data-testid="compose-row"]')!;
 
-    it("the compose box has no Stop while the agent works — the round button is the thumbs-up", async () => {
+    it("the compose box has no Stop while the agent works — the round button is the done-bell", async () => {
       const { container } = await mount();
       expect(composeRow(container).querySelector('[data-action="stop"]')).toBeNull();
       expect(composeRow(container).querySelector('button[aria-label="Interrupt"]')).toBeNull();
-      const thumbs = composeRow(container).querySelector('button[aria-label="Send \'thumbs up\'"]')!;
-      expect(thumbs.getAttribute("data-main")).toBe("true");
-      // Typing: Send is the main button, with no Stop and no thumbs-up beside it.
+      const bell = composeRow(container).querySelector('[data-action="bell"]')!;
+      expect(bell.getAttribute("data-main")).toBe("true");
+      expect(composeRow(container).querySelector('[data-action="thumbs"]')).toBeNull();
+      // Typing: Send is the main button, with no Stop and no bell or thumbs-up beside it.
       act(() => {
         fireEvent.change(container.querySelector(PRIMARY)!, { target: { value: "more" } });
       });
       expect(composeRow(container).querySelector('[data-action="stop"]')).toBeNull();
       expect(composeRow(container).querySelector('[data-action="thumbs"]')).toBeNull();
+      expect(composeRow(container).querySelector('[data-action="bell"]')).toBeNull();
     });
 
     it("while the turn runs the orb is a Stop button with the square look", async () => {

@@ -35,6 +35,7 @@ People end up sitting and watching the spinner because they forget, or never kne
 
 - Ask about notifications at sign-in (an in-app "Turn on / Not now" that leads to the browser's prompt) — dropped for now; Ashley: "maybe we add that later"
 - What's-new note for browser notifications — dropped; Ashley: "no note"
+- Audit what Skynet puts on hosts about the user (e.g. their relay ID) and what's missing — handed to a separate agent, myth-box-maintainer-2 (Ashley: "we should spawn a new agent to audit the standard info that's provided to the hosts"); reports to Ashley directly, outside this campaign
 - Browser notifications always show the full message, even when Telegram is set to "only show who messaged" — done (Ashley: "Full message")
 
 ## Lingerers (explicitly approved)

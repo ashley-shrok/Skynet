@@ -1632,8 +1632,13 @@ crown, then gear.
   menu. Right: the **sound-wave** (voice mode),
   the **mic** (dictation), and one round off-white **main button** that does
   the likely next thing — **Send** while there's something typed or
-  attached, **Resume** while an aside is up, otherwise a **thumbs-up**
-  (sends "thumbs up" — mid-turn too, read once the turn ends). There is no Stop in the
+  attached, **Resume** while an aside is up, a **bell** while the agent is
+  working, otherwise a **thumbs-up** (sends "thumbs up"). The bell offers
+  **Notify me** and **Call me** (Call me only with a phone number on file);
+  picking one sends `/notify-me` or `/call-me`, which you read when your turn
+  ends — reach the user that way once you're done or need them, saying what
+  happened. Notify me also brings up the browser's Allow prompt when nothing
+  else reaches the user outside the app. There is no Stop in the
   composer — the working orb is the Stop (§ Stop below). In a relay room
   only the mic and Send show.
 

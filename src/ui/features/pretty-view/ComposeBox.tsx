@@ -23,6 +23,7 @@ import {
 } from "./voice-mode-registry";
 import { MicButton } from "./MicButton";
 import { SkillActionsButton } from "./SkillActionsButton";
+import { DoneBellButton } from "./DoneBellButton";
 import { SlashSkillMenu } from "./SlashSkillMenu";
 import { useSkillActions } from "./skill-actions-store";
 import { rankSkills } from "./skill-match";
@@ -375,6 +376,12 @@ export interface ComposeBoxProps {
    *   messages  — pane message stream; new assistant replies are spoken.
    *   voices    — voice candidates, identity → role → fallback ([] = provider default).
    */
+  /**
+   * done-bell: the agent is working (the work indicator is up). The main
+   * button is then the bell — Notify me / Call me — instead of 👍, while
+   * nothing is typed.
+   */
+  agentWorking?: boolean;
   voiceModeFeed?: {
     isWorking: boolean;
     messages: ReadonlyArray<VoiceModeMessage>;
@@ -676,6 +683,7 @@ export function ComposeBox({
   asideActive,
   onAsideDismiss,
   reconnectingActive,
+  agentWorking = false,
   voiceModeFeed,
   className,
   openAsk = null,
@@ -1932,16 +1940,19 @@ export function ComposeBox({
   // control on one row under it. Left: attach, skills (harness only), and the
   // recording chip while dictating. Right: voice mode, the mic,
   // and the round main button, which does the likely next thing — Send while
-  // there's something to send, otherwise 👍 (Resume while an aside is up).
+  // there's something to send, otherwise the done-bell while the agent works
+  // and 👍 when it doesn't (Resume while an aside is up).
   // Relay rooms get only the mic and Send. No Stop here (shape-stop-on-orb): the working orb is the Stop.
   const harness = mode !== "relay";
   const hasDraft = text.trim() !== "" || hasAttachments || showTranscribingSend;
   const quickDisabled = asideActive === true || reconnectingActive === true;
-  const mainAction: "resume" | "send" | "thumbs" = asideActive
+  const mainAction: "resume" | "send" | "bell" | "thumbs" = asideActive
     ? "resume"
     : hasDraft || !harness
       ? "send"
-      : "thumbs";
+      : agentWorking
+        ? "bell"
+        : "thumbs";
   // Mic open on this composer (a transcript round-trip is not "recording":
   // Send shows its spinner then).
   const recordingHere = voice.state === "starting" || voice.state === "recording";
@@ -2146,6 +2157,15 @@ export function ComposeBox({
                 and turn the release into a cancel. */}
             <span className="contents" style={recordingHere ? { visibility: "hidden" } : undefined} aria-hidden={recordingHere || undefined}>
             {mainAction === "thumbs" && renderThumbs()}
+            {mainAction === "bell" && (
+              <DoneBellButton
+                key="bell"
+                hostId={hostId}
+                disabled={quickDisabled}
+                onChoose={(choice) => { onGoodToGo?.(); handleQuickSend(`/${choice}`); }}
+                buttonClassName="pv-cbtn"
+              />
+            )}
             {(mainAction === "send" || mainAction === "resume") && (
               // Phase 14: SAME button morphs to Resume while an aside is up
               // (DOM identity preserved across the morph). Phase 16: disabled
