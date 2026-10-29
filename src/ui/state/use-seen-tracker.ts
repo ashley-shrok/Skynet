@@ -13,6 +13,7 @@
 import { useEffect, useRef, useState } from "react";
 import { markSeen, subscribeAttention } from "./attention-store";
 import { setVisibleConversationIds } from "./conversation-store";
+import { setLookingAtConversations } from "@/features/notifications/browser-notifications";
 
 const ARRIVAL_WINDOW_MS = 10_000;
 
@@ -49,6 +50,8 @@ export function useSeenTracker(targets: readonly SeenTarget[], screenShowsConver
   useEffect(() => {
     const seen = looking ? targets : [];
     setVisibleConversationIds(seen.map((t) => t.id));
+    // Browser notifications stay quiet for a conversation the user is looking at.
+    setLookingAtConversations(seen);
     // The user "arrives" at a conversation when it comes on screen; a read
     // state that loads within a few seconds of that still counts as arriving
     // (a reload straight into a conversation). After that, new marks land

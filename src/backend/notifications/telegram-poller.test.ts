@@ -14,6 +14,8 @@ const consumeLinkCode = vi.fn();
 const linkChat = vi.fn();
 const unlinkChat = vi.fn();
 let bot: { chatId: string | null } | null = null;
+vi.mock("./app-name.js", () => ({ getAppName: async () => "Aither" }));
+
 vi.mock("./telegram-bots.js", () => ({
   consumeLinkCode: (...a: unknown[]) => consumeLinkCode(...a),
   linkChat: (...a: unknown[]) => linkChat(...a),
@@ -110,9 +112,9 @@ describe("handleUpdate", () => {
     expect(callTelegram).not.toHaveBeenCalled();
   });
 
-  it("answers other text with a pointer back to Skynet", async () => {
+  it("answers other text with a pointer back to the app", async () => {
     await handleUpdate("u1", TOKEN, update("hello"));
-    expect(repliesSent()[0]).toMatch(/reply to agents in Skynet/);
+    expect(repliesSent()[0]).toMatch(/reply to agents in Aither/);
   });
 });
 

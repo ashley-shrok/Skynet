@@ -456,6 +456,20 @@ export interface FrontendDmStateChangedFrame {
   seenDmAt: number;
 }
 
+// agent-notified — an agent just notified this user; carries the words for a
+// browser notification. notificationId is the same on every tab. Mirrors
+// wire-protocol.ts FrontendAgentNotifiedFrameSchema.
+export interface FrontendAgentNotifiedFrame {
+  schemaVersion: typeof FRAME_SCHEMA_VERSION;
+  type: "agent-notified";
+  notificationId: string;
+  hostId: string;
+  identityName: string;
+  agentMxid: string;
+  title: string;
+  body: string;
+}
+
 export type FrontendOutboundFrame =
   | FrontendSnapshotFrame
   | FrontendUpdateFrame
@@ -465,6 +479,7 @@ export type FrontendOutboundFrame =
   | FrontendSessionProjectChangedFrame
   | FrontendReadStateChangedFrame
   | FrontendDmStateChangedFrame
+  | FrontendAgentNotifiedFrame
   | FrontendAppSnapshotFrame
   | FrontendAppUpdateFrame
   | FrontendAppGoneFrame;

@@ -200,6 +200,10 @@ import {
 } from "@/state/identities-store";
 // Phase 34 Plan 06: fleet-status control WebSocket — boot-time singleton
 import { createFleetStatusClient } from "@/api/fleet-status-client";
+import {
+  startBrowserNotifications,
+  subscribeOpenConversationRequests,
+} from "@/features/notifications/browser-notifications";
 import type { SessionState } from "@/api/fleet-status-types";
 import {
   publishFleetStatusSessionState,
@@ -2466,6 +2470,16 @@ export function AppShell({
       setPendingHarnessTarget(target);
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // A clicked browser notification opens its conversation through the same
+  // path as the deep link (browser-notifications.ts).
+  useEffect(() => {
+    startBrowserNotifications();
+    return subscribeOpenConversationRequests((target) => {
+      openHarnessDispatchedRef.current = false;
+      setPendingHarnessTarget({ mxid: target.mxid, hostId: target.hostId });
+    });
   }, []);
 
   useEffect(() => {

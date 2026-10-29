@@ -790,6 +790,25 @@ export const FrontendDmStateChangedFrameSchema = z.object({
   seenDmAt: z.number(),
 });
 
+// ---------------------------------------------------------------------------
+// agent-notified — an agent just notified one user (the same event that sends
+// their Telegram notification). Sent ONLY to that user's own subscribers, so
+// an open tab can show it as a browser notification. `notificationId` is the
+// Matrix event id — the same on every tab, used to show it only once.
+// Additive — FRAME_SCHEMA_VERSION stays at 1.
+// ---------------------------------------------------------------------------
+
+export const FrontendAgentNotifiedFrameSchema = z.object({
+  schemaVersion: z.literal(FRAME_SCHEMA_VERSION),
+  type: z.literal("agent-notified"),
+  notificationId: z.string(),
+  hostId: z.string(),
+  identityName: z.string(),
+  agentMxid: z.string(),
+  title: z.string(),
+  body: z.string(),
+});
+
 export const FrontendOutboundFrame = z.discriminatedUnion("type", [
   FrontendSnapshotFrameSchema,
   FrontendUpdateFrameSchema,
@@ -799,6 +818,7 @@ export const FrontendOutboundFrame = z.discriminatedUnion("type", [
   FrontendSessionProjectChangedFrameSchema,
   FrontendReadStateChangedFrameSchema,
   FrontendDmStateChangedFrameSchema,
+  FrontendAgentNotifiedFrameSchema,
   AppSnapshotFrameSchema,
   AppUpdateFrameSchema,
   AppGoneFrameSchema,

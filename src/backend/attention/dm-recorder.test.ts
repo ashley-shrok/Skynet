@@ -16,7 +16,7 @@ vi.mock("../fleet-status/registry-holder.js", () => ({
   getRegistry: () => ({ publishToUser }),
 }));
 
-import { recordAgentDm } from "./dm-recorder.js";
+import { publishAgentNotification, recordAgentDm } from "./dm-recorder.js";
 
 beforeEach(() => {
   store.recordDm.mockReset();
@@ -41,5 +41,32 @@ describe("recordAgentDm", () => {
   it("ignores a malformed mxid", () => {
     recordAgentDm("u1", 7, "not-an-mxid", 1000);
     expect(store.recordDm).not.toHaveBeenCalled();
+  });
+});
+
+describe("publishAgentNotification", () => {
+  it("sends the words to the user's tabs, keyed by conversation", () => {
+    publishAgentNotification("u1", {
+      notificationId: "$ev1",
+      agentMxid: "@Aspen:t1000.example",
+      hostId: 7,
+      title: "Aspen",
+      body: "Done — the deploy is live.",
+    });
+    expect(publishToUser).toHaveBeenCalledWith("u1", {
+      schemaVersion: 1,
+      type: "agent-notified",
+      notificationId: "$ev1",
+      hostId: "7",
+      identityName: "aspen",
+      agentMxid: "@Aspen:t1000.example",
+      title: "Aspen",
+      body: "Done — the deploy is live.",
+    });
+  });
+
+  it("ignores a malformed mxid", () => {
+    publishAgentNotification("u1", { notificationId: "$e", agentMxid: "nope", hostId: 7, title: "x", body: "y" });
+    expect(publishToUser).not.toHaveBeenCalled();
   });
 });

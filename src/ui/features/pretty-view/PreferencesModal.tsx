@@ -67,7 +67,7 @@ const PINNED_ITEMS: ReadonlyArray<ModalSidebarTabDef<SectionValue>> = [
 /** What each section is for — the line under its name. */
 const HERO_COPY: Partial<Record<SectionValue, string>> = {
   voice: "How your agents sound when they read replies aloud, and how voice mode listens.",
-  notifications: "When an agent notifies you, it arrives through Telegram.",
+  notifications: "Where notifications from agents reach you when you're away from the app.",
   phone: "Agents can call you at this number when they need you.",
   services:
     "Keys your agents use when they call these services for you. Once saved, a key can be replaced or removed but not viewed.",

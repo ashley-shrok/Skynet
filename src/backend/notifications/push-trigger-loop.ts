@@ -313,6 +313,15 @@ export interface PushTriggerLoopDeps {
    * is caught at the call site and never blocks the push.
    */
   recordDm(userId: string, agentHostId: number, agentMxid: string, dmAt: number): void;
+  /**
+   * Tell the user's open tabs about the notification, with its words, so a
+   * tab can show it as a browser notification (attention/dm-recorder.ts).
+   * Synchronous; a throw is caught at the call site and never blocks the push.
+   */
+  publishToTabs(
+    userId: string,
+    n: { notificationId: string; agentMxid: string; hostId: number; title: string; body: string },
+  ): void;
   /** Compute the lock-screen preview body (D-07). Pure function. */
   derivePreviewText(event: MatrixMessageEvent): string;
   /**
@@ -674,6 +683,26 @@ export async function runPushTriggerTick(
           // The label is read from the box the agent lives on, so it
           // needs agentHostId first.
           const label = await deps.resolveAgentLabel(event.sender, userId, agentHostId);
+          try {
+            deps.publishToTabs(userId, {
+              notificationId: event.event_id ?? `${roomId}:${String(event.origin_server_ts ?? deps.now())}`,
+              agentMxid: event.sender,
+              hostId: agentHostId,
+              title: label.name,
+              body,
+            });
+          } catch (err) {
+            databaseLogger.warn(
+              "push-trigger tick — publishToTabs failed, no browser notification",
+              {
+                operation: "push_trigger_tick_publish_tabs_failed",
+                userId,
+                roomId,
+                eventId: event.event_id,
+                error: err instanceof Error ? err.message : "unknown",
+              },
+            );
+          }
           await deps.sendPushToUser(userId, {
             title: label.name,
             subtitle: label.roles,

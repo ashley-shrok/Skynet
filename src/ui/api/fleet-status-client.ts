@@ -55,6 +55,7 @@ import {
   getSkewLockedSnapshot,
 } from "@/state/skew-lock-store";
 import { applyRemoteDm, applyRemoteSeen, loadReadState, publishLastFinishAt } from "@/state/attention-store";
+import { handleAgentNotified } from "@/features/notifications/browser-notifications";
 
 // ---------------------------------------------------------------------------
 // Constants — mirror patch #148 backoff schedule verbatim
@@ -352,6 +353,32 @@ export function createFleetStatusClient(
             identityName: parsed.identityName,
             lastDmAt: parsed.lastDmAt,
             seenDmAt: parsed.seenDmAt,
+          });
+          break;
+        case "agent-notified":
+          // An agent just notified this user — maybe show it as a browser
+          // notification (browser-notifications.ts decides).
+          if (
+            typeof parsed.notificationId !== "string" ||
+            typeof parsed.hostId !== "string" ||
+            typeof parsed.identityName !== "string" ||
+            typeof parsed.agentMxid !== "string" ||
+            typeof parsed.title !== "string" ||
+            typeof parsed.body !== "string"
+          ) {
+            console.warn({
+              operation: "fleet_status_client_agent_notified_malformed",
+              url,
+            });
+            break;
+          }
+          handleAgentNotified({
+            notificationId: parsed.notificationId,
+            hostId: parsed.hostId,
+            identityName: parsed.identityName,
+            agentMxid: parsed.agentMxid,
+            title: parsed.title,
+            body: parsed.body,
           });
           break;
         case "project-list-changed":

@@ -1,5 +1,5 @@
 /**
- * telegram-sender — message formatting, the Open-in-Skynet button, the
+ * telegram-sender — message formatting, the Open-in-<app name> button, the
  * access/link gates, and retry behaviour. callTelegram is mocked; retries
  * use an injected no-wait sleep.
  */
@@ -16,6 +16,8 @@ vi.mock("./telegram-api.js", () => ({
 const TOKEN = "111:AAAA";
 let bot: { token: string; chatId: string | null; titleOnly: boolean } | null = null;
 const unlinkChat = vi.fn();
+vi.mock("./app-name.js", () => ({ getAppName: async () => "Aither" }));
+
 vi.mock("./telegram-bots.js", () => ({
   getBot: () => bot,
   unlinkChat: (...a: unknown[]) => unlinkChat(...a),
@@ -97,7 +99,7 @@ describe("formatting", () => {
 });
 
 describe("sendTelegramToUser", () => {
-  it("sends through the user's own bot to their chat, with an Open in Skynet button", async () => {
+  it("sends through the user's own bot to their chat, with an Open in <app name> button", async () => {
     callTelegram.mockResolvedValueOnce({ ok: true, result: { message_id: 42 } });
     const res = await sendTelegramToUser("u1", payload);
     expect(res).toEqual({ ok: true, messageId: 42, attempts: 1 });
@@ -106,7 +108,7 @@ describe("sendTelegramToUser", () => {
     expect(method).toBe("sendMessage");
     expect(params).toMatchObject({ chat_id: "555", parse_mode: "HTML" });
     expect(params.reply_markup.inline_keyboard[0][0]).toEqual({
-      text: "Open in Skynet",
+      text: "Open in Aither",
       url: "https://skynet.example.com/?openHarness=%40mitzi%3Ahs&host=3",
     });
     expect(info).toHaveBeenCalledWith(

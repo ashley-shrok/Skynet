@@ -1313,8 +1313,14 @@ crown, then gear.
     or *When I say a phrase* (silence never sends; ending with the phrase
     does — "over" by default, editable, shown only when that's chosen). Follows the user's account across devices.
   - **Notifications** — where notifications from agents (§ Notifying the
-    user) arrive outside the app, through the user's OWN Telegram bot ("When
-    an agent notifies you, it arrives through Telegram."); each user sets
+    user) arrive outside the app. On a desktop browser it starts with **This
+    computer**: a **Notifications on this computer** switch (asks the
+    browser's permission; on for this browser only) that has the computer
+    show each notification — agent's name and message, click opens the
+    conversation — while a tab of the app is open; quiet for the
+    conversation the user is looking at; says so plainly when the browser
+    blocks it; **Send a test notification**. Hidden on phones. Then
+    **Telegram**, through the user's OWN bot; each user sets
     theirs up here, nothing server-side. The
     section walks them through three numbered steps: open @BotFather in
     Telegram (**Open BotFather**), send `/newbot`, pick a name and a
@@ -1326,7 +1332,7 @@ crown, then gear.
     **Send a test notification**, and **Disconnect** (removes the whole
     setup); sending `/stop` to the bot unlinks the chat but keeps the bot.
     Each notification is a message from their bot with an **Open in
-    Skynet** button. No desktop push.
+    <the instance's own name>** button.
   - **Phone** (only when the user has a number on file) — the number,
     editable in place (**Save** appears once it's changed), and **Remove
     phone number**.
@@ -1990,8 +1996,8 @@ an ordinary reply: the message shows as a bright red bubble with a
 small red envelope on it ("Notified you"), and the sidebar puts the same
 envelope on your conversation and sorts it to the top of its section until
 she opens it (§ Conversation view → Messages). If she has set up Telegram
-under Preferences → Notifications, it also arrives there — usually the more
-prominent of the two.
+or notifications on her computer under Preferences → Notifications, it also
+arrives there — usually the more prominent.
 
 **The words.** The app calls this being *notified*; you do it by *DMing*
 her. When the user says "notify me when X", she means DM her one-on-one

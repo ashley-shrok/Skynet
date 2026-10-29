@@ -117,6 +117,7 @@ function makeDeps(
     getRegistryMembers: vi.fn(async () => new Set<string>([AGENT_MXID])),
     sendPushToUser: vi.fn(async () => {}),
     recordDm: vi.fn(),
+    publishToTabs: vi.fn(),
     derivePreviewText: vi.fn(() => "hey"),
     resolveAgentLabel: vi.fn(async () => ({ name: "Fanny", roles: "Scout" })),
     resolveAgentHostId: vi.fn(async () => 42),
@@ -372,6 +373,27 @@ describe("runPushTriggerTick — sidebar DM mark", () => {
     const deps = withEvents([makeEvent()], {
       recordDm: vi.fn(() => {
         throw new Error("db gone");
+      }),
+    });
+    await runPushTriggerTick(USER_A, makeStateWithWarmCursor(USER_A_MXID), deps);
+    expect(deps.sendPushToUser).toHaveBeenCalledTimes(1);
+  });
+
+  it("tells the user's tabs with the same title and text as the push", async () => {
+    const deps = withEvents([makeEvent()]);
+    await runPushTriggerTick(USER_A, makeStateWithWarmCursor(USER_A_MXID), deps);
+    expect(deps.publishToTabs).toHaveBeenCalledTimes(1);
+    const [userId, n] = (deps.publishToTabs as ReturnType<typeof vi.fn>).mock.calls[0];
+    expect(userId).toBe(USER_A);
+    expect(n).toMatchObject({ agentMxid: AGENT_MXID, hostId: 42, title: "Fanny", body: "hey" });
+    expect(typeof n.notificationId).toBe("string");
+    expect(n.notificationId.length).toBeGreaterThan(0);
+  });
+
+  it("a publishToTabs failure never blocks the push", async () => {
+    const deps = withEvents([makeEvent()], {
+      publishToTabs: vi.fn(() => {
+        throw new Error("registry gone");
       }),
     });
     await runPushTriggerTick(USER_A, makeStateWithWarmCursor(USER_A_MXID), deps);

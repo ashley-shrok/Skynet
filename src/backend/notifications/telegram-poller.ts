@@ -18,6 +18,7 @@
 
 import { systemLogger } from "../utils/logger.js";
 import { callTelegram } from "./telegram-api.js";
+import { getAppName } from "./app-name.js";
 import {
   consumeLinkCode,
   getBot,
@@ -100,13 +101,14 @@ export async function handleUpdate(userId: string, token: string, update: Telegr
   const [command, arg] = message.text.trim().split(/\s+/, 2);
 
   try {
+    const app = await getAppName();
     if (command === "/start") {
       if (!arg) {
         await reply(
           token,
           userId,
           chatId,
-          "To get Skynet notifications here, open Skynet → Preferences (gear) → Notifications and tap Open my bot.",
+          `To get ${app} notifications here, open ${app} → Preferences (gear) → Notifications and tap Open my bot.`,
         );
         return;
       }
@@ -120,13 +122,13 @@ export async function handleUpdate(userId: string, token: string, update: Telegr
           token,
           userId,
           chatId,
-          "That link has expired. In Skynet, open Preferences (gear) → Notifications and tap Open my bot again.",
+          `That link has expired. In ${app}, open Preferences (gear) → Notifications and tap Open my bot again.`,
         );
         return;
       }
       await linkChat(userId, String(chatId), displayNameOf(message.from));
       systemLogger.info("[telegram] chat linked", { operation: "telegram_link_created", userId, chatId });
-      await reply(token, userId, chatId, "Connected. Your Skynet notifications will arrive here. Send /stop to disconnect.");
+      await reply(token, userId, chatId, `Connected. Your ${app} notifications will arrive here. Send /stop to disconnect.`);
       return;
     }
 
@@ -139,13 +141,13 @@ export async function handleUpdate(userId: string, token: string, update: Telegr
         userId,
         chatId,
         linkedHere
-          ? "Disconnected. You won't get Skynet notifications here anymore."
-          : "This chat isn't connected to Skynet.",
+          ? `Disconnected. You won't get ${app} notifications here anymore.`
+          : `This chat isn't connected to ${app}.`,
       );
       return;
     }
 
-    await reply(token, userId, chatId, "This bot only sends notifications — reply to agents in Skynet.");
+    await reply(token, userId, chatId, `This bot only sends notifications — reply to agents in ${app}.`);
   } catch (err) {
     systemLogger.warn("[telegram] update handling failed", {
       operation: "telegram_update_failed",

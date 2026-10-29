@@ -60,3 +60,55 @@ export function recordAgentDm(userId: string, hostId: number, agentMxid: string,
   });
   if (entry) publishDmState(userId, entry);
 }
+
+export interface AgentNotification {
+  /** The DM's Matrix event id — the same on every tab. */
+  notificationId: string;
+  agentMxid: string;
+  hostId: number;
+  title: string;
+  body: string;
+}
+
+/**
+ * Tell every open tab of `userId` that an agent just notified them, with the
+ * words to show, so a tab can raise a browser notification. Same title and
+ * preview text the Telegram notification carries.
+ */
+export function publishAgentNotification(userId: string, n: AgentNotification): void {
+  const match = n.agentMxid.match(MXID_PATTERN);
+  const identityName = match ? match[1].toLowerCase() : null;
+  if (!isValidIdentityName(identityName)) {
+    systemLogger.warn("attention agent-notified: unusable agent mxid", {
+      operation: "attention_agent_notified_bad_mxid",
+      userId,
+      agentMxid: n.agentMxid,
+    });
+    return;
+  }
+  const registry = getRegistry();
+  if (!registry) {
+    systemLogger.warn("attention agent-notified: registry not ready, tabs not told", {
+      operation: "attention_agent_notified_no_registry",
+      userId,
+    });
+    return;
+  }
+  registry.publishToUser(userId, {
+    schemaVersion: FRAME_SCHEMA_VERSION,
+    type: "agent-notified",
+    notificationId: n.notificationId,
+    hostId: String(n.hostId),
+    identityName,
+    agentMxid: n.agentMxid,
+    title: n.title,
+    body: n.body,
+  });
+  systemLogger.info("attention agent-notified published", {
+    operation: "attention_agent_notified",
+    userId,
+    fleetHostId: n.hostId,
+    identityName,
+    notificationId: n.notificationId,
+  });
+}

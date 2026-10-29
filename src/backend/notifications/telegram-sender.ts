@@ -20,6 +20,7 @@ import { userCanUseNotifications } from "./notifications-access.js";
 import { buildClickUrl, type PushPayload } from "./notification-payload.js";
 import { callTelegram, getSkynetPublicUrl } from "./telegram-api.js";
 import { getBot, unlinkChat } from "./telegram-bots.js";
+import { getAppName } from "./app-name.js";
 
 const MAX_ATTEMPTS = 3;
 const BACKOFF_MS = [1_000, 3_000];
@@ -70,7 +71,7 @@ export function buildTelegramText(payload: PushPayload, titleOnly: boolean): str
 }
 
 /**
- * Absolute "Open in Skynet" URL, or null when there's nothing to open:
+ * Absolute "Open in <app name>" URL, or null when there's nothing to open:
  * system notifications (agentHostId null, e.g. the test send) have no
  * conversation, and a SKYNET_PUBLIC_URL that isn't https can't be used
  * (Telegram rejects relative and non-http button URLs, and a bad button
@@ -105,7 +106,7 @@ export async function sendTelegramToUser(
   };
   if (openUrl) {
     params.reply_markup = {
-      inline_keyboard: [[{ text: "Open in Skynet", url: openUrl }]],
+      inline_keyboard: [[{ text: `Open in ${await getAppName()}`, url: openUrl }]],
     };
   }
 
