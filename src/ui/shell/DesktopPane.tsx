@@ -1,5 +1,5 @@
 import type { ReactElement } from "react";
-import { useMemo } from "react";
+import { useMemo, useRef } from "react";
 import { Hand, Monitor, RotateCw, Undo2 } from "lucide-react";
 
 import type { RowKebabMenuItem } from "@/features/pretty-conversations/RowKebabMenu";
@@ -7,6 +7,9 @@ import {
   DesktopStage,
   useDesktopSession,
 } from "@/features/pretty-view/desktop-session";
+import type { GuacamoleDisplayHandle } from "@/features/guacamole/GuacamoleDisplay";
+import { TouchDesktopButtons } from "@/features/guacamole/touch/TouchDesktopButtons";
+import { useIsTouchDevice } from "@/hooks/use-is-touch-device";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { systemLogger } from "@/lib/frontend-logger";
 import { encodeWorkspaceSpec, specForTab } from "@/lib/tab-url";
@@ -22,7 +25,8 @@ import { PANE_BAR_BUTTON_CLASS, PaneBar } from "./PaneBar";
 //
 // Bar contents:
 //   - Reconnect (circular arrow), then Take control (hand) — or, while in
-//     control, Hand back to agent (undo arrow).
+//     control, Hand back to agent (undo arrow) and, on a touch screen, the
+//     touch-mode switch and the keyboard button.
 //   - Title: monitor glyph + the agent's name; subtitle says whether this is
 //     view only, under the user's control, or paused by someone else.
 //   - Menu: Move to new tab (desktop) → Close (desktop).
@@ -51,6 +55,8 @@ export function DesktopPane({
   onCloseTab,
 }: DesktopPaneProps): ReactElement {
   const isMobile = useIsMobile();
+  const isTouchDevice = useIsTouchDevice();
+  const displayRef = useRef<GuacamoleDisplayHandle | null>(null);
   const { byHostKey } = useIdentities();
   const identity = byHostKey?.get(`${hostId}::${identityKey}`);
   const name = identity?.displayName || identityKey;
@@ -166,6 +172,14 @@ export function DesktopPane({
                 <Hand width={14} height={14} aria-hidden="true" />
               </button>
             )}
+            {inControl && isTouchDevice && (
+              <TouchDesktopButtons
+                showModeSwitch
+                onToggleKeyboard={() => displayRef.current?.toggleKeyboard()}
+                buttonClassName={PANE_BAR_BUTTON_CLASS}
+                testIdPrefix="desktop-pane"
+              />
+            )}
           </>
         }
       />
@@ -175,7 +189,7 @@ export function DesktopPane({
           className="absolute inset-0 overflow-hidden"
           style={{ background: "var(--bg-base, #111)" }}
         >
-          <DesktopStage session={session} isVisible={isVisible} />
+          <DesktopStage session={session} isVisible={isVisible} displayRef={displayRef} />
         </div>
       </div>
     </div>

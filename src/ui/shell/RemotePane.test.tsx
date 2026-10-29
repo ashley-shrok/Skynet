@@ -194,3 +194,42 @@ describe("RemotePane bar menu", () => {
     expect(onCloseTab).not.toHaveBeenCalled();
   });
 });
+
+describe("RemotePane — touch screens", () => {
+  beforeEach(() => localStorage.clear());
+
+  it("has no touch buttons without a touch screen", () => {
+    const { queryByTestId } = renderPane();
+    expect(queryByTestId("remote-pane-touch-mode")).toBeNull();
+    expect(queryByTestId("remote-pane-keyboard")).toBeNull();
+  });
+
+  it("the mode button flips trackpad/direct and remembers it", () => {
+    touchState.isTouchDevice = true;
+    localStorage.setItem("skynet.touchMouseMode", "trackpad");
+    const { getByTestId } = renderPane();
+    const btn = getByTestId("remote-pane-touch-mode");
+    expect(btn.getAttribute("data-mode")).toBe("trackpad");
+    fireEvent.click(btn);
+    expect(getByTestId("remote-pane-touch-mode").getAttribute("data-mode")).toBe("direct");
+    expect(localStorage.getItem("skynet.touchMouseMode")).toBe("direct");
+  });
+
+  it("the keyboard button asks this pane's session to raise the keyboard", () => {
+    touchState.isTouchDevice = true;
+    const seen: unknown[] = [];
+    const onToggle = (e: Event) => seen.push((e as CustomEvent).detail);
+    window.addEventListener("skynet:guacamole-toggle-keyboard", onToggle);
+    const { getByTestId } = renderPane();
+    fireEvent.click(getByTestId("remote-pane-keyboard"));
+    window.removeEventListener("skynet:guacamole-toggle-keyboard", onToggle);
+    expect(seen).toEqual([{ tabId: "rdp-tab-1" }]);
+  });
+
+  it("telnet gets the keyboard button but no mode switch", () => {
+    touchState.isTouchDevice = true;
+    const { getByTestId, queryByTestId } = renderPane({ protocol: "telnet" });
+    expect(getByTestId("remote-pane-keyboard")).toBeTruthy();
+    expect(queryByTestId("remote-pane-touch-mode")).toBeNull();
+  });
+});

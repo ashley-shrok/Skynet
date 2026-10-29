@@ -25,6 +25,24 @@ import type { SSHHost } from "@/types";
 // (SKYNET_SUPERSEDED:) below and fire the shell-level lock on detection.
 import { CLIENT_BUILD_ID } from "@/lib/client-build-id";
 import { lockSkewedSession } from "@/state/skew-lock-store";
+import { useIsTouchDevice } from "@/hooks/use-is-touch-device";
+import type { ModifierState } from "@/features/keyboard/inputAdapter";
+import { isPhoneScreen, TOGGLE_KEYBOARD_EVENT } from "./touch/touch-mode";
+import { FITTED_VIEW, type ViewState } from "./touch/viewport";
+
+/** Width of the remote screen a phone asks for — a laptop-sized desktop to zoom around. */
+export const PHONE_REMOTE_WIDTH = 1280;
+
+/**
+ * A phone's remote screen: laptop-sized, shaped like the phone held sideways,
+ * the same whichever way it's held — rotating only refits the picture.
+ */
+export function phoneRemoteSize(): { width: number; height: number } {
+  const long = Math.max(window.screen.width, window.screen.height) || 16;
+  const short = Math.min(window.screen.width, window.screen.height) || 9;
+  const height = Math.round((PHONE_REMOTE_WIDTH * short) / long / 2) * 2;
+  return { width: PHONE_REMOTE_WIDTH, height: Math.max(480, height) };
+}
 
 interface GuacamoleAppProps {
   hostId?: string;
@@ -169,6 +187,46 @@ const GuacamoleAppInner: React.FC<GuacamoleAppInnerProps> = ({
     [resolvedProtocol],
   );
 
+  // Touch screens: the zoomed view lasts the session (through reconnects),
+  // and a phone gets a laptop-sized remote screen instead of a phone-shaped
+  // one. Telnet is text and keeps fitting the screen.
+  const isTouchDevice = useIsTouchDevice();
+  const touchViewRef = useRef<ViewState>({ ...FITTED_VIEW });
+  const phoneSize = useMemo(
+    () =>
+      isTouchDevice && resolvedProtocol !== "telnet" && isPhoneScreen()
+        ? phoneRemoteSize()
+        : null,
+    [isTouchDevice, resolvedProtocol],
+  );
+
+  // Phone typing combines with the key strip's held modifiers, then lets them
+  // go — the same as a key on the strip does.
+  const stickyRef = useRef<ModifierState | null>(null);
+  const clearStickyRef = useRef<(() => void) | null>(null);
+  const handleStickyChange = useCallback((mods: ModifierState) => {
+    stickyRef.current = mods;
+  }, []);
+  const registerClearSticky = useCallback((clear: () => void) => {
+    clearStickyRef.current = clear;
+  }, []);
+  const handlePhoneTyped = useCallback(() => {
+    const mods = stickyRef.current;
+    if (mods && (mods.ctrl || mods.alt || mods.shift || mods.win)) {
+      clearStickyRef.current?.();
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!tabId) return;
+    const handler = (e: Event) => {
+      const { tabId: eventTabId } = (e as CustomEvent).detail;
+      if (eventTabId === tabId) displayRef.current?.toggleKeyboard();
+    };
+    window.addEventListener(TOGGLE_KEYBOARD_EVENT, handler);
+    return () => window.removeEventListener(TOGGLE_KEYBOARD_EVENT, handler);
+  }, [tabId]);
+
   useEffect(() => {
     setToken(null);
     setError(null);
@@ -304,7 +362,11 @@ const GuacamoleAppInner: React.FC<GuacamoleAppInnerProps> = ({
           token,
           protocol: resolvedProtocol,
           type: resolvedProtocol,
+          ...(phoneSize ?? {}),
         }}
+        fixedRemoteSize={phoneSize !== null}
+        touchView={touchViewRef}
+        onPhoneTyped={handlePhoneTyped}
         isVisible={isVisible}
         onError={(err) => {
           // Phase 111 SKEW-10: drift-refusal → shell-level lock, NOT
@@ -337,7 +399,12 @@ const GuacamoleAppInner: React.FC<GuacamoleAppInnerProps> = ({
           if (!connectionError && !takenOverRef.current) handleReconnect();
         }}
       />
-      <Toolbar adapter={guacamoleAdapter} guacamoleDisplayRef={displayRef} />
+      <Toolbar
+        adapter={guacamoleAdapter}
+        guacamoleDisplayRef={displayRef}
+        onStickyChange={handleStickyChange}
+        registerClearSticky={registerClearSticky}
+      />
     </div>
   );
 };

@@ -17,8 +17,12 @@
  */
 
 import { Eye, Hand, MousePointer2, PanelRightOpen, RefreshCw, Undo2 } from "lucide-react";
+import { useRef } from "react";
 import { useModalFullscreen } from "@/components/modal";
 import { KitButton, KitChip, KitToolbar, KitToolbarSpacer } from "@/components/kit";
+import type { GuacamoleDisplayHandle } from "@/features/guacamole/GuacamoleDisplay";
+import { TouchDesktopButtons } from "@/features/guacamole/touch/TouchDesktopButtons";
+import { useIsTouchDevice } from "@/hooks/use-is-touch-device";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { DesktopStage, desktopGeometry, useDesktopSession } from "./desktop-session";
 
@@ -54,6 +58,8 @@ export default function DesktopTab({
   const fullscreen = useModalFullscreen();
   // No split view on a phone, so nowhere to pop out to.
   const isMobile = useIsMobile();
+  const isTouchDevice = useIsTouchDevice();
+  const displayRef = useRef<GuacamoleDisplayHandle | null>(null);
 
   const live = view.status === "live";
   const [geoW, geoH] = desktopGeometry(view);
@@ -103,6 +109,15 @@ export default function DesktopTab({
             {taking ? "Taking control…" : "Take control"}
           </KitButton>
         )}
+        {inControl && isTouchDevice && (
+          <TouchDesktopButtons
+            showModeSwitch
+            onToggleKeyboard={() => displayRef.current?.toggleKeyboard()}
+            buttonClassName="k-btn"
+            buttonAttrs={{ "data-slot": "kit-button", "data-variant": "secondary", "data-size": "sm" }}
+            testIdPrefix="desktop-tab"
+          />
+        )}
         {inControl && (
           <KitButton size="sm" onClick={() => void connect()} data-testid="desktop-hand-back">
             <Undo2 size={13} aria-hidden="true" /> Hand back to agent
@@ -148,7 +163,7 @@ export default function DesktopTab({
           minHeight: 240,
         }}
       >
-        <DesktopStage session={session} isVisible={isVisible} />
+        <DesktopStage session={session} isVisible={isVisible} displayRef={displayRef} />
       </div>
     </div>
   );

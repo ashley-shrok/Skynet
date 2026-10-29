@@ -10,6 +10,12 @@ import Guacamole from "guacamole-common-js";
 import { useTranslation } from "react-i18next";
 import { getGuacamoleToken } from "@/main-axios.ts";
 import { SimpleLoader } from "@/lib/SimpleLoader.tsx";
+import { useIsTouchDevice } from "@/hooks/use-is-touch-device";
+import type { GestureMode } from "./touch/gestures";
+import { PhoneKeyboard } from "./touch/phone-keyboard";
+import { TouchController } from "./touch/touch-controller";
+import { useTouchMode } from "./touch/touch-mode";
+import { FITTED_VIEW, fitScale, type Box, type ViewState } from "./touch/viewport";
 
 export type GuacamoleConnectionType = "rdp" | "vnc" | "telnet";
 
@@ -53,6 +59,8 @@ export interface GuacamoleDisplayHandle {
   sendKey: (keysym: number, pressed: boolean) => void;
   sendMouse: (x: number, y: number, buttonMask: number) => void;
   setClipboard: (data: string) => void;
+  /** Touch screens: raise the phone's keyboard, or put it away. Call from the tap's own handler. */
+  toggleKeyboard: () => void;
 }
 
 interface GuacamoleDisplayProps {
@@ -76,6 +84,13 @@ interface GuacamoleDisplayProps {
    * the old size.
    */
   fixedRemoteSize?: boolean;
+  /**
+   * Touch screens: where the zoomed view is kept, so it survives this display
+   * being remounted (a reconnect). The parent holds it for the session.
+   */
+  touchView?: { current: ViewState };
+  /** Touch screens: a key was typed on the phone keyboard (lets the key strip release held modifiers). */
+  onPhoneTyped?: () => void;
 }
 
 const isDev = import.meta.env.DEV;
@@ -92,6 +107,8 @@ export const GuacamoleDisplay = forwardRef<
     onError,
     viewOnly = false,
     fixedRemoteSize = false,
+    touchView,
+    onPhoneTyped,
   },
   ref,
 ) {
@@ -112,6 +129,30 @@ export const GuacamoleDisplay = forwardRef<
   const fixedRemoteSizeRef = useRef(fixedRemoteSize);
   fixedRemoteSizeRef.current = fixedRemoteSize;
 
+  // Touch input: on a touch screen, an interactive display takes touches as
+  // mouse input (trackpad or direct; telnet only scrolls), pinch-zooms, and
+  // can raise the phone's keyboard.
+  const isTouchDevice = useIsTouchDevice();
+  const touchMode = useTouchMode();
+  const protocolForTouch = connectionConfig.protocol ?? connectionConfig.type;
+  const gestureMode: GestureMode =
+    protocolForTouch === "telnet" ? "scroll-only" : touchMode;
+  const touchEnabled = isTouchDevice && !viewOnly;
+  const touchEnabledRef = useRef(touchEnabled);
+  touchEnabledRef.current = touchEnabled;
+  const gestureModeRef = useRef(gestureMode);
+  gestureModeRef.current = gestureMode;
+  const touchControllerRef = useRef<TouchController | null>(null);
+  const phoneKeyboardRef = useRef<PhoneKeyboard | null>(null);
+  const keyboardShownRef = useRef(false);
+  const ownTouchViewRef = useRef<ViewState>({ ...FITTED_VIEW });
+  const touchViewRef = touchView ?? ownTouchViewRef;
+  const onPhoneTypedRef = useRef(onPhoneTyped);
+  onPhoneTypedRef.current = onPhoneTyped;
+  // Keys held down through the handle (the key strip's modifiers) — let go
+  // before disconnecting, or the remote keeps them pressed (hand-back).
+  const heldKeysRef = useRef<Set<number>>(new Set());
+
   useImperativeHandle(ref, () => ({
     disconnect: () => {
       if (clientRef.current) {
@@ -121,6 +162,8 @@ export const GuacamoleDisplay = forwardRef<
     sendKey: (keysym: number, pressed: boolean) => {
       if (clientRef.current) {
         clientRef.current.sendKeyEvent(pressed ? 1 : 0, keysym);
+        if (pressed) heldKeysRef.current.add(keysym);
+        else heldKeysRef.current.delete(keysym);
       }
     },
     sendMouse: (x: number, y: number, buttonMask: number) => {
@@ -135,6 +178,9 @@ export const GuacamoleDisplay = forwardRef<
           }),
         );
       }
+    },
+    toggleKeyboard: () => {
+      phoneKeyboardRef.current?.toggle();
     },
     setClipboard: (data: string) => {
       if (clientRef.current) {
@@ -260,6 +306,28 @@ export const GuacamoleDisplay = forwardRef<
     };
   }, [isVisible]);
 
+  // The visible part of the display area in client coordinates — shorter
+  // while the phone keyboard covers the bottom of the screen.
+  const getTouchBox = useCallback((): Box => {
+    const el = containerRef.current;
+    if (!el) return { left: 0, top: 0, width: 0, height: 0 };
+    const rect = el.getBoundingClientRect();
+    let top = rect.top;
+    let bottom = rect.bottom;
+    const vv = typeof window !== "undefined" ? window.visualViewport : null;
+    if (keyboardShownRef.current && vv) {
+      // The page may also have scrolled up under the keyboard.
+      top = Math.max(top, vv.offsetTop);
+      bottom = Math.min(bottom, vv.offsetTop + vv.height);
+    }
+    return {
+      left: rect.left,
+      top,
+      width: rect.width,
+      height: Math.max(0, bottom - top),
+    };
+  }, []);
+
   const rescaleDisplay = useCallback((immediate: boolean = false) => {
     if (!clientRef.current || !containerRef.current) return;
 
@@ -267,6 +335,33 @@ export const GuacamoleDisplay = forwardRef<
       if (!clientRef.current || !containerRef.current) return;
 
       const display = clientRef.current.getDisplay();
+      if (touchEnabledRef.current) {
+        // Touch: fit to the visible box, then the zoomed view on top.
+        const box = getTouchBox();
+        const remote = { width: display.getWidth(), height: display.getHeight() };
+        if (remote.width > 0 && remote.height > 0 && box.width > 0 && box.height > 0) {
+          const view = touchViewRef.current;
+          const scale = fitScale(box, remote) * view.zoom;
+          scaleRef.current = scale;
+          display.scale(scale);
+          const wrapper = displayRef.current;
+          if (wrapper) {
+            // Centre in the visible box, which may start below the container's top.
+            const dy = box.top - containerRef.current.getBoundingClientRect().top;
+            wrapper.style.height = keyboardShownRef.current ? `${box.height}px` : "";
+            const ty = view.ty + dy;
+            wrapper.style.transform =
+              view.tx || ty ? `translate(${view.tx}px, ${ty}px)` : "";
+          }
+        }
+        return;
+      }
+      // No touch (or it was switched off mid-session): no zoom offsets.
+      const wrapper = displayRef.current;
+      if (wrapper && (wrapper.style.transform || wrapper.style.height)) {
+        wrapper.style.transform = "";
+        wrapper.style.height = "";
+      }
       const cWidth = containerRef.current.clientWidth;
       const cHeight = containerRef.current.clientHeight;
       const displayWidth = display.getWidth();
@@ -294,6 +389,64 @@ export const GuacamoleDisplay = forwardRef<
       }
       resizeTimeoutRef.current = setTimeout(performRescale, 200);
     }
+  }, [getTouchBox, touchViewRef]);
+
+  // Touch input for an interactive display on a touch screen: gestures to
+  // the remote mouse and zoomed view, plus the phone keyboard. Attached on
+  // connect, or later if touch support turns on mid-session.
+  const attachTouchInput = useCallback(() => {
+    const container = containerRef.current;
+    const client = clientRef.current;
+    const displayElement = displayElementRef.current;
+    if (!touchEnabledRef.current || !container || !client || !displayElement) return;
+    touchControllerRef.current?.destroy();
+    touchControllerRef.current = new TouchController({
+      element: container,
+      mode: gestureModeRef.current,
+      getRemote: () => ({
+        width: client.getDisplay().getWidth(),
+        height: client.getDisplay().getHeight(),
+      }),
+      getBox: getTouchBox,
+      view: touchViewRef.current,
+      onViewChange: (view) => {
+        touchViewRef.current = view;
+        rescaleDisplay(true);
+      },
+      sendMouse: (x, y, b) => {
+        client.sendMouseState(
+          new Guacamole.Mouse.State(x, y, b.left, b.middle, b.right, b.up, b.down) as Guacamole.Mouse.State,
+        );
+      },
+      // A tablet's hardware keyboard types into the display once it's touched.
+      onTouchStart: () => {
+        if (!keyboardShownRef.current) displayElement.focus({ preventScroll: true });
+      },
+    });
+    phoneKeyboardRef.current?.destroy();
+    phoneKeyboardRef.current = new PhoneKeyboard({
+      host: container,
+      sendKey: (keysym, pressed) => client.sendKeyEvent(pressed ? 1 : 0, keysym),
+      onTyped: () => onPhoneTypedRef.current?.(),
+      onShownChange: (shown) => {
+        keyboardShownRef.current = shown;
+        // The phone's keyboard animates in; settle once the screen has.
+        touchControllerRef.current?.refit();
+        rescaleDisplay(true);
+        setTimeout(() => {
+          touchControllerRef.current?.refit();
+          rescaleDisplay(true);
+        }, 350);
+      },
+    });
+  }, [getTouchBox, rescaleDisplay, touchViewRef]);
+
+  const detachTouchInput = useCallback(() => {
+    touchControllerRef.current?.destroy();
+    touchControllerRef.current = null;
+    phoneKeyboardRef.current?.destroy();
+    phoneKeyboardRef.current = null;
+    keyboardShownRef.current = false;
   }, []);
 
   const connect = useCallback(async () => {
@@ -341,6 +494,8 @@ export const GuacamoleDisplay = forwardRef<
     displayElement.style.outline = "none";
 
     display.onresize = () => {
+      // A new remote size: keep the zoomed view inside the new picture.
+      touchControllerRef.current?.refit();
       rescaleDisplay(true);
       setIsReady(true);
     };
@@ -410,6 +565,8 @@ export const GuacamoleDisplay = forwardRef<
       displayElement.addEventListener("blur", handleDisplayBlur);
       displayElement.addEventListener("mousedown", handleDisplayFocus);
       refreshKeyboardHandlers();
+
+      attachTouchInput();
     }
 
     client.onstatechange = (state: number) => {
@@ -507,6 +664,7 @@ export const GuacamoleDisplay = forwardRef<
     connectionConfig.type,
     t,
     viewOnly,
+    attachTouchInput,
   ]);
 
   const hasInitiatedRef = useRef(false);
@@ -570,7 +728,13 @@ export const GuacamoleDisplay = forwardRef<
       if (resizeTimeoutRef.current) {
         clearTimeout(resizeTimeoutRef.current);
       }
+      touchControllerRef.current?.destroy();
+      touchControllerRef.current = null;
+      phoneKeyboardRef.current?.destroy();
+      phoneKeyboardRef.current = null;
       if (clientRef.current) {
+        for (const k of heldKeysRef.current) clientRef.current.sendKeyEvent(0, k);
+        heldKeysRef.current.clear();
         clientRef.current.disconnect();
         clientRef.current = null;
       }
@@ -579,11 +743,45 @@ export const GuacamoleDisplay = forwardRef<
   }, []);
 
   useEffect(() => {
+    touchControllerRef.current?.setMode(gestureMode);
+  }, [gestureMode]);
+
+  // Touch support can change mid-session (a mouse attached to a tablet).
+  useEffect(() => {
+    if (touchEnabled) {
+      if (!touchControllerRef.current && clientRef.current) attachTouchInput();
+    } else if (touchControllerRef.current) {
+      detachTouchInput();
+    } else {
+      return;
+    }
+    rescaleDisplay(true);
+  }, [touchEnabled, attachTouchInput, detachTouchInput, rescaleDisplay]);
+
+  // The phone keyboard (and rotation, and browser bars) change the visible
+  // part of the screen without resizing the display's box.
+  useEffect(() => {
+    const vv = typeof window !== "undefined" ? window.visualViewport : null;
+    if (!touchEnabled || !vv) return;
+    const onViewport = () => {
+      touchControllerRef.current?.refit();
+      rescaleDisplay(true);
+    };
+    vv.addEventListener("resize", onViewport);
+    vv.addEventListener("scroll", onViewport);
+    return () => {
+      vv.removeEventListener("resize", onViewport);
+      vv.removeEventListener("scroll", onViewport);
+    };
+  }, [touchEnabled, rescaleDisplay]);
+
+  useEffect(() => {
     if (!containerRef.current) return;
 
     const resizeObserver = new ResizeObserver(() => {
       // Fixed-size remote: only the picture's scale follows the container.
       if (fixedRemoteSizeRef.current) {
+        touchControllerRef.current?.refit();
         rescaleDisplay(false);
         return;
       }
@@ -653,14 +851,22 @@ export const GuacamoleDisplay = forwardRef<
     <div
       ref={containerRef}
       className="absolute inset-0 overflow-hidden"
-      style={{ backgroundColor: "var(--bg-base)" }}
+      data-testid="guacamole-display"
+      // Touch: the desktop takes every touch — no page scroll or zoom, and
+      // the swipe back to the list never starts here.
+      {...(touchEnabled ? { "data-no-swipe-to-list": "" } : {})}
+      style={{
+        backgroundColor: "var(--bg-base)",
+        ...(touchEnabled ? { touchAction: "none" } : {}),
+      }}
     >
       <div
         ref={displayRef}
         // A fixed-size remote (an agent's desktop) is letterboxed when its
         // aspect differs from the box, so center it both ways; a resizing
-        // remote fills the box and stays top-aligned.
-        className={`relative w-full h-full flex ${fixedRemoteSize ? "items-center" : "items-start"} justify-center`}
+        // remote fills the box and stays top-aligned. Touch zoom works
+        // about the centre, so touch always centres.
+        className={`relative w-full h-full flex ${fixedRemoteSize || touchEnabled ? "items-center" : "items-start"} justify-center`}
         style={{
           cursor: isReady && !viewOnly ? "none" : "default",
           visibility: isReady ? "visible" : "hidden",

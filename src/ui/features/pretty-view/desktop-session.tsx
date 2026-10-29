@@ -33,10 +33,12 @@
 import {
   useCallback,
   useEffect,
+  useMemo,
   useRef,
   useState,
   type ReactElement,
   type ReactNode,
+  type RefObject,
 } from "react";
 import { Monitor, Play, RefreshCw } from "lucide-react";
 import { toast } from "sonner";
@@ -49,7 +51,15 @@ import {
   takeDesktopControl,
 } from "@/api/workspace-desktop-api";
 import { KitButton, KitEmpty } from "@/components/kit";
-import { GuacamoleDisplay } from "@/features/guacamole/GuacamoleDisplay";
+import {
+  GuacamoleDisplay,
+  type GuacamoleDisplayHandle,
+} from "@/features/guacamole/GuacamoleDisplay";
+import { FITTED_VIEW, type ViewState } from "@/features/guacamole/touch/viewport";
+import { makeGuacamoleAdapter } from "@/features/keyboard/guacamoleAdapter";
+import type { ModifierState } from "@/features/keyboard/inputAdapter";
+import { Toolbar } from "@/features/keyboard/Toolbar";
+import { useIsTouchDevice } from "@/hooks/use-is-touch-device";
 import { systemLogger } from "@/lib/frontend-logger";
 import {
   resolveWorkspaceErrorCopy,
@@ -395,16 +405,44 @@ function Notice({
 /**
  * What fills the desktop's box: a notice for every non-live state, or the
  * live display. The caller sizes the box.
+ *
+ * On a touch screen, while this surface has control, the key strip (the one
+ * remote sessions and terminals use) floats over the desktop, and phone
+ * typing combines with its held modifiers. `displayRef` lets the caller's
+ * bar raise the phone keyboard.
  */
 export function DesktopStage({
   session,
   isVisible,
+  displayRef: callerDisplayRef,
 }: {
   session: DesktopSession;
   isVisible: boolean;
+  displayRef?: RefObject<GuacamoleDisplayHandle | null>;
 }): ReactElement {
   const { view, connect, start, onStreamLost } = session;
   const [geoW, geoH] = desktopGeometry(view);
+  const ownDisplayRef = useRef<GuacamoleDisplayHandle | null>(null);
+  const displayRef = callerDisplayRef ?? ownDisplayRef;
+  const isTouchDevice = useIsTouchDevice();
+  // The zoomed view lasts while this surface is open (through reconnects).
+  const touchViewRef = useRef<ViewState>({ ...FITTED_VIEW });
+  const adapter = useMemo(() => makeGuacamoleAdapter(displayRef, "vnc"), [displayRef]);
+  const stickyRef = useRef<ModifierState | null>(null);
+  const clearStickyRef = useRef<(() => void) | null>(null);
+  const handleStickyChange = useCallback((mods: ModifierState) => {
+    stickyRef.current = mods;
+  }, []);
+  const registerClearSticky = useCallback((clear: () => void) => {
+    clearStickyRef.current = clear;
+  }, []);
+  const handlePhoneTyped = useCallback(() => {
+    const mods = stickyRef.current;
+    if (mods && (mods.ctrl || mods.alt || mods.shift || mods.win)) {
+      clearStickyRef.current?.();
+    }
+  }, []);
+  const showKeyStrip = isTouchDevice && view.status === "live" && view.control;
   return (
     <>
       {view.status === "connecting" && (
@@ -439,8 +477,11 @@ export function DesktopStage({
       {view.status === "live" && (
         <GuacamoleDisplay
           key={view.attempt}
+          ref={displayRef}
           viewOnly={!view.control}
           fixedRemoteSize
+          touchView={touchViewRef}
+          onPhoneTyped={handlePhoneTyped}
           isVisible={isVisible}
           connectionConfig={{
             token: view.token,
@@ -449,6 +490,14 @@ export function DesktopStage({
           }}
           onDisconnect={onStreamLost}
           onError={onStreamLost}
+        />
+      )}
+      {showKeyStrip && (
+        <Toolbar
+          adapter={adapter}
+          guacamoleDisplayRef={displayRef}
+          onStickyChange={handleStickyChange}
+          registerClearSticky={registerClearSticky}
         />
       )}
     </>

@@ -349,6 +349,7 @@ export const Toolbar: React.FC<ToolbarProps> = ({
     <TooltipProvider delayDuration={500}>
       <div
         ref={toolbarRef}
+        data-testid="key-strip"
         style={containerStyle}
         onPointerDown={(e) => e.preventDefault()}
       >

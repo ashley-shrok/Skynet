@@ -3,6 +3,9 @@ import { Suspense, lazy, useMemo } from "react";
 import { Monitor, RotateCw, Terminal } from "lucide-react";
 
 import type { RowKebabMenuItem } from "@/features/pretty-conversations/RowKebabMenu";
+import { TouchDesktopButtons } from "@/features/guacamole/touch/TouchDesktopButtons";
+import { TOGGLE_KEYBOARD_EVENT } from "@/features/guacamole/touch/touch-mode";
+import { useIsTouchDevice } from "@/hooks/use-is-touch-device";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { systemLogger } from "@/lib/frontend-logger";
 import { encodeWorkspaceSpec, specForTab } from "@/lib/tab-url";
@@ -21,6 +24,8 @@ const GuacamoleApp = lazy(() => import("@/features/guacamole/GuacamoleApp"));
 //   - Reconnect (circular arrow) — fires the existing
 //     `skynet:refresh-guacamole` event GuacamoleApp listens for: fresh token,
 //     display remount. Back/forward have no meaning for a remote session.
+//   - Touch screens: the touch-mode switch (not telnet) and the keyboard
+//     button, which raises the phone's keyboard for the session.
 //   - Title: monitor (or terminal, for telnet) glyph + host name.
 //   - Menu: Move to new tab (desktop) → Close (desktop).
 //
@@ -51,6 +56,7 @@ export function RemotePane({
   onCloseTab,
 }: RemotePaneProps): ReactElement {
   const isMobile = useIsMobile();
+  const isTouchDevice = useIsTouchDevice();
   const numericHostId = Number(hostId);
 
   const reconnect = () => {
@@ -119,17 +125,31 @@ export function RemotePane({
         menuItems={menuItems}
         onSelectPane={onSelectPane}
         navButtons={
-          <button
-            type="button"
-            data-testid="remote-pane-reconnect"
-            aria-label="Reconnect"
-            title="Reconnect"
-            draggable={false}
-            onClick={reconnect}
-            className={PANE_BAR_BUTTON_CLASS}
-          >
-            <RotateCw aria-hidden="true" />
-          </button>
+          <>
+            <button
+              type="button"
+              data-testid="remote-pane-reconnect"
+              aria-label="Reconnect"
+              title="Reconnect"
+              draggable={false}
+              onClick={reconnect}
+              className={PANE_BAR_BUTTON_CLASS}
+            >
+              <RotateCw aria-hidden="true" />
+            </button>
+            {isTouchDevice && (
+              <TouchDesktopButtons
+                showModeSwitch={protocol !== "telnet"}
+                onToggleKeyboard={() =>
+                  window.dispatchEvent(
+                    new CustomEvent(TOGGLE_KEYBOARD_EVENT, { detail: { tabId } }),
+                  )
+                }
+                buttonClassName={PANE_BAR_BUTTON_CLASS}
+                testIdPrefix="remote-pane"
+              />
+            )}
+          </>
         }
       />
       {/* Absolute inset gives the remote display a definite height (the

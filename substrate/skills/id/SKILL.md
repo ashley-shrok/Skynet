@@ -1078,7 +1078,10 @@ not something agents drive.
   closes this pane) and **Close** — also on right-click; both are desktop
   only, so on a phone there is no ⋯. On a touch screen the bar is taller
   and starts with the round **back to conversations** (‹) button, same as
-  an app's. The **whole bar is the drag handle**: drop it on the drop lane's
+  an app's, and adds a **touch-mode** switch (trackpad or direct; not for
+  telnet) and a **keyboard** button that raises the phone's keyboard. Touch
+  drives the remote mouse and pinch zooms; on a phone the machine gets a
+  laptop-sized screen. The **whole bar is the drag handle**: drop it on the drop lane's
   Close, onto another pane to rearrange, or into another Skynet window
   (that window connects fresh and this pane closes). Not draggable on a
   touch screen. While a remote session is open, its machine's row stays in the
@@ -1151,7 +1154,10 @@ not something agents drive.
   and beneath it in faint text whether it's view only, under the user's
   control (agent paused), or paused because someone else has control.
   Right: the **⋯** menu — **Move to new tab** and **Close** (both desktop
-  only) — also on right-click. The **whole bar is the drag handle**, same
+  only) — also on right-click. While the user has control on a touch
+  screen, the bar adds the same touch-mode switch and keyboard button as
+  the remote-desktop bar, and the key strip floats over the desktop. The
+  **whole bar is the drag handle**, same
   as the app bar. The picture scales to fit and never resizes the agent's
   screen. Control is handed back when the pane closes or its connection
   drops. If the desktop stops, the pane stays with a "desktop isn't
@@ -1536,7 +1542,10 @@ crown, then gear.
     hands the user's mouse and keyboard to the desktop and pauses the
     agent's own desktop input (Esc then goes to the desktop, not the
     modal). **Hand back to agent** returns it; leaving the tab or closing
-    the modal hands back too, with a "Handed back to agent" note.
+    the modal hands back too, with a "Handed back to agent" note. On a
+    touch screen, while in control, touch drives the desktop's mouse, the
+    toolbar adds the touch-mode switch and keyboard button, and the key
+    strip floats over the desktop.
     **Open beside conversation** (desktop only) closes the modal and opens
     the desktop in its own pane to the right of the conversation
     (§ Desktop bar).

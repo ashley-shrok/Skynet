@@ -14,7 +14,8 @@ import userEvent from "@testing-library/user-event";
 
 const mobileState = { isMobile: false };
 vi.mock("@/hooks/use-mobile", () => ({ useIsMobile: () => mobileState.isMobile }));
-vi.mock("@/hooks/use-is-touch-device", () => ({ useIsTouchDevice: () => false }));
+const touchState = { isTouchDevice: false };
+vi.mock("@/hooks/use-is-touch-device", () => ({ useIsTouchDevice: () => touchState.isTouchDevice }));
 vi.mock("@/state/identities-store", () => ({
   useIdentities: () => ({
     byKey: new Map(),
@@ -75,6 +76,7 @@ async function menuLabels(container: HTMLElement): Promise<string[]> {
 
 beforeEach(() => {
   mobileState.isMobile = false;
+  touchState.isTouchDevice = false;
   connectDesktop.mockReset().mockResolvedValue(view);
   takeDesktopControl.mockReset().mockResolvedValue(drive);
   releaseDesktopControl.mockReset().mockResolvedValue({ ok: true });
@@ -164,5 +166,30 @@ describe("DesktopPane", () => {
     mobileState.isMobile = true;
     const { container } = renderPane({ onCloseTab: vi.fn() });
     expect(container.querySelector('[data-testid="desktop-pane-kebab-trigger"]')).toBeNull();
+  });
+
+  it("touch screen, in control: mode switch, keyboard button and the key strip", async () => {
+    touchState.isTouchDevice = true;
+    const { getByTestId, queryByTestId } = renderPane();
+    await screen.findByTestId("guac-display");
+    // Watching: none of it.
+    expect(queryByTestId("desktop-pane-touch-mode")).toBeNull();
+    expect(queryByTestId("desktop-pane-keyboard")).toBeNull();
+    expect(queryByTestId("key-strip")).toBeNull();
+    fireEvent.click(getByTestId("desktop-pane-take-control"));
+    await screen.findByTestId("desktop-pane-hand-back");
+    expect(getByTestId("desktop-pane-touch-mode")).toBeTruthy();
+    expect(getByTestId("desktop-pane-keyboard")).toBeTruthy();
+    expect(getByTestId("key-strip")).toBeTruthy();
+  });
+
+  it("no touch screen: in control shows no touch controls or key strip", async () => {
+    const { getByTestId, queryByTestId } = renderPane();
+    await screen.findByTestId("guac-display");
+    fireEvent.click(getByTestId("desktop-pane-take-control"));
+    await screen.findByTestId("desktop-pane-hand-back");
+    expect(queryByTestId("desktop-pane-touch-mode")).toBeNull();
+    expect(queryByTestId("desktop-pane-keyboard")).toBeNull();
+    expect(queryByTestId("key-strip")).toBeNull();
   });
 });
