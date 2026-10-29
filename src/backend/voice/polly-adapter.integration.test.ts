@@ -8,7 +8,7 @@ import { describe, it, expect } from "vitest";
  * runs). Rationale: mocked tests in `polly-adapter.test.ts` cover the
  * client-construction + command-shape + error-path contracts; this file
  * verifies the actual AWS network path from an EC2 instance with an
- * attached SkynetPollyTranscribeAccess policy.
+ * attached SkynetPollyTranscribe policy.
  *
  * Cost ~$0.0002 per run — 6 characters of generative synthesis. Gated
  * behind AWS_INTEGRATION_TESTS=1 (98-RESEARCH.md § Test Strategy) so

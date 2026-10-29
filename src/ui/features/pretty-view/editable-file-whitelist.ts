@@ -93,7 +93,7 @@ export const TAILNET_URL_RE_CLIENT =
 
 /**
  * Phase 75 D-01 URL shape: <skynet-domain>[:port]/file/<hostname>/<abs-path>
- * Example: https://term.example.com/file/bigbox/home/ubuntu/note.md
+ * Example: https://term.example.com/file/boreal/home/ubuntu/note.md
  *
  * Grammar (locked in Phase 75 D-01):
  *   - scheme:      https:// only (agents on Skynet always run on the HTTPS

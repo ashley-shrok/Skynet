@@ -323,7 +323,7 @@ export interface PrettyViewProps {
   source?: ChatSurfaceSource;
   hostId: number;
   /**
-   * String hostname (e.g. `bigbox`) for the target host — matches
+   * String hostname (e.g. `harbor`) for the target host — matches
    * `hosts.name` in the DB and the `<host>` segment of the Skynet
    * `/file/<host>/<abs-path>` URL grammar. Threaded down to ChatMessage
    * so the injected user-turn's file entries can be rendered as

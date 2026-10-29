@@ -29,7 +29,7 @@ describe("sanitizeUsernameToLocalpart", () => {
     expect(sanitizeUsernameToLocalpart("user")).toBe("user");
   });
 
-  it("escapes @ and . in an email-form username (Cobalt case)", () => {
+  it("escapes @ and . in an email-form username (multi-user instance case)", () => {
     expect(sanitizeUsernameToLocalpart("user@example.com")).toBe(
       "user_at_example_dot_com",
     );

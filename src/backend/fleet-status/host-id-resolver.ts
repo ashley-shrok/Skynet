@@ -1,7 +1,7 @@
 /**
  * host-id-resolver.ts
  *
- * Maps a watcher's declared hostname (e.g. 'bigbox') to the Skynet database's
+ * Maps a watcher's declared hostname (e.g. 'boreal') to the Skynet database's
  * host record so frontend row keys use the same host identifier.
  *
  * Comparison is case-insensitive — both sides are lowercased before matching.

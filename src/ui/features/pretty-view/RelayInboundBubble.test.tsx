@@ -153,7 +153,7 @@ describe("RelayInboundBubble — harness view (folded card)", () => {
     const who = screen.getByTestId("relay-who-line").textContent ?? "";
     expect(who).toContain("Quinn");
     expect(who).not.toContain("@quinn");
-    expect(who).not.toContain("work");
+    expect(who).not.toContain("example.org");
   });
 
   it("card is tinted with the sender's hue; unresolved sender falls back to 210", () => {

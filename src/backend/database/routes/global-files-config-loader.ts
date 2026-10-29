@@ -5,7 +5,7 @@
  * and returns a typed config describing which files are configured for each host.
  *
  * Host-key format decision (planner-locked):
- *   Operator-authored JSON should use human-readable host NAMES (e.g. "bigbox",
+ *   Operator-authored JSON should use human-readable host NAMES (e.g. "boreal",
  *   "workstation", "linux-minipc") because user SSH-edits the config by hand for
  *   MVP (GEFM-02 non-negotiable) and staring at numeric IDs is user-hostile.
  *

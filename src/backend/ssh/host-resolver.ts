@@ -426,7 +426,7 @@ export async function resolveHostByUniversalId(
  *
  * **Cross-user isolation invariant** (RESEARCH § Pitfall 7): `hosts.name` is
  * a per-user friendly name and is NOT unique across users. If two users both
- * have a host named `bigbox` (different physical boxes), filtering only by
+ * have a host named `boreal` (different physical boxes), filtering only by
  * `name` would let user A trigger reads on user B's host by guessing the
  * friendly name. The WHERE clause MUST be
  * `and(eq(hosts.name, name), eq(hosts.userId, userId))` — filtering by BOTH.
