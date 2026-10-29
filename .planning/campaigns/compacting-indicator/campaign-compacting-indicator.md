@@ -16,7 +16,7 @@ While an agent's conversation is being compacted, the conversation should look b
 
 ## Shapes
 
-- **[declared] shape-compacting-indicator** — orb + fixed line while compacting; user-facing rename; agent-facing description — in_progress
+- **[declared] shape-compacting-indicator** — orb + fixed line while compacting; user-facing rename; agent-facing description — closed
 
 ## Other work
 
