@@ -24,6 +24,7 @@ import { snapshotPendingTab } from "@/lib/tab-url";
 import { initConsoleForwarder } from "@/lib/console-forwarder";
 import { startDiagEmitter } from "@/lib/diag-emitter";
 import { startFreezeDiag } from "@/lib/freeze-diag";
+import { installDragDiag } from "@/lib/drag-diag";
 import { installScrollbarReveal } from "@/lib/scrollbar-reveal";
 import { fetchBrandingConfig } from "@/branding/branding-fetch";
 import { useBrandingFavicon } from "@/branding/apply-favicon";
@@ -67,6 +68,11 @@ startDiagEmitter();
 // the intermittent "page unresponsive" freezes. Remove once the cause is
 // identified. See src/ui/lib/freeze-diag.ts.
 startFreezeDiag();
+
+// `[dnd-diag]` lines per drag, plus `stalled` when a drag starts but the
+// browser never carries it (no image, no-symbol cursor). See
+// src/ui/lib/drag-diag.ts.
+installDragDiag();
 
 // Scrollbars hide when idle and show while scrolled or hovered.
 installScrollbarReveal();
