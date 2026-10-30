@@ -48,7 +48,7 @@ menu opening the same list in a small window.
 
 ## Other work
 
-- What's-new note for the whole sharing feature — draft it and get the user's yes at campaign close, before the deploy — open
+- What's-new note for the whole sharing feature — draft it and get the user's yes at campaign close, before the deploy — dropped (the user chose no note, 2026-10-30)
 - Roleless agents made inside a project stay private to their maker (the user 2026-10-30) — shape 2's scheduled-task conversations should be checked against this — noted-only (checked in shape 2: a task's conversations follow the task, not their maker; the user agreed)
 
 ## Lingerers (explicitly approved)
