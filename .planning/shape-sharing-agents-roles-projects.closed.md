@@ -15,7 +15,7 @@ control offers to fix that too, so sharing actually makes the thing show up.
 ## Shape
 
 **The control.** One button, the same everywhere: a people icon and a label
-naming who can see it — "Only you", "You and Zoey", "You, Zoey and 2 others",
+naming who can see it — "Only you", "You and bo", "You, bo and 2 others",
 or "Everyone on this machine" for something that has never been limited.
 Clicking it opens a list of everyone with access to that machine, the current
 user first and marked "you", each with a tick. A tick takes effect straight
@@ -85,8 +85,8 @@ be unticked. They don't count in the button's label.
 
 Today the only way to see or change who sees an agent, role or project is to
 edit its file on disk; the app never shows the lists at all. Things created
-on a multi-user machine start out shared only with whoever made them. The
-Cupid case on thenasty — an agent shared with Zoey whose role isn't — is the
+on a multi-user machine start out shared only with whoever made them. An
+agent shared with someone whose role still hides it is the
 kind of quiet hiding this removes. The look was tasted live on 2026-10-30 and
 agreed ("this kicks ass. Let's go with it").
 
@@ -111,7 +111,7 @@ agreed ("this kicks ass. Let's go with it").
 - Out: a "Share…" item in sidebar right-click menus — the window buttons are
   enough for now.
 - Out: redesigning the agent-and-role rule; relay rooms in projects.
-- Out: hand-fixing thenasty's role list (Ashley said to leave it).
+- Out: hand-fixing one machine's role list (the user said to leave it).
 
 ## Handoff notes
 
@@ -144,12 +144,12 @@ mention of the button in each window.
 - **Roles kept on every machine get no button** — present.
 - **Projects: ticking reaches sub-projects, agents and their roles, one confirm** — present.
 - **Projects: unticking reaches the same set; roles never unshared** — present · with the exception below, endorsed.
-- **Born inside a shared project** — present · after fix: a project with a list → creator plus its people; a project nobody limited → not limited either (Ashley: "Everyone, like its project").
+- **Born inside a shared project** — present · after fix: a project with a list → creator plus its people; a project nobody limited → not limited either (the user: "Everyone, like its project").
 - **People who've lost access** — present.
 - **Single-user machines show none of this** — present.
 - **Who can change it** — present · anyone who can see the thing.
 - **Philosophy** — present · visibility rule unchanged; sharing writes the lists.
-- **Scope edges** — present · apps, tasks, sidebar "Share…" not built; thenasty untouched.
+- **Scope edges** — present · apps, tasks, sidebar "Share…" not built; no machine's lists hand-fixed.
 - **Handoff: id skill mentions** — present.
 - **What would make it wrong: ticked but still hidden, unexplained** — present.
 - **What would make it wrong: reach without a naming confirm** — present.
@@ -160,7 +160,7 @@ mention of the button in each window.
 
 ### Additions (in the result, not in the shape)
 
-- Unsharing a project leaves someone on an agent inside where they're the only person on its list (an empty list would open it to everyone); the confirm says so and that it shows in their Conversations — endorsed-as-drift (Ashley worried it might vanish for them; it doesn't — an agent whose project is hidden shows in Conversations).
+- Unsharing a project leaves someone on an agent inside where they're the only person on its list (an empty list would open it to everyone); the confirm says so and that it shows in their Conversations — endorsed-as-drift (the user worried it might vanish for them; it doesn't — an agent whose project is hidden shows in Conversations).
 - Archived agents get no button — endorsed-as-drift (archived window is view-only).
 - "Nobody on this machine" label when everyone listed has lost access — endorsed-as-drift.
 - Take-yourself-off warning adds "Anyone it's still shared with can add you back." — endorsed-as-drift.
@@ -179,5 +179,5 @@ Changes made from the unbiased code review, all within the shape unless noted:
 
 - A change is now the person ticked or unticked, applied to the list as it is at that moment — two people changing the same list can't undo each other's ticks (and a project untick can't cascade someone else's earlier change).
 - A sub-project hidden by a project above it says so on each person's line ("Hidden by the <project> project"), and one with no list of its own shows who the projects above let in — closes the "ticked but still hidden, unexplained" gap for projects.
-- Roleless agents made inside a project stay visible only to whoever made it (Ashley, 2026-10-30: "Only whoever made it") — an exception to "born inside a shared project"; the born-in-project rule also never runs on a single-user machine.
+- Roleless agents made inside a project stay visible only to whoever made it (the user, 2026-10-30: "Only whoever made it") — an exception to "born inside a shared project"; the born-in-project rule also never runs on a single-user machine.
 - Safety: one write at a time per machine (not per host row); roles kept on every machine are locked when that list can't be read; files keep their final newline; a file with broken frontmatter is refused rather than silently left unchanged; the list reloads after a failed save; single-user machines are answered without connecting.

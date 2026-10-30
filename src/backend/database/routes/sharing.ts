@@ -1,7 +1,9 @@
 /**
- * /sharing — the "Shared with" control for agents, roles and projects.
+ * /sharing — the "Shared with" control for agents, roles, projects, sidebar
+ * apps and scheduled tasks.
  *
  *   GET  /sharing?hostId&kind&slug                     → who it's shared with, everyone on the machine
+ *   GET  /sharing/people?hostId                        → everyone on the machine (a new task's list)
  *   POST /sharing/plan { hostId, kind, slug, add?, remove?, shareRoles?, shareRolesFor? }
  *                                                      → what the change reaches
  *   PUT  /sharing      { same }                        → apply it
@@ -17,7 +19,8 @@
  * it is visible to, and things hidden from the caller are counted in a
  * confirm, never named.
  *
- * Shape: .planning/shape-sharing-agents-roles-projects.closed.md
+ * Shapes: .planning/shape-sharing-agents-roles-projects.closed.md,
+ *         .planning/shape-sharing-apps-tasks.closed.md
  */
 import express from "express";
 import type { Request, Response } from "express";
@@ -26,10 +29,13 @@ import type { AuthenticatedRequest } from "../../../types/index.js";
 import { AuthManager } from "../../utils/auth-manager.js";
 import { databaseLogger } from "../../utils/logger.js";
 import {
+  APP_SLUG_RE,
   IDENTITY_KEY_RE,
+  IDENTITY_SLUG_RE,
   PROJECT_SLUG_RE,
   listProjects,
 } from "../../claude-session/identity-artifact-reader.js";
+import { machineLockKey, withScheduledAgentLock } from "./scheduled-agents-write.js";
 import { ROLE_NAME_PATTERN } from "./identity-birth-orchestrator.js";
 import { getUsernameForUserId } from "../../utils/host-user-counter.js";
 import { listMachinePeople } from "../../distributor/machine-people.js";
@@ -39,6 +45,7 @@ import { enrichForWire } from "./project-list.js";
 import {
   ShareError,
   agentVisibleTo,
+  ownList,
   planShareChange,
   projectVisibleTo,
   projectsHiding,
@@ -57,7 +64,15 @@ const router = express.Router();
 const authManager = AuthManager.getInstance();
 const authenticateJWT = authManager.createAuthMiddleware();
 
-const KINDS: readonly ShareKind[] = ["agent", "role", "project"];
+const KINDS: readonly ShareKind[] = ["agent", "role", "project", "app", "task"];
+
+const SLUG_RES: Record<ShareKind, RegExp> = {
+  agent: IDENTITY_KEY_RE,
+  role: ROLE_NAME_PATTERN,
+  project: PROJECT_SLUG_RE,
+  app: APP_SLUG_RE,
+  task: IDENTITY_SLUG_RE,
+};
 
 /**
  * One sharing write at a time per machine — keyed on the machine itself
@@ -77,10 +92,9 @@ function withWriteLock<T>(key: string, fn: () => Promise<T>): Promise<T> {
 }
 
 async function machineKey(hostId: number, userId: string): Promise<string> {
-  const host = (await resolveHostById(hostId, userId)) as { ip?: unknown; port?: unknown; username?: unknown } | null;
+  const host = await resolveHostById(hostId, userId);
   if (!host) throw new HttpError(404, "Host not found");
-  if (typeof host.ip !== "string") return `host:${hostId}`;
-  return `${host.ip.trim().toLowerCase()}:${String(host.port ?? "")}:${String(host.username ?? "")}`;
+  return machineLockKey(host, hostId);
 }
 
 interface Target {
@@ -89,15 +103,19 @@ interface Target {
   slug: string;
 }
 
-function parseTarget(src: Record<string, unknown>): Target | string {
-  const raw = src.hostId;
+function parseHostId(raw: unknown): number | string {
   const hostId = typeof raw === "number" ? raw : /^\d+$/.test(String(raw ?? "")) ? Number(raw) : NaN;
   if (!Number.isInteger(hostId) || hostId <= 0) return "hostId must be a positive integer";
+  return hostId;
+}
+
+function parseTarget(src: Record<string, unknown>): Target | string {
+  const hostId = parseHostId(src.hostId);
+  if (typeof hostId === "string") return hostId;
   const kind = src.kind as ShareKind;
-  if (!KINDS.includes(kind)) return "kind must be agent, role or project";
+  if (!KINDS.includes(kind)) return "kind must be agent, role, project, app or task";
   const slug = typeof src.slug === "string" ? src.slug : "";
-  const re = kind === "agent" ? IDENTITY_KEY_RE : kind === "role" ? ROLE_NAME_PATTERN : PROJECT_SLUG_RE;
-  if (!re.test(slug)) return "invalid slug";
+  if (!SLUG_RES[kind].test(slug)) return "invalid slug";
   return { hostId, kind, slug };
 }
 
@@ -149,25 +167,25 @@ function visibleTo(state: ShareHostState, t: Target, person: string): boolean {
     const r = roles.get(t.slug);
     return r !== undefined && (r.users === null || r.users.includes(person));
   }
+  if (t.kind === "app" || t.kind === "task") {
+    const thing = t.kind === "app" ? state.apps.find((a) => a.name === t.slug) : state.tasks.find((x) => x.name === t.slug);
+    return thing !== undefined && (thing.users === null || thing.users.includes(person));
+  }
   return projectVisibleTo(state.projects, t.slug, person);
 }
 
 /** The control's payload for one thing, as `you` sees it. */
 function describe(state: ShareHostState, t: Target, you: string) {
   const roles = new Map(state.roles.map((r) => [r.name, r]));
-  const users =
-    t.kind === "agent"
-      ? state.agents.find((a) => a.name === t.slug)?.users ?? null
-      : t.kind === "role"
-        ? roles.get(t.slug)?.users ?? null
-        : state.projects.find((p) => p.slug === t.slug)?.users ?? null;
+  const users = ownList(state, t.kind, t.slug);
   const ticked = shownAudience(state, t.kind, t.slug);
   const former = ticked.filter((u) => !state.people.includes(u));
   const hiddenBy: Record<string, Array<{ kind: "role" | "project"; name: string; label: string; fixable: boolean }>> = {};
   for (const person of state.people) {
-    if (t.kind === "agent") {
-      const agent = state.agents.find((a) => a.name === t.slug)!;
-      const hiding = rolesHiding(agent, roles, person);
+    if (t.kind === "agent" || t.kind === "task") {
+      // A task's conversations take on its roles, so its roles hide them.
+      const holder = t.kind === "agent" ? state.agents.find((a) => a.name === t.slug)! : state.tasks.find((x) => x.name === t.slug)!;
+      const hiding = rolesHiding(holder, roles, person);
       if (hiding.length > 0) {
         hiddenBy[person] = hiding.map((r) => ({ kind: "role", name: r.name, label: r.label, fixable: !r.instanceWide }));
       }
@@ -208,7 +226,7 @@ async function load(conn: SSHClientType | null, t: Target, userId: string, peopl
   if (!you) throw new HttpError(404, "Not found");
   const iw = await instanceWideRoleNames();
   if (iw === "unknown" && t.kind === "role") throw new HttpError(503, "Try again in a moment");
-  const state = await readShareHostState(conn, people, iw === "unknown" ? "all" : iw);
+  const state = await readShareHostState(conn, people, iw === "unknown" ? "all" : iw, t);
   if (!visibleTo(state, t, you)) throw new HttpError(404, "Not found");
   return { state, you };
 }
@@ -297,6 +315,27 @@ router.get("/", authenticateJWT, async (req: Request, res: Response) => {
   }
 });
 
+router.get("/people", authenticateJWT, async (req: Request, res: Response) => {
+  const userId = (req as AuthenticatedRequest).userId;
+  const hostId = parseHostId((req.query as Record<string, unknown>).hostId);
+  if (typeof hostId === "string") {
+    res.status(400).json({ error: hostId });
+    return;
+  }
+  try {
+    if (!(await resolveHostById(hostId, userId))) throw new HttpError(404, "Host not found");
+    const people = await peopleOn(hostId);
+    const you = await getUsernameForUserId(userId);
+    if (people.length < 2 || !you) {
+      res.json({ multiUser: false });
+      return;
+    }
+    res.json({ multiUser: true, you, people });
+  } catch (err) {
+    sendError(res, err, { userId, hostId, op: "people" });
+  }
+});
+
 router.post("/plan", authenticateJWT, async (req: Request, res: Response) => {
   const userId = (req as AuthenticatedRequest).userId;
   const body = (req.body ?? {}) as Record<string, unknown>;
@@ -332,7 +371,11 @@ router.put("/", authenticateJWT, async (req: Request, res: Response) => {
     const people = await peopleOn(t.hostId);
     if (people.length < 2) throw new HttpError(409, "Only one person uses this machine");
     const key = await machineKey(t.hostId, userId);
-    const out = await withWriteLock(key, () =>
+    // A task's own edits serialize on it too, so a Save never lands between
+    // this re-read and this write.
+    const taskLock = <T,>(fn: () => Promise<T>): Promise<T> =>
+      t.kind === "task" ? withScheduledAgentLock(key, t.slug, fn) : fn();
+    const out = await withWriteLock(key, () => taskLock(() =>
       withHost(t.hostId, userId, async (conn) => {
         const loaded = await load(conn, t, userId, people);
         const plan = planShareChange(loaded.state, t.kind, t.slug, change, change);
@@ -387,7 +430,7 @@ router.put("/", authenticateJWT, async (req: Request, res: Response) => {
         });
         if (after === "gone") return { gone: true as const };
         return describe(after.state, t, after.you);
-      }),
+      })),
     );
     res.json(out);
   } catch (err) {

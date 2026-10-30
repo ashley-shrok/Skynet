@@ -67,6 +67,14 @@ async function openTileKebab(tile: HTMLElement): Promise<HTMLElement> {
 
 // Mock the archive-app API client before importing AppTile so the module
 // graph binds to the mock. Tests can override the mock per-case.
+const sharing = vi.hoisted(() => ({ isMultiUserMachine: vi.fn(async () => false) }));
+vi.mock("@/api/sharing-api", () => sharing);
+const openAppShareWindow = vi.hoisted(() => vi.fn());
+vi.mock("../sharing/AppShareWindow", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../sharing/AppShareWindow")>()),
+  openAppShareWindow,
+}));
+
 vi.mock("../../api/apps-archive-api", () => ({
   archiveApp: vi.fn().mockResolvedValue({ ok: true }),
 }));
@@ -269,6 +277,19 @@ describe("AppTile — kebab menu: Open in new tab + Open standalone", () => {
     expect(items[1].textContent).toBe("Open standalone");
     expect(items[2].textContent).toBe("Rename…");
     expect(items[3].textContent).toBe("Archive");
+  });
+
+  it("H1: on a machine several people use, 'Share…' follows 'Open standalone' and opens the app's Share window", async () => {
+    sharing.isMultiUserMachine.mockResolvedValueOnce(true);
+    render(<AppTile app={makeApp()} />);
+    const tile = screen.getByRole("button", { name: /App tile: Scratch/ });
+    await waitFor(() => expect(sharing.isMultiUserMachine).toHaveBeenCalled());
+    await act(async () => {});
+    await openTileKebab(tile);
+    const labels = Array.from(screen.getByRole("menu").querySelectorAll('[role="menuitem"]')).map((el) => el.textContent);
+    expect(labels).toEqual(["Open in new tab", "Open standalone", "Share…", "Rename…", "Archive"]);
+    fireEvent.click(screen.getByText("Share…"));
+    await waitFor(() => expect(openAppShareWindow).toHaveBeenCalledWith({ hostId: Number(makeApp().hostId), slug: makeApp().slug, title: "Scratch" }));
   });
 
   it("H2: mobile variant drops 'Open in new tab' (no multi-window on a phone)", async () => {

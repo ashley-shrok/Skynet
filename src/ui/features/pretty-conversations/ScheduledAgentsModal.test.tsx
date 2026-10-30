@@ -49,6 +49,14 @@ vi.mock("@/api/scheduled-agents-api", () => ({
   listScheduledAgentProjects: (...args: unknown[]) => listScheduledAgentProjectsMock(...args),
 }));
 
+const sharing = vi.hoisted(() => ({
+  getMachinePeople: vi.fn(),
+  getSharing: vi.fn(),
+  planSharing: vi.fn(),
+  applySharing: vi.fn(),
+}));
+vi.mock("@/api/sharing-api", () => sharing);
+
 vi.mock("sonner", () => ({
   toast: {
     success: (...args: unknown[]) => toastSuccessMock(...args),
@@ -203,6 +211,11 @@ beforeEach(() => {
   listRolesForHostMock.mockReset();
   listScheduledAgentProjectsMock.mockReset();
   listScheduledAgentProjectsMock.mockResolvedValue([]);
+  // One person on every machine unless a test says otherwise.
+  sharing.getMachinePeople.mockReset().mockResolvedValue({ multiUser: false });
+  sharing.getSharing.mockReset().mockResolvedValue({ multiUser: false });
+  sharing.planSharing.mockReset();
+  sharing.applySharing.mockReset();
   // Defaults: any read not queued by a test answers "nothing"; machines have
   // one role.
   listScheduledAgentsMock.mockResolvedValue([]);
@@ -885,6 +898,73 @@ describe("ScheduledAgentsModal: creating", () => {
     expect(await screen.findByTestId(ROW("fresh-agent"))).toHaveTextContent("Fresh agent");
     expect(inTaskView()).toBe(false);
     await act(async () => release([makeRow({ slug: "fresh-agent", name: "fresh-agent" })]));
+  });
+
+  it("on a machine several people use, a new task is created shared with who was picked, and a hiding role is offered", async () => {
+    sharing.getMachinePeople.mockResolvedValue({ multiUser: true, you: "ana", people: ["ana", "bo", "cy"] });
+    sharing.getSharing.mockResolvedValue({
+      multiUser: true,
+      you: "ana",
+      people: ["ana", "bo", "cy"],
+      users: ["ana", "bo"],
+      ticked: ["ana", "bo"],
+      former: [],
+      hiddenBy: { bo: [{ kind: "role", name: "assistant", label: "Assistant", fixable: true }] },
+      instanceWide: false,
+    });
+    sharing.applySharing.mockResolvedValue({ multiUser: true });
+    const dialogs = autoAnswerKitDialogs({ confirm: true });
+    createScheduledAgentMock.mockResolvedValueOnce({ slug: "shared", host: 1, spec: {} });
+    renderModal();
+    await openNew();
+    fireEvent.change(nameField(), { target: { value: "shared" } });
+    fireEvent.change(promptField(), { target: { value: "x" } });
+    fireEvent.click(await screen.findByTestId("scheduled-task-role-addable-assistant"));
+    expect(await screen.findByText("Everyone on this machine")).toBeInTheDocument();
+    fireEvent.click(screen.getByTestId("shared-with-button"));
+    fireEvent.click(screen.getByLabelText("cy"));
+    expect(screen.getByTestId("shared-with-button")).toHaveTextContent("You and bo");
+    fireEvent.click(saveButton());
+    await waitFor(() => expect(createScheduledAgentMock).toHaveBeenCalledTimes(1));
+    expect(createScheduledAgentMock.mock.calls[0][2]).toEqual(["ana", "bo"]);
+    await waitFor(() =>
+      expect(sharing.applySharing).toHaveBeenCalledWith({ hostId: 1, kind: "task", slug: "shared" }, { shareRolesFor: ["bo"] }),
+    );
+    expect(dialogs.calls[0].opts.title).toBe("Share the Assistant role with bo too?");
+  });
+
+  it("a creator who left themselves off doesn't get the new task in their list", async () => {
+    sharing.getMachinePeople.mockResolvedValue({ multiUser: true, you: "ana", people: ["ana", "bo"] });
+    autoAnswerKitDialogs({ confirm: true });
+    createScheduledAgentMock.mockResolvedValueOnce({ slug: "theirs", host: 1, spec: {} });
+    renderModal();
+    await openNew();
+    fireEvent.change(nameField(), { target: { value: "theirs" } });
+    fireEvent.change(promptField(), { target: { value: "x" } });
+    fireEvent.click(await screen.findByTestId("scheduled-task-no-roles"));
+    fireEvent.click(await screen.findByTestId("shared-with-button"));
+    fireEvent.click(screen.getByLabelText("ana (you)"));
+    await waitFor(() => expect(screen.getByTestId("shared-with-button")).toHaveTextContent("bo"));
+    fireEvent.click(saveButton());
+    await waitFor(() => expect(createScheduledAgentMock).toHaveBeenCalledTimes(1));
+    expect(createScheduledAgentMock.mock.calls[0][2]).toEqual(["bo"]);
+    await waitFor(() => expect(inTaskView()).toBe(false));
+    expect(screen.queryByTestId(ROW("theirs"))).toBeNull();
+  });
+
+  it("left at everyone, a new task is created with no list and nothing is offered", async () => {
+    sharing.getMachinePeople.mockResolvedValue({ multiUser: true, you: "ana", people: ["ana", "bo"] });
+    createScheduledAgentMock.mockResolvedValueOnce({ slug: "open", host: 1, spec: {} });
+    renderModal();
+    await openNew();
+    fireEvent.change(nameField(), { target: { value: "open" } });
+    fireEvent.change(promptField(), { target: { value: "x" } });
+    fireEvent.click(await screen.findByTestId("scheduled-task-no-roles"));
+    expect(await screen.findByText("Everyone on this machine")).toBeInTheDocument();
+    fireEvent.click(saveButton());
+    await waitFor(() => expect(createScheduledAgentMock).toHaveBeenCalledTimes(1));
+    expect(createScheduledAgentMock.mock.calls[0][2]).toBeNull();
+    expect(sharing.getSharing).not.toHaveBeenCalled();
   });
 
   it("a new task can be created switched off", async () => {

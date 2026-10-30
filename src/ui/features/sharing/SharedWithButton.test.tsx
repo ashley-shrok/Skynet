@@ -210,3 +210,43 @@ describe("SharedWithButton", () => {
     expect(dialogs.calls[0].opts.body).toBe("It also shares the Prints sub-project and Scout with bo.");
   });
 });
+
+describe("SharedWithButton on a task and inline", () => {
+  it("offers a task's role too, in the task's words", async () => {
+    api.getSharing.mockResolvedValue(state());
+    api.planSharing.mockResolvedValue(
+      emptyPlan({ added: ["bo"], rolesToShare: [{ name: "painter", label: "Painter", people: ["bo"] }] }),
+    );
+    api.applySharing.mockResolvedValue(state({ users: ["ana", "bo"] }));
+    const dialogs = autoAnswerKitDialogs({ confirm: true });
+    render(<SharedWithButton hostId={3} kind="task" slug="morning" itemLabel="Morning" />);
+    fireEvent.click(await screen.findByTestId("shared-with-button"));
+    fireEvent.click(await screen.findByLabelText("bo"));
+    await waitFor(() => expect(api.applySharing).toHaveBeenCalled());
+    expect(dialogs.calls[0].opts.title).toBe("Share the Painter role with bo too?");
+    expect(String(dialogs.calls[0].opts.body)).toContain("The conversations Morning starts");
+  });
+
+  it("says a role hides a task's conversations", async () => {
+    api.getSharing.mockResolvedValue(
+      state({ users: ["ana", "bo"], hiddenBy: { bo: [{ kind: "role", name: "painter", label: "Painter", fixable: true }] } }),
+    );
+    render(<SharedWithButton hostId={3} kind="task" slug="morning" itemLabel="Morning" />);
+    fireEvent.click(await screen.findByTestId("shared-with-button"));
+    expect(await screen.findByText("Its conversations are hidden by the Painter role")).toBeTruthy();
+  });
+
+  it("inline shows the list in place, with no button", async () => {
+    api.getSharing.mockResolvedValue(state());
+    render(<SharedWithButton inline hostId={3} kind="app" slug="tracker" itemLabel="Tracker" />);
+    expect(await screen.findByLabelText("bo")).toBeTruthy();
+    expect(screen.queryByTestId("shared-with-button")).toBeNull();
+  });
+
+  it("as a field, shows its label only on a machine with several people", async () => {
+    api.getSharing.mockResolvedValue({ multiUser: false });
+    const { container } = render(<SharedWithButton field hostId={3} kind="task" slug="morning" itemLabel="Morning" />);
+    await waitFor(() => expect(api.getSharing).toHaveBeenCalled());
+    expect(container.innerHTML).toBe("");
+  });
+});

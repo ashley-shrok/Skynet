@@ -9,8 +9,8 @@
 On a machine several people use, anything an agent, role, project, app or
 scheduled task can be limited to some of those people — but today the only
 way to see or change who is by editing the file on disk, and an agent can be
-"shared" on its own list while its role's list still hides it (the Cupid /
-Zoey case on thenasty). This campaign puts a "Shared with" control on every
+"shared" on its own list while its role's list still hides it (an agent shared
+with someone whose role still hides it). This campaign puts a "Shared with" control on every
 one of those five things: a button showing who it is shared with, opening a
 ticked list of everyone on that machine (the user marked "you"). Sharing
 writes the person onto each thing it covers — version one keeps the existing
@@ -23,7 +23,7 @@ as the task. Anyone who can see a thing can change its list, including taking
 themselves off (with a warning); the last person can't be unticked, since an
 empty list means everyone. Machines with a single user show none of this.
 
-Agreed look (tasted 2026-10-30 via console snippet, Ashley: "this kicks ass.
+Agreed look (tasted 2026-10-30 via console snippet, the user: "this kicks ass.
 Let's go with it"): `workspace/tasting/share-tasting.js` — agent window and
 role view: people button beside Voice; project window: under the count line
 with an "also shares its sub-projects and the agents in them" hint; scheduled
@@ -44,12 +44,12 @@ menu opening the same list in a small window.
 ## Shapes
 
 - **[declared] shape-sharing-agents-roles-projects** — the shared "Shared with" control and the read/write of who-can-see on agents, roles and projects, with the share-the-role-too offer and project sharing reaching its sub-projects and agents — closed
-- **[declared] shape-sharing-apps-tasks** — the same control on apps (Share… in the app menu) and scheduled tasks (field under Project), with a task's conversations born shared with the task's people — in_progress
+- **[declared] shape-sharing-apps-tasks** — the same control on apps (Share… in the app menu) and scheduled tasks (field under Project), with a task's conversations born shared with the task's people — closed
 
 ## Other work
 
-- What's-new note for the whole sharing feature — draft it and get Ashley's yes at campaign close, before the deploy — open
-- Roleless agents made inside a project stay private to their maker (Ashley 2026-10-30) — shape 2's scheduled-task conversations should be checked against this — noted-only
+- What's-new note for the whole sharing feature — draft it and get the user's yes at campaign close, before the deploy — open
+- Roleless agents made inside a project stay private to their maker (the user 2026-10-30) — shape 2's scheduled-task conversations should be checked against this — noted-only (checked in shape 2: a task's conversations follow the task, not their maker; the user agreed)
 
 ## Lingerers (explicitly approved)
 
@@ -57,4 +57,4 @@ menu opening the same list in a small window.
 
 ## Open questions
 
-- Should conversations rows / project headers in the sidebar also get a "Share…" menu item, or is the window control enough? — answered in shape 1: no, the window buttons are enough for now (Ashley agreed).
+- Should conversations rows / project headers in the sidebar also get a "Share…" menu item, or is the window control enough? — answered in shape 1: no, the window buttons are enough for now (the user agreed).

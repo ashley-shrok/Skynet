@@ -827,6 +827,7 @@ not something agents drive.
     (desktop only; panes already showing it stay put).
   - **Open standalone** — the app by itself in a browser tab, without
     the client around it.
+  - **Share…** — who sees it, in a small window (§ Shared with).
   - **Rename…** — change the app's displayed name.
   - **Archive** — removes the app from the sidebar.
   *Agent-side:* apps are handled by the **`app-development` skill** —
@@ -1060,7 +1061,7 @@ not something agents drive.
   always visible, phone included — opening the app's menu; right-clicking
   the bar opens the same menu, in the same look as the sidebar's menus:
   **Move to new tab** (desktop only — opens it in a new browser tab of the client
-  and closes this pane), **Open standalone**, **Rename…**,
+  and closes this pane), **Open standalone**, **Share…** (§ Shared with), **Rename…**,
   **Close** (desktop only), **Archive** (the same double-confirm as the
   sidebar app tile's; closes every open pane of that app). A **conversation
   app's** menu has **Move to sidebar** in place of Rename… and Archive: it
@@ -1604,12 +1605,15 @@ crown, then gear.
     An empty project folder says "No files yet"; an empty folder inside
     it says "Empty folder".
 
-- **Shared with (agents, roles, projects).** On a machine more than one
-  person uses, a button naming who can see the thing opens a ticked list of
-  everyone on that machine; changes take effect at once, asking first when
-  they reach further (an agent's role, a project's sub-projects and agents).
-  *Agent-side:* it's the `users:` frontmatter list (absent = everyone);
-  changing it is the user's call — point them at the button.
+- **Shared with (agents, roles, projects, apps, scheduled tasks).** On a
+  machine more than one person uses, a button naming who can see the thing
+  opens a ticked list of everyone on that machine (for a sidebar app, its
+  menu's **Share…**); changes take effect at once, asking first when they
+  reach further (an agent's or task's role, a project's sub-projects and
+  agents). Conversations a scheduled task starts are shared with its people.
+  *Agent-side:* it's the `users:` frontmatter list, or `users` in an app's or
+  task's JSON (absent = everyone); changing it is the user's call — point
+  them at the button.
 
 - **Messages.** The agent speaks in solid bubbles in its own colour (the
   colour is how the user tells agents apart); the user's own messages are a
@@ -2256,7 +2260,8 @@ Extra fields are rejected as malformed.
   new-conversation picker's "name it myself": free-form. Absent = auto-named. The success response carries the
   final name.
 - `project` (optional) — project slug; the newborn is born already in that
-  project (`project:` frontmatter).
+  project (`project:` frontmatter) and, when the project is limited to some
+  people, visible to just them (unless it inherits your list, below).
 - `requested_by` (optional) — your own identity name. Logged by the
   backend. A zero-role newborn is visible to whoever can see you when
   this names you; without it, to everyone on the box.
@@ -2286,8 +2291,9 @@ request (on the target host for a cross-box spawn):
 - `<uuid>.failure.json` — contains `{reason, message?}`. `reason` is one
   of `malformed`, `role_unknown`, `birth_failed`,
   `homeserver_unreachable`, `pool_exhausted`, `matrix_creds_missing`,
-  `visibility_unresolved` (a zero-role spawn whose `requested_by` couldn't
-  be read — nothing was created).
+  `visibility_unresolved` (who should see it couldn't be read — a zero-role
+  spawn's `requested_by`, or the project it's filed in — nothing was
+  created).
 
 Safety timeout: ~90 seconds per identity. On failure, surface to the
 user. Retry ONLY if `reason == "malformed"` and you have a specific
@@ -2555,7 +2561,7 @@ the sidebar footer, beside the gear. It opens the scheduled tasks window:
   **No project**, the default, then every project on the task's machine,
   sub-projects indented as in the sidebar — where each conversation it
   starts is filed; a project that no longer exists stays picked, marked
-  missing, until another is picked), When (Daily / Weekly / Monthly /
+  missing, until another is picked), **Shared with** (§ Shared with), When (Daily / Weekly / Monthly /
   Yearly / Every… / Once, with several times a day, "Only on" days,
   every-N weeks/months, an interval window and start, and an end date or
   run count) with its Time zone (blank = the user's own, or the machine's

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { agentFromMarkdown, parseBatchOutput, withUsersBlock } from "./sharing-host.js";
+import { agentFromMarkdown, appFromCard, parseBatchOutput, taskFromCard, withUsersBlock } from "./sharing-host.js";
 import { bornInProjectUsers } from "./born-in-project.js";
 
 const b64 = (s: string) => Buffer.from(s).toString("base64");
@@ -68,5 +68,21 @@ describe("bornInProjectUsers", () => {
   it("is everyone for a project nobody limited, null for one that isn't there", () => {
     expect(bornInProjectUsers(projects, "open", "ana")).toBe("everyone");
     expect(bornInProjectUsers(projects, "missing", "ana")).toBeNull();
+  });
+});
+
+describe("app and task cards", () => {
+  it("reads an app's title and list, an empty list as none", () => {
+    expect(appFromCard("tracker", { title: " Tracker ", users: ["ana"] })).toEqual({ name: "tracker", label: "Tracker", users: ["ana"] });
+    expect(appFromCard("tracker", { users: [] })).toEqual({ name: "tracker", label: "tracker", users: null });
+  });
+
+  it("reads a task's name, roles and list", () => {
+    expect(taskFromCard("morning", { name: "morning triage", roles: ["painter", 3], users: ["bo"] })).toEqual({
+      name: "morning",
+      label: "morning triage",
+      roles: ["painter"],
+      users: ["bo"],
+    });
   });
 });

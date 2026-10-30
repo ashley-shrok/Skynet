@@ -163,6 +163,13 @@ const fsReadFileMock = vi.fn();
 const fsWriteFileMock = vi.fn();
 const fsRenameMock = vi.fn();
 
+vi.mock("../../distributor/machine-people.js", () => ({
+  listMachinePeople: vi.fn(async () => [
+    { username: "alice", mxid: null },
+    { username: "riley", mxid: null },
+  ]),
+}));
+
 vi.mock("fs/promises", () => ({
   default: {
     access: (p: string) => fsAccessMock(p),
@@ -828,6 +835,34 @@ describe("Users-strip discipline (per-user gate list is disk-only)", () => {
     expect(rb.spec).toHaveProperty("schedule");
   });
 
+  it("POST with a top-level users list (a new task's Shared with) → written to disk, not echoed", async () => {
+    (execCommand as Mock).mockImplementation(async (_c: unknown, cmd: string) => {
+      if (cmd.includes("&& echo EXISTS")) return "OK\n";
+      return "";
+    });
+    const res = await httpRequest(server, {
+      method: "POST",
+      path: "/scheduled-agents",
+      body: { host: 7, spec: validSpec, users: ["riley", "alice", "riley"] },
+    });
+    expect(res.status).toBe(201);
+    const writtenBody = (writeMarkdownFileAtomic as Mock).mock.calls[0][2] as string;
+    expect(JSON.parse(writtenBody).users).toEqual(["riley", "alice"]);
+    expect((res.body as { spec: Record<string, unknown> }).spec).not.toHaveProperty("users");
+  });
+
+  it("POST with someone not on the machine, or an empty list → 400, nothing written", async () => {
+    for (const users of [["mallory"], []]) {
+      const res = await httpRequest(server, {
+        method: "POST",
+        path: "/scheduled-agents",
+        body: { host: 7, spec: validSpec, users },
+      });
+      expect(res.status).toBe(400);
+    }
+    expect(writeMarkdownFileAtomic as Mock).not.toHaveBeenCalled();
+  });
+
   it("PATCH /:slug with users in payload → 200; users NOT in written body; users NOT in response echo", async () => {
     // PATCH does a read-modify-write: reads the existing spec from disk (for
     // the anti-rename storedName check), then writes the new spec. Mock the
@@ -1423,5 +1458,15 @@ describe("scheduled-agents: project", () => {
       expect((await runNow(1)).status).toBe(202);
       expect("project" in droppedBody()).toBe(false);
     }
+  });
+});
+
+describe("machineLockKey", () => {
+  it("is the same for two people's host rows for one machine", async () => {
+    const { machineLockKey } = await import("./scheduled-agents-write.js");
+    expect(machineLockKey({ ip: " 100.1.2.3 ", port: 22, username: "box" }, 7)).toBe(
+      machineLockKey({ ip: "100.1.2.3", port: 22, username: "box" }, 9),
+    );
+    expect(machineLockKey(null, 7)).toBe("host:7");
   });
 });

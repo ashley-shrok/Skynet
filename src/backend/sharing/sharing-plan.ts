@@ -8,12 +8,14 @@
  * it serves are the gates' own (identity-visibility-gate.ts,
  * project-visibility-gate.ts): an absent or empty list is no gate; an agent
  * shows only when its own list and every role's list let the person in; a
- * project only when every project up its chain does.
+ * project only when every project up its chain does; a sidebar app or a
+ * scheduled task by its own list alone.
  *
- * Shape: .planning/shape-sharing-agents-roles-projects.md
+ * Shapes: .planning/shape-sharing-agents-roles-projects.closed.md,
+ *         .planning/shape-sharing-apps-tasks.closed.md
  */
 
-export type ShareKind = "agent" | "role" | "project";
+export type ShareKind = "agent" | "role" | "project" | "app" | "task";
 
 export interface ShareAgent {
   name: string;
@@ -38,17 +40,34 @@ export interface ShareProject {
   users: string[] | null;
 }
 
+/** A sidebar app — one list, nothing behind it. */
+export interface ShareApp {
+  name: string;
+  label: string;
+  users: string[] | null;
+}
+
+/** A scheduled task — its conversations take on its roles, so they can hide them. */
+export interface ShareTask {
+  name: string;
+  label: string;
+  roles: string[];
+  users: string[] | null;
+}
+
 export interface ShareHostState {
   /** Everyone with access to the machine now. */
   people: string[];
   agents: ShareAgent[];
   roles: ShareRole[];
   projects: ShareProject[];
+  apps: ShareApp[];
+  tasks: ShareTask[];
 }
 
 export interface ShareWrite {
   kind: ShareKind;
-  /** Agent name, role name or project slug. */
+  /** Agent name, role name, project slug, app slug or task slug. */
   slug: string;
   users: string[];
 }
@@ -61,7 +80,7 @@ export interface ShareRef {
 
 export interface SharePlan {
   writes: ShareWrite[];
-  /** Agent: roles hiding it from someone being added (offered, written only with shareRoles). */
+  /** Agent or task: roles hiding it (or its conversations) from someone being added (offered, written only with shareRoles). */
   rolesToShare: Array<{ name: string; label: string; people: string[] }>;
   /** Project share: everything inside it that also gets the new people. */
   alsoShared: { projects: ShareRef[]; agents: ShareRef[]; roles: ShareRef[] };
@@ -96,9 +115,9 @@ function passes(users: string[] | null, person: string): boolean {
   return !hasList(users) || users.includes(person);
 }
 
-/** Roles (by name) of `agent` whose list keeps `person` out. */
+/** Roles of an agent (or a task's conversations) whose list keeps `person` out. */
 export function rolesHiding(
-  agent: ShareAgent,
+  agent: { roles: readonly string[] },
   roles: ReadonlyMap<string, ShareRole>,
   person: string,
 ): ShareRole[] {
@@ -181,8 +200,7 @@ export function projectVisibleTo(projects: readonly ShareProject[], slug: string
  * on the machine.
  */
 export function shownAudience(state: ShareHostState, kind: ShareKind, slug: string): string[] {
-  if (kind === "agent") return resolvedAudience(state.agents.find((a) => a.name === slug)?.users ?? null, state.people);
-  if (kind === "role") return resolvedAudience(state.roles.find((r) => r.name === slug)?.users ?? null, state.people);
+  if (kind !== "project") return resolvedAudience(ownList(state, kind, slug), state.people);
   const chain = projectChain(state.projects, slug);
   const own = chain[0]?.users ?? null;
   if (hasList(own)) return own;
@@ -192,6 +210,29 @@ export function shownAudience(state: ShareHostState, kind: ShareKind, slug: stri
     audience = audience === null ? [...p.users] : audience.filter((u) => p.users!.includes(u));
   }
   return audience ?? state.people;
+}
+
+/** A thing's own list; null when it has none (or isn't there). */
+export function ownList(state: ShareHostState, kind: ShareKind, slug: string): string[] | null {
+  const own =
+    kind === "agent"
+      ? state.agents.find((a) => a.name === slug)?.users
+      : kind === "role"
+        ? state.roles.find((r) => r.name === slug)?.users
+        : kind === "project"
+          ? state.projects.find((p) => p.slug === slug)?.users
+          : kind === "app"
+            ? state.apps.find((a) => a.name === slug)?.users
+            : state.tasks.find((t) => t.name === slug)?.users;
+  return own ?? null;
+}
+
+function thingExists(state: ShareHostState, kind: ShareKind, slug: string): boolean {
+  if (kind === "agent") return state.agents.some((a) => a.name === slug);
+  if (kind === "role") return state.roles.some((r) => r.name === slug);
+  if (kind === "project") return state.projects.some((p) => p.slug === slug);
+  if (kind === "app") return state.apps.some((a) => a.name === slug);
+  return state.tasks.some((t) => t.name === slug);
 }
 
 function dedupe(list: readonly string[]): string[] {
@@ -218,9 +259,9 @@ export function planShareChange(
   slug: string,
   change: { add?: readonly string[]; remove?: readonly string[] },
   opts: {
-    /** Agent: also share the roles hiding it from the people being added. */
+    /** Agent or task: also share the roles hiding it from the people being added. */
     shareRoles?: boolean;
-    /** Agent: share the roles hiding it from these people already on its list. */
+    /** Agent or task: share the roles hiding it from these people already on its list. */
     shareRolesFor?: readonly string[];
   } = {},
 ): SharePlan {
@@ -228,13 +269,7 @@ export function planShareChange(
   const agentsByName = new Map(state.agents.map((a) => [a.name, a]));
   const projectsBySlug = new Map(state.projects.map((p) => [p.slug, p]));
 
-  const exists =
-    kind === "agent"
-      ? agentsByName.has(slug)
-      : kind === "role"
-        ? rolesByName.has(slug)
-        : projectsBySlug.has(slug);
-  if (!exists) throw new ShareError("not_found", `${kind} not found`);
+  if (!thingExists(state, kind, slug)) throw new ShareError("not_found", `${kind} not found`);
   if (kind === "role" && rolesByName.get(slug)!.instanceWide) {
     throw new ShareError("instance_wide", "a role kept on every machine can't be changed here");
   }
@@ -273,7 +308,7 @@ export function planShareChange(
 
   if (added.length > 0 || removed.length > 0) put(kind, slug, next);
 
-  const shareRolesFor = (agents: readonly ShareAgent[], people: readonly string[]) => {
+  const shareRolesFor = (agents: ReadonlyArray<{ roles: readonly string[] }>, people: readonly string[]) => {
     const byRole = new Map<string, string[]>();
     for (const a of agents) {
       for (const person of people) {
@@ -288,8 +323,8 @@ export function planShareChange(
     return byRole;
   };
 
-  if (kind === "agent") {
-    const self = agentsByName.get(slug)!;
+  if (kind === "agent" || kind === "task") {
+    const self = kind === "agent" ? agentsByName.get(slug)! : state.tasks.find((t) => t.name === slug)!;
     for (const [name, people] of shareRolesFor([self], added)) {
       plan.rolesToShare.push({ name, label: rolesByName.get(name)!.label, people });
     }

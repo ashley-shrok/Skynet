@@ -51,6 +51,18 @@ import type { EscapeHandler, LeaveGuard } from "@/features/pretty-view/roles-win
 import { ScheduledAgentsModalRow, prettifyScheduledAgentName } from "./ScheduledAgentsModalRow";
 import { ScheduledTaskView, type ProjectRowFields } from "./ScheduledTaskView";
 import type { ScheduledTasksFilter } from "./open-scheduled-tasks";
+import { offerHiddenRoles } from "@/features/sharing/offer-hidden-roles";
+import { getMachinePeople } from "@/api/sharing-api";
+
+/** Whether the person creating a task is on its "Shared with" list (true when that can't be told). */
+async function sharedWithCaller(hostId: number, users: string[]): Promise<boolean> {
+  try {
+    const m = await getMachinePeople(hostId);
+    return !m.multiUser || users.includes(m.you);
+  } catch {
+    return true;
+  }
+}
 
 function isFolder(item: Host | HostFolder): item is HostFolder {
   return "children" in item;
@@ -422,8 +434,15 @@ export function ScheduledAgentsModal({
     });
   };
 
-  const create = async (hostId: number, spec: ScheduledAgentSpecWire, project: ProjectRowFields): Promise<void> => {
-    const created = await createScheduledAgent(hostId, spec);
+  const create = async (
+    hostId: number,
+    spec: ScheduledAgentSpecWire,
+    project: ProjectRowFields,
+    users: string[] | null,
+  ): Promise<void> => {
+    const created = await createScheduledAgent(hostId, spec, users);
+    // Left themselves off: it's not theirs to see, so it doesn't join the list.
+    if (users && !(await sharedWithCaller(hostId, users))) return;
     spliceIn({
       slug: created.slug,
       host: flatHosts.find((h) => parseInt(String(h.id), 10) === hostId)?.name ?? "",
@@ -440,6 +459,7 @@ export function ScheduledAgentsModal({
       lastFiredAt: null,
       nextFireAt: null,
     });
+    if (users) void offerHiddenRoles({ hostId, slug: created.slug, label: prettifyScheduledAgentName(spec.name) });
   };
 
   const save = async (

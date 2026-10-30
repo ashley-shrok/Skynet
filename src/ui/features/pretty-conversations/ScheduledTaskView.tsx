@@ -62,6 +62,10 @@ import type { EscapeHandler, LeaveGuard } from "@/features/pretty-view/roles-win
 import { isOneShotTask, nextRunLabel, prettifyScheduledAgentName, scheduleSentence } from "./ScheduledAgentsModalRow";
 import { formatRelativePast } from "./scheduled-agents-time-fmt";
 import { orderProjectsAsTree, projectPathFromOptions } from "./scheduled-agents-projects";
+import { SharedWithButton } from "@/features/sharing/SharedWithButton";
+import { SharedWithDraft } from "@/features/sharing/SharedWithDraft";
+
+const SHARED_WITH_HINT = "Conversations it starts are shared with the same people.";
 
 const PICK_ROLES_HINT = "Pick roles, or No roles.";
 
@@ -111,7 +115,13 @@ export interface ScheduledTaskViewProps {
   runNowPending?: boolean;
   /** `expected`: the edited fields as they read when the view opened. */
   onSave?: (spec: ScheduledAgentSpecWire, project: ProjectRowFields, expected: ScheduledAgentExpected) => Promise<void>;
-  onCreate?: (hostId: number, spec: ScheduledAgentSpecWire, project: ProjectRowFields) => Promise<void>;
+  /** `users`: a new task's "Shared with" choice; null = everyone (no list). */
+  onCreate?: (
+    hostId: number,
+    spec: ScheduledAgentSpecWire,
+    project: ProjectRowFields,
+    users: string[] | null,
+  ) => Promise<void>;
   onDelete?: () => Promise<void>;
   /** Back to the list (after Cancel, a save, a create or a delete). */
   onDone: () => void;
@@ -184,6 +194,9 @@ export function ScheduledTaskView({
   const [tz, setTz] = useState(initial.tz);
   const [fs, setFs] = useState<FormSchedule>(initial.schedule);
   const [newEnabled, setNewEnabled] = useState(true);
+  // A new task's "Shared with" — applied on Create (an existing task's list
+  // saves straight away from its own button, outside Save).
+  const [newUsers, setNewUsers] = useState<string[] | null>(null);
   // A new task on the only machine there is goes there without asking.
   const [hostId, setHostId] = useState<number | null>(() =>
     task ? task.hostId : hosts.length === 1 ? hostIdOf(hosts[0]) : null,
@@ -258,7 +271,7 @@ export function ScheduledTaskView({
     archive !== initial.archive ||
     project !== initial.project ||
     built(fs, effectiveTz) !== built(initial.schedule, zoneFor(initial.schedule.type, initial.tz)) ||
-    (isNew && (!newEnabled || hostId !== (hosts.length === 1 ? hostIdOf(hosts[0]) : null)));
+    (isNew && (!newEnabled || newUsers !== null || hostId !== (hosts.length === 1 ? hostIdOf(hosts[0]) : null)));
 
   const validation = isSensor ? null : validateForm(fs);
   const canSubmit =
@@ -340,7 +353,7 @@ export function ScheduledTaskView({
           ? { project: task.project, projectPath: task.projectPath, projectMissing: task.projectMissing }
           : { project, projectPath, projectMissing: project !== null && availableProjects !== null && projectPath === null };
       if (isNew) {
-        await onCreate?.(hostId, spec, projectRow);
+        await onCreate?.(hostId, spec, projectRow, newUsers);
         console.info({ operation: "scheduled_task_created", hostId, name: trimmedName });
       } else {
         await onSave?.(spec, projectRow, openedAs.current!);
@@ -416,6 +429,7 @@ export function ScheduledTaskView({
     setRoles([]);
     setNoRoles(false);
     setProject(null);
+    setNewUsers(null);
   };
 
   const roleDisplayByName = useMemo(() => {
@@ -611,6 +625,34 @@ export function ScheduledTaskView({
               </KitSelect>
             </KitField>
           )}
+
+          {hostId !== null && (isNew ? (
+            <SharedWithDraft
+              field
+              hostId={hostId}
+              value={newUsers}
+              onChange={setNewUsers}
+              hint={SHARED_WITH_HINT}
+              disabled={saving}
+            />
+          ) : (
+            !gone && (
+                <SharedWithButton
+                  field
+                  hostId={task.hostId}
+                  kind="task"
+                  slug={task.slug}
+                  itemLabel={prettifyScheduledAgentName(task.name)}
+                  hint={SHARED_WITH_HINT}
+                  disabled={saving || deleting}
+                  // Took themselves off: back to the list, unless there are
+                  // edits to keep (the list drops the task on its own).
+                  onGone={() => {
+                    if (!dirtyRef.current) onDone();
+                  }}
+                />
+            )
+          ))}
 
           {isSensor ? (
             <div className="k-field" data-testid="scheduled-task-sensor-schedule">

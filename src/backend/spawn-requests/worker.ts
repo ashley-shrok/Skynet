@@ -27,6 +27,7 @@ import {
   IDENTITY_KEY_RE,
   isLocalHostId,
   listIdentityKeysOnHost,
+  listProjects,
   readIdentityFile,
   readRoleFileByName,
   writeMarkdownFileAtomic,
@@ -49,6 +50,7 @@ import {
 } from "../matrix/matrix-admin-client.js";
 import { getMatrixAdminCreds } from "../matrix/matrix-admin-creds-store.js";
 import { getVettedPool } from "../pool/pool-loader.js";
+import { effectiveProjectAudience } from "../fleet-status/project-visibility-gate.js";
 import {
   deriveBaseFromFolderName,
   rankPoolCandidatesWithTiers,
@@ -214,6 +216,9 @@ export interface WorkerDeps {
   /** Role-file reader for the requester's roles' `users:` lists; absent =
    *  the real readRoleFileByName. */
   readRoleFileByName?: typeof readRoleFileByName;
+  /** Project lister for a project's audience (unlimited request filed in a
+   *  project); absent = the real listProjects. */
+  listProjects?: typeof listProjects;
 }
 
 // ---------------------------------------------------------------------------
@@ -656,6 +661,20 @@ const doBirth = async (item: PendingBirth, deps: WorkerDeps): Promise<void> => {
     requestedBy !== undefined &&
     IDENTITY_KEY_RE.test(requestedBy);
   let requesterUsers: string[] | undefined;
+  // A request with no list of its own (a scheduled task with none, say),
+  // filed in a limited project, starts shared with that project's people —
+  // the same rule as an agent made inside it. A roleless one that inherits
+  // its requester's list keeps that instead. Unlimited project = no list, as
+  // before. If the projects can't be read the spawn is refused (below):
+  // going ahead would open a limited project's conversation to everyone.
+  const projectForAudience =
+    item.project && (item.users === undefined || item.users.length === 0) && !inheritRequesterUsers
+      ? item.project
+      : undefined;
+  let projectUsers: string[] | undefined;
+  let projectAudienceError: string | undefined = projectForAudience
+    ? "host unreachable while reading the project"
+    : undefined;
   // Stays set unless the requester's visibility was actually read — a read
   // failure or a total enumeration failure refuses the spawn below.
   let requesterVisibilityError: string | undefined = inheritRequesterUsers
@@ -701,7 +720,7 @@ const doBirth = async (item: PendingBirth, deps: WorkerDeps): Promise<void> => {
         ),
       );
     }
-    const [activeList, archivedList, requesterUsersRead] = await Promise.all([
+    const [activeList, archivedList, requesterUsersRead, projectAudience] = await Promise.all([
       withSlot(() => deps.listActiveIdentityKeys(enumConn)).catch((err: unknown) => {
         systemLogger.warn(
           "spawn-request worker: active-identity enumeration failed — soft-degrading to empty",
@@ -750,7 +769,29 @@ const doBirth = async (item: PendingBirth, deps: WorkerDeps): Promise<void> => {
             },
           )
         : Promise.resolve(undefined),
+      projectForAudience
+        ? withSlot(() => (deps.listProjects ?? listProjects)(enumConn)).then(
+            (projects) => ({ ok: true as const, users: effectiveProjectAudience(projects, projectForAudience) ?? undefined }),
+            (err: unknown) => {
+              const error = err instanceof Error ? err.message : String(err);
+              systemLogger.warn("spawn-request worker: project audience unread — spawn will be refused", {
+                operation: "spawn_request_project_audience_failed",
+                uuid: item.uuid,
+                hostId: item.hostIdNum,
+                project: projectForAudience,
+                error,
+              });
+              return { ok: false as const, error };
+            },
+          )
+        : Promise.resolve(undefined),
     ]);
+    if (projectAudience?.ok) {
+      projectUsers = projectAudience.users;
+      projectAudienceError = undefined;
+    } else if (projectAudience) {
+      projectAudienceError = projectAudience.error;
+    }
     if (requesterUsersRead?.ok) {
       requesterUsers = requesterUsersRead.users;
       requesterVisibilityError = undefined;
@@ -789,6 +830,24 @@ const doBirth = async (item: PendingBirth, deps: WorkerDeps): Promise<void> => {
       } catch {
         /* ignore */
       }
+    }
+  }
+
+  if (projectForAudience) {
+    systemLogger.info("spawn-request worker: born in a project", {
+      operation: "spawn_request_project_audience",
+      uuid: item.uuid,
+      hostId: item.hostIdNum,
+      project: projectForAudience,
+      users: projectUsers ?? null,
+      refused: projectAudienceError !== undefined,
+    });
+    if (projectAudienceError !== undefined) {
+      await writeFailureFile(item, deps, {
+        reason: "visibility_unresolved",
+        message: `Could not read who can see the ${projectForAudience} project (${projectAudienceError}); the new conversation would have been visible to everyone, so nothing was created.`,
+      });
+      return;
     }
   }
 
@@ -882,7 +941,7 @@ const doBirth = async (item: PendingBirth, deps: WorkerDeps): Promise<void> => {
       // creatorUsername auto-tag path (which the worker never sets, so on a
       // bare scan-spawn no `users:` key is emitted). A roleless request
       // without its own list carries the requester's (see above).
-      users: item.users && item.users.length > 0 ? item.users : requesterUsers,
+      users: item.users && item.users.length > 0 ? item.users : requesterUsers ?? projectUsers,
       // Typed-name births use the bare-name MXID shape, same as the dialog's
       // "name it myself" path; everything else is pool-picked (Pattern 6).
       poolPicked: typedNameSlug === null,

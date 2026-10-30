@@ -4,8 +4,9 @@
  *
  * Remote reads are one exec per folder kind: every agent's and every role's
  * frontmatter comes back base64'd in a single round-trip, the same framing as
- * listProjects. Writes re-read each file just before rewriting its `users:`
- * block, so a field changed meanwhile by anything else is kept.
+ * listProjects. A sidebar app or a scheduled task is read on its own (its
+ * JSON card). Writes re-read each file just before rewriting its `users:`
+ * list, so a field changed meanwhile by anything else is kept.
  */
 import path from "path";
 import fs from "fs/promises";
@@ -16,8 +17,12 @@ import {
   execWithTimeout,
   extractCosmeticsFromFrontmatter,
   extractRolesFromMarkdown,
+  getLocalAppsRoot,
   getLocalIdentitiesRoot,
   getLocalRolesRoot,
+  getLocalScheduledAgentsRoot,
+  IDENTITY_SLUG_RE,
+  APP_SLUG_RE,
   listProjects,
   readIdentityFile,
   readProjectFile,
@@ -25,9 +30,18 @@ import {
   writeIdentityFile,
   writeProjectFile,
   writeRoleFileByName,
+  writeMarkdownFileAtomic,
 } from "../claude-session/identity-artifact-reader.js";
 import { ROLE_NAME_PATTERN } from "../database/routes/identity-birth-orchestrator.js";
-import type { ShareAgent, ShareHostState, ShareRole, ShareWrite } from "./sharing-plan.js";
+import type {
+  ShareAgent,
+  ShareApp,
+  ShareHostState,
+  ShareKind,
+  ShareRole,
+  ShareTask,
+  ShareWrite,
+} from "./sharing-plan.js";
 
 const HEADER_RE = /^===ITEM:(.*)===$/;
 
@@ -122,12 +136,87 @@ export function roleFromMarkdown(name: string, markdown: string, instanceWide: b
   };
 }
 
+type CardKind = "app" | "task";
+
+const CARD_MISSING = "__SKYNET_SHARE_CARD_MISSING__";
+
+/** `$HOME/fleet/...` path of a sidebar app's or a scheduled task's JSON card. */
+function cardPath(kind: CardKind, slug: string): string {
+  return kind === "app" ? `$HOME/fleet/apps/${slug}/app.json` : `$HOME/fleet/scheduled-agents/${slug}/scheduled-agent.json`;
+}
+
+function cardSlugOk(kind: CardKind, slug: string): boolean {
+  return kind === "app" ? APP_SLUG_RE.test(slug) : IDENTITY_SLUG_RE.test(slug);
+}
+
+/** The card's text, or null when there is none. */
+async function readCard(conn: SSHClientType | null, kind: CardKind, slug: string): Promise<string | null> {
+  if (!cardSlugOk(kind, slug)) throw new Error(`invalid ${kind} slug`);
+  if (conn === null) {
+    const root = kind === "app" ? getLocalAppsRoot() : getLocalScheduledAgentsRoot();
+    try {
+      return await fs.readFile(path.join(root, slug, kind === "app" ? "app.json" : "scheduled-agent.json"), "utf-8");
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code === "ENOENT") return null;
+      throw err;
+    }
+  }
+  // Slug is regex-checked above, so it is safe inside double quotes.
+  const file = cardPath(kind, slug);
+  const out = await execWithTimeout(conn, `if [ -f "${file}" ]; then cat "${file}"; else printf '${CARD_MISSING}'; fi`);
+  return out === CARD_MISSING ? null : out;
+}
+
+/** The card as an object; null when missing; throws when it isn't a JSON object. */
+async function readCardObject(
+  conn: SSHClientType | null,
+  kind: CardKind,
+  slug: string,
+): Promise<Record<string, unknown> | null> {
+  const text = await readCard(conn, kind, slug);
+  if (text === null) return null;
+  const parsed: unknown = JSON.parse(text);
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) throw new Error(`${kind} card is not a JSON object`);
+  return parsed as Record<string, unknown>;
+}
+
+const stringList = (v: unknown): string[] | null =>
+  Array.isArray(v) && v.length > 0 && v.every((u) => typeof u === "string") ? (v as string[]) : null;
+
+export function appFromCard(slug: string, card: Record<string, unknown>): ShareApp {
+  const title = typeof card.title === "string" ? card.title.trim() : "";
+  return { name: slug, label: title || slug, users: stringList(card.users) };
+}
+
+export function taskFromCard(slug: string, card: Record<string, unknown>): ShareTask {
+  const name = typeof card.name === "string" ? card.name.trim() : "";
+  return {
+    name: slug,
+    label: name || slug,
+    roles: Array.isArray(card.roles) ? card.roles.filter((r): r is string => typeof r === "string" && r.length > 0) : [],
+    users: stringList(card.users),
+  };
+}
+
 export async function readShareHostState(
   conn: SSHClientType | null,
   people: string[],
   /** Roles kept on every machine, or "all" when that list couldn't be read. */
   instanceWideRoles: ReadonlySet<string> | "all",
+  /** The thing being looked at. An app needs nothing else from the machine. */
+  target?: { kind: ShareKind; slug: string },
 ): Promise<ShareHostState> {
+  const apps: ShareApp[] = [];
+  const tasks: ShareTask[] = [];
+  if (target?.kind === "app") {
+    const card = await readCardObject(conn, "app", target.slug);
+    if (card) apps.push(appFromCard(target.slug, card));
+    return { people, agents: [], roles: [], projects: [], apps, tasks };
+  }
+  if (target?.kind === "task") {
+    const card = await readCardObject(conn, "task", target.slug);
+    if (card) tasks.push(taskFromCard(target.slug, card));
+  }
   const identities = await readFolder(conn, "identities", IDENTITY_KEY_RE);
   const roleFiles = await readFolder(conn, "roles", ROLE_NAME_PATTERN);
   const projects = await listProjects(conn);
@@ -141,6 +230,8 @@ export async function readShareHostState(
       parent: p.parent,
       users: listOrNull(p.users ?? undefined),
     })),
+    apps,
+    tasks,
   };
 }
 
@@ -174,9 +265,16 @@ export async function writeShareList(conn: SSHClientType | null, w: ShareWrite):
     if (markdown.trim() === "") throw new Error(`role ${w.slug} not found`);
     const next = withUsersBlock(markdown, w.users);
     if (next !== markdown) await writeRoleFileByName(conn, w.slug, next);
-  } else {
+  } else if (w.kind === "project") {
     const { markdown } = await readProjectFile(conn, w.slug);
     const next = withUsersBlock(markdown, w.users);
     if (next !== markdown) await writeProjectFile(conn, w.slug, next);
+  } else {
+    // Every other field of the card is kept as it is on disk now.
+    const card = await readCardObject(conn, w.kind, w.slug);
+    if (card === null) throw new Error(`${w.kind} ${w.slug} not found`);
+    const prev = Array.isArray(card.users) ? (card.users as unknown[]) : [];
+    if (prev.length === w.users.length && w.users.every((u, i) => prev[i] === u)) return;
+    await writeMarkdownFileAtomic(conn, cardPath(w.kind, w.slug), JSON.stringify({ ...card, users: w.users }, null, 2) + "\n");
   }
 }

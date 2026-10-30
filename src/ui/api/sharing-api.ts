@@ -1,16 +1,17 @@
 import { authApi, handleApiError } from "@/main-axios";
 
-// "Shared with" — who can see an agent, role or project on a machine more
-// than one person uses.
+// "Shared with" — who can see an agent, role, project, sidebar app or
+// scheduled task on a machine more than one person uses.
 //
 //   GET  /sharing?hostId&kind&slug   → ShareState
+//   GET  /sharing/people?hostId      → MachinePeople (a new task's list)
 //   POST /sharing/plan               → SharePlanSummary (what a change reaches)
 //   PUT  /sharing                    → ShareState, or { gone: true } when the
 //                                      caller took themselves off
 
-export type ShareKind = "agent" | "role" | "project";
+export type ShareKind = "agent" | "role" | "project" | "app" | "task";
 
-/** A role (agents) or a project above it (projects) that keeps it hidden from someone. */
+/** A role (agents, a task's conversations) or a project above it (projects) that keeps it hidden from someone. */
 export interface ShareHiderRef {
   kind: "role" | "project";
   name: string;
@@ -63,6 +64,35 @@ export interface ShareChange {
   remove?: string[];
   shareRoles?: boolean;
   shareRolesFor?: string[];
+}
+
+export type MachinePeople = { multiUser: false } | { multiUser: true; you: string; people: string[] };
+
+export async function getMachinePeople(hostId: number): Promise<MachinePeople> {
+  try {
+    const response = await authApi.get("/sharing/people", { params: { hostId } });
+    return response.data as MachinePeople;
+  } catch (error) {
+    handleApiError(error, "load the people on this machine");
+  }
+}
+
+// Whether a machine has more than one person, asked once per page load
+// (a failed ask is asked again next time).
+const multiUserAsks = new Map<number, Promise<boolean>>();
+
+export function isMultiUserMachine(hostId: number): Promise<boolean> {
+  let ask = multiUserAsks.get(hostId);
+  if (!ask) {
+    ask = getMachinePeople(hostId).then((p) => p.multiUser);
+    ask.catch(() => multiUserAsks.delete(hostId));
+    multiUserAsks.set(hostId, ask);
+  }
+  return ask;
+}
+
+export function __resetMultiUserAsksForTests(): void {
+  multiUserAsks.clear();
 }
 
 export async function getSharing(t: ShareTarget): Promise<ShareState> {

@@ -16,6 +16,7 @@ import {
 } from "../../state/app-tiles-store";
 import type { RowKebabMenuItem } from "./RowKebabMenu";
 import { kitAlert, kitConfirm, kitPrompt } from "@/components/kit";
+import { openAppShareWindow } from "../sharing/AppShareWindow";
 
 // ─── App menu items — shared by the sidebar AppTile and the AppPane bar ─────
 //
@@ -52,6 +53,9 @@ export interface AppMenuItems {
    *  several panes at once. */
   openInNewWindow: RowKebabMenuItem;
   openStandalone: RowKebabMenuItem;
+  /** Sidebar apps on a machine more than one person uses — callers gate on
+   *  both (useMultiUserMachine, !app.owner). Opens the Share window. */
+  share: RowKebabMenuItem;
   rename: RowKebabMenuItem;
   archive: RowKebabMenuItem;
   /** convo-scoped apps — conversation apps only (callers gate on app.owner).
@@ -114,6 +118,13 @@ export function buildAppMenuItems(
       onClick: () => {
         // Tabnabbing guard: no window.opener, no Referer.
         window.open(openUrl, "_blank", "noopener,noreferrer");
+      },
+    },
+    share: {
+      label: "Share…",
+      testId: "app-menu-item-share",
+      onClick: () => {
+        openAppShareWindow({ hostId: Number(app.hostId), slug: app.slug, title: app.title });
       },
     },
     // app-rename shape — title only (the slug is the app's identity). Kit

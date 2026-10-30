@@ -189,6 +189,7 @@ function buildTestDeps(overrides?: Partial<WorkerDeps>): WorkerDeps {
     nameCensus: new FleetNameCensus(),
     // Requester roles default to role files with no `users:` gate.
     readRoleFileByName: vi.fn().mockResolvedValue({ markdown: "" }),
+    listProjects: vi.fn().mockResolvedValue([]),
   };
 
   return { ...deps, ...overrides };
@@ -705,6 +706,42 @@ describe("spawn-request worker", () => {
         await processBirth(makePendingBirth({ roles: [], users: ["riley"], requested_by: "aster-coordinator" }), deps);
         expect(readIdentityFile).not.toHaveBeenCalled();
         expect(captured.opts?.users).toEqual(["riley"]);
+      });
+
+      it("Test 17p1: no list, filed in a limited project → the project's people", async () => {
+        const { captured, birthIdentity } = captureOpts();
+        const listProjects = vi.fn().mockResolvedValue([
+          { slug: "top", parent: null, users: ["alice", "riley"] },
+          { slug: "kid", parent: "top", users: null },
+        ]);
+        const deps = buildTestDeps({ birthIdentity, listProjects });
+        await processBirth(makePendingBirth({ roles: ["coordinator"], project: "kid" }), deps);
+        expect(captured.opts?.users).toEqual(["alice", "riley"]);
+      });
+
+      it("Test 17p2: a list of its own wins over the project's; an unlimited project leaves it open", async () => {
+        const { captured, birthIdentity } = captureOpts();
+        const listProjects = vi.fn().mockResolvedValue([{ slug: "top", parent: null, users: ["alice"] }]);
+        await processBirth(
+          makePendingBirth({ roles: [], users: ["alice", "riley"], project: "top" }),
+          buildTestDeps({ birthIdentity, listProjects }),
+        );
+        expect(captured.opts?.users).toEqual(["alice", "riley"]);
+        expect(listProjects).not.toHaveBeenCalled();
+        const open = vi.fn().mockResolvedValue([{ slug: "top", parent: null, users: null }]);
+        await processBirth(makePendingBirth({ roles: [], project: "top" }), buildTestDeps({ birthIdentity, listProjects: open }));
+        expect(captured.opts?.users).toBeUndefined();
+      });
+
+      it("Test 17p3: the project can't be read → refused with visibility_unresolved, nothing born", async () => {
+        const { birthIdentity } = captureOpts();
+        const listProjects = vi.fn().mockRejectedValue(new Error("remote exec timeout"));
+        const deps = buildTestDeps({ birthIdentity, listProjects });
+        await processBirth(makePendingBirth({ roles: ["coordinator"], project: "kid" }), deps);
+        expect(birthIdentity).not.toHaveBeenCalled();
+        const [, path, body] = (deps.writeMarkdownFileAtomic as ReturnType<typeof vi.fn>).mock.calls[0];
+        expect(path).toContain(".failure.json");
+        expect(JSON.parse(body as string).reason).toBe("visibility_unresolved");
       });
 
       it("Test 17r5: roleless, no requested_by → left open, nothing read", async () => {

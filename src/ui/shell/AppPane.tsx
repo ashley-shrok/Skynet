@@ -26,6 +26,7 @@ import { subscribeDragSessionEnd } from "./drag-preview-session";
 import { keepFrameOutOfSessionHistory } from "./app-frame-no-history";
 import { PANE_BAR_BUTTON_CLASS, PaneBar } from "./PaneBar";
 import { usePromoteRequestsVersion } from "@/state/app-promote-requests";
+import { useMultiUserMachine } from "@/features/sharing/AppShareWindow";
 
 // Re-exported for existing importers; the bar now lives in PaneBar.
 export { sidebarToggleClearance } from "./PaneBar";
@@ -247,6 +248,9 @@ export function AppPane({
   const showIcon = tile?.hasIcon === true && !iconFailed;
 
   // Bar menu (see § Bar menu above).
+  // Share… needs to know the app is a sidebar app (its tile is known and has
+  // no owning conversation) on a machine more than one person uses.
+  const shareable = useMultiUserMachine(hostId) && !!tile && !tile.owner;
   const menuItems = useMemo<RowKebabMenuItem[]>(() => {
     const app = buildAppMenuItems({ hostId: String(hostId), slug, title }, onArchiveApp);
     const items: RowKebabMenuItem[] = [];
@@ -274,6 +278,7 @@ export function AppPane({
     // moved to the sidebar (through its agent).
     const isConversationApp = !!tile?.owner;
     items.push(app.openStandalone);
+    if (shareable) items.push(app.share);
     if (isConversationApp) items.push(app.moveToSidebar);
     else items.push(app.rename);
     // Desktop-only: on a phone the pane IS the screen.
@@ -286,7 +291,7 @@ export function AppPane({
     }
     if (!isConversationApp) items.push(app.archive);
     return items;
-  }, [hostId, slug, title, tabId, isMobile, onCloseTab, onArchiveApp, tile?.owner, promoteVersion]);
+  }, [hostId, slug, title, tabId, isMobile, onCloseTab, onArchiveApp, tile?.owner, promoteVersion, shareable]);
 
   // Page list for back/forward (see § App bar above).
   const historyRef = useRef<FrameHistory>(EMPTY_FRAME_HISTORY);

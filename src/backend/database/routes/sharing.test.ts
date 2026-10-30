@@ -32,6 +32,7 @@ const m = vi.hoisted(() => ({
   hostOk: true,
   publish: vi.fn(),
   iwBroken: false,
+  taskLocked: 0,
 }));
 
 vi.mock("../../sharing/host-conn.js", () => {
@@ -68,8 +69,17 @@ vi.mock("./project-list.js", () => ({ enrichForWire: (p: unknown[]) => p }));
 vi.mock("./identity-birth-orchestrator.js", () => ({ ROLE_NAME_PATTERN: /^[a-z0-9-]{1,64}$/ }));
 vi.mock("../../claude-session/identity-artifact-reader.js", () => ({
   IDENTITY_KEY_RE: /^[a-z0-9_-]{1,64}$/,
+  IDENTITY_SLUG_RE: /^[a-z0-9_-]{1,80}$/i,
   PROJECT_SLUG_RE: /^[a-z0-9-]{1,64}$/,
+  APP_SLUG_RE: /^[a-z0-9-]{1,64}$/,
   listProjects: vi.fn(async () => []),
+}));
+vi.mock("./scheduled-agents-write.js", () => ({
+  machineLockKey: (_h: unknown, hostId: number) => `host:${hostId}`,
+  withScheduledAgentLock: vi.fn(async (_h: number, _s: string, fn: () => Promise<unknown>) => {
+    m.taskLocked += 1;
+    return fn();
+  }),
 }));
 vi.mock("../../sharing/sharing-host.js", () => ({
   readShareHostState: vi.fn(async (_c: unknown, _p: unknown, iw: unknown) => {
@@ -80,7 +90,16 @@ vi.mock("../../sharing/sharing-host.js", () => ({
   writeShareList: vi.fn(async (_c: unknown, w: { kind: string; slug: string; users: string[] }) => {
     m.writes.push(w);
     const s = m.state!;
-    const list = w.kind === "agent" ? s.agents.find((a) => a.name === w.slug) : w.kind === "role" ? s.roles.find((r) => r.name === w.slug) : s.projects.find((p) => p.slug === w.slug);
+    const list =
+      w.kind === "agent"
+        ? s.agents.find((a) => a.name === w.slug)
+        : w.kind === "role"
+          ? s.roles.find((r) => r.name === w.slug)
+          : w.kind === "app"
+            ? s.apps.find((a) => a.name === w.slug)
+            : w.kind === "task"
+              ? s.tasks.find((t) => t.name === w.slug)
+              : s.projects.find((p) => p.slug === w.slug);
     if (list) list.users = w.users;
   }),
 }));
@@ -97,11 +116,14 @@ beforeEach(async () => {
   m.hostOk = true;
   m.publish.mockClear();
   m.iwBroken = false;
+  m.taskLocked = 0;
   m.state = {
     people: ["ana", "bo"],
     agents: [{ name: "scout", label: "Scout", roles: ["painter"], project: "garden", users: ["ana"] }],
     roles: [{ name: "painter", label: "Painter", users: ["ana"], instanceWide: false }],
     projects: [{ slug: "garden", label: "Garden", parent: null, users: ["ana"] }],
+    apps: [{ name: "tracker", label: "Tracker", users: null }],
+    tasks: [{ name: "morning", label: "morning", roles: ["painter"], users: ["ana"] }],
   };
   const app = express();
   app.use(express.json());
@@ -145,7 +167,7 @@ describe("GET /sharing", () => {
   });
 
   it("rejects a bad kind or slug", async () => {
-    expect((await get("hostId=3&kind=app&slug=x")).status).toBe(400);
+    expect((await get("hostId=3&kind=wiki&slug=x")).status).toBe(400);
     expect((await get("hostId=3&kind=agent&slug=../etc")).status).toBe(400);
   });
 
@@ -233,5 +255,48 @@ describe("projects and roles kept on every machine", () => {
     expect((await get("hostId=3&kind=role&slug=painter")).status).toBe(503);
     await send("PUT", "", { hostId: 3, kind: "agent", slug: "scout", add: ["bo"], shareRoles: true });
     expect(m.writes.some((w) => w.kind === "role")).toBe(false);
+  });
+});
+
+describe("apps and scheduled tasks", () => {
+  it("shows an app with no list as everyone, and writes only the app when someone is taken off", async () => {
+    const r = await get("hostId=3&kind=app&slug=tracker");
+    expect(r.body).toMatchObject({ multiUser: true, users: null, ticked: ["ana", "bo"], hiddenBy: {} });
+    const put = await send("PUT", "", { hostId: 3, kind: "app", slug: "tracker", remove: ["bo"] });
+    expect(put.status).toBe(200);
+    expect(m.writes).toEqual([{ kind: "app", slug: "tracker", users: ["ana"] }]);
+  });
+
+  it("hides an app from someone not on its list", async () => {
+    m.state!.apps[0].users = ["bo"];
+    expect((await get("hostId=3&kind=app&slug=tracker")).status).toBe(404);
+  });
+
+  it("says when a task's role hides its conversations, and offers to share the role too", async () => {
+    m.state!.tasks[0].users = ["ana", "bo"];
+    const r = await get("hostId=3&kind=task&slug=morning");
+    expect(r.body.hiddenBy).toEqual({ bo: [{ kind: "role", name: "painter", label: "Painter", fixable: true }] });
+    m.state!.tasks[0].users = ["ana"];
+    const plan = await send("POST", "/plan", { hostId: 3, kind: "task", slug: "morning", add: ["bo"] });
+    expect(plan.body.rolesToShare).toEqual([{ name: "painter", label: "Painter", people: ["bo"] }]);
+  });
+
+  it("shares a task and its role together, under the task's own lock", async () => {
+    const r = await send("PUT", "", { hostId: 3, kind: "task", slug: "morning", add: ["bo"], shareRoles: true });
+    expect(r.status).toBe(200);
+    expect(m.writes).toEqual(
+      expect.arrayContaining([
+        { kind: "task", slug: "morning", users: ["ana", "bo"] },
+        { kind: "role", slug: "painter", users: ["ana", "bo"] },
+      ]),
+    );
+    expect(m.taskLocked).toBe(1);
+  });
+
+  it("lists the machine's people for a new task's list", async () => {
+    const r = await fetch(`${base}/sharing/people?hostId=3`).then((x) => x.json());
+    expect(r).toEqual({ multiUser: true, you: "ana", people: ["ana", "bo"] });
+    m.people = ["ana"];
+    expect(await fetch(`${base}/sharing/people?hostId=3`).then((x) => x.json())).toEqual({ multiUser: false });
   });
 });

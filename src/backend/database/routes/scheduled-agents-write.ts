@@ -78,6 +78,7 @@ import {
   getLocalProjectsRoot,
 } from "../../claude-session/identity-artifact-reader.js";
 import { isProjectSlug } from "../../claude-session/scheduled-agent-project.js";
+import { listMachinePeople } from "../../distributor/machine-people.js";
 
 const router = express.Router();
 const authManager = AuthManager.getInstance();
@@ -117,14 +118,32 @@ const JSON_BODY_LIMIT = "64kb";
 
 const slugMutexRegistry = new Map<string, HostSemaphore>();
 
-function getSlugMutex(hostId: string | number, slug: string): HostSemaphore {
-  const key = `${String(hostId)}:${slug}`;
+/**
+ * The machine a host row points at (address, port, login). Everyone who added
+ * the same machine has their own host row for it, so locks keyed on this hold
+ * across people, not just across one person's requests.
+ */
+export function machineLockKey(host: unknown, hostId: number): string {
+  const h = host as { ip?: unknown; port?: unknown; username?: unknown } | null;
+  if (!h || typeof h.ip !== "string") return `host:${hostId}`;
+  return `${h.ip.trim().toLowerCase()}:${String(h.port ?? "")}:${String(h.username ?? "")}`;
+}
+
+function getSlugMutex(machine: string, slug: string): HostSemaphore {
+  const key = `${machine}\u0000${slug}`;
   let m = slugMutexRegistry.get(key);
   if (!m) {
     m = makeSemaphore(1);
     slugMutexRegistry.set(key, m);
   }
   return m;
+}
+
+/** Run `fn` holding the same per-(machine, slug) lock this file's writes take
+ *  — the sharing route changes a task's `users` list under it. `machine` is
+ *  machineLockKey of the caller's host row. */
+export function withScheduledAgentLock<T>(machine: string, slug: string, fn: () => Promise<T>): Promise<T> {
+  return getSlugMutex(machine, slug).run(fn);
 }
 
 /** Test-only: clears the per-slug mutex registry to prevent state leak
@@ -558,6 +577,23 @@ function localSpawnRequestsDir(): string {
   return path.join(path.dirname(getLocalIdentitiesRoot()), "spawn-requests");
 }
 
+/**
+ * A new task's "Shared with" choice: absent/null = everyone (no list, as
+ * before). Otherwise a non-empty list of people on the machine, only on a
+ * machine more than one person uses. Returns the list, null, or an error.
+ */
+export async function parseCreateUsers(raw: unknown, hostId: number): Promise<string[] | null | string> {
+  if (raw === undefined || raw === null) return null;
+  if (!Array.isArray(raw) || raw.length === 0 || raw.some((u) => typeof u !== "string" || u.length === 0)) {
+    return "users must be a non-empty list of usernames";
+  }
+  const people = ((await listMachinePeople(hostId)) ?? []).map((p) => p.username);
+  if (people.length < 2) return "only one person uses this machine";
+  const users = [...new Set(raw as string[])];
+  if (users.some((u) => !people.includes(u))) return "users: not someone on this machine";
+  return users;
+}
+
 // ---------------------------------------------------------------------------
 // POST /scheduled-agents — CREATE
 // ---------------------------------------------------------------------------
@@ -584,8 +620,10 @@ router.post(
       res.status(400).json({ error: "spec.schedule: sensor triggers can't be created from the app" });
       return;
     }
-    // Per-user gate list is disk-only — silently drop if a client sent it.
-    // Covers both the on-disk write below AND the response echo `spec: validSpec`.
+    // Per-user gate list never rides in the spec — silently drop if a client
+    // sent it. Covers both the on-disk write below AND the response echo
+    // `spec: validSpec`. A new task's "Shared with" choice comes as its own
+    // `users` field instead, checked against the people on the machine.
     stripUsersFromSpec(validSpec as unknown as Record<string, unknown>);
 
     const slug = normalizeSpecSlug(validSpec.name);
@@ -599,6 +637,15 @@ router.post(
       res.status(404).json({ error: "Host not found" });
       return;
     }
+    // Only after the host check, so nobody learns who uses a machine they
+    // haven't added.
+    const createUsers = await parseCreateUsers((req.body as { users?: unknown }).users, hostId);
+    if (typeof createUsers === "string") {
+      res.status(400).json({ error: createUsers });
+      return;
+    }
+    const createBody =
+      JSON.stringify(createUsers ? { ...validSpec, users: createUsers } : validSpec, null, 2) + "\n";
 
     let conn: Awaited<ReturnType<typeof connectOneShot>> | null = null;
     let responded = false;
@@ -608,7 +655,7 @@ router.post(
       // Inner: per-host SSH semaphore — caps concurrent channels per host.
       // Different-slug CREATEs on the same host still run in parallel (up to
       // getHostSemaphore's slot count); same-slug CREATEs serialize.
-      await getSlugMutex(hostId, slug).run(async () => {
+      await getSlugMutex(machineLockKey(host, hostId), slug).run(async () => {
       await getHostSemaphore(hostId).run(async () => {
         // ─── LOCAL branch ───────────────────────────────────────────────
         if (isLocalHostId(hostId)) {
@@ -625,10 +672,9 @@ router.post(
           }
           try {
             await fs.mkdir(dir, { recursive: true });
-            const body = JSON.stringify(validSpec, null, 2) + "\n";
             // writeMarkdownFileAtomic is byte-agnostic despite the name —
             // JSON body passes through unchanged (RESEARCH § Anti-patterns).
-            await writeMarkdownFileAtomic(null, targetPath, body);
+            await writeMarkdownFileAtomic(null, targetPath, createBody);
           } catch (err) {
             sshLogger.error(
               "scheduled-agents-create: local write failed",
@@ -705,14 +751,13 @@ router.post(
         }
 
         const targetPath = `$HOME/fleet/scheduled-agents/${slug}/scheduled-agent.json`;
-        const body = JSON.stringify(validSpec, null, 2) + "\n";
         try {
           // writeMarkdownFileAtomic is byte-agnostic despite the name —
           // JSON body passes through unchanged (RESEARCH § Anti-patterns).
           // Uses SFTP writeFile(.tmp) + ext_openssh_rename (POSIX atomic
           // overwrite — sftp.rename cannot atomically overwrite existing
           // target; see prologue at identity-artifact-reader.ts L2547-2582).
-          await writeMarkdownFileAtomic(conn, targetPath, body);
+          await writeMarkdownFileAtomic(conn, targetPath, createBody);
         } catch (err) {
           sshLogger.error(
             "scheduled-agents-create: SFTP write failed",
@@ -801,7 +846,7 @@ router.patch(
     let responded = false;
     try {
       // Per-slug mutex (fix #1) — serializes writers on same (hostId, slug).
-      await getSlugMutex(hostId, slug).run(async () => {
+      await getSlugMutex(machineLockKey(host, hostId), slug).run(async () => {
       await getHostSemaphore(hostId).run(async () => {
         if (isLocalHostId(hostId)) {
           const targetPath = localSpecPath(slug);
@@ -1051,7 +1096,7 @@ router.patch(
       // Per-slug mutex (fix #1) — serializes writers on same (hostId, slug).
       // TOGGLE reads-then-writes the spec, so the mutex also closes the
       // read-modify-write race window against concurrent UPDATE.
-      await getSlugMutex(hostId, slug).run(async () => {
+      await getSlugMutex(machineLockKey(host, hostId), slug).run(async () => {
       await getHostSemaphore(hostId).run(async () => {
         // ─── LOCAL branch ───────────────────────────────────────────────
         if (isLocalHostId(hostId)) {
@@ -1228,7 +1273,7 @@ router.delete(
     let responded = false;
     try {
       // Per-slug mutex (fix #1) — serializes writers on same (hostId, slug).
-      await getSlugMutex(hostId, slug).run(async () => {
+      await getSlugMutex(machineLockKey(host, hostId), slug).run(async () => {
       await getHostSemaphore(hostId).run(async () => {
         // ─── LOCAL branch ───────────────────────────────────────────────
         if (isLocalHostId(hostId)) {
@@ -1352,7 +1397,7 @@ router.post(
     try {
       // Per-slug mutex — a run-now that races a DELETE either reads the spec
       // before it's gone or 404s; never fires a half-deleted spec.
-      await getSlugMutex(hostId, slug).run(async () => {
+      await getSlugMutex(machineLockKey(host, hostId), slug).run(async () => {
       await getHostSemaphore(hostId).run(async () => {
         // ─── LOCAL branch ───────────────────────────────────────────────
         if (isLocalHostId(hostId)) {

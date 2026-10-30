@@ -9,6 +9,7 @@ import {
 import type { AppState } from "../../api/fleet-status-types";
 import { appIconUrl } from "./app-icon-url";
 import { buildAppMenuItems } from "./app-menu-items";
+import { useMultiUserMachine } from "../sharing/AppShareWindow";
 // The actions (Open in new tab, Open standalone, Rename, Archive) live in a
 // RowKebabMenu inside the tile: right-click with a mouse, press-and-hold on a
 // touch screen (row-touch-gestures.ts), the ⋮ on keyboard focus.
@@ -192,12 +193,14 @@ export function AppTile({ app, onOpenApp, onArchive, variant = "desktop" }: AppT
   // Actions shared with the open app pane's bar kebab (app-menu-items.ts);
   // the tile keeps its own test ids.
   const menu = buildAppMenuItems(app, onArchive);
+  const shareable = useMultiUserMachine(Number(app.hostId));
   const kebabItems: RowKebabMenuItem[] = [
     // Desktop-only — a phone has no multi-window story.
     ...(isMobile
       ? []
       : [{ ...menu.openInNewWindow, testId: "pv-app-tile-kebab-item-open-new-window" }]),
     { ...menu.openStandalone, testId: "pv-app-tile-kebab-item-open-standalone" },
+    ...(shareable ? [{ ...menu.share, testId: "pv-app-tile-kebab-item-share" }] : []),
     { ...menu.rename, testId: "pv-app-tile-kebab-item-rename" },
     { ...menu.archive, testId: "pv-app-tile-kebab-item-archive" },
   ];

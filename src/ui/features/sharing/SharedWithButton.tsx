@@ -1,11 +1,14 @@
-// SharedWithButton — "Shared with" for an agent, role or project on a machine
-// more than one person uses. The button names who can see the thing; it opens
-// a ticked list of everyone on the machine. A tick takes effect straight
-// away; a confirm comes first only where the change reaches further than the
-// thing itself (sharing its role too, a project's contents, a role's agents,
-// taking yourself off). On a machine with one person it renders nothing.
+// SharedWithButton — "Shared with" for an agent, role, project, sidebar app or
+// scheduled task on a machine more than one person uses. The button names who
+// can see the thing; it opens a ticked list of everyone on the machine (or,
+// `inline`, the list sits in place — the app's Share… window). A tick takes
+// effect straight away; a confirm comes first only where the change reaches
+// further than the thing itself (sharing its role too, a project's contents,
+// a role's agents, taking yourself off). On a machine with one person it
+// renders nothing.
 //
-// Shape: .planning/shape-sharing-agents-roles-projects.md
+// Shapes: .planning/shape-sharing-agents-roles-projects.closed.md,
+//         .planning/shape-sharing-apps-tasks.closed.md
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Users } from "lucide-react";
@@ -25,7 +28,7 @@ type Loaded = Extract<ShareState, { multiUser: true }>;
 export interface SharedWithButtonProps {
   hostId: number;
   kind: ShareKind;
-  /** Agent name, role name or project slug. */
+  /** Agent name, role name, project slug, app slug or task slug. */
   slug: string;
   /** How confirms name the thing: "Scout", "the Painter role", "Garden". */
   itemLabel: string;
@@ -35,6 +38,10 @@ export interface SharedWithButtonProps {
   /** The caller took themselves off — the thing has left their view. */
   onGone?: () => void;
   className?: string;
+  /** The list itself, always showing, with no button (a window of its own). */
+  inline?: boolean;
+  /** Shown as a form field labelled "Shared with" (a scheduled task's view). */
+  field?: boolean;
 }
 
 /** "A", "A and B", "A, B and C". */
@@ -104,11 +111,15 @@ async function confirmChange(
   plan: SharePlanSummary,
 ): Promise<{ go: boolean; shareRoles: boolean }> {
   if (adding) {
-    if (kind === "agent" && plan.rolesToShare.length > 0) {
+    if ((kind === "agent" || kind === "task") && plan.rolesToShare.length > 0) {
       const roles = plan.rolesToShare.map((r) => r.label);
+      const roleWord = roles.length === 1 ? "role" : "roles";
       const go = await kitConfirm({
-        title: `Share the ${joinAnd(roles)} ${roles.length === 1 ? "role" : "roles"} with ${person} too?`,
-        body: `${itemLabel} shows up only for people who can see its ${roles.length === 1 ? "role" : "roles"}. Sharing just the agent won't make it show up for ${person}.`,
+        title: `Share the ${joinAnd(roles)} ${roleWord} with ${person} too?`,
+        body:
+          kind === "task"
+            ? `The conversations ${itemLabel} starts show up only for people who can see its ${roleWord}. Sharing just the task won't make them show up for ${person}.`
+            : `${itemLabel} shows up only for people who can see its ${roleWord}. Sharing just the agent won't make it show up for ${person}.`,
         confirmLabel: "Share both",
       });
       return { go, shareRoles: go };
@@ -148,7 +159,7 @@ async function confirmChange(
       .join(" ");
     const go = await kitConfirm({
       title: `Take yourself off ${itemLabel}?`,
-      body: `It leaves your sidebar right away.${extra ? ` ${extra}` : ""} Anyone it's still shared with can add you back.`,
+      body: `It leaves your ${kind === "task" ? "scheduled tasks" : "sidebar"} right away.${extra ? ` ${extra}` : ""} Anyone it's still shared with can add you back.`,
       confirmLabel: "Take me off",
       destructive: true,
     });
@@ -184,8 +195,11 @@ export function SharedWithButton({
   disabled,
   onGone,
   className,
+  inline = false,
+  field = false,
 }: SharedWithButtonProps) {
   const [state, setState] = useState<Loaded | null>(null);
+  const [loaded, setLoaded] = useState(false);
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -206,6 +220,8 @@ export function SharedWithButton({
         error: err instanceof Error ? err.message : String(err),
       });
       setState(null);
+    } finally {
+      setLoaded(true);
     }
   }, [hostId, kind, slug]);
 
@@ -220,7 +236,7 @@ export function SharedWithButton({
 
   // Click outside closes — not while a change (and its confirm) is in hand.
   useEffect(() => {
-    if (!open) return;
+    if (!open || inline) return;
     const onDown = (e: MouseEvent) => {
       if (busyRef.current) return;
       if (wrapRef.current?.contains(e.target as Node)) return;
@@ -228,11 +244,11 @@ export function SharedWithButton({
     };
     document.addEventListener("mousedown", onDown);
     return () => document.removeEventListener("mousedown", onDown);
-  }, [open]);
+  }, [open, inline]);
 
   // Esc closes the list before it reaches the window around it.
   useEffect(() => {
-    if (!open) return;
+    if (!open || inline) return;
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== "Escape" || e.defaultPrevented || busyRef.current) return;
       e.preventDefault();
@@ -241,7 +257,7 @@ export function SharedWithButton({
     };
     window.addEventListener("keydown", onKey, true);
     return () => window.removeEventListener("keydown", onKey, true);
-  }, [open]);
+  }, [open, inline]);
 
   const change = useCallback(
     async (person: string, opts: { adding: boolean; shareRolesFor?: string[] }) => {
@@ -297,7 +313,14 @@ export function SharedWithButton({
     [state, hostId, kind, slug, itemLabel, onGone, load],
   );
 
-  if (state === null) return null;
+  if (state === null) {
+    if (!inline) return null;
+    return (
+      <div className={cn("text-[12.5px] text-[var(--k-t3)]", className)} data-testid="shared-with-list">
+        {loaded ? "Couldn't load who it's shared with." : "Loading…"}
+      </div>
+    );
+  }
 
   const ticked = (u: string) => state.ticked.includes(u);
   const tickedCount = state.ticked.length;
@@ -334,7 +357,8 @@ export function SharedWithButton({
         {hidden.length > 0 && (
           <div className="pl-7 flex flex-wrap items-center gap-2 text-[12px] text-[var(--k-warn)]">
             <span>
-              Hidden by the {joinAnd(hidden.map((r) => r.label))} {hidden.length === 1 ? hiderKind : `${hiderKind}s`}
+              {kind === "task" ? "Its conversations are hidden" : "Hidden"} by the {joinAnd(hidden.map((r) => r.label))}{" "}
+              {hidden.length === 1 ? hiderKind : `${hiderKind}s`}
             </span>
             {fixable.length > 0 && (
               <KitButton
@@ -352,7 +376,28 @@ export function SharedWithButton({
     );
   };
 
-  return (
+  const list = (
+    <>
+      {hint && <div className="text-[12.5px] text-[var(--k-t3)] pb-1">{hint}</div>}
+      {people.map((p) => row(p, false))}
+      {state.former.map((p) => row(p, true))}
+      {error && (
+        <div role="alert" className="pt-1 text-[12.5px] text-[var(--k-danger-text)]">
+          {error}
+        </div>
+      )}
+    </>
+  );
+
+  if (inline) {
+    return (
+      <div className={cn("flex flex-col gap-1", className)} data-testid="shared-with-list">
+        {list}
+      </div>
+    );
+  }
+
+  const control = (
     <div className={cn("relative", className)} ref={wrapRef}>
       <KitButton
         size="sm"
@@ -374,16 +419,20 @@ export function SharedWithButton({
           data-testid="shared-with-popover"
         >
           <div className="k-label">Shared with</div>
-          {hint && <div className="text-[12.5px] text-[var(--k-t3)] pb-1">{hint}</div>}
-          {people.map((p) => row(p, false))}
-          {state.former.map((p) => row(p, true))}
-          {error && (
-            <div role="alert" className="pt-1 text-[12.5px] text-[var(--k-danger-text)]">
-              {error}
-            </div>
-          )}
+          {list}
         </div>
       )}
+    </div>
+  );
+  return field ? <SharedWithField>{control}</SharedWithField> : control;
+}
+
+/** A labelled form row around the control; absent with it on a one-person machine. */
+export function SharedWithField({ children }: { children: React.ReactNode }) {
+  return (
+    <div className="k-field" data-testid="shared-with-field">
+      <span className="k-label">Shared with</span>
+      <div className="flex">{children}</div>
     </div>
   );
 }

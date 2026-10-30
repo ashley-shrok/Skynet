@@ -144,9 +144,11 @@ export async function listScheduledAgents(): Promise<ScheduledAgentListItem[]> {
 export async function createScheduledAgent(
   host: number,
   spec: ScheduledAgentSpecWire,
+  /** "Shared with" on a machine several people use; null/absent = everyone. */
+  users?: string[] | null,
 ): Promise<{ slug: string; host: number; spec: ScheduledAgentSpecWire }> {
   try {
-    const response = await authApi.post("/scheduled-agents", { host, spec });
+    const response = await authApi.post("/scheduled-agents", { host, spec, ...(users ? { users } : {}) });
     return response.data as {
       slug: string;
       host: number;

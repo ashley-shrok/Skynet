@@ -14,6 +14,8 @@ function machine(over: Partial<ShareHostState> = {}): ShareHostState {
     agents: [],
     roles: [],
     projects: [],
+    apps: [],
+    tasks: [],
     ...over,
   };
 }
@@ -235,5 +237,31 @@ describe("projects hidden by a project above them", () => {
     // a sits on the loop and is drawn at top level: b's list doesn't hide it.
     expect(projectVisibleTo(loop, "a", "bo")).toBe(true);
     expect(projectVisibleTo(loop, "b", "bo")).toBe(false);
+  });
+});
+
+describe("apps and scheduled tasks", () => {
+  const task = (name: string, roles: string[], users: string[] | null) => ({ name, label: name, roles, users });
+
+  it("an app's change writes only the app", () => {
+    const st = machine({ apps: [{ name: "tracker", label: "Tracker", users: null }], agents: [agent("scout", { users: ["ana"] })] });
+    const plan = planShareChange(st, "app", "tracker", { remove: ["cy"] });
+    expect(plan.writes).toEqual([{ kind: "app", slug: "tracker", users: ["ana", "bo"] }]);
+    expect(plan.rolesToShare).toEqual([]);
+  });
+
+  it("offers a task's hiding roles, and writes them only when asked", () => {
+    const st = machine({ roles: [role("painter", ["ana"])], tasks: [task("morning", ["painter"], ["ana"])] });
+    const offered = planShareChange(st, "task", "morning", { add: ["bo"] });
+    expect(offered.rolesToShare).toEqual([{ name: "painter", label: "painter role", people: ["bo"] }]);
+    expect(offered.writes).toEqual([{ kind: "task", slug: "morning", users: ["ana", "bo"] }]);
+    const both = planShareChange(st, "task", "morning", { add: ["bo"] }, { shareRoles: true });
+    expect(both.writes).toContainEqual({ kind: "role", slug: "painter", users: ["ana", "bo"] });
+  });
+
+  it("refuses emptying a task's list and a task that isn't there", () => {
+    const st = machine({ tasks: [task("morning", [], ["ana"])] });
+    expect(() => planShareChange(st, "task", "morning", { remove: ["ana"] })).toThrow(ShareError);
+    expect(() => planShareChange(st, "task", "nope", { add: ["bo"] })).toThrow(ShareError);
   });
 });
