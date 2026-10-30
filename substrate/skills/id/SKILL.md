@@ -801,7 +801,8 @@ refusal stays in the strip, in the same words as search's notice. An agent
 whose history wasn't kept opens with a "No history was kept" notice.
 
 **Escape clears + blurs.** Escape empties the input, the everywhere link
-fades back out, and focus leaves.
+fades back out, and focus leaves. While there's text, a small ✕ at the
+input's right end clears it too, leaving focus in the input.
 
 **Same behavior on desktop and mobile.** There is no keyboard shortcut;
 the input has to be clicked to focus. Filter query does NOT persist across app reloads — it's a quick-find

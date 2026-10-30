@@ -309,7 +309,7 @@ import { useBrandingConfig } from "@/branding/branding-store";
 import { useFeedbackEnabled } from "@/feedback/feedback-store";
 import { getBasePath } from "@/lib/base-path";
 import { roleDisplayName } from "@/lib/role-display-name";
-import { KitButton, kitAlert, kitConfirm, kitPrompt } from "@/components/kit";
+import { KitButton, KitIconButton, kitAlert, kitConfirm, kitPrompt } from "@/components/kit";
 import { toast } from "sonner";
 import { systemLogger } from "@/lib/frontend-logger";
 import {
@@ -3576,6 +3576,25 @@ export function PrettyConversationsPanel({
           >
             everywhere ↗
           </button>
+          {/* Clear button — shown while there's text. Clearing keeps focus in
+              the input (mousedown is swallowed so the click doesn't blur it);
+              Escape is the clear-and-leave path. */}
+          {sidebarSearchQuery.length > 0 && (
+            <KitIconButton
+              label="Clear search"
+              size="sm"
+              className="pv-sidebar-search-clear"
+              data-testid="pv-sidebar-search-clear"
+              onMouseDown={(e) => e.preventDefault()}
+              onClick={(e) => {
+                e.stopPropagation();
+                setSidebarSearchQuery("");
+                sidebarSearchInputRef.current?.focus();
+              }}
+            >
+              <X />
+            </KitIconButton>
+          )}
         </div>
       </div>
 

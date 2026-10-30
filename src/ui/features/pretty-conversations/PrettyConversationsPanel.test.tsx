@@ -4156,6 +4156,24 @@ describe("PrettyConversationsPanel (shape-sidebar-search-inline): sidebar-search
     const link = screen.getByTestId("pv-sidebar-search-everywhere-link");
     expect(link.className).not.toContain("visible");
   });
+
+  it("S10: the clear ✕ shows only while there's text, and clears it keeping focus in the input", () => {
+    setSnapshot({ activeSet: [], pinned: [], middle: [], rdpGroup: null });
+    render(
+      <PrettyConversationsPanel isAdmin variant="desktop" onDeactivateRow={() => {}} />,
+    );
+
+    const input = screen.getByTestId("pv-sidebar-search-input") as HTMLInputElement;
+    expect(screen.queryByTestId("pv-sidebar-search-clear")).toBeNull();
+    input.focus();
+    fireEvent.change(input, { target: { value: "something" } });
+
+    fireEvent.click(screen.getByRole("button", { name: "Clear search" }));
+    expect(input.value).toBe("");
+    expect(document.activeElement).toBe(input);
+    expect(screen.queryByTestId("pv-sidebar-search-clear")).toBeNull();
+    expect(screen.getByTestId("pv-sidebar-search-everywhere-link").className).not.toContain("visible");
+  });
 });
 
 // Helper — read search-store state OUTSIDE a React tree. useSearchState is

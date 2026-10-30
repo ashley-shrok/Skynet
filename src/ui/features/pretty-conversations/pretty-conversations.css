@@ -170,6 +170,16 @@
 .pv-sidebar-search-everywhere:hover {
   text-decoration: underline;
 }
+/* Clear ✕ — the kit's small icon button, sized down to sit inside the 34px
+   field and tucked toward its right edge. Hover uses s3 since the field is s2. */
+.pv-sidebar-search-clear.k-icon-btn {
+  width: 22px;
+  height: 22px;
+  margin-right: -5px;
+}
+.pv-sidebar-search-clear.k-icon-btn:hover {
+  background: var(--k-s3);
+}
 
 /* ═══ List ═══════════════════════════════════════════════════════════════ */
 
@@ -756,6 +766,14 @@
   .pv-sidebar-search-icon {
     width: 18px;
     height: 18px;
+  }
+  .pv-sidebar-search-clear.k-icon-btn {
+    width: 26px;
+    height: 26px;
+  }
+  .pv-sidebar-search-clear.k-icon-btn svg {
+    width: 16px;
+    height: 16px;
   }
   /* 16px minimum keeps iOS from zooming the page when the field is focused. */
   .pv-sidebar-search-input {
