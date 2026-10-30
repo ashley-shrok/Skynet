@@ -52,10 +52,13 @@ import {
   getLocalIdentitiesRoot,
   writeMarkdownFileAtomic,
   writeAvatarSiblingFile,
+  listProjects,
 } from "../../claude-session/identity-artifact-reader.js";
 import pathModule from "node:path";
 import { getLocalArchivedIdentitiesRoot } from "../../claude-session/list-archived-identity-keys.js";
 import { resolveHostById } from "../../ssh/host-resolver.js";
+import { withHost } from "../../sharing/host-conn.js";
+import { bornInProjectUsers } from "../../sharing/born-in-project.js";
 // Phase 98 Plan 07: whitelist voice-value validation on identity birth. Same
 // contract as identities.ts's PUT handler — any voice value that isn't a
 // recognized voice ID of some TTS provider is 400-rejected. Null/absent are legal
@@ -953,6 +956,48 @@ router.post(
       }
     }
 
+    // Born inside a project: start shared with the project's people as well
+    // as the creator — or with everyone when the project isn't limited.
+    // Best-effort — a failed read keeps the creator-only tag.
+    let bornUsers: string[] | undefined;
+    // Multi-user machines only (roleless births are tagged on any machine,
+    // so `creatorUsername` alone doesn't say so), and never for a roleless
+    // agent: it stays visible only to whoever made it.
+    if (isMultiUser && rolelessCreator === undefined && creatorUsername !== undefined && parsedProject !== undefined) {
+      try {
+        const creator = creatorUsername;
+        const users = await withHost(hostId, userId, async (conn) =>
+          bornInProjectUsers(await listProjects(conn), parsedProject, creator),
+        );
+        if (users === "everyone") {
+          // The project isn't limited, so neither is what's born in it.
+          creatorUsername = undefined;
+          sshLogger.info("identity-birth: born in an unlimited project — no users list", {
+            operation: "identity_birth_project_open",
+            name: name.trim(),
+            hostId,
+            project: parsedProject,
+          });
+        } else if (users !== null) {
+          bornUsers = users;
+          sshLogger.info("identity-birth: shared with the project's people", {
+            operation: "identity_birth_project_shared",
+            name: name.trim(),
+            hostId,
+            project: parsedProject,
+            userCount: users.length,
+          });
+        }
+      } catch (err) {
+        sshLogger.warn("identity-birth: couldn't read the project's people — creator only", {
+          operation: "identity_birth_project_share_failed",
+          hostId,
+          project: parsedProject,
+          error: err instanceof Error ? err.message : String(err),
+        });
+      }
+    }
+
     // -----------------------------------------------------------------------
     // Invoke orchestrator — catch errors and surface in SSE stream
     // -----------------------------------------------------------------------
@@ -992,6 +1037,7 @@ router.post(
           // orchestrator's buildIdentityFileBody omits the users: key in
           // either case (absent-⇒-omit fallback).
           creatorUsername,
+          ...(bornUsers !== undefined ? { users: bornUsers } : {}),
         },
         emit,
         deps,

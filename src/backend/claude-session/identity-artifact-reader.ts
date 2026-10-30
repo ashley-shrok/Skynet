@@ -1580,7 +1580,7 @@ async function pathExists(p: string): Promise<boolean> {
 const REMOTE_EXEC_TIMEOUT_MS = 15000;
 
 /** Wrap a remote execCommand in a Promise.race timeout (REMOTE_EXEC_TIMEOUT_MS). */
-async function execWithTimeout(
+export async function execWithTimeout(
   conn: SSHClientType,
   command: string,
 ): Promise<string> {

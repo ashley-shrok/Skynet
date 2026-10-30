@@ -20,6 +20,7 @@
 // Save path: PUT /projects/:slug/file via updateProjectFile — the server-echoed
 // body becomes the new local source of truth.
 
+import { SharedWithButton } from "@/features/sharing/SharedWithButton";
 import { useCallback, useEffect, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -274,6 +275,15 @@ export function ProjectModal({
             {countBits.join(" · ")}
           </div>
         )}
+        <SharedWithButton
+          hostId={hostId}
+          kind="project"
+          slug={slug}
+          itemLabel={displayName}
+          hint="Also shares its sub-projects and the agents in them."
+          onGone={() => onOpenChange(false)}
+          className="mt-1 self-start"
+        />
       </div>
     </div>
   );

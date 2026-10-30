@@ -53,6 +53,7 @@ import type { Identity } from "@/api/identities-api";
 import type { TabState } from "../IdentityFileTab";
 import { MarkdownEditor } from "../MarkdownEditor";
 import { ColorPicker } from "../pickers/ColorPicker";
+import { SharedWithButton } from "@/features/sharing/SharedWithButton";
 import { VoicePicker } from "../pickers/VoicePicker";
 import { useVoiceLabel } from "../pickers/useVoiceCatalog";
 import WorkspaceTab from "../WorkspaceTab";
@@ -746,6 +747,16 @@ export function RoleView({
               </div>
             )}
           </div>
+          {!shared && (
+            <SharedWithButton
+              hostId={hostId}
+              kind="role"
+              slug={name}
+              itemLabel={`the ${label} role`}
+              hint="Agents with this role show up only for people it's shared with."
+              onGone={onBack}
+            />
+          )}
         </div>
       </div>
     </div>

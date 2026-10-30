@@ -1188,6 +1188,35 @@ describe("nested projects — POST /projects with parent", () => {
     });
   });
 
+  it("a sub-project made inside a limited project starts shared with its people", async () => {
+    (isHostMultiUser as Mock).mockResolvedValue(true);
+    (getUsernameForUserId as Mock).mockResolvedValue("alice");
+    (listProjects as Mock).mockResolvedValue([
+      { slug: "wall", displayName: "Wall", users: ["bo", "alice"], parent: null },
+    ]);
+    const res = await httpRequest(server, {
+      method: "POST",
+      path: "/projects",
+      body: { hostId: 5, displayName: "Kid", parent: "wall" },
+    });
+    expect(res.status).toBe(200);
+    expect(createProject).toHaveBeenCalledWith(null, "kid", "Kid", ["alice", "bo"], "wall");
+  });
+
+  it("inside a project nobody limited, the sub-project isn't limited either", async () => {
+    (isHostMultiUser as Mock).mockResolvedValue(true);
+    (getUsernameForUserId as Mock).mockResolvedValue("alice");
+    (listProjects as Mock).mockResolvedValue([
+      { slug: "wall", displayName: "Wall", users: null, parent: null },
+    ]);
+    await httpRequest(server, {
+      method: "POST",
+      path: "/projects",
+      body: { hostId: 5, displayName: "Kid", parent: "wall" },
+    });
+    expect(createProject).toHaveBeenCalledWith(null, "kid", "Kid", null, "wall");
+  });
+
   it("parent not on the host → 400, nothing created", async () => {
     (listProjects as Mock).mockResolvedValue([]);
     const res = await httpRequest(server, {

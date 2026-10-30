@@ -55,6 +55,8 @@ vi.mock("../../ssh/tmux-helper.js", () => ({
   execCommand: vi.fn(),
 }));
 
+const { mockListProjects } = vi.hoisted(() => ({ mockListProjects: vi.fn(async () => [] as unknown[]) }));
+
 vi.mock("../../ssh/host-resolver.js", () => ({
   resolveHostById: vi.fn(),
 }));
@@ -74,6 +76,13 @@ vi.mock("../../claude-session/identity-artifact-reader.js", () => ({
   // by identity-birth-orchestrator's Step 8) requires IDENTITY_KEY_RE from
   // this module. H1 write⇔read parity lock — export the real regex value.
   IDENTITY_KEY_RE: /^[a-z0-9_-]{1,64}$/,
+  // Born inside a limited project: the route reads the host's projects.
+  listProjects: mockListProjects,
+}));
+
+vi.mock("../../sharing/host-conn.js", () => ({
+  HttpError: class extends Error {},
+  withHost: async (_h: number, _u: string, fn: (c: null) => Promise<unknown>) => fn(null),
 }));
 
 // Pretty-names shape (2026-10-01) auto-suffix pre-check uses node:fs/promises
@@ -1953,6 +1962,21 @@ describe("roleless birth visibility", () => {
     return b;
   };
 
+  it("inside a shared project it stays visible only to whoever made it", async () => {
+    mockIsHostMultiUser.mockResolvedValue(true);
+    mockGetUsernameForUserId.mockResolvedValue("alice");
+    mockListProjects.mockResolvedValue([{ slug: "ops", displayName: "Ops", users: ["alice", "zed"], parent: null }]);
+    let capturedOpts: unknown;
+    mockBirthIdentity.mockImplementation(async (opts: unknown) => {
+      capturedOpts = opts;
+    });
+    const result = await httpPost(port, "/identities/birth", { ...rolelessBody(), project: "ops" });
+    expect(result.status).toBe(200);
+    const o = capturedOpts as Record<string, unknown>;
+    expect(o.users).toBeUndefined();
+    expect(o.creatorUsername).toBe("alice");
+  });
+
   it("single-user host → creatorUsername still recorded, multi-user probe skipped", async () => {
     mockIsHostMultiUser.mockResolvedValue(false);
     mockGetUsernameForUserId.mockResolvedValue("alice");
@@ -2022,4 +2046,44 @@ it("non-slug project value is dropped (opts.project undefined), birth still proc
   const result = await httpPost(port, "/identities/birth", { ...VALID_BODY, project: "../etc" });
   expect(result.status).toBe(200);
   expect((capturedOpts as Record<string, unknown>).project).toBeUndefined();
+});
+
+it("born inside a limited project on a multi-user host → shared with the project's people too", async () => {
+  mockIsHostMultiUser.mockResolvedValue(true);
+  mockGetUsernameForUserId.mockResolvedValue("user");
+  mockListProjects.mockResolvedValue([{ slug: "ops", displayName: "Ops", users: ["zed", "user"], parent: null }]);
+  let capturedOpts: unknown;
+  mockBirthIdentity.mockImplementation(async (opts: unknown) => {
+    capturedOpts = opts;
+  });
+  const result = await httpPost(port, "/identities/birth", { ...VALID_BODY, project: "ops" });
+  expect(result.status).toBe(200);
+  const o = capturedOpts as Record<string, unknown>;
+  expect(o.users).toEqual(["user", "zed"]);
+  expect(o.creatorUsername).toBe("user");
+});
+
+it("born inside a project nobody limited → not limited either (no users list, no creator tag)", async () => {
+  mockIsHostMultiUser.mockResolvedValue(true);
+  mockGetUsernameForUserId.mockResolvedValue("user");
+  mockListProjects.mockResolvedValue([{ slug: "ops", displayName: "Ops", users: null, parent: null }]);
+  let capturedOpts: unknown;
+  mockBirthIdentity.mockImplementation(async (opts: unknown) => {
+    capturedOpts = opts;
+  });
+  await httpPost(port, "/identities/birth", { ...VALID_BODY, project: "ops" });
+  expect((capturedOpts as Record<string, unknown>).users).toBeUndefined();
+  expect((capturedOpts as Record<string, unknown>).creatorUsername).toBeUndefined();
+});
+
+it("born inside a project on a single-user machine → nothing about sharing changes", async () => {
+  mockIsHostMultiUser.mockResolvedValue(false);
+  mockListProjects.mockClear();
+  let capturedOpts: unknown;
+  mockBirthIdentity.mockImplementation(async (opts: unknown) => {
+    capturedOpts = opts;
+  });
+  await httpPost(port, "/identities/birth", { ...VALID_BODY, project: "ops" });
+  expect(mockListProjects).not.toHaveBeenCalled();
+  expect((capturedOpts as Record<string, unknown>).users).toBeUndefined();
 });

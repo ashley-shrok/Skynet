@@ -92,6 +92,7 @@ import {
   redactHiddenParents,
 } from "../../fleet-status/project-visibility-gate.js";
 import { getHostSemaphore } from "../../ssh/host-semaphore-registry.js";
+import { bornInProjectUsers } from "../../sharing/born-in-project.js";
 
 const router = express.Router();
 const authManager = AuthManager.getInstance();
@@ -178,7 +179,7 @@ function parseHostId(raw: unknown): ParsedHost {
  * has NO users field — the filter STRIPS users before calling
  * makeProjectListChangedFrame, so the gate list never reaches subscribers.
  */
-function enrichForWire(
+export function enrichForWire(
   projects: Array<{
     slug: string;
     displayName: string;
@@ -538,6 +539,29 @@ router.post(
             });
             res.status(400).json({ error: "parent project not found" });
             return;
+          }
+          // Made inside a project: start shared with its people as well as
+          // the creator — or with everyone when it isn't limited.
+          if (autoTagUsers !== null) {
+            const shared = bornInProjectUsers(existing, parent, autoTagUsers[0]);
+            if (shared === "everyone") {
+              autoTagUsers = null;
+              databaseLogger.info("projects-create: parent isn't limited — no users list", {
+                operation: "project_create_parent_open",
+                hostId,
+                baseSlug,
+                parent,
+              });
+            } else if (shared !== null) {
+              autoTagUsers = shared;
+              databaseLogger.info("projects-create: shared with the parent's people", {
+                operation: "project_create_parent_shared",
+                hostId,
+                baseSlug,
+                parent,
+                userCount: shared.length,
+              });
+            }
           }
         }
 

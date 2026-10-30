@@ -150,6 +150,7 @@ import workspaceDesktopRoutes from "./routes/workspace-desktop-routes.js";
 // + POST create + POST :slug/archive. JSON body per D-36a. Backend is
 // authoritative for slug derivation per Pitfall 1.
 import projectListRoutes from "./routes/project-list.js";
+import sharingRoutes from "./routes/sharing.js";
 // Phase 117 Plan 117-05 (D-05, D-05a, D-06, D-36a, D-37): /relay-rooms
 // router — POST /:roomId/project performs the read-modify-write on the
 // Matrix room's m.tag account_data via setRoomProjectTag (117-02).
@@ -2189,6 +2190,8 @@ app.use("/workspace", workspaceRoutes);
 // triggers subscription-registry.publishProjectListChanged so connected WS
 // clients re-hydrate the sidebar's projects zone.
 app.use("/projects", projectListRoutes);
+// "Shared with" control for agents, roles and projects on multi-user machines.
+app.use("/sharing", sharingRoutes);
 // Phase 40 (D-01, D-04): SSRF-hardened proxy for agent-served tailnet URLs —
 // POST /pretty-view/fetch-tailnet-url. Frontend eligibility hook + editor
 // open path both consume this. Threat model T-40-01/T-40-02 mitigations

@@ -1209,7 +1209,8 @@ crown, then gear.
     ending in a link to its scheduled tasks ("2 scheduled tasks ›", or
     "No scheduled tasks ›") — it closes the roles window and opens the
     scheduled tasks window on just that role's tasks; then **Colour** and
-    **Voice** buttons. Tabs: **Role file** (formatted; **Edit** at the
+    **Voice** buttons, and **Shared with** (§ Shared with; not on a role
+    kept on every host). Tabs: **Role file** (formatted; **Edit** at the
     bottom switches to editing with Cancel / Save), **Skills** (the
     role's skills — § Role skills — each row its name and one-line
     description, the same as a row in the Skills window; plus **New
@@ -1485,7 +1486,8 @@ crown, then gear.
   the roles window on that role), the task line with a pencil (edit in
   place), a quiet line naming the project it sits in — top level down,
   `In Morpheus 2 › M2 · Runs`, absent when it's in none — and a **Voice**
-  button (the voice's name, or "Role's voice") that opens the voice list.
+  button (the voice's name, or "Role's voice") that opens the voice list,
+  with a **Shared with** button beside it (§ Shared with).
   No Close button at the foot; the ✕ and Esc close it. Three tabs, plus
   three that appear only when there's something to show. A wake-up, a new
   wake-up, a repo, a commit and a diff each open **one level deeper in the
@@ -1581,8 +1583,8 @@ crown, then gear.
   own window, laid out like the identity modal; close X only. On top: a
   folder tile, a quiet "In <parent> › …" line for a sub-project, the
   project's name, and a count of what sits directly in it as the sidebar
-  shows it ("2 conversations · 3 sub-projects"). Two tabs; opens on the
-  first:
+  shows it ("2 conversations · 3 sub-projects"), with **Shared with**
+  under it (§ Shared with). Two tabs; opens on the first:
   - **Project file** — `project.md` formatted for reading (frontmatter
     hidden), with read aloud and **Edit** at the bottom; editing shows
     Cancel / Save, and saving goes back to reading. A file with nothing
@@ -1601,6 +1603,13 @@ crown, then gear.
     the folder changes; look in the folder when the work calls for it.
     An empty project folder says "No files yet"; an empty folder inside
     it says "Empty folder".
+
+- **Shared with (agents, roles, projects).** On a machine more than one
+  person uses, a button naming who can see the thing opens a ticked list of
+  everyone on that machine; changes take effect at once, asking first when
+  they reach further (an agent's role, a project's sub-projects and agents).
+  *Agent-side:* it's the `users:` frontmatter list (absent = everyone);
+  changing it is the user's call — point them at the button.
 
 - **Messages.** The agent speaks in solid bubbles in its own colour (the
   colour is how the user tells agents apart); the user's own messages are a

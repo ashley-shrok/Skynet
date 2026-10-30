@@ -32,6 +32,7 @@ import { stripFrontmatter } from "@/lib/strip-frontmatter";
 import { hasNeutralLook, identityRoles, identityTint } from "@/lib/identity-roles";
 import { AvatarImage } from "@/components/avatar-image";
 import { toast } from "sonner";
+import { SharedWithButton } from "@/features/sharing/SharedWithButton";
 import { VoicePicker } from "./pickers/VoicePicker";
 import { useVoiceLabel } from "./pickers/useVoiceCatalog";
 import {
@@ -850,6 +851,15 @@ export function IdentityModal({
               <div className="k-label">Voice</div>
               <VoicePicker value={voiceDraft} onChange={(v) => void saveVoice(v)} ariaLabel="Voice" />
             </div>
+          )}
+          {!isArchived && (
+            <SharedWithButton
+              hostId={hostId}
+              kind="agent"
+              slug={identity.identityKey}
+              itemLabel={identity.displayName}
+              onGone={() => onOpenChange(false)}
+            />
           )}
         </div>
       </div>
