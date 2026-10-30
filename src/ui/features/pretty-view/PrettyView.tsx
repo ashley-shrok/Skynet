@@ -1203,7 +1203,9 @@ export function PrettyView({
   const roleWindowHostTree = useMemo<HostFolder>(
     () => ({
       name: "",
-      children: [{ id: String(hostId), name: hostName ?? "this host" } as unknown as Host],
+      // The agent's own machine, so it can host agents (the roles window
+      // only lists machines that can).
+      children: [{ id: String(hostId), name: hostName ?? "this host", canHostAgents: true } as unknown as Host],
     }),
     [hostId, hostName],
   );

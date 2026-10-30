@@ -1070,6 +1070,28 @@ describe("SkillsEditorModal — Phase 44 SKILLED-05", () => {
     expect(within(hostSelect).queryByText("second-ssh-host")).toBeTruthy();
     expect(within(hostSelect).queryByText("windows-box")).toBeNull();
   });
+
+  it("SSH hosts that can't host agents are filtered from the host <select>", async () => {
+    const tree: HostFolder = {
+      name: "root",
+      children: [
+        ...HOST_TREE_WITH_RDP.children.slice(0, 2),
+        { ...HOST_TREE.children[0], id: "4", name: "non-fleet-ssh", ip: "10.0.0.4", canHostAgents: false },
+      ],
+    };
+    render(
+      <SkillsEditorModal
+        open={true}
+        onOpenChange={vi.fn()}
+        hostTree={tree}
+        defaultHostId={null}
+        container={document.body}
+      />,
+    );
+    const hostSelect = screen.getByRole("combobox", { name: /host/i });
+    expect(within(hostSelect).queryByText("boreal")).toBeTruthy();
+    expect(within(hostSelect).queryByText("non-fleet-ssh")).toBeNull();
+  });
   // ── Library: who can use which skill, at a glance ─────────────────────────
 
   const LIB_SKILLS = [

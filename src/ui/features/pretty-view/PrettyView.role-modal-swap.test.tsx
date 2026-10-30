@@ -185,9 +185,9 @@ describe("PrettyView — agent's window ↔ roles window", () => {
       },
     });
     expect(listRolesForHost).not.toHaveBeenCalled();
-    // One host: the agent's own.
+    // One host: the agent's own, which can host agents.
     const tree = JSON.parse(screen.getByTestId("roles-window-stub").dataset.tree ?? "null");
-    expect(tree.children).toEqual([{ id: "7", name: "Skynet" }]);
+    expect(tree.children).toEqual([{ id: "7", name: "Skynet", canHostAgents: true }]);
   });
 
   it("closing the roles window brings the agent's window back", async () => {
