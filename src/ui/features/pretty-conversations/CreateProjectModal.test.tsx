@@ -409,7 +409,7 @@ describe("CreateProjectModal", () => {
       open: true,
       hosts: [
         { id: "3", name: "boreal" },
-        { id: "7", name: "GIGAASHLEYPC", overrides: { enableSsh: false, canHostAgents: false } },
+        { id: "7", name: "DESKTOPPC", overrides: { enableSsh: false, canHostAgents: false } },
         { id: "6", name: "Skynet" },
       ],
     });
