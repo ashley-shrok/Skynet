@@ -224,8 +224,9 @@ export default function SkillsEditorModal({
     }
   }, []);
 
+  // Skills are read by agents, so only machines that can host agents.
   const flatHosts = useMemo(
-    () => collectAllHosts(hostTree?.children ?? []).filter((h) => h.enableRdp !== true),
+    () => collectAllHosts(hostTree?.children ?? []).filter((h) => h.canHostAgents === true),
     [hostTree],
   );
 

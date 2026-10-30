@@ -42,6 +42,7 @@ export function makeHost(id: string, name: string, overrides: Partial<Host> = {}
     quickActions: [],
     enableSsh: true,
     enableRdp: false,
+    canHostAgents: true,
     enableVnc: false,
     enableTelnet: false,
     sshPort: 22,
@@ -56,7 +57,9 @@ export const HOST_ID = 2;
 export const SINGLE_HOST_TREE: HostFolder = { name: "root", children: [makeHost("2", "boreal")] };
 export const MULTI_HOST_TREE: HostFolder = {
   name: "root",
-  children: [makeHost("1", "alpha"), makeHost("2", "boreal"), makeHost("3", "rdp-box", { enableRdp: true })],
+  children: [makeHost("1", "alpha"), makeHost("2", "boreal"), makeHost("3", "rdp-box", { enableRdp: true, canHostAgents: false }),
+    makeHost("4", "windows-box", { enableSsh: false, canHostAgents: false }),
+  ],
 };
 
 export const BOX: RoleSummary = {

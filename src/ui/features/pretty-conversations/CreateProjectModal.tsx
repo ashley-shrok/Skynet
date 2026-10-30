@@ -120,13 +120,13 @@ export function CreateProjectModal({
   const [error, setError] = useState<string | null>(null);
   const [selectedHost, setSelectedHost] = useState<Host | null>(null);
 
-  // Flat host list. Flatten via DFS, filter out RDP-only hosts (project
-  // directories live over SSH; RDP-only hosts have no writable
-  // ~/fleet/projects/ target).
+  // Flat host list. Projects live where agents run, so only machines that
+  // can host agents (Windows and other non-fleet hosts have no
+  // ~/fleet/projects/).
   const flatHosts = useMemo(
     () =>
       collectAllHosts(hostTree?.children ?? []).filter(
-        (h) => h.enableRdp !== true,
+        (h) => h.canHostAgents === true,
       ),
     [hostTree],
   );

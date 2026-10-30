@@ -63,6 +63,7 @@ function makeHost(id: string, name: string, overrides: Partial<Host> = {}): Host
     quickActions: [],
     enableSsh: true,
     enableRdp: false,
+    canHostAgents: true,
     enableVnc: false,
     enableTelnet: false,
     sshPort: 22,
@@ -390,7 +391,7 @@ describe("CreateProjectModal", () => {
       open: true,
       hosts: [
         { id: "3", name: "boreal" },
-        { id: "5", name: "boreal-RDP", overrides: { enableRdp: true } },
+        { id: "5", name: "boreal-RDP", overrides: { enableRdp: true, canHostAgents: false } },
         { id: "6", name: "Skynet" },
       ],
     });
@@ -401,6 +402,20 @@ describe("CreateProjectModal", () => {
     expect(
       screen.queryByTestId("create-project-host-option-5"),
     ).not.toBeInTheDocument();
+  });
+
+  it("a machine that can't host agents (e.g. Windows) is excluded from the picker", () => {
+    renderModal({
+      open: true,
+      hosts: [
+        { id: "3", name: "boreal" },
+        { id: "7", name: "GIGAASHLEYPC", overrides: { enableSsh: false, canHostAgents: false } },
+        { id: "6", name: "Skynet" },
+      ],
+    });
+    expect(screen.getByTestId("create-project-host-option-3")).toBeInTheDocument();
+    expect(screen.getByTestId("create-project-host-option-6")).toBeInTheDocument();
+    expect(screen.queryByTestId("create-project-host-option-7")).not.toBeInTheDocument();
   });
 
   it("Cancel closes without creating", () => {

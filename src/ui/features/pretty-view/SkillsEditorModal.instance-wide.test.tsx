@@ -119,7 +119,7 @@ import { autoAnswerKitDialogs, __resetKitDialogsForTests } from "@/components/ki
 
 // Minimal HostFolder tree — only fields consumed by collectAllHosts + the <select>.
 // Host id must be a string (per ui-types.ts Host.id: string); defaultHostId is number.
-// enableRdp must NOT be true so the host passes the filter.
+// canHostAgents must be true so the host passes the filter.
 const HOST_TREE: HostFolder = {
   name: "root",
   children: [
@@ -127,6 +127,7 @@ const HOST_TREE: HostFolder = {
       id: "1",
       name: "boreal",
       enableRdp: false,
+      canHostAgents: true,
       enableSsh: true,
       enableTerminal: true,
       enableTunnel: false,

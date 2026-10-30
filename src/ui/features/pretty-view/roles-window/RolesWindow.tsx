@@ -55,7 +55,8 @@ export function collectRoleHosts(tree: HostFolder | null): Host[] {
     }
   };
   walk(tree?.children ?? []);
-  return out.filter((h) => h.enableRdp !== true);
+  // Roles live where agents run: only machines that can host agents.
+  return out.filter((h) => h.canHostAgents === true);
 }
 
 export type RolesWindowStart =
