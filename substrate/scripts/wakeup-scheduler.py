@@ -78,8 +78,9 @@ same pattern the relay receiver uses for long m.text messages, so agents already
 know to Read the referenced file. Short instructions still emit inline.
 
 Sensor wake-ups ({"type": "sensor"}) are never fired by the clock. Their sensor
-(run by sensor-runner) drops fire files into `<slug>/fires/`; each poll this
-scheduler delivers every waiting fire, oldest first, as
+(run by sensor-runner) drops fire files into `<slug>/fires/`; this scheduler
+delivers every waiting fire, oldest first — within about a second, since it
+lists those folders every WAKEUP_FIRE_CHECK_SEC between passes — as
     📡 [sensor: <slug> @ <fire time UTC>] <instruction> — findings: <text>
 (findings pointed at as a file when long or multi-line), then moves it into
 `fires/delivered/`. A switched-off sensor trigger's waiting fires are
@@ -163,6 +164,9 @@ Plan 03).
 
 Usage:  python3 wakeup-scheduler.py <folder> [--mode scheduled-agents]
 Env:    WAKEUP_POLL_SEC (default 30) — loop granularity.
+        WAKEUP_FIRE_CHECK_SEC (default 1) — between passes, how often the fires
+        folders of sensor triggers are listed so a waiting fire is delivered at
+        once instead of on the next pass. Sensors never run more often for it.
 """
 
 import argparse
@@ -181,6 +185,10 @@ from datetime import date, datetime, timedelta, timezone
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 POLL = int(os.environ.get("WAKEUP_POLL_SEC", "30"))
+# Between passes, the fires folders of the sensor triggers found on the last
+# pass are listed this often, and a waiting fire is delivered at once rather
+# than on the next pass. Listing only — sensors never run more often for it.
+FIRE_CHECK_SEC = max(0.1, float(os.environ.get("WAKEUP_FIRE_CHECK_SEC", "1")))
 # Harness truncates monitor-event stdout at ~450 chars. Leave headroom for the
 # header + short-form margin; instructions above this go to file-pointer form.
 LONG_INSTRUCTION_CHARS = int(os.environ.get("WAKEUP_LONG_CHARS", "300"))
@@ -2002,8 +2010,9 @@ def main():
                                       spec["_state_dir"], delivered, once=True)
                 mark_once_fired(spec, fired_path, os.path.basename(fp))
                 finish_delivery(spec, [fp])
-                print("wakeup-scheduler: delivered sensor fire key=%s fire=%s fired_at=%s bytes=%d"
-                      % (key, os.path.basename(fp), fired_utc, len(findings)), file=sys.stderr, flush=True)
+                print("wakeup-scheduler: delivered sensor fire key=%s fire=%s fired_at=%s age=%.1fs bytes=%d"
+                      % (key, os.path.basename(fp), fired_utc, time.time() - fire_epoch(fp), len(findings)),
+                      file=sys.stderr, flush=True)
                 retire_once_sensor(spec, fired_path)
                 return
         else:
@@ -2183,8 +2192,9 @@ def main():
                     led["keys"][k] = now
             save_ledger(d, led, now, ctl["key_memory"])
             finish_delivery(spec, [fp for fp, _ in readable])
-            print("wakeup-scheduler: delivered sensor fire key=%s fires=%s fired_at=%s bytes=%d"
-                  % (key, ",".join(os.path.basename(fp) for fp, _ in readable), fired_utc, len(findings)),
+            print("wakeup-scheduler: delivered sensor fire key=%s fires=%s fired_at=%s age=%.1fs bytes=%d"
+                  % (key, ",".join(os.path.basename(fp) for fp, _ in readable), fired_utc,
+                     time.time() - fire_epoch(first), len(findings)),
                   file=sys.stderr, flush=True)
 
     def check_sensor_broken(spec, now):
@@ -2301,15 +2311,91 @@ def main():
             print("wakeup-scheduler: orphan-check disabled (couldn't resolve grandparent)",
                   file=sys.stderr, flush=True)
 
-    while True:
+    def exit_if_orphaned():
         if harness_pid is not None:
             try:
                 os.kill(harness_pid, 0)  # signal 0: existence check only, sends nothing
             except OSError:
                 sys.exit(0)              # harness gone — self-exit before firing anything
+
+    def load_specs():
+        return _load_specs_scheduled_agents(wdir) if is_scheduled_agents_mode else _load_specs(wdir)
+
+    def deliver_sensor(spec, now):
+        try:
+            deliver_sensor_fires(spec, now)
+        except Exception as e:
+            key = spec["_key"]
+            if (key, "sensor_deliver_error") not in warned:
+                print("⚠️ [wakeup-scheduler: %s] sensor fire delivery error %s: %s"
+                      % (key, type(e).__name__, e), flush=True)
+                warned.add((key, "sensor_deliver_error"))
+
+    def waiting_names(d):
+        return frozenset(os.path.basename(fp) for fp in pending_fires(d) if fp not in undeliverable)
+
+    def held_until(d, names):
+        """When the oldest fire still waiting in `d` becomes deliverable — its
+        bundle window closing — or None if nothing waits on a window."""
+        group = sensor_controls(d)["group"]
+        if not names or not group:
+            return None
+        return min(fire_epoch(os.path.join(d, "fires", n)) for n in names) + group
+
+    def wait_for_next_pass(deadline, sensor_dirs):
+        """Sleep until the next pass, but list the given sensor triggers' fires
+        folders every FIRE_CHECK_SEC and deliver a new fire straight away, so
+        it reaches its agent within about a second instead of up to a whole
+        POLL later. A trigger is only looked at again when its waiting fires
+        change or a held bundle's window closes; anything else still waiting
+        is left for the pass. Clock work, health checks and spotting new or
+        removed triggers stay on the pass. Specs are re-read before an early
+        delivery, so a trigger switched off or removed since the pass never
+        delivers."""
+        seen = {d: waiting_names(d) for d in sensor_dirs}
+        retry_at = {d: held_until(d, seen[d]) for d in sensor_dirs}
+        while True:
+            left = deadline - time.time()
+            if left <= 0:
+                return
+            if not seen:
+                time.sleep(left)
+                return
+            time.sleep(min(FIRE_CHECK_SEC, left))
+            now = time.time()
+            due = []
+            for d in seen:
+                names = waiting_names(d)
+                if not names:
+                    seen[d], retry_at[d] = names, None
+                elif names != seen[d] or (retry_at[d] is not None and now >= retry_at[d]):
+                    due.append(d)
+            if not due:
+                continue
+            exit_if_orphaned()
+            live = {}
+            for spec in load_specs():
+                sch = spec.get("schedule")
+                if (isinstance(sch, dict) and sch.get("type") == SENSOR_TYPE
+                        and not _zone(spec)[1] and not schedule_error(sch)):
+                    live[spec["_dir"]] = spec
+            for d in due:
+                if d in live and os.path.isfile(live[d]["_path"]):
+                    deliver_sensor(live[d], time.time())
+                if d in live and os.path.isfile(live[d]["_path"]):
+                    seen[d] = waiting_names(d)
+                    retry_at[d] = held_until(d, seen[d])
+                    if retry_at[d] is not None and retry_at[d] <= time.time():
+                        retry_at[d] = None        # due but not delivered (unreadable?): the pass retries
+                else:
+                    del seen[d], retry_at[d]      # gone or switched off: the pass settles it
+
+    while True:
+        exit_if_orphaned()
         now_ts = time.time()
-        specs = _load_specs_scheduled_agents(wdir) if is_scheduled_agents_mode else _load_specs(wdir)
+        specs = load_specs()
         spec_name = "scheduled-agent.json" if is_scheduled_agents_mode else "wakeup.json"
+        sensor_dirs = []
         sweep_fired_one_shots(wdir, now_ts, spec_name)
         discard_switched_off_fires(wdir, spec_name)
         for spec in specs:
@@ -2333,13 +2419,8 @@ def main():
                 continue
             if sch_type == SENSOR_TYPE:
                 # Fired by its sensor, never the clock: just deliver what's waiting.
-                try:
-                    deliver_sensor_fires(spec, now_ts)
-                except Exception as e:
-                    if (key, "sensor_deliver_error") not in warned:
-                        print("⚠️ [wakeup-scheduler: %s] sensor fire delivery error %s: %s"
-                              % (key, type(e).__name__, e), flush=True)
-                        warned.add((key, "sensor_deliver_error"))
+                sensor_dirs.append(spec["_dir"])
+                deliver_sensor(spec, now_ts)
                 if os.path.isfile(spec["_path"]):    # a one-time sensor that just retired is done
                     try:
                         check_sensor_broken(spec, now_ts)
@@ -2463,7 +2544,7 @@ def main():
                     _emit_wake(key, utc, spec["instruction"], spec["_state_dir"])
                 set_last(spec, now_ts)
                 set_runs(spec, get_runs(spec) + 1)
-        time.sleep(POLL)
+        wait_for_next_pass(time.time() + POLL, sensor_dirs)
 
 
 if __name__ == "__main__":

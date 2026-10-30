@@ -1385,6 +1385,63 @@ test_SA_G27_sensor_trip_switch_off_fails() {
   grep -q "i2 — findings: z" "$out_log" || fail "SA-G27: editing the spec resumes it, got: $(cat "$out_log")"
 }
 
+# SA-G28: prompt delivery — between 30s passes the scheduler lists sensor
+# triggers' fires folders every second, so a fire that lands mid-pass reaches
+# its agent within about a second; a trigger switched off since the pass never
+# delivers early; a sensor-fired scheduled task births promptly the same way.
+test_SA_G28_sensor_prompt_delivery() {
+  local ident_dir home_dir out_log w sa_dir pid
+  ident_dir=$(make_tmpdir); home_dir=$(make_tmpdir); out_log=$(make_tmpdir)/out.log
+  w="$ident_dir/wakeups/feed"
+  mkdir -p "$w/fires" "$w/sensor"
+  printf '{"name":"feed","enabled":true,"schedule":{"type":"sensor"},"instruction":"Next message"}\n' > "$w/wakeup.json"
+  printf '{"run":"always","command":"true"}\n' > "$w/sensor/sensor.json"
+  HOME="$home_dir" WAKEUP_POLL_SEC=30 timeout 12 python3 "$PY_SCRIPT" "$ident_dir" >"$out_log" 2>/dev/null &
+  pid=$!
+  sleep 2                                   # first pass done; next one is ~28s away
+  printf 'hello' > "$w/fires/$(fire_name "$(date +%s.%N)" 00000001)"
+  sleep 2.5
+  grep -q "findings: hello$" "$out_log" || fail "SA-G28: fire delivered mid-pass within ~2s, got: $(cat "$out_log")"
+  [ -z "$(ls "$w/fires" | grep -v '^delivered$')" ] || fail "SA-G28: delivered fire filed away: $(ls "$w/fires")"
+  # Switched off after the pass: a fire landing now is not delivered early.
+  printf '{"name":"feed","enabled":false,"schedule":{"type":"sensor"},"instruction":"Next message"}\n' > "$w/wakeup.json"
+  printf 'late' > "$w/fires/$(fire_name "$(date +%s.%N)" 00000002)"
+  sleep 2.5
+  grep -q "findings: late" "$out_log" && fail "SA-G28: a switched-off trigger never delivers early"
+  [ "$(ls "$w/fires" | grep -c '00000002.fire$')" = 1 ] || fail "SA-G28: its fire is left waiting for the pass"
+  kill "$pid" 2>/dev/null; wait "$pid" 2>/dev/null
+
+  # A bundle window is honoured: fires landing mid-pass are held, then go as
+  # one bundle once the window has closed, without waiting for the next pass.
+  ident_dir=$(make_tmpdir); out_log=$(make_tmpdir)/out.log
+  w="$ident_dir/wakeups/burst"
+  mkdir -p "$w/fires" "$w/sensor"
+  printf '{"name":"burst","enabled":true,"schedule":{"type":"sensor"},"instruction":"Look"}\n' > "$w/wakeup.json"
+  printf '{"run":"always","command":"true","groupWindow":"3s"}\n' > "$w/sensor/sensor.json"
+  HOME="$home_dir" WAKEUP_POLL_SEC=30 timeout 12 python3 "$PY_SCRIPT" "$ident_dir" >"$out_log" 2>/dev/null &
+  pid=$!
+  sleep 2
+  printf 'one' > "$w/fires/$(fire_name "$(date +%s.%N)" 00000004)"
+  sleep 1
+  printf 'two' > "$w/fires/$(fire_name "$(date +%s.%N)" 00000005)"
+  sleep 0.5
+  grep -q "📡" "$out_log" && fail "SA-G28: fires held while the window is open, got: $(cat "$out_log")"
+  sleep 3
+  assert_eq "1" "$(grep -c '📡 \[sensor: burst' "$out_log")" "SA-G28: one bundle once the window closes"
+  kill "$pid" 2>/dev/null; wait "$pid" 2>/dev/null
+
+  sa_dir=$(make_tmpdir); home_dir=$(make_tmpdir)
+  mkdir -p "$sa_dir/disk/fires"
+  printf '{"name":"disk","enabled":true,"roles":[],"schedule":{"type":"sensor"},"prompt":"Check disk"}\n' > "$sa_dir/disk/scheduled-agent.json"
+  HOME="$home_dir" WAKEUP_POLL_SEC=30 timeout 12 python3 "$PY_SCRIPT" "$sa_dir" --mode scheduled-agents >/dev/null 2>&1 &
+  pid=$!
+  sleep 2
+  printf 'full' > "$sa_dir/disk/fires/$(fire_name "$(date +%s.%N)" 00000003)"
+  sleep 2.5
+  assert_eq "1" "$(count_json_files "$home_dir/fleet/spawn-requests")" "SA-G28: task sensor births within ~2s"
+  kill "$pid" 2>/dev/null; wait "$pid" 2>/dev/null
+}
+
 run_test test_SA_G1_scheduled_agents_spec_discovery
 run_test test_SA_G2_scheduled_agents_ignores_flat_specs
 run_test test_SA_G3_per_identity_mode_unchanged
@@ -1412,6 +1469,7 @@ run_test test_SA_G24_sensor_trip_wakeup
 run_test test_SA_G25_sensor_trip_scheduled_task
 run_test test_SA_G26_sensor_controls_settings
 run_test test_SA_G27_sensor_trip_switch_off_fails
+run_test test_SA_G28_sensor_prompt_delivery
 
 printf '\n===============================\n'
 printf 'PASS: %s  FAIL: %s\n' "$PASS" "$FAIL"
