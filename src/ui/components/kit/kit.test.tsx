@@ -28,6 +28,7 @@ import {
   autoAnswerKitDialogs,
   __resetKitDialogsForTests,
 } from "./index";
+import { READY_SPINNER_DELAY_MS } from "./dialogs";
 
 const realMatchMedia = window.matchMedia;
 
@@ -62,6 +63,82 @@ describe("kit dialogs (replace window.confirm / prompt / alert)", () => {
     fireEvent.click(btn);
     await expect(p).resolves.toBe(true);
     await waitFor(() => expect(screen.queryByTestId("kit-confirm-dialog")).toBeNull());
+  });
+
+  it("confirm with `ready`: opens at once, greyed out (spinner after a beat) until ready, then shows the ready body", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      let release!: (r: { body?: string }) => void;
+      const ready = new Promise<{ body?: string }>((r) => (release = r));
+      let p!: Promise<boolean>;
+      act(() => {
+        p = kitConfirm({ title: "Archive it?", body: "First text.", ready, confirmLabel: "Archive", destructive: true });
+      });
+      const btn = await screen.findByTestId("kit-dialog-confirm");
+      expect(screen.getByText("First text.")).toBeInTheDocument();
+      expect(btn).toBeDisabled();
+      expect(btn).not.toHaveAttribute("aria-busy");
+      // Enter on the form does nothing while it isn't ready.
+      fireEvent.submit(btn.closest("form")!);
+      act(() => {
+        vi.advanceTimersByTime(READY_SPINNER_DELAY_MS);
+      });
+      expect(btn).toHaveAttribute("aria-busy", "true");
+      await act(async () => {
+        release({ body: "Full text with the warning." });
+      });
+      expect(screen.getByText("Full text with the warning.")).toBeInTheDocument();
+      expect(screen.queryByText("First text.")).toBeNull();
+      expect(btn).toBeEnabled();
+      expect(btn).not.toHaveAttribute("aria-busy");
+      fireEvent.click(btn);
+      await expect(p).resolves.toBe(true);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("confirm with `ready`: a quick answer never shows the spinner; Cancel works before it's ready; a failure just turns the button on", async () => {
+    let p!: Promise<boolean>;
+    act(() => {
+      p = kitConfirm({ title: "Quick?", body: "Body.", ready: Promise.resolve() });
+    });
+    const btn = await screen.findByTestId("kit-dialog-confirm");
+    await waitFor(() => expect(btn).toBeEnabled());
+    expect(btn).not.toHaveAttribute("aria-busy");
+    expect(screen.getByText("Body.")).toBeInTheDocument();
+    fireEvent.click(screen.getByTestId("kit-dialog-cancel"));
+    await expect(p).resolves.toBe(false);
+
+    let q!: Promise<boolean>;
+    act(() => {
+      q = kitConfirm({ title: "Slow?", ready: new Promise(() => {}) });
+    });
+    expect(await screen.findByTestId("kit-dialog-confirm")).toBeDisabled();
+    fireEvent.click(screen.getByTestId("kit-dialog-cancel"));
+    await expect(q).resolves.toBe(false);
+
+    let r!: Promise<boolean>;
+    act(() => {
+      r = kitConfirm({ title: "Broken?", body: "Kept.", ready: Promise.reject(new Error("x")) });
+    });
+    const b3 = await screen.findByTestId("kit-dialog-confirm");
+    await waitFor(() => expect(b3).toBeEnabled());
+    expect(screen.getByText("Kept.")).toBeInTheDocument();
+    fireEvent.click(b3);
+    await expect(r).resolves.toBe(true);
+  });
+
+  it("auto-answer waits for `ready` and records the body that was answered", async () => {
+    const dialogs = autoAnswerKitDialogs({ confirm: true });
+    let release!: () => void;
+    const ready = new Promise<{ body: string }>((r) => (release = () => r({ body: "After." })));
+    const p = kitConfirm({ title: "T", body: "Before.", ready });
+    await Promise.resolve();
+    expect(dialogs.calls).toHaveLength(0);
+    release();
+    await expect(p).resolves.toBe(true);
+    expect(dialogs.calls[0].opts.body).toBe("After.");
   });
 
   it("confirm resolves false on Cancel and on Esc", async () => {

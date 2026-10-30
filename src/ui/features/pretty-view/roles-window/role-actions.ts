@@ -6,7 +6,7 @@ import { kitAlert, kitConfirm } from "@/components/kit";
 import { archiveRole } from "@/api/role-archive-api";
 import { deleteRoleSkill } from "@/api/role-skills-api";
 import type { Identity } from "@/api/identities-api";
-import { checkActiveWakeupsForAgents, multiAgentWakeupWarning } from "@/shell/archive-wakeup-check";
+import { checkActiveWakeupsForAgents, multiAgentWakeupWarning, type WakeupCheck } from "@/shell/archive-wakeup-check";
 
 function plural(n: number, word: string): string {
   return `${n} ${word}${n === 1 ? "" : "s"}`;
@@ -22,21 +22,29 @@ export async function confirmAndArchiveRole(args: {
 }): Promise<boolean> {
   const { hostId, name, label, agents } = args;
   const agentLabel = (i: (typeof agents)[number]) => i.task || i.displayName || i.identityKey;
-  // A role lives on one host, and so do the agents holding it. Look up their
-  // wake-ups so the confirm can name the agents whose wake-ups would stop.
-  const wakeupChecks = await checkActiveWakeupsForAgents(
-    agents.map((i) => ({ hostId, identityKey: i.identityKey, label: agentLabel(i) })),
-  );
-  const wakeupWarning = multiAgentWakeupWarning(
-    wakeupChecks.map(({ agent, check }) => ({ label: agent.label, check })),
-  );
-  const body =
+  const body = (wakeupWarning: string) =>
     agents.length === 0
       ? "No agents hold it. This can't be undone from here — archived roles can be brought back from Archived roles."
       : `This also archives the ${plural(agents.length, "agent")} holding it:\n` +
         agents.map((i) => `• ${agentLabel(i)}`).join("\n") +
         (wakeupWarning ? `\n\n${wakeupWarning}` : "");
-  if (!(await kitConfirm({ title: `Archive ${label}?`, body, confirmLabel: "Archive", destructive: true }))) return false;
+  // A role lives on one host, and so do the agents holding it. The confirm
+  // opens at once; Archive waits for their wake-up checks, which add the
+  // agents whose wake-ups would stop.
+  let wakeupChecks: { check: WakeupCheck }[] = [];
+  const ready =
+    agents.length === 0
+      ? undefined
+      : checkActiveWakeupsForAgents(
+          agents.map((i) => ({ hostId, identityKey: i.identityKey, label: agentLabel(i) })),
+        ).then((results) => {
+          wakeupChecks = results;
+          return {
+            body: body(multiAgentWakeupWarning(results.map(({ agent, check }) => ({ label: agent.label, check })))),
+          };
+        });
+  if (!(await kitConfirm({ title: `Archive ${label}?`, body: body(""), ready, confirmLabel: "Archive", destructive: true })))
+    return false;
   try {
     await archiveRole(hostId, name);
     console.info({

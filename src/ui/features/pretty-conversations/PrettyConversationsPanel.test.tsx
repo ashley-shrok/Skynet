@@ -4606,7 +4606,7 @@ describe("PrettyConversationsPanel (shape-sidebar): swipe to archive with Undo",
       await waitFor(() => expect(archiveIdentitySpy).toHaveBeenCalledWith(42, "wren"));
     });
 
-    it("row menu: the confirm doesn't open until the check is back", async () => {
+    it("row menu: the confirm can't be answered until the check is back", async () => {
       seedWren();
       let release!: () => void;
       wakeupCheckMock.impl = () =>

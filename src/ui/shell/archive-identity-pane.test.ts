@@ -3,7 +3,9 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const { kitConfirmSpy, archiveIdentitySpy } = vi.hoisted(() => ({
-  kitConfirmSpy: vi.fn(async (_o: { title: string; body: string }) => false),
+  kitConfirmSpy: vi.fn(
+    async (_o: { title: string; body: string; ready?: Promise<{ body?: string }> }) => false,
+  ),
   archiveIdentitySpy: vi.fn(async () => ({ ok: true })),
 }));
 
@@ -30,7 +32,7 @@ describe("confirmAndArchiveIdentityPane — wake-ups", () => {
     archiveIdentitySpy.mockClear();
   });
 
-  it("checks the agent's wake-ups before the confirm and names them in it", async () => {
+  it("opens the confirm at once; once the check is back it names the wake-ups", async () => {
     wakeupCheckMock.impl = async () => ({
       status: "checked",
       active: [{ slug: "s", name: "Standup check", scheduleHuman: "Daily at 09:00" }],
@@ -41,7 +43,12 @@ describe("confirmAndArchiveIdentityPane — wake-ups", () => {
     expect(wakeupCheckMock.calls).toEqual([[3, "wren"]]);
     const o = kitConfirmSpy.mock.calls[0][0];
     expect(o.title).toBe('Archive "Wren"?');
-    expect(o.body).toContain("It has 1 wake-up that will never fire again:\n• Standup check — Daily at 09:00");
+    expect(o.body).toBe(
+      "The agent is retired and its conversation leaves the sidebar. You can't undo this here.",
+    );
+    expect((await o.ready)?.body).toContain(
+      "It has 1 wake-up that will never fire again:\n• Standup check — Daily at 09:00",
+    );
     expect(closePane).not.toHaveBeenCalled();
     expect(archiveIdentitySpy).not.toHaveBeenCalled();
   });
@@ -69,7 +76,7 @@ describe("confirmAndArchiveIdentityPane — wake-ups", () => {
     const closePane = vi.fn();
     confirmAndArchiveIdentityPane({ hostId: 3, identityKey: "wren", label: "Wren", closePane });
     await vi.waitFor(() => expect(archiveIdentitySpy).toHaveBeenCalledWith(3, "wren"));
-    expect(kitConfirmSpy.mock.calls[0][0].body).toContain("Couldn't check this agent's wake-ups");
+    expect((await kitConfirmSpy.mock.calls[0][0].ready)?.body).toContain("Couldn't check this agent's wake-ups");
     expect(closePane).toHaveBeenCalled();
   });
 });

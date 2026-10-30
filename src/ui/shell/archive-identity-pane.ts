@@ -3,8 +3,8 @@
 // the sidebar row optimistically, then fire the archive. Shared by the
 // identity badge's menu Archive item and the badge drop lane's archive zone
 // so both read the same confirmation and roll back the same way. The agent's
-// active wake-ups are looked up first so the confirm can name the ones that
-// would stop (archive-wakeup-check.ts).
+// active wake-ups are looked up while the confirm is open — Archive waits for
+// them — so it can name the ones that would stop (archive-wakeup-check.ts).
 
 import { announceAgentArchived } from "@/features/archived-view/archived-identity";
 import { applyIdentityChange } from "@/state/identities-store";
@@ -16,6 +16,7 @@ import {
 import { archiveIdentity } from "@/api/identity-archive-api";
 import { kitAlert, kitConfirm } from "@/components/kit";
 import {
+  ARCHIVE_AGENT_BODY,
   checkActiveWakeups,
   claimArchivePrompt,
   releaseArchivePrompt,
@@ -42,10 +43,12 @@ async function confirmThenArchive(args: {
   if (!claimArchivePrompt(hostId, identityKey)) return;
   let ok: boolean;
   try {
-    const check = await checkActiveWakeups(hostId, identityKey);
+    // The confirm opens at once; Archive waits for the check, which then
+    // fills in the wake-up warning.
     ok = await kitConfirm({
       title: `Archive "${label}"?`,
-      body: singleAgentArchiveBody(check),
+      body: ARCHIVE_AGENT_BODY,
+      ready: checkActiveWakeups(hostId, identityKey).then((check) => ({ body: singleAgentArchiveBody(check) })),
       confirmLabel: "Archive",
       destructive: true,
     });

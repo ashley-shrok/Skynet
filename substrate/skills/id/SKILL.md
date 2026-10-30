@@ -917,7 +917,8 @@ not something agents drive.
     open copy of its conversation (splits, other windows, other devices).
     The confirm names the agent's wake-ups that can still fire — they stop
     for good with it — and points at scheduled tasks for work that should
-    carry on. See § On `/id archive`.
+    carry on; it opens at once, with its Archive button greyed out for the
+    moment that check takes. See § On `/id archive`.
 
   Much the same menu appears on the conversation's **task pill** in the
   open conversation view (top-center) — its own ⋯ button, or right-click —

@@ -313,6 +313,7 @@ import { KitButton, kitAlert, kitConfirm, kitPrompt } from "@/components/kit";
 import { toast } from "sonner";
 import { systemLogger } from "@/lib/frontend-logger";
 import {
+  ARCHIVE_AGENT_BODY,
   checkActiveWakeups,
   checkActiveWakeupsForAgents,
   claimArchivePrompt,
@@ -2022,13 +2023,12 @@ export function PrettyConversationsPanel({
   const handleArchive = async (row: ConversationRowShape) => {
     const target = archiveTarget(row);
     if (target === null) return;
-    // Look up the wake-ups that would stop first, so the confirm can name them.
+    // The confirm names the wake-ups that would stop once the check is back.
     await confirmThenArchive(row, target, () => checkActiveWakeups(target.hostIdNum, target.identityKey));
   };
 
   // The confirm (naming any wake-ups that would stop) and, on yes, the archive.
-  // While the check and the confirm are up, another Archive on the same agent
-  // is ignored.
+  // While the confirm is up, another Archive on the same agent is ignored.
   const confirmThenArchive = async (
     row: ConversationRowShape,
     target: { hostIdNum: number; identityKey: string; label: string },
@@ -2038,10 +2038,11 @@ export function PrettyConversationsPanel({
     if (!claimArchivePrompt(hostIdNum, identityKey)) return;
     let ok: boolean;
     try {
-      const check = await getCheck();
+      // Opens at once; Archive waits for the check, which fills in the warning.
       ok = await kitConfirm({
         title: `Archive "${label}"?`,
-        body: singleAgentArchiveBody(check),
+        body: ARCHIVE_AGENT_BODY,
+        ready: getCheck().then((check) => ({ body: singleAgentArchiveBody(check) })),
         confirmLabel: "Archive",
         destructive: true,
       });
@@ -3128,36 +3129,33 @@ export function PrettyConversationsPanel({
           return;
         }
       }
-      // Look up the agents' wake-ups so the confirm can name the agents whose
-      // wake-ups would stop with them.
+      // 3. Confirm with counts. It opens at once; Archive waits for the
+      //    agents' wake-up checks, which add the agents whose wake-ups would
+      //    stop with them.
       const agentTargets = nonRdpMembers
         .filter((r) => !isRoomRow(r))
         .map((r) => archiveTarget(r))
         .filter((t): t is NonNullable<typeof t> => t !== null);
-      const wakeupChecks = await checkActiveWakeupsForAgents(
-        agentTargets.map((t) => ({ hostId: t.hostIdNum, identityKey: t.identityKey, label: t.label })),
-      );
-      const wakeupWarning = multiAgentWakeupWarning(
-        wakeupChecks.map(({ agent, check }) => ({ label: agent.label, check })),
-      );
-      // 3. Confirm with counts.
-      const lines: string[] = [];
-      if (subProjects.length > 0) {
-        lines.push(
-          agentCount > 0
-            ? `This also archives its ${plural(subProjects.length, "sub-project")} and the ${plural(agentCount, "agent")} across them.`
-            : `This also archives its ${plural(subProjects.length, "sub-project")}.`,
-        );
-      } else if (agentCount > 0) {
-        lines.push(`This also archives the ${plural(agentCount, "agent")} in it.`);
-      }
-      if (roomCount > 0) {
-        lines.push(
-          `${plural(roomCount, "relay room")} will move back to Conversations.`,
-        );
-      }
-      if (wakeupWarning) lines.push(wakeupWarning);
-      lines.push("This can't be undone. Move conversations out first to keep them.");
+      const confirmBody = (wakeupWarning: string) => {
+        const lines: string[] = [];
+        if (subProjects.length > 0) {
+          lines.push(
+            agentCount > 0
+              ? `This also archives its ${plural(subProjects.length, "sub-project")} and the ${plural(agentCount, "agent")} across them.`
+              : `This also archives its ${plural(subProjects.length, "sub-project")}.`,
+          );
+        } else if (agentCount > 0) {
+          lines.push(`This also archives the ${plural(agentCount, "agent")} in it.`);
+        }
+        if (roomCount > 0) {
+          lines.push(
+            `${plural(roomCount, "relay room")} will move back to Conversations.`,
+          );
+        }
+        if (wakeupWarning) lines.push(wakeupWarning);
+        lines.push("This can't be undone. Move conversations out first to keep them.");
+        return lines.join("\n\n");
+      };
       console.info({
         operation: "archive_project_confirm_shown",
         slug,
@@ -3165,12 +3163,26 @@ export function PrettyConversationsPanel({
         subProjectCount: subProjects.length,
         agentCount,
         roomCount,
-        agentsWithWakeups: wakeupChecks.filter((r) => r.check.status === "checked" && r.check.active.length > 0).length,
-        agentsUnchecked: wakeupChecks.filter((r) => r.check.status === "unknown").length,
+      });
+      const ready = checkActiveWakeupsForAgents(
+        agentTargets.map((t) => ({ hostId: t.hostIdNum, identityKey: t.identityKey, label: t.label })),
+      ).then((wakeupChecks) => {
+        console.info({
+          operation: "archive_project_wakeups_checked",
+          slug,
+          agentsWithWakeups: wakeupChecks.filter((r) => r.check.status === "checked" && r.check.active.length > 0).length,
+          agentsUnchecked: wakeupChecks.filter((r) => r.check.status === "unknown").length,
+        });
+        return {
+          body: confirmBody(
+            multiAgentWakeupWarning(wakeupChecks.map(({ agent, check }) => ({ label: agent.label, check }))),
+          ),
+        };
       });
       const proceed = await kitConfirm({
         title: `Archive "${name}"?`,
-        body: lines.join("\n\n"),
+        body: confirmBody(""),
+        ready,
         confirmLabel: "Archive",
         destructive: true,
       });

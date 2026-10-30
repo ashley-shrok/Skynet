@@ -23,7 +23,16 @@ export interface KitConfirmOptions {
   cancelLabel?: string;
   /** Red main button — for deletes and other can't-undo actions. */
   destructive?: boolean;
+  /** Something to finish before the question can be answered. The dialog
+   *  opens at once with `body`; until this settles the main button is greyed
+   *  out (with a spinner after a short beat — READY_SPINNER_DELAY_MS — so a
+   *  quick answer doesn't blink). A resolved `body` then replaces the body.
+   *  A rejection just turns the button on. Cancel always works. */
+  ready?: Promise<{ body?: React.ReactNode } | void>;
 }
+
+/** How long a not-yet-ready confirm waits before showing its spinner. */
+export const READY_SPINNER_DELAY_MS = 300;
 
 export interface KitPromptOptions {
   title: React.ReactNode;
@@ -106,6 +115,21 @@ let autoAnswer: AutoAnswer | null = null;
 
 function push(req: Request): void {
   if (autoAnswer) {
+    if (req.kind === "confirm" && req.opts.ready) {
+      // Like the real dialog: no answer until it's ready; the recorded body
+      // is the one the person would have answered.
+      const a = autoAnswer;
+      const opts = req.opts;
+      void opts.ready!.then(
+        (r) => ({ ...opts, ...(r && r.body !== undefined ? { body: r.body } : {}) }),
+        () => opts,
+      ).then((finalOpts) => {
+        a.calls.push({ kind: "confirm", opts: finalOpts });
+        const ans = a.confirm ?? true;
+        req.resolve(typeof ans === "function" ? ans(finalOpts) : ans);
+      });
+      return;
+    }
     autoAnswer.calls.push({ kind: req.kind, opts: req.opts });
     if (req.kind === "confirm") {
       const a = autoAnswer.confirm ?? true;
@@ -164,7 +188,7 @@ function request<T>(
   kind: Request["kind"],
   opts: KitConfirmOptions | KitPromptOptions | KitAlertOptions | KitConfirmIdentityOptions,
 ): Promise<T> {
-  const key = autoAnswer
+  const key = autoAnswer || (kind === "confirm" && (opts as KitConfirmOptions).ready)
     ? null
     : kind === "identity"
       ? "identity"
@@ -347,6 +371,28 @@ function DialogView({ req }: { req: Exclude<Request, { kind: "identity" }> }): R
   );
   const [error, setError] = React.useState<string | null>(null);
   const done = React.useRef(false);
+  // A confirm with `ready`: greyed out until it settles; spinner after a beat.
+  const readyPromise = req.kind === "confirm" ? req.opts.ready : undefined;
+  const [notReady, setNotReady] = React.useState(!!readyPromise);
+  const [showSpinner, setShowSpinner] = React.useState(false);
+  const [readyBody, setReadyBody] = React.useState<React.ReactNode | undefined>(undefined);
+  React.useEffect(() => {
+    if (!readyPromise) return;
+    let live = true;
+    const t = setTimeout(() => live && setShowSpinner(true), READY_SPINNER_DELAY_MS);
+    const settleReady = (r: { body?: React.ReactNode } | void) => {
+      if (!live) return;
+      clearTimeout(t);
+      if (r && r.body !== undefined) setReadyBody(r.body);
+      setNotReady(false);
+      setShowSpinner(false);
+    };
+    readyPromise.then(settleReady, () => settleReady());
+    return () => {
+      live = false;
+      clearTimeout(t);
+    };
+  }, [readyPromise]);
   // Like the browser's prompt: the starting text is selected, so typing
   // replaces it (a rename starts from the old name).
   const inputRef = React.useRef<HTMLInputElement>(null);
@@ -366,6 +412,7 @@ function DialogView({ req }: { req: Exclude<Request, { kind: "identity" }> }): R
   };
 
   const submit = () => {
+    if (notReady) return; // Enter while greyed out does nothing
     if (req.kind === "prompt") {
       const msg = req.opts.validate?.(value);
       if (msg) {
@@ -376,7 +423,8 @@ function DialogView({ req }: { req: Exclude<Request, { kind: "identity" }> }): R
     finish("ok");
   };
 
-  const { title, body } = req.opts;
+  const { title } = req.opts;
+  const body = readyBody !== undefined ? readyBody : req.opts.body;
   const okLabel =
     req.kind === "alert"
       ? req.opts.okLabel ?? "OK"
@@ -444,6 +492,8 @@ function DialogView({ req }: { req: Exclude<Request, { kind: "identity" }> }): R
             type="submit"
             variant={destructive ? "danger" : "primary"}
             autoFocus={req.kind !== "prompt" && !destructive}
+            disabled={notReady}
+            busy={showSpinner}
             data-testid="kit-dialog-confirm"
           >
             {okLabel}
