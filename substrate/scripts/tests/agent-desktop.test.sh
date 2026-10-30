@@ -361,6 +361,17 @@ test_browser_call_runs_on_desktop() {
   if kill -0 "$pid" 2>/dev/null; then pass test_browser_outlives_session; else fail test_browser_outlives_session "pid $pid gone"; fi
   agent-desktop browser down --identity alice
   if kill -0 "$pid" 2>/dev/null; then fail test_browser_down_reaps "pid $pid still alive"; else pass test_browser_down_reaps; fi
+  # Each start turns off the password manager and the crash-restore bubble in the
+  # profile, keeping whatever else the profile holds.
+  local prefs="$FIXTURE/fleet/identities/alice/desktop/browser-profile/Default/Preferences"
+  printf '%s' '{"keep_me":1,"profile":{"exit_type":"Crashed","exited_cleanly":false,"name":"Person 1"}}' > "$prefs"
+  agent-desktop browser up --identity alice --quiet >/dev/null
+  assert_eq test_browser_prefs_seeded \
+    '{"autosignin":false,"cred":false,"exit":"Normal","keep":1,"leak":false,"name":"Person 1","pm":false,"clean":true}' \
+    "$(jq -c '{autosignin: .credentials_enable_autosignin, cred: .credentials_enable_service,
+      exit: .profile.exit_type, keep: .keep_me, leak: .profile.password_manager_leak_detection,
+      name: .profile.name, pm: .profile.password_manager_enabled, clean: .profile.exited_cleanly}' "$prefs")"
+  agent-desktop browser down --identity alice
 }
 
 # ---- tests: the box-wide HTTP server -----------------------------------------

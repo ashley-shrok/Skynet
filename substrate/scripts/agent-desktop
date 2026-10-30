@@ -303,8 +303,44 @@ browser_ready() {
 s = socket.socket(socket.AF_UNIX); s.settimeout(2); s.connect(sys.argv[1])' "$BROWSER_SOCK" 2>/dev/null
 }
 
+# Chromium's "Save password?" bubble (and the breached-password warning) covers the page
+# right after every sign-in, hiding what the agent is doing from anyone watching. Turn the
+# password manager off in the profile before each launch (and clear the crash-restore
+# bubble, below); merged in, so the rest of the
+# profile (sign-ins, other settings) is kept, and an existing profile is fixed on its next start.
+seed_browser_prefs() {
+  local prefs="$STATE_DIR/browser-profile/Default/Preferences"
+  mkdir -p "$(dirname "$prefs")"
+  python3 - "$prefs" <<'PY' || printf '%s agent-desktop: could not update browser prefs\n' "$(date -Is)" >>"$STATE_DIR/browser.log"
+import json, os, sys
+path = sys.argv[1]
+try:
+    with open(path) as f:
+        prefs = json.load(f)
+    if not isinstance(prefs, dict):
+        prefs = {}
+except (OSError, ValueError):
+    prefs = {}
+prefs["credentials_enable_service"] = False
+prefs["credentials_enable_autosignin"] = False
+profile = prefs.get("profile") if isinstance(prefs.get("profile"), dict) else {}
+profile["password_manager_enabled"] = False
+profile["password_manager_leak_detection"] = False
+# The browser is always stopped by signal, so Chromium would otherwise open with a
+# "Restore pages?" bubble over the page after every restart.
+profile["exit_type"] = "Normal"
+profile["exited_cleanly"] = True
+prefs["profile"] = profile
+tmp = path + ".tmp"
+with open(tmp, "w") as f:
+    json.dump(prefs, f)
+os.replace(tmp, path)
+PY
+}
+
 start_browser() {
   local n="$1" cwd argv=() host
+  seed_browser_prefs
   host="$(command -v desktop-mcp 2>/dev/null || true)"
   [ -n "$host" ] || host="$(dirname "$SELF")/desktop-mcp.py"
   [ -f "$host" ] || die "desktop-mcp not found (needed to host the browser)"
