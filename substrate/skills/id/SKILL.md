@@ -827,7 +827,6 @@ not something agents drive.
     (desktop only; panes already showing it stay put).
   - **Open standalone** — the app by itself in a browser tab, without
     the client around it.
-  - **Share…** — who sees it, in a small window (§ Shared with).
   - **Rename…** — change the app's displayed name.
   - **Archive** — removes the app from the sidebar.
   *Agent-side:* apps are handled by the **`app-development` skill** —
@@ -1061,7 +1060,7 @@ not something agents drive.
   always visible, phone included — opening the app's menu; right-clicking
   the bar opens the same menu, in the same look as the sidebar's menus:
   **Move to new tab** (desktop only — opens it in a new browser tab of the client
-  and closes this pane), **Open standalone**, **Share…** (§ Shared with), **Rename…**,
+  and closes this pane), **Open standalone**, **Rename…**,
   **Close** (desktop only), **Archive** (the same double-confirm as the
   sidebar app tile's; closes every open pane of that app). A **conversation
   app's** menu has **Move to sidebar** in place of Rename… and Archive: it
@@ -1210,8 +1209,7 @@ crown, then gear.
     ending in a link to its scheduled tasks ("2 scheduled tasks ›", or
     "No scheduled tasks ›") — it closes the roles window and opens the
     scheduled tasks window on just that role's tasks; then **Colour** and
-    **Voice** buttons, and **Shared with** (§ Shared with; not on a role
-    kept on every host). Tabs: **Role file** (formatted; **Edit** at the
+    **Voice** buttons. Tabs: **Role file** (formatted; **Edit** at the
     bottom switches to editing with Cancel / Save), **Skills** (the
     role's skills — § Role skills — each row its name and one-line
     description, the same as a row in the Skills window; plus **New
@@ -1487,8 +1485,7 @@ crown, then gear.
   the roles window on that role), the task line with a pencil (edit in
   place), a quiet line naming the project it sits in — top level down,
   `In Morpheus 2 › M2 · Runs`, absent when it's in none — and a **Voice**
-  button (the voice's name, or "Role's voice") that opens the voice list,
-  with a **Shared with** button beside it (§ Shared with).
+  button (the voice's name, or "Role's voice") that opens the voice list.
   No Close button at the foot; the ✕ and Esc close it. Three tabs, plus
   three that appear only when there's something to show. A wake-up, a new
   wake-up, a repo, a commit and a diff each open **one level deeper in the
@@ -1584,8 +1581,8 @@ crown, then gear.
   own window, laid out like the identity modal; close X only. On top: a
   folder tile, a quiet "In <parent> › …" line for a sub-project, the
   project's name, and a count of what sits directly in it as the sidebar
-  shows it ("2 conversations · 3 sub-projects"), with **Shared with**
-  under it (§ Shared with). Two tabs; opens on the first:
+  shows it ("2 conversations · 3 sub-projects"). Two tabs; opens on the
+  first:
   - **Project file** — `project.md` formatted for reading (frontmatter
     hidden), with read aloud and **Edit** at the bottom; editing shows
     Cancel / Save, and saving goes back to reading. A file with nothing
@@ -1604,16 +1601,6 @@ crown, then gear.
     the folder changes; look in the folder when the work calls for it.
     An empty project folder says "No files yet"; an empty folder inside
     it says "Empty folder".
-
-- **Shared with (agents, roles, projects, apps, scheduled tasks).** On a
-  machine more than one person uses, a button naming who can see the thing
-  opens a ticked list of everyone on that machine (for a sidebar app, its
-  menu's **Share…**); changes take effect at once, asking first when they
-  reach further (an agent's or task's role, a project's sub-projects and
-  agents). Conversations a scheduled task starts are shared with its people.
-  *Agent-side:* it's the `users:` frontmatter list, or `users` in an app's or
-  task's JSON (absent = everyone); changing it is the user's call — point
-  them at the button.
 
 - **Messages.** The agent speaks in solid bubbles in its own colour (the
   colour is how the user tells agents apart); the user's own messages are a
@@ -2260,8 +2247,7 @@ Extra fields are rejected as malformed.
   new-conversation picker's "name it myself": free-form. Absent = auto-named. The success response carries the
   final name.
 - `project` (optional) — project slug; the newborn is born already in that
-  project (`project:` frontmatter) and, when the project is limited to some
-  people, visible to just them (unless it inherits your list, below).
+  project (`project:` frontmatter).
 - `requested_by` (optional) — your own identity name. Logged by the
   backend. A zero-role newborn is visible to whoever can see you when
   this names you; without it, to everyone on the box.
@@ -2291,9 +2277,8 @@ request (on the target host for a cross-box spawn):
 - `<uuid>.failure.json` — contains `{reason, message?}`. `reason` is one
   of `malformed`, `role_unknown`, `birth_failed`,
   `homeserver_unreachable`, `pool_exhausted`, `matrix_creds_missing`,
-  `visibility_unresolved` (who should see it couldn't be read — a zero-role
-  spawn's `requested_by`, or the project it's filed in — nothing was
-  created).
+  `visibility_unresolved` (a zero-role spawn whose `requested_by` couldn't
+  be read — nothing was created).
 
 Safety timeout: ~90 seconds per identity. On failure, surface to the
 user. Retry ONLY if `reason == "malformed"` and you have a specific
@@ -2561,7 +2546,7 @@ the sidebar footer, beside the gear. It opens the scheduled tasks window:
   **No project**, the default, then every project on the task's machine,
   sub-projects indented as in the sidebar — where each conversation it
   starts is filed; a project that no longer exists stays picked, marked
-  missing, until another is picked), **Shared with** (§ Shared with), When (Daily / Weekly / Monthly /
+  missing, until another is picked), When (Daily / Weekly / Monthly /
   Yearly / Every… / Once, with several times a day, "Only on" days,
   every-N weeks/months, an interval window and start, and an end date or
   run count) with its Time zone (blank = the user's own, or the machine's
