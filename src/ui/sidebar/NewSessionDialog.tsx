@@ -140,7 +140,7 @@ import {
   kitAlert,
 } from "@/components/kit";
 import { RolePickList, type RolePickGroup } from "./RolePickList";
-import { cachedHostRoles, forgetHostRoles, rememberHostRoles } from "./host-roles-cache";
+import { cachedHostRoles, rememberHostRoles } from "./host-roles-cache";
 import type { Host, HostFolder } from "@/types/ui-types";
 import {
   listIdentities,
@@ -487,11 +487,23 @@ export function NewSessionDialog({
     [agentHosts],
   );
   const multiHost = agentHosts.length > 1;
+  // Roles per host as shown: this open's state, else the cached answer from an
+  // earlier open. The fetch effect seeds hostRoles from the cache too, but only
+  // after the first paint; reading the cache here lets a reopened dialog show
+  // its roles on that first paint instead of flashing "Loading roles…".
+  const shownHostRoles: Record<string, HostRolesState> = { ...hostRoles };
+  if (open && !shellOnly) {
+    for (const h of agentHosts) {
+      if (shownHostRoles[h.id]) continue;
+      const cached = cachedHostRoles(String(h.id));
+      if (cached) shownHostRoles[h.id] = { ...cached, loading: true, known: true };
+    }
+  }
   const anyRolesLoading = agentHosts.some(
-    (h) => hostRoles[h.id] === undefined || hostRoles[h.id].loading,
+    (h) => shownHostRoles[h.id] === undefined || shownHostRoles[h.id].loading,
   );
   // The picked host's roles — what the stale-role guard validates against.
-  const selectedHostRoles = selectedHost ? hostRoles[selectedHost.id] : undefined;
+  const selectedHostRoles = selectedHost ? shownHostRoles[selectedHost.id] : undefined;
   const rolesForHost = selectedHostRoles?.roles ?? NO_ROLES;
   const rolesLoading = selectedHost
     ? selectedHostRoles === undefined || selectedHostRoles.loading
@@ -650,7 +662,9 @@ export function NewSessionDialog({
       const next = { ...prev };
       for (const h of pending) {
         const cached = cachedHostRoles(String(h.id));
-        next[h.id] = { roles: cached ?? [], loading: true, error: null, known: cached !== undefined };
+        next[h.id] = cached
+          ? { ...cached, loading: true, known: true }
+          : { roles: [], error: null, loading: true, known: false };
       }
       return next;
     });
@@ -668,8 +682,7 @@ export function NewSessionDialog({
           return { roles: [] as RoleSummary[], error };
         })
         .then((result) => {
-          if (result.error) forgetHostRoles(String(h.id));
-          else rememberHostRoles(String(h.id), result.roles);
+          rememberHostRoles(String(h.id), result);
           if (rolesRequestedRef.current !== requested) return;
           setHostRoles((prev) => ({ ...prev, [h.id]: { ...result, loading: false, known: true } }));
         });
@@ -678,11 +691,15 @@ export function NewSessionDialog({
 
   // Show the roles list once every machine's roles are known, or after
   // ROLES_SETTLE_MS at the latest.
-  const allRolesKnown = agentHosts.every((h) => hostRoles[h.id]?.known === true);
+  const allRolesKnown = agentHosts.every((h) => shownHostRoles[h.id]?.known === true);
+  // Shown on the first paint when everything is already known from the cache;
+  // rolesShown then latches it for the rest of the open.
+  const rolesReady = rolesShown || allRolesKnown;
   useEffect(() => {
     if (!open || shellOnly || rolesShown) return;
     if (allRolesKnown) {
-      console.log(`[new-session] roles shown hosts=${agentHosts.length} reason=all-known`);
+      const fromCache = agentHosts.filter((h) => hostRoles[h.id]?.loading !== false).length;
+      console.log(`[new-session] roles shown hosts=${agentHosts.length} reason=all-known fromCache=${fromCache}`);
       setRolesShown(true);
       return;
     }
@@ -750,8 +767,8 @@ export function NewSessionDialog({
   // Instance-wide roles carry a marker (same role on every host).
   const onEveryHost = t("nav.newSessionOnEveryHost", { defaultValue: "· on every host" });
   // The entries as a list in the dialog: pictures and descriptions.
-  const roleGroups: RolePickGroup[] = !rolesShown ? [] : sortedHosts.flatMap((host) => {
-    if (hostRoles[host.id]?.error && multiHost) return [];
+  const roleGroups: RolePickGroup[] = !rolesReady ? [] : sortedHosts.flatMap((host) => {
+    if (shownHostRoles[host.id]?.error && multiHost) return [];
     const hostIdNum = parseInt(String(host.id), 10);
     return [
       {
@@ -759,7 +776,7 @@ export function NewSessionDialog({
         title: host.name,
         items: [
           { value: roleOptionValue(host, NO_ROLES_OPTION), label: noRolesLabel, noRoles: true },
-          ...(hostRoles[host.id]?.roles ?? []).map((role) => ({
+          ...(shownHostRoles[host.id]?.roles ?? []).map((role) => ({
             value: roleOptionValue(host, role.name),
             label: roleDisplayName(role.name, role.displayName) + (role.instanceWide ? ` ${onEveryHost}` : ""),
             description: role.description,
@@ -1421,7 +1438,7 @@ export function NewSessionDialog({
                 groups={roleGroups}
                 value={pickedRoleValues}
                 onChange={handleRolesChange}
-                loading={!rolesShown || agentHosts.some((h) => !hostRoles[h.id]?.known)}
+                loading={!rolesReady || agentHosts.some((h) => !shownHostRoles[h.id]?.known)}
                 disabled={formDisabled}
                 onNewRole={
                   onNewRole

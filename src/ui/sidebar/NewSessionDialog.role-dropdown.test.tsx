@@ -925,14 +925,40 @@ describe("NewSessionDialog roles: per-host loading and errors", () => {
     const bravo = deferred<ReturnType<typeof role>[]>();
     mockListRolesForHost.mockImplementation(rolesByHost({ 1: alpha.promise, 2: bravo.promise }));
     rerender(<NewSessionDialog open onClose={vi.fn()} hostTree={twoHostTree} onCreate={vi.fn()} isAdmin />);
-    // Last time's roles, before either host has answered again — and no
-    // loading line under them.
-    await waitFor(() => expect(roleOptionValues()).toEqual(["1/box-maintainer", "2/tina"]));
+    // Last time's roles on the very first paint, before either host has
+    // answered again — and no loading line under them.
+    expect(roleOptionValues()).toEqual(["1/box-maintainer", "2/tina"]);
     expect(rolesLoading()).toBe(false);
 
     alpha.resolve([role("box-maintainer")]);
     bravo.resolve([role("tina"), role("ops")]);
     await waitFor(() => expect(roleOptionValues()).toEqual(["1/box-maintainer", "2/tina", "2/ops"]));
+  });
+
+  it("a host that failed last time doesn't hold a reopened list behind 'Loading roles…'", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    mockListRolesForHost.mockImplementation(
+      rolesByHost({ 1: new Error("connect ETIMEDOUT"), 2: [role("tina")] }),
+    );
+    const { rerender } = render(
+      <NewSessionDialog open onClose={vi.fn()} hostTree={twoHostTree} onCreate={vi.fn()} isAdmin />,
+    );
+    await waitFor(() => expect(roleOptionValues()).toEqual(["2/tina"]));
+    await waitFor(() => expect(rolesLoading()).toBe(false));
+    rerender(<NewSessionDialog open={false} onClose={vi.fn()} hostTree={twoHostTree} onCreate={vi.fn()} isAdmin />);
+
+    const alpha = deferred<ReturnType<typeof role>[]>();
+    const bravo = deferred<ReturnType<typeof role>[]>();
+    mockListRolesForHost.mockImplementation(rolesByHost({ 1: alpha.promise, 2: bravo.promise }));
+    rerender(<NewSessionDialog open onClose={vi.fn()} hostTree={twoHostTree} onCreate={vi.fn()} isAdmin />);
+    expect(roleOptionValues()).toEqual(["2/tina"]);
+    expect(rolesLoading()).toBe(false);
+
+    // The failed host coming back adds its section.
+    alpha.resolve([role("box-maintainer")]);
+    bravo.resolve([role("tina")]);
+    await waitFor(() => expect(roleOptionValues()).toEqual(["1/box-maintainer", "2/tina"]));
+    warn.mockRestore();
   });
 
   it("one host failing still lists the other hosts' roles, with no error line", async () => {
