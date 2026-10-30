@@ -70,6 +70,8 @@ export interface AdminHostOverview {
   fleet: HostFleetCounts | null;
   /** Agent hosts only; null when no sweep has been attempted yet. */
   substrate: HostSweepStatus | null;
+  /** Host row the admin's Files view opens over SSH; null = no usable SSH login. */
+  filesHostId: number | null;
 }
 
 export interface AdminHostsResponse {
@@ -90,6 +92,8 @@ export interface OverviewDeps {
   isLocal(hostId: number): boolean;
   execLocal(): Promise<string | null>;
   execRemote(row: HostRow): Promise<RemoteExecResult>;
+  /** Whether the requesting admin can themselves read / change files over this row. */
+  canOpen(hostId: number, action: "read" | "write"): Promise<boolean>;
   tcpPing(ip: string, port: number): Promise<number | null>;
   sweepStatus(hostId: string): HostSweepStatus | null;
   now(): number;
@@ -171,6 +175,34 @@ export function groupHostRows(rows: HostRow[]): MachineGroup[] {
   });
 }
 
+/**
+ * SSH rows worth trying, substrate row first (system creds, no per-user
+ * decrypt), then any other SSH-enabled row. Jump-host rows are skipped.
+ */
+function sshCandidates(group: MachineGroup): HostRow[] {
+  const sshRows = group.rows.filter((r) => r.enableSsh && !r.hasJumpHosts);
+  return [
+    ...sshRows.filter((r) => r.runsFleetSubstrate),
+    ...sshRows.filter((r) => !r.runsFleetSubstrate),
+  ];
+}
+
+/**
+ * The row the Files view uses: the first SSH candidate the admin can change
+ * files over, else the first they can only read. The file explorer goes
+ * through the admin's own host access, so a substrate row they hold no grant
+ * on is skipped, and a view-only grant never wins over a row they own.
+ */
+async function filesRowId(group: MachineGroup, deps: OverviewDeps): Promise<number | null> {
+  const candidates = sshCandidates(group);
+  for (const action of ["write", "read"] as const) {
+    for (const row of candidates) {
+      if (await deps.canOpen(row.id, action).catch(() => false)) return row.id;
+    }
+  }
+  return null;
+}
+
 async function probeMachine(
   group: MachineGroup,
   deps: OverviewDeps,
@@ -183,13 +215,7 @@ async function probeMachine(
   if (local) {
     return { output: await deps.execLocal(), attempted: true, note: null };
   }
-  // Substrate row first (system creds, no per-user decrypt), then any
-  // SSH-enabled row the admin can open.
-  const sshRows = group.rows.filter((r) => r.enableSsh && !r.hasJumpHosts);
-  const candidates = [
-    ...sshRows.filter((r) => r.runsFleetSubstrate),
-    ...sshRows.filter((r) => !r.runsFleetSubstrate),
-  ];
+  const candidates = sshCandidates(group);
   if (candidates.length === 0) {
     return { output: null, attempted: false, note: "no_ssh" };
   }
@@ -215,7 +241,7 @@ export async function buildHostsOverview(
     groups.map(async (group): Promise<AdminHostOverview> => {
       const deadline = deps.probeDeadlineMs ?? MACHINE_PROBE_DEADLINE_MS;
       let timer: ReturnType<typeof setTimeout> | undefined;
-      const [probe, latencies] = await Promise.all([
+      const [probe, latencies, filesHostId] = await Promise.all([
         Promise.race([
           probeMachine(group, deps),
           new Promise<Awaited<ReturnType<typeof probeMachine>>>((resolve) => {
@@ -226,6 +252,7 @@ export async function buildHostsOverview(
           }),
         ]).finally(() => clearTimeout(timer)),
         Promise.all(group.pingPorts.map((p) => deps.tcpPing(group.address, p))),
+        filesRowId(group, deps),
       ]);
 
       const parsed = parseProbeOutput(probe.output);
@@ -251,6 +278,7 @@ export async function buildHostsOverview(
         resourcesNote: note,
         fleet: parsed?.fleet ?? null,
         substrate: substrateRow ? deps.sweepStatus(String(substrateRow.id)) : null,
+        filesHostId,
       };
     }),
   );

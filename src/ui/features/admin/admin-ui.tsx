@@ -5,7 +5,7 @@
  * back control / Esc for the views one level deeper.
  */
 
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, type RefObject } from "react";
 import { ChevronLeft } from "lucide-react";
 import { escBelongsElsewhere } from "@/components/modal";
 
@@ -61,13 +61,19 @@ export function formatAdminDate(value: string | null | undefined): string {
 // ─── One level deeper ────────────────────────────────────────────────────
 
 /** While `active`, Esc goes back one level instead of closing the window. */
-export function useEscBack(active: boolean, onBack: () => void): void {
-  const ref = useRef({ active, onBack });
-  ref.current = { active, onBack };
+export function useEscBack(
+  active: boolean,
+  onBack: () => void,
+  /** Something inside the admin window: a window stacked above it (a file opened from Files) keeps its own Esc. */
+  inside?: RefObject<Element | null>,
+): void {
+  const ref = useRef({ active, onBack, inside });
+  ref.current = { active, onBack, inside };
   useEffect(() => {
     const onKey = (e: KeyboardEvent): void => {
       if (e.key !== "Escape" || e.defaultPrevented || !ref.current.active) return;
-      if (escBelongsElsewhere(e)) return;
+      const own = ref.current.inside?.current?.closest("[data-slot='modal-content']") ?? null;
+      if (escBelongsElsewhere(e, own)) return;
       e.preventDefault();
       e.stopPropagation();
       ref.current.onBack();

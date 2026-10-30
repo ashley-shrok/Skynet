@@ -42,6 +42,8 @@ export interface AdminHostOverview {
     consecutiveFailures: number;
     inFlight: boolean;
   } | null;
+  /** Host row the Files view opens; null when there's no SSH login the admin can use. */
+  filesHostId: number | null;
 }
 
 export interface AdminHostsResponse {

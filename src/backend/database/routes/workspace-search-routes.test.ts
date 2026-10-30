@@ -47,6 +47,9 @@ vi.mock("../../utils/logger.js", () => {
 
 vi.mock("../../ssh/host-resolver.js", () => ({ resolveHostById: vi.fn() }));
 
+let mockIsAdmin = false;
+vi.mock("../../instance-wide/admin.js", () => ({ callerIsAdmin: vi.fn(async () => mockIsAdmin) }));
+
 /** ssh2-shaped client whose exec runs the command in a local shell; TERM or close() kills it. */
 const stubClient = {
   exec(command: string, cb: (err: Error | null, stream: EventEmitter) => void) {
@@ -136,6 +139,7 @@ afterAll(() => {
 beforeEach(() => {
   mockUserId = "user-A";
   mockHasAccess = true;
+  mockIsAdmin = false;
   execCommands.length = 0;
   closedEarly = 0;
   canAccessHost.mockClear();
@@ -215,5 +219,20 @@ describe("/workspace/search", () => {
 
   it("404 not_found for a missing start folder", async () => {
     expect(await post({ ...ok, relativePath: "nope" })).toEqual({ status: 404, body: { error: "not_found" } });
+  });
+
+  it("host target: 403 for a non-admin, never execs", async () => {
+    const host = { hostId: 1, kind: "host", relativePath: "", query: "plan" };
+    expect(await post(host)).toEqual({ status: 403, body: { error: "permission_denied" } });
+    expect(execCommands).toEqual([]);
+  });
+
+  it("host target: an admin searches the whole home folder", async () => {
+    mockIsAdmin = true;
+    const r = await post({ hostId: 1, kind: "host", relativePath: "", query: "plan" });
+    expect(r.status).toBe(200);
+    expect(r.body.results.map((e: { path: string }) => e.path)).toEqual(
+      expect.arrayContaining(["fleet/identities/alice/workspace/docs/notes/plan.md", "fleet/projects/p1/PROJECT-plan.md"]),
+    );
   });
 });

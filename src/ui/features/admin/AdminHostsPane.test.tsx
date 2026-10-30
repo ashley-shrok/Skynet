@@ -41,6 +41,7 @@ function host(p: Partial<AdminHostOverview> & { key: string; name: string }): Ad
     resourcesNote: null,
     fleet: null,
     substrate: null,
+    filesHostId: null,
     ...p,
   };
 }
@@ -49,6 +50,7 @@ const HEALTHY_AGENT = host({
   key: "harbor",
   name: "Skynet",
   agentHost: true,
+  filesHostId: 7,
   fleet: { agents: 14, running: 4, apps: 3, supervisorRunning: true },
   substrate: { lastSuccessAt: NOW - 3 * 60_000, lastFailureAt: null, lastError: null, consecutiveFailures: 0, inFlight: false },
 });
@@ -91,9 +93,10 @@ beforeEach(() => {
 afterEach(() => vi.clearAllMocks());
 
 /** The window keeps which host is open; this stands in for it. */
+const openFiles = vi.fn();
 function Harness() {
   const [key, setKey] = useState<string | null>(null);
-  return <AdminHostsPane selectedKey={key} onSelect={setKey} />;
+  return <AdminHostsPane selectedKey={key} onSelect={setKey} onOpenFiles={openFiles} />;
 }
 
 const rowsIn = (testId: string) =>
@@ -218,6 +221,20 @@ describe("AdminHostsPane — one host", () => {
     expect(view.textContent).not.toContain("Resources");
     await userEvent.keyboard("{Escape}");
     expect(await screen.findByTestId("admin-hosts-pane")).toBeTruthy();
+  });
+
+  it("a host with a usable SSH login offers Files; the click opens it", async () => {
+    render(<Harness />);
+    await userEvent.click(await screen.findByTestId("admin-host-harbor"));
+    await userEvent.click(screen.getByTestId("admin-host-harbor-files"));
+    expect(openFiles).toHaveBeenCalledWith(expect.objectContaining({ key: "harbor", filesHostId: 7 }));
+  });
+
+  it("a host without one has no Files", async () => {
+    render(<Harness />);
+    await userEvent.click(await screen.findByTestId("admin-host-acme"));
+    expect(screen.queryByTestId("admin-host-acme-files")).toBeNull();
+    expect(screen.getByTestId("admin-host-view-acme").textContent).not.toContain("Files");
   });
 
   it("an unreachable host shows when it was last seen", async () => {

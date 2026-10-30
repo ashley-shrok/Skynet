@@ -159,10 +159,15 @@ class PermissionManager {
     return false;
   }
 
+  /**
+   * `touch: false` answers without stamping a shared grant's last-accessed
+   * time — for checks that only decide what to offer, not real use.
+   */
   async canAccessHost(
     userId: string,
     hostId: number,
     action: "read" | "write" | "execute" | "delete" | "share" = "read",
+    opts: { touch?: boolean } = {},
   ): Promise<HostAccessInfo> {
     try {
       const host = await db
@@ -233,18 +238,20 @@ class PermissionManager {
           };
         }
 
-        try {
-          await db
-            .update(hostAccess)
-            .set({
-              lastAccessedAt: now,
-            })
-            .where(eq(hostAccess.id, access.id));
-        } catch (error) {
-          databaseLogger.warn("Failed to update host access timestamp", {
-            operation: "update_host_access_timestamp",
-            error,
-          });
+        if (opts.touch !== false) {
+          try {
+            await db
+              .update(hostAccess)
+              .set({
+                lastAccessedAt: now,
+              })
+              .where(eq(hostAccess.id, access.id));
+          } catch (error) {
+            databaseLogger.warn("Failed to update host access timestamp", {
+              operation: "update_host_access_timestamp",
+              error,
+            });
+          }
         }
 
         return {

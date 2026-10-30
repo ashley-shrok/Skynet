@@ -44,6 +44,7 @@ import {
   classifyErrorToClass,
   classifyErrorToStatus,
   extractTarget,
+  guardHostTarget,
   reservedRootFileName,
   runWithAbort,
   validateRelativePath,
@@ -67,6 +68,7 @@ const MAX_OUTPUT_BYTES = 2_000_000;
 const SEARCH_ERROR_STATUS: Record<string, number> = {
   not_found: 404,
   path_traversal: 400,
+  path_forbidden: 400,
   search_unsupported: 501,
   search_failed: 502,
 };
@@ -180,12 +182,13 @@ workspaceSearchRoutes.post(
     }
     const userId = (req as Request & { userId: string }).userId;
 
-    const targetResult = extractTarget(body);
+    const targetResult = extractTarget(body, { allowHost: true });
     if (targetResult.ok === false) {
       res.status(400).json({ error: targetResult.error });
       return;
     }
     const target = targetResult.target;
+    if (!(await guardHostTarget(res, userId, target))) return;
 
     const startPath = typeof body.relativePath === "string" ? body.relativePath.replace(/\/+$/, "") : "";
     try {

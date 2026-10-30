@@ -84,6 +84,7 @@ function targetDepKey(t: WorkspaceTarget): string {
   if (t.kind === "identity") return `identity:${t.identityKey}`;
   if (t.kind === "archived-identity") return `archived-identity:${t.identityKey}`;
   if (t.kind === "project") return `project:${t.projectSlug}`;
+  if (t.kind === "host") return "host";
   return `role:${t.roleSlug}`;
 }
 import { resolveWorkspaceErrorCopy } from "./workspace-error-copy";

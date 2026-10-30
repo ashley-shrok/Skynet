@@ -50,6 +50,7 @@ export function shellEscape(s: string): string {
 function targetRootWord(target: TargetSpec): string {
   // An archived agent: the host decides (live folder wins, else the archive).
   if (target.kind === "archived-identity") return archivedIdentityRootShellWord(target.identityKey);
+  if (target.kind === "host") return `"$HOME"`;
   const rel =
     target.kind === "role"
       ? `fleet/roles/${target.roleSlug}`
@@ -97,6 +98,8 @@ export function buildSearchScript(
     `unset CDPATH`,
     `cd ${targetRootWord(target)} 2>/dev/null || fail not_found`,
     `root=$(pwd -P)`,
+    // A login whose home is "/" would make a whole-host search the whole system.
+    target.kind === "host" ? `[ "$root" = / ] && fail path_forbidden` : "",
     startPath === "" ? "" : `cd ./${shellEscape(startPath)} 2>/dev/null || fail not_found`,
     `here=$(pwd -P)`,
     `case "$here" in "$root"|"$root"/*) ;; *) fail path_traversal ;; esac`,

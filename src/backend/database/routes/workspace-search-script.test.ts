@@ -195,6 +195,20 @@ describe("search script", () => {
     expect(paths({ kind: "project", projectSlug: "p1" }, "", "plan")).toEqual(["sub/plan-p.md"]);
   });
 
+  it("a host target searches the whole home folder", () => {
+    expect(paths({ kind: "host" }, "", "close plan")).toEqual([
+      "fleet/identities/alice/workspace/docs/notes/Close-Plan-v2.md",
+    ]);
+  });
+
+  it("refuses a host target whose home is the filesystem root, before searching", () => {
+    const r = spawnSync("/bin/sh", ["-c", buildSearchScript({ kind: "host" }, "", ["plan"], null)], {
+      encoding: "utf-8",
+      env: { PATH: process.env.PATH ?? "", HOME: "/" },
+    });
+    expect(() => parseSearchOutput(r.stdout)).toThrow("path_forbidden");
+  });
+
   it("flags timedOut when the time limit stopped find", () => {
     const out = run(buildSearchScript(alice, "", ["plan"], null), `${fakeTimeoutBin}:`);
     const r = parseSearchOutput(out);

@@ -287,6 +287,15 @@ vi.mock("../../ssh/ssh-connection-pool.js", () => ({
 }));
 
 /* --------------------------------------------------------------------- */
+/*  Admin flag — gates the whole-host target                             */
+/* --------------------------------------------------------------------- */
+
+let mockIsAdmin = false;
+vi.mock("../../instance-wide/admin.js", () => ({
+  callerIsAdmin: vi.fn(async () => mockIsAdmin),
+}));
+
+/* --------------------------------------------------------------------- */
 /*  Import module under test AFTER all vi.mock declarations              */
 /* --------------------------------------------------------------------- */
 
@@ -405,6 +414,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   mockUserId = "user-A";
   mockCanAccessHost = async () => ({ hasAccess: true });
+  mockIsAdmin = false;
   resetStubClient();
   (resolveHostById as Mock).mockImplementation(
     async (hostId: number, _userId: string) => {
@@ -1367,6 +1377,103 @@ describe("project target and reserved root file", () => {
 /* --------------------------------------------------------------------- */
 /*  Per-host semaphore cap (verify:ssh-cap)                              */
 /* --------------------------------------------------------------------- */
+
+describe("host target (admin-only home folder)", () => {
+  function stubHome(links: Record<string, string> = {}) {
+    stubSftp.realpath.mockImplementation(
+      (p: string, cb: (err: Error | null, resolved: string) => void) => {
+        queueMicrotask(() => cb(null, p === "." ? "/home/ubuntu" : (links[p] ?? p)));
+      },
+    );
+  }
+  function postJson(method: string, path: string, body: Record<string, unknown>) {
+    return httpRequest(server, { method, path, body: JSON.stringify(body) });
+  }
+  const host = { kind: "host", hostId: 42 };
+
+  it("refuses a non-admin with 403 before touching the host", async () => {
+    stubHome();
+    for (const [method, path, extra] of [
+      ["POST", "/workspace/list", { relativePath: "" }],
+      ["POST", "/workspace/read-file", { relativePath: "a.txt" }],
+      ["PUT", "/workspace/write-file", { relativePath: "a.txt", content: "x" }],
+      ["DELETE", "/workspace/entry", { relativePath: "a.txt" }],
+      ["POST", "/workspace/rename", { from: "a", to: "b" }],
+      ["POST", "/workspace/mkdir", { relativePath: "d" }],
+      ["POST", "/workspace/create-file", { relativePath: "n.txt" }],
+    ] as const) {
+      const res = await postJson(method, path, { ...host, ...extra });
+      expect(res.status, path).toBe(403);
+      expect(res.body).toEqual({ error: "permission_denied" });
+    }
+    const dl = await httpRequest(server, {
+      method: "GET",
+      path: "/workspace/download?kind=host&hostId=42&relativePath=a.txt",
+    });
+    expect(dl.status).toBe(403);
+    expect(resolveHostById).not.toHaveBeenCalled();
+    expect(stubSftp.readdir).not.toHaveBeenCalled();
+  });
+
+  it("lists the SSH account's home folder for an admin", async () => {
+    mockIsAdmin = true;
+    stubHome();
+    const res = await postJson("POST", "/workspace/list", { ...host, relativePath: "" });
+    expect(res.status).toBe(200);
+    expect(stubSftp.readdir.mock.calls[0][0]).toBe("/home/ubuntu");
+  });
+
+  it("still needs the admin's own access to the host", async () => {
+    mockIsAdmin = true;
+    mockCanAccessHost = async () => ({ hasAccess: false });
+    stubHome();
+    const res = await postJson("POST", "/workspace/list", { ...host, relativePath: "" });
+    expect(res.status).toBe(403);
+  });
+
+  it("keeps an admin inside the home folder", async () => {
+    mockIsAdmin = true;
+    stubHome({ "/home/ubuntu/etc-link": "/etc" });
+    const traversal = await postJson("POST", "/workspace/list", { ...host, relativePath: "../.." });
+    expect(traversal.body).toEqual({ error: "path_traversal" });
+    const escape = await postJson("POST", "/workspace/list", { ...host, relativePath: "etc-link" });
+    expect(escape.status).toBe(400);
+    expect(stubSftp.readdir).not.toHaveBeenCalled();
+  });
+
+  it("refuses an upload from a non-admin", async () => {
+    const boundary = "----HostBoundary";
+    const body = buildMultipart(boundary, { kind: "host", hostId: "42", relativePath: "" }, "file", Buffer.from("x"), "a.txt");
+    const res = await httpRequest(server, {
+      method: "POST",
+      path: "/workspace/upload",
+      headers: { "Content-Type": `multipart/form-data; boundary=${boundary}` },
+      body: body.toString("binary"),
+    });
+    expect(res.status).toBe(403);
+    expect(resolveHostById).not.toHaveBeenCalled();
+  });
+
+  it("refuses a login whose home folder is the filesystem root", async () => {
+    mockIsAdmin = true;
+    stubSftp.realpath.mockImplementation(
+      (p: string, cb: (err: Error | null, resolved: string) => void) => {
+        queueMicrotask(() => cb(null, p === "." ? "/" : p));
+      },
+    );
+    const res = await postJson("POST", "/workspace/list", { ...host, relativePath: "" });
+    expect(res.status).toBe(400);
+    expect(res.body).toEqual({ error: "path_forbidden" });
+    expect(stubSftp.readdir).not.toHaveBeenCalled();
+  });
+
+  it("lets an admin write anywhere in the home folder, no reserved file", async () => {
+    mockIsAdmin = true;
+    stubHome();
+    const res = await postJson("PUT", "/workspace/write-file", { ...host, relativePath: "project.md", content: "x" });
+    expect(res.status).toBe(200);
+  });
+});
 
 describe("per-host SSH semaphore", () => {
   it("N concurrent /list requests on one host never exceed the semaphore cap", async () => {

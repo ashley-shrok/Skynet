@@ -11,7 +11,8 @@
  *               same window (access, phone, keys, where they're signed in,
  *               their hosts, delete).
  *   - Hosts:    every host Skynet knows about, the ones that need
- *               attention first; a host opens one level deeper.
+ *               attention first; a host opens one level deeper, and its
+ *               Files (the home folder over SSH) one level below that.
  *   - Sign-in:  registration / password-reset policy and session length.
  *   - Instance file: the CLAUDE.md every host gets at
  *               /etc/claude-code/CLAUDE.md — read, then Edit.
@@ -43,6 +44,7 @@ import { AdminUsersPane } from "./AdminUsersPane";
 import { AdminSignInPane } from "./AdminSignInPane";
 import { AdminSystemPane } from "./AdminSystemPane";
 import { AdminHostsPane } from "./AdminHostsPane";
+import { AdminHostFilesPane } from "./AdminHostFilesPane";
 import { AdminInstanceFilePane } from "./AdminInstanceFilePane";
 import { AdminUserView } from "./AdminUserView";
 
@@ -81,6 +83,8 @@ export default function AdminModal({ open, onOpenChange, currentUserId }: AdminM
   const [oidcConfigured, setOidcConfigured] = useState(false);
   const [selectedUserId, setSelectedUserId] = useState<string | null>(null);
   const [selectedHostKey, setSelectedHostKey] = useState<string | null>(null);
+  // A host's Files view, one level below its page.
+  const [hostFiles, setHostFiles] = useState<{ name: string; hostId: number } | null>(null);
   // Kept here so going into a user and back keeps what was typed.
   const [userQuery, setUserQuery] = useState("");
   const rawDrill = useModalDrillIn<AdminTab>(tab, false, open);
@@ -118,6 +122,7 @@ export default function AdminModal({ open, onOpenChange, currentUserId }: AdminM
       setTab("users");
       setSelectedUserId(null);
       setSelectedHostKey(null);
+      setHostFiles(null);
       setUserQuery("");
       leaveGuard.current = null;
       return;
@@ -133,6 +138,7 @@ export default function AdminModal({ open, onOpenChange, currentUserId }: AdminM
       if (!(await mayLeave())) return;
       setSelectedUserId(null);
       setSelectedHostKey(null);
+      setHostFiles(null);
       setTab(next);
     },
     [mayLeave],
@@ -145,6 +151,7 @@ export default function AdminModal({ open, onOpenChange, currentUserId }: AdminM
         if (!ok) return;
         setSelectedUserId(null);
         setSelectedHostKey(null);
+        setHostFiles(null);
         rawDrill.drillIn();
       });
     },
@@ -154,6 +161,7 @@ export default function AdminModal({ open, onOpenChange, currentUserId }: AdminM
         if (!ok) return;
         setSelectedUserId(null);
         setSelectedHostKey(null);
+        setHostFiles(null);
         rawDrill.back();
       });
     },
@@ -176,6 +184,7 @@ export default function AdminModal({ open, onOpenChange, currentUserId }: AdminM
   const fullscreen = rawDrill.fullscreen;
   const section = SECTIONS.find((s) => s.value === tab)!;
   const deeper = (tab === "users" && selectedUser !== null) || (tab === "hosts" && selectedHostKey !== null);
+  const showHostFiles = tab === "hosts" && selectedHostKey !== null && hostFiles !== null;
 
   const hero = deeper ? null : (
     <KitSectionHero
@@ -198,43 +207,62 @@ export default function AdminModal({ open, onOpenChange, currentUserId }: AdminM
     tab === "instance-file" ? (
       <AdminInstanceFilePane hero={hero} registerLeaveGuard={registerLeaveGuard} />
     ) : (
-      <ModalBody key={tab} ref={paneRef} data-testid="admin-modal-pane" className="pt-1 pb-7">
-        <div className="max-w-[600px] mx-auto">
-          {hero}
-          {tab === "users" &&
-            (selectedUser ? (
-              <AdminUserView
-                key={selectedUser.id}
-                user={selectedUser}
-                currentUserId={currentUserId}
-                adminCount={adminCount}
-                oidcInUse={oidcInUse}
-                onBack={() => void leaveUser()}
-                registerLeaveGuard={registerLeaveGuard}
-                onUserChanged={refreshAfterUserChange}
-                onUserDeleted={() => {
-                  setSelectedUserId(null);
-                  void loadUsers();
+      <>
+        {showHostFiles && (
+          <AdminHostFilesPane name={hostFiles.name} hostId={hostFiles.hostId} onBack={() => setHostFiles(null)} />
+        )}
+        {/* Stays mounted (hidden) under a host's Files so back lands straight on
+            the host page with what it already loaded. */}
+        <ModalBody
+          key={tab}
+          ref={paneRef}
+          data-testid="admin-modal-pane"
+          className={showHostFiles ? "hidden" : "pt-1 pb-7"}
+        >
+          <div className="max-w-[600px] mx-auto">
+            {hero}
+            {tab === "users" &&
+              (selectedUser ? (
+                <AdminUserView
+                  key={selectedUser.id}
+                  user={selectedUser}
+                  currentUserId={currentUserId}
+                  adminCount={adminCount}
+                  oidcInUse={oidcInUse}
+                  onBack={() => void leaveUser()}
+                  registerLeaveGuard={registerLeaveGuard}
+                  onUserChanged={refreshAfterUserChange}
+                  onUserDeleted={() => {
+                    setSelectedUserId(null);
+                    void loadUsers();
+                  }}
+                />
+              ) : (
+                <AdminUsersPane
+                  users={users}
+                  error={usersError}
+                  currentUserId={currentUserId}
+                  oidcInUse={oidcInUse}
+                  query={userQuery}
+                  onQueryChange={setUserQuery}
+                  onOpenUser={setSelectedUserId}
+                />
+              ))}
+            {tab === "hosts" && (
+              <AdminHostsPane
+                selectedKey={selectedHostKey}
+                onSelect={setSelectedHostKey}
+                covered={showHostFiles}
+                onOpenFiles={(h) => {
+                  if (h.filesHostId !== null) setHostFiles({ name: h.name, hostId: h.filesHostId });
                 }}
               />
-            ) : (
-              <AdminUsersPane
-                users={users}
-                error={usersError}
-                currentUserId={currentUserId}
-                oidcInUse={oidcInUse}
-                query={userQuery}
-                onQueryChange={setUserQuery}
-                onOpenUser={setSelectedUserId}
-              />
-            ))}
-          {tab === "hosts" && (
-            <AdminHostsPane selectedKey={selectedHostKey} onSelect={setSelectedHostKey} />
-          )}
-          {tab === "signin" && <AdminSignInPane oidcInUse={oidcInUse} />}
-          {tab === "system" && <AdminSystemPane />}
-        </div>
-      </ModalBody>
+            )}
+            {tab === "signin" && <AdminSignInPane oidcInUse={oidcInUse} />}
+            {tab === "system" && <AdminSystemPane />}
+          </div>
+        </ModalBody>
+      </>
     );
 
   return (

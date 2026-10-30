@@ -2,12 +2,13 @@
  * Admin → Hosts: every host Skynet knows about, in two groups — the
  * ones that need attention (each row says why) and the ones running fine.
  * A host opens one level deeper: its CPU / memory / disk, what it is,
- * and (agent hosts) its agents, substrate sync and agent supervisor.
+ * and (agent hosts) its agents, substrate sync and agent supervisor. A host
+ * with an SSH login the admin can use also offers Files (its home folder).
  * Polls while the pane is open; the backend probes on demand.
  */
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Server } from "lucide-react";
+import { Folder, Server } from "lucide-react";
 import {
   getAdminHosts,
   type AdminHostOverview,
@@ -210,8 +211,21 @@ function StatusDot({ h, attn }: { h: AdminHostOverview; attn: boolean }) {
 
 // ─── One host ───────────────────────────────────────────────────────────
 
-function HostView({ h, now, onBack }: { h: AdminHostOverview; now: number; onBack: () => void }) {
-  useEscBack(true, onBack);
+function HostView({
+  h,
+  now,
+  onBack,
+  onOpenFiles,
+  covered,
+}: {
+  h: AdminHostOverview;
+  now: number;
+  onBack: () => void;
+  onOpenFiles: () => void;
+  covered: boolean;
+}) {
+  // Its Files view, stacked over it, owns Esc while open.
+  useEscBack(!covered, onBack);
   const f = fractions(h);
   const r = h.resources;
   const reasons = attentionReasons(h, now);
@@ -288,6 +302,17 @@ function HostView({ h, now, onBack }: { h: AdminHostOverview; now: number; onBac
             />
           </KitSettingsGroup>
         )}
+        {h.filesHostId !== null && (
+          <KitSettingsGroup title="Files">
+            <KitSettingsRow
+              leading={<Folder size={16} aria-hidden="true" className="text-[var(--k-t2)]" />}
+              label="Files"
+              description="Browse and edit what's in this host's home folder."
+              onClick={onOpenFiles}
+              data-testid={`admin-host-${h.key}-files`}
+            />
+          </KitSettingsGroup>
+        )}
         <KitSettingsGroup title="About" footer={note ?? undefined}>
           <KitSettingsRow label="Address" value={<span className="font-mono text-[12.5px]">{h.address}</span>} />
           <KitSettingsRow
@@ -308,9 +333,15 @@ function HostView({ h, now, onBack }: { h: AdminHostOverview; now: number; onBac
 export function AdminHostsPane({
   selectedKey,
   onSelect,
+  onOpenFiles,
+  covered = false,
 }: {
   selectedKey: string | null;
   onSelect: (key: string | null) => void;
+  /** Open a host's Files view (only offered when it has a usable SSH login). */
+  onOpenFiles: (h: AdminHostOverview) => void;
+  /** A host's Files view is showing over this pane (kept mounted, hidden). */
+  covered?: boolean;
 }) {
   const [data, setData] = useState<AdminHostsResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -356,7 +387,17 @@ export function AdminHostsPane({
 
   const hosts = data ? [...data.hosts].sort((a, b) => a.name.localeCompare(b.name)) : [];
   const selected = selectedKey ? hosts.find((h) => h.key === selectedKey) : undefined;
-  if (selected) return <HostView h={selected} now={now} onBack={() => onSelect(null)} />;
+  if (selected) {
+    return (
+      <HostView
+        h={selected}
+        now={now}
+        onBack={() => onSelect(null)}
+        onOpenFiles={() => onOpenFiles(selected)}
+        covered={covered}
+      />
+    );
+  }
 
   const attention = hosts.filter((h) => needsAttention(h));
   const fine = hosts.filter((h) => !needsAttention(h));

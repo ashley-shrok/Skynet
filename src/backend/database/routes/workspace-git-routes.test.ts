@@ -162,6 +162,8 @@ describe("/workspace/git", () => {
       error: "invalid_body",
     });
     expect((await post("/repo", { ...ok, repoPath: 5 })).body).toEqual({ error: "invalid_body" });
+    // The whole-host target belongs to the Files view only.
+    expect((await post("/repos", { hostId: 1, kind: "host" })).body).toEqual({ error: "invalid_body" });
     expect(execCommands).toEqual([]);
   });
 

@@ -30,6 +30,7 @@ function deps(over: Partial<OverviewDeps> = {}): OverviewDeps {
     isLocal: () => false,
     execLocal: async () => PROBE_OK,
     execRemote: async () => ({ ok: true, output: PROBE_OK }),
+    canOpen: async () => true,
     tcpPing: async () => 12,
     sweepStatus: () => null,
     now: () => 1000,
@@ -201,5 +202,82 @@ describe("buildHostsOverview", () => {
     expect(res.hosts[0].resources).toBeNull();
     expect(res.hosts[0].resourcesNote).toBe("probe_failed");
     expect(res.hosts[0].online).toBe(true);
+  });
+
+  it("points Files at the substrate SSH row when the admin can open it", async () => {
+    const res = await buildHostsOverview(
+      deps({
+        listRows: async () => [
+          row({ id: 22, ip: "b", enableSsh: true }),
+          row({ id: 3, ip: "b", enableSsh: true, runsFleetSubstrate: true }),
+          row({ id: 5, ip: "b", enableRdp: true }),
+        ],
+      }),
+    );
+    expect(res.hosts[0].filesHostId).toBe(3);
+  });
+
+  it("skips SSH rows the admin can't open, and jump-host rows", async () => {
+    const res = await buildHostsOverview(
+      deps({
+        listRows: async () => [
+          row({ id: 3, ip: "b", enableSsh: true, runsFleetSubstrate: true }),
+          row({ id: 7, ip: "b", enableSsh: true, hasJumpHosts: true }),
+          row({ id: 22, ip: "b", enableSsh: true }),
+        ],
+        canOpen: async (id) => id !== 3,
+      }),
+    );
+    expect(res.hosts[0].filesHostId).toBe(22);
+  });
+
+  it("prefers a row the admin can change files over to a view-only one", async () => {
+    const res = await buildHostsOverview(
+      deps({
+        listRows: async () => [
+          row({ id: 3, ip: "b", enableSsh: true, runsFleetSubstrate: true }),
+          row({ id: 22, ip: "b", enableSsh: true }),
+        ],
+        // 3 is a view-only grant; 22 is the admin's own.
+        canOpen: async (id, action) => id === 22 || action === "read",
+      }),
+    );
+    expect(res.hosts[0].filesHostId).toBe(22);
+  });
+
+  it("falls back to a view-only row when that's all there is", async () => {
+    const res = await buildHostsOverview(
+      deps({
+        listRows: async () => [row({ id: 3, ip: "b", enableSsh: true })],
+        canOpen: async (_id, action) => action === "read",
+      }),
+    );
+    expect(res.hosts[0].filesHostId).toBe(3);
+  });
+
+  it("offers no Files for RDP-only, jump-host-only or inaccessible machines", async () => {
+    const res = await buildHostsOverview(
+      deps({
+        listRows: async () => [
+          row({ id: 11, ip: "r", port: 3389, enableRdp: true }),
+          row({ id: 12, ip: "j", enableSsh: true, hasJumpHosts: true }),
+          row({ id: 13, ip: "n", enableSsh: true }),
+        ],
+        canOpen: async (id) => id !== 13,
+      }),
+    );
+    for (const h of res.hosts) expect(h.filesHostId).toBeNull();
+  });
+
+  it("treats a failed access check as no Files", async () => {
+    const res = await buildHostsOverview(
+      deps({
+        listRows: async () => [row({ id: 13, ip: "n", enableSsh: true })],
+        canOpen: async () => {
+          throw new Error("db down");
+        },
+      }),
+    );
+    expect(res.hosts[0].filesHostId).toBeNull();
   });
 });

@@ -101,8 +101,8 @@ function shellEscape(s: string): string {
   return "'" + s.replace(/'/g, "'\\''") + "'";
 }
 
-/** Projects have no Git tab — the git view covers identity workspaces and role folders only. */
-type GitTargetSpec = Exclude<TargetSpec, { kind: "project" }>;
+/** Projects and admin host views have no Git tab — the git view covers identity workspaces and role folders only. */
+type GitTargetSpec = Exclude<TargetSpec, { kind: "project" } | { kind: "host" }>;
 
 /** Workspace root as a shell word, expanded by the remote shell. */
 function targetRootWord(target: GitTargetSpec): string {
@@ -344,7 +344,7 @@ async function handleGitRequest(
     res.status(400).json({ error: targetResult.error });
     return;
   }
-  if (targetResult.target.kind === "project") {
+  if (targetResult.target.kind === "project" || targetResult.target.kind === "host") {
     res.status(400).json({ error: "invalid_body" });
     return;
   }

@@ -206,6 +206,7 @@ async function build(userId: string): Promise<AdminHostsResponse> {
     { getSubstrateOrchestrator },
     { isLocalHostId },
     { resolveHostById },
+    { PermissionManager },
   ] = await Promise.all([
     import("../database/db/index.js"),
     import("../database/db/schema.js"),
@@ -213,7 +214,9 @@ async function build(userId: string): Promise<AdminHostsResponse> {
     import("../distributor/substrate-orchestrator-singleton.js"),
     import("../claude-session/identity-artifact-reader.js"),
     import("../ssh/host-resolver.js"),
+    import("../utils/permission-manager.js"),
   ]);
+  const permissionManager = PermissionManager.getInstance();
   const db = getDb();
   // Substrate rows carry system-wrapped creds — no per-user decrypt needed.
   const substrateCreds = new Map(
@@ -258,6 +261,8 @@ async function build(userId: string): Promise<AdminHostsResponse> {
       if (!own) return { ok: false, reason: "no_access" };
       return execOn(row, own as unknown as Record<string, unknown>);
     },
+    canOpen: async (id, action) =>
+      (await permissionManager.canAccessHost(userId, id, action, { touch: false })).hasAccess,
     tcpPing: (ip, port) => tcpPing(ip, port),
     sweepStatus: (id) => orch?.getHostSweepStatus(id) ?? null,
     now: () => Date.now(),

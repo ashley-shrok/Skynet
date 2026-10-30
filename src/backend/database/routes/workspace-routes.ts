@@ -17,7 +17,8 @@
  * Every endpoint enforces the 9-step chain:
  *   1. Body/query validation → 400 invalid_body
  *   2. extractTarget(body) → identity default, role when kind="role",
- *        project when kind="project"
+ *        project when kind="project", the host's home folder when kind="host"
+ *        (admins only — guardHostTarget → 403 permission_denied)
  *        → 400 invalid_identity_key / invalid_role_slug / invalid_project_slug
  *   3. Static traversal check → 400 path_traversal
  *   4. resolveHostById(hostId, userId) → 404 unknown_host
@@ -47,6 +48,7 @@ import { resolveHostById } from "../../ssh/host-resolver.js";
 import { IDENTITY_KEY_RE, PROJECT_SLUG_RE } from "../../claude-session/identity-artifact-reader.js";
 import { liveIdentityShellTest } from "../../claude-session/archived-identity.js";
 import { sendSftpFile } from "../../utils/sftp-file-response.js";
+import { callerIsAdmin } from "../../instance-wide/admin.js";
 import type { Readable } from "node:stream";
 import { posix } from "node:path";
 import type { Client as SSHClientType } from "ssh2";
@@ -69,7 +71,10 @@ export type TargetSpec =
   // An archived agent's workspace — view-only; every write endpoint refuses it.
   | { kind: "archived-identity"; identityKey: string }
   | { kind: "role"; roleSlug: string }
-  | { kind: "project"; projectSlug: string };
+  | { kind: "project"; projectSlug: string }
+  // The whole home folder of the account the host's login signs in as —
+  // admin-only (guardHostTarget), and only on the routes that opt in.
+  | { kind: "host" };
 
 type ExtractTargetResult =
   | { ok: true; target: TargetSpec }
@@ -84,8 +89,14 @@ type ExtractTargetResult =
  * endpoint after the base-field shape check. Absent-kind path is
  * byte-identical to the legacy identityKey-only behavior.
  */
-export function extractTarget(body: Record<string, unknown>): ExtractTargetResult {
+export function extractTarget(
+  body: Record<string, unknown>,
+  opts: { allowHost?: boolean } = {},
+): ExtractTargetResult {
   const kind = body.kind;
+  if (kind === "host") {
+    return opts.allowHost ? { ok: true, target: { kind: "host" } } : { ok: false, error: "invalid_body" };
+  }
   if (kind === "role") {
     if (typeof body.roleSlug !== "string") return { ok: false, error: "invalid_body" };
     if (!ROLE_SLUG_RE.test(body.roleSlug)) return { ok: false, error: "invalid_role_slug" };
@@ -109,12 +120,37 @@ export function extractTarget(body: Record<string, unknown>): ExtractTargetResul
 }
 
 function buildTargetRoot(homeDir: string, target: TargetSpec): string {
+  if (target.kind === "host") {
+    // A login whose home is "/" isn't a home folder; refuse rather than root
+    // the explorer at the whole filesystem.
+    if (posix.normalize(homeDir) === "/") throw new Error("path_forbidden");
+    return homeDir;
+  }
   if (target.kind === "role") return `${homeDir}/fleet/roles/${target.roleSlug}`;
   if (target.kind === "project") return `${homeDir}/fleet/projects/${target.projectSlug}`;
   // An archived agent's root is decided on the host (settleTargetRoot) —
   // never from the request alone.
   if (target.kind === "archived-identity") throw new Error("path_forbidden");
   return `${homeDir}/fleet/identities/${target.identityKey}/workspace`;
+}
+
+/**
+ * A whole-host target is for admins only. Responds 403 and returns false for
+ * anyone else; every other target passes straight through.
+ */
+export async function guardHostTarget(
+  res: Response,
+  userId: string,
+  target: TargetSpec,
+): Promise<boolean> {
+  if (target.kind !== "host") return true;
+  if (await callerIsAdmin(userId)) return true;
+  sshLogger.warn("workspace host target refused for non-admin", {
+    operation: "workspace_host_target_refused",
+    userId,
+  });
+  res.status(403).json({ error: "permission_denied" });
+  return false;
 }
 
 /**
@@ -624,12 +660,13 @@ workspaceRoutes.post(
     const userId = (req as Request & { userId: string }).userId;
 
     // Step 2: extract + validate target (identity default, or role when kind="role")
-    const targetResult = extractTarget(body);
+    const targetResult = extractTarget(body, { allowHost: true });
     if (targetResult.ok === false) {
       res.status(400).json({ error: targetResult.error });
       return;
     }
     const target = targetResult.target;
+    if (!(await guardHostTarget(res, userId, target))) return;
 
     // Step 3: Static traversal check
     try {
@@ -731,12 +768,13 @@ workspaceRoutes.post(
     };
     const userId = (req as Request & { userId: string }).userId;
 
-    const targetResult = extractTarget(body);
+    const targetResult = extractTarget(body, { allowHost: true });
     if (targetResult.ok === false) {
       res.status(400).json({ error: targetResult.error });
       return;
     }
     const target = targetResult.target;
+    if (!(await guardHostTarget(res, userId, target))) return;
 
     try {
       validateRelativePath(relativePath);
@@ -835,12 +873,13 @@ workspaceRoutes.put(
     };
     const userId = (req as Request & { userId: string }).userId;
 
-    const targetResult = extractTarget(body);
+    const targetResult = extractTarget(body, { allowHost: true });
     if (targetResult.ok === false) {
       res.status(400).json({ error: targetResult.error });
       return;
     }
     const target = targetResult.target;
+    if (!(await guardHostTarget(res, userId, target))) return;
     if (target.kind === "role" && !(await guardInstanceWideRoleWrite(res, userId, Number(hostId), target.roleSlug))) return;
 
     try {
@@ -936,12 +975,13 @@ workspaceRoutes.delete(
     };
     const userId = (req as Request & { userId: string }).userId;
 
-    const targetResult = extractTarget(body);
+    const targetResult = extractTarget(body, { allowHost: true });
     if (targetResult.ok === false) {
       res.status(400).json({ error: targetResult.error });
       return;
     }
     const target = targetResult.target;
+    if (!(await guardHostTarget(res, userId, target))) return;
     if (target.kind === "role" && !(await guardInstanceWideRoleWrite(res, userId, Number(hostId), target.roleSlug))) return;
 
     try {
@@ -1038,12 +1078,13 @@ workspaceRoutes.post(
     };
     const userId = (req as Request & { userId: string }).userId;
 
-    const targetResult = extractTarget(body);
+    const targetResult = extractTarget(body, { allowHost: true });
     if (targetResult.ok === false) {
       res.status(400).json({ error: targetResult.error });
       return;
     }
     const target = targetResult.target;
+    if (!(await guardHostTarget(res, userId, target))) return;
     if (target.kind === "role" && !(await guardInstanceWideRoleWrite(res, userId, Number(hostId), target.roleSlug))) return;
 
     // Validate both from and to
@@ -1147,12 +1188,13 @@ workspaceRoutes.post(
     };
     const userId = (req as Request & { userId: string }).userId;
 
-    const targetResult = extractTarget(body);
+    const targetResult = extractTarget(body, { allowHost: true });
     if (targetResult.ok === false) {
       res.status(400).json({ error: targetResult.error });
       return;
     }
     const target = targetResult.target;
+    if (!(await guardHostTarget(res, userId, target))) return;
     if (target.kind === "role" && !(await guardInstanceWideRoleWrite(res, userId, Number(hostId), target.roleSlug))) return;
 
     try {
@@ -1242,12 +1284,13 @@ workspaceRoutes.post(
     };
     const userId = (req as Request & { userId: string }).userId;
 
-    const targetResult = extractTarget(body);
+    const targetResult = extractTarget(body, { allowHost: true });
     if (targetResult.ok === false) {
       res.status(400).json({ error: targetResult.error });
       return;
     }
     const target = targetResult.target;
+    if (!(await guardHostTarget(res, userId, target))) return;
     if (target.kind === "role" && !(await guardInstanceWideRoleWrite(res, userId, Number(hostId), target.roleSlug))) return;
 
     try {
@@ -1347,12 +1390,13 @@ workspaceRoutes.post(
     }
     const userId = (req as Request & { userId: string }).userId;
 
-    const targetResult = extractTarget(body);
+    const targetResult = extractTarget(body, { allowHost: true });
     if (targetResult.ok === false) {
       res.status(400).json({ error: targetResult.error });
       return;
     }
     const target = targetResult.target;
+    if (!(await guardHostTarget(res, userId, target))) return;
     if (target.kind === "role" && !(await guardInstanceWideRoleWrite(res, userId, Number(hostId), target.roleSlug))) return;
 
     try {
@@ -1444,12 +1488,13 @@ workspaceRoutes.get(
     }
     const userId = (req as Request & { userId: string }).userId;
 
-    const targetResult = extractTarget(query);
+    const targetResult = extractTarget(query, { allowHost: true });
     if (targetResult.ok === false) {
       res.status(400).json({ error: targetResult.error });
       return;
     }
     const target = targetResult.target;
+    if (!(await guardHostTarget(res, userId, target))) return;
 
     try {
       validateRelativePath(relativePath);

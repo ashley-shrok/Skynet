@@ -33,6 +33,7 @@ import {
   __resetKitDialogsForTests,
 } from "@/components/kit";
 import AdminModal from "./AdminModal";
+import { getAdminHosts } from "@/api/admin-hosts-api";
 
 const m = vi.hoisted(() => ({
   getUserList: vi.fn(),
@@ -111,6 +112,14 @@ vi.mock("@/api/instance-file-api", () => ({
   saveInstanceFile: vi.fn(),
 }));
 
+vi.mock("@/features/pretty-view/WorkspaceTab", () => ({
+  default: (props: { target: { kind: string }; hostId: number; introCopy?: string }) => (
+    <div data-testid="workspace-tab-stub">
+      {props.target.kind}:{props.hostId} {props.introCopy}
+    </div>
+  ),
+}));
+
 vi.mock("@/features/pretty-view/MarkdownEditor", () => ({
   MarkdownEditor: (props: { content: string; onChange: (v: string) => void }) => (
     <textarea value={props.content} onChange={(e) => props.onChange(e.target.value)} />
@@ -182,6 +191,60 @@ describe("AdminModal — window", () => {
     expect(screen.getByTestId("admin-section-hero").textContent).toContain("Users");
     expect(screen.queryByText("Close")).toBeNull();
     expect(screen.queryByText(/Machines/)).toBeNull();
+  });
+
+  it("a host's Files opens its home folder one level below the host; back and Esc return to the host", async () => {
+    vi.mocked(getAdminHosts).mockResolvedValue({
+      generatedAt: Date.now(),
+      hosts: [
+        {
+          key: "harbor",
+          name: "harbor",
+          address: "100.1.1.1",
+          protocols: ["ssh"],
+          agentHost: true,
+          online: true,
+          latencyMs: 3,
+          lastSeenAt: Date.now(),
+          resources: null,
+          resourcesNote: "probe_failed",
+          fleet: null,
+          substrate: null,
+          filesHostId: 7,
+        },
+      ],
+    });
+    renderModal();
+    await screen.findByTestId("admin-users-pane");
+    await userEvent.click(screen.getByTestId("admin-tab-hosts"));
+    await userEvent.click(await screen.findByTestId("admin-host-harbor"));
+    await userEvent.click(screen.getByTestId("admin-host-harbor-files"));
+    expect(screen.getByTestId("admin-host-files-pane")).toBeTruthy();
+    expect(screen.getByTestId("workspace-tab-stub").textContent).toContain("host:7");
+    expect(screen.getByTestId("workspace-tab-stub").textContent).toContain("signs in as on harbor");
+    expect(screen.queryByTestId("admin-section-hero")).toBeNull();
+
+    // The host page stays loaded underneath: back shows it at once, no re-read.
+    const reads = vi.mocked(getAdminHosts).mock.calls.length;
+    await userEvent.click(screen.getByTestId("admin-host-files-back"));
+    expect(screen.getByTestId("admin-host-view-harbor")).toBeTruthy();
+    expect(screen.queryByTestId("admin-host-files-pane")).toBeNull();
+    expect(vi.mocked(getAdminHosts).mock.calls.length).toBe(reads);
+
+    // Esc steps back one level only — to the host page, not the host list.
+    await userEvent.click(screen.getByTestId("admin-host-harbor-files"));
+    await userEvent.keyboard("{Escape}");
+    expect(screen.getByTestId("admin-host-view-harbor")).toBeTruthy();
+    expect(screen.queryByTestId("admin-host-files-pane")).toBeNull();
+    expect(screen.getByTestId("admin-modal")).toBeTruthy();
+
+    // Another section and back lands on the list, not the old Files view.
+    await userEvent.click(screen.getByTestId("admin-host-harbor-files"));
+    await userEvent.click(screen.getByTestId("admin-tab-system"));
+    await userEvent.click(screen.getByTestId("admin-tab-hosts"));
+    expect(await screen.findByTestId("admin-hosts-pane")).toBeTruthy();
+    expect(screen.queryByTestId("admin-host-files-pane")).toBeNull();
+    vi.mocked(getAdminHosts).mockImplementation(async () => ({ hosts: [], generatedAt: Date.now() }));
   });
 
   it("each section opens with its own header", async () => {

@@ -8,6 +8,7 @@
  *   { kind: "identity", identityKey } → resolves to ~/fleet/identities/<key>/workspace
  *   { kind: "role", roleSlug }        → resolves to ~/fleet/roles/<slug>
  *   { kind: "project", projectSlug }  → resolves to ~/fleet/projects/<slug>
+ *   { kind: "host" }                  → the host login's home folder (admins only)
  * Wire shape stays byte-identical for identity requests (no `kind` field sent);
  * role and project requests carry { kind, roleSlug | projectSlug } instead of
  * { identityKey }.
@@ -63,7 +64,9 @@ export type WorkspaceTarget =
   // — the server refuses every change to it.
   | { kind: "archived-identity"; identityKey: string }
   | { kind: "role"; roleSlug: string }
-  | { kind: "project"; projectSlug: string };
+  | { kind: "project"; projectSlug: string }
+  // The home folder of the host login's account — admin-only on the server.
+  | { kind: "host" };
 
 /**
  * Serialize a target into the wire fields the backend expects. Identity
@@ -71,6 +74,7 @@ export type WorkspaceTarget =
  * callers; role requests send `{ kind: "role", roleSlug }`.
  */
 function targetToWireFields(t: WorkspaceTarget): Record<string, string> {
+  if (t.kind === "host") return { kind: "host" };
   if (t.kind === "role") return { kind: "role", roleSlug: t.roleSlug };
   if (t.kind === "project") return { kind: "project", projectSlug: t.projectSlug };
   if (t.kind === "archived-identity") return { kind: "archived-identity", identityKey: t.identityKey };
@@ -79,6 +83,7 @@ function targetToWireFields(t: WorkspaceTarget): Record<string, string> {
 
 /** URL-encoded target query fragment for GET endpoints (currently /download). */
 function targetToQueryString(t: WorkspaceTarget): string {
+  if (t.kind === "host") return "kind=host";
   if (t.kind === "role") {
     return `kind=role&roleSlug=${encodeURIComponent(t.roleSlug)}`;
   }
