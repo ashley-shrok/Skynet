@@ -11,6 +11,7 @@ import {
   setButtonSpeechState,
   subscribeSpeech,
   takeOverForButton,
+  reportHeard,
 } from "./speak-singleton";
 
 export type SpeakState = "idle" | "loading" | "playing" | "paused";
@@ -33,6 +34,9 @@ export type SpeakState = "idle" | "loading" | "playing" | "paused";
  * button as its own "speaking"). Losing ownership to anyone else — another
  * button, a voice-mode reply, voice mode's skip — puts this button back to idle.
  *
+ * `heardSource` names the agent reply this button reads, if it reads one; its
+ * start and natural end are reported for voice mode's heard note.
+ *
  * `logFields` adds fields to the speak-start log line (default: pieces=N).
  * `logPrefix` is prepended to the owner in `[tts]` log lines (e.g. "relay:").
  */
@@ -44,6 +48,8 @@ export function useSpeakPlayback(opts: {
   logFields?: () => string;
   /** Voice candidates; a function is read at click time. */
   voices: readonly string[] | (() => readonly string[]);
+  /** The agent reply this button reads (read at click time); omit for anything else. */
+  heardSource?: () => { eventId?: string; text: string } | null;
 }): {
   speakState: SpeakState;
   /** No event when started from a menu item. */
@@ -65,6 +71,8 @@ export function useSpeakPlayback(opts: {
   // Latest getText/voices without re-creating the click handler every render.
   const optsRef = useRef(opts);
   optsRef.current = opts;
+  /** The reply being read this time (captured at click), for heard reports. */
+  const heardRef = useRef<{ eventId?: string; text: string } | null>(null);
   const tag = `${opts.logPrefix ?? ""}${ownerRef.current.toString()}`;
 
   // Ownership moved elsewhere (or was released) → idle.
@@ -108,6 +116,7 @@ export function useSpeakPlayback(opts: {
       const owner = ownerRef.current;
       const text = pieces[index];
       const isLast = index === pieces.length - 1;
+      const heard = heardRef.current;
 
       const player = createWebAudioStreamPlayer({
         onEnded: () => {
@@ -126,6 +135,7 @@ export function useSpeakPlayback(opts: {
             return;
           }
           console.info(`[tts] media-ended owner=${tag}`);
+          if (heard) reportHeard({ ...heard, outcome: "finished" });
           clearCurrentPlayer();
           setSpeakState("idle");
         },
@@ -152,6 +162,9 @@ export function useSpeakPlayback(opts: {
           // a 200 alone doesn't mean anything will be heard.
           if (index === 0 && getCurrentOwner() === owner && !pausedRef.current) {
             setSpeakState("playing");
+          }
+          if (index === 0 && getCurrentOwner() === owner && !pausedRef.current && heard) {
+            reportHeard({ ...heard, outcome: "began" });
           }
         },
         onPause: () => console.info(`[tts] media-pause owner=${tag}`),
@@ -277,6 +290,7 @@ export function useSpeakPlayback(opts: {
 
     pausedRef.current = false;
     heldRef.current = null;
+    heardRef.current = optsRef.current.heardSource?.() ?? null;
     // Hand over in one step so voice mode never sees a gap between bubbles.
     takeOverForButton(ownerRef.current);
     ownedRef.current = true;

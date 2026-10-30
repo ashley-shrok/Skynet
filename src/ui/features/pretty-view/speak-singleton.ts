@@ -96,3 +96,28 @@ export function clearCurrentPlayer(): void {
   buttonSpeech = null;
   if (changed) emit();
 }
+
+/**
+ * Heard reports (shape-voice-heard-ordering): a speak button playing an agent
+ * reply says when its audio began and when it played to the end, so voice
+ * mode's heard note can count replies the user played themselves.
+ */
+export interface HeardReport {
+  eventId?: string;
+  text: string;
+  /** began = audio started; finished = played to the end. */
+  outcome: "began" | "finished";
+}
+const heardListeners = new Set<(r: HeardReport) => void>();
+
+export function reportHeard(report: HeardReport): void {
+  for (const l of [...heardListeners]) l(report);
+}
+
+/** Hear every heard report. Returns the unsubscribe. */
+export function subscribeHeard(listener: (r: HeardReport) => void): () => void {
+  heardListeners.add(listener);
+  return () => {
+    heardListeners.delete(listener);
+  };
+}

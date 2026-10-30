@@ -203,7 +203,9 @@ describe("ComposeBox — hands-free voice mode (aux-row button)", () => {
     await flush(PIECE_GAP_MS + TIMED_END_MS + 200);
     expect(onSend).toHaveBeenCalledTimes(1);
     // Voice sends carry the voice label; typed sends below do not.
-    expect(onSend.mock.calls[0][0]).toBe(appendVoiceLabel("spoken words"));
+    expect(onSend.mock.calls[0][0]).toBe(
+      appendVoiceLabel("spoken words", "None of your replies had been read aloud to the user yet in this voice session. Their words answer what they had heard, which may not be your latest message."),
+    );
     expect(textarea.value).toBe("pasted stack trace");
 
     // Typed send through the regular Send button.

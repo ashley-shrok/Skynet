@@ -1817,7 +1817,7 @@ export function ComposeBox({
     isWorking: voiceModeFeed?.isWorking ?? false,
     messages: voiceModeFeed?.messages ?? EMPTY_VOICE_MODE_MESSAGES,
     suspended: voice.state !== "idle",
-    send: (transcript) => {
+    send: (transcript, heardNote) => {
       // Same gate as handleVoiceSend's auto-send: no dispatch while the pane
       // is between sockets — onUndelivered parks the words.
       if (reconnectingActive) return false;
@@ -1832,7 +1832,7 @@ export function ComposeBox({
         return "refused";
       }
       setErrorMessage((m) => (m === COMMAND_REFUSED_MESSAGE ? null : m));
-      return funnelSend(appendVoiceLabel(payload), { trigger: "voice-mode", textArea: "spoken" });
+      return funnelSend(appendVoiceLabel(payload, heardNote), { trigger: "voice-mode", textArea: "spoken" });
     },
     onUndelivered: (transcript) => {
       // Only time voice mode writes to the compose box: a transcript that

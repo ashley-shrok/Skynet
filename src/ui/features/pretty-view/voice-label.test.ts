@@ -23,3 +23,22 @@ describe("voice label", () => {
     expect(stripVoiceLabel("typed message")).toBe("typed message");
   });
 });
+
+describe("voice label with a heard note", () => {
+  it("puts the note in its own brackets after the unchanged label and strips both", () => {
+    const sent = appendVoiceLabel("yes", 'The last of your replies the user had heard was the one starting "Ship it".');
+    expect(sent).toBe(
+      'yes\n\n[sent by voice — your reply will be read aloud] [The last of your replies the user had heard was the one starting "Ship it".]',
+    );
+    expect(stripVoiceLabel(sent)).toBe("yes");
+  });
+
+  it("never lets a stray bracket in the note break the strip", () => {
+    const sent = appendVoiceLabel("ok", "they heard [this] one");
+    expect(stripVoiceLabel(sent)).toBe("ok");
+  });
+
+  it("leaves a user's own bracketed text alone", () => {
+    expect(stripVoiceLabel("see [notes]")).toBe("see [notes]");
+  });
+});

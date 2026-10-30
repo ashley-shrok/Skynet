@@ -194,6 +194,8 @@ export const ChatMessage = React.memo(function ChatMessage({
       return innerText ?? content;
     },
     logFields: () => speakLensRef.current,
+    // An agent reply played here counts toward voice mode's heard note.
+    heardSource: () => (role === "assistant" ? { eventId, text: rawContent } : null),
   });
 
   // Phase 05 Plan 03: sender-side chip render for injected user turns.

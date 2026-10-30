@@ -67,8 +67,10 @@ import {
   getCurrentPlayer,
   setCurrentOwner,
   setCurrentPlayer,
+  subscribeHeard,
   subscribeSpeech,
 } from "./speak-singleton";
+import { buildHeardNote, sameReply, type HeardReply, type HeardState } from "./heard-note";
 import { registerVoiceModeActive } from "./voice-mode-registry";
 import { createVoiceModeCues, type VoiceModeCue, type VoiceModeCues } from "./voice-mode-cues";
 import { getVoiceModeSettings, VOICE_MODE_PAUSE_SECONDS_DEFAULT } from "./voice-mode-settings";
@@ -157,11 +159,12 @@ export interface UseVoiceModeArgs {
   /** True while the manual tap-to-record mic is busy — listening pauses. */
   suspended: boolean;
   /**
-   * Dispatch a transcript. Return false if it could not be sent, or
+   * Dispatch a transcript with its heard note (what the user had heard when
+   * they spoke — heard-note.ts). Return false if it could not be sent, or
    * "refused" if it was deliberately not sent (a blocked command): no cue
    * plays, nothing is awaited and the words are dropped.
    */
-  send: (text: string) => boolean | "refused";
+  send: (text: string, heardNote: string) => boolean | "refused";
   /** A transcript could not be sent — caller keeps it somewhere visible. */
   onUndelivered: (text: string) => void;
 }
@@ -255,6 +258,23 @@ export function toSpeakableText(markdown: string): string {
     .trim();
 }
 
+/** A reply waiting to be read aloud. */
+interface QueuedReply {
+  reply: HeardReply;
+  speakable: string;
+}
+
+/** The pane's agent replies, oldest first — what heard-note quotes are told apart against. */
+function agentReplies(messages: ReadonlyArray<VoiceModeMessage>): HeardReply[] {
+  const out: HeardReply[] = [];
+  for (const m of messages) {
+    if (m.type === "message" && m.role === "assistant" && typeof m.content === "string") {
+      out.push({ eventId: m.eventId, text: m.content });
+    }
+  }
+  return out;
+}
+
 type WakeLockSentinelLike = { release: () => Promise<void>; released?: boolean };
 
 /** One closed piece of the draft. */
@@ -322,7 +342,24 @@ export function useVoiceMode(args: UseVoiceModeArgs): UseVoiceModeReturn {
 
   const seenIdsRef = useRef<Set<string>>(new Set());
   const startedAtRef = useRef(0);
-  const queueRef = useRef<string[]>([]);
+  const queueRef = useRef<QueuedReply[]>([]);
+  // Heard note state: the last reply the user heard (voice mode's or a speak
+  // button's), and replies that arrived but were not read aloud and haven't
+  // been reported in a sent note yet.
+  const lastHeardRef = useRef<HeardState["last"]>(null);
+  const droppedRef = useRef<HeardReply[]>([]);
+  /** The reply voice mode is reading now, and whether its audio has begun. */
+  const readingRef = useRef<{ reply: HeardReply; began: boolean } | null>(null);
+  /** Earlier replies heard only in part, superseded as "last" and not yet reported. */
+  const cutOffRef = useRef<HeardReply[]>([]);
+  /** Last speak-button report, kept while off so a button playing at start counts. */
+  const lastButtonHeardRef = useRef<HeardState["last"]>(null);
+  /** A new reply is what was last heard; one left cut off before it is remembered. */
+  const setLastHeard = (next: NonNullable<HeardState["last"]>) => {
+    const prev = lastHeardRef.current;
+    if (prev && !prev.complete && !sameReply(prev.reply, next.reply)) cutOffRef.current.push(prev.reply);
+    lastHeardRef.current = next;
+  };
   const speakingRef = useRef<{ owner: symbol; finish: () => void } | null>(null);
   const acquiringRef = useRef(false); // getUserMedia in flight
   const nextRecorderIdRef = useRef(1);
@@ -833,12 +870,16 @@ export function useVoiceMode(args: UseVoiceModeArgs): UseVoiceModeReturn {
         continue;
       }
       setErrorMessage(null);
-      const sent = argsRef.current.send(text);
+      const heardNote = currentHeardNote();
+      const sent = argsRef.current.send(text, heardNote);
       log(`draft-sent reason=${reason} pieces=${included.length} len=${text.length} dispatched=${sent}`);
       if (sent === "refused") {
         continue;
       }
       if (sent) {
+        // Reported now; queued replies stay unheard until they're read.
+        droppedRef.current = [];
+        cutOffRef.current = [];
         playCue("sent");
         markAwaitingReply();
       } else {
@@ -847,6 +888,25 @@ export function useVoiceMode(args: UseVoiceModeArgs): UseVoiceModeReturn {
       }
     }
   };
+
+  /** One of this conversation's agent replies (not another pane's). */
+  function isOwnReply(reply: HeardReply): boolean {
+    return agentReplies(argsRef.current.messages).some((r) => sameReply(r, reply));
+  }
+
+  /** What the user had heard as of now, in words for the agent. */
+  function currentHeardNote(): string {
+    const reading = readingRef.current;
+    const unheard = [
+      ...droppedRef.current,
+      ...(reading && !reading.began ? [reading.reply] : []),
+      ...queueRef.current.map((q) => q.reply),
+    ];
+    return buildHeardNote(
+      { last: lastHeardRef.current, unheard, cutOff: cutOffRef.current },
+      agentReplies(argsRef.current.messages),
+    );
+  }
 
   endTurnRef.current = (reason, piece) => {
     log(`turn-end reason=${reason} pieceId=${piece.id}`);
@@ -928,8 +988,11 @@ export function useVoiceMode(args: UseVoiceModeArgs): UseVoiceModeReturn {
   // ---- Speaking ----------------------------------------------------------
 
   const speakNext = useCallback(() => {
-    const text = queueRef.current.shift();
-    if (!text) return;
+    const item = queueRef.current.shift();
+    if (!item) return;
+    const text = item.speakable;
+    const reading = { reply: item.reply, began: false };
+    readingRef.current = reading;
     const owner = Symbol("voice-mode");
     let finished = false;
     let watchdog: ReturnType<typeof setInterval> | null = null;
@@ -940,6 +1003,9 @@ export function useVoiceMode(args: UseVoiceModeArgs): UseVoiceModeReturn {
       if (watchdog !== null) clearInterval(watchdog);
       if (getCurrentOwner() === owner) clearCurrentPlayer();
       if (speakingRef.current?.owner === owner) speakingRef.current = null;
+      if (readingRef.current === reading) readingRef.current = null;
+      // Stopped or failed before any audio: never heard.
+      if (!reading.began && activeRef.current) droppedRef.current.push(reading.reply);
       if (!activeRef.current) return;
       // Reply finished and the agent is done → "your turn" (unless a speak
       // button just took over — its own end plays it).
@@ -968,7 +1034,17 @@ export function useVoiceMode(args: UseVoiceModeArgs): UseVoiceModeReturn {
       setErrorMessage("Voice mode: couldn't speak that reply");
     };
     const player = createWebAudioStreamPlayer({
-      onEnded: finish,
+      onCanPlay: () => {
+        if (reading.began || getCurrentOwner() !== owner) return;
+        reading.began = true;
+        setLastHeard({ reply: reading.reply, complete: false });
+      },
+      onEnded: () => {
+        if (reading.began && lastHeardRef.current?.reply === reading.reply) {
+          lastHeardRef.current = { reply: reading.reply, complete: true };
+        }
+        finish();
+      },
       onError: () => {
         reportFailure();
         finish();
@@ -1160,6 +1236,14 @@ export function useVoiceMode(args: UseVoiceModeArgs): UseVoiceModeReturn {
       argsRef.current.messages.map((m) => m.eventId).filter((id): id is string => typeof id === "string"),
     );
     queueRef.current = [];
+    // A speak button already reading one of this conversation's replies
+    // counts as heard from the start.
+    const button = lastButtonHeardRef.current;
+    lastHeardRef.current =
+      getButtonSpeechState() === "playing" && button && isOwnReply(button.reply) ? button : null;
+    droppedRef.current = [];
+    cutOffRef.current = [];
+    readingRef.current = null;
     playAutoSpeakOn();
 
     acquiringRef.current = true;
@@ -1187,6 +1271,7 @@ export function useVoiceMode(args: UseVoiceModeArgs): UseVoiceModeReturn {
   }, [log]);
 
   const skipSpeech = useCallback(() => {
+    droppedRef.current.push(...queueRef.current.map((q) => q.reply));
     queueRef.current = [];
     if (buttonSpeaking()) {
       log("skip-button-speech");
@@ -1211,7 +1296,7 @@ export function useVoiceMode(args: UseVoiceModeArgs): UseVoiceModeReturn {
       if (typeof m.ts === "number" && m.ts < startedAtRef.current - HISTORY_SLACK_MS) continue;
       const text = toSpeakableText(m.content);
       if (text) {
-        queueRef.current.push(text);
+        queueRef.current.push({ reply: { eventId: m.eventId, text: m.content }, speakable: text });
         added = true;
         clearAwaitingReply();
       }
@@ -1227,6 +1312,8 @@ export function useVoiceMode(args: UseVoiceModeArgs): UseVoiceModeReturn {
       const now = buttonSpeaking();
       if (now === was) return;
       was = now;
+      // A new button play: what an earlier one read is no longer current.
+      if (now) lastButtonHeardRef.current = null;
       if (!activeRef.current) return;
       const state = getButtonSpeechState();
       log(`button-speech ${now ? "start" : state === "paused" ? "paused" : "end"}`);
@@ -1251,6 +1338,23 @@ export function useVoiceMode(args: UseVoiceModeArgs): UseVoiceModeReturn {
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // A speak button read (part of) an agent reply → that's what was last heard.
+  useEffect(
+    () =>
+      subscribeHeard((r) => {
+        const reply: HeardReply = { eventId: r.eventId, text: r.text };
+        // Speak buttons in other panes (other conversations) are not ours.
+        if (!isOwnReply(reply)) return;
+        const next = { reply, complete: r.outcome === "finished" };
+        lastButtonHeardRef.current = next;
+        if (!activeRef.current) return;
+        setLastHeard(next);
+        // Heard after all — no longer "not heard".
+        droppedRef.current = droppedRef.current.filter((d) => !sameReply(d, reply));
+      }),
+    [],
+  );
 
   // Manual mic in use → pause; released → resume.
   useEffect(() => {

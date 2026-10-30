@@ -16,7 +16,7 @@ vi.mock("../../api/voice-api", () => ({ postSpeakStream: (...a: unknown[]) => po
 
 vi.mock("../../audio/auto-speak-cue", () => ({ playAutoSpeakOn: vi.fn(), playAutoSpeakOff: vi.fn() }));
 
-type PlayerOpts = { onEnded?: () => void; onError?: (e: Error) => void };
+type PlayerOpts = { onEnded?: () => void; onError?: (e: Error) => void; onCanPlay?: () => void };
 const players: Array<{ opts: PlayerOpts; play: ReturnType<typeof vi.fn>; stop: ReturnType<typeof vi.fn> }> = [];
 vi.mock("./webAudioStreamPlayer", () => ({
   createWebAudioStreamPlayer: (opts: PlayerOpts) => {
@@ -69,6 +69,7 @@ import {
   setCurrentOwner,
   setCurrentPlayer,
   takeOverForButton,
+  reportHeard,
   type ButtonSpeechState,
 } from "./speak-singleton";
 import { setVoiceModeSettings } from "./voice-mode-settings";
@@ -297,7 +298,7 @@ describe("useVoiceMode", () => {
       expect(send).not.toHaveBeenCalled();
       expect(result.current.phase).toBe("hearing");
       await flush(TIMED_END_MS);
-      expect(send).toHaveBeenCalledWith("run the tests please");
+      expect(send).toHaveBeenCalledWith("run the tests please", expect.any(String));
       expect(cuesPlayed).toEqual(["sent"]);
       expect(result.current.phase).toBe("listening");
     });
@@ -317,7 +318,7 @@ describe("useVoiceMode", () => {
       first("Run the tests,");
       await flush(TIMED_END_MS);
       expect(send).toHaveBeenCalledTimes(1);
-      expect(send).toHaveBeenCalledWith("Run the tests, and then deploy it.");
+      expect(send).toHaveBeenCalledWith("Run the tests, and then deploy it.", expect.any(String));
     });
 
     it("drops a piece with no words (sneeze) without a sound, a send, or a stage change", async () => {
@@ -353,7 +354,7 @@ describe("useVoiceMode", () => {
       transcribeReturns("that finally ends");
       setLevel(0);
       await flush(PIECE_GAP_MS + TIMED_END_MS + 200);
-      expect(send).toHaveBeenCalledWith("a very long thought that finally ends");
+      expect(send).toHaveBeenCalledWith("a very long thought that finally ends", expect.any(String));
     });
   });
 
@@ -367,7 +368,7 @@ describe("useVoiceMode", () => {
       await flush(TIMED_END_MS + 1000);
       expect(send).not.toHaveBeenCalled();
       await flush(8000 - TIMED_END_MS);
-      expect(send).toHaveBeenCalledWith("take your time with this one");
+      expect(send).toHaveBeenCalledWith("take your time with this one", expect.any(String));
     });
 
     it("picks up a change to the pause mid-session", async () => {
@@ -379,7 +380,7 @@ describe("useVoiceMode", () => {
       await flush(1000);
       setVoiceModeSettings({ endOfTurn: "timed", pauseSeconds: 2 });
       await flush(1000);
-      expect(send).toHaveBeenCalledWith("quicker now");
+      expect(send).toHaveBeenCalledWith("quicker now", expect.any(String));
     });
 
     it("never goes below 2 seconds even if handed a smaller number", async () => {
@@ -393,7 +394,7 @@ describe("useVoiceMode", () => {
       await flush(1900);
       expect(send).not.toHaveBeenCalled();
       await flush(300);
-      expect(send).toHaveBeenCalledWith("not too fast");
+      expect(send).toHaveBeenCalledWith("not too fast", expect.any(String));
     });
   });
 
@@ -410,7 +411,7 @@ describe("useVoiceMode", () => {
       expect(result.current.phase).toBe("hearing");
       transcribeReturns("Then fix it. Send it.");
       await sayPiece();
-      expect(send).toHaveBeenCalledWith("First, check the logs. Then fix it.");
+      expect(send).toHaveBeenCalledWith("First, check the logs. Then fix it.", expect.any(String));
       expect(cuesPlayed).toEqual(["sent"]);
       expect(result.current.phase).toBe("listening");
     });
@@ -424,7 +425,7 @@ describe("useVoiceMode", () => {
       expect(send).not.toHaveBeenCalled();
       transcribeReturns("Over.");
       await sayPiece();
-      expect(send).toHaveBeenCalledWith("ship the fix. Send it.");
+      expect(send).toHaveBeenCalledWith("ship the fix. Send it.", expect.any(String));
     });
 
     it("uses a custom phrase from the preference", async () => {
@@ -436,7 +437,7 @@ describe("useVoiceMode", () => {
       expect(send).not.toHaveBeenCalled();
       transcribeReturns("Over and out.");
       await sayPiece();
-      expect(send).toHaveBeenCalledWith("ship the fix. Send it.");
+      expect(send).toHaveBeenCalledWith("ship the fix. Send it.", expect.any(String));
     });
 
     it("waits for earlier pieces before sending", async () => {
@@ -450,7 +451,7 @@ describe("useVoiceMode", () => {
       expect(result.current.phase).toBe("transcribing");
       first("look at the failing test");
       await flush();
-      expect(send).toHaveBeenCalledWith("look at the failing test");
+      expect(send).toHaveBeenCalledWith("look at the failing test", expect.any(String));
     });
 
     it("holds replies (and the working ticks) while a draft is unsent", async () => {
@@ -469,7 +470,7 @@ describe("useVoiceMode", () => {
       expect(result.current.phase).toBe("hearing");
       transcribeReturns("okay. send it");
       await sayPiece();
-      expect(send).toHaveBeenCalledWith("hmm, let me think okay.");
+      expect(send).toHaveBeenCalledWith("hmm, let me think okay.", expect.any(String));
       expect(postSpeakStream).toHaveBeenCalledWith("earlier reply", ["Ruth"]);
     });
   });
@@ -500,7 +501,7 @@ describe("useVoiceMode", () => {
       await sayPiece();
       await flush(TIMED_END_MS + 2000);
       expect(stampedFetch).toHaveBeenCalledTimes(2);
-      expect(send).toHaveBeenCalledWith("retry worked");
+      expect(send).toHaveBeenCalledWith("retry worked", expect.any(String));
       expect(cuesPlayed).not.toContain("alarm");
     });
 
@@ -936,7 +937,7 @@ describe("useVoiceMode", () => {
         setLevel(0);
         await flush(900);
       }
-      expect(send).toHaveBeenCalledWith("check the build");
+      expect(send).toHaveBeenCalledWith("check the build", expect.any(String));
     });
 
     it("phrase mode: a second send phrase while the first turn is still transcribing is honoured", async () => {
@@ -952,8 +953,8 @@ describe("useVoiceMode", () => {
       expect(send).not.toHaveBeenCalled();
       first("the first message");
       await flush();
-      expect(send).toHaveBeenNthCalledWith(1, "the first message");
-      expect(send).toHaveBeenNthCalledWith(2, "now the second message.");
+      expect(send).toHaveBeenNthCalledWith(1, "the first message", expect.any(String));
+      expect(send).toHaveBeenNthCalledWith(2, "now the second message.", expect.any(String));
     });
 
     it("a piece from a stopped session can't touch a new one", async () => {
@@ -1090,7 +1091,7 @@ describe("useVoiceMode — mute", () => {
     await flush(500);
     expect(send).not.toHaveBeenCalled();
     await flush(TIMED_END_MS);
-    expect(send).toHaveBeenCalledWith("half a thought");
+    expect(send).toHaveBeenCalledWith("half a thought", expect.any(String));
   });
 
   it("keeps a re-acquired mic muted", async () => {
@@ -1121,5 +1122,160 @@ describe("useVoiceMode — mute", () => {
     await flush();
     expect(result.current.muted).toBe(false);
     expect(track.enabled).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Heard note (shape-voice-heard-ordering): every send says what the user had
+// actually heard, so the agent can place an answer whatever the transcript
+// order says.
+// ---------------------------------------------------------------------------
+
+describe("heard note", () => {
+  const reply = (eventId: string, content: string): VoiceModeMessage => ({
+    type: "message",
+    role: "assistant",
+    content,
+    eventId,
+    ts: Date.now(),
+  });
+  const A = reply("a1", "On the compaction work, the summary now keeps the campaign pointer intact.");
+  const B = reply("a2", "For the voice mode cleanup, the chip now shows Muted while listening is paused.");
+  const noteOf = (send: ReturnType<typeof vi.fn>, call = 0) => send.mock.calls[call][1] as string;
+
+  it("says nothing has been read aloud yet at the start of a session", async () => {
+    const send = vi.fn(() => true);
+    await startVoiceMode(baseArgs({ send }));
+    transcribeReturns("hello");
+    await sayUtterance();
+    expect(noteOf(send)).toContain("None of your replies had been read aloud to the user yet");
+  });
+
+  it("names the reply the user heard to the end", async () => {
+    const send = vi.fn(() => true);
+    const { rerender } = await startVoiceMode(baseArgs({ send }));
+    rerender(baseArgs({ send, messages: [A] }));
+    await flush();
+    act(() => players[0].opts.onCanPlay?.());
+    act(() => players[0].opts.onEnded?.());
+    await flush();
+    transcribeReturns("yes do that");
+    await sayUtterance();
+    expect(noteOf(send)).toContain(
+      'The last of your replies the user had heard was the one starting "On the compaction work, the summary now keeps the campaign pointer intact."',
+    );
+    expect(noteOf(send)).not.toContain("had not heard");
+  });
+
+  it("the race: a reply landing mid-sentence is named as not heard, and the earlier one as heard", async () => {
+    const send = vi.fn(() => true);
+    const { rerender } = await startVoiceMode(baseArgs({ send }));
+    rerender(baseArgs({ send, messages: [A] }));
+    await flush();
+    act(() => players[0].opts.onCanPlay?.());
+    act(() => players[0].opts.onEnded?.());
+    await flush();
+    // The user starts answering A; B arrives while they talk and is held.
+    transcribeReturns("yes do that");
+    await sayPiece();
+    rerender(baseArgs({ send, messages: [A, B] }));
+    await flush();
+    expect(players).toHaveLength(1);
+    await flush(TIMED_END_MS);
+    const note = noteOf(send);
+    expect(note).toContain('heard was the one starting "On the compaction work');
+    expect(note).toContain('They had not heard your reply starting "For the voice mode cleanup, the chip now shows Muted while listening…"');
+    expect(note).toContain("Their words answer what they had heard");
+    // B is still read aloud after the send.
+    expect(postSpeakStream).toHaveBeenLastCalledWith(expect.stringContaining("For the voice mode cleanup"), ["Ruth"]);
+  });
+
+  it("names the reply in front of the user even when the next one hasn't landed yet", async () => {
+    const send = vi.fn(() => true);
+    const { rerender } = await startVoiceMode(baseArgs({ send }));
+    rerender(baseArgs({ send, messages: [A] }));
+    await flush();
+    act(() => players[0].opts.onCanPlay?.());
+    act(() => players[0].opts.onEnded?.());
+    await flush();
+    transcribeReturns("go ahead");
+    await sayUtterance();
+    // Whatever the agent says next, this send is pinned to A.
+    expect(noteOf(send)).toContain('heard was the one starting "On the compaction work');
+  });
+
+  it("a skipped reply is cut off partway; replies dropped with it were not heard — reported once", async () => {
+    const send = vi.fn(() => true);
+    const { result, rerender } = await startVoiceMode(baseArgs({ send }));
+    rerender(baseArgs({ send, messages: [A, B] }));
+    await flush();
+    act(() => players[0].opts.onCanPlay?.());
+    act(() => result.current.skipSpeech());
+    await flush();
+    transcribeReturns("skip those");
+    await sayUtterance();
+    const note = noteOf(send);
+    expect(note).toContain('the user heard was the one starting "On the compaction work');
+    expect(note).toContain("cut off partway, so they may not have heard all of it");
+    expect(note).toContain('had not heard your reply starting "For the voice mode cleanup');
+    transcribeReturns("and another thing");
+    await sayUtterance();
+    expect(noteOf(send, 1)).not.toContain("had not heard");
+  });
+
+  it("a reply that fails before any audio counts as not heard", async () => {
+    postSpeakStream.mockResolvedValueOnce(new Response(null, { status: 503 }));
+    const send = vi.fn(() => true);
+    const { rerender } = await startVoiceMode(baseArgs({ send }));
+    rerender(baseArgs({ send, messages: [A] }));
+    await flush();
+    transcribeReturns("what happened");
+    await sayUtterance();
+    const note = noteOf(send);
+    expect(note).toContain("None of your replies had been read aloud");
+    expect(note).toContain('had not heard your reply starting "On the compaction work');
+  });
+
+  it("a reply the user plays with a speak button counts as heard", async () => {
+    const send = vi.fn(() => true);
+    await startVoiceMode(baseArgs({ send, messages: [A, B] }));
+    act(() => reportHeard({ eventId: "a1", text: A.content as string, outcome: "began" }));
+    transcribeReturns("about that");
+    await sayUtterance();
+    expect(noteOf(send)).toContain('heard was the one starting "On the compaction work');
+    expect(noteOf(send)).toContain("cut off partway");
+    act(() => reportHeard({ eventId: "a1", text: A.content as string, outcome: "finished" }));
+    transcribeReturns("got it");
+    await sayUtterance();
+    expect(noteOf(send, 1)).toContain('The last of your replies the user had heard was the one starting "On the compaction work');
+    expect(noteOf(send, 1)).not.toContain("cut off");
+  });
+
+  it("ignores a speak button playing another conversation's reply", async () => {
+    const send = vi.fn(() => true);
+    await startVoiceMode(baseArgs({ send, messages: [A] }));
+    act(() => reportHeard({ eventId: "other-pane", text: "Some other agent's words.", outcome: "finished" }));
+    transcribeReturns("hello");
+    await sayUtterance();
+    expect(noteOf(send)).toContain("None of your replies had been read aloud");
+    expect(noteOf(send)).not.toContain("other agent");
+  });
+
+  it("a skipped reply the user then plays with its speak button counts as heard, not unheard", async () => {
+    const send = vi.fn(() => true);
+    const { result, rerender } = await startVoiceMode(baseArgs({ send }));
+    rerender(baseArgs({ send, messages: [A, B] }));
+    await flush();
+    act(() => players[0].opts.onCanPlay?.());
+    act(() => result.current.skipSpeech());
+    await flush();
+    act(() => reportHeard({ eventId: "a2", text: B.content as string, outcome: "began" }));
+    act(() => reportHeard({ eventId: "a2", text: B.content as string, outcome: "finished" }));
+    transcribeReturns("about the chip");
+    await sayUtterance();
+    const note = noteOf(send);
+    expect(note).toContain('The last of your replies the user had heard was the one starting "For the voice mode cleanup');
+    expect(note).toContain('Before that, they heard only part of your reply starting "On the compaction work');
+    expect(note).not.toContain("had not heard");
   });
 });
