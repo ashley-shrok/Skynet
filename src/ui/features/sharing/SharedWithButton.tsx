@@ -207,10 +207,16 @@ export function SharedWithButton({
   const busyRef = useRef(false);
   busyRef.current = busy !== null;
 
+  // Answers that land after unmount, or after the button moved to another
+  // item, are dropped — only the latest request for the current item counts.
+  const loadSeqRef = useRef(0);
+  const mountedRef = useRef(true);
   const load = useCallback(async () => {
+    const seq = ++loadSeqRef.current;
+    const current = () => mountedRef.current && seq === loadSeqRef.current;
     try {
       const next = await getSharing({ hostId, kind, slug });
-      setState(next.multiUser ? next : null);
+      if (current()) setState(next.multiUser ? next : null);
     } catch (err) {
       console.warn("[sharing] load failed", {
         operation: "sharing_load_failed",
@@ -219,11 +225,18 @@ export function SharedWithButton({
         slug,
         error: err instanceof Error ? err.message : String(err),
       });
-      setState(null);
+      if (current()) setState(null);
     } finally {
-      setLoaded(true);
+      if (current()) setLoaded(true);
     }
   }, [hostId, kind, slug]);
+
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
 
   useEffect(() => {
     void load();
