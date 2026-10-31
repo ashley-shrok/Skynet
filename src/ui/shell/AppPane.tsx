@@ -24,6 +24,7 @@ import {
 import { hasSkynetDragPayload } from "./SplitView";
 import { subscribeDragSessionEnd } from "./drag-preview-session";
 import { keepFrameOutOfSessionHistory } from "./app-frame-no-history";
+import { watchFrameBackdrop } from "./app-frame-backdrop";
 import { PANE_BAR_BUTTON_CLASS, PaneBar } from "./PaneBar";
 import { usePromoteRequestsVersion } from "@/state/app-promote-requests";
 import { useMultiUserMachine } from "@/features/sharing/AppShareWindow";
@@ -70,7 +71,10 @@ export { sidebarToggleClearance } from "./PaneBar";
 //     canvas instead — same as in its own tab. Never inject a background
 //     into the app's html/body — a root-element background stops the app's
 //     `body` background from propagating to the canvas, leaving short dark
-//     apps white below their content (2026-10-09).
+//     apps white below their content (2026-10-09). Between pages, the frame
+//     takes the color the page being left painted over the whole frame (if
+//     any), so a dark app's page changes don't flash white
+//     (app-frame-backdrop.ts).
 //   - `title={`App ${slug}`}` — accessibility affordance (iframes need a
 //     title). Reflects the slug (NOT the app's live document.title per D-19
 //     — the pane never peeks at the app's internal state).
@@ -87,7 +91,8 @@ export { sidebarToggleClearance } from "./PaneBar";
 // in. Load, not readyState: "interactive" comes before stylesheets apply and
 // before deferred/module scripts render, so revealing there still flashes.
 // A hard cap reveals anyway so a stuck page never leaves the pane blank. Only
-// the first page is held back; later navigations keep the browser's own paint-holding.
+// the first page is held back; the gap between later pages is covered by
+// app-frame-backdrop.ts.
 //
 // ─── Iframe drag-passthrough (2026-09-21) ──────────────────────────────────
 // Drag events (dragover/dragenter/drop) fire in the iframe's own document,
@@ -445,6 +450,14 @@ export function AppPane({
     };
   }, [observe]);
 
+  // Between-pages backdrop (see app-frame-backdrop.ts).
+  const [backdrop, setBackdrop] = useState<string | null>(null);
+  useEffect(() => {
+    const el = iframeRef.current;
+    if (el === null) return;
+    return watchFrameBackdrop(el, setBackdrop, () => logCtxRef.current);
+  }, []);
+
   const onNavClick = (action: "back" | "forward" | "reload") => {
     const el = iframeRef.current;
     const h = historyRef.current;
@@ -565,6 +578,7 @@ export function AppPane({
         referrerPolicy="no-referrer"
         loading="eager"
         className={`flex-1 min-h-0 w-full border-0 bg-white scheme-light transition-opacity duration-150 ${revealed ? "opacity-100" : "opacity-0 pointer-events-none"}`}
+        style={backdrop !== null ? { backgroundColor: backdrop } : undefined}
         data-revealed={revealed ? "true" : "false"}
         data-app-hostid={hostId}
         data-app-slug={slug}

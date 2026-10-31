@@ -154,6 +154,39 @@ describe("AppPane iframe wrapper (Phase 120 D-05)", () => {
   });
 });
 
+// ─── No white flash between pages (app-frame-backdrop.ts) ───────────────────
+describe("AppPane between-pages backdrop", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("leaving a dark page colors the frame; the next load puts white back", () => {
+    vi.useFakeTimers({ toFake: ["requestAnimationFrame", "cancelAnimationFrame", "Date"] });
+    const { container } = render(
+      <AppPane hostId={1} slug="videos" tabId="t1" isVisible={true} />,
+    );
+    const iframe = container.querySelector("iframe")!;
+    const doc = iframe.contentDocument!;
+    doc.open();
+    doc.write('<html><body style="background-color: rgb(20, 21, 32)"></body></html>');
+    doc.close();
+    act(() => {
+      fireEvent.load(iframe);
+    });
+    expect(iframe.style.backgroundColor).toBe("");
+    act(() => {
+      iframe.contentWindow!.dispatchEvent(new Event("pagehide"));
+    });
+    expect(iframe.style.backgroundColor).toBe("rgb(20, 21, 32)");
+    // The white class stays: it's what shows under live pages.
+    expect(iframe.className.split(" ")).toContain("bg-white");
+    act(() => {
+      fireEvent.load(iframe);
+    });
+    expect(iframe.style.backgroundColor).toBe("");
+  });
+});
+
 // ─── No white flash on open (2026-10-21) ───────────────────────────────────
 describe("AppPane first-paint reveal", () => {
   afterEach(() => {
