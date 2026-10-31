@@ -24,8 +24,9 @@
 //
 // The next page takes over as early as it can be trusted: as soon as its
 // document reports a covering background (its color, invisible under it), or
-// once it has finished parsing with no covering background (white), and at
-// its load (white). Nothing is injected into the app: this only reads
+// once it is fully styled with none — parsed, deferred scripts run, every
+// stylesheet in (white) — and at its load (white). A page left before its
+// own load finished isn't watched yet and keeps the old white gap. Nothing is injected into the app: this only reads
 // computed styles and listens for pagehide on the frame's same-origin
 // window. Off-site (cross-origin) pages can't be read and stay white.
 
@@ -51,6 +52,7 @@ export function colorAlpha(color: string): number {
 }
 
 function parseAlpha(raw: string): number {
+  if (raw === "none") return 0;
   const n = raw.endsWith("%") ? parseFloat(raw) / 100 : parseFloat(raw);
   return Number.isFinite(n) ? n : 1;
 }
@@ -114,17 +116,32 @@ export interface BackdropLogContext {
   slug: string;
 }
 
+// Every stylesheet link has finished loading (or failed to — its sheet stays
+// null, so a broken link keeps the gap color until load: the safe side).
+function stylesheetsLoaded(doc: Document): boolean {
+  const links = doc.querySelectorAll<HTMLLinkElement>('link[rel~="stylesheet" i]');
+  return Array.from(links).every((l) => l.disabled || l.sheet !== null);
+}
+
 // Watches the frame across its page changes and calls apply() with the
-// covering color (null = keep the frame white). Returns the cleanup.
+// covering color (null = keep the frame white). Apply synchronously — the
+// gap starts right after pagehide, so a deferred render can let a white
+// frame through. Returns the cleanup.
 export function watchFrameBackdrop(
   frame: HTMLIFrameElement,
   apply: (color: string | null) => void,
   logCtx: () => BackdropLogContext,
 ): () => void {
   let last: string | null | undefined;
-  let pageWindow: Window | null = null;
   let raf: number | null = null;
   let watchStartedAt = 0;
+  // The page Window we listen on for pagehide — the page's own Window, not
+  // the frame's contentWindow proxy (which follows navigations). One at a
+  // time, so old pages' Windows aren't kept alive.
+  let watchedWindow: Window | null = null;
+  // Documents whose DOMContentLoaded has fired: parsing done AND deferred /
+  // module scripts run (readyState "interactive" comes before those).
+  const parsedDocs = new WeakSet<Document>();
 
   const set = (color: string | null, reason: string) => {
     if (color === last) return;
@@ -138,11 +155,11 @@ export function watchFrameBackdrop(
     });
   };
 
-  const read = (): { doc: Document | null; readable: boolean } => {
+  const currentDoc = (): Document | null => {
     try {
-      return { doc: frame.contentDocument, readable: frame.contentDocument !== null };
+      return frame.contentDocument;
     } catch {
-      return { doc: null, readable: false };
+      return null;
     }
   };
 
@@ -151,20 +168,61 @@ export function watchFrameBackdrop(
     raf = null;
   };
 
+  const onPageHide = (e: Event) => {
+    // A bfcache'd page (the whole Skynet tab going into back/forward cache)
+    // comes back with no load event to undo a color — leave it white.
+    if ((e as PageTransitionEvent).persisted === true) return;
+    // The pane closing detaches the frame, which also fires pagehide.
+    if (!frame.isConnected) return;
+    const doc = currentDoc();
+    if (doc === null) return;
+    set(frameCoveringBackdrop(doc), "leaving");
+    watchForNextPage(doc);
+  };
+
+  const unwatchPage = () => {
+    try {
+      watchedWindow?.removeEventListener("pagehide", onPageHide);
+    } catch {
+      // Window already gone.
+    }
+    watchedWindow = null;
+  };
+
+  const watchPage = (doc: Document) => {
+    const win = doc.defaultView;
+    if (win === null || win === watchedWindow) return;
+    unwatchPage();
+    watchedWindow = win;
+    win.addEventListener("pagehide", onPageHide);
+  };
+
+  // Keep the leaving page's color until the next page either reports a
+  // covering background (its own color — invisible under it) or is fully
+  // styled with none (white). Until then its paint is blocked or unstyled,
+  // and white would show through.
   const watchForNextPage = (leaving: Document) => {
     stopWatch();
     watchStartedAt = Date.now();
     const tick = () => {
       raf = null;
-      const { doc, readable } = read();
-      if (!readable) {
+      const doc = currentDoc();
+      if (doc === null) {
         set(null, "off-site");
         return;
       }
-      if (doc !== leaving && doc !== null) {
+      if (doc !== leaving) {
+        watchPage(doc);
+        if (doc.readyState === "loading" && !parsedDocs.has(doc)) {
+          doc.addEventListener("DOMContentLoaded", () => parsedDocs.add(doc), { once: true });
+        }
         const cover = frameCoveringBackdrop(doc);
-        if (cover !== null || doc.readyState !== "loading") {
+        if (cover !== null) {
           set(cover, "next-page");
+          return;
+        }
+        if (parsedDocs.has(doc) && stylesheetsLoaded(doc)) {
+          set(null, "next-page");
           return;
         }
       }
@@ -173,41 +231,19 @@ export function watchFrameBackdrop(
     raf = requestAnimationFrame(tick);
   };
 
-  const onPageHide = () => {
-    const { doc } = read();
-    if (doc === null) return;
-    set(frameCoveringBackdrop(doc), "leaving");
-    watchForNextPage(doc);
-  };
-
   // Each loaded page: back to white (the page shows over it exactly as it
   // always has) and listen for it being left.
   const onLoad = () => {
     stopWatch();
-    try {
-      pageWindow?.removeEventListener("pagehide", onPageHide);
-    } catch {
-      // Previous page's window went off-site; nothing to detach.
-    }
-    pageWindow = null;
     set(null, "load");
-    try {
-      if (frame.contentDocument === null) return;
-      pageWindow = frame.contentWindow;
-      pageWindow?.addEventListener("pagehide", onPageHide);
-    } catch {
-      pageWindow = null;
-    }
+    const doc = currentDoc();
+    if (doc !== null) watchPage(doc);
   };
 
   frame.addEventListener("load", onLoad);
   return () => {
     frame.removeEventListener("load", onLoad);
     stopWatch();
-    try {
-      pageWindow?.removeEventListener("pagehide", onPageHide);
-    } catch {
-      // Frame already gone or navigated off-site.
-    }
+    unwatchPage();
   };
 }

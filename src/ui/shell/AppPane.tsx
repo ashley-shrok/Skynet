@@ -451,11 +451,18 @@ export function AppPane({
   }, [observe]);
 
   // Between-pages backdrop (see app-frame-backdrop.ts).
-  const [backdrop, setBackdrop] = useState<string | null>(null);
+  // Applied straight to the element (React doesn't manage its style), so
+  // the color is in before the browser's next paint.
   useEffect(() => {
     const el = iframeRef.current;
     if (el === null) return;
-    return watchFrameBackdrop(el, setBackdrop, () => logCtxRef.current);
+    return watchFrameBackdrop(
+      el,
+      (color) => {
+        el.style.backgroundColor = color ?? "";
+      },
+      () => logCtxRef.current,
+    );
   }, []);
 
   const onNavClick = (action: "back" | "forward" | "reload") => {
@@ -578,7 +585,6 @@ export function AppPane({
         referrerPolicy="no-referrer"
         loading="eager"
         className={`flex-1 min-h-0 w-full border-0 bg-white scheme-light transition-opacity duration-150 ${revealed ? "opacity-100" : "opacity-0 pointer-events-none"}`}
-        style={backdrop !== null ? { backgroundColor: backdrop } : undefined}
         data-revealed={revealed ? "true" : "false"}
         data-app-hostid={hostId}
         data-app-slug={slug}

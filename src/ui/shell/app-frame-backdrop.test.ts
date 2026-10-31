@@ -33,7 +33,9 @@ function makeFrame(initial: Document | null) {
   const frame = new EventTarget() as EventTarget & {
     contentDocument: Document | null;
     contentWindow: Window | null;
+    isConnected: boolean;
   };
+  frame.isConnected = true;
   frame.contentDocument = initial;
   frame.contentWindow = initial?.defaultView ?? null;
   const navigateTo = (doc: Document | null) => {
@@ -60,6 +62,7 @@ describe("colorAlpha", () => {
     ["oklch(0.2 0.02 260)", 1],
     ["oklch(0.2 0.02 260 / 0.3)", 0.3],
     ["color(srgb 0.1 0.1 0.1 / 0)", 0],
+    ["oklch(0.2 0.02 260 / none)", 0],
     ["", 0],
   ])("%s → %s", (c, a) => {
     expect(colorAlpha(c)).toBeCloseTo(a);
@@ -156,16 +159,97 @@ describe("watchFrameBackdrop", () => {
     stop();
   });
 
-  it("parsed next page with no background goes white before its load", () => {
+  it("next page with no background goes white only once parsed, scripts run and styles in", () => {
     const dark = makeDoc({ body: "background-color: rgb(20, 21, 32)" });
     const { frame, navigateTo, el } = makeFrame(dark);
     const apply = vi.fn();
     const stop = watchFrameBackdrop(el, apply, ctx);
     frame.dispatchEvent(new Event("load"));
     dark.defaultView!.dispatchEvent(new Event("pagehide"));
-    navigateTo(makeDoc()); // jsdom documents report readyState "complete"
+
+    const next = makeDoc();
+    const link = next.createElement("link");
+    link.rel = "stylesheet"; // never loads in jsdom: sheet stays null
+    next.head.appendChild(link);
+    let state = "loading";
+    Object.defineProperty(next, "readyState", { get: () => state, configurable: true });
+    navigateTo(next);
+    vi.advanceTimersToNextFrame();
+    expect(apply).toHaveBeenLastCalledWith("rgb(20, 21, 32)");
+
+    // Parsed, but deferred/module scripts haven't run (no DOMContentLoaded).
+    state = "interactive";
+    vi.advanceTimersToNextFrame();
+    expect(apply).toHaveBeenLastCalledWith("rgb(20, 21, 32)");
+
+    // Scripts run, stylesheet still loading.
+    next.dispatchEvent(new Event("DOMContentLoaded"));
+    vi.advanceTimersToNextFrame();
+    expect(apply).toHaveBeenLastCalledWith("rgb(20, 21, 32)");
+
+    // Stylesheet in (simulated by its removal): fully styled, no background.
+    link.remove();
     vi.advanceTimersToNextFrame();
     expect(apply).toHaveBeenLastCalledWith(null);
+    stop();
+  });
+
+  it("next page already past parsing when first seen waits for its load", () => {
+    const dark = makeDoc({ body: "background-color: rgb(20, 21, 32)" });
+    const { frame, navigateTo, el } = makeFrame(dark);
+    const apply = vi.fn();
+    const stop = watchFrameBackdrop(el, apply, ctx);
+    frame.dispatchEvent(new Event("load"));
+    dark.defaultView!.dispatchEvent(new Event("pagehide"));
+    navigateTo(makeDoc()); // jsdom documents report "complete"
+    vi.advanceTimersToNextFrame();
+    expect(apply).toHaveBeenLastCalledWith("rgb(20, 21, 32)");
+    frame.dispatchEvent(new Event("load"));
+    expect(apply).toHaveBeenLastCalledWith(null);
+    stop();
+  });
+
+  it("a page left before its own load is still watched once seen", () => {
+    const dark = makeDoc({ body: "background-color: rgb(20, 21, 32)" });
+    const { frame, navigateTo, el } = makeFrame(dark);
+    const apply = vi.fn();
+    const stop = watchFrameBackdrop(el, apply, ctx);
+    frame.dispatchEvent(new Event("load"));
+    dark.defaultView!.dispatchEvent(new Event("pagehide"));
+    const next = makeDoc({ body: "background-color: rgb(7, 7, 7)" });
+    navigateTo(next);
+    vi.advanceTimersToNextFrame();
+    expect(apply).toHaveBeenLastCalledWith("rgb(7, 7, 7)");
+    // Left again before its load.
+    next.defaultView!.dispatchEvent(new Event("pagehide"));
+    navigateTo(makeDoc({ body: "background-color: rgb(9, 9, 9)" }));
+    vi.advanceTimersToNextFrame();
+    expect(apply).toHaveBeenLastCalledWith("rgb(9, 9, 9)");
+    stop();
+  });
+
+  it("bfcache pagehide (persisted) leaves the frame white", () => {
+    const dark = makeDoc({ body: "background-color: rgb(20, 21, 32)" });
+    const { frame, el } = makeFrame(dark);
+    const apply = vi.fn();
+    const stop = watchFrameBackdrop(el, apply, ctx);
+    frame.dispatchEvent(new Event("load"));
+    const e = new Event("pagehide");
+    Object.defineProperty(e, "persisted", { value: true });
+    dark.defaultView!.dispatchEvent(e);
+    expect(apply.mock.calls.every(([c]) => c === null)).toBe(true);
+    stop();
+  });
+
+  it("pagehide from the pane closing (frame detached) does nothing", () => {
+    const dark = makeDoc({ body: "background-color: rgb(20, 21, 32)" });
+    const { frame, el } = makeFrame(dark);
+    const apply = vi.fn();
+    const stop = watchFrameBackdrop(el, apply, ctx);
+    frame.dispatchEvent(new Event("load"));
+    frame.isConnected = false;
+    dark.defaultView!.dispatchEvent(new Event("pagehide"));
+    expect(apply.mock.calls.every(([c]) => c === null)).toBe(true);
     stop();
   });
 
