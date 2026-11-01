@@ -186,8 +186,12 @@ def _project_parent(slug):
 
 
 def _project_display_name(slug):
-    name = slug
-    for line in _project_head(slug):
+    return _display_name(_project_head(slug), slug)
+
+
+def _display_name(head, fallback):
+    name = fallback
+    for line in head:
         m = re.match(r"^displayName:\s*(.+?)\s*(#.*)?$", line)
         if m:
             val = m.group(1).strip().strip('"').strip("'").strip()
@@ -417,7 +421,9 @@ def build(name):
     for role in roles:
         role_path = os.path.join(FLEET, "roles", role, role + ".md")
         role_text = _read(role_path)
-        parts.append("## Role: %s" % role)
+        role_name = _display_name(_frontmatter_lines((role_text or "")[:65536]), role)
+        parts.append("## Role: %s" % role if role_name == role
+                     else "## Role: %s (%s)" % (role_name, role))
         if role_text is None:
             parts.append("Role file %s is missing." % _display(role_path))
         else:

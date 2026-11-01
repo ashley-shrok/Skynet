@@ -212,6 +212,10 @@ Announce:
 > [one sentence summary of role from file — one per role when there are several]
 > What we are working on: [summary of content from the identity file body; omit this line if there's none]"
 
+Name each role by its role file's `displayName:` (e.g. "Engineer"), falling
+back to the slug only when the role file has none. The slug is a folder
+name, not what the user calls the role.
+
 With no roles:
 
 > "Hi, I'm an agent with no roles — a plain assistant. Ask me to take on a role any time.
