@@ -73,6 +73,7 @@ import {
   type ButtonSpeechState,
 } from "./speak-singleton";
 import { setVoiceModeSettings } from "./voice-mode-settings";
+import { appendVoiceLabel } from "./voice-label";
 
 // ---------------------------------------------------------------------------
 // Browser audio stubs
@@ -1162,8 +1163,9 @@ describe("heard note", () => {
     transcribeReturns("yes do that");
     await sayUtterance();
     expect(noteOf(send)).toContain(
-      'The last of your replies the user had heard was the one starting "On the compaction work, the summary now keeps the campaign pointer intact."',
+      'What the user had heard when they spoke: your reply "On the compaction work, the summary now keeps the campaign pointer intact.".',
     );
+    expect(noteOf(send)).toContain('Nothing you sent after your reply "On the compaction work');
     expect(noteOf(send)).not.toContain("had not heard");
   });
 
@@ -1183,7 +1185,7 @@ describe("heard note", () => {
     expect(players).toHaveLength(1);
     await flush(TIMED_END_MS);
     const note = noteOf(send);
-    expect(note).toContain('heard was the one starting "On the compaction work');
+    expect(note).toContain('heard when they spoke: your reply "On the compaction work');
     expect(note).toContain('They had not heard your reply starting "For the voice mode cleanup, the chip now shows Muted while listening…"');
     expect(note).toContain("Their words answer what they had heard");
     // B is still read aloud after the send.
@@ -1201,7 +1203,7 @@ describe("heard note", () => {
     transcribeReturns("go ahead");
     await sayUtterance();
     // Whatever the agent says next, this send is pinned to A.
-    expect(noteOf(send)).toContain('heard was the one starting "On the compaction work');
+    expect(noteOf(send)).toContain('heard when they spoke: your reply "On the compaction work');
   });
 
   it("a skipped reply is cut off partway; replies dropped with it were not heard — reported once", async () => {
@@ -1215,7 +1217,7 @@ describe("heard note", () => {
     transcribeReturns("skip those");
     await sayUtterance();
     const note = noteOf(send);
-    expect(note).toContain('the user heard was the one starting "On the compaction work');
+    expect(note).toContain('heard when they spoke: your reply "On the compaction work');
     expect(note).toContain("cut off partway, so they may not have heard all of it");
     expect(note).toContain('had not heard your reply starting "For the voice mode cleanup');
     transcribeReturns("and another thing");
@@ -1242,12 +1244,13 @@ describe("heard note", () => {
     act(() => reportHeard({ eventId: "a1", text: A.content as string, outcome: "began" }));
     transcribeReturns("about that");
     await sayUtterance();
-    expect(noteOf(send)).toContain('heard was the one starting "On the compaction work');
+    expect(noteOf(send)).toContain('heard when they spoke: your reply "On the compaction work');
     expect(noteOf(send)).toContain("cut off partway");
     act(() => reportHeard({ eventId: "a1", text: A.content as string, outcome: "finished" }));
     transcribeReturns("got it");
     await sayUtterance();
-    expect(noteOf(send, 1)).toContain('The last of your replies the user had heard was the one starting "On the compaction work');
+    // Played on to the end: the same step, now whole — not a second one.
+    expect(noteOf(send, 1)).toContain('in between, oldest first: your reply "On the compaction work, the summary now keeps the campaign pointer intact."; then they said "about that"');
     expect(noteOf(send, 1)).not.toContain("cut off");
   });
 
@@ -1274,8 +1277,99 @@ describe("heard note", () => {
     transcribeReturns("about the chip");
     await sayUtterance();
     const note = noteOf(send);
-    expect(note).toContain('The last of your replies the user had heard was the one starting "For the voice mode cleanup');
-    expect(note).toContain('Before that, they heard only part of your reply starting "On the compaction work');
+    expect(note).toContain(
+      'oldest first: your reply "On the compaction work, the summary now keeps the campaign pointer intact." (cut off partway, so they may not have heard all of it); then your reply starting "For the voice mode cleanup',
+    );
     expect(note).not.toContain("had not heard");
+  });
+
+  it("the run follows the order the user heard things, not the transcript order", async () => {
+    const send = vi.fn(() => true);
+    const { rerender } = await startVoiceMode(baseArgs({ send }));
+    rerender(baseArgs({ send, messages: [A] }));
+    await flush();
+    act(() => players[0].opts.onCanPlay?.());
+    act(() => players[0].opts.onEnded?.());
+    await flush();
+    // B lands mid-sentence and is held; it is read only after the send.
+    transcribeReturns("drop that one for now");
+    await sayPiece();
+    rerender(baseArgs({ send, messages: [A, B] }));
+    await flush();
+    await flush(TIMED_END_MS);
+    act(() => players[1].opts.onCanPlay?.());
+    act(() => players[1].opts.onEnded?.());
+    await flush();
+    transcribeReturns("and the chip looks fine");
+    await sayUtterance();
+    expect(noteOf(send, 1)).toContain(
+      'in between, oldest first: your reply "On the compaction work, the summary now keeps the campaign pointer intact."; ' +
+        'then they said "drop that one for now"; then your reply starting "For the voice mode cleanup',
+    );
+    expect(noteOf(send, 1)).toContain('Nothing you sent after your reply starting "For the voice mode cleanup');
+  });
+
+  it("replaying a reply after saying something puts it after their words", async () => {
+    const send = vi.fn(() => true);
+    await startVoiceMode(baseArgs({ send, messages: [A, B] }));
+    act(() => reportHeard({ eventId: "a1", text: A.content as string, outcome: "began" }));
+    act(() => reportHeard({ eventId: "a1", text: A.content as string, outcome: "finished" }));
+    transcribeReturns("say that again");
+    await sayUtterance();
+    act(() => reportHeard({ eventId: "a1", text: A.content as string, outcome: "began" }));
+    act(() => reportHeard({ eventId: "a1", text: A.content as string, outcome: "finished" }));
+    transcribeReturns("got it now");
+    await sayUtterance();
+    expect(noteOf(send, 1)).toContain(
+      'in between, oldest first: your reply "On the compaction work, the summary now keeps the campaign pointer intact."; ' +
+        'then they said "say that again"; then your reply "On the compaction work',
+    );
+  });
+
+  it("a message typed while voice mode is on joins the run", async () => {
+    const send = vi.fn(() => true);
+    const { rerender } = await startVoiceMode(baseArgs({ send }));
+    rerender(baseArgs({ send, messages: [A] }));
+    await flush();
+    act(() => players[0].opts.onCanPlay?.());
+    act(() => players[0].opts.onEnded?.());
+    await flush();
+    const typed: VoiceModeMessage = { type: "message", role: "user", content: "typed it instead", eventId: "u9", ts: Date.now() };
+    const spoken: VoiceModeMessage = {
+      type: "message",
+      role: "user",
+      content: appendVoiceLabel("spoken earlier"),
+      eventId: "u10",
+      ts: Date.now(),
+    };
+    const wake: VoiceModeMessage = {
+      type: "message",
+      role: "user",
+      content: "<task-notification><summary>Ambient watcher event</summary></task-notification>",
+      eventId: "u11",
+      ts: Date.now(),
+    };
+    rerender(baseArgs({ send, messages: [A, typed, spoken, wake] }));
+    await flush();
+    transcribeReturns("and now by voice");
+    await sayUtterance();
+    expect(noteOf(send)).toContain('then they said "typed it instead".');
+    // A voice message in the feed was already counted when it was sent.
+    expect(noteOf(send)).not.toContain("spoken earlier");
+    // Wake-ups and other events in the feed aren't the user's words.
+    expect(noteOf(send)).not.toContain("Ambient");
+  });
+
+  it("a replay that reports only its end still lands after what the user said", async () => {
+    const send = vi.fn(() => true);
+    await startVoiceMode(baseArgs({ send, messages: [A] }));
+    act(() => reportHeard({ eventId: "a1", text: A.content as string, outcome: "began" }));
+    act(() => reportHeard({ eventId: "a1", text: A.content as string, outcome: "finished" }));
+    transcribeReturns("once more");
+    await sayUtterance();
+    act(() => reportHeard({ eventId: "a1", text: A.content as string, outcome: "finished" }));
+    transcribeReturns("thanks");
+    await sayUtterance();
+    expect(noteOf(send, 1)).toContain('then they said "once more"; then your reply "On the compaction work');
   });
 });

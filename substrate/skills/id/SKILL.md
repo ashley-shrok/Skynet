@@ -1792,9 +1792,11 @@ crown, then gear.
   the box's default. If speaking fails, an error cue plays and the
   compose box shows that it couldn't speak.
   *Agent-side:* a message sent this way ends with a bracketed "sent by
-  voice" tag, followed by a note saying which of your replies the user had
-  heard when they spoke, and which they hadn't. Judge what their words
-  answer by that note, not by where the message sits in your conversation.
+  voice" tag, followed by a note listing, oldest first, the last few of your
+  replies the user had heard when they spoke and what they said in between,
+  then that nothing after those had been heard, and which replies they
+  hadn't heard. Judge what their words answer by that note, not by where
+  the message sits in your conversation.
 
 - **⚡ Lightning bolt — Skills menu** (agent conversations only). Sits
   in the composer's row, just right of the paperclip. Tapping it opens a

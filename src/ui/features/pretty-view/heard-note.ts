@@ -1,10 +1,13 @@
-// Heard note (shape-voice-heard-ordering, 2026-10-29). Every voice-mode send
-// tells the agent what the user had actually heard when they spoke: the last
-// reply read to them (and whether it was cut off), and any replies that had
-// arrived but were never read aloud. The agent may reply again before it sees
-// the user's words, so transcript order alone can't say what an answer is
-// about. Plain English, so an agent never taught about it still reads it
-// right; it rides right after the voice label, which bubbles strip.
+// Heard note (shape-voice-heard-ordering, 2026-10-29; heard run,
+// shape-voice-heard-run, 2026-11-01). Every voice-mode send tells the agent
+// what the user had actually lived through when they spoke: the last few
+// replies read to them, with their own messages in between, in the order
+// they happened — then that nothing after the last of those had been heard,
+// and which replies had arrived but were not read aloud. The agent may reply
+// again before it sees the user's words, and a bare "Okay." says nothing of
+// its topic, so the run carries the context. Plain English, so an agent never
+// taught about it still reads it right; it rides right after the voice label,
+// which bubbles strip.
 
 /** One agent reply, as voice mode tracks it. */
 export interface HeardReply {
@@ -13,13 +16,19 @@ export interface HeardReply {
   text: string;
 }
 
+/**
+ * One step of what the user lived through this voice session: a reply read to
+ * them (`complete` false = cut off partway), or a message they sent.
+ */
+export type RunEntry =
+  | { kind: "heard"; reply: HeardReply; complete: boolean }
+  | { kind: "said"; text: string };
+
 export interface HeardState {
-  /** The last reply the user heard; `complete` false = cut off partway. */
-  last: { reply: HeardReply; complete: boolean } | null;
+  /** Oldest first, in the order the user experienced it. */
+  run: readonly RunEntry[];
   /** Replies that arrived but were not read aloud. */
   unheard: readonly HeardReply[];
-  /** Earlier replies (before `last`) the user heard only part of. */
-  cutOff?: readonly HeardReply[];
 }
 
 /** Opening words quoted by default — enough to find the reply. */
@@ -30,6 +39,10 @@ const QUOTE_STEP = 6;
 export const QUOTE_MAX_WORDS = 40;
 /** Replies named per list; the rest are counted, so the note never buries the user's words. */
 export const LIST_MAX = 3;
+/** Heard replies shown in the run; the user's messages between them come along. */
+export const RUN_REPLIES = 3;
+/** The user's own messages shown in the run, latest kept — a long string of them would bury their words. */
+export const RUN_SAID = 4;
 
 function words(text: string): string[] {
   return text.split(/\s+/).filter(Boolean);
@@ -55,6 +68,14 @@ function sanitize(text: string): string {
  * are told apart by counting back from the latest.
  */
 export function quoteReply(reply: HeardReply, replies: readonly HeardReply[]): string {
+  const { quote, position } = quoteParts(reply, replies);
+  return position ? `${quote} ${position}` : quote;
+}
+
+function quoteParts(
+  reply: HeardReply,
+  replies: readonly HeardReply[],
+): { quote: string; whole: boolean; position?: string } {
   const own = words(reply.text);
   const others = replies.filter((r) => !sameReply(r, reply)).map((r) => ({ r, w: words(r.text) }));
   let n = Math.min(QUOTE_WORDS, own.length);
@@ -62,15 +83,49 @@ export function quoteReply(reply: HeardReply, replies: readonly HeardReply[]): s
   while (n < own.length && n < QUOTE_MAX_WORDS && clashes().length > 0) {
     n = Math.min(n + QUOTE_STEP, own.length, QUOTE_MAX_WORDS);
   }
-  const quote = `"${sanitize(own.slice(0, n).join(" "))}${n < own.length ? "…" : ""}"`;
+  const whole = n >= own.length;
+  const quote = `"${sanitize(own.slice(0, n).join(" "))}${whole ? "" : "…"}"`;
   const clashing = clashes();
-  if (clashing.length === 0) return quote;
+  if (clashing.length === 0) return { quote, whole };
   // Identical as far as the quote goes: say which one, counting back.
   const idx = replies.findIndex((r) => sameReply(r, reply));
-  if (idx < 0) return quote; // not among the replies — no honest position to give
+  if (idx < 0) return { quote, whole }; // not among the replies — no honest position to give
   const newer = clashing.filter((o) => replies.indexOf(o.r) > idx).length;
   const ordinal = ["latest", "second latest", "third latest"][newer] ?? `${newer + 1}th latest`;
-  return `${quote} (the ${ordinal} of your replies that start that way)`;
+  // "As of when they spoke": the agent may send another one before it reads this.
+  return { quote, whole, position: `(the ${ordinal} of your replies that start that way, as of when they spoke)` };
+}
+
+/** `your reply "Okay."` / `your reply starting "On the AI costs…"`. */
+function yourReply(reply: HeardReply, replies: readonly HeardReply[]): string {
+  const { quote, whole, position } = quoteParts(reply, replies);
+  return `your reply ${whole ? "" : "starting "}${quote}${position ? ` ${position}` : ""}`;
+}
+
+/** The user's own message, by its opening words. */
+function theySaid(text: string): string {
+  const w = words(text);
+  const n = Math.min(QUOTE_WORDS, w.length);
+  return `they said "${sanitize(w.slice(0, n).join(" "))}${n < w.length ? "…" : ""}"`;
+}
+
+/**
+ * The tail of the run worth showing: from the RUN_REPLIES-th last heard reply
+ * on, keeping only the latest RUN_SAID of the user's messages in it.
+ */
+function trimRun(run: readonly RunEntry[]): RunEntry[] {
+  let seen = 0;
+  let start = run.findIndex((e) => e.kind === "heard");
+  for (let i = run.length - 1; i >= 0; i--) {
+    if (run[i].kind === "heard" && ++seen === RUN_REPLIES) {
+      start = i;
+      break;
+    }
+  }
+  if (start < 0) return [];
+  const tail = run.slice(start);
+  let said = tail.filter((e) => e.kind === "said").length;
+  return tail.filter((e) => e.kind === "heard" || said-- <= RUN_SAID);
 }
 
 function list(quotes: string[]): string {
@@ -91,26 +146,39 @@ function distinct(replies: readonly HeardReply[], except: readonly HeardReply[])
 /** The note's sentences — goes in its own brackets right after the voice label. */
 export function buildHeardNote(state: HeardState, replies: readonly HeardReply[]): string {
   const parts: string[] = [];
-  const { last } = state;
+  const run = trimRun(state.run);
+  const heard = run.flatMap((e) => (e.kind === "heard" ? [e] : []));
+  // The line is drawn after the newest reply they had heard — a replay of an
+  // older one doesn't make later replies they heard unheard.
+  const newest = (e: { reply: HeardReply }) => replies.findIndex((r) => sameReply(r, e.reply));
+  const last = heard.reduce<(typeof heard)[number] | undefined>(
+    (best, e) => (!best || newest(e) >= newest(best) ? e : best),
+    undefined,
+  );
   if (!last) {
-    parts.push("None of your replies had been read aloud to the user yet in this voice session.");
-  } else if (last.complete) {
-    parts.push(`The last of your replies the user had heard was the one starting ${quoteReply(last.reply, replies)}.`);
-  } else {
     parts.push(
-      `The last of your replies the user heard was the one starting ${quoteReply(last.reply, replies)}, ` +
-        "but it was cut off partway, so they may not have heard all of it.",
+      "None of your replies had been read aloud to the user yet in this voice session. " +
+        "That includes anything you send before you read this.",
+    );
+  } else {
+    const steps = run.map((e) =>
+      e.kind === "said"
+        ? theySaid(e.text)
+        : `${yourReply(e.reply, replies)}${e.complete ? "" : " (cut off partway, so they may not have heard all of it)"}`,
+    );
+    const joined = steps.map((s, i) => (i === 0 ? s : `then ${s}`)).join("; ");
+    const said = run.some((e) => e.kind === "said");
+    parts.push(
+      `What the user had heard when they spoke${said ? ", with their own messages in between" : ""}` +
+        `${steps.length > 1 ? ", oldest first" : ""}: ${joined}.`,
+    );
+    parts.push(
+      `Nothing you sent after ${yourReply(last.reply, replies)} had been heard yet, ` +
+        "including anything you send before you read this.",
     );
   }
-  const lastOnly = last ? [last.reply] : [];
-  const cutOff = distinct(state.cutOff ?? [], lastOnly);
-  if (cutOff.length === 1) {
-    parts.push(`Before that, they heard only part of your reply starting ${quoteReply(cutOff[0], replies)}.`);
-  } else if (cutOff.length > 1) {
-    parts.push(`Before that, they heard only part of your replies starting ${list(cutOff.map((r) => quoteReply(r, replies)))}.`);
-  }
   // Heard after all (e.g. played with a speak button) beats "not heard".
-  const unheard = distinct(state.unheard, [...lastOnly, ...cutOff]);
+  const unheard = distinct(state.unheard, heard.map((e) => e.reply));
   if (unheard.length === 1) {
     parts.push(`They had not heard your reply starting ${quoteReply(unheard[0], replies)}; it was not read aloud to them.`);
   } else if (unheard.length > 1) {

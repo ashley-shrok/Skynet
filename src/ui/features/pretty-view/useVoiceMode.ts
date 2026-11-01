@@ -70,7 +70,8 @@ import {
   subscribeHeard,
   subscribeSpeech,
 } from "./speak-singleton";
-import { buildHeardNote, sameReply, type HeardReply, type HeardState } from "./heard-note";
+import { buildHeardNote, sameReply, type HeardReply, type RunEntry } from "./heard-note";
+import { stripVoiceLabel } from "./voice-label";
 import { registerVoiceModeActive } from "./voice-mode-registry";
 import { createVoiceModeCues, type VoiceModeCue, type VoiceModeCues } from "./voice-mode-cues";
 import { getVoiceModeSettings, VOICE_MODE_PAUSE_SECONDS_DEFAULT } from "./voice-mode-settings";
@@ -118,6 +119,13 @@ const MIN_SPEECH_RMS = 0.012;
 const NOISE_MULTIPLIER = 3;
 /** History frames older than voice-mode start (minus slack) are never spoken. */
 const HISTORY_SLACK_MS = 60 * 1000;
+/**
+ * User-role turns the user didn't type: wake-ups, relay and watcher events,
+ * slash-command wrappers, harness reminders. They stay out of the heard run.
+ */
+const NOT_TYPED_RE = /<(task-notification|pasted_content|command-name|command-message|local-command-|system-reminder)/;
+/** Heard-run steps kept per session — the note shows only the tail. */
+const RUN_KEEP = 40;
 /** Let the bail alarm finish before the AudioContext is closed. */
 const ALARM_TAIL_MS = 1500;
 /** Let the "off" chime finish before the AudioContext is closed. */
@@ -343,22 +351,41 @@ export function useVoiceMode(args: UseVoiceModeArgs): UseVoiceModeReturn {
   const seenIdsRef = useRef<Set<string>>(new Set());
   const startedAtRef = useRef(0);
   const queueRef = useRef<QueuedReply[]>([]);
-  // Heard note state: the last reply the user heard (voice mode's or a speak
-  // button's), and replies that arrived but were not read aloud and haven't
-  // been reported in a sent note yet.
-  const lastHeardRef = useRef<HeardState["last"]>(null);
+  // Heard note state: the run of what the user lived through this session
+  // (replies read to them — voice mode's or a speak button's — and their own
+  // messages, in that order), and replies that arrived but were not read
+  // aloud and haven't been reported in a sent note yet.
+  const runRef = useRef<RunEntry[]>([]);
   const droppedRef = useRef<HeardReply[]>([]);
   /** The reply voice mode is reading now, and whether its audio has begun. */
   const readingRef = useRef<{ reply: HeardReply; began: boolean } | null>(null);
-  /** Earlier replies heard only in part, superseded as "last" and not yet reported. */
-  const cutOffRef = useRef<HeardReply[]>([]);
   /** Last speak-button report, kept while off so a button playing at start counts. */
-  const lastButtonHeardRef = useRef<HeardState["last"]>(null);
-  /** A new reply is what was last heard; one left cut off before it is remembered. */
-  const setLastHeard = (next: NonNullable<HeardState["last"]>) => {
-    const prev = lastHeardRef.current;
-    if (prev && !prev.complete && !sameReply(prev.reply, next.reply)) cutOffRef.current.push(prev.reply);
-    lastHeardRef.current = next;
+  const lastButtonHeardRef = useRef<{ reply: HeardReply; complete: boolean } | null>(null);
+  /**
+   * A reply began playing (`complete` false) or played to the end (true). The
+   * end of a play updates the step its start made; a new start is a new step
+   * — a replay after the user said something lands after it — unless it's
+   * the step just before.
+   */
+  const markHeard = (reply: HeardReply, complete: boolean) => {
+    const run = runRef.current;
+    let at = run.length - 1;
+    // Only an unfinished play reaches back past what the user said since.
+    if (complete) while (at >= 0 && run[at].kind !== "heard") at--;
+    const prev = run[at];
+    const same = prev?.kind === "heard" && sameReply(prev.reply, reply);
+    if (same && (at === run.length - 1 || !prev.complete)) {
+      run[at] = { kind: "heard", reply, complete: complete || prev.complete };
+    } else {
+      run.push({ kind: "heard", reply, complete });
+    }
+    if (run.length > RUN_KEEP) run.splice(0, run.length - RUN_KEEP);
+  };
+  /** The user sent a message (by voice, or typed while voice mode is on). */
+  const markSaid = (text: string) => {
+    if (!text.trim()) return;
+    runRef.current.push({ kind: "said", text });
+    if (runRef.current.length > RUN_KEEP) runRef.current.splice(0, runRef.current.length - RUN_KEEP);
   };
   const speakingRef = useRef<{ owner: symbol; finish: () => void } | null>(null);
   const acquiringRef = useRef(false); // getUserMedia in flight
@@ -879,7 +906,7 @@ export function useVoiceMode(args: UseVoiceModeArgs): UseVoiceModeReturn {
       if (sent) {
         // Reported now; queued replies stay unheard until they're read.
         droppedRef.current = [];
-        cutOffRef.current = [];
+        markSaid(text);
         playCue("sent");
         markAwaitingReply();
       } else {
@@ -903,7 +930,7 @@ export function useVoiceMode(args: UseVoiceModeArgs): UseVoiceModeReturn {
       ...queueRef.current.map((q) => q.reply),
     ];
     return buildHeardNote(
-      { last: lastHeardRef.current, unheard, cutOff: cutOffRef.current },
+      { run: runRef.current, unheard },
       agentReplies(argsRef.current.messages),
     );
   }
@@ -1037,12 +1064,10 @@ export function useVoiceMode(args: UseVoiceModeArgs): UseVoiceModeReturn {
       onCanPlay: () => {
         if (reading.began || getCurrentOwner() !== owner) return;
         reading.began = true;
-        setLastHeard({ reply: reading.reply, complete: false });
+        markHeard(reading.reply, false);
       },
       onEnded: () => {
-        if (reading.began && lastHeardRef.current?.reply === reading.reply) {
-          lastHeardRef.current = { reply: reading.reply, complete: true };
-        }
+        if (reading.began) markHeard(reading.reply, true);
         finish();
       },
       onError: () => {
@@ -1239,10 +1264,11 @@ export function useVoiceMode(args: UseVoiceModeArgs): UseVoiceModeReturn {
     // A speak button already reading one of this conversation's replies
     // counts as heard from the start.
     const button = lastButtonHeardRef.current;
-    lastHeardRef.current =
-      getButtonSpeechState() === "playing" && button && isOwnReply(button.reply) ? button : null;
+    runRef.current =
+      getButtonSpeechState() === "playing" && button && isOwnReply(button.reply)
+        ? [{ kind: "heard", reply: button.reply, complete: button.complete }]
+        : [];
     droppedRef.current = [];
-    cutOffRef.current = [];
     readingRef.current = null;
     playAutoSpeakOn();
 
@@ -1292,8 +1318,14 @@ export function useVoiceMode(args: UseVoiceModeArgs): UseVoiceModeReturn {
     for (const m of args.messages) {
       if (typeof m.eventId !== "string" || seen.has(m.eventId)) continue;
       seen.add(m.eventId);
-      if (m.type !== "message" || m.role !== "assistant" || typeof m.content !== "string") continue;
+      if (m.type !== "message" || typeof m.content !== "string") continue;
       if (typeof m.ts === "number" && m.ts < startedAtRef.current - HISTORY_SLACK_MS) continue;
+      // A typed message joins the heard run; voice mode's own sends already did.
+      if (m.role === "user") {
+        if (stripVoiceLabel(m.content) === m.content && !NOT_TYPED_RE.test(m.content)) markSaid(m.content);
+        continue;
+      }
+      if (m.role !== "assistant") continue;
       const text = toSpeakableText(m.content);
       if (text) {
         queueRef.current.push({ reply: { eventId: m.eventId, text: m.content }, speakable: text });
@@ -1349,7 +1381,7 @@ export function useVoiceMode(args: UseVoiceModeArgs): UseVoiceModeReturn {
         const next = { reply, complete: r.outcome === "finished" };
         lastButtonHeardRef.current = next;
         if (!activeRef.current) return;
-        setLastHeard(next);
+        markHeard(reply, next.complete);
         // Heard after all — no longer "not heard".
         droppedRef.current = droppedRef.current.filter((d) => !sameReply(d, reply));
       }),
