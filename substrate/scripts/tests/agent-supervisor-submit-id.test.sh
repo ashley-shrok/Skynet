@@ -17,6 +17,7 @@
 #   T-06  — cwd reached through a symlink (/home -> /var/home) → /id is found in the project dir
 #           Claude Code names after the PHYSICAL cwd → success on attempt 1, pasted once
 #   T-07  — _expected_project_dir resolves the same symlink
+#   T-08  — `_` and `.` in the path become `-` (Claude Code's non-alphanumeric rule)
 #
 # tmux (PATH stub) and claude_running are stubbed; the paste is simulated by appending a /id user
 # turn to a target file. Poll budget is real (15s per attempt) — T-03 takes ~30s, T-05 ~8s.
@@ -56,7 +57,9 @@ claude_running() { return 0; }
 
 NAME="newborn"
 CWD="/fake/fleet/identities/$NAME/workspace"
-PDIR="$AGENT_PROJECTS_DIR/$(printf '%s' "$CWD" | sed 's|/|-|g')"
+mangle() { printf '%s' "$1" | sed 's/[^a-zA-Z0-9]/-/g'; }
+PDIR="$AGENT_PROJECTS_DIR/$(mangle "$CWD")"
+PHYS_SCRATCH="$(cd "$SCRATCH" && pwd -P)"   # expected paths are physical, even if TMPDIR is a symlink
 PASTE_COUNT_FILE="$SCRATCH/paste-count"
 LAND_TARGET=""   # file the simulated paste appends /id into; empty = paste lands nowhere
 
@@ -115,15 +118,20 @@ if [ "$rc" = 0 ] && [ "$(pastes)" = 1 ] && [ "$el" -ge 7 ] && [ "$el" -le 12 ]; 
 CURRENT_TEST="T-06 symlinked cwd: /id lands in the physical-path project dir"
 mkdir -p "$SCRATCH/var/home/$NAME/workspace"; ln -s "$SCRATCH/var/home" "$SCRATCH/home"
 LINK_CWD="$SCRATCH/home/$NAME/workspace"
-PHYS_PDIR="$AGENT_PROJECTS_DIR/$(printf '%s' "$SCRATCH/var/home/$NAME/workspace" | sed 's|/|-|g')"
+PHYS_PDIR="$AGENT_PROJECTS_DIR/$(mangle "$PHYS_SCRATCH/var/home/$NAME/workspace")"
 reset; mkdir -p "$PHYS_PDIR"; export LAND_TARGET="$PHYS_PDIR/fresh.jsonl"
 if submit_id "$NAME" sess "$LINK_CWD" && [ "$(pastes)" = 1 ]; then pass; else fail "rc/pastes wrong (pastes=$(pastes)) — looked in the symlink-named dir"; fi
 
 CURRENT_TEST="T-07 _expected_project_dir resolves a symlinked identities dir"
 mkdir -p "$SCRATCH/var/ids/$NAME/workspace"; ln -s "$SCRATCH/var/ids" "$SCRATCH/ids"
 got="$(IDENTITIES_DIR="$SCRATCH/ids" _expected_project_dir "$NAME")"
-want="$AGENT_PROJECTS_DIR/$(printf '%s' "$SCRATCH/var/ids/$NAME/workspace" | sed 's|/|-|g')"
+want="$AGENT_PROJECTS_DIR/$(mangle "$PHYS_SCRATCH/var/ids/$NAME/workspace")"
 if [ "$got" = "$want" ]; then pass; else fail "got $got, want $want"; fi
+
+CURRENT_TEST="T-08 non-alphanumerics in the path (_ and .) are mangled to - like Claude Code does"
+got="$(_expected_project_dir "my_agent.v2")"; got="${got#"$AGENT_PROJECTS_DIR/"}"
+if [ -n "$got" ] && ! printf '%s' "$got" | grep -q '[^a-zA-Z0-9-]' && case "$got" in *-my-agent-v2-workspace) true ;; *) false ;; esac
+then pass; else fail "got $got"; fi
 
 printf '\n%d passed, %d failed\n' "$PASS" "$FAIL"
 if [ "$FAIL" -gt 0 ]; then

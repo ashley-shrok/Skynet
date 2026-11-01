@@ -3016,7 +3016,7 @@ _check_id_first_turn() {
 #
 # Approach:
 #   1. Snapshot pre-existing jsonls under ~/.claude/projects/<sanitized-cwd>/
-#      (Claude Code mangles the cwd: replace every "/" with "-".)
+#      (see _claude_project_name for how Claude Code names that folder).
 #   2. Wait for Ink's compose prompt, then load-buffer + paste-buffer + Enter (attempt 2 C-c's first).
 #   3. Poll for a NEW jsonl appearing (not in the snapshot) — or a snapshot jsonl that had no
 #      user turn yet (this harness's own startup-written file) — whose first user-role line
@@ -3033,7 +3033,7 @@ submit_id() {
   local name="$1" sess="$2" cwd="$3"
   [ -n "$cwd" ] || { log "ERROR: '$name' submit_id: cwd argument missing — cannot resolve project dir"; return 1; }
   local sanitized project_dir
-  sanitized=$(printf '%s' "$(_physical_path "$cwd")" | sed 's|/|-|g')
+  sanitized=$(_claude_project_name "$cwd")
   project_dir="$PROJECTS_DIR/$sanitized"
   mkdir -p "$project_dir" 2>/dev/null  # Claude Code creates it; ensure it exists so our ls doesn't error
   local before_snapshot
@@ -3236,15 +3236,19 @@ session_cwd() { grep -m1 -o '"cwd":"[^"]*"' "$1" 2>/dev/null | sed 's/"cwd":"//;
 # behind a symlink (Fedora Atomic / Bazzite: /home -> /var/home) the mangled name must come from
 # the resolved path. A no-op on boxes with no symlink in the path.
 _physical_path() { (cd "$1" 2>/dev/null && pwd -P) || printf '%s' "$1"; }
+# _claude_project_name <cwd> — the ~/.claude/projects/ folder name Claude Code uses for <cwd>:
+# the physical path with every non-alphanumeric character turned into "-". Same rule as
+# claudeProjectFolderName() in src/backend/claude-session/agent-history-file.ts.
+_claude_project_name() { printf '%s' "$(_physical_path "$1")" | sed 's/[^a-zA-Z0-9]/-/g'; }
 # Expected project dir for an identity: Claude Code stores sessions at
-# ~/.claude/projects/<mangled-cwd>/, where mangling replaces every "/" with "-". The
+# ~/.claude/projects/<mangled-cwd>/ (see _claude_project_name). The
 # supervisor always launches an identity's claude in ~/fleet/identities/<name>/workspace/
 # (see launch()), so that identity's sessions land under a predictable directory. Same
-# mangling rule as submit_id() uses at agent-supervisor.sh:1138.
+# mangling rule as submit_id() uses.
 _expected_project_dir() {
   local name="$1"
   local mangled
-  mangled=$(printf '%s' "$(_physical_path "$IDENTITIES_DIR/$name/workspace")" | sed 's|/|-|g')
+  mangled=$(_claude_project_name "$IDENTITIES_DIR/$name/workspace")
   printf '%s/%s' "$PROJECTS_DIR" "$mangled"
 }
 # Scan ONE directory's *.jsonl files mtime-desc, return newest OWNED by $1 on stdout,
