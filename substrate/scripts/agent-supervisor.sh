@@ -3033,7 +3033,7 @@ submit_id() {
   local name="$1" sess="$2" cwd="$3"
   [ -n "$cwd" ] || { log "ERROR: '$name' submit_id: cwd argument missing — cannot resolve project dir"; return 1; }
   local sanitized project_dir
-  sanitized=$(printf '%s' "$cwd" | sed 's|/|-|g')
+  sanitized=$(printf '%s' "$(_physical_path "$cwd")" | sed 's|/|-|g')
   project_dir="$PROJECTS_DIR/$sanitized"
   mkdir -p "$project_dir" 2>/dev/null  # Claude Code creates it; ensure it exists so our ls doesn't error
   local before_snapshot
@@ -3231,6 +3231,11 @@ session_owner() {
     | grep -vixE 'save|reset' | grep -v '^[[:space:]]*$' | head -1
 }
 session_cwd() { grep -m1 -o '"cwd":"[^"]*"' "$1" 2>/dev/null | sed 's/"cwd":"//;s/"$//'; }
+# _physical_path <dir> — <dir> with symlinks resolved, or <dir> unchanged if it can't be entered.
+# Claude Code names a session's project dir after its physical cwd, so on a box where $HOME sits
+# behind a symlink (Fedora Atomic / Bazzite: /home -> /var/home) the mangled name must come from
+# the resolved path. A no-op on boxes with no symlink in the path.
+_physical_path() { (cd "$1" 2>/dev/null && pwd -P) || printf '%s' "$1"; }
 # Expected project dir for an identity: Claude Code stores sessions at
 # ~/.claude/projects/<mangled-cwd>/, where mangling replaces every "/" with "-". The
 # supervisor always launches an identity's claude in ~/fleet/identities/<name>/workspace/
@@ -3239,7 +3244,7 @@ session_cwd() { grep -m1 -o '"cwd":"[^"]*"' "$1" 2>/dev/null | sed 's/"cwd":"//;
 _expected_project_dir() {
   local name="$1"
   local mangled
-  mangled=$(printf '%s' "$IDENTITIES_DIR/$name/workspace" | sed 's|/|-|g')
+  mangled=$(printf '%s' "$(_physical_path "$IDENTITIES_DIR/$name/workspace")" | sed 's|/|-|g')
   printf '%s/%s' "$PROJECTS_DIR" "$mangled"
 }
 # Scan ONE directory's *.jsonl files mtime-desc, return newest OWNED by $1 on stdout,

@@ -14,6 +14,9 @@
 #           NOT counted as landed (scrollback-proofing preserved); only the retry sends C-c
 #   T-04  — attempt 1 sends no C-c (a C-c into a mid-mount Ink kills claude)
 #   T-05  — compose prompt never shows → paste still goes out after the ~8s readiness bound
+#   T-06  — cwd reached through a symlink (/home -> /var/home) → /id is found in the project dir
+#           Claude Code names after the PHYSICAL cwd → success on attempt 1, pasted once
+#   T-07  — _expected_project_dir resolves the same symlink
 #
 # tmux (PATH stub) and claude_running are stubbed; the paste is simulated by appending a /id user
 # turn to a target file. Poll budget is real (15s per attempt) — T-03 takes ~30s, T-05 ~8s.
@@ -108,6 +111,19 @@ CURRENT_TEST="T-05 compose prompt never appears → still pastes after the ~8s b
 reset; export LAND_TARGET="$PDIR/fresh.jsonl"; PROMPT_VISIBLE=""
 t0=$(date +%s); submit_id "$NAME" sess "$CWD"; rc=$?; el=$(( $(date +%s) - t0 )); PROMPT_VISIBLE=1
 if [ "$rc" = 0 ] && [ "$(pastes)" = 1 ] && [ "$el" -ge 7 ] && [ "$el" -le 12 ]; then pass; else fail "rc=$rc pastes=$(pastes) elapsed=${el}s"; fi
+
+CURRENT_TEST="T-06 symlinked cwd: /id lands in the physical-path project dir"
+mkdir -p "$SCRATCH/var/home/$NAME/workspace"; ln -s "$SCRATCH/var/home" "$SCRATCH/home"
+LINK_CWD="$SCRATCH/home/$NAME/workspace"
+PHYS_PDIR="$AGENT_PROJECTS_DIR/$(printf '%s' "$SCRATCH/var/home/$NAME/workspace" | sed 's|/|-|g')"
+reset; mkdir -p "$PHYS_PDIR"; export LAND_TARGET="$PHYS_PDIR/fresh.jsonl"
+if submit_id "$NAME" sess "$LINK_CWD" && [ "$(pastes)" = 1 ]; then pass; else fail "rc/pastes wrong (pastes=$(pastes)) — looked in the symlink-named dir"; fi
+
+CURRENT_TEST="T-07 _expected_project_dir resolves a symlinked identities dir"
+mkdir -p "$SCRATCH/var/ids/$NAME/workspace"; ln -s "$SCRATCH/var/ids" "$SCRATCH/ids"
+got="$(IDENTITIES_DIR="$SCRATCH/ids" _expected_project_dir "$NAME")"
+want="$AGENT_PROJECTS_DIR/$(printf '%s' "$SCRATCH/var/ids/$NAME/workspace" | sed 's|/|-|g')"
+if [ "$got" = "$want" ]; then pass; else fail "got $got, want $want"; fi
 
 printf '\n%d passed, %d failed\n' "$PASS" "$FAIL"
 if [ "$FAIL" -gt 0 ]; then
