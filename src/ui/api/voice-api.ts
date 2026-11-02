@@ -91,7 +91,7 @@ export async function fetchVoiceCatalog(): Promise<VoiceCatalog> {
   }
 }
 
-/** One configured TTS provider as GET /voice/providers reports it. */
+/** One configured TTS or STT provider as GET /voice/providers reports it. */
 export interface TtsProviderStatus {
   /** Provider id, or null when unset (backup) or not usable (see error). */
   id: string | null;
@@ -100,8 +100,17 @@ export interface TtsProviderStatus {
   error?: string;
 }
 
-/** GET /voice/providers (admin) — the configured main and backup TTS providers. */
-export async function getTtsProviders(): Promise<{ primary: TtsProviderStatus; backup: TtsProviderStatus }> {
+/** Main and backup providers for one direction (read-aloud or voice input). */
+export interface VoiceProviderPair {
+  primary: TtsProviderStatus;
+  backup: TtsProviderStatus;
+}
+
+/**
+ * GET /voice/providers (admin) — the configured main and backup TTS
+ * providers, plus the STT pair under `stt`.
+ */
+export async function getTtsProviders(): Promise<VoiceProviderPair & { stt: VoiceProviderPair }> {
   try {
     const response = await authApi.get("/voice/providers");
     return response.data;

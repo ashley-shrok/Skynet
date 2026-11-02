@@ -56,11 +56,12 @@ describe("stt input", () => {
 
 describe("stt service", () => {
   it("transcribes with the instance's provider", async () => {
-    const transcribe = vi.fn(async () => "hello there");
-    const service = createSttService({
-      resolveProvider: () => elevenLabsSttProvider,
-      transcribe,
-    });
+    const transcribe = vi.fn(async () => ({
+      kind: "ok" as const,
+      text: "hello there",
+      provider: elevenLabsSttProvider,
+    }));
+    const service = createSttService({ transcribe });
     expect(await service.handle({}, ctx())).toEqual({
       ok: true,
       result: {
@@ -70,72 +71,92 @@ describe("stt service", () => {
         transcription_time_ms: 0,
       },
     });
-    expect(transcribe).toHaveBeenCalledWith(elevenLabsSttProvider, {
-      audio: audio.bytes,
-      mimetype: "audio/mp4",
-      ext: "m4a",
-      timeoutMs: STT_ATTEMPT_TIMEOUT_MS,
-    });
+    expect(transcribe).toHaveBeenCalledWith(
+      {
+        audio: audio.bytes,
+        mimetype: "audio/mp4",
+        ext: "m4a",
+        timeoutMs: STT_ATTEMPT_TIMEOUT_MS,
+      },
+      "0b5c2f9e",
+    );
   });
 
-  it("uses STT_PROVIDER by default", async () => {
-    const saved = process.env.STT_PROVIDER;
-    process.env.STT_PROVIDER = "groq";
+  it("uses STT_PROVIDER, then STT_FALLBACK_PROVIDER, and reports who transcribed", async () => {
+    const saved = { ...process.env };
+    process.env.STT_PROVIDER = "elevenlabs";
+    process.env.STT_FALLBACK_PROVIDER = "groq";
+    process.env.ELEVENLABS_API_KEY = "el";
+    process.env.GROQ_API_KEY = "gq";
+    const fetchMock = vi.fn<typeof fetch>();
+    vi.stubGlobal("fetch", fetchMock);
     try {
-      const transcribe = vi.fn(async (p: SttProvider) => p.id);
-      const r = await createSttService({ transcribe }).handle({}, ctx());
-      expect(r).toMatchObject({ ok: true, result: { provider: "groq" } });
+      fetchMock
+        .mockResolvedValueOnce(
+          new Response('{"detail":{"status":"quota_exceeded"}}', { status: 401 }),
+        )
+        .mockResolvedValueOnce(
+          new Response(JSON.stringify({ text: "from groq" }), {
+            status: 200,
+            headers: { "content-type": "application/json" },
+          }),
+        );
+      const r = await createSttService().handle({}, ctx());
+      expect(r).toMatchObject({
+        ok: true,
+        result: { text: "from groq", provider: "groq" },
+      });
+      expect(fetchMock).toHaveBeenCalledTimes(2);
     } finally {
-      if (saved === undefined) delete process.env.STT_PROVIDER;
-      else process.env.STT_PROVIDER = saved;
+      vi.unstubAllGlobals();
+      process.env = saved;
     }
   });
 
   it.each([
     [
       "unknown STT_PROVIDER",
-      () => {
-        throw new SttNotConfiguredError("unknown STT_PROVIDER");
-      },
+      new SttNotConfiguredError("unknown STT_PROVIDER"),
       undefined,
       "not_configured",
     ],
     [
       "missing key",
-      undefined,
       new SttNotConfiguredError("no key"),
+      elevenLabsSttProvider,
       "not_configured",
     ],
     [
       "rejected key",
-      undefined,
       new SttHttpError("elevenlabs", 401, "bad key"),
+      elevenLabsSttProvider,
       "not_configured",
     ],
     [
       "rate limited after retries",
-      undefined,
       new SttHttpError("elevenlabs", 429, ""),
+      elevenLabsSttProvider,
       "provider_unavailable",
     ],
     [
       "network failure",
-      undefined,
       new SttNetworkError("elevenlabs", new Error("x")),
+      elevenLabsSttProvider,
       "provider_unavailable",
     ],
     [
       "bad audio",
-      undefined,
       new SttHttpError("elevenlabs", 400, "invalid audio"),
+      elevenLabsSttProvider,
       "transcription_failed",
     ],
-  ] as const)("maps %s to %s", async (_n, resolve, thrown, code) => {
+  ] as const)("maps %s to %s", async (_n, err, provider, code) => {
     const service = createSttService({
-      resolveProvider: resolve ?? (() => elevenLabsSttProvider),
-      transcribe: async () => {
-        throw thrown;
-      },
+      transcribe: async () => ({
+        kind: "failed" as const,
+        err,
+        provider: provider as SttProvider | undefined,
+      }),
     });
     const r = await service.handle({}, ctx());
     expect(r).toMatchObject({ ok: false, code });

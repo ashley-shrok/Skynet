@@ -15,8 +15,15 @@
  *   mistral     Mistral Voxtral Mini Transcribe. Needs MISTRAL_API_KEY.
  *   groq        Whisper Large v3 Turbo on Groq.  Needs GROQ_API_KEY.
  *
+ * Optional backup, `STT_FALLBACK_PROVIDER` (same values, or `none`): when the
+ * selected provider can't transcribe a recording, the same recording goes to
+ * the backup (transcribeWithFallback). Unset keeps the single-provider
+ * behaviour exactly. A backup off AWS sends audio to a third party whenever
+ * the selected provider fails.
+ *
  * Optional overrides for the HTTP providers:
- *   STT_MODEL     model id sent to the selected provider (defaults below).
+ *   STT_MODEL     model id sent to the selected provider (defaults below);
+ *                 a backup always uses its own default.
  *   STT_LANGUAGE  ISO-639-1 code (e.g. "en"); omit for auto-detect.
  *
  * Unset STT_PROVIDER keeps the pre-existing Bedrock behaviour exactly, so a
@@ -24,7 +31,7 @@
  */
 
 import { databaseLogger } from "../utils/logger.js";
-import { SttNotConfiguredError } from "./stt-errors.js";
+import { SttHttpError, SttNotConfiguredError } from "./stt-errors.js";
 import { bedrockSttProvider } from "./stt-bedrock.js";
 import {
   elevenLabsSttProvider,
@@ -65,6 +72,14 @@ export interface SttProvider {
 export const STT_PROVIDER_IDS = ["bedrock", "elevenlabs", "mistral", "groq"] as const;
 export type SttProviderId = (typeof STT_PROVIDER_IDS)[number];
 
+/** Display names for the admin System page. */
+export const STT_PROVIDER_LABELS: Record<SttProviderId, string> = {
+  bedrock: "Amazon Nova Sonic",
+  elevenlabs: "ElevenLabs",
+  mistral: "Mistral",
+  groq: "Groq",
+};
+
 const PROVIDERS: Record<SttProviderId, SttProvider> = {
   bedrock: bedrockSttProvider,
   elevenlabs: elevenLabsSttProvider,
@@ -91,6 +106,26 @@ export function resolveSttProvider(env: NodeJS.ProcessEnv = process.env): SttPro
   );
 }
 
+/** STT_FALLBACK_PROVIDER as resolved; `ignored` values are never mapped elsewhere. */
+export type SttFallbackConfig =
+  | { kind: "none" }
+  | { kind: "ok"; provider: SttProvider }
+  | { kind: "ignored"; raw: string; reason: "unknown" | "same-as-primary" };
+
+/**
+ * Resolve the backup provider from `STT_FALLBACK_PROVIDER`. Unset, blank or
+ * `none` → no backup. An unknown value or the selected provider again →
+ * ignored (no backup used), so audio never reaches a provider nobody named.
+ */
+export function resolveSttFallback(env: NodeJS.ProcessEnv = process.env): SttFallbackConfig {
+  const raw = (env.STT_FALLBACK_PROVIDER ?? "").trim().toLowerCase();
+  if (raw === "" || raw === "none") return { kind: "none" };
+  if (!(STT_PROVIDER_IDS as readonly string[]).includes(raw)) return { kind: "ignored", raw, reason: "unknown" };
+  const primary = (env.STT_PROVIDER ?? "").trim().toLowerCase() || "bedrock";
+  if (raw === primary) return { kind: "ignored", raw, reason: "same-as-primary" };
+  return { kind: "ok", provider: PROVIDERS[raw as SttProviderId] };
+}
+
 /**
  * Call the instance's STT provider with auto-retry on errors the provider
  * classifies as transient (Bedrock stream errors, HTTP 429/5xx, network).
@@ -107,6 +142,7 @@ export async function transcribeWithRetries(
   provider: SttProvider,
   input: SttInput,
   maxAttempts: number = 3,
+  reqId?: string,
 ): Promise<string> {
   let lastErr: unknown;
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
@@ -119,8 +155,8 @@ export async function transcribeWithRetries(
         const errName = (err as { name?: string })?.name ?? "unknown";
         const errMessage = err instanceof Error ? err.message : String(err);
         databaseLogger.warn(
-          `[voice-server] transcribe-retry provider=${provider.id} attempt=${attempt}/${maxAttempts} errName=${errName} errMessage="${errMessage}" backoffMs=${backoffMs}`,
-          { operation: "voice_transcribe_retry", provider: provider.id, attempt, maxAttempts, errName, backoffMs },
+          `[voice-server] transcribe-retry${reqId ? ` reqId=${reqId}` : ""} provider=${provider.id} attempt=${attempt}/${maxAttempts} errName=${errName} errMessage="${errMessage}" backoffMs=${backoffMs}`,
+          { operation: "voice_transcribe_retry", reqId, provider: provider.id, attempt, maxAttempts, errName, backoffMs },
         );
         await new Promise<void>((resolve) => setTimeout(resolve, backoffMs));
         continue;
@@ -129,4 +165,127 @@ export async function transcribeWithRetries(
     }
   }
   throw lastErr;
+}
+
+/** STT_FALLBACK_PROVIDER values already warned about (logged once each). */
+const warnedFallbackConfig = new Set<string>();
+
+/** Test hook: let ignored-config warnings log again. */
+export function clearSttFallbackWarnings(): void {
+  warnedFallbackConfig.clear();
+}
+
+/**
+ * A provider error meaning "out of credit / quota", not "slow down". Matched
+ * on the response body: ElevenLabs says quota_exceeded, OpenAI-style APIs
+ * insufficient_quota.
+ */
+export function isSttQuotaExhausted(err: unknown): boolean {
+  return err instanceof SttHttpError && /quota/i.test(err.body);
+}
+
+/**
+ * Why a provider's turn ended, for the fallback log lines. Quota only counts
+ * among errors the provider already classes as unavailable — a rate-limit 429
+ * that merely mentions "quota" was retried and is "retries-exhausted".
+ */
+function failureReason(provider: SttProvider, err: unknown): string {
+  if (provider.isUnavailable(err)) return isSttQuotaExhausted(err) ? "quota" : "unavailable";
+  if (provider.isRetriable(err)) return "retries-exhausted";
+  return "error";
+}
+
+function errFields(err: unknown): { errName: string; errMessage: string } {
+  return {
+    errName: (err as { name?: string })?.name ?? "unknown",
+    errMessage: err instanceof Error ? err.message : String(err),
+  };
+}
+
+/**
+ * How a transcription ended. On failure, `provider` is the one whose error
+ * `err` is (the backup's when one ran) — classify `err` with it; undefined
+ * when STT_PROVIDER itself is invalid.
+ */
+export type SttOutcome =
+  | { kind: "ok"; text: string; provider: SttProvider }
+  | { kind: "failed"; err: unknown; provider: SttProvider | undefined };
+
+export interface SttFallbackOptions {
+  /** Short id tying this request's log lines together (generated if omitted). */
+  reqId?: string;
+  /** Who is transcribing, for logs: transcribe, stt-service, phone. */
+  caller: string;
+  /** Tries per provider (see transcribeWithRetries). */
+  maxAttempts?: number;
+  env?: NodeJS.ProcessEnv;
+  /** Test seam: one provider's turn (defaults to transcribeWithRetries). */
+  attempt?: (provider: SttProvider, input: SttInput, maxAttempts: number, reqId: string) => Promise<string>;
+}
+
+/**
+ * Transcribe with the selected provider (its normal retries), and when its
+ * turn ends in ANY failure, send the same recording to STT_FALLBACK_PROVIDER
+ * with the same tries and per-try timeout. No memory between recordings:
+ * every call starts with the selected provider. An invalid STT_PROVIDER is
+ * not covered — the backup is for a provider in trouble, not a broken
+ * setting. With no backup configured this is exactly transcribeWithRetries.
+ *
+ * Shared by POST /voice/transcribe, the `stt` agent service and agent-phone.
+ */
+export async function transcribeWithFallback(input: SttInput, opts: SttFallbackOptions): Promise<SttOutcome> {
+  const env = opts.env ?? process.env;
+  const reqId = opts.reqId ?? Math.random().toString(36).slice(2, 10);
+  const maxAttempts = opts.maxAttempts ?? 3;
+  const attempt = opts.attempt ?? transcribeWithRetries;
+  const caller = opts.caller;
+
+  let primary: SttProvider;
+  try {
+    primary = resolveSttProvider(env);
+  } catch (err) {
+    return { kind: "failed", err, provider: undefined };
+  }
+
+  const fallback = resolveSttFallback(env);
+  if (fallback.kind === "ignored" && !warnedFallbackConfig.has(fallback.raw)) {
+    warnedFallbackConfig.add(fallback.raw);
+    databaseLogger.warn(
+      `[voice-server] transcribe-fallback-config-ignored value="${fallback.raw}" reason=${fallback.reason}`,
+      { operation: "voice_transcribe_fallback_config", reason: fallback.reason },
+    );
+  }
+  const backup = fallback.kind === "ok" ? fallback.provider : null;
+
+  let primaryErr: unknown;
+  try {
+    return { kind: "ok", text: await attempt(primary, input, maxAttempts, reqId), provider: primary };
+  } catch (err) {
+    primaryErr = err;
+  }
+  if (!backup) return { kind: "failed", err: primaryErr, provider: primary };
+
+  const reason = failureReason(primary, primaryErr);
+  const first = errFields(primaryErr);
+  databaseLogger.warn(
+    `[voice-server] transcribe-fallback reqId=${reqId} caller=${caller} from=${primary.id} to=${backup.id} reason=${reason} errName=${first.errName} errMessage="${first.errMessage}"`,
+    { operation: "voice_transcribe_fallback", reqId, caller, from: primary.id, to: backup.id, reason },
+  );
+
+  try {
+    const text = await attempt(backup, input, maxAttempts, reqId);
+    databaseLogger.info(
+      `[voice-server] transcribe-fallback-ok reqId=${reqId} caller=${caller} from=${primary.id} to=${backup.id} textLen=${text.length}`,
+      { operation: "voice_transcribe_fallback_ok", reqId, caller, from: primary.id, to: backup.id },
+    );
+    return { kind: "ok", text, provider: backup };
+  } catch (err) {
+    const second = errFields(err);
+    const backupReason = failureReason(backup, err);
+    databaseLogger.warn(
+      `[voice-server] transcribe-fallback-failed reqId=${reqId} caller=${caller} from=${primary.id} to=${backup.id} reason=${backupReason} errName=${second.errName} errMessage="${second.errMessage}"`,
+      { operation: "voice_transcribe_fallback_failed", reqId, caller, from: primary.id, to: backup.id, reason: backupReason },
+    );
+    return { kind: "failed", err, provider: backup };
+  }
 }

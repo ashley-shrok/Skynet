@@ -65,7 +65,11 @@ function makeEngine() {
     images: [Buffer.from("PNG-0"), Buffer.from("PNG-1")],
     generation_time_ms: 5,
   }));
-  const transcribe = vi.fn(async () => "first line\nsecond line");
+  const transcribe = vi.fn(async () => ({
+    kind: "ok" as const,
+    text: "first line\nsecond line",
+    provider: groqSttProvider,
+  }));
   const placeCall = vi.fn(async () => ({
     outcome: "completed" as const,
     transcript: "voice: hello\nuser: got it",
@@ -102,7 +106,7 @@ function makeEngine() {
     services: [
       zoho,
       createImageGenService(openAi),
-      createSttService({ resolveProvider: () => groqSttProvider, transcribe }),
+      createSttService({ transcribe }),
       createAgentPhoneService({
         getUserByUsername: async () => ({
           id: "u1",
@@ -254,11 +258,9 @@ describe("agent services end to end", () => {
     const r = await runWithBackend("stt", [audio]);
     expect(r.code).toBe(0);
     expect(r.stdout).toBe("first line\nsecond line\n");
-    const [provider, input] = r.transcribe.mock.calls[0] as unknown as [
-      { id: string },
+    const [input] = r.transcribe.mock.calls[0] as unknown as [
       { audio: Buffer; ext: string; mimetype: string },
     ];
-    expect(provider.id).toBe("groq");
     expect(input.audio.toString()).toBe("AUDIO-BYTES");
     expect(input).toMatchObject({ ext: "m4a", mimetype: "audio/mp4" });
     expect(JSON.parse(r.stderr.trim())).toEqual({

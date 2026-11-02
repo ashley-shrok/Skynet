@@ -29,8 +29,15 @@ import {
 } from "../../voice/tts-provider.js";
 import { TtsNotConfiguredError, TtsStallError } from "../../voice/tts-errors.js";
 import { PcmResampler, benchProvider, isProviderBenched, resumeText } from "../../voice/tts-fallback.js";
-import { resolveSttProvider, transcribeWithRetries, type SttProvider } from "../../voice/stt-provider.js";
-import { SttHttpError, SttNotConfiguredError } from "../../voice/stt-errors.js";
+import {
+  isSttQuotaExhausted,
+  resolveSttFallback,
+  resolveSttProvider,
+  STT_PROVIDER_LABELS,
+  transcribeWithFallback,
+  type SttProvider,
+} from "../../voice/stt-provider.js";
+import { SttNotConfiguredError } from "../../voice/stt-errors.js";
 import { splitIntoSentences, packChunks } from "../../voice/chunk-and-stitch.js";
 import { buildRiffHeader } from "../../voice/riff-header-builder.js";
 import { maybePruneRecordings } from "../../voice/recording-retention.js";
@@ -113,20 +120,27 @@ export async function handleTranscribe(req: Request, res: Response): Promise<Res
     databaseLogger.warn(`[voice-server] transcribe-bank-write-failed filename=${filename} error=${message}`, { operation: "voice_transcribe_bank_write_failed", filename, error: message });
   });
 
-  databaseLogger.info(`[voice-server] transcribe-req byteSize=${file.size} mimetype=${file.mimetype}`, { operation: "voice_transcribe" });
+  // Short random id tying this request's log lines (incl. any fallback) together.
+  const reqId = Math.random().toString(36).slice(2, 10);
+  databaseLogger.info(`[voice-server] transcribe-req reqId=${reqId} byteSize=${file.size} mimetype=${file.mimetype}`, { operation: "voice_transcribe", reqId });
 
   // Resolved per request; an unknown STT_PROVIDER surfaces as 503 below.
+  // On failure, `provider` is the one whose error we hold (the backup's when
+  // STT_FALLBACK_PROVIDER ran), so the 503/502 mapping follows the last word.
   let provider: SttProvider | undefined;
   try {
     // (b) The provider owns any format conversion it needs (Bedrock
     //     transcodes WebM → 16 kHz PCM; the HTTP providers take WebM as-is).
-    // (c) Wrapped in transcribeWithRetries so transient provider errors
-    //     (Bedrock ModelStreamErrorException, HTTP 429/5xx) don't drop the
-    //     user's dictated message on the first flake.
-    provider = resolveSttProvider();
-    const transcript = await transcribeWithRetries(provider, { audio: file.buffer, mimetype: file.mimetype, ext });
+    // (c) transcribeWithFallback retries transient provider errors
+    //     (Bedrock ModelStreamErrorException, HTTP 429/5xx) so the user's
+    //     dictated message isn't dropped on the first flake, then hands the
+    //     same recording to STT_FALLBACK_PROVIDER (if set) on any failure.
+    const outcome = await transcribeWithFallback({ audio: file.buffer, mimetype: file.mimetype, ext }, { reqId, caller: "transcribe" });
+    provider = outcome.provider;
+    if (outcome.kind === "failed") throw outcome.err;
+    const transcript = outcome.text;
 
-    databaseLogger.info(`[voice-server] transcribe-ok provider=${provider.id} textLen=${transcript.length}`, { operation: "voice_transcribe", provider: provider.id });
+    databaseLogger.info(`[voice-server] transcribe-ok reqId=${reqId} provider=${outcome.provider.id} textLen=${transcript.length}`, { operation: "voice_transcribe", reqId, provider: outcome.provider.id });
 
     // --- Phase 34: server-side slash-command transform (PRESERVED VERBATIM) ---
     // If the transcript starts with the "slash <content>" wake-word AND the
@@ -176,12 +190,13 @@ export async function handleTranscribe(req: Request, res: Response): Promise<Res
     if (err instanceof SttNotConfiguredError || provider?.isUnavailable(err)) {
       const errMessage = err instanceof Error ? err.message : String(err);
       databaseLogger.info(
-        `[voice-server] transcribe-unavailable provider=${provider?.id ?? "none"} reason="${errMessage}"`,
-        { operation: "voice_transcribe_access_denied", provider: provider?.id },
+        `[voice-server] transcribe-unavailable reqId=${reqId} provider=${provider?.id ?? "none"} reason="${errMessage}"`,
+        { operation: "voice_transcribe_access_denied", reqId, provider: provider?.id },
       );
-      // Out of provider credits (e.g. ElevenLabs `quota_exceeded`): tell the
+      // Out of provider credits (e.g. ElevenLabs `quota_exceeded`; only
+      // checked among unavailable errors, so a rate limit never lands here): tell the
       // user plainly, and that the disk-bank above kept their audio.
-      if (err instanceof SttHttpError && /quota/i.test(err.body)) {
+      if (isSttQuotaExhausted(err)) {
         return res.status(503).json({
           error: "voice STT unavailable",
           reason: "quota_exhausted",
@@ -199,9 +214,9 @@ export async function handleTranscribe(req: Request, res: Response): Promise<Res
     const errName = err instanceof Error ? err.name : "unknown";
     const errMessage = err instanceof Error ? err.message : String(err);
     databaseLogger.error(
-      `[voice-server] transcribe-error provider=${provider?.id ?? "none"} errName=${errName} errMessage="${errMessage}"`,
+      `[voice-server] transcribe-error reqId=${reqId} provider=${provider?.id ?? "none"} errName=${errName} errMessage="${errMessage}"`,
       err instanceof Error ? err : new Error(String(err)),
-      { operation: "voice_transcribe_error", provider: provider?.id, errName },
+      { operation: "voice_transcribe_error", reqId, provider: provider?.id, errName },
     );
     return res.status(502).json({ error: "STT error", status: 502 });
   }
@@ -1105,31 +1120,45 @@ export async function handleSpeakStream(req: Request, res: Response): Promise<vo
 }
 
 // --- handleTtsProviders — GET /voice/providers (admin) ---
-// What the server is configured to speak with, for the admin modal's
-// read-only Voice section. Mirrors exactly what handleSpeakStream resolves.
+// What the server is configured to speak and transcribe with, for the admin
+// System page's read-only Voice and Voice input sections. Mirrors exactly
+// what handleSpeakStream and transcribeWithFallback resolve. The read-aloud
+// pair stays at the top level (`primary`, `backup`); speech-to-text is `stt`.
+type ProviderStatus = { id: string | null; label: string | null; error?: string };
+
+function fallbackStatus(
+  fb: { kind: "none" } | { kind: "ok"; provider: { id: string } } | { kind: "ignored"; raw: string; reason: "unknown" | "same-as-primary" },
+  labels: Record<string, string>,
+): ProviderStatus {
+  if (fb.kind === "ok") return { id: fb.provider.id, label: labels[fb.provider.id] };
+  if (fb.kind === "none") return { id: null, label: null };
+  return {
+    id: null,
+    label: null,
+    error: fb.reason === "unknown" ? `Unknown service "${fb.raw}" — ignored` : "Same as the main service — ignored",
+  };
+}
+
 export function handleTtsProviders(_req: Request, res: Response): void {
-  let primary: { id: string | null; label: string | null; error?: string };
+  let primary: ProviderStatus;
   try {
     const p = resolveTtsProvider();
     primary = { id: p.id, label: TTS_PROVIDER_LABELS[p.id] };
   } catch {
     primary = { id: null, label: null, error: `Unknown service "${(process.env.TTS_PROVIDER ?? "").trim()}"` };
   }
-  const fb = resolveTtsFallback();
-  const backup =
-    fb.kind === "ok"
-      ? { id: fb.provider.id, label: TTS_PROVIDER_LABELS[fb.provider.id] }
-      : fb.kind === "none"
-        ? { id: null, label: null }
-        : {
-            id: null,
-            label: null,
-            error:
-              fb.reason === "unknown"
-                ? `Unknown service "${fb.raw}" — ignored`
-                : "Same as the main service — ignored",
-          };
-  res.status(200).json({ primary, backup });
+  const backup = fallbackStatus(resolveTtsFallback(), TTS_PROVIDER_LABELS);
+
+  let sttPrimary: ProviderStatus;
+  try {
+    const p = resolveSttProvider();
+    sttPrimary = { id: p.id, label: STT_PROVIDER_LABELS[p.id] };
+  } catch {
+    sttPrimary = { id: null, label: null, error: `Unknown service "${(process.env.STT_PROVIDER ?? "").trim()}"` };
+  }
+  const sttBackup = fallbackStatus(resolveSttFallback(), STT_PROVIDER_LABELS);
+
+  res.status(200).json({ primary, backup, stt: { primary: sttPrimary, backup: sttBackup } });
 }
 
 // --- Route: POST /transcribe ---

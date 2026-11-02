@@ -5,7 +5,8 @@
  * Transcription goes through the instance's existing STT provider
  * (src/backend/voice/stt-provider.ts), the same one voice input uses:
  * STT_PROVIDER picks bedrock (default), elevenlabs, mistral or groq, with
- * the same keys, STT_MODEL and STT_LANGUAGE. No separate provider config.
+ * the same keys, STT_MODEL and STT_LANGUAGE, and STT_FALLBACK_PROVIDER takes
+ * over when it fails. No separate provider config.
  *
  * Agent side: substrate/scripts/stt (wrapper over fleet-service) and
  * substrate/skills/stt/SKILL.md.
@@ -19,9 +20,9 @@
 import { z } from "zod";
 import { defineService, fail, ok } from "../../engine/types.js";
 import {
-  resolveSttProvider,
-  transcribeWithRetries,
+  transcribeWithFallback,
   type SttInput,
+  type SttOutcome,
   type SttProvider,
 } from "../../../voice/stt-provider.js";
 import { SttNotConfiguredError } from "../../../voice/stt-errors.js";
@@ -30,8 +31,10 @@ import { SttNotConfiguredError } from "../../../voice/stt-errors.js";
 export const MAX_AUDIO_BYTES = 25 * 1024 * 1024;
 
 /**
- * Per-attempt timeout for the HTTP providers. Up to 3 attempts, so the
- * worst case (2 min queued + 3 × 2 min) stays under the helper's 9 min.
+ * Per-attempt timeout for the HTTP providers. Up to 3 attempts per provider;
+ * with STT_FALLBACK_PROVIDER set the backup gets 3 more, so a slow-failing
+ * pair can outlast the helper's 9-minute wait. Errors that fail fast (key,
+ * credit, quota) switch to the backup at once.
  */
 export const STT_ATTEMPT_TIMEOUT_MS = 2 * 60 * 1000;
 
@@ -62,13 +65,13 @@ export function sttRpmFromEnv(
 }
 
 export interface SttServiceDeps {
-  resolveProvider?: () => SttProvider;
-  transcribe?: (provider: SttProvider, input: SttInput) => Promise<string>;
+  /** Selected provider, then STT_FALLBACK_PROVIDER on failure. */
+  transcribe?: (input: SttInput, reqId: string) => Promise<SttOutcome>;
 }
 
 export function createSttService({
-  resolveProvider = () => resolveSttProvider(),
-  transcribe = transcribeWithRetries,
+  transcribe = (input, reqId) =>
+    transcribeWithFallback(input, { reqId, caller: "stt-service" }),
 }: SttServiceDeps = {}) {
   return defineService({
     name: "stt",
@@ -87,19 +90,24 @@ export function createSttService({
 
     async handle(_input, ctx) {
       const audio = ctx.attachments.audio;
+      // The provider whose error we hold: the backup's when one ran.
       let provider: SttProvider | undefined;
       const start = ctx.now();
       try {
-        provider = resolveProvider();
-        const text = await transcribe(provider, {
-          audio: audio.bytes,
-          mimetype: MIME_BY_EXT[audio.ext] ?? "application/octet-stream",
-          ext: audio.ext,
-          timeoutMs: STT_ATTEMPT_TIMEOUT_MS,
-        });
+        const outcome = await transcribe(
+          {
+            audio: audio.bytes,
+            mimetype: MIME_BY_EXT[audio.ext] ?? "application/octet-stream",
+            ext: audio.ext,
+            timeoutMs: STT_ATTEMPT_TIMEOUT_MS,
+          },
+          ctx.requestId.slice(0, 8),
+        );
+        provider = outcome.provider;
+        if (outcome.kind === "failed") throw outcome.err;
         return ok({
-          text,
-          provider: provider.id,
+          text: outcome.text,
+          provider: outcome.provider.id,
           audio_bytes: audio.bytes.byteLength,
           transcription_time_ms: ctx.now() - start,
         });
@@ -117,7 +125,7 @@ export function createSttService({
         ) {
           return fail(
             "not_configured",
-            "the backend's speech-to-text provider is not configured or rejected its credentials",
+            "the backend's speech-to-text provider is not configured, rejected its credentials, or is out of credit",
           );
         }
         if (provider?.isRetriable(err)) {

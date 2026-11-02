@@ -1,14 +1,18 @@
 /**
  * Admin → System: running version and update check, database health, the
- * backend log level, and the read-aloud services the server is configured
- * with (read-only).
+ * backend log level, and the read-aloud and voice-input (speech-to-text)
+ * services the server is configured with (read-only).
  */
 
 import { useEffect, useState } from "react";
 import { ExternalLink } from "lucide-react";
 import { getAdminDbHealth, getVersionInfo } from "@/api/system-status-api";
 import { getLogLevel, updateLogLevel } from "@/api/settings-api";
-import { getTtsProviders, type TtsProviderStatus } from "@/api/voice-api";
+import {
+  getTtsProviders,
+  type TtsProviderStatus,
+  type VoiceProviderPair,
+} from "@/api/voice-api";
 import {
   KitBanner,
   KitButton,
@@ -48,10 +52,9 @@ export function AdminSystemPane() {
   const [logBusy, setLogBusy] = useState(false);
   const [logError, setLogError] = useState<string | null>(null);
 
-  const [tts, setTts] = useState<{
-    primary: TtsProviderStatus;
-    backup: TtsProviderStatus;
-  } | null>(null);
+  const [tts, setTts] = useState<
+    (VoiceProviderPair & { stt: VoiceProviderPair }) | null
+  >(null);
   const [ttsError, setTtsError] = useState<string | null>(null);
 
   const loadVersion = async (checkRemote: boolean) => {
@@ -114,10 +117,7 @@ export function AdminSystemPane() {
     : null;
 
   return (
-    <div
-      className="flex flex-col gap-5"
-      data-testid="admin-system-pane"
-    >
+    <div className="flex flex-col gap-5" data-testid="admin-system-pane">
       <div className="flex flex-col gap-2">
         <KitSettingsGroup title="Version">
           <KitSettingsRow
@@ -223,34 +223,64 @@ export function AdminSystemPane() {
       </div>
 
       <div className="flex flex-col gap-2">
-        <KitSettingsGroup
-          title="Voice"
-          data-testid="admin-system-voice"
-          footer="The services that read replies aloud. Set in the server configuration; when the main service fails or freezes, the backup reads the rest of the reply."
-        >
-          <KitSettingsRow
-            label="Main service"
-            description={tts?.primary.error}
-            control={
-              <TtsServiceName
-                testId="admin-system-tts-primary"
-                status={tts?.primary}
-                loading={tts === null && ttsError === null}
-              />
-            }
-          />
-          <KitSettingsRow
-            label="Backup service"
-            description={tts?.backup.error}
-            control={
-              <TtsServiceName
-                testId="admin-system-tts-backup"
-                status={tts?.backup}
-                loading={tts === null && ttsError === null}
-              />
-            }
-          />
-        </KitSettingsGroup>
+        <div className="flex flex-col gap-5">
+          <KitSettingsGroup
+            title="Voice"
+            data-testid="admin-system-voice"
+            footer="The services that read replies aloud. Set in the server configuration; when the main service fails or freezes, the backup reads the rest of the reply."
+          >
+            <KitSettingsRow
+              label="Main service"
+              description={tts?.primary.error}
+              control={
+                <TtsServiceName
+                  testId="admin-system-tts-primary"
+                  status={tts?.primary}
+                  loading={tts === null && ttsError === null}
+                />
+              }
+            />
+            <KitSettingsRow
+              label="Backup service"
+              description={tts?.backup.error}
+              control={
+                <TtsServiceName
+                  testId="admin-system-tts-backup"
+                  status={tts?.backup}
+                  loading={tts === null && ttsError === null}
+                />
+              }
+            />
+          </KitSettingsGroup>
+          <KitSettingsGroup
+            title="Voice input"
+            data-testid="admin-system-voice-input"
+            footer="The services that turn dictation and recordings into text. Set in the server configuration; when the main service fails, the backup transcribes the same recording."
+          >
+            <KitSettingsRow
+              label="Main service"
+              description={tts?.stt.primary.error}
+              control={
+                <TtsServiceName
+                  testId="admin-system-stt-primary"
+                  status={tts?.stt.primary}
+                  loading={tts === null && ttsError === null}
+                />
+              }
+            />
+            <KitSettingsRow
+              label="Backup service"
+              description={tts?.stt.backup.error}
+              control={
+                <TtsServiceName
+                  testId="admin-system-stt-backup"
+                  status={tts?.stt.backup}
+                  loading={tts === null && ttsError === null}
+                />
+              }
+            />
+          </KitSettingsGroup>
+        </div>
         {ttsError && (
           <KitBanner tone="danger" data-testid="admin-system-tts-error">
             {ttsError}
@@ -274,7 +304,7 @@ function TtsServiceName({
     ? "Loading…"
     : !status
       ? "—"
-      : status.label ?? (status.error ? "Not in use" : "None");
+      : (status.label ?? (status.error ? "Not in use" : "None"));
   return (
     <span
       data-testid={testId}

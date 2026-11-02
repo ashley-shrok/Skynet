@@ -500,6 +500,112 @@ describe("handleTranscribe (STT_PROVIDER selection)", () => {
     expect(fetchMock).not.toHaveBeenCalled();
     expect(vi.mocked(transcribeNovaSonic)).not.toHaveBeenCalled();
   });
+
+  it("unknown STT_PROVIDER with a backup set → still 503, the backup is not used", async () => {
+    process.env.STT_PROVIDER = "nope";
+    process.env.STT_FALLBACK_PROVIDER = "groq";
+    process.env.GROQ_API_KEY = "gq-key";
+
+    const res = await transcribe();
+
+    expect(res._status).toBe(503);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+});
+
+describe("handleTranscribe (STT_FALLBACK_PROVIDER)", () => {
+  const savedEnv = { ...process.env };
+  const fetchMock = vi.fn<typeof fetch>();
+  const QUOTA_BODY = JSON.stringify({ detail: { status: "quota_exceeded", message: "This request exceeds your quota." } });
+
+  beforeEach(() => {
+    vi.stubGlobal("fetch", fetchMock);
+    fetchMock.mockReset();
+    process.env.STT_PROVIDER = "elevenlabs";
+    process.env.STT_FALLBACK_PROVIDER = "groq";
+    process.env.ELEVENLABS_API_KEY = "el-key";
+    process.env.GROQ_API_KEY = "gq-key";
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    process.env = { ...savedEnv };
+  });
+
+  async function transcribe(): Promise<MockRes> {
+    const audioBytes = Buffer.from("fake webm bytes");
+    const req = makeReq({ buffer: audioBytes, mimetype: "audio/webm", size: audioBytes.length });
+    const res = makeRes();
+    await handleTranscribe(
+      req as unknown as import("express").Request,
+      res as unknown as import("express").Response,
+    );
+    return res;
+  }
+
+  const calledUrls = () => fetchMock.mock.calls.map((c) => String(c[0]));
+  const ok = (text: string) => new Response(JSON.stringify({ text }), { status: 200 });
+
+  it("primary out of credit → the same recording goes to the backup at once, user gets its text", async () => {
+    fetchMock.mockResolvedValueOnce(new Response(QUOTA_BODY, { status: 401 })).mockResolvedValueOnce(ok("from groq"));
+
+    const res = await transcribe();
+
+    expect(res._status).toBe(200);
+    expect((res._body as { text: string }).text).toBe("from groq");
+    expect(calledUrls()).toEqual([
+      "https://api.elevenlabs.io/v1/speech-to-text",
+      "https://api.groq.com/openai/v1/audio/transcriptions",
+    ]);
+    const sent = fetchMock.mock.calls.map((c) => (c[1]!.body as FormData).get("file") as Blob);
+    expect(Buffer.from(await sent[1].arrayBuffer()).toString()).toBe("fake webm bytes");
+  });
+
+  it("quota reported as 429 is not retried — straight to the backup", async () => {
+    fetchMock.mockResolvedValueOnce(new Response(QUOTA_BODY, { status: 429 })).mockResolvedValueOnce(ok("from groq"));
+
+    const res = await transcribe();
+
+    expect(res._status).toBe(200);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("both fail → the backup's failure decides the answer", async () => {
+    fetchMock.mockResolvedValueOnce(new Response(QUOTA_BODY, { status: 401 })).mockResolvedValueOnce(new Response("nope", { status: 401 }));
+
+    const res = await transcribe();
+
+    // Backup's rejected key → plain unavailable, not the primary's quota message.
+    expect(res._status).toBe(503);
+    expect(res._body).toEqual({ error: "voice STT unavailable", status: 503 });
+  });
+
+  it("both out of credit → the quota message", async () => {
+    fetchMock.mockImplementation(async () => new Response(QUOTA_BODY, { status: 401 }));
+
+    const res = await transcribe();
+
+    expect(res._status).toBe(503);
+    expect((res._body as { reason: string }).reason).toBe("quota_exhausted");
+  });
+
+  it("backup with a bad-audio rejection → 502", async () => {
+    fetchMock.mockResolvedValueOnce(new Response(QUOTA_BODY, { status: 401 })).mockResolvedValueOnce(new Response("bad", { status: 400 }));
+
+    const res = await transcribe();
+
+    expect(res._status).toBe(502);
+  });
+
+  it("no backup set → only the selected provider is asked", async () => {
+    delete process.env.STT_FALLBACK_PROVIDER;
+    fetchMock.mockResolvedValue(new Response(QUOTA_BODY, { status: 401 }));
+
+    const res = await transcribe();
+
+    expect(res._status).toBe(503);
+    expect(calledUrls()).toEqual(["https://api.elevenlabs.io/v1/speech-to-text"]);
+  });
 });
 
 describe("handleSpeak (AWS Polly SynthesizeSpeech, non-streaming)", () => {
@@ -1735,7 +1841,7 @@ describe("TTS_FALLBACK_PROVIDER (backup provider takes over)", () => {
       handleTtsProviders({} as import("express").Request, res as unknown as import("express").Response);
       return res._body;
     };
-    expect(run()).toEqual({
+    expect(run()).toMatchObject({
       primary: { id: "openai", label: "OpenAI" },
       backup: { id: "elevenlabs", label: "ElevenLabs" },
     });
@@ -1748,6 +1854,34 @@ describe("TTS_FALLBACK_PROVIDER (backup provider takes over)", () => {
     expect(run()).toMatchObject({
       primary: { id: null, error: 'Unknown service "nope"' },
       backup: { id: null, error: 'Unknown service "bogus" — ignored' },
+    });
+  });
+
+  it("GET /voice/providers also reports the speech-to-text main and backup", () => {
+    const run = () => {
+      const res = makeRes();
+      handleTtsProviders({} as import("express").Request, res as unknown as import("express").Response);
+      return (res._body as { stt: unknown }).stt;
+    };
+    delete process.env.STT_PROVIDER;
+    delete process.env.STT_FALLBACK_PROVIDER;
+    expect(run()).toEqual({
+      primary: { id: "bedrock", label: "Amazon Nova Sonic" },
+      backup: { id: null, label: null },
+    });
+    process.env.STT_PROVIDER = "elevenlabs";
+    process.env.STT_FALLBACK_PROVIDER = "groq";
+    expect(run()).toEqual({
+      primary: { id: "elevenlabs", label: "ElevenLabs" },
+      backup: { id: "groq", label: "Groq" },
+    });
+    process.env.STT_FALLBACK_PROVIDER = "elevenlabs";
+    expect(run()).toMatchObject({ backup: { id: null, error: "Same as the main service — ignored" } });
+    process.env.STT_PROVIDER = "nope";
+    process.env.STT_FALLBACK_PROVIDER = "whisper";
+    expect(run()).toMatchObject({
+      primary: { id: null, error: 'Unknown service "nope"' },
+      backup: { id: null, error: 'Unknown service "whisper" — ignored' },
     });
   });
 });

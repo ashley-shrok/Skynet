@@ -16,13 +16,18 @@
  *      deadline the call is hung up, so it can never ring late.
  *   3. On `completed`, fetch the recording of the callee's reply,
  *      transcribe it with the instance's STT provider (the same one voice
- *      input and the `stt` service use), then delete it from Twilio —
+ *      input and the `stt` service use, STT_FALLBACK_PROVIDER included),
+ *      then delete it from Twilio —
  *      always, whether or not transcription worked.
  *
  * Time budget (the agent's helper waits 780s from the request):
  *   queue TTL 2 min (service.ts) + call deadline 9 min + recording wait
  *   20s + transcription ≤ 2 × 30s ≈ 12.3 min. So a call never starts or
- *   keeps ringing after the agent has been told it timed out.
+ *   keeps ringing after the agent has been told it timed out. A backup STT
+ *   provider (STT_FALLBACK_PROVIDER) adds up to another 2 × 30s after the
+ *   call has ended, which can overrun the helper's wait (~13.4 min worst
+ *   case): the agent is then told the call timed out and loses the reply's
+ *   transcript, though the call itself has already finished.
  *
  * Contract:
  *   - NEVER throws in normal operation. Every failure maps to an
@@ -31,10 +36,7 @@
  */
 
 import { systemLogger } from "../../../utils/logger.js";
-import {
-  resolveSttProvider,
-  transcribeWithRetries,
-} from "../../../voice/stt-provider.js";
+import { transcribeWithFallback } from "../../../voice/stt-provider.js";
 import { CALL_LANGUAGE, buildCallTwiml } from "./call-script.js";
 import type { PhoneCallOutcome } from "./types.js";
 
@@ -145,9 +147,7 @@ function errorText(err: unknown): string {
  * turned it into Hindi or unrelated English words.
  */
 async function defaultTranscribe(audio: Buffer): Promise<string> {
-  const provider = resolveSttProvider();
-  return transcribeWithRetries(
-    provider,
+  const outcome = await transcribeWithFallback(
     {
       audio,
       mimetype: "audio/mpeg",
@@ -155,8 +155,10 @@ async function defaultTranscribe(audio: Buffer): Promise<string> {
       timeoutMs: TRANSCRIBE_TIMEOUT_MS,
       language: CALL_LANGUAGE.split("-")[0],
     },
-    TRANSCRIBE_MAX_ATTEMPTS,
+    { caller: "phone", maxAttempts: TRANSCRIBE_MAX_ATTEMPTS },
   );
+  if (outcome.kind === "failed") throw outcome.err;
+  return outcome.text;
 }
 
 /**

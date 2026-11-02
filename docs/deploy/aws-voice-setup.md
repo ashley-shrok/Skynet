@@ -20,10 +20,11 @@ and `/voice/speak-stream`) — this is intentional and IS the cost gate.
 > Polly half of this guide. Voice pickers then list that provider's voices;
 > saved voices are kept and skipped when the active provider lacks them.
 >
-> **Optional backup provider.** `TTS_FALLBACK_PROVIDER` names a second
-> provider that finishes a message when the main one fails or stalls. It
-> sends text to that provider too, so leave it unset where content must stay
-> inside AWS.
+> **Optional backup providers.** `TTS_FALLBACK_PROVIDER` names a second
+> provider that finishes a message when the main one fails or stalls, and
+> `STT_FALLBACK_PROVIDER` a second provider that transcribes a recording when
+> the main one fails. Each sends content to that provider too, so leave them
+> unset where content must stay inside AWS.
 
 ## What this covers
 

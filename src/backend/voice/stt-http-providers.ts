@@ -41,16 +41,17 @@ interface HttpProviderSpec {
 function readApiKey(spec: HttpProviderSpec): string {
   const key = process.env[spec.apiKeyEnv]?.trim();
   if (!key) {
-    throw new SttNotConfiguredError(
-      `STT_PROVIDER=${spec.id} but ${spec.apiKeyEnv} is not set`,
-    );
+    throw new SttNotConfiguredError(`${spec.id} STT needs ${spec.apiKeyEnv}, which is not set`);
   }
   return key;
 }
 
 async function transcribeOverHttp(spec: HttpProviderSpec, input: SttInput): Promise<string> {
   const apiKey = readApiKey(spec);
-  const model = process.env.STT_MODEL?.trim() || spec.defaultModel;
+  // STT_MODEL names a model of the SELECTED provider; a backup
+  // (STT_FALLBACK_PROVIDER) always uses its own default.
+  const selected = (process.env.STT_PROVIDER ?? "").trim().toLowerCase() === spec.id;
+  const model = (selected && process.env.STT_MODEL?.trim()) || spec.defaultModel;
   const language =
     input.language?.trim() || process.env.STT_LANGUAGE?.trim() || undefined;
 
@@ -90,16 +91,27 @@ async function transcribeOverHttp(spec: HttpProviderSpec, input: SttInput): Prom
   return json.text.trim();
 }
 
+/**
+ * A 429 that means "out of credit", not "slow down" (ElevenLabs
+ * quota_exceeded, OpenAI-style insufficient_quota). Retrying can't help, so
+ * it's treated as unavailable — same rule as the TTS providers.
+ */
+function isQuotaExhausted(err: SttHttpError): boolean {
+  return err.status === 429 && /insufficient_quota|quota_exceeded/i.test(err.body);
+}
+
 /** 429 / 5xx, request timeout, or a network-level fetch failure. */
 function isRetriableHttpError(err: unknown): boolean {
   if (err instanceof SttNetworkError) return true;
-  return err instanceof SttHttpError && (err.status === 429 || err.status >= 500);
+  if (!(err instanceof SttHttpError) || isQuotaExhausted(err)) return false;
+  return err.status === 429 || err.status >= 500;
 }
 
-/** Missing key / unknown provider, or the provider rejecting our key. */
+/** Missing key / unknown provider, or the provider rejecting our key / account (incl. no credit). */
 function isUnavailableHttpError(err: unknown): boolean {
   if (err instanceof SttNotConfiguredError) return true;
-  return err instanceof SttHttpError && (err.status === 401 || err.status === 403);
+  if (!(err instanceof SttHttpError)) return false;
+  return err.status === 401 || err.status === 402 || err.status === 403 || isQuotaExhausted(err);
 }
 
 function makeHttpProvider(spec: HttpProviderSpec): SttProvider {
