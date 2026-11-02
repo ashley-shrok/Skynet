@@ -6,7 +6,7 @@
 
 ## Concept
 
-On 2026-11-01 Ashley spoke a voice message after hearing the orchestrator's bare "Okay." about the Google Cloud steps. The orchestrator still read her message as being about the avatar reply, which she hadn't heard yet. The note named "Okay." as the last thing she heard, which was true but gave no topic, and the orchestrator went with the latest thing it had presented. The note should hold up under any conditions. It should show a short run of the conversation as the user experienced it: the last few replies they heard, with their own messages in between, in the order they happened. Under that it always draws a line: nothing after this point had been heard.
+On 2026-11-01 the user spoke a voice message after hearing the orchestrator's bare "Okay." about the Google Cloud steps. The orchestrator still read her message as being about the avatar reply, which she hadn't heard yet. The note named "Okay." as the last thing she heard, which was true but gave no topic, and the orchestrator went with the latest thing it had presented. The note should hold up under any conditions. It should show a short run of the conversation as the user experienced it: the last few replies they heard, with their own messages in between, in the order they happened. Under that it always draws a line: nothing after this point had been heard.
 
 ## Success criteria
 

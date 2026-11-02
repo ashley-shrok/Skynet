@@ -41,7 +41,7 @@ Every voice message already carries a hidden note saying what the user had heard
 
 - Code: src/ui/features/pretty-view/heard-note.ts (builds the note) and useVoiceMode.ts (tracks heard replies; currentHeardNote).
 - No What's-new note: users see no difference.
-- Commit and scoped tests only. Push and deploy each need Ashley's greenlight.
+- Commit and scoped tests only. Push and deploy each need the user's greenlight.
 
 ---
 
@@ -53,7 +53,7 @@ Every voice message already carries a hidden note saying what the user had heard
 ### Shape features (conformance)
 
 - **What this is** — present · The note shows the last stretch of the voice session as the user lived it, then always says nothing after it had been heard.
-- **The heard run** — present · Last three heard replies, oldest first, with the user's messages where each was sent; reply quotes grow until distinct. The user's own messages keep a fixed short opening (Ashley agreed: they're context).
+- **The heard run** — present · Last three heard replies, oldest first, with the user's messages where each was sent; reply quotes grow until distinct. The user's own messages keep a fixed short opening (the user agreed: they're context).
 - **Ordered by experience, not transcript** — present · Replies enter when read, messages when sent; a replay after the user spoke now lands after their words (fixed after review).
 - **A user message enters the run** — present · Only after the earliest reply in the run; voice messages by their words only.
 - **Cut off stays marked** — present · Marked in place; the separate "before that" sentence is gone.
@@ -72,11 +72,11 @@ Every voice message already carries a hidden note saying what the user had heard
 ### Additions (in the result, not in the shape)
 
 - A reply quoted in full reads `your reply "Okay."`; a longer one `your reply starting "…"` — endorsed-as-drift
-- User messages keep a fixed short quote rather than growing — endorsed-as-drift (Ashley, 2026-11-01)
+- User messages keep a fixed short quote rather than growing — endorsed-as-drift (the user, 2026-11-01)
 
 ### Follow-ups
 
-- Push and deploy — deferred until Ashley's greenlight
+- Push and deploy — deferred until the user's greenlight
 
 ### Notes
 

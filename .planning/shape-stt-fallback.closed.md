@@ -44,7 +44,7 @@ The read-aloud side already has a backup setting with switch logging and an admi
 
 ## Handoff notes
 
-Identity duet-box-maintainer-5 does the work in its Skynet tree on the shared branch. Commit, scoped tests green, then stop: "committed + green; not pushed, not deployed". Deploy (adding the backup line to the server env and recreating the container) needs Ashley's separate greenlight.
+Identity duet-box-maintainer-5 does the work in its Skynet tree on the shared branch. Commit, scoped tests green, then stop: "committed + green; not pushed, not deployed". Deploy (adding the backup line to the server env and recreating the container) needs the user's separate greenlight.
 
 ---
 
