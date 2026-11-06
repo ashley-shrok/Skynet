@@ -3,7 +3,8 @@
 // what the user had actually lived through when they spoke: the last few
 // replies read to them, with their own messages in between, in the order
 // they happened — then that nothing after the last of those had been heard,
-// and which replies had arrived but were not read aloud. The agent may reply
+// that not heard yet isn't missed, which replies are still waiting to be read,
+// and which were skipped or couldn't be played. The agent may reply
 // again before it sees the user's words, and a bare "Okay." says nothing of
 // its topic, so the run carries the context. Plain English, so an agent never
 // taught about it still reads it right; it rides right after the voice label,
@@ -27,8 +28,10 @@ export type RunEntry =
 export interface HeardState {
   /** Oldest first, in the order the user experienced it. */
   run: readonly RunEntry[];
-  /** Replies that arrived but were not read aloud. */
-  unheard: readonly HeardReply[];
+  /** Replies waiting to be read aloud — the user will still hear them. */
+  queued: readonly HeardReply[];
+  /** Replies skipped or that couldn't be played — they won't be read aloud. */
+  missed: readonly HeardReply[];
 }
 
 /** Opening words quoted by default — enough to find the reply. */
@@ -177,14 +180,29 @@ export function buildHeardNote(state: HeardState, replies: readonly HeardReply[]
         "including anything you send before you read this.",
     );
   }
+  // An agent once repeated a reply the user hadn't heard yet but was about to:
+  // say plainly that not heard yet isn't missed.
+  parts.push(
+    "Not heard yet doesn't mean missed: voice mode reads your replies aloud to them in order, " +
+      "so ones they haven't heard yet will still reach them. Don't repeat them.",
+  );
   // Heard after all (e.g. played with a speak button) beats "not heard".
-  const unheard = distinct(state.unheard, heard.map((e) => e.reply));
-  if (unheard.length === 1) {
-    parts.push(`They had not heard your reply starting ${quoteReply(unheard[0], replies)}; it was not read aloud to them.`);
-  } else if (unheard.length > 1) {
+  const queued = distinct(state.queued, heard.map((e) => e.reply));
+  const missed = distinct(state.missed, [...heard.map((e) => e.reply), ...queued]);
+  if (queued.length === 1) {
+    parts.push(`Your reply starting ${quoteReply(queued[0], replies)} hasn't been read to them yet; it's queued and will be read aloud to them next.`);
+  } else if (queued.length > 1) {
     parts.push(
-      `They had not heard your replies starting ${list(unheard.map((r) => quoteReply(r, replies)))}; ` +
-        "those were not read aloud to them.",
+      `Your replies starting ${list(queued.map((r) => quoteReply(r, replies)))} haven't been read to them yet; ` +
+        "they're queued and will be read aloud to them next, in order.",
+    );
+  }
+  if (missed.length === 1) {
+    parts.push(`Your reply starting ${quoteReply(missed[0], replies)} was skipped or couldn't be played, so it won't be read aloud to them.`);
+  } else if (missed.length > 1) {
+    parts.push(
+      `Your replies starting ${list(missed.map((r) => quoteReply(r, replies)))} were skipped or couldn't be played, ` +
+        "so they won't be read aloud to them.",
     );
   }
   parts.push("Their words answer what they had heard, which may not be your latest message.");

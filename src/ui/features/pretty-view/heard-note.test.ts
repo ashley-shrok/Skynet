@@ -71,7 +71,8 @@ describe("buildHeardNote", () => {
     const note = buildHeardNote(
       {
         run: [heard(costs), said("Okay, then put together some steps for me to check what the usage has been and see"), heard(okay)],
-        unheard: [avatar],
+        queued: [avatar],
+        missed: [],
       },
       [earlierOkay, costs, okay, avatar],
     );
@@ -82,7 +83,9 @@ describe("buildHeardNote", () => {
         'then your reply "Okay." (the latest of your replies that start that way, as of when they spoke). ' +
         'Nothing you sent after your reply "Okay." (the latest of your replies that start that way, as of when they spoke) had been heard yet, ' +
         "including anything you send before you read this. " +
-        'They had not heard your reply starting "For the finance avatar, you were right: it\'s currently a white wallet…"; it was not read aloud to them. ' +
+        "Not heard yet doesn't mean missed: voice mode reads your replies aloud to them in order, " +
+        "so ones they haven't heard yet will still reach them. Don't repeat them. " +
+        'Your reply starting "For the finance avatar, you were right: it\'s currently a white wallet…" hasn\'t been read to them yet; it\'s queued and will be read aloud to them next. ' +
         "Their words answer what they had heard, which may not be your latest message.",
     );
   });
@@ -90,7 +93,7 @@ describe("buildHeardNote", () => {
   it("shows only the last three heard replies, with the user's messages after the first of them", () => {
     const d = r("d", "Fourth reply here.");
     const note = buildHeardNote(
-      { run: [heard(a), said("too early"), heard(b), said("about b"), heard(c), heard(d), said("after d")], unheard: [] },
+      { run: [heard(a), said("too early"), heard(b), said("about b"), heard(c), heard(d), said("after d")], queued: [], missed: [] },
       [a, b, c, d],
     );
     expect(note).toContain(
@@ -103,48 +106,72 @@ describe("buildHeardNote", () => {
   });
 
   it("draws the line after the newest reply heard, even when an older one was replayed last", () => {
-    const note = buildHeardNote({ run: [heard(a), heard(b), said("say the first again"), heard(a)], unheard: [] }, [a, b]);
+    const note = buildHeardNote({ run: [heard(a), heard(b), said("say the first again"), heard(a)], queued: [], missed: [] }, [a, b]);
     expect(note).toContain('then they said "say the first again"; then your reply "First reply here."');
     expect(note).toContain('Nothing you sent after your reply "Second reply here." had been heard yet');
   });
 
   it("keeps only the latest few of the user's own messages", () => {
     const run: RunEntry[] = [heard(a), ...Array.from({ length: 7 }, (_, i) => said(`message ${i}`))];
-    const note = buildHeardNote({ run, unheard: [] }, [a]);
+    const note = buildHeardNote({ run, queued: [], missed: [] }, [a]);
     expect(note).not.toContain('"message 2"');
     expect(note).toContain('then they said "message 3"; then they said "message 4"; then they said "message 5"; then they said "message 6".');
   });
 
   it("marks a reply cut off partway in place", () => {
-    const note = buildHeardNote({ run: [heard(a, false), heard(b)], unheard: [] }, [a, b]);
+    const note = buildHeardNote({ run: [heard(a, false), heard(b)], queued: [], missed: [] }, [a, b]);
     expect(note).toContain('your reply "First reply here." (cut off partway, so they may not have heard all of it); then your reply "Second reply here."');
   });
 
   it("says when nothing has been heard, still drawing the line, and leaves the user's messages out", () => {
-    const note = buildHeardNote({ run: [said("hello")], unheard: [a] }, [a]);
+    const note = buildHeardNote({ run: [said("hello")], queued: [], missed: [a] }, [a]);
     expect(note).toBe(
       "None of your replies had been read aloud to the user yet in this voice session. " +
         "That includes anything you send before you read this. " +
-        'They had not heard your reply starting "First reply here."; it was not read aloud to them. ' +
+        "Not heard yet doesn't mean missed: voice mode reads your replies aloud to them in order, " +
+        "so ones they haven't heard yet will still reach them. Don't repeat them. " +
+        'Your reply starting "First reply here." was skipped or couldn\'t be played, so it won\'t be read aloud to them. ' +
         "Their words answer what they had heard, which may not be your latest message.",
     );
   });
 
-  it("lists several unheard replies once each, and never calls a heard one unheard", () => {
-    const note = buildHeardNote({ run: [heard(a)], unheard: [a, b, c, b] }, [a, b, c]);
+  it("lists several missed replies once each, and never calls a heard one missed", () => {
+    const note = buildHeardNote({ run: [heard(a)], queued: [], missed: [a, b, c, b] }, [a, b, c]);
     expect(note).toContain(
-      'They had not heard your replies starting "Second reply here." and "Third reply here."; those were not read aloud to them.',
+      'Your replies starting "Second reply here." and "Third reply here." were skipped or couldn\'t be played, so they won\'t be read aloud to them.',
     );
+    expect(note).not.toContain("First reply here.\" was skipped");
   });
 
-  it("names a few unheard replies and counts the rest", () => {
+  it("lists several queued replies as still to come, in order", () => {
+    const note = buildHeardNote({ run: [heard(a)], queued: [b, c], missed: [] }, [a, b, c]);
+    expect(note).toContain(
+      'Your replies starting "Second reply here." and "Third reply here." haven\'t been read to them yet; they\'re queued and will be read aloud to them next, in order.',
+    );
+    expect(note).not.toContain("skipped");
+  });
+
+  it("keeps queued and missed apart, and never calls a queued reply missed", () => {
+    const note = buildHeardNote({ run: [heard(a)], queued: [c], missed: [b, c] }, [a, b, c]);
+    expect(note).toContain('Your reply starting "Third reply here." hasn\'t been read to them yet; it\'s queued');
+    expect(note).toContain('Your reply starting "Second reply here." was skipped or couldn\'t be played');
+    expect(note).not.toContain('"Third reply here." was skipped');
+  });
+
+  it("always says not heard yet isn't missed", () => {
+    const note = buildHeardNote({ run: [heard(a)], queued: [], missed: [] }, [a]);
+    expect(note).toContain("Not heard yet doesn't mean missed");
+    expect(note).toContain("Don't repeat them.");
+  });
+
+  it("names a few queued replies and counts the rest", () => {
     const many = Array.from({ length: 6 }, (_, i) => r(`m${i}`, `Feed item number ${i}.`));
-    const note = buildHeardNote({ run: [], unheard: many }, many);
+    const note = buildHeardNote({ run: [], queued: many, missed: [] }, many);
     expect(note).toContain('"Feed item number 0.", "Feed item number 1.", "Feed item number 2." and 3 more');
   });
 
   it("keeps the user's quotes and brackets from breaking the label", () => {
-    const note = buildHeardNote({ run: [heard(a), said('ship "it" [now]')], unheard: [] }, [a]);
+    const note = buildHeardNote({ run: [heard(a), said('ship "it" [now]')], queued: [], missed: [] }, [a]);
     expect(note).toContain(`then they said "ship 'it' (now)".`);
   });
 });

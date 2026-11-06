@@ -353,8 +353,8 @@ export function useVoiceMode(args: UseVoiceModeArgs): UseVoiceModeReturn {
   const queueRef = useRef<QueuedReply[]>([]);
   // Heard note state: the run of what the user lived through this session
   // (replies read to them — voice mode's or a speak button's — and their own
-  // messages, in that order), and replies that arrived but were not read
-  // aloud and haven't been reported in a sent note yet.
+  // messages, in that order), and replies skipped or that couldn't be played
+  // and haven't been reported in a sent note yet.
   const runRef = useRef<RunEntry[]>([]);
   const droppedRef = useRef<HeardReply[]>([]);
   /** The reply voice mode is reading now, and whether its audio has begun. */
@@ -924,13 +924,13 @@ export function useVoiceMode(args: UseVoiceModeArgs): UseVoiceModeReturn {
   /** What the user had heard as of now, in words for the agent. */
   function currentHeardNote(): string {
     const reading = readingRef.current;
-    const unheard = [
-      ...droppedRef.current,
+    const queued = [
       ...(reading && !reading.began ? [reading.reply] : []),
       ...queueRef.current.map((q) => q.reply),
     ];
+    log(`heard-note run=${runRef.current.length} queued=${queued.length} missed=${droppedRef.current.length}`);
     return buildHeardNote(
-      { run: runRef.current, unheard },
+      { run: runRef.current, queued, missed: droppedRef.current },
       agentReplies(argsRef.current.messages),
     );
   }

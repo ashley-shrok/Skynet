@@ -1166,10 +1166,10 @@ describe("heard note", () => {
       'What the user had heard when they spoke: your reply "On the compaction work, the summary now keeps the campaign pointer intact.".',
     );
     expect(noteOf(send)).toContain('Nothing you sent after your reply "On the compaction work');
-    expect(noteOf(send)).not.toContain("had not heard");
+    expect(noteOf(send)).not.toContain("won't be read aloud");
   });
 
-  it("the race: a reply landing mid-sentence is named as not heard, and the earlier one as heard", async () => {
+  it("the race: a reply landing mid-sentence is named as queued, and the earlier one as heard", async () => {
     const send = vi.fn(() => true);
     const { rerender } = await startVoiceMode(baseArgs({ send }));
     rerender(baseArgs({ send, messages: [A] }));
@@ -1186,7 +1186,10 @@ describe("heard note", () => {
     await flush(TIMED_END_MS);
     const note = noteOf(send);
     expect(note).toContain('heard when they spoke: your reply "On the compaction work');
-    expect(note).toContain('They had not heard your reply starting "For the voice mode cleanup, the chip now shows Muted while listening…"');
+    expect(note).toContain(
+      'Your reply starting "For the voice mode cleanup, the chip now shows Muted while listening…" hasn\'t been read to them yet; it\'s queued',
+    );
+    expect(note).not.toContain("skipped or couldn't be played");
     expect(note).toContain("Their words answer what they had heard");
     // B is still read aloud after the send.
     expect(postSpeakStream).toHaveBeenLastCalledWith(expect.stringContaining("For the voice mode cleanup"), ["Ruth"]);
@@ -1206,7 +1209,7 @@ describe("heard note", () => {
     expect(noteOf(send)).toContain('heard when they spoke: your reply "On the compaction work');
   });
 
-  it("a skipped reply is cut off partway; replies dropped with it were not heard — reported once", async () => {
+  it("a skipped reply is cut off partway; replies dropped with it are missed — reported once", async () => {
     const send = vi.fn(() => true);
     const { result, rerender } = await startVoiceMode(baseArgs({ send }));
     rerender(baseArgs({ send, messages: [A, B] }));
@@ -1219,13 +1222,14 @@ describe("heard note", () => {
     const note = noteOf(send);
     expect(note).toContain('heard when they spoke: your reply "On the compaction work');
     expect(note).toContain("cut off partway, so they may not have heard all of it");
-    expect(note).toContain('had not heard your reply starting "For the voice mode cleanup');
+    expect(note).toContain('Your reply starting "For the voice mode cleanup');
+    expect(note).toContain("was skipped or couldn't be played");
     transcribeReturns("and another thing");
     await sayUtterance();
-    expect(noteOf(send, 1)).not.toContain("had not heard");
+    expect(noteOf(send, 1)).not.toContain("skipped or couldn't be played");
   });
 
-  it("a reply that fails before any audio counts as not heard", async () => {
+  it("a reply that fails before any audio counts as missed", async () => {
     postSpeakStream.mockResolvedValueOnce(new Response(null, { status: 503 }));
     const send = vi.fn(() => true);
     const { rerender } = await startVoiceMode(baseArgs({ send }));
@@ -1235,7 +1239,8 @@ describe("heard note", () => {
     await sayUtterance();
     const note = noteOf(send);
     expect(note).toContain("None of your replies had been read aloud");
-    expect(note).toContain('had not heard your reply starting "On the compaction work');
+    expect(note).toContain('Your reply starting "On the compaction work');
+    expect(note).toContain("was skipped or couldn't be played");
   });
 
   it("a reply the user plays with a speak button counts as heard", async () => {
@@ -1264,7 +1269,7 @@ describe("heard note", () => {
     expect(noteOf(send)).not.toContain("other agent");
   });
 
-  it("a skipped reply the user then plays with its speak button counts as heard, not unheard", async () => {
+  it("a skipped reply the user then plays with its speak button counts as heard, not missed", async () => {
     const send = vi.fn(() => true);
     const { result, rerender } = await startVoiceMode(baseArgs({ send }));
     rerender(baseArgs({ send, messages: [A, B] }));
@@ -1280,7 +1285,7 @@ describe("heard note", () => {
     expect(note).toContain(
       'oldest first: your reply "On the compaction work, the summary now keeps the campaign pointer intact." (cut off partway, so they may not have heard all of it); then your reply starting "For the voice mode cleanup',
     );
-    expect(note).not.toContain("had not heard");
+    expect(note).not.toContain("won't be read aloud");
   });
 
   it("the run follows the order the user heard things, not the transcript order", async () => {
