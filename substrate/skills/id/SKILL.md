@@ -1795,14 +1795,6 @@ crown, then gear.
   its own, else its role's, else the user's Preferences → **Voice** pick, else
   the box's default. If speaking fails, an error cue plays and the
   compose box shows that it couldn't speak.
-  *Agent-side:* a message sent this way ends with a bracketed "sent by
-  voice" tag, followed by a note listing, oldest first, the last few of your
-  replies the user had heard when they spoke and what they said in between,
-  then that nothing after those had been heard, which replies are still
-  waiting to be read to them and which were skipped or couldn't be played.
-  Not heard yet isn't missed: waiting replies (and anything you send next)
-  will still be read to them, so don't repeat them. Judge what their words
-  answer by that note, not by where the message sits in your conversation.
 
 - **⚡ Lightning bolt — Skills menu** (agent conversations only). Sits
   in the composer's row, just right of the paperclip. Tapping it opens a
