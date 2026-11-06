@@ -234,6 +234,23 @@ export function stripSendPhrase(transcript: string, phrase: string): string | nu
 }
 
 /**
+ * Filler sounds, any length: um, uh, er(m), ah, oh, hm(m), mm, mhm, mm-hmm,
+ * uh-huh, uh-uh. Speech-to-text models (Whisper on Groq especially) write
+ * stray noise as these; a lone grunt yes/no is more likely noise than a reply.
+ */
+const FILLER_WORD = /^(?:u+m+|u+h+|e+r+m*|a+h+|o+h+|h+m+|m+|m+h+m+|u+h+u+h+)$/;
+
+/** True when a transcript has letters and every word is a filler sound. */
+export function isFillerOnly(transcript: string): boolean {
+  const words = transcript
+    .toLowerCase()
+    .split(/\s+/)
+    .map((w) => w.replace(/[^\p{L}\p{N}]/gu, ""))
+    .filter(Boolean);
+  return words.length > 0 && words.every((w) => FILLER_WORD.test(w));
+}
+
+/**
  * Markdown → something pleasant to hear. Code blocks are announced rather than
  * read symbol by symbol; links read their label; formatting marks are dropped.
  */
@@ -955,6 +972,10 @@ export function useVoiceMode(args: UseVoiceModeArgs): UseVoiceModeReturn {
       stopRef.current();
       return;
     }
+    if (isFillerOnly(text)) {
+      log(`piece-filler pieceId=${piece.id} len=${text.length}`);
+      text = "";
+    }
     piece.status = "done";
     piece.text = text;
     if (!text) {
@@ -973,7 +994,8 @@ export function useVoiceMode(args: UseVoiceModeArgs): UseVoiceModeReturn {
       if (settings.endOfTurn === "phrase") {
         const stripped = stripSendPhrase(text, settings.sendPhrase);
         if (stripped !== null) {
-          piece.text = stripped;
+          // "Um... over" sends what came before, not the um.
+          piece.text = isFillerOnly(stripped) ? "" : stripped;
           endTurnRef.current("phrase", piece);
           return;
         }

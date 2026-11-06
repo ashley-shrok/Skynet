@@ -51,6 +51,7 @@ vi.mock("./voice-mode-cues", () => ({
 import {
   useVoiceMode,
   endsWithExitPhrase,
+  isFillerOnly,
   stripSendPhrase,
   toSpeakableText,
   PIECE_GAP_MS,
@@ -252,6 +253,17 @@ describe("stripSendPhrase", () => {
   });
 });
 
+describe("isFillerOnly", () => {
+  it.each(["Um...", " Um, um,", "Uh.", "Uhh", "Er", "Erm,", "Ah!", "Oh.", "Hmm?", "hm", "Mm.", "Mmm", "Mhm.", "Mm-hmm.", "Uh-huh.", "Uh-uh", "Um. Uh, hmm."])(
+    "drops %j",
+    (t) => expect(isFillerOnly(t)).toBe(true),
+  );
+  it.each(["", "  ", "...", "Yes.", "No", "Um, yes.", "Oh no", "hmm, let me think", "Huh?", "Okay.", "Thank you.", "um 2"])(
+    "keeps %j",
+    (t) => expect(isFillerOnly(t)).toBe(false),
+  );
+});
+
 describe("toSpeakableText", () => {
   it("drops markdown formatting and announces code blocks", () => {
     const md = "## Result\n\n**Done** — see [the PR](https://x.y/1).\n\n```ts\nconst a = 1;\n```\n- item `one`";
@@ -328,6 +340,17 @@ describe("useVoiceMode", () => {
       transcribeReturns("");
       await sayUtterance();
       expect(stampedFetch).toHaveBeenCalledTimes(1);
+      expect(send).not.toHaveBeenCalled();
+      expect(cuesPlayed).toEqual([]);
+      expect(result.current.phase).toBe("listening");
+    });
+
+    it("drops a piece that is only filler sounds (noise written as 'Um...') like an empty one", async () => {
+      const send = vi.fn(() => true);
+      const { result } = await startVoiceMode(baseArgs({ send }));
+      transcribeReturns(" Um...");
+      await sayUtterance();
+      await flush(TIMED_END_MS * 2);
       expect(send).not.toHaveBeenCalled();
       expect(cuesPlayed).toEqual([]);
       expect(result.current.phase).toBe("listening");
@@ -453,6 +476,40 @@ describe("useVoiceMode", () => {
       first("look at the failing test");
       await flush();
       expect(send).toHaveBeenCalledWith("look at the failing test", expect.any(String));
+    });
+
+    it("goes back to listening after a filler-only piece, and reads the next reply", async () => {
+      const send = vi.fn(() => true);
+      const { result, rerender } = await startVoiceMode(baseArgs({ send }));
+      transcribeReturns("Um, um,");
+      await sayPiece();
+      expect(result.current.phase).toBe("listening");
+      rerender(baseArgs({
+        send,
+        messages: [{ type: "message", role: "assistant", content: "next reply", eventId: "a1", ts: Date.now() }],
+      }));
+      await flush(1000);
+      expect(postSpeakStream).toHaveBeenCalledWith("next reply", ["Ruth"]);
+      expect(send).not.toHaveBeenCalled();
+    });
+
+    it("drops filler before the send phrase but still sends the earlier words", async () => {
+      const send = vi.fn(() => true);
+      await startVoiceMode(baseArgs({ send }));
+      transcribeReturns("check the logs");
+      await sayPiece();
+      transcribeReturns("Um... send it.");
+      await sayPiece();
+      expect(send).toHaveBeenCalledWith("check the logs", expect.any(String));
+    });
+
+    it("sends nothing when the whole turn is filler plus the send phrase", async () => {
+      const send = vi.fn(() => true);
+      const { result } = await startVoiceMode(baseArgs({ send }));
+      transcribeReturns("Mm-hmm. Send it.");
+      await sayPiece();
+      expect(send).not.toHaveBeenCalled();
+      expect(result.current.phase).toBe("listening");
     });
 
     it("holds replies (and the working ticks) while a draft is unsent", async () => {
