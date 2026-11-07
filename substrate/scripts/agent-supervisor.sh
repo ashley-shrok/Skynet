@@ -3022,13 +3022,43 @@ _check_id_first_turn() {
 #      user turn yet (this harness's own startup-written file) — whose first user-role line
 #      matches the /id NAME predicate. Neither can contain scrollback → this is a genuine
 #      YES/NO signal, not a pane-scrape heuristic.
-#   4. Two attempts × 15s each = 30s worst-case budget. Second failure → LOUD log + return 1
-#      so drive() bails (same shape as wait_for_claude).
+#   4. Each attempt polls up to SUBMIT_ID_WAIT (60s), returning the moment /id lands — a slow
+#      start (jsonl ~25s after the paste) must not trigger a re-paste, which loads the identity
+#      twice. An attempt ends early only when `/id NAME` is still sitting UNSENT in the compose
+#      box after SUBMIT_ID_UNSENT_AFTER (15s): the paste plainly didn't submit. The landing check
+#      runs once more right before a re-paste. Two attempts; second failure → LOUD log + return 1
+#      so drive() bails and ends the harness (end_unloaded_harness) for a clean relaunch.
 #
 # REPLACES the prior pane-scrape state-machine (7c54898), which false-positived on tmux
 # scrollback: when a pane is reused across relaunches it retains the prior session's /id NAME
 # text, and the scrape check called it SUBMITTED without ever pasting. Three
 # agents landed at empty compose that way on 2026-08-29. A new file can't have scrollback.
+SUBMIT_ID_WAIT="${SUBMIT_ID_WAIT:-60}"
+SUBMIT_ID_UNSENT_AFTER="${SUBMIT_ID_UNSENT_AFTER:-15}"
+
+# _id_unsent_in_compose <session> <name>: true if `/id NAME` is sitting in Claude Code's compose
+# box — the lines between the last two horizontal rules (─) on screen — i.e. pasted, not submitted.
+# A submitted /id moves up into the transcript, above the rules, so it never matches.
+_id_unsent_in_compose() {
+  local sess="$1" name="$2"
+  timeout -k 5 10 tmux capture-pane -pt "$sess" -S -15 2>/dev/null | awk -v want="/id $name" '
+    /^─+/ { n++; if (n >= 2) { prev = cur }; cur = ""; next }
+    { cur = cur "\n" $0 }
+    END { blk = (n >= 2) ? prev : ""; exit !(index(blk, want) > 0) }'
+}
+
+# _id_landed <project_dir> <before_snapshot> <unprompted_existing> <name>: prints the jsonl the
+# /id landed in and returns 0, or returns 1.
+_id_landed() {
+  local project_dir="$1" before="$2" unprompted="$3" name="$4" now new path
+  now=$(ls -1 "$project_dir"/*.jsonl 2>/dev/null | sort -u)
+  new=$(comm -23 <(printf '%s\n' "$now") <(printf '%s\n' "$before") 2>/dev/null | grep -v '^$')
+  for path in $new $unprompted; do
+    _check_id_first_turn "$path" "$name" && { printf '%s' "$path"; return 0; }
+  done
+  return 1
+}
+
 submit_id() {
   local name="$1" sess="$2" cwd="$3"
   [ -n "$cwd" ] || { log "ERROR: '$name' submit_id: cwd argument missing — cannot resolve project dir"; return 1; }
@@ -3062,9 +3092,15 @@ submit_id() {
   done
   [ "$_ready" -ge 16 ] && log "'$name' submit_id: compose prompt not seen after 8s — pasting anyway"
 
-  local attempt max=2
+  local attempt max=2 landed
   for attempt in $(seq 1 $max); do
     if [ "$attempt" -gt 1 ]; then
+      # Last look before re-pasting: a /id that landed just after the poll ended must not be
+      # pasted a second time.
+      if landed="$(_id_landed "$project_dir" "$before_snapshot" "$unprompted_existing" "$name")"; then
+        log "'$name' submit_id: /id landed late in $(basename "$landed") (before attempt $attempt) — not re-pasting"
+        return 0
+      fi
       log "'$name' submit_id attempt $attempt: C-c + load-buffer /id $name + paste-buffer + Enter"
       timeout -k 5 10 tmux send-keys -t "$sess" C-c 2>/dev/null
       sleep 0.5
@@ -3078,7 +3114,7 @@ submit_id() {
     # was hit and we bailed — but redrive_claude had already re-typed a THIRD launch, leaving a
     # naked harness with no /id pasted. Falling through instead: the just-relaunched claude has
     # a fresh empty compose (no C-c needed), so we paste /id directly. If the paste doesn't land
-    # in this iteration's 15s poll window, attempt 2 does a normal C-c on a now-fully-mounted claude.
+    # in this iteration's poll window, attempt 2 does a normal C-c on a now-fully-mounted claude.
     if ! claude_running "$sess"; then
       log "'$name' submit_id attempt $attempt: claude DIED after our C-c (Ink was mid-mount) — relaunching with 8s extended settle, then pasting on the fresh compose"
       redrive_claude "$name" "$sess" ""
@@ -3099,23 +3135,28 @@ submit_id() {
     timeout -k 5 10 tmux send-keys -t "$sess" Enter 2>/dev/null
 
     # Poll for a NEW jsonl appearing whose first user-turn matches /id NAME
-    local deadline=$(($(date +%s) + 15))
-    while [ $(date +%s) -lt "$deadline" ]; do
+    local t0 now unsent_logged=""
+    t0=$(date +%s)
+    while :; do
       sleep 0.5
-      local now_snapshot new_files path
-      now_snapshot=$(ls -1 "$project_dir"/*.jsonl 2>/dev/null | sort -u)
-      new_files=$(comm -23 <(printf '%s\n' "$now_snapshot") <(printf '%s\n' "$before_snapshot") 2>/dev/null | grep -v '^$')
-      for path in $new_files $unprompted_existing; do
-        if _check_id_first_turn "$path" "$name"; then
-          log "'$name' submit_id: /id landed in $(basename "$path") (attempt $attempt)"
-          return 0
-        fi
-      done
+      if landed="$(_id_landed "$project_dir" "$before_snapshot" "$unprompted_existing" "$name")"; then
+        log "'$name' submit_id: /id landed in $(basename "$landed") (attempt $attempt, $(( $(date +%s) - t0 ))s after paste)"
+        return 0
+      fi
+      now=$(date +%s)
+      if [ $((now - t0)) -ge "$SUBMIT_ID_WAIT" ]; then
+        log "'$name' submit_id attempt $attempt: ${SUBMIT_ID_WAIT}s elapsed, no jsonl with matching /id"
+        break
+      fi
+      if [ $((now - t0)) -ge "$SUBMIT_ID_UNSENT_AFTER" ] && [ -z "$unsent_logged" ] && _id_unsent_in_compose "$sess" "$name"; then
+        unsent_logged=1
+        log "'$name' submit_id attempt $attempt: '/id $name' still unsent in the compose box after ${SUBMIT_ID_UNSENT_AFTER}s"
+        break
+      fi
     done
-    log "'$name' submit_id attempt $attempt: 15s elapsed, no new jsonl with matching /id — will retry"
   done
 
-  log "ERROR: '$name' submit_id: no new jsonl with /id $name after $max attempts × 15s — bailing, alive-check will retry next tick"
+  log "ERROR: '$name' submit_id: no jsonl with /id $name after $max attempts — bailing"
   log "  project dir: $project_dir"
   log "  pane tail: $(timeout -k 5 10 tmux capture-pane -pt "$sess" -S -10 2>/dev/null | tr '\n' '|' | tail -c 400)"
   return 1
@@ -3247,6 +3288,27 @@ repair_ambient_monitor() {
   metric event=ambient-monitor-repair identity="$name" session="$sess" harness_pid="$hpid"
   mkdir -p "$DORMANCY_STATE_DIR" 2>/dev/null; touch "$marker" 2>/dev/null
   start_ambient_monitor "$name" "$sess" || true
+}
+
+# end_unloaded_harness <name> <session>: stop a claude that came up but never loaded its identity
+# (submit_id gave up), so the next alive-check finds it dead and relaunches it — resuming, if the
+# /id did land late, since resolve_session then finds that session. SIGTERM, then SIGKILL after 5s.
+end_unloaded_harness() {
+  local name="$1" sess="$2" hpid i=0
+  if ! hpid="$(resolve_harness_pid "$sess")"; then
+    log "'$name' end_unloaded_harness: no harness on session '$sess' — nothing to end"
+    return 0
+  fi
+  kill "$hpid" 2>/dev/null
+  while kill -0 "$hpid" 2>/dev/null && [ "$i" -lt 10 ]; do sleep 0.5; i=$((i+1)); done
+  if kill -0 "$hpid" 2>/dev/null; then
+    kill -KILL "$hpid" 2>/dev/null
+    log "'$name' end_unloaded_harness: harness_pid=$hpid ignored SIGTERM for 5s — SIGKILLed"
+  else
+    log "'$name' end_unloaded_harness: harness_pid=$hpid ended"
+  fi
+  metric event=harness-ended-unloaded identity="$name" session="$sess" harness_pid="$hpid"
+  return 0
 }
 
 # redrive_claude: clear whatever's in the pane's input buffer / at the shell prompt (C-c to abort
@@ -3530,7 +3592,7 @@ drive() {
   # live (2026-09-02, one agent): wait_for_claude passed cleanly above, then the fresh
   # claude ended up dead — pane back at bash prompt. Old behavior: submit_id's leading C-c +
   # paste of `/id name` landed IN BASH, producing `-bash: /id: No such file or directory`
-  # visible in the pane, no jsonl written, submit_id looped its full 2× 15s budget with no
+  # visible in the pane, no jsonl written, submit_id looped its full budget with no
   # signal. Silent from the log's POV (submit_id error is generic; the actual "claude died
   # between wait_for_claude and submit" is invisible without this check). Fix: a second
   # aliveness probe here catches that gap and bails LOUD, so alive-check can retry cleanly
@@ -3546,7 +3608,10 @@ drive() {
   # machine. On final failure, submit_id returns 1 and we bail from drive() (same shape as
   # wait_for_claude) rather than leaving a broken /id-in-compose pane pretending to be alive.
   if ! submit_id "$name" "$sess" "$cwd"; then
-    log "ERROR: '$name' drive fresh: submit_id failed — bailing from drive(). Alive-check will re-attempt on next tick."
+    # Ending the harness is what makes the next tick retry: left running, the alive-check would
+    # see claude alive and never re-drive it — an agent up without its identity loaded.
+    log "ERROR: '$name' drive fresh: submit_id failed — ending the harness so the alive-check relaunches it next tick."
+    end_unloaded_harness "$name" "$sess"
     return 1
   fi
   # Supervisor owns the ambient monitor — start it now that the identity is loaded. Same call as
