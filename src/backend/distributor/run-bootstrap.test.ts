@@ -73,6 +73,7 @@ import {
   RETIRED_SUBSTRATE_TREES,
   RETIRED_USER_UNITS,
   AUTOCOMPACT_PCT,
+  TRANSCRIPT_RETENTION_DAYS,
 } from "./run-bootstrap.js";
 import { systemLogger } from "../utils/logger.js";
 import { ROLES_KEY_MIGRATION_SENTINEL } from "./roles-key-migration.js";
@@ -307,6 +308,7 @@ describe("runBootstrapForHost", () => {
     expect(settingsCmd).toContain(`.skipDangerousModePermissionPrompt = true`);
     expect(settingsCmd).toContain(`.crossSessionInbound = "refuse"`);
     expect(settingsCmd).toContain(`.enableArtifact = false`);
+    expect(settingsCmd).toContain(`.cleanupPeriodDays = ${TRANSCRIPT_RETENTION_DAYS}`);
     // task-field-check UserPromptSubmit hook — the merge must add an entry
     // whose command references task-field-check when absent.
     expect(settingsCmd).toContain(`.UserPromptSubmit`);
@@ -338,6 +340,7 @@ describe("runBootstrapForHost", () => {
     expect(settingsCmd).toContain(`.skipDangerousModePermissionPrompt == true`);
     expect(settingsCmd).toContain(`.crossSessionInbound == "refuse"`);
     expect(settingsCmd).toContain(`.enableArtifact == false`);
+    expect(settingsCmd).toContain(`.cleanupPeriodDays == ${TRANSCRIPT_RETENTION_DAYS}`);
     expect(settingsCmd).toContain(`.askUserQuestionTimeout == "never"`);
     expect(settingsCmd).toContain(`.permissions.deny // []) | contains(["AskUserQuestion"])`);
     expect(settingsCmd).toContain(`.env.DISABLE_AUTOUPDATER == "1"`);

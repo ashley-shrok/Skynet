@@ -39,6 +39,10 @@
  *          land in a user's chat as if it were their input)
  *        - enableArtifact: false (no agent publishes claude.ai Artifacts;
  *          the Artifact tool is withheld from every session)
+ *        - cleanupPeriodDays: TRANSCRIPT_RETENTION_DAYS (the harness otherwise
+ *          deletes session transcripts — the app's whole conversation history —
+ *          and other session state after 30 days; 0 is rejected, so a large
+ *          value is the only way to keep them)
  *        - hooks.UserPromptSubmit contains a "task-field-check" entry (nudges
  *          agents whose identity file's `task:` field is still "Untitled
  *          conversation" — see substrate/scripts/task-field-check.sh)
@@ -381,6 +385,14 @@ function logRolesKeyMigration(
  */
 export const AUTOCOMPACT_PCT = "96.9388";
 
+/**
+ * cleanupPeriodDays value: how long the harness keeps session transcripts
+ * before its startup sweep deletes them (harness default 30). ~100 years, i.e.
+ * never. The harness requires a positive integer (0 is a settings error that
+ * pauses the sweep and flags the file) — read from the 2.1.310 binary.
+ */
+export const TRANSCRIPT_RETENTION_DAYS = 36500;
+
 /** The people file (machine-people.ts), relative to $HOME. Written in Step 5c. */
 export const MACHINE_PEOPLE_REL_PATH = "fleet/host/people.md";
 
@@ -392,6 +404,7 @@ export const SETTINGS_MERGE_JQ =
   `  | .skipDangerousModePermissionPrompt = true` +
   `  | .crossSessionInbound = "refuse"` +
   `  | .enableArtifact = false` +
+  `  | .cleanupPeriodDays = ${TRANSCRIPT_RETENTION_DAYS}` +
   `  | .hooks = ((.hooks // {})` +
   `      | .UserPromptSubmit = ((.UserPromptSubmit // []) | if any(.[]?.hooks[]?.command // ""; test("task-field-check")) then . else . + [{"hooks":[{"type":"command","command":"$HOME/.local/bin/task-field-check"}]}] end)` +
   `      | .UserPromptSubmit = ((.UserPromptSubmit // []) | if any(.[]?.hooks[]?.command // ""; test("resume-gap-notice")) then . else . + [{"hooks":[{"type":"command","command":"$HOME/.local/bin/resume-gap-notice"}]}] end)` +
@@ -417,6 +430,7 @@ export const SETTINGS_CHECK_JQ =
   `  and (.askUserQuestionTimeout == "never")` +
   `  and (.crossSessionInbound == "refuse")` +
   `  and (.enableArtifact == false)` +
+  `  and (.cleanupPeriodDays == ${TRANSCRIPT_RETENTION_DAYS})` +
   `  and ((.permissions.deny // []) | contains(["AskUserQuestion"]))` +
   `  and (.env.DISABLE_AUTOUPDATER == "1")` +
   `  and (.env.CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS == "1")` +
@@ -965,6 +979,7 @@ export async function runBootstrapForHost(
   //           - skipDangerousModePermissionPrompt: true
   //           - crossSessionInbound: "refuse"
   //           - enableArtifact: false
+  //           - cleanupPeriodDays: TRANSCRIPT_RETENTION_DAYS
   //           - hooks.UserPromptSubmit contains an entry that runs
   //             $HOME/.local/bin/task-field-check (nudges the agent when its
   //             identity file's `task:` frontmatter is still "Untitled
