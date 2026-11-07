@@ -7,6 +7,12 @@
 #   T-02  — recorded workdir missing, workspace present: still resume, in the workspace
 #   T-03  — recorded workdir missing, no workspace: still resume, in $HOME
 #   T-04  — no prior session, workspace present: fresh /id in the workspace
+#   T-05  — no prior session, workspace missing: workspace created, fresh /id there
+#   T-06  — launch_line cd's into the workdir first (quoted — spaces survive), with and without
+#           --resume; no workdir → no cd
+#   T-07  — a real shell already sitting in another dir: the typed launch line still starts the
+#           command in the chosen workdir
+#   T-08  — every launch site (drive fresh/resume, redrive) types launch_line with the workdir
 #
 # resolve_session, drive and the trust/dialog helpers are stubbed; tmux runs on a private server.
 # Exits 0 on all-pass; 1 on any failure.
@@ -77,6 +83,36 @@ run "T-03 recorded workdir missing, no workspace → resume in \$HOME" cat "resu
 
 RESOLVED=""
 run "T-04 no prior session → fresh in the workspace" dot "resume= cwd=$AGENT_IDENTITIES_DIR/dot/workspace"
+
+RESOLVED=""
+run "T-05 no prior session, no workspace → created, fresh there" eve "resume= cwd=$AGENT_IDENTITIES_DIR/eve/workspace"
+[ -d "$AGENT_IDENTITIES_DIR/eve/workspace" ] || fail "T-05: workspace not created"
+grep -q "workspace/ was missing — created" "$LOG" || fail "T-05: no log line for the created workspace"
+
+CURRENT_TEST="T-06 launch_line cd's into the (quoted) workdir first"
+MEMORY_WRAPPER="" CLAUDE_LAUNCH_ENV="" CLAUDE=claude CLAUDE_LAUNCH_FLAGS="--x"
+compute_mcp_env() { :; }; compute_mcp_flags() { :; }
+ok=1
+l1="$(launch_line zed "" "$REAL")"; l2="$(launch_line zed sid-1 "$REAL")"; l3="$(launch_line zed "" "")"
+case "$l1" in "cd $(printf '%q' "$REAL") && "*" claude --x"*) ;; *) ok=0; fail "fresh line: $l1" ;; esac
+case "$l2" in "cd $(printf '%q' "$REAL") && "*" claude --resume sid-1 --x"*) ;; *) ok=0; fail "resume line: $l2" ;; esac
+case "$l3" in cd*) ok=0; fail "no-cwd line still cd's: $l3" ;; esac
+[ "$ok" = 1 ] && pass
+
+CURRENT_TEST="T-07 a shell sitting elsewhere still starts the command in the workdir"
+CLAUDE="pwd >"; CLAUDE_LAUNCH_FLAGS="$(printf '%q' "$SCRATCH/where")"
+line="$(launch_line zed "" "$REAL")"
+( cd "$SCRATCH" && eval "$line" )
+got="$(cat "$SCRATCH/where" 2>/dev/null)"
+if [ "$got" = "$REAL" ]; then pass; else fail "command ran in '$got', want '$REAL'"; fi
+
+CURRENT_TEST="T-08 every launch site types launch_line with the workdir"
+src="$(cat "$SUPERVISOR")"
+n_sites="$(printf '%s\n' "$src" | grep -c 'send-keys -t "$sess" -l "$(launch_line "$name" "[^"]*" "$cwd")"')"
+n_raw="$(printf '%s\n' "$src" | grep -c 'send-keys .*-l "$MEMORY_WRAPPER')"
+n_redrive="$(printf '%s\n' "$src" | grep -E 'redrive_claude "\$name" "\$sess" "[^"]*"' | grep -vc '"\$cwd"$')"
+if [ "$n_sites" = 4 ] && [ "$n_raw" = 0 ] && [ "$n_redrive" = 0 ]; then pass
+else fail "launch_line sites=$n_sites (want 4), raw launch lines=$n_raw, redrives without cwd=$n_redrive"; fi
 
 printf '\nPASS: %d  FAIL: %d\n' "$PASS" "$FAIL"
 [ "$FAIL" -eq 0 ]

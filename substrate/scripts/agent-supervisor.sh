@@ -3117,7 +3117,7 @@ submit_id() {
     # in this iteration's poll window, attempt 2 does a normal C-c on a now-fully-mounted claude.
     if ! claude_running "$sess"; then
       log "'$name' submit_id attempt $attempt: claude DIED after our C-c (Ink was mid-mount) — relaunching with 8s extended settle, then pasting on the fresh compose"
-      redrive_claude "$name" "$sess" ""
+      redrive_claude "$name" "$sess" "" "$cwd"
       if ! wait_for_claude "$sess" 8; then
         log "ERROR: '$name' submit_id: post-C-c-death relaunch failed — bailing"
         return 1
@@ -3311,21 +3311,32 @@ end_unloaded_harness() {
   return 0
 }
 
+# launch_line <name> <resume-id|""> <cwd|""> — the command typed into the pane to start claude.
+# It cd's into <cwd> itself, so claude starts where launch() chose (and submit_id watches the
+# matching project dir) whatever directory the pane's shell was left in. `cd … &&` means a
+# missing dir fails loud at the prompt instead of starting claude somewhere else.
+launch_line() {
+  local name="$1" resume="$2" cwd="$3" pre="" res=""
+  [ -n "$cwd" ] && pre="cd $(printf '%q' "$cwd") && "
+  [ -n "$resume" ] && res="--resume $resume "
+  printf '%s' "${pre}$MEMORY_WRAPPER env FLEET_IDENTITY=$name $(compute_mcp_env "$name") $CLAUDE_LAUNCH_ENV $CLAUDE ${res}$CLAUDE_LAUNCH_FLAGS $(compute_mcp_flags)"
+}
+
 # redrive_claude: clear whatever's in the pane's input buffer / at the shell prompt (C-c to abort
 # any partial line, Enter to advance to a fresh prompt), then re-fire the launch command. Used
 # once after wait_for_claude times out — deals with the typeahead-garbage failure mode by giving
 # bash a fresh prompt to type the command into. The `resume` arg is optional; empty = fresh path.
 redrive_claude() {
-  local name="$1" sess="$2" resume="${3:-}"
+  local name="$1" sess="$2" resume="${3:-}" cwd="${4:-}"
   log "'$name' redrive: clearing pane (C-c + Enter) then re-firing claude launch"
   timeout -k 5 10 tmux send-keys -t "$sess" C-c 2>/dev/null
   sleep 0.3
   timeout -k 5 10 tmux send-keys -t "$sess" Enter 2>/dev/null
   sleep 0.5
   if [ -n "$resume" ]; then
-    timeout -k 5 10 tmux send-keys -t "$sess" -l "$MEMORY_WRAPPER env FLEET_IDENTITY=$name $(compute_mcp_env "$name") $CLAUDE_LAUNCH_ENV $CLAUDE --resume $resume $CLAUDE_LAUNCH_FLAGS $(compute_mcp_flags)" 2>/dev/null
+    timeout -k 5 10 tmux send-keys -t "$sess" -l "$(launch_line "$name" "$resume" "$cwd")" 2>/dev/null
   else
-    timeout -k 5 10 tmux send-keys -t "$sess" -l "$MEMORY_WRAPPER env FLEET_IDENTITY=$name $(compute_mcp_env "$name") $CLAUDE_LAUNCH_ENV $CLAUDE $CLAUDE_LAUNCH_FLAGS $(compute_mcp_flags)" 2>/dev/null
+    timeout -k 5 10 tmux send-keys -t "$sess" -l "$(launch_line "$name" "" "$cwd")" 2>/dev/null
   fi
   timeout -k 5 10 tmux send-keys -t "$sess" Enter 2>/dev/null
 }
@@ -3474,7 +3485,7 @@ drive() {
     # folder-trust dialog to clear — hence NO Enter blind-drive and NO /id (the identity is already
     # in the restored context).
     # bash command-scoped assignment — vars apply to this claude only, not the shell.
-    timeout -k 5 10 tmux send-keys -t "$sess" -l "$MEMORY_WRAPPER env FLEET_IDENTITY=$name $(compute_mcp_env "$name") $CLAUDE_LAUNCH_ENV $CLAUDE --resume $resume $CLAUDE_LAUNCH_FLAGS $(compute_mcp_flags)" 2>/dev/null
+    timeout -k 5 10 tmux send-keys -t "$sess" -l "$(launch_line "$name" "$resume" "$cwd")" 2>/dev/null
     timeout -k 5 10 tmux send-keys -t "$sess" Enter 2>/dev/null
     # ⚠️ VERIFY CLAUDE ACTUALLY LAUNCHED (2026-08-29, user witnessed a live failure on one box).
     # send-keys drops bytes into the pane and returns 0 whether or not they became a viable command.
@@ -3491,7 +3502,7 @@ drive() {
     if ! wait_for_claude "$sess" 8; then
       log "WARNING: '$name' claude did NOT launch after resume drive — attempting one retry with typeahead clear"
       log "  pane tail: $(timeout -k 5 10 tmux capture-pane -pt "$sess" -S -10 2>/dev/null | tr '\n' '|' | tail -c 400)"
-      redrive_claude "$name" "$sess" "$resume"
+      redrive_claude "$name" "$sess" "$resume" "$cwd"
       if ! wait_for_claude "$sess" 8; then
         log "ERROR: '$name' claude STILL did not launch after retry — bailing out of drive() before starting the ambient monitor against a broken pane. Session '$sess' left as-is for inspection. Alive-check will re-attempt on next tick."
         log "  pane tail: $(timeout -k 5 10 tmux capture-pane -pt "$sess" -S -10 2>/dev/null | tr '\n' '|' | tail -c 400)"
@@ -3548,7 +3559,7 @@ drive() {
   # Env-var prefix is harmless on a fresh launch (there's no session to summarize) but cheap insurance
   # if a fresh claude ever picks up an older recorded session unexpectedly.
   log "'$name' drive fresh: typing claude launch command into pane '$sess'"
-  timeout -k 5 10 tmux send-keys -t "$sess" -l "$MEMORY_WRAPPER env FLEET_IDENTITY=$name $(compute_mcp_env "$name") $CLAUDE_LAUNCH_ENV $CLAUDE $CLAUDE_LAUNCH_FLAGS $(compute_mcp_flags)" 2>/dev/null
+  timeout -k 5 10 tmux send-keys -t "$sess" -l "$(launch_line "$name" "" "$cwd")" 2>/dev/null
   timeout -k 5 10 tmux send-keys -t "$sess" Enter 2>/dev/null
   # ⚠️ VERIFY CLAUDE ACTUALLY LAUNCHED — same failure mode as the resume path above (see the block
   # in the `if [ -n "$resume" ]` branch for the full story). On second failure, bail without pasting
@@ -3556,7 +3567,7 @@ drive() {
   if ! wait_for_claude "$sess" 8; then
     log "WARNING: '$name' claude did NOT launch after fresh drive — attempting one retry with typeahead clear"
     log "  pane tail: $(timeout -k 5 10 tmux capture-pane -pt "$sess" -S -10 2>/dev/null | tr '\n' '|' | tail -c 400)"
-    redrive_claude "$name" "$sess" ""
+    redrive_claude "$name" "$sess" "" "$cwd"
     if ! wait_for_claude "$sess" 8; then
       log "ERROR: '$name' claude STILL did not launch after fresh retry — bailing out of drive() to avoid pasting /id into a broken pane. Session '$sess' left as-is for inspection. Alive-check will re-attempt on next tick."
       log "  pane tail: $(timeout -k 5 10 tmux capture-pane -pt "$sess" -S -10 2>/dev/null | tr '\n' '|' | tail -c 400)"
@@ -3775,11 +3786,11 @@ launch() {
   if [ "${DRY_RUN:-0}" = 1 ]; then log "DRY_RUN would $mode '$name' (tmux session '$sess')"; return 0; fi
   # Discover this identity's real working dir + latest session, so we resume in the RIGHT place
   # rather than fresh in $HOME. For a truly-first-ever launch (no prior session), use the identity's
-  # workspace/ sub-folder by convention if it exists — otherwise fall to $HOME.
+  # workspace/ sub-folder by convention, creating it if missing.
   # Convention-not-string: both coord and supervisor derive the path from $name; nothing is parsed
-  # from a config file. If workspace/ doesn't exist, the supervisor silently falls back — the coord
-  # is supposed to create workspace/ at identity creation time (see coordinator-instructions § step 6),
-  # so a $HOME fallback here indicates something went wrong at spawn time.
+  # from a config file. If workspace/ doesn't exist, the supervisor creates it (logged as a WARNING:
+  # workspace/ is supposed to exist from identity creation, so its absence means something went wrong
+  # at spawn time). $HOME is left only for a resume whose recorded workdir and workspace/ are both gone.
   local cwd="$HOME" resume="" disc
   if disc="$(resolve_session "$name")"; then
     cwd="${disc%%$'\t'*}"; resume="${disc#*$'\t'}"
@@ -3794,16 +3805,17 @@ launch() {
   elif [ -d "$IDENTITIES_DIR/$name/workspace" ]; then
     cwd="$IDENTITIES_DIR/$name/workspace"
     log "'$name' launch: resolve_session found no prior session — using convention workdir '$cwd'"
+  elif mkdir -p "$IDENTITIES_DIR/$name/workspace" 2>/dev/null; then
+    cwd="$IDENTITIES_DIR/$name/workspace"
+    log "WARNING: '$name' launch: no prior session and workspace/ was missing — created '$cwd'"
   else
-    log "'$name' launch: resolve_session found no prior session AND $IDENTITIES_DIR/$name/workspace absent — fresh /id in \$HOME"
+    log "ERROR: '$name' launch: no prior session and could not create $IDENTITIES_DIR/$name/workspace — fresh /id in \$HOME"
   fi
   if ! timeout -k 5 10 tmux has-session -t "=$sess" 2>/dev/null; then
     timeout -k 5 10 tmux new-session -d -s "$sess" -c "$cwd"     # empty SHELL session in the identity's workdir
     created=1
-  elif [ -n "$resume" ]; then
-    # recover-in-place (claude died, shell survived): put the existing shell in the right dir first
-    timeout -k 5 10 tmux send-keys -t "$sess" -l "cd \"$cwd\"" 2>/dev/null; timeout -k 5 10 tmux send-keys -t "$sess" Enter 2>/dev/null
   fi
+  # An existing session's shell may sit anywhere; the launch line cd's into $cwd itself.
   # A freshly-created login shell needs a moment to source its profile and be ready for input, or
   # the typed launch command is lost to a race. (A recover targets an already-idle shell — no wait.)
   [ "$created" = 1 ] && sleep 3
