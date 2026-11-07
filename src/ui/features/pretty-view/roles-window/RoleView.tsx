@@ -23,7 +23,9 @@ import {
   KitButton,
   KitEmpty,
   KitLoading,
+  KitOption,
   KitSettingsGroup,
+  KitSwitch,
   KitSettingsRow,
   kitAlert,
   kitConfirm,
@@ -63,11 +65,12 @@ import { InstanceWideSyncStatus } from "../InstanceWideStatus";
 import {
   cleanRoleDescription,
   mergeRoleFrontmatter,
+  readRoleBorrowable,
   readRoleFrontmatterValue,
   ROLE_DESCRIPTION_MAX,
   type RoleFrontmatterPatch,
 } from "./role-frontmatter";
-import { roleAvatarColor, roleHue, type EscapeHandler, type LeaveGuard } from "./RolesWindow";
+import { BORROWABLE_HINT, roleAvatarColor, roleHue, type EscapeHandler, type LeaveGuard } from "./RolesWindow";
 
 export type RoleTab = "role" | "skills" | "files" | "git";
 
@@ -270,6 +273,29 @@ export function RoleView({
     } catch (err) {
       setVoice(prev);
       void kitAlert({ title: "Couldn't save the voice", body: err instanceof Error ? err.message : undefined });
+    }
+  };
+
+  // ── Borrowable ───────────────────────────────────────────────────────────
+  // Read from the role file once it's loaded (the list's copy until then);
+  // saved as `borrowable: true`, and unmarking removes the key.
+  const fileBorrowable = fileReady ? readRoleBorrowable(roleFile.data) : null;
+  const [borrowableDraft, setBorrowableDraft] = useState<boolean | null>(null);
+  const borrowable = borrowableDraft ?? fileBorrowable ?? role.borrowable === true;
+  // Quick toggles queue their saves; only the last one clears the draft, so
+  // the switch doesn't flick back while a later save is still on its way.
+  const borrowableSeq = useRef(0);
+  const saveBorrowable = async (next: boolean): Promise<void> => {
+    const seq = ++borrowableSeq.current;
+    setBorrowableDraft(next);
+    try {
+      await saveFrontmatter(next ? { borrowable: true } : {}, next ? undefined : ["borrowable"]);
+      console.info({ operation: "role_borrowable_saved", hostId, roleName: name, borrowable: next });
+      onRoleChanged({ borrowable: next || undefined });
+    } catch (err) {
+      void kitAlert({ title: "Couldn't save the borrowable setting", body: err instanceof Error ? err.message : undefined });
+    } finally {
+      if (seq === borrowableSeq.current) setBorrowableDraft(null);
     }
   };
 
@@ -758,6 +784,21 @@ export function RoleView({
             />
           )}
         </div>
+        <KitOption
+          control={
+            <KitSwitch
+              checked={borrowable}
+              onCheckedChange={(v) => void saveBorrowable(v)}
+              disabled={lookLocked}
+              aria-label="Borrowable"
+              data-testid="role-view-borrowable"
+            />
+          }
+          label="Borrowable"
+          description={BORROWABLE_HINT}
+          disabled={lookLocked}
+          className="mt-1"
+        />
       </div>
     </div>
   );

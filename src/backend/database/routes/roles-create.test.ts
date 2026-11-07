@@ -711,6 +711,31 @@ describe("POST /roles — Phase 86 cosmetic frontmatter + avatar sibling write",
     expect(writeMarkdownFileAtomic).not.toHaveBeenCalled();
   });
 
+  it("borrowable: true is written into the new role's frontmatter and echoed", async () => {
+    const res = await httpPostMultipart(server, "/roles", buildMultipartBody({
+      data: { displayName: "Media", description: "x", hostId: 5, cosmetics: { borrowable: true } },
+    }));
+    expect(res.status).toBe(201);
+    expect((res.body as { cosmetics: Record<string, unknown> }).cosmetics).toMatchObject({ borrowable: true });
+    const stubBody = (writeMarkdownFileAtomic as Mock).mock.calls[0][2] as string;
+    expect(stubBody).toMatch(/^borrowable: true$/m);
+  });
+
+  it("borrowable: false writes nothing; a non-boolean is a 400", async () => {
+    let res = await httpPostMultipart(server, "/roles", buildMultipartBody({
+      data: { displayName: "Media", description: "x", hostId: 5, cosmetics: { borrowable: false } },
+    }));
+    expect(res.status).toBe(201);
+    expect((writeMarkdownFileAtomic as Mock).mock.calls[0][2] as string).not.toMatch(/borrowable/);
+    (writeMarkdownFileAtomic as Mock).mockClear();
+    res = await httpPostMultipart(server, "/roles", buildMultipartBody({
+      data: { displayName: "Media", description: "x", hostId: 5, cosmetics: { borrowable: "yes" } },
+    }));
+    expect(res.status).toBe(400);
+    expect((res.body as { error: string }).error).toMatch(/borrowable/i);
+    expect(writeMarkdownFileAtomic).not.toHaveBeenCalled();
+  });
+
   it("Test 4b: malformed voice (`wrong-format`) → 400 with field-specific error, NO writeMarkdownFileAtomic", async () => {
     const res = await httpPostMultipart(server, "/roles", buildMultipartBody({
       data: {

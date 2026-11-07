@@ -4,6 +4,7 @@ import { describe, it, expect } from "vitest";
 import {
   cleanRoleDescription,
   mergeRoleFrontmatter,
+  readRoleBorrowable,
   readRoleFrontmatterValue,
   ROLE_DESCRIPTION_MAX,
 } from "./role-frontmatter";
@@ -199,5 +200,30 @@ describe("multi-line values and YAML edge cases", () => {
     const md = "\uFEFF--- \ndisplayName: X\n---\nbody\n";
     expect(mergeRoleFrontmatter(md, { colorHue: 120 })).toBe("\uFEFF---\ndisplayName: X\ncolorHue: '120'\n---\nbody\n");
     expect(readRoleFrontmatterValue(md, "displayName")).toBe("X");
+  });
+});
+
+describe("borrowable", () => {
+  const BASE = "---\ndisplayName: Box\n---\n\n# Box\n";
+  it("marking writes a YAML boolean true, and the reader sees it", () => {
+    const out = mergeRoleFrontmatter(BASE, { borrowable: true });
+    expect(out).toBe("---\ndisplayName: Box\nborrowable: true\n---\n\n# Box\n");
+    expect(readRoleFrontmatterValue(out, "borrowable")).toBe("true");
+  });
+  it("unmarking removes the key", () => {
+    const marked = mergeRoleFrontmatter(BASE, { borrowable: true });
+    expect(mergeRoleFrontmatter(marked, {}, new Set(["borrowable"]))).toBe(BASE);
+  });
+});
+
+describe("readRoleBorrowable", () => {
+  it("reads the mark the way the server and the startup hook do", () => {
+    expect(readRoleBorrowable("---\nborrowable: true\n---\n")).toBe(true);
+    expect(readRoleBorrowable("---\nborrowable: True  # open to all\n---\n")).toBe(true);
+    expect(readRoleBorrowable("\uFEFF---\nborrowable: TRUE\n---\n")).toBe(true);
+    expect(readRoleBorrowable('---\nborrowable: "true"\n---\n')).toBe(false);
+    expect(readRoleBorrowable("---\nborrowable: false\n---\n")).toBe(false);
+    expect(readRoleBorrowable("---\ndisplayName: X\n---\n")).toBe(false);
+    expect(readRoleBorrowable("# body\n\n---\nborrowable: true\n---\n")).toBe(false);
   });
 });

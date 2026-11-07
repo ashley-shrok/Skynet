@@ -173,6 +173,8 @@ describe("new role view", () => {
       cosmetics: { voice: "Danielle" },
     });
     expect(typeof (input.cosmetics as { colorHue: unknown }).colorHue).toBe("number");
+    // Borrowable starts off and isn't sent.
+    expect(input.cosmetics).not.toHaveProperty("borrowable");
     expect(avatar).toBeInstanceOf(File);
     expect(avatar.type).toBe("image/webp");
     expect(fetchSpy).toHaveBeenCalledWith("https://img.example/c1.webp");
@@ -185,6 +187,23 @@ describe("new role view", () => {
     // ‹ Roles → the library, which lists it.
     fireEvent.click(backButton());
     expect(await screen.findByTestId("roles-window-row-meal-planner")).toBeTruthy();
+  });
+
+  it("switching Borrowable on sends borrowable: true with the new role", async () => {
+    stubCandidateFetch();
+    m.createRole.mockResolvedValue({ name: "meal-planner", description: "Plans", cosmetics: {} });
+    await openNewRole();
+    fill("Meal Planner", "Plans");
+    const sw = screen.getByTestId("new-role-borrowable") as HTMLInputElement;
+    expect(sw.checked).toBe(false);
+    fireEvent.click(sw);
+    expect(sw.checked).toBe(true);
+    await generateAndPick();
+    fireEvent.click(createBtn());
+    await waitFor(() => expect(m.createRole).toHaveBeenCalledTimes(1));
+    expect((m.createRole.mock.calls[0][0] as { cosmetics: Record<string, unknown> }).cosmetics).toMatchObject({
+      borrowable: true,
+    });
   });
 
   it("a role that already exists keeps the form open with an inline error", async () => {

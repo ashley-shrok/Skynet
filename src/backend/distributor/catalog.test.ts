@@ -138,7 +138,8 @@ describe("FLEET_SUBSTRATE_CATALOG", () => {
     // -1 for context-watch, retired with reset (Condense) — 76 → 75.
     // +2 for the notify-me and call-me skills (done-bell) — 75 → 77.
     // +1 machine-people (SessionStart hook — people on this machine) — 77 → 78.
-    expect(FLEET_SUBSTRATE_CATALOG.length).toBe(78);
+    // +1 borrowable-roles-context (the roles a loading agent may borrow) — 78 → 79.
+    expect(FLEET_SUBSTRATE_CATALOG.length).toBe(79);
   });
 
   it("Test 2: every bundled row's bundledPath starts with /app/fleet-substrate/skills/, /app/fleet-substrate/scripts/, or /app/fleet-substrate/user-onboarding/", () => {
@@ -315,7 +316,8 @@ describe("FLEET_SUBSTRATE_CATALOG", () => {
     // + precompact-reground (PreCompact hook — re-ground after compaction)
     // - context-watch (retired with reset, Condense campaign)
     // + machine-people (SessionStart hook — people on this machine)
-    expect(scriptRows.length).toBe(24);
+    // + borrowable-roles-context (the roles a loading agent may borrow)
+    expect(scriptRows.length).toBe(25);
     // user-onboarding files: agent-supervisor.service
     // + scheduled-agents-scheduler.service (this ship: move
     // scheduled-agents scheduler from in-process agent-supervisor child
@@ -473,7 +475,8 @@ describe("FLEET_SUBSTRATE_CATALOG", () => {
     // +1 for precompact-reground — 74 → 75.
     // -1 for context-watch, retired with reset — 75 → 74.
     // +1 for machine-people — 76 → 77.
-    expect(bundled.length).toBe(77);
+    // +1 for borrowable-roles-context — 77 → 78.
+    expect(bundled.length).toBe(78);
     expect(runtime.length).toBe(1);
 
     // Every bundled row retains bundledPath under /app/fleet-substrate/

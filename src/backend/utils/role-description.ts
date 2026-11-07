@@ -10,7 +10,9 @@
 
 import { parseDocument } from "yaml";
 
-const FRONTMATTER_RE = /^---\r?\n([\s\S]*?)\r?\n---/;
+// A leading byte-order mark is tolerated, as the roles window and the agent
+// startup hook do.
+const FRONTMATTER_RE = /^\uFEFF?---\r?\n([\s\S]*?)\r?\n---/;
 
 /** Collapse all whitespace runs (newlines included) to single spaces. */
 export function normalizeRoleDescription(raw: string): string {
@@ -27,4 +29,17 @@ export function readRoleDescriptionFromMarkdown(markdown: string): string {
   if (parsed === null || typeof parsed !== "object") return "";
   const value = (parsed as Record<string, unknown>).description;
   return typeof value === "string" ? normalizeRoleDescription(value) : "";
+}
+
+/**
+ * Whether the role file marks the role borrowable (`borrowable: true` in its
+ * frontmatter): any agent on the host may borrow it for a task without
+ * taking it on. Only a YAML boolean true counts; anything else is false.
+ */
+export function readRoleBorrowableFromMarkdown(markdown: string): boolean {
+  const m = FRONTMATTER_RE.exec(markdown);
+  if (!m) return false;
+  const parsed = parseDocument(m[1]).toJS() as unknown;
+  if (parsed === null || typeof parsed !== "object") return false;
+  return (parsed as Record<string, unknown>).borrowable === true;
 }

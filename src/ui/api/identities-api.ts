@@ -313,6 +313,9 @@ export type RoleSummary = {
   avatar?: string;
   /** Managed instance-wide (master copy in the app, synced to every host). */
   instanceWide?: boolean;
+  /** `borrowable: true` in the role file: any agent on the host may borrow
+   *  it for a task without taking it on. Absent when not borrowable. */
+  borrowable?: boolean;
 };
 
 export async function listRolesForHost(hostId: number): Promise<RoleSummary[]> {
@@ -434,6 +437,8 @@ export class RoleAlreadyExistsError extends Error {
 export type RoleCosmeticInput = {
   colorHue?: number;
   voice?: string;
+  /** Written as `borrowable: true`; leave out for a role that isn't. */
+  borrowable?: boolean;
 };
 
 /**

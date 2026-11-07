@@ -341,6 +341,9 @@ function logRolesKeyMigration(
  *     when a session receives a message after a 30+ minute gap).
  *   - id-load-context on UserPromptSubmit (identity/role/role-skill/
  *     scheduled-task/wake-up/project context for an `/id <name>` load).
+ *   - borrowable-roles-context on UserPromptSubmit and PostToolUse (Skill
+ *     matcher) — the roles the loading agent may borrow, as its own hook so
+ *     the list has its own additionalContext allowance.
  *   - allow-all-tools on PreToolUse (fleet-wide auto-allow — no matcher,
  *     fires for every tool; completes "no prompts, ever" by overriding the
  *     harness's residual circuit-breaker that survives
@@ -393,6 +396,7 @@ export const SETTINGS_MERGE_JQ =
   `      | .UserPromptSubmit = ((.UserPromptSubmit // []) | if any(.[]?.hooks[]?.command // ""; test("task-field-check")) then . else . + [{"hooks":[{"type":"command","command":"$HOME/.local/bin/task-field-check"}]}] end)` +
   `      | .UserPromptSubmit = ((.UserPromptSubmit // []) | if any(.[]?.hooks[]?.command // ""; test("resume-gap-notice")) then . else . + [{"hooks":[{"type":"command","command":"$HOME/.local/bin/resume-gap-notice"}]}] end)` +
   `      | .UserPromptSubmit = ((.UserPromptSubmit // []) | if any(.[]?.hooks[]?.command // ""; test("id-load-context")) then . else . + [{"hooks":[{"type":"command","command":"$HOME/.local/bin/id-load-context"}]}] end)` +
+  `      | .UserPromptSubmit = ((.UserPromptSubmit // []) | if any(.[]?.hooks[]?.command // ""; test("borrowable-roles-context")) then . else . + [{"hooks":[{"type":"command","command":"$HOME/.local/bin/borrowable-roles-context"}]}] end)` +
   `      | .UserPromptSubmit = ((.UserPromptSubmit // []) | if any(.[]?.hooks[]?.command // ""; test("self-edit-baseline-sync")) then . else . + [{"hooks":[{"type":"command","command":"$HOME/.local/bin/self-edit-baseline-sync"}]}] end)` +
   `      | .PreToolUse = ((.PreToolUse // []) | if any(.[]?.hooks[]?.command // ""; test("allow-all-tools")) then . else . + [{"hooks":[{"type":"command","command":"$HOME/.local/bin/allow-all-tools"}]}] end)` +
   `      | .PreToolUse = ((.PreToolUse // []) | if any(.[]?.hooks[]?.command // ""; test("self-edit-baseline-sync")) then . else . + [{"matcher":"Write|Edit|MultiEdit|NotebookEdit|Bash","hooks":[{"type":"command","command":"$HOME/.local/bin/self-edit-baseline-sync"}]}] end)` +
@@ -402,6 +406,7 @@ export const SETTINGS_MERGE_JQ =
   `      | .PostToolUse = ((.PostToolUse // []) | if any(.[]?.hooks[]?.command // ""; test("pending-context-drain")) then . else . + [{"hooks":[{"type":"command","command":"$HOME/.local/bin/pending-context-drain"}]}] end)` +
   `      | .SessionStart = ((.SessionStart // []) | if any(.[]?.hooks[]?.command // ""; test("pending-context-drain")) then . else . + [{"hooks":[{"type":"command","command":"$HOME/.local/bin/pending-context-drain"}]}] end)` +
   `      | .PostToolUse = ((.PostToolUse // []) | if any(.[]?.hooks[]?.command // ""; test("id-load-context")) then . else . + [{"matcher":"Skill","hooks":[{"type":"command","command":"$HOME/.local/bin/id-load-context"}]}] end)` +
+  `      | .PostToolUse = ((.PostToolUse // []) | if any(.[]?.hooks[]?.command // ""; test("borrowable-roles-context")) then . else . + [{"matcher":"Skill","hooks":[{"type":"command","command":"$HOME/.local/bin/borrowable-roles-context"}]}] end)` +
   `      | .PreCompact = ((.PreCompact // []) | if any(.[]?.hooks[]?.command // ""; test("precompact-reground")) then . else . + [{"hooks":[{"type":"command","command":"$HOME/.local/bin/precompact-reground"}]}] end)` +
   `      | .SessionStart = ((.SessionStart // []) | if any(.[]?.hooks[]?.command // ""; test("machine-people")) then . else . + [{"hooks":[{"type":"command","command":"$HOME/.local/bin/machine-people"}]}] end)` +
   `    )`;
@@ -422,6 +427,7 @@ export const SETTINGS_CHECK_JQ =
   `  and ((.hooks.UserPromptSubmit // []) | any(.[]?.hooks[]?.command // ""; test("task-field-check")))` +
   `  and ((.hooks.UserPromptSubmit // []) | any(.[]?.hooks[]?.command // ""; test("resume-gap-notice")))` +
   `  and ((.hooks.UserPromptSubmit // []) | any(.[]?.hooks[]?.command // ""; test("id-load-context")))` +
+  `  and ((.hooks.UserPromptSubmit // []) | any(.[]?.hooks[]?.command // ""; test("borrowable-roles-context")))` +
   `  and ((.hooks.PreToolUse // []) | any(.[]?.hooks[]?.command // ""; test("allow-all-tools")))` +
   `  and ((.hooks.UserPromptSubmit // []) | any(.[]?.hooks[]?.command // ""; test("self-edit-baseline-sync")))` +
   `  and ((.hooks.PreToolUse // []) | any(.[]?.hooks[]?.command // ""; test("self-edit-baseline-sync")))` +
@@ -431,6 +437,7 @@ export const SETTINGS_CHECK_JQ =
   `  and ((.hooks.PostToolUse // []) | any(.[]?.hooks[]?.command // ""; test("pending-context-drain")))` +
   `  and ((.hooks.SessionStart // []) | any(.[]?.hooks[]?.command // ""; test("pending-context-drain")))` +
   `  and ((.hooks.PostToolUse // []) | any(.[]?.hooks[]?.command // ""; test("id-load-context")))` +
+  `  and ((.hooks.PostToolUse // []) | any(.[]?.hooks[]?.command // ""; test("borrowable-roles-context")))` +
   `  and ((.hooks.PreCompact // []) | any(.[]?.hooks[]?.command // ""; test("precompact-reground")))` +
   `  and ((.hooks.SessionStart // []) | any(.[]?.hooks[]?.command // ""; test("machine-people")))`;
 
@@ -972,6 +979,11 @@ export async function runBootstrapForHost(
   //             $HOME/.local/bin/id-load-context (hands an `/id <name>` load
   //             the context the id skill's load steps need). Match on the
   //             string "id-load-context" for the same idempotency reason.
+  //           - hooks.UserPromptSubmit and hooks.PostToolUse (Skill matcher)
+  //             contain an entry that runs
+  //             $HOME/.local/bin/borrowable-roles-context (the roles the
+  //             loading agent may borrow). Match on the string
+  //             "borrowable-roles-context" for the same idempotency reason.
   //           - hooks.PreToolUse contains an entry that runs
   //             $HOME/.local/bin/allow-all-tools with NO matcher (universal
   //             auto-allow for every tool call). Match on the string

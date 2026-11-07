@@ -538,6 +538,32 @@ describe("GET /roles?hostId=<n>", () => {
     expect("avatar" in body[0]).toBe(false);
   });
 
+  it("a role marked borrowable: true carries borrowable on its entry; others don't", async () => {
+    (execCommand as Mock).mockImplementation(async (_conn: unknown, cmd: string) => {
+      if (cmd.includes("ls ")) return "media\nplain";
+      return [
+        "===ROLE:media===",
+        "---",
+        "displayName: Media",
+        "borrowable: true",
+        "---",
+        "# media",
+        "===ROLE:plain===",
+        "---",
+        "displayName: Plain",
+        "borrowable: false",
+        "---",
+        "# plain",
+      ].join("\n");
+    });
+
+    const res = await httpRequest(server, { method: "GET", path: "/roles?hostId=7" });
+    expect(res.status).toBe(200);
+    const body = res.body as Array<Record<string, unknown>>;
+    expect(body.find((r) => r.name === "media")).toMatchObject({ borrowable: true });
+    expect("borrowable" in (body.find((r) => r.name === "plain") ?? {})).toBe(false);
+  });
+
   it("Test D (P90-01): malformed YAML frontmatter → entry {name, description} only", async () => {
     (execCommand as Mock).mockImplementation(async (_conn: unknown, cmd: string) => {
       if (cmd.includes("ls ")) return "broken";

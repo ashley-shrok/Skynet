@@ -714,6 +714,7 @@ describe("BR2 — bootstrap patches settings.json + runs gsd-context-monitor cle
     expect(upsCommands).toContain("$HOME/.local/bin/task-field-check");
     expect(upsCommands).toContain("$HOME/.local/bin/resume-gap-notice");
     expect(upsCommands).toContain("$HOME/.local/bin/id-load-context");
+    expect(upsCommands).toContain("$HOME/.local/bin/borrowable-roles-context");
     // allow-all-tools PreToolUse hook — universal auto-allow. The entry
     // has NO matcher field (fires for every tool call). Verify the
     // command is present AND the entry group has no matcher key.
@@ -734,6 +735,10 @@ describe("BR2 — bootstrap patches settings.json + runs gsd-context-monitor cle
       (g.hooks ?? []).some((h) => h.command === "$HOME/.local/bin/id-load-context"),
     );
     expect(idLoadOnSkill?.matcher).toBe("Skill");
+    const borrowableOnSkill = (parsed.hooks.PostToolUse as Group[]).find((g) =>
+      (g.hooks ?? []).some((h) => h.command === "$HOME/.local/bin/borrowable-roles-context"),
+    );
+    expect(borrowableOnSkill?.matcher).toBe("Skill");
     const reground = (parsed.hooks.PreCompact as Group[]).find((g) =>
       (g.hooks ?? []).some((h) => h.command === "$HOME/.local/bin/precompact-reground"),
     );

@@ -53,7 +53,7 @@ import { extractCosmeticsFromFrontmatter } from "../../claude-session/identity-a
 // `src/backend/utils/role-name-pattern.ts`. Was previously cloned locally here
 // and in roles.ts. Import from shared location to prevent regex-divergence.
 import { ROLE_NAME_PATTERN } from "../../utils/role-name-pattern.js";
-import { readRoleDescriptionFromMarkdown } from "../../utils/role-description.js";
+import { readRoleBorrowableFromMarkdown, readRoleDescriptionFromMarkdown } from "../../utils/role-description.js";
 // Phase 129 Plan 129-03: per-user visibility gate on GET /roles?hostId=<n>
 // (role-picker gate). This is D-7 deep-gate seam #3 — the "+ New Session"
 // flow's role dropdown MUST filter out roles the caller can't see (shape
@@ -270,6 +270,7 @@ router.get(
       // blocks[0] is the pre-first-delimiter text (empty or whitespace).
       // Then pairs of [name, body] follow.
       const descByName = new Map<string, string>();
+      const borrowableRoles = new Set<string>();
       // Only forward the 4 role-facing cosmetic fields. `coordinator` and
       // `task` from the identity-side extractor are NOT surfaced here (roles
       // don't consume them) per Plan 90-01 Task 1 acceptance criteria.
@@ -305,6 +306,7 @@ router.get(
           // preserves body content otherwise.
           const trimmedBody = body.replace(/^\s*\r?\n/, "");
           descByName.set(name, readRoleDescriptionFromMarkdown(trimmedBody));
+          if (readRoleBorrowableFromMarkdown(trimmedBody)) borrowableRoles.add(name);
           const raw = extractCosmeticsFromFrontmatter(trimmedBody);
           // Phase 129 Plan 129-03: stash the raw extraction so the gate
           // filter below sees the `users?: string[]` field. cosByName gets
@@ -366,6 +368,7 @@ router.get(
         name,
         description: descByName.get(name) ?? "",
         ...(instanceWideRoles.has(name) ? { instanceWide: true } : {}),
+        ...(borrowableRoles.has(name) ? { borrowable: true } : {}),
         // Spread cosmetics last — only present keys land on the entry.
         // NB: this is `cosByName` (the narrowed RoleCosmetics), NOT
         // `rawCosByName` — the raw map is gate-only and never leaks

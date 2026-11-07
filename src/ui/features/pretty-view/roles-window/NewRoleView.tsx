@@ -1,5 +1,5 @@
 // The roles window's new-role form: picture first (generate three to pick
-// from, or upload), then name, description, colour and host. Creating from
+// from, or upload), then name, description, colour, borrowable and host. Creating from
 // the library lands on the new role; from the new-conversation dialog's
 // "New role…" it goes back there (the window decides — see onCreated).
 
@@ -13,6 +13,8 @@ import {
   KitField,
   KitHostPicker,
   KitInput,
+  KitOption,
+  KitSwitch,
   KitTextarea,
   kitConfirm,
 } from "@/components/kit";
@@ -26,7 +28,7 @@ import {
 } from "@/api/identities-api";
 import { ColorPicker } from "../pickers/ColorPicker";
 import { previewSlugFromPrettyName } from "@/lib/pretty-name-slug-preview";
-import { roleAvatarColor, type LeaveGuard } from "./RolesWindow";
+import { BORROWABLE_HINT, roleAvatarColor, type LeaveGuard } from "./RolesWindow";
 
 // Every new role gets this voice. Set explicitly rather than by leaving
 // `voice` unset — the omitted-voice fallback is the TTS provider's default,
@@ -60,6 +62,7 @@ export function NewRoleView({
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
   const [colorHue, setColorHue] = useState(() => Math.floor(Math.random() * 360));
+  const [borrowable, setBorrowable] = useState(false);
   const [selectedHost, setSelectedHost] = useState<Host | null>(
     () =>
       flatHosts.find((h) => Number(h.id) === initialHostId) ?? (flatHosts.length === 1 ? flatHosts[0] : null),
@@ -210,7 +213,7 @@ export function NewRoleView({
           displayName: title,
           description: description.trim(),
           hostId,
-          cosmetics: { colorHue, voice: DEFAULT_ROLE_VOICE },
+          cosmetics: { colorHue, voice: DEFAULT_ROLE_VOICE, ...(borrowable ? { borrowable: true } : {}) },
         },
         avatarFile,
       );
@@ -350,6 +353,19 @@ export function NewRoleView({
           <KitField label="Colour" htmlFor="new-role-color">
             <ColorPicker value={colorHue} onChange={(v) => !submitting && setColorHue(v)} id="new-role-color" disabled={submitting} />
           </KitField>
+          <KitOption
+            control={
+              <KitSwitch
+                checked={borrowable}
+                onCheckedChange={setBorrowable}
+                disabled={submitting}
+                data-testid="new-role-borrowable"
+              />
+            }
+            label="Borrowable"
+            description={BORROWABLE_HINT}
+            disabled={submitting}
+          />
           {flatHosts.length !== 1 && (
             <KitField label="Host" htmlFor="new-role-host-search">
               <KitHostPicker

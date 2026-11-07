@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { normalizeRoleDescription, readRoleDescriptionFromMarkdown } from "./role-description.js";
+import {
+  normalizeRoleDescription,
+  readRoleBorrowableFromMarkdown,
+  readRoleDescriptionFromMarkdown,
+} from "./role-description.js";
 
 describe("readRoleDescriptionFromMarkdown", () => {
   it("returns the frontmatter description", () => {
@@ -35,5 +39,17 @@ describe("readRoleDescriptionFromMarkdown", () => {
 describe("normalizeRoleDescription", () => {
   it("collapses whitespace runs and trims", () => {
     expect(normalizeRoleDescription("  a\n\n b\t c  ")).toBe("a b c");
+  });
+});
+
+describe("readRoleBorrowableFromMarkdown", () => {
+  it("is true only for a YAML boolean true", () => {
+    expect(readRoleBorrowableFromMarkdown("---\nborrowable: true\n---\n# x\n")).toBe(true);
+    expect(readRoleBorrowableFromMarkdown("---\nborrowable: True  # open\n---\n# x\n")).toBe(true);
+    expect(readRoleBorrowableFromMarkdown("---\nborrowable: false\n---\n# x\n")).toBe(false);
+    expect(readRoleBorrowableFromMarkdown('---\nborrowable: "true"\n---\n# x\n')).toBe(false);
+    expect(readRoleBorrowableFromMarkdown("---\ndisplayName: X\n---\n# x\n")).toBe(false);
+    expect(readRoleBorrowableFromMarkdown("# no frontmatter\nborrowable: true\n")).toBe(false);
+    expect(readRoleBorrowableFromMarkdown("\uFEFF---\nborrowable: true\n---\n# x\n")).toBe(true);
   });
 });

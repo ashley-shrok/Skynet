@@ -275,6 +275,142 @@ displayName: keeper' || return
   pass
 }
 
+# ---- borrowable mode (--borrowable) ----
+
+# A role file with arbitrary frontmatter lines: slug, frontmatter, body.
+role_fm() {
+  mkdir -p "$F/roles/$1"
+  printf -- '---\n%s\n---\n\n%s\n' "$2" "$3" > "$F/roles/$1/$1.md"
+}
+
+run_borrowable() {  # prompt
+  printf '%s' "$(jq -n --arg p "$1" '{prompt: $p}')" \
+    | HOME="$SCRATCH/home" "$HOOK" --borrowable \
+    | jq -r '.hookSpecificOutput.additionalContext // empty' 2>/dev/null
+}
+
+test_borrowable_lists_marked_roles() {
+  local t=test_borrowable_lists_marked_roles
+  reset_home
+  identity jarvis 'roles: [keeper]'
+  role_fm keeper 'displayName: Keeper
+borrowable: true
+description: Keeps things.' "keeper body"
+  role_fm media 'displayName: Media
+description: Jellyfin and the house screens.
+borrowable: true  # open to every agent' "MEDIA BODY"
+  role_fm garden 'displayName: Garden
+description: Plants.
+borrowable: false' "garden body"
+  role_fm quoted 'displayName: Quoted
+borrowable: "true"' "quoted body"
+  role_fm plain 'displayName: Plain
+description: Not marked.' "plain body"
+  # No frontmatter at the top: a borrowable line between two rules in the
+  # body doesn't count.
+  mkdir -p "$F/roles/ruled"
+  printf -- '# Ruled\n\n---\nborrowable: true\n---\n' > "$F/roles/ruled/ruled.md"
+  local out
+  out="$(run_borrowable "/id jarvis")"
+  assert_contains $t "$out" "Roles you can borrow" || return
+  assert_contains $t "$out" "- Media (media) — Jellyfin and the house screens. · ~/fleet/roles/media/media.md" || return
+  # Held roles, unmarked roles, false and a quoted string are not listed.
+  assert_not_contains $t "$out" "(keeper)" || return
+  assert_not_contains $t "$out" "(garden)" || return
+  assert_not_contains $t "$out" "(quoted)" || return
+  assert_not_contains $t "$out" "(plain)" || return
+  assert_not_contains $t "$out" "- ruled" || return
+  # Only the list — never the role file's body.
+  assert_not_contains $t "$out" "MEDIA BODY" || return
+  # The agent re-loading itself after a compaction gets the same list.
+  out="$(printf '%s' "$(jq -n '{hook_event_name: "PostToolUse", tool_name: "Skill", tool_input: {skill: "id", args: "jarvis"}}')" \
+    | HOME="$SCRATCH/home" "$HOOK" --borrowable | jq -r '.hookSpecificOutput | .hookEventName + "|" + .additionalContext')"
+  assert_contains $t "$out" "PostToolUse|Roles you can borrow" || return
+  assert_contains $t "$out" "(media)" || return
+  # The main load context doesn't carry the list.
+  out="$(run_hook "/id jarvis")"
+  assert_not_contains $t "$out" "Roles you can borrow" || return
+  pass
+}
+
+test_borrowable_silent_when_none() {
+  local t=test_borrowable_silent_when_none
+  reset_home
+  identity alpha 'roles: [media]'
+  role_fm media 'borrowable: true' "x"
+  role_fm plain 'description: no' "x"
+  [ -z "$(run_borrowable "/id alpha")" ] || { fail $t "spoke when the only borrowable role is held"; return; }
+  [ -z "$(run_borrowable "/id save")" ] || { fail $t "spoke on a reserved keyword"; return; }
+  [ -z "$(run_borrowable "/id nobody")" ] || { fail $t "spoke for a missing identity"; return; }
+  [ -z "$(run_borrowable "hello")" ] || { fail $t "spoke on a plain prompt"; return; }
+  pass
+}
+
+test_borrowable_ignores_sharing() {
+  # The `users:` list only sorts sidebars; it doesn't limit borrowing.
+  local t=test_borrowable_ignores_sharing
+  reset_home
+  role_fm private 'borrowable: true
+users:
+  - ann' "x"
+  identity everyone 'roles: []'
+  assert_contains $t "$(run_borrowable "/id everyone")" "- private —" || return
+  pass
+}
+
+test_borrowable_budget() {
+  local t=test_borrowable_budget
+  reset_home
+  identity alpha 'roles: []'
+  local long i
+  long="$(printf 'word %.0s' $(seq 1 120))"
+  for i in $(seq 1 20); do
+    role_fm "r$i" "borrowable: true
+description: $long" "x"
+  done
+  local out
+  out="$(run_borrowable "/id alpha")"
+  # Descriptions are cut to the role-skills length.
+  assert_contains $t "$out" "…" || return
+  [ "${#out}" -le 9500 ] || { fail $t "list over budget: ${#out}"; return; }
+  # Far too many roles to fit: names only, then a count of the rest.
+  for i in $(seq 21 200); do
+    role_fm "role-with-a-rather-long-name-$i" "borrowable: true
+description: $long" "x"
+  done
+  out="$(run_borrowable "/id alpha")"
+  [ "${#out}" -le 9500 ] || { fail $t "list over budget: ${#out}"; return; }
+  assert_not_contains $t "$out" "word word" || return
+  assert_contains $t "$out" "more — the rest are the role files" || return
+  pass
+}
+
+test_borrowable_wrapper() {
+  local t=test_borrowable_wrapper
+  reset_home
+  identity alpha 'roles: []'
+  role_fm media 'borrowable: true' "x"
+  local bin="$SCRATCH/home/.local/bin" out
+  mkdir -p "$bin"
+  cp "$REPO_ROOT/substrate/scripts/borrowable-roles-context.sh" "$bin/borrowable-roles-context"
+  run_wrapper() {
+    printf '%s' '{"prompt":"/id alpha"}' | HOME="$SCRATCH/home" "$bin/borrowable-roles-context" \
+      | jq -r '.hookSpecificOutput.additionalContext // empty' 2>/dev/null
+  }
+  # No load script installed yet: silent.
+  [ -z "$(run_wrapper)" ] || { fail $t "spoke with no load script installed"; return; }
+  # An older load script without the borrowable mode: silent, never the full load context.
+  printf '#!/bin/sh\necho %s\n' "'{\"hookSpecificOutput\":{\"additionalContext\":\"FULL LOAD\"}}'" > "$bin/id-load-context"
+  chmod +x "$bin/id-load-context"
+  [ -z "$(run_wrapper)" ] || { fail $t "spoke through an old load script"; return; }
+  # The current one: the borrowable list.
+  cp "$HOOK" "$bin/id-load-context"
+  out="$(run_wrapper)"
+  assert_contains $t "$out" "Roles you can borrow" || return
+  assert_not_contains $t "$out" "Gathered by the id-load hook" || return
+  pass
+}
+
 test_silent_on_other_prompts
 test_agent_invoked_id_skill
 test_fences_enabled_and_listing_cap
@@ -282,6 +418,11 @@ test_full_context
 test_no_roles_no_project
 test_never_fired_and_no_role_skills
 test_budget_points_at_large_files
+test_borrowable_lists_marked_roles
+test_borrowable_silent_when_none
+test_borrowable_ignores_sharing
+test_borrowable_budget
+test_borrowable_wrapper
 
 printf '\n===============================\nPASS: %d  FAIL: %d\n' "$PASS" "$FAIL"
 if [ "$FAIL" -gt 0 ]; then

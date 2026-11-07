@@ -9,6 +9,7 @@ import {
   KitAvatar,
   KitBanner,
   KitButton,
+  KitChip,
   KitEmpty,
   KitLoading,
   KitSearch,
@@ -166,7 +167,16 @@ export function RolesLibraryView({
             color={roleAvatarColor(roleHue(r))}
           />
         }
-        label={<span className="font-semibold">{label}</span>}
+        label={
+          r.borrowable ? (
+            <span className="inline-flex items-center gap-2">
+              <span className="font-semibold">{label}</span>
+              <KitChip data-testid={`roles-window-row-${r.name}-borrowable`}>Borrowable</KitChip>
+            </span>
+          ) : (
+            <span className="font-semibold">{label}</span>
+          )
+        }
         description={r.description || undefined}
         truncate
         value={n > 0 ? agentCountLabel(n) : undefined}

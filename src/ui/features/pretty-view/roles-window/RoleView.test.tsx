@@ -517,6 +517,49 @@ describe("role view — ⋯ menu", () => {
   });
 });
 
+// ─── Borrowable ─────────────────────────────────────────────────────────────
+
+describe("role view — borrowable", () => {
+  const borrowableSwitch = (): HTMLInputElement => screen.getByTestId("role-view-borrowable") as HTMLInputElement;
+
+  it("off by default; switching it on writes borrowable: true and the library shows the tag", async () => {
+    await openRole();
+    await waitFor(() => expect(borrowableSwitch().disabled).toBe(false));
+    expect(borrowableSwitch().checked).toBe(false);
+    fireEvent.click(borrowableSwitch());
+    await waitFor(() => expect(m.updateRoleFileByName).toHaveBeenCalledTimes(1));
+    expect(lastSavedFile()).toBe(
+      "---\ndisplayName: Box Maintainer\ncolorHue: '320'\nborrowable: true\n---\n\n# Box Maintainer\n\nKeeps the box healthy.\n",
+    );
+    await waitFor(() => expect(borrowableSwitch().checked).toBe(true));
+    fireEvent.click(backButton());
+    expect(await screen.findByTestId("roles-window-row-box-maintainer-borrowable")).toBeTruthy();
+  });
+
+  it("a borrowable role shows it on; switching it off removes the key", async () => {
+    m.getRoleFileByName.mockResolvedValue({
+      markdown: "---\ndisplayName: Box Maintainer\nborrowable: true\n---\n\n# Box Maintainer\n",
+    });
+    await openRole();
+    await waitFor(() => expect(borrowableSwitch().checked).toBe(true));
+    fireEvent.click(borrowableSwitch());
+    await waitFor(() => expect(m.updateRoleFileByName).toHaveBeenCalledTimes(1));
+    expect(lastSavedFile()).toBe("---\ndisplayName: Box Maintainer\n---\n\n# Box Maintainer\n");
+    await waitFor(() => expect(borrowableSwitch().checked).toBe(false));
+  });
+
+  it("a failed save puts the switch back and says so", async () => {
+    const dialogs = autoAnswerKitDialogs();
+    m.updateRoleFileByName.mockRejectedValue(new Error("disk full"));
+    await openRole();
+    await waitFor(() => expect(borrowableSwitch().disabled).toBe(false));
+    fireEvent.click(borrowableSwitch());
+    await waitFor(() => expect(dialogs.calls).toHaveLength(1));
+    expect(dialogs.calls[0].opts.title).toBe("Couldn't save the borrowable setting");
+    await waitFor(() => expect(borrowableSwitch().checked).toBe(false));
+  });
+});
+
 // ─── Read-only (non-admin, shared role) ─────────────────────────────────────
 
 describe("role view — a shared role for a non-admin is view-only", () => {
@@ -527,6 +570,7 @@ describe("role view — a shared role for a non-admin is view-only", () => {
     expect(screen.queryByTestId("role-view-avatar-button")).toBeNull();
     expect((screen.getByTestId("role-view-color") as HTMLButtonElement).disabled).toBe(true);
     expect((screen.getByTestId("role-view-voice") as HTMLButtonElement).disabled).toBe(true);
+    expect((screen.getByTestId("role-view-borrowable") as HTMLInputElement).disabled).toBe(true);
     expect(screen.getByTestId("role-view-readonly-note").textContent).toMatch(/only an admin can change it/i);
     const desc = screen.getByTestId("role-view-description");
     expect(desc.tagName).toBe("P");

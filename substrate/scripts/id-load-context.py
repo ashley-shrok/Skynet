@@ -21,6 +21,15 @@ in and whole files are added in priority order — identity file, role files,
 project files — while they fit; a file that doesn't fit is named for the agent
 to Read instead.
 
+Run with `--borrowable` (installed as ~/.local/bin/borrowable-roles-context,
+registered as its own hook on the same two events), it instead hands the
+agent the roles on this host marked `borrowable: true` that it doesn't hold —
+each with its description and where to read it — so the agent can borrow one
+for a task (id skill § Borrowing a role). A separate hook gets its own
+10,000-character allowance, so this list never takes room from the agent's
+own identity, roles or project. No borrowable roles it doesn't already hold
+stays silent.
+
 The reserved keywords (`/id save`, `/id reset`, `/id archive`) and names with
 no identity file stay silent. Never fails the parent turn.
 
@@ -360,6 +369,70 @@ def _role_skills_text(role):
             "situation, read it and follow it:\n" % _display(root)) + "\n".join(lines)
 
 
+# --- borrowable roles -------------------------------------------------------
+
+BORROWABLE_RE = re.compile(r"^borrowable:\s*(true|True|TRUE)\s*(#.*)?$")
+
+
+def _is_borrowable(role_text):
+    """`borrowable: true` in the frontmatter block at the top of the role file
+    — a YAML boolean true, read the way the app reads it."""
+    if not role_text.lstrip("\ufeff").startswith("---"):
+        return False
+    return any(BORROWABLE_RE.match(line.rstrip("\r")) for line in _frontmatter_lines(role_text))
+
+
+def build_borrowable(name):
+    ident_text = _read(os.path.join(FLEET, "identities", name, name + ".md"))
+    if ident_text is None:
+        return None
+    held = set(parse_roles_frontmatter(ident_text))
+    root = os.path.join(FLEET, "roles")
+    try:
+        slugs = sorted(n for n in os.listdir(root)
+                       if ROLES_SLUG_RE.match(n) and os.path.isdir(os.path.join(root, n)))
+    except OSError:
+        return None
+    entries = []
+    for slug in slugs:
+        if slug in held:
+            continue
+        path = os.path.join(root, slug, slug + ".md")
+        text = _read(path)
+        if text is None or not _is_borrowable(text):
+            continue
+        label = _display_name(_frontmatter_lines(text[:65536]), slug)
+        head = slug if label == slug else "%s (%s)" % (label, slug)
+        fm = _skill_frontmatter(text)
+        desc = (fm[1] if fm else "") or "no description"
+        if len(desc) > ROLE_SKILL_DESCRIPTION_MAX:
+            desc = desc[:ROLE_SKILL_DESCRIPTION_MAX - 1].rstrip() + "…"
+        entries.append((head, desc, _display(path)))
+    if not entries:
+        return None
+    intro = ("Roles you can borrow — marked borrowable on this host. When what you're asked "
+             "to do fits one, you may borrow it for that work on your own, as the id skill's "
+             "§ Borrowing a role says: read its role file and its role skills (its skills/ "
+             "folder), and never add it to your own roles.")
+
+    def render(with_desc, keep):
+        lines = ["- %s — %s · %s" % (h, d, p) if with_desc else "- %s · %s" % (h, p)
+                 for h, d, p in entries[:keep]]
+        if keep < len(entries):
+            lines.append("- … and %d more — the rest are the role files under %s/ marked "
+                         "`borrowable: true`" % (len(entries) - keep, _display(root)))
+        return intro + "\n" + "\n".join(lines)
+
+    for with_desc in (True, False):
+        text = render(with_desc, len(entries))
+        if _length(text) <= CONTEXT_LIMIT:
+            return text
+    keep = len(entries)
+    while keep > 0 and _length(render(False, keep)) > CONTEXT_LIMIT:
+        keep -= 1
+    return render(False, keep)
+
+
 def _listdir_visible(path, skip=()):
     try:
         names = sorted(os.listdir(path))
@@ -488,7 +561,7 @@ def main():
     name = arg.lower()
     if name in RESERVED or not NAME_RE.match(name):
         return
-    context = build(name)
+    context = build_borrowable(name) if "--borrowable" in sys.argv[1:] else build(name)
     if context is None:
         return
     print(json.dumps({"hookSpecificOutput": {

@@ -43,6 +43,10 @@ export function roleAvatarColor(hue: number): string {
   return `hsl(${hue}, 42%, 34%)`;
 }
 
+/** What the borrowable switch means, under it on the new-role form and on a role. */
+export const BORROWABLE_HINT =
+  "Any agent on this host can borrow this role for a task on its own, without taking it on.";
+
 function isFolder(item: Host | HostFolder): item is HostFolder {
   return "children" in item;
 }

@@ -16,10 +16,10 @@ const FM_RE = /^\uFEFF?---[ \t]*\r?\n(?:([\s\S]*?)\r?\n)?---[ \t]*(?:\r?\n|$)/;
 const KEY_RE = /^([A-Za-z_][A-Za-z0-9_-]*)\s*:\s*(.*)$/;
 
 /** Keys the roles window writes. Anything else in the frontmatter is kept. */
-const OWNED_KEYS = ["displayName", "title", "description", "colorHue", "voice", "avatar"] as const;
+const OWNED_KEYS = ["displayName", "title", "description", "colorHue", "voice", "avatar", "borrowable"] as const;
 type OwnedKey = (typeof OWNED_KEYS)[number];
 
-export type RoleFrontmatterPatch = Partial<Record<OwnedKey, string | number>>;
+export type RoleFrontmatterPatch = Partial<Record<OwnedKey, string | number | boolean>>;
 
 interface FmEntry {
   key: string | null; // null: a line that isn't a key (comment, blank)
@@ -85,7 +85,8 @@ export function mergeRoleFrontmatter(
 // Words YAML would read as something other than a string.
 const YAML_NON_STRING = /^(true|false|yes|no|on|off|null|~|[-+]?(\d[\d_]*)?\.?\d+([eE][-+]?\d+)?|0x[0-9a-fA-F]+|\.inf|\.nan)$/i;
 
-function yamlScalar(value: string | number): string {
+function yamlScalar(value: string | number | boolean): string {
+  if (typeof value === "boolean") return String(value);
   if (typeof value === "number") return `'${String(value)}'`;
   if (value === "" || YAML_NON_STRING.test(value)) return JSON.stringify(value);
   if (/[:#\-[\]{}&*!|>'"%@`,?]/.test(value) || /\s/.test(value)) return JSON.stringify(value);
@@ -120,6 +121,20 @@ export function readRoleFrontmatterValue(markdown: string, key: string): string 
     return [raw, ...more].join(" ").replace(/^'|'$/g, "").replace(/''/g, "'");
   }
   return [raw, ...more].join(" ").replace(/\s+/g, " ").trim();
+}
+
+/**
+ * Whether the role file marks the role borrowable: `borrowable: true` as a
+ * YAML boolean (`true` / `True` / `TRUE`, an end-of-line comment allowed; a
+ * quoted "true" is a string, not a mark) — the same reading as the server
+ * and the agent startup hook.
+ */
+export function readRoleBorrowable(markdown: string): boolean {
+  const { entries } = splitFrontmatter(markdown);
+  const entry = entries.find((e) => e.key === "borrowable");
+  if (!entry) return false;
+  const raw = (entry.lines[0].match(KEY_RE)?.[2] ?? "").replace(/\s+#.*$/, "").trim();
+  return /^(true|True|TRUE)$/.test(raw);
 }
 
 /** What the in-place editor accepts when typing. Longer stored text is kept. */

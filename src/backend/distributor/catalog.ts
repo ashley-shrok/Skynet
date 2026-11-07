@@ -535,6 +535,21 @@ export const FLEET_SUBSTRATE_CATALOG: readonly CatalogEntry[] = [
     restartHook: null,
   },
 
+  // borrowable-roles-context: UserPromptSubmit + PostToolUse(Skill) hook on
+  // the same identity loads id-load-context answers. Runs id-load-context in
+  // its --borrowable mode: lists the roles on the host marked `borrowable:
+  // true` that the agent doesn't hold, so it can borrow one for a task (id
+  // skill § Borrowing a role). Its own hook so the list gets its own 10K
+  // additionalContext allowance. Wired via the run-bootstrap.ts settings.json
+  // patch. No restart hook — new bytes picked up on next fire.
+  {
+    slug: "borrowable-roles-context",
+    sourceKind: "bundled",
+    bundledPath: "/app/fleet-substrate/scripts/borrowable-roles-context.sh",
+    installPath: "~/.local/bin/borrowable-roles-context",
+    restartHook: null,
+  },
+
   // precompact-reground: PreCompact hook (every trigger) for an identity's
   // main session. Tells the summarizer to leave out what the agent's
   // directive files hold and to end the summary with the agent's own note to

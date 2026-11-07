@@ -161,6 +161,7 @@ type MultipartRolePayload = {
   cosmetics?: {
     colorHue?: unknown;
     voice?: unknown;
+    borrowable?: unknown;
   };
 };
 
@@ -274,6 +275,7 @@ router.post(
       colorHue?: number;
       voice?: string;
       avatar?: string;
+      borrowable?: boolean;
     } = { displayName };
 
     if (rawCosmetics.colorHue !== undefined) {
@@ -303,6 +305,14 @@ router.post(
         return;
       }
       cosmetics.voice = rawCosmetics.voice;
+    }
+
+    if (rawCosmetics.borrowable !== undefined) {
+      if (typeof rawCosmetics.borrowable !== "boolean") {
+        res.status(400).json({ error: "borrowable must be true or false" });
+        return;
+      }
+      if (rawCosmetics.borrowable) cosmetics.borrowable = true;
     }
 
     // -----------------------------------------------------------------------
@@ -402,6 +412,7 @@ router.post(
           description,
           colorHue: cosmetics.colorHue,
           voice: cosmetics.voice,
+          borrowable: cosmetics.borrowable,
           users,
           avatar:
             req.file && avatarExt

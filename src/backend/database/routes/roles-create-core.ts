@@ -59,6 +59,9 @@ export interface CreateRoleInput {
   description: string;
   colorHue?: number;
   voice?: string;
+  /** Written as `borrowable: true` when set: any agent on the host may
+   *  borrow the role without taking it on. */
+  borrowable?: boolean;
   /** Visibility tag written as `users:` (multi-user hosts only). */
   users?: string[];
   /** Avatar bytes + extension; the filename becomes `<slug>.<ext>`. */
@@ -307,6 +310,7 @@ export async function createRoleOnHost(
   const cosmetics: Record<string, unknown> = { displayName: input.displayName };
   if (input.colorHue !== undefined) cosmetics.colorHue = input.colorHue;
   if (input.voice !== undefined) cosmetics.voice = input.voice;
+  if (input.borrowable) cosmetics.borrowable = true;
   const avatarFilename = input.avatar ? `${name}.${input.avatar.ext}` : null;
   if (avatarFilename) cosmetics.avatar = avatarFilename;
   if (input.users && input.users.length > 0) cosmetics.users = input.users;

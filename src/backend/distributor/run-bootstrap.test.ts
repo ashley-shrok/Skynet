@@ -318,6 +318,9 @@ describe("runBootstrapForHost", () => {
     // id-load-context also answers the agent's own id-skill invocation
     // (PostToolUse, Skill matcher) — the re-ground after compaction.
     expect(settingsCmd).toContain(`{"matcher":"Skill","hooks":[{"type":"command","command":"$HOME/.local/bin/id-load-context"}]}`);
+    // borrowable-roles-context rides the same two events as its own hook.
+    expect(settingsCmd).toContain(`{"hooks":[{"type":"command","command":"$HOME/.local/bin/borrowable-roles-context"}]}`);
+    expect(settingsCmd).toContain(`{"matcher":"Skill","hooks":[{"type":"command","command":"$HOME/.local/bin/borrowable-roles-context"}]}`);
     // precompact-reground PreCompact hook — no matcher, so every trigger.
     expect(settingsCmd).toContain(`{"hooks":[{"type":"command","command":"$HOME/.local/bin/precompact-reground"}]}`);
     // allow-all-tools PreToolUse hook — the merge must add an entry
@@ -350,6 +353,8 @@ describe("runBootstrapForHost", () => {
     expect(settingsCmd).toContain(`test("resume-gap-notice")`);
     expect(settingsCmd).toContain(`test("id-load-context")`);
     expect(settingsCmd).toContain(`(.hooks.PostToolUse // []) | any(.[]?.hooks[]?.command // ""; test("id-load-context"))`);
+    expect(settingsCmd).toContain(`(.hooks.UserPromptSubmit // []) | any(.[]?.hooks[]?.command // ""; test("borrowable-roles-context"))`);
+    expect(settingsCmd).toContain(`(.hooks.PostToolUse // []) | any(.[]?.hooks[]?.command // ""; test("borrowable-roles-context"))`);
     expect(settingsCmd).toContain(`(.hooks.PreCompact // []) | any(.[]?.hooks[]?.command // ""; test("precompact-reground"))`);
     // allow-all-tools idempotency predicate — same rationale.
     expect(settingsCmd).toContain(`.hooks.PreToolUse // []`);
