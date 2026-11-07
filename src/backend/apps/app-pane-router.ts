@@ -19,7 +19,7 @@
  *   - D-12 — `checkHostAccess(hostId, userId, host.userId, "read")` is
  *            invoked at the route entrypoint; failure produces an
  *            info-leak-safe 403 identical to the "host unresolvable" body.
- *   - D-13 — `appProxyCsrfCheck(req, PRIMARY_DOMAIN)` gates state-changing
+ *   - D-13 — `appProxyCsrfCheck(req)` gates state-changing
  *            requests before any tunnel work.
  *   - D-17 — tunnel errors flow through `classifyTunnelError` +
  *            `renderInterstitial` + `writeInterstitial` — the same shared
@@ -89,6 +89,7 @@ import { logger as sshLogger } from "../utils/logger.js";
 import { getRegistry } from "../fleet-status/registry-holder.js";
 import {
   appProxyCsrfCheck,
+  checkSameOrigin,
   PRIMARY_DOMAIN,
 } from "./app-proxy-csrf-check.js";
 import { getOrCreateAppPaneProxyForTarget } from "./app-pane-proxy-factory.js";
@@ -187,7 +188,17 @@ router.all(
     // anyway; the caller learns that CSRF failed but nothing about
     // whether the host+app exists. The helper itself short-circuits on
     // safe HTTP methods (GET/HEAD/OPTIONS) so the call is unconditional.
-    if (!appProxyCsrfCheck(req, PRIMARY_DOMAIN)) {
+    const csrf = appProxyCsrfCheck(req);
+    if (csrf.ok === false) {
+      sshLogger.warn("app pane: cross-origin state-changing request refused", {
+        operation: "apps_pane_csrf_refused",
+        hostId: hostRef,
+        slug,
+        method: req.method,
+        reason: csrf.reason,
+        originHost: csrf.originHost,
+        requestHost: csrf.requestHost,
+      });
       return res
         .status(403)
         .json({ error: "cross-origin state-changing request refused" });
@@ -508,51 +519,29 @@ export async function handleAppPaneUpgrade(
     }
 
     // CSRF gate — WS upgrades carry Origin per the WS spec (browsers
-    // always send it). The helper short-circuits on GET (upgrades ARE
-    // GET) so we call it via a small adapter that forces the method to
-    // POST for check purposes — but the helper's current shape treats
-    // GET as always-pass. Directly enforce origin here to be safe.
-    // HIGH-1 fix (2026-09-19): parse Origin as a URL and compare its
-    // hostname against PRIMARY_DOMAIN (which the module normalizes to a
-    // bare hostname). Prior form compared the full URL string against a
-    // bare-hostname env value and refused every real browser upgrade.
-    // Origin: "null" accepted (2026-09-25): mirrors the HTTP-path fix in
-    // app-proxy-csrf-check.ts. The pane iframe's referrerPolicy=no-referrer
-    // per D-20 makes browsers serialize origin as the string "null" in
-    // some contexts (form-nav POSTs today; WS upgrades from certain
-    // browser/context combinations tomorrow). Safe here for the same
-    // three-layer reasons — SameSite=Lax JWT cookie prevents cross-site
-    // sessions, authenticateJWT above proved the request is authed,
-    // same-site attackers still hit the hostname-mismatch branch below.
-    const originHeader = req.headers.origin;
-    if (typeof originHeader !== "string" || originHeader.length === 0) {
+    // always send it). Upgrades are GETs, which `appProxyCsrfCheck`'s
+    // method gate waves through, so call the same-origin check directly.
+    // Same semantics as the HTTP path (Origin hostname must equal the
+    // request's own Host hostname; Origin "null" accepted). Serve-URL
+    // traffic is refused here too — this path is why that rule exists:
+    // upgrades are dispatched by path before subdomain-dispatch could take
+    // them. See app-proxy-csrf-check.ts for the security argument.
+    const csrf = checkSameOrigin(req.headers);
+    if (csrf.ok === false) {
+      sshLogger.warn("app pane WS: cross-origin upgrade refused", {
+        operation: "apps_pane_ws_csrf_refused",
+        hostId: hostRef,
+        slug,
+        reason: csrf.reason,
+        originHost: csrf.originHost,
+        requestHost: csrf.requestHost,
+      });
       rejectUpgrade(
         socket,
         "HTTP/1.1 403 Forbidden",
         "X-Skynet-Reason: cross-origin",
       );
       return;
-    }
-    if (originHeader !== "null") {
-      let originHostname: string;
-      try {
-        originHostname = new URL(originHeader).hostname;
-      } catch {
-        rejectUpgrade(
-          socket,
-          "HTTP/1.1 403 Forbidden",
-          "X-Skynet-Reason: cross-origin",
-        );
-        return;
-      }
-      if (originHostname.length === 0 || originHostname !== PRIMARY_DOMAIN) {
-        rejectUpgrade(
-          socket,
-          "HTTP/1.1 403 Forbidden",
-          "X-Skynet-Reason: cross-origin",
-        );
-        return;
-      }
     }
 
     // Port lookup — same as HTTP path.

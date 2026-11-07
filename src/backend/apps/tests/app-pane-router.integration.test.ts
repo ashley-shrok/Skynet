@@ -5,9 +5,10 @@
  * plus six expansion cases (7-12) per PLAN.md § Task 2:
  *
  *   1.  HTTP GET forwards through the proxy.
- *   2.  HTTP POST with matching Origin forwards.
+ *   2.  HTTP POST whose Origin matches its own Host forwards — on any
+ *       of an instance's addresses (2026-11-07 multi-address fix).
  *   3.  HTTP POST with mismatched Origin → 403 CSRF failure body;
- *       proxy NOT invoked.
+ *       proxy NOT invoked; refusal logged with reason + both hostnames.
  *   4.  WebSocket upgrade forwards (REAL http.Server — BLOCKER 6 fix).
  *   5.  checkHostAccess false → 403 with info-leak-safe body; proxy
  *       NOT invoked.
@@ -48,6 +49,7 @@ import type { Request, Response, NextFunction } from "express";
 /* ------------------------------------------------------------------------ */
 
 const PRIMARY_ORIGIN = "https://skynet.test";
+const PRIMARY_HOSTNAME = "skynet.test";
 process.env.SKYNET_COOKIE_DOMAIN = PRIMARY_ORIGIN;
 
 /* ------------------------------------------------------------------------ */
@@ -162,6 +164,8 @@ function sendHttp(
         method,
         path,
         headers: {
+          // A browser on the app sends its own address as Host.
+          host: PRIMARY_HOSTNAME,
           ...headers,
           ...(body ? { "content-length": String(Buffer.byteLength(body)) } : {}),
         },
@@ -418,6 +422,60 @@ describe("app-pane-router", () => {
           error: "cross-origin state-changing request refused",
         });
         expect(mocks.getOrCreateAppPaneProxyForTarget).not.toHaveBeenCalled();
+        const warnCall = mocks.sshLogger.warn.mock.calls.find(
+          (c: unknown[]) => (c[1] as { operation?: string })?.operation === "apps_pane_csrf_refused",
+        );
+        expect(warnCall?.[1]).toMatchObject({
+          hostId: 5,
+          slug: "todo",
+          method: "POST",
+          reason: "origin_host_mismatch",
+          originHost: "evil.example",
+          requestHost: PRIMARY_HOSTNAME,
+        });
+      } finally {
+        await close();
+      }
+    });
+
+    it("forwards a POST on a second address of the same instance", async () => {
+      // An instance reached at two addresses shares one parent cookie
+      // domain; a pane save from either address must pass.
+      const { port, close } = await makeServer(false);
+      try {
+        const res = await sendHttp(
+          port,
+          "POST",
+          "/apps/5/todo/pane/api/create",
+          {
+            "content-type": "application/json",
+            host: "alt.skynet.test",
+            origin: "https://alt.skynet.test",
+          },
+          JSON.stringify({ x: 1 }),
+        );
+        expect(res.status).toBe(200);
+        expect(mocks.getOrCreateAppPaneProxyForTarget).toHaveBeenCalledTimes(1);
+      } finally {
+        await close();
+      }
+    });
+
+    it("refuses a POST from a serve-URL page into the pane", async () => {
+      const { port, close } = await makeServer(false);
+      try {
+        const res = await sendHttp(
+          port,
+          "POST",
+          "/apps/5/todo/pane/api/create",
+          {
+            "content-type": "application/json",
+            origin: "https://1-9507.serve.skynet.test",
+          },
+          JSON.stringify({ x: 1 }),
+        );
+        expect(res.status).toBe(403);
+        expect(mocks.getOrCreateAppPaneProxyForTarget).not.toHaveBeenCalled();
       } finally {
         await close();
       }
@@ -450,7 +508,7 @@ describe("app-pane-router", () => {
           clientSock!.once("connect", () => {
             const req = [
               "GET /apps/5/todo/pane/ws HTTP/1.1",
-              `Host: 127.0.0.1:${port}`,
+              `Host: ${PRIMARY_HOSTNAME}`,
               "Upgrade: websocket",
               "Connection: Upgrade",
               "Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==",
@@ -535,7 +593,7 @@ describe("app-pane-router", () => {
           clientSock!.once("connect", () => {
             const req = [
               "GET /apps/5/todo/pane/ws HTTP/1.1",
-              `Host: 127.0.0.1:${port}`,
+              `Host: ${PRIMARY_HOSTNAME}`,
               "Upgrade: websocket",
               "Connection: Upgrade",
               "Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==",
@@ -595,7 +653,7 @@ describe("app-pane-router", () => {
           const client = net.connect(port, "127.0.0.1", () => {
             const req = [
               "GET /apps/5/todo/pane/ws HTTP/1.1",
-              `Host: 127.0.0.1:${port}`,
+              `Host: ${PRIMARY_HOSTNAME}`,
               "Upgrade: websocket",
               "Connection: Upgrade",
               "Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==",
@@ -630,6 +688,54 @@ describe("app-pane-router", () => {
     // Test: fire a WS upgrade at a NON-matching path (e.g. `/foo`) and
     // assert the socket closes within a bounded window. Pre-fix the socket
     // would remain open indefinitely; the test fails via timeout.
+    it("rejects a WS upgrade from a serve-URL page to its own hostname (Origin === Host)", async () => {
+      const upgradeSpy = vi.fn();
+      const proxyMw = Object.assign(
+        (_req: Request, res: Response, _next: NextFunction) => {
+          res.status(200).end();
+        },
+        { upgrade: upgradeSpy },
+      );
+      mocks.getOrCreateAppPaneProxyForTarget.mockReturnValue(proxyMw);
+
+      const { port, close } = await makeServer(true);
+      try {
+        const respBody = await new Promise<string>((resolve, reject) => {
+          const client = net.connect(port, "127.0.0.1", () => {
+            const req = [
+              "GET /apps/5/todo/pane/ws HTTP/1.1",
+              "Host: 1-9507.serve.skynet.test",
+              "Upgrade: websocket",
+              "Connection: Upgrade",
+              "Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==",
+              "Sec-WebSocket-Version: 13",
+              "Origin: https://1-9507.serve.skynet.test",
+              "Cookie: jwt=fake.jwt.token",
+              "",
+              "",
+            ].join("\r\n");
+            client.write(req);
+          });
+          const chunks: Buffer[] = [];
+          client.on("data", (c) => chunks.push(c));
+          client.on("close", () => resolve(Buffer.concat(chunks).toString("utf8")));
+          client.on("error", reject);
+          setTimeout(() => client.destroy(), 500);
+        });
+        // The session cookie reaches serve hostnames and upgrades are
+        // dispatched by path alone, so this must be refused as serve
+        // traffic rather than passing Origin === Host.
+        expect(respBody).toContain("403");
+        expect(upgradeSpy).not.toHaveBeenCalled();
+        const warnCall = mocks.sshLogger.warn.mock.calls.find(
+          (c: unknown[]) => (c[1] as { operation?: string })?.operation === "apps_pane_ws_csrf_refused",
+        );
+        expect(warnCall?.[1]).toMatchObject({ hostId: 5, slug: "todo", reason: "serve_host" });
+      } finally {
+        await close();
+      }
+    }, 10_000);
+
     it("destroys the socket on non-matching upgrade paths (HIGH-3 leak fix)", async () => {
       const upgradeSpy = vi.fn();
       const proxyMw = Object.assign(
@@ -649,7 +755,7 @@ describe("app-pane-router", () => {
             // Non-matching upgrade path — NOT under /apps/*/pane/*.
             const req = [
               "GET /foo HTTP/1.1",
-              `Host: 127.0.0.1:${port}`,
+              `Host: ${PRIMARY_HOSTNAME}`,
               "Upgrade: websocket",
               "Connection: Upgrade",
               "Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==",
