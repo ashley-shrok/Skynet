@@ -1482,7 +1482,7 @@ retire_identity() {
   # step 2's /exit paste, so the harness got "/exit<task-notification>…" as one ordinary message,
   # never exited, and every archived conversation ended on it. With the monitor gone first,
   # nothing can inject into the pane during the retire. The monitor is never restarted while the
-  # harness runs (start_ambient_monitor is launch-only), so if step 1 fails we restart it ourselves
+  # harness runs during a retire (the alive-check's repair skips .archive-requested identities), so if step 1 fails we restart it ourselves
   # — otherwise the agent would sit deaf until the next retry succeeds.
   # The restart is rate-limited to once per 15 minutes: the scan retries a failed retire every
   # tick, and each fresh monitor resets its children's own alert limits (recv.sh's AUTH DEAD is
@@ -3134,9 +3134,10 @@ submit_id() {
 # starts accumulating here, the separation that keeps each watcher legible has decayed.
 #
 # Lifecycle is unchanged in substance: the monitor watches the harness PID we hand it and shuts
-# down cleanly when that process goes, so it can never outlive the session it serves. We do not
-# track it, do not health-check it, and do not restart it — its own death-wake reporting and the
-# harness-watch are the mechanism.
+# down cleanly when that process goes, so it can never outlive the session it serves. Its own
+# death-wake reporting and the harness-watch handle its children. The one check we do make is
+# presence: the alive-check starts a monitor for any live harness that has none
+# (repair_ambient_monitor), since a harness we didn't bring up would otherwise never get one.
 #
 # NOTE ON REAPING: launched with setsid + full detach so it is NOT a child of the reconcile loop.
 # A child would need waiting on, and a supervisor restart would orphan it to init anyway; the
@@ -3163,7 +3164,8 @@ resolve_harness_pid() {
 
 # start_ambient_monitor <identity> <session>
 # Called at the tail of every successful drive() — the one place all three launch paths converge,
-# so there is exactly one call site rather than three that can drift apart.
+# so there is exactly one launch call site rather than three that can drift apart. Also called by
+# repair_ambient_monitor (alive-check) and the retire step-1 failure path.
 start_ambient_monitor() {
   local name="$1" sess="$2"
   [ "${DRY_RUN:-0}" = 1 ] && { log "DRY_RUN would start ambient monitor for '$name'"; return 0; }
@@ -3185,6 +3187,66 @@ start_ambient_monitor() {
   log "'$name' ambient monitor started (harness_pid=$hpid, session='$sess', log=$logf)"
   metric event=ambient-monitor-start identity="$name" session="$sess" harness_pid="$hpid"
   return 0
+}
+
+# snapshot_ambient_monitors: one ps sweep per tick. Builds AMBIENT_MONITOR_SNAPSHOT[<identity>]
+# = space-separated harness PIDs that a running monitor for that identity is bound to (the
+# `--harness-pid` argument of `ambient-monitor <dir> --inject-to <sess> --harness-pid <pid>`).
+# Called at the top of reconcile() next to snapshot_claude_running().
+declare -A AMBIENT_MONITOR_SNAPSHOT=()
+snapshot_ambient_monitors() {
+  AMBIENT_MONITOR_SNAPSHOT=()
+  local args name hpid
+  while IFS= read -r args; do
+    case "$args" in *"ambient-monitor $IDENTITIES_DIR/"*" --inject-to "*) ;; *) continue ;; esac
+    name="${args#*ambient-monitor "$IDENTITIES_DIR"/}"; name="${name%% *}"
+    hpid="$(printf '%s\n' "$args" | sed -nE 's/.* --harness-pid ([0-9]+).*/\1/p')"
+    [ -n "$name" ] && AMBIENT_MONITOR_SNAPSHOT["$name"]+="${hpid:-0} "
+  done < <(ps -eo args= 2>/dev/null)
+}
+
+# ambient_monitor_bound <name> <harness-pid>: true if a monitor for <name> watches <harness-pid>.
+# Fresh probe (no snapshot) — used to confirm a snapshot miss before repairing, since a monitor
+# can be started mid-tick after the snapshot was taken (e.g. a newborn launched mid-pass).
+ambient_monitor_bound() {
+  local name="$1" hpid="$2" pid
+  for pid in $(pgrep -f -- "ambient-monitor $IDENTITIES_DIR/$name --inject-to" 2>/dev/null | grep -vwE "^($$|$BASHPID)$"); do
+    tr '\0' '\n' < "/proc/$pid/cmdline" 2>/dev/null \
+      | awk -v want="$hpid" 'prev == "--harness-pid" && $0 == want { found=1 } { prev = $0 } END { exit !found }' \
+      && return 0
+  done
+  return 1
+}
+
+# repair_ambient_monitor <name> <session>: the alive-check's monitor repair. start_ambient_monitor
+# only runs when the supervisor itself brings a harness up, so a claude relaunched by hand, or one
+# a drive() left behind after it bailed past the launch (e.g. submit_id giving up on a slow start),
+# would otherwise run with no monitor and be DEAF until someone noticed. Any live identity without
+# a monitor bound to its CURRENT harness PID gets one started here.
+#   - Rate-limited to once per MONITOR_REPAIR_MINUTES per identity, so a monitor that keeps dying
+#     isn't restarted every tick (each start truncates ambient-monitor.log, wiping the evidence).
+#   - Skipped while .archive-requested is present: retire step 0 stops the monitor on purpose and
+#     owns its own rate-limited restart.
+MONITOR_REPAIR_MINUTES="${MONITOR_REPAIR_MINUTES:-10}"
+repair_ambient_monitor() {
+  local name="$1" sess="$2" hpid p
+  [ -e "$IDENTITIES_DIR/$name/.archive-requested" ] && return 0
+  # Cheap path: the snapshot has a monitor whose harness is still alive. A monitor outlives its
+  # harness by ~1s at most (its own harness-watch), so a live bound PID means it's this harness's.
+  for p in ${AMBIENT_MONITOR_SNAPSHOT[$name]:-}; do
+    [ "$p" != 0 ] && kill -0 "$p" 2>/dev/null && return 0
+  done
+  hpid="$(resolve_harness_pid "$sess")" || return 0      # can't tell which harness — leave it alone
+  ambient_monitor_bound "$name" "$hpid" && return 0
+  local marker="$DORMANCY_STATE_DIR/$name.monitor-repaired"
+  if [ -n "$(find "$marker" -mmin "-$MONITOR_REPAIR_MINUTES" 2>/dev/null)" ]; then
+    log "WARNING: '$name' has NO ambient monitor for harness_pid=$hpid — not repairing (already repaired in the last ${MONITOR_REPAIR_MINUTES} min); identity is DEAF until the next repair. See $IDENTITIES_DIR/$name/ambient-monitor.log"
+    return 0
+  fi
+  log "WARNING: '$name' alive with NO ambient monitor for harness_pid=$hpid (session '$sess') — ambient monitor REPAIRED by alive-check"
+  metric event=ambient-monitor-repair identity="$name" session="$sess" harness_pid="$hpid"
+  mkdir -p "$DORMANCY_STATE_DIR" 2>/dev/null; touch "$marker" 2>/dev/null
+  start_ambient_monitor "$name" "$sess" || true
 }
 
 # redrive_claude: clear whatever's in the pane's input buffer / at the shell prompt (C-c to abort
@@ -4407,6 +4469,7 @@ reconcile() {
   sample_memory                                    # dashboard sampler — one line per cycle
   snapshot_sessions                                # one tmux ls per tick; match_session reads from the snapshot. MUST run before archive-scan (which calls match_session via retire_identity).
   snapshot_claude_running                          # one ps + one tmux list-panes -a per tick; claude_running_cached reads from CLAUDE_RUNNING_SNAPSHOT.
+  snapshot_ambient_monitors                        # one ps per tick; repair_ambient_monitor reads from AMBIENT_MONITOR_SNAPSHOT.
   run_archive_scan_if_due                          # Phase 94: daily archive-scan branch (24h gate; fast-path no-op on most ticks)
   scan_archive_requested_sentinels                 # Phase 115 D-10: user-initiated archive-scan (every tick, no gate, bypasses .pinned/.no-dormancy/coordinator/freshness)
   scan_role_archive_requested_sentinels            # Phase 133 D-01/D-05: user-initiated ROLE archive (every tick, no gate, cascades retire_identity per D-08, moves role folder per D-09 if all-clean)
@@ -4516,6 +4579,7 @@ reconcile() {
           fi
           continue
         fi
+        repair_ambient_monitor "$name" "$actual"
         [ "${VERBOSE:-0}" = 1 ] && log "'$name' (session '$actual') alive — skip"
         continue
       fi
