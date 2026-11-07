@@ -5,7 +5,7 @@ import bcrypt from "bcryptjs";
 import speakeasy from "speakeasy";
 import { AuthManager } from "../../utils/auth-manager.js";
 import { DatabaseSaveTrigger } from "../../utils/database-save-trigger.js";
-import { LazyFieldEncryption } from "../../utils/lazy-field-encryption.js";
+import { readBackupCodes, readTotpSecret } from "../../utils/two-step-secrets.js";
 import { authLogger } from "../../utils/logger.js";
 import { loginRateLimiter } from "../../utils/login-rate-limiter.js";
 import {
@@ -34,12 +34,7 @@ async function checkTwoStepCode(
 ): Promise<CodeCheck> {
   const dataKey = authManager.getUserDataKey(userRecord.id);
   if (!dataKey || !userRecord.totpSecret) return "unreadable";
-  const secret = LazyFieldEncryption.safeGetFieldValue(
-    userRecord.totpSecret,
-    dataKey,
-    userRecord.id,
-    "totp_secret",
-  );
+  const secret = readTotpSecret(userRecord, dataKey);
   if (!secret) return "unreadable";
   const delta = speakeasy.totp.verifyDelta({
     secret,
@@ -56,15 +51,7 @@ async function checkTwoStepCode(
     return "ok";
   }
 
-  let backupCodes: unknown = [];
-  try {
-    backupCodes = userRecord.totpBackupCodes
-      ? JSON.parse(userRecord.totpBackupCodes)
-      : [];
-  } catch {
-    backupCodes = [];
-  }
-  if (!Array.isArray(backupCodes)) return "wrong";
+  const backupCodes = readBackupCodes(userRecord, dataKey);
   const index = backupCodes.indexOf(code);
   if (index === -1) return "wrong";
   backupCodes.splice(index, 1);

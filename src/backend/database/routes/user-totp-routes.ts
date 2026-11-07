@@ -14,6 +14,7 @@ import { getSessionTimeoutHours } from "../../utils/session-timeout.js";
 import { db } from "../db/index.js";
 import { sessions, trustedDevices, users } from "../db/schema.js";
 import { requireRecentAuth } from "../../utils/recent-auth.js";
+import { readBackupCodes, readTotpSecret } from "../../utils/two-step-secrets.js";
 
 interface UserTotpRoutesDeps {
   authenticateJWT: RequestHandler;
@@ -24,6 +25,12 @@ export function registerUserTotpRoutes(
   router: Router,
   { authenticateJWT, authManager }: UserTotpRoutesDeps,
 ): void {
+  // The stored secret is encrypted at rest after a sign-in, so it is only
+  // checkable with the user's data key; without one the session has expired.
+  const sessionExpired = {
+    error: "Session expired - please log in again",
+    code: "SESSION_EXPIRED",
+  };
   /**
    * @openapi
    * /users/totp/setup:
@@ -133,8 +140,12 @@ export function registerUserTotpRoutes(
         return res.status(400).json({ error: "TOTP setup not initiated" });
       }
 
-      const verified = speakeasy.totp.verify({
-        secret: userRecord.totpSecret,
+      const dataKey = authManager.getUserDataKey(userId);
+      if (!dataKey) return res.status(401).json(sessionExpired);
+      const secret = readTotpSecret(userRecord, dataKey);
+
+      const verified = !!secret && speakeasy.totp.verify({
+        secret,
         encoding: "base32",
         token: totp_code,
         window: 2,
@@ -243,8 +254,12 @@ export function registerUserTotpRoutes(
         }
       }
 
-      const verified = speakeasy.totp.verify({
-        secret: userRecord.totpSecret!,
+      const dataKey = authManager.getUserDataKey(userId);
+      if (!dataKey) return res.status(401).json(sessionExpired);
+      const secret = readTotpSecret(userRecord, dataKey);
+
+      const verified = !!secret && speakeasy.totp.verify({
+        secret,
         encoding: "base32",
         token: totp_code,
         window: 2,
@@ -334,8 +349,12 @@ export function registerUserTotpRoutes(
         }
       }
 
-      const verified = speakeasy.totp.verify({
-        secret: userRecord.totpSecret!,
+      const dataKey = authManager.getUserDataKey(userId);
+      if (!dataKey) return res.status(401).json(sessionExpired);
+      const secret = readTotpSecret(userRecord, dataKey);
+
+      const verified = !!secret && speakeasy.totp.verify({
+        secret,
         encoding: "base32",
         token: totp_code,
         window: 2,
@@ -478,19 +497,7 @@ export function registerUserTotpRoutes(
       });
 
       if (!verified) {
-        let backupCodes = [];
-        try {
-          backupCodes = userRecord.totpBackupCodes
-            ? JSON.parse(userRecord.totpBackupCodes)
-            : [];
-        } catch {
-          backupCodes = [];
-        }
-
-        if (!Array.isArray(backupCodes)) {
-          backupCodes = [];
-        }
-
+        const backupCodes = readBackupCodes(userRecord, userDataKey);
         const backupIndex = backupCodes.indexOf(totp_code);
 
         if (backupIndex === -1) {
