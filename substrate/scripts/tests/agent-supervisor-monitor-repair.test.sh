@@ -15,6 +15,9 @@
 #   T-07  — snapshot miss, but a monitor for the current harness started since: no repair
 #   T-08  — harness PID can't be resolved: left alone
 #   T-09  — reconcile takes the snapshot and calls the repair from the alive branch
+#   T-10  — a pane waiting on a choice (e.g. "Enter to confirm") gets no monitor
+#   T-11  — while held by the rate limit, the DEAF warning is logged once, not every tick
+#   T-12  — DRY_RUN repairs nothing and writes no marker
 #
 # Exits 0 on all-pass; 1 on any failure.
 #
@@ -172,6 +175,36 @@ ok=1
 printf '%s' "$body" | grep -q 'snapshot_ambient_monitors' || { ok=0; fail "no snapshot call"; }
 printf '%s' "$body" | grep -B2 -A3 'repair_ambient_monitor "\$name" "\$actual"' | grep -q 'alive — skip' || { ok=0; fail "repair not in the alive branch"; }
 [ "$ok" = 1 ] && pass
+
+# capture-pane stub for the interactive-prompt check; anything else is a no-op.
+cat > "$SCRATCH/bin/tmux" <<'STUB'
+#!/usr/bin/env bash
+[ "$1" = capture-pane ] && printf '%s\n' "${PANE_TEXT:-}"
+exit 0
+STUB
+chmod +x "$SCRATCH/bin/tmux"
+export PATH="$SCRATCH/bin:$PATH"
+
+CURRENT_TEST="T-10 pane waiting on a choice: no monitor"
+reset; export PANE_TEXT="Do you trust the files? Enter to confirm"
+snapshot_ambient_monitors
+repair_ambient_monitor alice sess-a
+if [ ! -e "$START_CALLS" ] && [ ! -e "$MARKER" ]; then pass; else fail "repaired at an interactive prompt"; fi
+export PANE_TEXT=""
+
+CURRENT_TEST="T-11 held by the rate limit: DEAF warning logged once"
+reset; touch "$MARKER"; rm -f "$DORMANCY_STATE_DIR/alice.monitor-repair-held"; : > "$SCRATCH/log"
+snapshot_ambient_monitors
+repair_ambient_monitor alice sess-a; repair_ambient_monitor alice sess-a; repair_ambient_monitor alice sess-a
+n="$(grep -c "not repairing" "$SCRATCH/log")"
+if [ "$n" = 1 ] && [ ! -e "$START_CALLS" ]; then pass; else fail "warning logged $n times"; fi
+
+CURRENT_TEST="T-12 DRY_RUN: nothing repaired, no marker"
+reset; DRY_RUN=1
+snapshot_ambient_monitors
+repair_ambient_monitor alice sess-a
+DRY_RUN=0
+if [ ! -e "$START_CALLS" ] && [ ! -e "$MARKER" ]; then pass; else fail "DRY_RUN repaired or wrote the marker"; fi
 
 printf '\n%d passed, %d failed\n' "$PASS" "$FAIL"
 if [ "$FAIL" -gt 0 ]; then

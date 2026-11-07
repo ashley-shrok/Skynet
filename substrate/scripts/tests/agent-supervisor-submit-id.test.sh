@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # shellcheck shell=bash
-# shellcheck disable=SC2317,SC2034,SC2089,SC2090
+# shellcheck disable=SC2317,SC2034,SC2089,SC2090,SC2218
 # Test driver for submit_id's landing detection: `/id NAME` must be recognised whether Claude Code
 # writes it into a brand-new jsonl OR into the jsonl it already created at startup (newer Claude
 # Code writes the session file before any prompt, so on a fast box it is already in the snapshot).
@@ -19,12 +19,15 @@
 #   T-07  — _expected_project_dir resolves the same symlink
 #   T-08  — `_` and `.` in the path become `-` (Claude Code's non-alphanumeric rule)
 #   T-09  — slow start: /id lands after the old 15s budget but inside SUBMIT_ID_WAIT → pasted once
-#   T-10  — /id still sitting unsent in the compose box → re-pasted early, before SUBMIT_ID_WAIT
+#   T-10  — /id still sitting unsent in the compose box → Enter pressed again (no C-c, no
+#           re-paste), and the load lands
 #   T-11  — /id lands between the attempts → the pre-retry check catches it, no second paste
 #   T-12  — _id_unsent_in_compose reads only the compose box (between the last two rules), not the
 #           transcript above it
 #   T-13  — end_unloaded_harness ends the harness (SIGTERM; SIGKILL if it ignores that)
 #   T-14  — drive() ends the harness when submit_id fails
+#   T-15  — a second failure within UNLOADED_RETRY_MINUTES leaves the harness running (no
+#           relaunch loop); once the window has passed it is ended again
 #
 # tmux (PATH stub) and claude_running are stubbed; the paste is simulated by appending a /id user
 # turn to a target file. Poll budgets are shortened via SUBMIT_ID_WAIT / SUBMIT_ID_UNSENT_AFTER
@@ -86,12 +89,25 @@ case "$1" in
     if [ -n "${COMPOSE_UNSENT:-}" ]; then printf '────\n❯ /id %s\n────\n  status\n' "$NAME"
     elif [ -n "${PROMPT_VISIBLE:-}" ]; then printf '\n❯ \n'; fi
     exit 0 ;;
-  send-keys) case " $* " in *" C-c "*) echo x >>"$CTRLC_COUNT_FILE" ;; esac; exit 0 ;;
+  send-keys)
+    case " $* " in *" C-c "*) echo x >>"$CTRLC_COUNT_FILE" ;; esac
+    case " $* " in
+      *" Enter "*)
+        if [ -n "${LAND_ON_ENTER:-}" ] && [ -n "$LAND_TARGET" ]; then
+          echo x >>"$ENTER_COUNT_FILE"
+          if [ "$(wc -l <"$ENTER_COUNT_FILE")" -eq "$LAND_ON_ENTER" ]; then
+            [ -f "$LAND_TARGET" ] || printf '%s\n' "$STARTUP_LINES" >"$LAND_TARGET"
+            printf '{"type":"user","message":{"role":"user","content":"<command-message>id</command-message>\\n<command-name>/id</command-name>\\n<command-args>%s</command-args>"}}\n' "$NAME" >>"$LAND_TARGET"
+          fi
+        fi ;;
+    esac
+    exit 0 ;;
   paste-buffer) ;;
   *) exit 0 ;;
 esac
 echo x >>"$PASTE_COUNT_FILE"
 [ -n "$LAND_TARGET" ] || exit 0
+[ -n "${LAND_ON_ENTER:-}" ] && exit 0   # lands on the Nth Enter instead (see send-keys)
 if [ -n "${LAND_DELAY:-}" ]; then
   # slow start: the turn shows up LAND_DELAY seconds after the paste (first paste only)
   [ "$(wc -l <"$PASTE_COUNT_FILE")" -gt 1 ] && exit 0
@@ -106,10 +122,11 @@ printf '{"type":"user","message":{"role":"user","content":"<command-message>id</
 STUB
 chmod +x "$SCRATCH/bin/tmux"
 CTRLC_COUNT_FILE="$SCRATCH/ctrlc-count"
+ENTER_COUNT_FILE="$SCRATCH/enter-count"
 export PROMPT_VISIBLE=1
-export PATH="$SCRATCH/bin:$PATH" PASTE_COUNT_FILE CTRLC_COUNT_FILE STARTUP_LINES NAME
+export PATH="$SCRATCH/bin:$PATH" PASTE_COUNT_FILE CTRLC_COUNT_FILE ENTER_COUNT_FILE STARTUP_LINES NAME
 
-reset() { rm -rf "$PDIR"; mkdir -p "$PDIR"; : >"$PASTE_COUNT_FILE"; : >"$CTRLC_COUNT_FILE"; export LAND_TARGET="" LAND_DELAY="" COMPOSE_UNSENT=""; }
+reset() { rm -rf "$PDIR"; mkdir -p "$PDIR"; : >"$PASTE_COUNT_FILE"; : >"$CTRLC_COUNT_FILE"; export LAND_TARGET="" LAND_DELAY="" COMPOSE_UNSENT="" LAND_ON_ENTER=""; : >"$ENTER_COUNT_FILE"; }
 pastes() { wc -l <"$PASTE_COUNT_FILE" | tr -d ' '; }
 ctrlcs() { wc -l <"$CTRLC_COUNT_FILE" | tr -d ' '; }
 
@@ -160,11 +177,11 @@ if ! grep -q 'SUBMIT_ID_WAIT="${SUBMIT_ID_WAIT:-60}"' "$SUPERVISOR"; then fail "
 elif submit_id "$NAME" sess "$CWD" && [ "$(pastes)" = 1 ] && [ "$(ctrlcs)" = 0 ]; then pass
 else fail "pastes=$(pastes) ctrlcs=$(ctrlcs) — re-pasted on a slow start"; fi
 
-CURRENT_TEST="T-10 /id unsent in the compose box → re-pasted early"
-reset; export COMPOSE_UNSENT=1
-t0=$(date +%s); submit_id "$NAME" sess "$CWD"; rc=$?; el=$(( $(date +%s) - t0 ))
-if [ "$rc" = 1 ] && [ "$(pastes)" = 2 ] && [ "$el" -lt $((2 * SUBMIT_ID_WAIT)) ]; then pass
-else fail "rc=$rc pastes=$(pastes) elapsed=${el}s (want 2 pastes, < $((2 * SUBMIT_ID_WAIT))s)"; fi
+CURRENT_TEST="T-10 /id unsent in the compose box → Enter pressed again, load lands"
+reset; export COMPOSE_UNSENT=1 LAND_TARGET="$PDIR/fresh.jsonl" LAND_ON_ENTER=2
+submit_id "$NAME" sess "$CWD"; rc=$?
+if [ "$rc" = 0 ] && [ "$(pastes)" = 1 ] && [ "$(ctrlcs)" = 0 ]; then pass
+else fail "rc=$rc pastes=$(pastes) ctrlcs=$(ctrlcs) (want landed on the 2nd Enter, 1 paste, no C-c)"; fi
 
 CURRENT_TEST="T-11 /id lands between attempts → no second paste"
 reset; LATE="$SCRATCH/late"; rm -f "$LATE"
@@ -210,8 +227,25 @@ kill -0 "$H2" 2>/dev/null && { ok=0; fail "SIGTERM-ignoring harness still runnin
 [ "$ok" = 1 ] && pass
 
 CURRENT_TEST="T-14 drive() ends the harness when submit_id fails"
-if declare -f drive | grep -A4 'if ! submit_id' | grep -q 'end_unloaded_harness'; then pass
+if declare -f drive | grep -A14 'if ! submit_id' | grep -q 'end_unloaded_harness'; then pass
 else fail "drive's submit_id failure branch doesn't call end_unloaded_harness"; fi
+
+CURRENT_TEST="T-15 repeated failure within the window leaves the harness running"
+export DORMANCY_STATE_DIR="$SCRATCH/.state"; mkdir -p "$DORMANCY_STATE_DIR"
+ENDS="$SCRATCH/ends"; : >"$ENDS"
+eval "real_$(declare -f submit_id)"
+submit_id() { return 1; }
+end_unloaded_harness() { echo x >>"$ENDS"; }
+wait_for_claude() { return 0; }
+accept_trust_for_workdir() { :; }
+drive "$NAME" sess "" "$CWD"; drive "$NAME" sess "" "$CWD"
+first="$(wc -l <"$ENDS" | tr -d ' ')"
+touch -d '-11 minutes' "$DORMANCY_STATE_DIR/$NAME.unloaded-ended"
+drive "$NAME" sess "" "$CWD"
+second="$(wc -l <"$ENDS" | tr -d ' ')"
+eval "$(declare -f real_submit_id | sed '1s/^real_//')"
+if [ "$first" = 1 ] && [ "$second" = 2 ]; then pass
+else fail "ends after 2 quick failures=$first (want 1), after the window=$second (want 2)"; fi
 
 printf '\n%d passed, %d failed\n' "$PASS" "$FAIL"
 if [ "$FAIL" -gt 0 ]; then

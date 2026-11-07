@@ -193,12 +193,13 @@ describe("two-step routes with the secret encrypted at rest", () => {
   });
 
   it("answers session expired, not invalid code, without the data key", async () => {
-    seedEncryptedUser();
-    dataKeyAvailable = false;
-    for (const [path, body] of [
-      ["/totp/disable", { password: "pw", totp_code: now() }],
-      ["/totp/backup-codes", { password: "pw", totp_code: now() }],
+    for (const [path, body, enabled] of [
+      ["/totp/disable", { password: "pw", totp_code: now() }, true],
+      ["/totp/backup-codes", { password: "pw", totp_code: now() }, true],
+      ["/totp/enable", { totp_code: now() }, false],
     ] as const) {
+      seedEncryptedUser(enabled);
+      dataKeyAvailable = false;
       const r = await post(path, body);
       expect(r.status).toBe(401);
       expect(r.body.code).toBe("SESSION_EXPIRED");

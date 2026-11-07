@@ -3024,10 +3024,11 @@ _check_id_first_turn() {
 #      YES/NO signal, not a pane-scrape heuristic.
 #   4. Each attempt polls up to SUBMIT_ID_WAIT (60s), returning the moment /id lands — a slow
 #      start (jsonl ~25s after the paste) must not trigger a re-paste, which loads the identity
-#      twice. An attempt ends early only when `/id NAME` is still sitting UNSENT in the compose
-#      box after SUBMIT_ID_UNSENT_AFTER (15s): the paste plainly didn't submit. The landing check
-#      runs once more right before a re-paste. Two attempts; second failure → LOUD log + return 1
-#      so drive() bails and ends the harness (end_unloaded_harness) for a clean relaunch.
+#      twice. If `/id NAME` is still sitting UNSENT in the compose box after
+#      SUBMIT_ID_UNSENT_AFTER (15s), the Enter was lost: press Enter once and keep polling. The
+#      landing check runs once more right before a re-paste. Two attempts; second failure → LOUD
+#      log + return 1 so drive() bails and ends the harness (end_unloaded_harness, at most once
+#      per UNLOADED_RETRY_MINUTES) for a clean relaunch.
 #
 # REPLACES the prior pane-scrape state-machine (7c54898), which false-positived on tmux
 # scrollback: when a pane is reused across relaunches it retains the prior session's /id NAME
@@ -3149,9 +3150,11 @@ submit_id() {
         break
       fi
       if [ $((now - t0)) -ge "$SUBMIT_ID_UNSENT_AFTER" ] && [ -z "$unsent_logged" ] && _id_unsent_in_compose "$sess" "$name"; then
+        # The text is there but the Enter was lost: press it again rather than C-c + re-paste,
+        # which could kill a still-mounting Ink or cut into a load that's just starting.
         unsent_logged=1
-        log "'$name' submit_id attempt $attempt: '/id $name' still unsent in the compose box after ${SUBMIT_ID_UNSENT_AFTER}s"
-        break
+        log "'$name' submit_id attempt $attempt: '/id $name' still unsent in the compose box after ${SUBMIT_ID_UNSENT_AFTER}s — pressing Enter"
+        timeout -k 5 10 tmux send-keys -t "$sess" Enter 2>/dev/null
       fi
     done
   done
@@ -3230,6 +3233,16 @@ start_ambient_monitor() {
   return 0
 }
 
+# _is_interactive_prompt <pane-text>: true if claude is waiting on a choice, not at its REPL.
+# drive() withholds the ambient monitor on these screens (it would type wake lines + Enter into
+# the choice), and so does the alive-check's repair.
+_is_interactive_prompt() {
+  case "$1" in
+    *"Resume from summary"*|*"Resume full session"*|*"of your 5-hour usage limit"*|*"Yes, I trust this folder"*|*"Enter to confirm"*) return 0 ;;
+  esac
+  return 1
+}
+
 # snapshot_ambient_monitors: one ps sweep per tick. Builds AMBIENT_MONITOR_SNAPSHOT[<identity>]
 # = space-separated harness PIDs that a running monitor for that identity is bound to (the
 # `--harness-pid` argument of `ambient-monitor <dir> --inject-to <sess> --harness-pid <pid>`).
@@ -3279,20 +3292,34 @@ repair_ambient_monitor() {
   done
   hpid="$(resolve_harness_pid "$sess")" || return 0      # can't tell which harness — leave it alone
   ambient_monitor_bound "$name" "$hpid" && return 0
-  local marker="$DORMANCY_STATE_DIR/$name.monitor-repaired"
+  local marker="$DORMANCY_STATE_DIR/$name.monitor-repaired" quiet="$DORMANCY_STATE_DIR/$name.monitor-repair-held"
   if [ -n "$(find "$marker" -mmin "-$MONITOR_REPAIR_MINUTES" 2>/dev/null)" ]; then
-    log "WARNING: '$name' has NO ambient monitor for harness_pid=$hpid — not repairing (already repaired in the last ${MONITOR_REPAIR_MINUTES} min); identity is DEAF until the next repair. See $IDENTITIES_DIR/$name/ambient-monitor.log"
+    # Said once per window, not every tick.
+    if [ -z "$(find "$quiet" -mmin "-$MONITOR_REPAIR_MINUTES" 2>/dev/null)" ]; then
+      touch "$quiet" 2>/dev/null
+      log "WARNING: '$name' has NO ambient monitor for harness_pid=$hpid — not repairing (already repaired in the last ${MONITOR_REPAIR_MINUTES} min); identity is DEAF until the next repair. See $IDENTITIES_DIR/$name/ambient-monitor.log"
+    fi
+    return 0
+  fi
+  # A pane waiting on a choice gets no monitor — drive() withholds it there too, since the
+  # monitor's injected lines + Enter would answer the prompt. Left for a human, as drive() leaves it.
+  if _is_interactive_prompt "$(timeout -k 5 10 tmux capture-pane -pt "$sess" -S -40 2>/dev/null)"; then
+    return 0
+  fi
+  if [ "${DRY_RUN:-0}" = 1 ]; then
+    log "DRY_RUN would repair the ambient monitor for '$name' (harness_pid=$hpid)"
     return 0
   fi
   log "WARNING: '$name' alive with NO ambient monitor for harness_pid=$hpid (session '$sess') — ambient monitor REPAIRED by alive-check"
   metric event=ambient-monitor-repair identity="$name" session="$sess" harness_pid="$hpid"
-  mkdir -p "$DORMANCY_STATE_DIR" 2>/dev/null; touch "$marker" 2>/dev/null
+  mkdir -p "$DORMANCY_STATE_DIR" 2>/dev/null; touch "$marker" 2>/dev/null; rm -f "$quiet" 2>/dev/null
   start_ambient_monitor "$name" "$sess" || true
 }
 
 # end_unloaded_harness <name> <session>: stop a claude that came up but never loaded its identity
 # (submit_id gave up), so the next alive-check finds it dead and relaunches it — resuming, if the
 # /id did land late, since resolve_session then finds that session. SIGTERM, then SIGKILL after 5s.
+UNLOADED_RETRY_MINUTES="${UNLOADED_RETRY_MINUTES:-10}"
 end_unloaded_harness() {
   local name="$1" sess="$2" hpid i=0
   if ! hpid="$(resolve_harness_pid "$sess")"; then
@@ -3317,7 +3344,9 @@ end_unloaded_harness() {
 # missing dir fails loud at the prompt instead of starting claude somewhere else.
 launch_line() {
   local name="$1" resume="$2" cwd="$3" pre="" res=""
-  [ -n "$cwd" ] && pre="cd $(printf '%q' "$cwd") && "
+  # Single-quoted POSIX-style: the line may be typed into DORMANT_SHELL (dash), which can't read
+  # the $'...' quoting bash's printf %q produces for unusual characters.
+  [ -n "$cwd" ] && pre="cd '${cwd//\'/\'\\\'\'}' && "
   [ -n "$resume" ] && res="--resume $resume "
   printf '%s' "${pre}$MEMORY_WRAPPER env FLEET_IDENTITY=$name $(compute_mcp_env "$name") $CLAUDE_LAUNCH_ENV $CLAUDE ${res}$CLAUDE_LAUNCH_FLAGS $(compute_mcp_flags)"
 }
@@ -3533,7 +3562,7 @@ drive() {
     sleep 1                                     # brief settle so claude's Ink renders past the initial paint before the observable-outcome scrape
     pane="$(timeout -k 5 10 tmux capture-pane -pt "$sess" -S -40 2>/dev/null)"
     case "$pane" in
-      *"Resume from summary"*|*"Resume full session"*|*"of your 5-hour usage limit"*|*"Yes, I trust this folder"*|*"Enter to confirm"*)
+      *"Resume from summary"*|*"Resume full session"*|*"of your 5-hour usage limit"*|*"Yes, I trust this folder"*|*"Enter to confirm"*)  # keep in step with _is_interactive_prompt
         log "WARNING: '$name' still sitting at an interactive prompt after resume — NOT at a REPL, will be relay-deaf until cleared. Prompt source-suppression (env vars + hasTrustDialogAccepted + resumeReturnDismissed) may have regressed; restore the scrape+answer loop if this fires more than once (session '$sess')";;
       *)
         # THE RE-ARM-YOUR-MONITORS NUDGE IS RETIRED (2026-09-14). It existed because a resume
@@ -3618,13 +3647,22 @@ drive() {
   # recovery loop (up to 3 attempts). See submit_id() near the top of this file for the full state
   # machine. On final failure, submit_id returns 1 and we bail from drive() (same shape as
   # wait_for_claude) rather than leaving a broken /id-in-compose pane pretending to be alive.
+  local _ended="$DORMANCY_STATE_DIR/$name.unloaded-ended"
   if ! submit_id "$name" "$sess" "$cwd"; then
     # Ending the harness is what makes the next tick retry: left running, the alive-check would
-    # see claude alive and never re-drive it — an agent up without its identity loaded.
-    log "ERROR: '$name' drive fresh: submit_id failed — ending the harness so the alive-check relaunches it next tick."
-    end_unloaded_harness "$name" "$sess"
+    # see claude alive and never re-drive it — an agent up without its identity loaded. Bounded to
+    # once per UNLOADED_RETRY_MINUTES: a cause that never clears (a login screen, a jsonl format
+    # change) would otherwise relaunch every tick, each cycle blocking reconcile for ~2 minutes.
+    if [ -n "$(find "$_ended" -mmin "-$UNLOADED_RETRY_MINUTES" 2>/dev/null)" ]; then
+      log "ERROR: '$name' drive fresh: submit_id failed AGAIN within ${UNLOADED_RETRY_MINUTES} min of the last relaunch — leaving the harness running for a human to inspect (session '$sess'). The identity may not be loaded."
+    else
+      log "ERROR: '$name' drive fresh: submit_id failed — ending the harness so the alive-check relaunches it next tick."
+      mkdir -p "$DORMANCY_STATE_DIR" 2>/dev/null; touch "$_ended" 2>/dev/null
+      end_unloaded_harness "$name" "$sess"
+    fi
     return 1
   fi
+  rm -f "$_ended" 2>/dev/null
   # Supervisor owns the ambient monitor — start it now that the identity is loaded. Same call as
   # the resume path above; this is the second and last of the two convergence points.
   start_ambient_monitor "$name" "$sess"
@@ -3781,9 +3819,12 @@ handle_compaction() {
 
 # bring identity $1 up in session $3 (mode $2 = fresh|recover). Fresh: $3 is the slug and the
 # session is created; recover: $3 is the existing (matched) session name.
-launch() {
-  local name="$1" mode="$2" sess="$3" created=0
-  if [ "${DRY_RUN:-0}" = 1 ]; then log "DRY_RUN would $mode '$name' (tmux session '$sess')"; return 0; fi
+# resolve_launch_target <name>: where to start the identity and whether to resume. Sets
+# LAUNCH_CWD and LAUNCH_RESUME (empty = fresh /id). Shared by launch() and do_wake() so a wake
+# gets the same workdir rules (missing recorded dir → workspace/; no session → workspace/,
+# created if absent) as a launch.
+resolve_launch_target() {
+  local name="$1"
   # Discover this identity's real working dir + latest session, so we resume in the RIGHT place
   # rather than fresh in $HOME. For a truly-first-ever launch (no prior session), use the identity's
   # workspace/ sub-folder by convention, creating it if missing.
@@ -3794,7 +3835,7 @@ launch() {
   local cwd="$HOME" resume="" disc
   if disc="$(resolve_session "$name")"; then
     cwd="${disc%%$'\t'*}"; resume="${disc#*$'\t'}"
-    log "'$name' launch: resolve_session picked token=${resume:0:8} cwd='$cwd'"
+    log "'$name' launch target: resolve_session picked token=${resume:0:8} cwd='$cwd'"
     if [ ! -d "$cwd" ]; then
       # Keep the resume: `claude --resume <id>` finds the session from any directory, and a fresh
       # start would lose the agent's whole context. Only the starting directory changes.
@@ -3804,13 +3845,21 @@ launch() {
     fi
   elif [ -d "$IDENTITIES_DIR/$name/workspace" ]; then
     cwd="$IDENTITIES_DIR/$name/workspace"
-    log "'$name' launch: resolve_session found no prior session — using convention workdir '$cwd'"
+    log "'$name' launch target: resolve_session found no prior session — using convention workdir '$cwd'"
   elif mkdir -p "$IDENTITIES_DIR/$name/workspace" 2>/dev/null; then
     cwd="$IDENTITIES_DIR/$name/workspace"
-    log "WARNING: '$name' launch: no prior session and workspace/ was missing — created '$cwd'"
+    log "WARNING: '$name' launch target: no prior session and workspace/ was missing — created '$cwd'"
   else
-    log "ERROR: '$name' launch: no prior session and could not create $IDENTITIES_DIR/$name/workspace — fresh /id in \$HOME"
+    log "ERROR: '$name' launch target: no prior session and could not create $IDENTITIES_DIR/$name/workspace — fresh /id in \$HOME"
   fi
+  LAUNCH_CWD="$cwd"; LAUNCH_RESUME="$resume"
+}
+
+launch() {
+  local name="$1" mode="$2" sess="$3" created=0
+  if [ "${DRY_RUN:-0}" = 1 ]; then log "DRY_RUN would $mode '$name' (tmux session '$sess')"; return 0; fi
+  resolve_launch_target "$name"
+  local cwd="$LAUNCH_CWD" resume="$LAUNCH_RESUME"
   if ! timeout -k 5 10 tmux has-session -t "=$sess" 2>/dev/null; then
     timeout -k 5 10 tmux new-session -d -s "$sess" -c "$cwd"     # empty SHELL session in the identity's workdir
     created=1
@@ -4513,9 +4562,9 @@ do_wake() {
   metric event=wake-start identity="$name" trigger="$trigger"
   rm -f "$sentinel"
   # resolve_session prints "<cwd>\t<sessionId>" (tab-separated) — need the SECOND field
-  local rs sid="" wcwd=""
-  rs=$(resolve_session "$name") && { sid=$(printf '%s' "$rs" | cut -f2); wcwd=$(printf '%s' "$rs" | cut -f1); }
-  # If resolve_session gave us a cwd, use it; otherwise fall back to the pane's current path (drive() will re-query)
+  resolve_launch_target "$name"
+  local sid="$LAUNCH_RESUME" wcwd="$LAUNCH_CWD"
+  accept_trust_for_workdir "$wcwd"
   if [ -z "$sid" ]; then
     log "'$name' dormancy WAKE ($trigger): no session to --resume — fresh /id"
     drive "$name" "$sess" "" "$wcwd"

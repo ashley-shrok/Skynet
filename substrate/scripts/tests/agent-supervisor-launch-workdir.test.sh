@@ -13,6 +13,8 @@
 #   T-07  — a real shell already sitting in another dir: the typed launch line still starts the
 #           command in the chosen workdir
 #   T-08  — every launch site (drive fresh/resume, redrive) types launch_line with the workdir
+#   T-09  — the launch line's cd works in dash (the dormant pane's shell) for awkward paths
+#   T-10  — do_wake uses the same workdir rules: no session, no workspace → created, driven there
 #
 # resolve_session, drive and the trust/dialog helpers are stubbed; tmux runs on a private server.
 # Exits 0 on all-pass; 1 on any failure.
@@ -94,8 +96,8 @@ MEMORY_WRAPPER="" CLAUDE_LAUNCH_ENV="" CLAUDE=claude CLAUDE_LAUNCH_FLAGS="--x"
 compute_mcp_env() { :; }; compute_mcp_flags() { :; }
 ok=1
 l1="$(launch_line zed "" "$REAL")"; l2="$(launch_line zed sid-1 "$REAL")"; l3="$(launch_line zed "" "")"
-case "$l1" in "cd $(printf '%q' "$REAL") && "*" claude --x"*) ;; *) ok=0; fail "fresh line: $l1" ;; esac
-case "$l2" in "cd $(printf '%q' "$REAL") && "*" claude --resume sid-1 --x"*) ;; *) ok=0; fail "resume line: $l2" ;; esac
+case "$l1" in "cd '$REAL' && "*" claude --x"*) ;; *) ok=0; fail "fresh line: $l1" ;; esac
+case "$l2" in "cd '$REAL' && "*" claude --resume sid-1 --x"*) ;; *) ok=0; fail "resume line: $l2" ;; esac
 case "$l3" in cd*) ok=0; fail "no-cwd line still cd's: $l3" ;; esac
 [ "$ok" = 1 ] && pass
 
@@ -113,6 +115,21 @@ n_raw="$(printf '%s\n' "$src" | grep -c 'send-keys .*-l "$MEMORY_WRAPPER')"
 n_redrive="$(printf '%s\n' "$src" | grep -E 'redrive_claude "\$name" "\$sess" "[^"]*"' | grep -vc '"\$cwd"$')"
 if [ "$n_sites" = 4 ] && [ "$n_raw" = 0 ] && [ "$n_redrive" = 0 ]; then pass
 else fail "launch_line sites=$n_sites (want 4), raw launch lines=$n_raw, redrives without cwd=$n_redrive"; fi
+
+CURRENT_TEST="T-09 the cd works in dash for a path with a quote, a space and non-ASCII"
+ODD="$SCRATCH/it's a dir é"; mkdir -p "$ODD"; rm -f "$SCRATCH/where"
+line="$(launch_line zed "" "$ODD")"
+if command -v dash >/dev/null 2>&1; then
+  ( cd "$SCRATCH" && dash -c "$line" )
+  got="$(cat "$SCRATCH/where" 2>/dev/null)"
+  if [ "$got" = "$ODD" ]; then pass; else fail "dash ran it in '$got', want '$ODD'"; fi
+else pass; fi
+
+CURRENT_TEST="T-10 do_wake: no session, no workspace → workspace created and driven there"
+RESOLVED=""; DRIVEN=""; mkdir -p "$AGENT_IDENTITIES_DIR/fay"
+do_wake fay fay test >/dev/null 2>&1
+if [ "$DRIVEN" = "resume= cwd=$AGENT_IDENTITIES_DIR/fay/workspace" ] && [ -d "$AGENT_IDENTITIES_DIR/fay/workspace" ]; then pass
+else fail "drive got '$DRIVEN'"; fi
 
 printf '\nPASS: %d  FAIL: %d\n' "$PASS" "$FAIL"
 [ "$FAIL" -eq 0 ]

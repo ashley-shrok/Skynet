@@ -6,7 +6,6 @@ import QRCode from "qrcode";
 import speakeasy from "speakeasy";
 import { loadBrandingConfig } from "../../branding/branding-config-loader.js";
 import { AuthManager } from "../../utils/auth-manager.js";
-import { LazyFieldEncryption } from "../../utils/lazy-field-encryption.js";
 import { authLogger } from "../../utils/logger.js";
 import { loginRateLimiter } from "../../utils/login-rate-limiter.js";
 import { parseUserAgent } from "../../utils/user-agent-parser.js";
@@ -466,12 +465,7 @@ export function registerUserTotpRoutes(
         });
       }
 
-      const totpSecret = LazyFieldEncryption.safeGetFieldValue(
-        userRecord.totpSecret,
-        userDataKey,
-        userRecord.id,
-        "totp_secret",
-      );
+      const totpSecret = readTotpSecret(userRecord, userDataKey);
 
       if (!totpSecret) {
         await db
