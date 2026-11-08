@@ -597,6 +597,10 @@ interface PerHostState {
   // SourceBIdentityCacheEntry above for field-level semantics and
   // composeAndPublishPerIdentity for the per-tick update contract.
   sourceBIdentityState: Map<string, SourceBIdentityCacheEntry>;
+  // Live identities already checked against the registry for a condensing
+  // value left by an earlier watcher (composeAndPublishPerIdentity). Once per
+  // identity per host state: any later condensing is in sourceBIdentityState.
+  registryCondensingChecked: Set<string>;
   // -------------------------------------------------------------------------
   // Phase 92: sweep-first / legacy-fallback dispatch state.
   //
@@ -2748,7 +2752,11 @@ export function createSshPollOrchestrator(
     // frame, so a compaction that finished while nobody was watching would
     // otherwise stay stuck at condensing:true.
     if (liveTmuxSet.has(name) && !isCondensing) {
-      const cachedCondensing = cached?.condensing ?? registryCondensing(host.id, name);
+      let cachedCondensing = cached?.condensing ?? false;
+      if (cached === undefined && !hostState.registryCondensingChecked.has(name)) {
+        hostState.registryCondensingChecked.add(name);
+        cachedCondensing = registryCondensing(host.id, name);
+      }
       if (cachedCondensing) {
         // Phase 111 Plan 03: two construction sites, no factory — deliberate,
         // see 111-03. Appearance carried on this pre-evict frame so no frame
@@ -3706,6 +3714,7 @@ export function createSshPollOrchestrator(
         // pollDormantOnlyIdentities on each tick with the full 3-axis pipeline
         // state per identity.
         sourceBIdentityState: new Map(),
+        registryCondensingChecked: new Set(),
         // Phase 115 hotfix (2026-09-18): initialized empty so the FIRST
         // successful sweep for this host publishes nothing gone (no previous
         // tick to diff against). Subsequent ticks compare against this and

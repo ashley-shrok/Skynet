@@ -4462,9 +4462,11 @@ describe("Condense — source B condensing axis", () => {
     ];
     await createSshPollOrchestrator(deps).start();
     expect(sourceBFrames(deps.registry.publishedStates).map((s) => s.condensing)).toEqual([false]);
+    // Built on the live row, not the dormant placeholder.
+    expect(sourceBFrames(deps.registry.publishedStates)[0].pid).toBe(12345);
 
-    // Once cleared, source B stays silent.
-    deps.registry.seededStates = [];
+    // The registry is checked once per identity: later ticks stay silent
+    // (the mock never overwrites the seeded row).
     await tick();
     expect(sourceBFrames(deps.registry.publishedStates).map((s) => s.condensing)).toEqual([false]);
   });
