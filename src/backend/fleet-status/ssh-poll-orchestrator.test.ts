@@ -4441,6 +4441,34 @@ describe("Condense — source B condensing axis", () => {
     expect(sourceBFrames(deps.registry.publishedStates).map((s) => s.condensing)).toEqual([true, false]);
   });
 
+  it("live PID, compaction finished while no watcher ran (empty cache, registry still condensing) → final condensing:false frame", async () => {
+    const channel = new MockSshChannel();
+    wireTina(channel);
+    const { deps, tick } = depsWithTicks(channel);
+    // A previous watcher published condensing:true, then stopped before the
+    // compaction ended; the registry kept the row.
+    deps.registry.seededStates = [
+      {
+        hostId: "host-1",
+        tmuxSession: "tina",
+        sessionId: "s-tina",
+        pid: 12345,
+        status: "idle",
+        backgroundTasks: [],
+        updatedAt: 1,
+        dormant: false,
+        condensing: true,
+      } as SessionState,
+    ];
+    await createSshPollOrchestrator(deps).start();
+    expect(sourceBFrames(deps.registry.publishedStates).map((s) => s.condensing)).toEqual([false]);
+
+    // Once cleared, source B stays silent.
+    deps.registry.seededStates = [];
+    await tick();
+    expect(sourceBFrames(deps.registry.publishedStates).map((s) => s.condensing)).toEqual([false]);
+  });
+
   it("legacy source B probes .dormant / .compact-requested / .compacting once each per identity per tick — no retired sentinels, no transcript tail", async () => {
     const channel = new MockSshChannel();
     wireTina(channel, { livePid: false });

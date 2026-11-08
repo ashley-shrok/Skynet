@@ -2704,6 +2704,15 @@ export function createSshPollOrchestrator(
     return rest as SessionState;
   }
 
+  // Whether the registry still holds this identity as condensing (its latest
+  // row that carries the axis).
+  function registryCondensing(hostId: string, name: string): boolean {
+    const row = deps.registry
+      .getSnapshot()
+      .findLast((s) => s.hostId === hostId && s.tmuxSession === name && s.condensing !== undefined);
+    return row?.condensing === true;
+  }
+
   // When a live agent stops condensing, source A must republish its full row
   // (its own fingerprint never changed, so it would otherwise stay quiet).
   function invalidateSourceAFingerprints(hostState: PerHostState, name: string): void {
@@ -2732,8 +2741,14 @@ export function createSshPollOrchestrator(
     // and-evict AND the cached source-B frame had condensing:true, publish a
     // final condensing:false source-B frame BEFORE evicting so consumers see
     // the transition.
+    //
+    // With no cache entry (the per-user watcher stopped and restarted, so this
+    // host's source-B cache started empty), fall back to the registry: it
+    // outlives the watcher and carries `condensing` forward on every source-A
+    // frame, so a compaction that finished while nobody was watching would
+    // otherwise stay stuck at condensing:true.
     if (liveTmuxSet.has(name) && !isCondensing) {
-      const cachedCondensing = cached?.condensing ?? false;
+      const cachedCondensing = cached?.condensing ?? registryCondensing(host.id, name);
       if (cachedCondensing) {
         // Phase 111 Plan 03: two construction sites, no factory — deliberate,
         // see 111-03. Appearance carried on this pre-evict frame so no frame
