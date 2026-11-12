@@ -156,6 +156,11 @@ questions:
     expect(ok(`question: Region?\nkind: dropdown\noptions: [us-east, eu-west]`).questions[0].kind).toBe("dropdown");
   });
 
+  it("reads a decide with a single item", () => {
+    const q = ok(`question: Keep this one?\nkind: decide\nitems: [The notes file]\nchoices: [Carry over, Skip, Later]`).questions[0];
+    expect(q.options.map((o) => o.label)).toEqual(["The notes file"]);
+  });
+
   it("infers a week layout from timed options", () => {
     const q = ok(`question: When can you talk?
 kind: pick-several
@@ -182,6 +187,9 @@ options:
     ["question: Pick\nkind: pick-one\noptions: [only]", /two options/],
     ["question: Pick\nkind: wiggle", /unknown kind/],
     ["question: Triage\nkind: decide\nitems: [a, b]", /two to four choices/],
+    ["question: Triage\nkind: decide\nchoices: [Keep, Drop]", /at least one item/],
+    ["question: Rank\nkind: order\nitems: [a]", /two items/],
+    ["question: Split\nkind: split\ntotal: 100\nitems: [a]", /two items/],
     ["question: Split\nkind: split\nitems: [a, b]", /total/],
     ["question: Dupes\noptions: [a, a]", /share/],
     ["questions:\n  - question: 1\n  - question: 2\n  - question: 3\n  - question: 4\n  - question: 5", /at most 4/],
@@ -215,6 +223,13 @@ describe("askSpeech", () => {
   it("reads the question and its choices", () => {
     const ask = ok("question: Ship it?\noptions: [Now, Tonight, Hold]");
     expect(askSpeech(ask)).toBe("Ship it? Now, Tonight, or Hold.");
+  });
+
+  it("names a lone decide item instead of saying for each", () => {
+    const one = ok("question: Keep this one?\nkind: decide\nitems: [The notes file]\nchoices: [Keep, Drop]");
+    expect(askSpeech(one)).toBe("Keep this one? The notes file: Keep, or Drop.");
+    const two = ok("question: Triage\nkind: decide\nitems: [A, B]\nchoices: [Keep, Drop]");
+    expect(askSpeech(two)).toBe("Triage For each of A, and B: Keep, or Drop.");
   });
 });
 

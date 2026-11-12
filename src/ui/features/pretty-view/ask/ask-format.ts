@@ -232,9 +232,11 @@ function parseQuestion(raw: unknown, index: number, multi: boolean): AskQuestion
   const choices = Array.isArray(q.choices) ? q.choices.map((c) => str(c) ?? "").filter(Boolean) : [];
 
   const needsOptions = kind === "pick-one" || kind === "pick-several" || kind === "dropdown";
-  const needsItems = kind === "order" || kind === "decide" || kind === "split";
+  const needsItems = kind === "order" || kind === "split";
   if (needsOptions && options.length < 2) throw new Error(`${where}: needs at least two options`);
   if (needsItems && options.length < 2) throw new Error(`${where}: needs at least two items`);
+  // Labelling a single item is still a real question.
+  if (kind === "decide" && options.length < 1) throw new Error(`${where}: needs at least one item`);
   if (kind === "decide" && (choices.length < 2 || choices.length > 4)) throw new Error(`${where}: decide needs two to four choices`);
   if (layout === "week" && !options.every((o) => o.time)) throw new Error(`${where}: every option in a week layout needs a time`);
   if (layout === "week" && new Set(options.map((o) => o.time)).size !== options.length) throw new Error(`${where}: two options share a time`);
@@ -422,7 +424,10 @@ export function askSpeech(ask: Ask): string {
   return ask.questions
     .map((q) => {
       const opts = q.options.map((o) => o.label);
-      if (q.kind === "decide") return `${q.question} For each of ${listWords(opts)}: ${listWords(q.choices, "or")}.`;
+      if (q.kind === "decide") {
+        const which = opts.length === 1 ? opts[0] : `For each of ${listWords(opts)}`;
+        return `${q.question} ${which}: ${listWords(q.choices, "or")}.`;
+      }
       if (q.kind === "order") return `${q.question} Put in order: ${listWords(opts)}.`;
       if (q.kind === "split") return `${q.question} Split ${q.total} across ${listWords(opts)}.`;
       if (opts.length > 0 && opts.length <= 8) return `${q.question} ${listWords(opts, "or")}.`;
